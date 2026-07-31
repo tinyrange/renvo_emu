@@ -339,9 +339,9 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf",
         ],
         limitations: &[
-            "the initial LX7 interpreter covers a compiler-emitted integer subset",
-            "remaining register-window, exception-level, atomic, and FPU cases are corpus-driven",
-            "CPU1, wireless, ULP, and full USB are deferred",
+            "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
+            "windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy",
+            "exact SMP timing, wireless, ULP, and full USB are deferred",
         ],
     },
     TargetManifest {

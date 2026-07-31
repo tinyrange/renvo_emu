@@ -1,0 +1,139 @@
+{
+  "schema": "renvo.reduction-qualification.v1",
+  "source_sha256": "56b1d1ecf60d306cd842583557acbd7c9b1e54171a73e6bf83353625341d54d7",
+  "axes": [
+    "source",
+    "compiler_flags",
+    "external_inputs"
+  ],
+  "policy": "seeded reference discrepancy; deterministic source/flag/input ddmin; two final compile-and-run repeats",
+  "proofs": [
+    {
+      "family": "riscv",
+      "target": "ch32v003",
+      "artifact": ".renvo/qualification/reduction/riscv.json",
+      "artifact_sha256": "0ecec277f4e56828ba04699d7b09d7b284379025bdbd54492ad680268b2c3557",
+      "seeded_expected": 0,
+      "original": {
+        "source": [
+          "#define RENVO_NOISE_A 17",
+          "#define RENVO_SOURCE_TRIGGER 1",
+          "#define RENVO_NOISE_B 29"
+        ],
+        "flags": [
+          "-fno-common",
+          "-DRENVO_FLAG_TRIGGER=1",
+          "-fno-strict-aliasing"
+        ],
+        "inputs": [
+          0,
+          7,
+          0
+        ]
+      },
+      "minimized": {
+        "source": [
+          "#define RENVO_SOURCE_TRIGGER 1"
+        ],
+        "flags": [
+          "-DRENVO_FLAG_TRIGGER=1"
+        ],
+        "inputs": [
+          7
+        ]
+      },
+      "evaluations": 15,
+      "final_repeat_evaluations": [
+        13,
+        14
+      ],
+      "final_reproducible": true,
+      "result": "pass"
+    },
+    {
+      "family": "arm",
+      "target": "rp2040",
+      "artifact": ".renvo/qualification/reduction/arm.json",
+      "artifact_sha256": "6a697d058d23ce379470d3727996f878713cd88b1ec9d5a0b1d25c0f82179d5d",
+      "seeded_expected": 0,
+      "original": {
+        "source": [
+          "#define RENVO_NOISE_A 17",
+          "#define RENVO_SOURCE_TRIGGER 1",
+          "#define RENVO_NOISE_B 29"
+        ],
+        "flags": [
+          "-fno-common",
+          "-DRENVO_FLAG_TRIGGER=1",
+          "-fno-strict-aliasing"
+        ],
+        "inputs": [
+          0,
+          7,
+          0
+        ]
+      },
+      "minimized": {
+        "source": [
+          "#define RENVO_SOURCE_TRIGGER 1"
+        ],
+        "flags": [
+          "-DRENVO_FLAG_TRIGGER=1"
+        ],
+        "inputs": [
+          7
+        ]
+      },
+      "evaluations": 15,
+      "final_repeat_evaluations": [
+        13,
+        14
+      ],
+      "final_reproducible": true,
+      "result": "pass"
+    },
+    {
+      "family": "xtensa",
+      "target": "esp32s3",
+      "artifact": ".renvo/qualification/reduction/xtensa.json",
+      "artifact_sha256": "aa405a181ad327285e805234d8ff3232667bddf2685879abc2ac198306135112",
+      "seeded_expected": 0,
+      "original": {
+        "source": [
+          "#define RENVO_NOISE_A 17",
+          "#define RENVO_SOURCE_TRIGGER 1",
+          "#define RENVO_NOISE_B 29"
+        ],
+        "flags": [
+          "-fno-common",
+          "-DRENVO_FLAG_TRIGGER=1",
+          "-fno-strict-aliasing"
+        ],
+        "inputs": [
+          0,
+          7,
+          0
+        ]
+      },
+      "minimized": {
+        "source": [
+          "#define RENVO_SOURCE_TRIGGER 1"
+        ],
+        "flags": [
+          "-DRENVO_FLAG_TRIGGER=1"
+        ],
+        "inputs": [
+          7
+        ]
+      },
+      "evaluations": 15,
+      "final_repeat_evaluations": [
+        13,
+        14
+      ],
+      "final_reproducible": true,
+      "result": "pass"
+    }
+  ],
+  "result": "pass"
+}

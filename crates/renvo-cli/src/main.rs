@@ -1,10 +1,13 @@
 //! Renvo command-line entry point.
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use renvo_core::{RunLimits, SimTime};
+use renvo_core::{AccessKind, CpuSnapshot, RunLimits, SimTime, StopReason};
 use renvo_corpus::{
-    BuildRequest, CompilerMatrix, DockerCompiler, DockerLimits, NamedObservation, ToolchainSpec,
-    compare_observations,
+    BuildArtifact, BuildRequest, CaseReductionResult, CompilerMatrix, DockerCompiler, DockerLimits,
+    NamedObservation, ReductionCandidate, ToolchainSpec, compare_observations, reduce_case,
+};
+use renvo_gdb::{
+    DebugArchitecture, DebugStop, DebugTarget, ServerConfig, SessionReport, serve_once,
 };
 use renvo_image::{
     EspFlashImage, FirmwareArchitecture, FirmwareImage, OfficialFirmwareSuite, Uf2Image,
@@ -14,11 +17,15 @@ use renvo_machines::{
     TargetId, XtensaMachine, target_manifests,
 };
 use renvo_signals::Logic;
+use renvo_starlark::evaluate_script;
 use renvo_trace::{Timescale, TraceSink, VcdWriter};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::fmt::Write as _;
 use std::fs::{self, File};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
@@ -57,6 +64,45 @@ enum Command {
         #[command(subcommand)]
         command: CorpusCommand,
     },
+    /// Evaluates bounded Starlark assertions over explicit JSON artifacts.
+    Script(ScriptArgs),
+    /// Serves one GDB remote-debugging session for a direct ELF.
+    Gdb(GdbArgs),
+}
+
+#[derive(Debug, Args)]
+struct GdbArgs {
+    /// Microcontroller model receiving the ELF.
+    #[arg(long)]
+    target: String,
+    /// Compiler-produced ELF32 firmware.
+    #[arg(long)]
+    elf: PathBuf,
+    /// TCP address, including `:0` for an ephemeral port.
+    #[arg(long, default_value = "127.0.0.1:3333")]
+    listen: String,
+    /// JSON file written after bind and before accepting a client.
+    #[arg(long)]
+    ready: Option<PathBuf>,
+    /// JSON session report written after detach.
+    #[arg(long)]
+    artifact: PathBuf,
+    /// Safety bound for one GDB continue packet.
+    #[arg(long, default_value_t = 10_000_000)]
+    max_continue_instructions: u64,
+}
+
+#[derive(Debug, Args)]
+struct ScriptArgs {
+    /// Starlark assertion source.
+    #[arg(long)]
+    file: PathBuf,
+    /// JSON dataset as NAME=PATH; repeat for multiple immutable inputs.
+    #[arg(long = "data")]
+    datasets: Vec<String>,
+    /// Stable JSON evaluation artifact.
+    #[arg(long)]
+    artifact: PathBuf,
 }
 
 #[derive(Debug, Subcommand)]
@@ -192,6 +238,12 @@ struct RunArgs {
     /// Optional JSON record of completed memory and MMIO operations.
     #[arg(long)]
     bus_log: Option<PathBuf>,
+    /// Write deterministic instruction-fetch coverage as JSON.
+    #[arg(long)]
+    coverage: Option<PathBuf>,
+    /// Require the complete result to match a prior JSON result exactly.
+    #[arg(long)]
+    replay: Option<PathBuf>,
     /// Stop before executing this address; accepts decimal or 0x-prefixed hex.
     #[arg(long, value_parser = parse_address)]
     breakpoint: Vec<u64>,
@@ -227,6 +279,8 @@ enum CorpusCommand {
     Compare(CorpusCompareArgs),
     /// Runs a directory of case ELFs against an expected-result manifest.
     Run(CorpusRunArgs),
+    /// Reduces a seeded compiler/emulator discrepancy across three axes.
+    Reduce(CorpusReduceArgs),
     /// Verifies that the Docker daemon is reachable.
     Doctor,
 }
@@ -310,6 +364,43 @@ struct CorpusRunArgs {
     artifact: PathBuf,
 }
 
+#[derive(Debug, Args)]
+struct CorpusReduceArgs {
+    /// Microcontroller model used for every predicate evaluation.
+    #[arg(long)]
+    target: String,
+    /// Pinned Docker toolchain specification.
+    #[arg(long)]
+    toolchain: PathBuf,
+    /// Stable harness directory copied into each isolated evaluation.
+    #[arg(long)]
+    source: PathBuf,
+    /// Root receiving every build, run, and final reduction artifact.
+    #[arg(long)]
+    output: PathBuf,
+    /// Intentionally seeded reference value that the candidate must diverge from.
+    #[arg(long)]
+    seed_expected: u32,
+    /// Independently removable source line written to `candidate.h`.
+    #[arg(long = "source-item", required = true)]
+    source_items: Vec<String>,
+    /// Independently removable compiler flag.
+    #[arg(long = "flag-item", required = true, allow_hyphen_values = true)]
+    flag_items: Vec<String>,
+    /// Independently removable unsigned input value.
+    #[arg(long = "input-item", required = true)]
+    input_items: Vec<u32>,
+    /// Maximum interpreted CPU actions per predicate evaluation.
+    #[arg(long, default_value_t = 100_000)]
+    max_instructions: u64,
+    /// Stable JSON reduction artifact.
+    #[arg(long)]
+    artifact: PathBuf,
+    /// Base compiler arguments, including sources, linker script, and output.
+    #[arg(last = true)]
+    arguments: Vec<String>,
+}
+
 fn main() {
     if let Err(error) = execute(Cli::parse()) {
         eprintln!("renvo: {error}");
@@ -324,7 +415,232 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Run(arguments) => run(&arguments)?,
         Command::Firmware { command } => firmware(command)?,
         Command::Corpus { command } => corpus(command)?,
+        Command::Script(arguments) => script(&arguments)?,
+        Command::Gdb(arguments) => gdb(&arguments)?,
     }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct ScriptDatasetArtifact {
+    name: String,
+    path: String,
+    sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ScriptArtifact {
+    schema: &'static str,
+    script: String,
+    script_sha256: String,
+    datasets: Vec<ScriptDatasetArtifact>,
+    value: serde_json::Value,
+    result: &'static str,
+}
+
+fn script(arguments: &ScriptArgs) -> Result<(), Box<dyn Error>> {
+    let source = fs::read_to_string(&arguments.file)?;
+    let mut datasets = BTreeMap::new();
+    let mut dataset_artifacts = Vec::new();
+    for dataset in &arguments.datasets {
+        let (name, path) = dataset
+            .split_once('=')
+            .ok_or("Starlark dataset must use NAME=PATH")?;
+        let bytes = fs::read(path)?;
+        let value = serde_json::from_slice(&bytes)?;
+        if datasets.insert(name.to_owned(), value).is_some() {
+            return Err(format!("duplicate Starlark dataset {name:?}").into());
+        }
+        dataset_artifacts.push(ScriptDatasetArtifact {
+            name: name.to_owned(),
+            path: path.to_owned(),
+            sha256: hex::encode(Sha256::digest(&bytes)),
+        });
+    }
+    let value = evaluate_script(&arguments.file.display().to_string(), &source, &datasets)?;
+    let artifact = ScriptArtifact {
+        schema: "renvo.starlark-assertion.v1",
+        script: arguments.file.display().to_string(),
+        script_sha256: hex::encode(Sha256::digest(source.as_bytes())),
+        datasets: dataset_artifacts,
+        value,
+        result: "pass",
+    };
+    if let Some(parent) = arguments.artifact.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&arguments.artifact, serde_json::to_vec_pretty(&artifact)?)?;
+    println!(
+        "Starlark assertions passed; artifact: {}",
+        arguments.artifact.display()
+    );
+    Ok(())
+}
+
+enum CliDebugMachine {
+    RiscV(Box<RiscVMachine>),
+    Arm(Box<ArmMachine>),
+    Xtensa(Box<XtensaMachine>),
+}
+
+impl CliDebugMachine {
+    fn new(target: TargetId, image: &FirmwareImage) -> Result<Self, Box<dyn Error>> {
+        match image.architecture {
+            FirmwareArchitecture::RiscV32 => {
+                let mut machine = RiscVMachine::new(target)?;
+                machine.load_firmware(image)?;
+                Ok(Self::RiscV(Box::new(machine)))
+            }
+            FirmwareArchitecture::Arm => {
+                let mut machine = ArmMachine::new(target)?;
+                machine.load_firmware(image)?;
+                Ok(Self::Arm(Box::new(machine)))
+            }
+            FirmwareArchitecture::Xtensa => {
+                let mut machine = XtensaMachine::new(target)?;
+                machine.load_firmware(image)?;
+                Ok(Self::Xtensa(Box::new(machine)))
+            }
+        }
+    }
+
+    fn run_for(&mut self, instructions: u64) -> Result<RunResult, String> {
+        let limits = RunLimits {
+            instructions: Some(instructions),
+            deadline: None,
+        };
+        match self {
+            Self::RiscV(machine) => machine.run(limits, None).map_err(|error| error.to_string()),
+            Self::Arm(machine) => machine.run(limits, None).map_err(|error| error.to_string()),
+            Self::Xtensa(machine) => machine.run(limits, None).map_err(|error| error.to_string()),
+        }
+    }
+}
+
+impl DebugTarget for CliDebugMachine {
+    fn architecture(&self) -> DebugArchitecture {
+        match self {
+            Self::RiscV(_) => DebugArchitecture::RiscV32,
+            Self::Arm(_) => DebugArchitecture::Arm,
+            Self::Xtensa(_) => DebugArchitecture::Xtensa,
+        }
+    }
+
+    fn snapshot(&self) -> CpuSnapshot {
+        match self {
+            Self::RiscV(machine) => machine.debug_snapshot(),
+            Self::Arm(machine) => machine.debug_snapshot(),
+            Self::Xtensa(machine) => machine.debug_snapshot(),
+        }
+    }
+
+    fn read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+        match self {
+            Self::RiscV(machine) => machine.debug_read_memory(address, length),
+            Self::Arm(machine) => machine.debug_read_memory(address, length),
+            Self::Xtensa(machine) => machine.debug_read_memory(address, length),
+        }
+    }
+
+    fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), String> {
+        match self {
+            Self::RiscV(machine) => machine.debug_write_memory(address, bytes),
+            Self::Arm(machine) => machine.debug_write_memory(address, bytes),
+            Self::Xtensa(machine) => machine.debug_write_memory(address, bytes),
+        }
+    }
+
+    fn add_breakpoint(&mut self, address: u64) {
+        match self {
+            Self::RiscV(machine) => machine.add_breakpoint(address),
+            Self::Arm(machine) => machine.add_breakpoint(address),
+            Self::Xtensa(machine) => machine.add_breakpoint(address),
+        }
+    }
+
+    fn remove_breakpoint(&mut self, address: u64) {
+        match self {
+            Self::RiscV(machine) => machine.remove_breakpoint(address),
+            Self::Arm(machine) => machine.remove_breakpoint(address),
+            Self::Xtensa(machine) => machine.remove_breakpoint(address),
+        }
+    }
+
+    fn step(&mut self) -> Result<DebugStop, String> {
+        self.run_for(1).map(|result| debug_stop(&result))
+    }
+
+    fn continue_run(&mut self, max_instructions: u64) -> Result<DebugStop, String> {
+        self.run_for(max_instructions)
+            .map(|result| debug_stop(&result))
+    }
+}
+
+fn debug_stop(result: &RunResult) -> DebugStop {
+    if let Some(code) = result.exit_code {
+        return DebugStop::Exited(code.to_le_bytes()[0]);
+    }
+    match result.reason {
+        StopReason::Fault(_) => DebugStop::Signal(11),
+        _ => DebugStop::Signal(5),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct GdbReadyArtifact {
+    schema: &'static str,
+    address: String,
+}
+
+#[derive(Debug, Serialize)]
+struct GdbSessionArtifact {
+    schema: &'static str,
+    target: TargetId,
+    elf: String,
+    elf_sha256: String,
+    report: SessionReport,
+    result: &'static str,
+}
+
+fn gdb(arguments: &GdbArgs) -> Result<(), Box<dyn Error>> {
+    let target = arguments.target.parse::<TargetId>()?;
+    let elf = fs::read(&arguments.elf)?;
+    let image = FirmwareImage::parse(&elf)?;
+    let mut machine = CliDebugMachine::new(target, &image)?;
+    let listener = TcpListener::bind(&arguments.listen)?;
+    let address = listener.local_addr()?.to_string();
+    if let Some(path) = &arguments.ready {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(
+            path,
+            serde_json::to_vec_pretty(&GdbReadyArtifact {
+                schema: "renvo.gdb-ready.v1",
+                address: address.clone(),
+            })?,
+        )?;
+    }
+    println!("GDB remote listening on {address}");
+    let report = serve_once(
+        &listener,
+        &mut machine,
+        ServerConfig {
+            max_continue_instructions: arguments.max_continue_instructions,
+        },
+    )?;
+    let artifact = GdbSessionArtifact {
+        schema: "renvo.gdb-session.v1",
+        target,
+        elf: arguments.elf.display().to_string(),
+        elf_sha256: hex::encode(Sha256::digest(&elf)),
+        report,
+        result: "pass",
+    };
+    if let Some(parent) = arguments.artifact.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&arguments.artifact, serde_json::to_vec_pretty(&artifact)?)?;
     Ok(())
 }
 
@@ -807,7 +1123,7 @@ fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
             &stimuli,
             Some(&mut writer),
             DirectRunControl {
-                record_accesses: arguments.bus_log.is_some(),
+                record_accesses: arguments.bus_log.is_some() || arguments.coverage.is_some(),
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -821,7 +1137,7 @@ fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
             &stimuli,
             None,
             DirectRunControl {
-                record_accesses: arguments.bus_log.is_some(),
+                record_accesses: arguments.bus_log.is_some() || arguments.coverage.is_some(),
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -829,12 +1145,91 @@ fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
         )?
     };
     write_access_log(arguments.bus_log.as_deref(), &accesses)?;
+    write_coverage(arguments.coverage.as_deref(), target, &image, &accesses)?;
     let json = serde_json::to_vec_pretty(&result)?;
+    if let Some(path) = &arguments.replay {
+        let expected: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+        let actual: serde_json::Value = serde_json::from_slice(&json)?;
+        if actual != expected {
+            return Err(format!("deterministic replay diverged from {}", path.display()).into());
+        }
+    }
     if let Some(path) = &arguments.result {
         fs::write(path, json)?;
     } else {
         println!("{}", String::from_utf8(json)?);
     }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct CoverageAddress {
+    address: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symbol_offset: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct CoverageArtifact {
+    schema: &'static str,
+    target: TargetId,
+    architecture: FirmwareArchitecture,
+    fetch_accesses: u64,
+    unique_addresses: usize,
+    addresses: Vec<CoverageAddress>,
+    digest: String,
+}
+
+fn write_coverage(
+    path: Option<&Path>,
+    target: TargetId,
+    image: &FirmwareImage,
+    accesses: &[renvo_bus::BusAccessRecord],
+) -> Result<(), Box<dyn Error>> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let fetches = accesses
+        .iter()
+        .filter(|access| access.kind == AccessKind::Execute)
+        .collect::<Vec<_>>();
+    let addresses = fetches
+        .iter()
+        .map(|access| access.address)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|address| {
+            let (symbol, symbol_offset) = image
+                .symbolicate(address)
+                .map_or((None, None), |(symbol, offset)| {
+                    (Some(symbol.name.clone()), Some(offset))
+                });
+            CoverageAddress {
+                address,
+                symbol,
+                symbol_offset,
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut digest = Sha256::new();
+    for address in &addresses {
+        digest.update(address.address.to_le_bytes());
+    }
+    let artifact = CoverageArtifact {
+        schema: "renvo.execution-coverage.v1",
+        target,
+        architecture: image.architecture,
+        fetch_accesses: fetches.len() as u64,
+        unique_addresses: addresses.len(),
+        addresses,
+        digest: hex::encode(digest.finalize()),
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, serde_json::to_vec_pretty(&artifact)?)?;
     Ok(())
 }
 
@@ -1033,6 +1428,7 @@ fn corpus(command: CorpusCommand) -> Result<(), Box<dyn Error>> {
             }
         }
         CorpusCommand::Run(arguments) => run_corpus_suite(&arguments)?,
+        CorpusCommand::Reduce(arguments) => reduce_corpus_case(&compiler, &arguments)?,
         CorpusCommand::Build(arguments) => {
             let spec_text = fs::read_to_string(&arguments.toolchain)?;
             let toolchain: ToolchainSpec = toml::from_str(&spec_text)?;
@@ -1063,6 +1459,182 @@ fn corpus(command: CorpusCommand) -> Result<(), Box<dyn Error>> {
                     .into());
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReductionEvaluation {
+    id: u64,
+    candidate: ReductionCandidate,
+    build: BuildArtifact,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run: Option<RunResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    discrepancy: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CorpusReductionArtifact {
+    schema: &'static str,
+    target: TargetId,
+    seeded_expected: u32,
+    reduction: CaseReductionResult,
+    evaluations: Vec<ReductionEvaluation>,
+    final_repeat_evaluations: [u64; 2],
+    final_reproducible: bool,
+    result: &'static str,
+}
+
+fn reduce_corpus_case(
+    compiler: &DockerCompiler,
+    arguments: &CorpusReduceArgs,
+) -> Result<(), Box<dyn Error>> {
+    let target = arguments.target.parse::<TargetId>()?;
+    let toolchain: ToolchainSpec = toml::from_str(&fs::read_to_string(&arguments.toolchain)?)?;
+    let original = ReductionCandidate {
+        source: arguments.source_items.clone(),
+        flags: arguments.flag_items.clone(),
+        inputs: arguments.input_items.clone(),
+    };
+    fs::create_dir_all(&arguments.output)?;
+    let mut evaluations = Vec::new();
+    let mut next_id = 0_u64;
+
+    let mut evaluate = |candidate: &ReductionCandidate| -> Result<bool, Box<dyn Error>> {
+        let id = next_id;
+        next_id = next_id.saturating_add(1);
+        let evaluation_root = arguments.output.join(format!("evaluation-{id:04}"));
+        let source_dir = evaluation_root.join("source");
+        let output_dir = evaluation_root.join("output");
+        fs::create_dir_all(&source_dir)?;
+        fs::create_dir_all(&output_dir)?;
+        copy_directory_contents(&arguments.source, &source_dir)?;
+
+        let mut header = String::from("/* Generated deterministic reduction candidate. */\n");
+        for fragment in &candidate.source {
+            header.push_str(fragment);
+            header.push('\n');
+        }
+        header.push_str("#define RENVO_INPUT_SUM (0u");
+        for input in &candidate.inputs {
+            write!(header, " + {input}u")?;
+        }
+        header.push_str(")\n");
+        fs::write(source_dir.join("candidate.h"), header)?;
+
+        let mut compiler_arguments = arguments.arguments.clone();
+        compiler_arguments.extend(candidate.flags.iter().cloned());
+        let request = BuildRequest {
+            toolchain: toolchain.clone(),
+            source_dir,
+            output_dir: output_dir.clone(),
+            arguments: compiler_arguments,
+            target: arguments.target.clone(),
+            limits: DockerLimits::default(),
+        };
+        let build = compiler.compile(&request)?;
+        build.write_json(&evaluation_root.join("build.json"))?;
+
+        let mut run = None;
+        let mut error = None;
+        if build.succeeded() {
+            match fs::read(output_dir.join("smoke.elf"))
+                .map_err(|problem| problem.to_string())
+                .and_then(|bytes| {
+                    FirmwareImage::parse(&bytes).map_err(|problem| problem.to_string())
+                })
+                .and_then(|image| {
+                    run_loaded(
+                        target,
+                        &image,
+                        RunLimits {
+                            instructions: Some(arguments.max_instructions),
+                            deadline: None,
+                        },
+                        &[],
+                        None,
+                    )
+                    .map_err(|problem| problem.to_string())
+                }) {
+                Ok(result) => {
+                    fs::write(
+                        evaluation_root.join("run.json"),
+                        serde_json::to_vec_pretty(&result)?,
+                    )?;
+                    run = Some(result);
+                }
+                Err(problem) => error = Some(problem),
+            }
+        } else {
+            error = Some(format!("compiler exited with status {}", build.exit_code));
+        }
+        let discrepancy = run
+            .as_ref()
+            .is_some_and(|result| result.exit_code != Some(arguments.seed_expected));
+        evaluations.push(ReductionEvaluation {
+            id,
+            candidate: candidate.clone(),
+            build,
+            run,
+            error,
+            discrepancy,
+        });
+        Ok(discrepancy)
+    };
+
+    if !evaluate(&original)? {
+        return Err("initial reduction case does not reproduce the seeded discrepancy".into());
+    }
+    let reduction = reduce_case(original, &mut evaluate)?;
+    if !evaluate(&reduction.minimized)? || !evaluate(&reduction.minimized)? {
+        return Err("minimized discrepancy did not reproduce twice".into());
+    }
+    let second = evaluations.last().expect("repeat evaluation exists");
+    let first = &evaluations[evaluations.len() - 2];
+    let final_reproducible = first.run == second.run
+        && first.build.inputs == second.build.inputs
+        && first.build.outputs == second.build.outputs;
+    if !final_reproducible {
+        return Err("minimized build or run artifacts are not reproducible".into());
+    }
+    let final_repeat_evaluations = [first.id, second.id];
+    let artifact = CorpusReductionArtifact {
+        schema: "renvo.corpus-reduction.v1",
+        target,
+        seeded_expected: arguments.seed_expected,
+        reduction,
+        evaluations,
+        final_repeat_evaluations,
+        final_reproducible,
+        result: "pass",
+    };
+    fs::write(&arguments.artifact, serde_json::to_vec_pretty(&artifact)?)?;
+    println!(
+        "reduced seeded discrepancy for {target}; artifact: {}",
+        arguments.artifact.display()
+    );
+    Ok(())
+}
+
+fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), Box<dyn Error>> {
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let output = destination.join(entry.file_name());
+        if file_type.is_dir() {
+            fs::create_dir_all(&output)?;
+            copy_directory_contents(&entry.path(), &output)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), output)?;
+        } else {
+            return Err(format!(
+                "reduction source contains unsupported entry {}",
+                entry.path().display()
+            )
+            .into());
         }
     }
     Ok(())

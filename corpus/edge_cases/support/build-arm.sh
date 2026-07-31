@@ -13,7 +13,7 @@ do
         "-mcpu=$cpu" -mthumb \
         -ffreestanding -fno-builtin -nostdlib \
         "$optimization" -g0 \
-        -Wl,--build-id=none -Wl,-T,support/arm.ld \
+        -Wl,--build-id=none,--discard-all -Wl,-T,support/arm.ld \
         support/arm-start.S support/runtime.c "$source" -lgcc \
         -o "/workspace/out/$name.elf"
 done

@@ -3754,6 +3754,48 @@ impl RiscVMachine {
         self.breakpoints.insert(address);
     }
 
+    /// Removes one debugger execution breakpoint.
+    pub fn remove_breakpoint(&mut self, address: u64) {
+        self.breakpoints.remove(&address);
+    }
+
+    /// Returns the current CPU0 snapshot for debugger adapters.
+    pub fn debug_snapshot(&self) -> CpuSnapshot {
+        self.cpu.snapshot()
+    }
+
+    /// Reads guest-visible bytes for a debugger.
+    pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+        (0..length)
+            .map(|offset| {
+                self.bus
+                    .read(
+                        address.saturating_add(offset as u64),
+                        AccessWidth::Byte,
+                        AccessKind::Read,
+                        self.now,
+                    )
+                    .map(|value| value as u8)
+                    .map_err(|error| error.to_string())
+            })
+            .collect()
+    }
+
+    /// Writes guest-visible bytes for a debugger.
+    pub fn debug_write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), String> {
+        for (offset, byte) in bytes.iter().enumerate() {
+            self.bus
+                .write(
+                    address.saturating_add(offset as u64),
+                    AccessWidth::Byte,
+                    u64::from(*byte),
+                    self.now,
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
     /// Stops after a completed CPU data access overlaps `address`.
     pub fn add_watchpoint(&mut self, address: u64) {
         self.bus.add_watchpoint(address);

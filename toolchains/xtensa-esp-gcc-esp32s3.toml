@@ -6,6 +6,7 @@ args = [
     "-nostdlib",
     "-mlongcalls",
     "-mtext-section-literals",
+    "-Wl,--build-id=none,--discard-all",
 ]
 
 [environment]

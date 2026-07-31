@@ -35,7 +35,7 @@ do
         "-march=$march" "-mabi=$mabi" \
         -ffreestanding -fno-builtin -nostdlib \
         "$optimization" -g0 \
-        -Wl,--build-id=none -Wl,-T,"$linker" \
+        -Wl,--build-id=none,--discard-all -Wl,-T,"$linker" \
         support/riscv-start.S support/runtime.c "$source" -lgcc \
         -o "/workspace/out/$name.elf"
 done

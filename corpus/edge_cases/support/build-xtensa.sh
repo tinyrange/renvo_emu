@@ -12,7 +12,7 @@ do
         -mabi=call0 -mlongcalls -mtext-section-literals \
         -ffreestanding -fno-builtin -nostdlib \
         "$optimization" -g0 \
-        -Wl,--build-id=none -Wl,-T,support/xtensa.ld \
+        -Wl,--build-id=none,--discard-all -Wl,-T,support/xtensa.ld \
         support/xtensa-harness.c support/runtime.c "$source" -lgcc \
         -o "/workspace/out/$name.elf"
 done

@@ -217,5 +217,10 @@ scripts/generate-arm-cpu-qualification.sh "$artifact_root" qualification/arm-cpu
 scripts/generate-xtensa-cpu-qualification.sh "$artifact_root" qualification/xtensa-cpu.json
 scripts/qualify-stop-conditions.sh
 scripts/qualify-rust-abi.sh
+scripts/qualify-reduction.sh
+scripts/qualify-debug-observability.sh
+scripts/qualify-vendor-samples.sh
+scripts/qualify-starlark.sh
+scripts/generate-dashboard.sh
 
 echo "portfolio Docker smoke passed; artifacts: $artifact_root"

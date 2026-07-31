@@ -1,0 +1,128 @@
+{
+  "schema": "renvo.debug-observability-qualification.v1",
+  "generated_by": "scripts/qualify-debug-observability.sh",
+  "source_sha256": "481c3a2079d9cf34a086914c16e14d8e530f9b8b910156c88df8b01642a5dbfd",
+  "result": "pass",
+  "families": [
+    {
+      "family": "riscv",
+      "target": "ch32v003",
+      "architecture": "riscv:rv32",
+      "elf": {
+        "path": ".renvo/portfolio-smoke/wch/smoke.elf",
+        "sha256": "3823d01cf0993cf31fbce4dc50d042b5a75de7177afc25a57c12195c5a6da6eb"
+      },
+      "replay": {
+        "result": "pass",
+        "byte_identical": true,
+        "path": ".renvo/qualification/debug-observability/riscv/run.json",
+        "sha256": "7fb4f415dfbab8114d43d04526e75eadeded1637684a22c1033f65168c21e59b"
+      },
+      "coverage": {
+        "path": ".renvo/qualification/debug-observability/riscv/coverage.json",
+        "sha256": "20b7383c6aa54aa24bdc643a957dca4b2a941e3cb24f7d7f1e376f55d0113614",
+        "fetch_accesses": 29,
+        "unique_addresses": 29,
+        "digest": "f8a0a69fafc71dfefdca3f80c3cb849ad364c24bc6614a90d78e7949852a268f"
+      },
+      "gdb": {
+        "result": "pass",
+        "session": ".renvo/qualification/debug-observability/riscv/gdb-session.json",
+        "session_sha256": "9cd3d458c8d4e5359ceba07dcf167be8944e92c4ab0cd7bb06038434331acf19",
+        "transcript": ".renvo/qualification/debug-observability/riscv/gdb-transcript.json",
+        "transcript_sha256": "a9e8bd09927038c61621289fb325c08ec6654a0ec12b1a20c2ebf1265da34ad8",
+        "report": {
+          "architecture": "RiscV32",
+          "packets": 11,
+          "register_reads": 2,
+          "memory_reads": 1,
+          "memory_writes": 0,
+          "breakpoint_operations": 2,
+          "steps": 1,
+          "continues": 1,
+          "detached": true
+        }
+      }
+    },
+    {
+      "family": "arm",
+      "target": "rp2040",
+      "architecture": "arm",
+      "elf": {
+        "path": ".renvo/portfolio-smoke/rp-arm/smoke.elf",
+        "sha256": "4dbfc518fd17b32b65a699688f6ddb9f7e01211ab47bd930d9d12e7174c1e393"
+      },
+      "replay": {
+        "result": "pass",
+        "byte_identical": true,
+        "path": ".renvo/qualification/debug-observability/arm/run.json",
+        "sha256": "38157b343c7a27760218d34e941aad3724d1547cfc4ebc67f571fcb2e5fba855"
+      },
+      "coverage": {
+        "path": ".renvo/qualification/debug-observability/arm/coverage.json",
+        "sha256": "1451584779af909aae3d100ee51add1754c4c0f29d557035194e015728eeb6fc",
+        "fetch_accesses": 12,
+        "unique_addresses": 12,
+        "digest": "57eae2fa64b7a0152e6543189ee58e0cf656292043d6f760d5907669317672a6"
+      },
+      "gdb": {
+        "result": "pass",
+        "session": ".renvo/qualification/debug-observability/arm/gdb-session.json",
+        "session_sha256": "407a1d1866fed885d229a5f5cd0ad775318e3782c91334104ca19e3927a6cae9",
+        "transcript": ".renvo/qualification/debug-observability/arm/gdb-transcript.json",
+        "transcript_sha256": "20c123ecd28d35e9dbb3df71d9e2be160d938e8d660cf4731cc157d649b874d7",
+        "report": {
+          "architecture": "Arm",
+          "packets": 11,
+          "register_reads": 2,
+          "memory_reads": 1,
+          "memory_writes": 0,
+          "breakpoint_operations": 2,
+          "steps": 1,
+          "continues": 1,
+          "detached": true
+        }
+      }
+    },
+    {
+      "family": "xtensa",
+      "target": "esp32s3",
+      "architecture": "xtensa",
+      "elf": {
+        "path": ".renvo/portfolio-smoke/esp32s3/smoke.elf",
+        "sha256": "adbaa77f372875d049d0bfc70bb25cbe0f6b2ea193c485d778033756404d98a7"
+      },
+      "replay": {
+        "result": "pass",
+        "byte_identical": true,
+        "path": ".renvo/qualification/debug-observability/xtensa/run.json",
+        "sha256": "814b9b2e3f87b9ecc9659a62d6ffe45e74c43c0366186618529eaac12a09c5f5"
+      },
+      "coverage": {
+        "path": ".renvo/qualification/debug-observability/xtensa/coverage.json",
+        "sha256": "8fcfc3fee58e77e4f3fa4a3b150e39d62009b3391cbc9159d693fd319278f064",
+        "fetch_accesses": 46,
+        "unique_addresses": 28,
+        "digest": "01ee14a22d59d05ecdbdf1b3598dcd4ce3ab35e1aa09f2a327a3e953fce1bb58"
+      },
+      "gdb": {
+        "result": "pass",
+        "session": ".renvo/qualification/debug-observability/xtensa/gdb-session.json",
+        "session_sha256": "25bf8d2c03393e0d7b8ad0e4cb3eb1235610bc265e9c9ddfcd4d3765cbc262d2",
+        "transcript": ".renvo/qualification/debug-observability/xtensa/gdb-transcript.json",
+        "transcript_sha256": "60fbc2fccd1bf8903340d62bd6b1d1f7eb9a5885dcc97fc0428c8d144c22ee2a",
+        "report": {
+          "architecture": "Xtensa",
+          "packets": 11,
+          "register_reads": 2,
+          "memory_reads": 1,
+          "memory_writes": 0,
+          "breakpoint_operations": 2,
+          "steps": 1,
+          "continues": 1,
+          "detached": true
+        }
+      }
+    }
+  ]
+}

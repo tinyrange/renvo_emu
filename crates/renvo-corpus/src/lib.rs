@@ -6,7 +6,10 @@ mod reduce;
 
 pub use compare::{Comparison, Difference, NamedObservation, compare_observations};
 pub use matrix::{BuildVariant, CompilerMatrix};
-pub use reduce::{ReductionResult, reduce_sequence};
+pub use reduce::{
+    CaseReductionResult, ReductionCandidate, ReductionResult, reduce_case, reduce_sequence,
+    try_reduce_sequence,
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

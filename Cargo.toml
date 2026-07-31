@@ -10,9 +10,11 @@ members = [
     "crates/renvo-cpu-riscv",
     "crates/renvo-cpu-xtensa",
     "crates/renvo-devices",
+    "crates/renvo-gdb",
     "crates/renvo-image",
     "crates/renvo-machines",
     "crates/renvo-signals",
+    "crates/renvo-starlark",
     "crates/renvo-trace",
 ]
 
@@ -36,6 +38,7 @@ renvo-cpu-arm = { path = "crates/renvo-cpu-arm" }
 renvo-cpu-riscv = { path = "crates/renvo-cpu-riscv" }
 renvo-cpu-xtensa = { path = "crates/renvo-cpu-xtensa" }
 renvo-devices = { path = "crates/renvo-devices" }
+renvo-gdb = { path = "crates/renvo-gdb" }
 renvo-image = { path = "crates/renvo-image" }
 renvo-machines = { path = "crates/renvo-machines" }
 renvo-signals = { path = "crates/renvo-signals" }
@@ -43,6 +46,7 @@ renvo-trace = { path = "crates/renvo-trace" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"
 sha2 = "0.10.9"
+starlark = "0.14.2"
 tempfile = "3.21.0"
 thiserror = "2.0.16"
 toml = "0.9.5"

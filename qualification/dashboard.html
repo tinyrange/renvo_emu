@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Renvo six-target support dashboard</title><style>
+:root{--bg:#0b0e0d;--panel:#131816;--line:#29342f;--text:#e8efeb;--muted:#9baba3;--green:#73e2ae}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,sans-serif}main{width:min(1100px,calc(100% - 32px));margin:0 auto;padding:64px 0 96px}h1{font-size:clamp(38px,7vw,72px);line-height:1;margin:.15em 0}.lede,.tier,dd{color:var(--muted)}.notice,.target,.provenance{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:24px;margin:18px 0}.notice{border-left:3px solid var(--green)}header{display:flex;justify-content:space-between;gap:20px;align-items:start}header span{color:var(--green);font:700 12px monospace;letter-spacing:.12em}h2{margin:.2em 0}h3{font-size:14px}code{color:var(--green)}dl{display:grid;grid-template-columns:150px 1fr;gap:7px 16px}dt{font-weight:700}dd{margin:0}.columns{display:grid;grid-template-columns:1fr 1fr;gap:28px}a{color:var(--green)}li{margin:.35em 0}@media(max-width:700px){.columns{grid-template-columns:1fr}dl{grid-template-columns:1fr}}
+</style></head><body><main><p><code>RENVO / QUALIFICATION</code></p><h1>Six-target support dashboard</h1>
+<p class="lede">Checked compiler, firmware, register, and observability evidence for the original baseline.</p>
+<div class="notice"><strong>What “proven” means.</strong> Baseline proven means deterministic functional compiler/firmware testing; it does not claim cycle accuracy, complete ISA coverage, or complete peripherals.</div>
+
+            <article class="target">
+              <header><div><code>ch32v003</code><h2>WCH CH32V003</h2></div><span>PROVEN</span></header>
+              <p class="tier">Baseline proven — functional MCU model</p>
+              <dl><dt>CPU profiles</dt><dd>qingke-v2-rv32ec</dd>
+                <dt>Register evidence</dt><dd>13 registers across 5 required regions · <a href="register-coverage/ch32v003.json">manifest</a></dd></dl>
+              <div class="columns"><section><h3>Passing corpus</h3><ul><li>Docker GCC, Clang and Rust compiler cases</li><li>1,000-case generated C corpus</li><li>CoreMark 1,200-byte profile workload</li><li>Unmodified WCH EVT GPIO Toggle</li></ul></section>
+              <section><h3>Known gaps</h3><ul><li>exact PFIC nesting and HPE/VTF edge behavior remain approximate</li><li>analog and debug-wire behavior is outside the baseline</li><li>Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.</li><li>GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.</li><li>USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.</li><li>TIM2 covers update timing and status clearing; capture/compare, encoder, slave and DMA modes are absent.</li><li>PFIC covers baseline enable, pending and table entry without exact priority nesting or tail chaining.</li></ul></section></div>
+            </article>
+            <article class="target">
+              <header><div><code>ch32v006</code><h2>WCH CH32V006</h2></div><span>PROVEN</span></header>
+              <p class="tier">Baseline proven — functional MCU model</p>
+              <dl><dt>CPU profiles</dt><dd>qingke-v2-rv32ec</dd>
+                <dt>Register evidence</dt><dd>13 registers across 5 required regions · <a href="register-coverage/ch32v006.json">manifest</a></dd></dl>
+              <div class="columns"><section><h3>Passing corpus</h3><ul><li>Docker GCC, Clang and Rust compiler cases</li><li>1,000-case generated C corpus</li><li>CoreMark standard performance and validation workloads</li><li>Unmodified WCH EVT GPIO Toggle</li></ul></section>
+              <section><h3>Known gaps</h3><ul><li>exact PFIC nesting and HPE/VTF edge behavior remain approximate</li><li>analog and touch peripherals are outside the baseline</li><li>Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.</li><li>The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.</li><li>GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.</li><li>USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.</li><li>TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.</li></ul></section></div>
+            </article>
+            <article class="target">
+              <header><div><code>rp2040</code><h2>Raspberry Pi RP2040</h2></div><span>PROVEN</span></header>
+              <p class="tier">Baseline proven — functional MCU model</p>
+              <dl><dt>CPU profiles</dt><dd>cortex-m0plus-armv6m</dd>
+                <dt>Register evidence</dt><dd>13 registers across 4 required regions · <a href="register-coverage/rp2040.json">manifest</a></dd></dl>
+              <div class="columns"><section><h3>Passing corpus</h3><ul><li>Docker GCC, Clang and Rust compiler cases</li><li>1,000-case generated C corpus</li><li>CoreMark standard performance and validation workloads</li><li>Unmodified Pico SDK blink_simple</li></ul></section>
+              <section><h3>Known gaps</h3><ul><li>the initial Thumb interpreter covers the compiler baseline, not the complete ISA</li><li>NVIC priority/preemption, USB device fidelity, and exact XIP timing are deferred</li><li>Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.</li><li>SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.</li><li>UART0 is a transmit-focused PL011 slice without physical baud timing.</li><li>TIMER alarm routing is functional and deterministic, not clock accurate.</li><li>PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent.</li></ul></section></div>
+            </article>
+            <article class="target">
+              <header><div><code>rp2350</code><h2>Raspberry Pi RP2350A</h2></div><span>PROVEN</span></header>
+              <p class="tier">Baseline proven — Arm and Hazard3 functional MCU modes</p>
+              <dl><dt>CPU profiles</dt><dd>cortex-m33-armv8m, hazard3-rv32imac</dd>
+                <dt>Register evidence</dt><dd>13 registers across 4 required regions · <a href="register-coverage/rp2350.json">manifest</a></dd></dl>
+              <div class="columns"><section><h3>Passing corpus</h3><ul><li>Docker GCC, Clang and Rust cases on Cortex-M33 and Hazard3</li><li>1,000-case generated C corpus</li><li>CoreMark standard workloads on both CPU modes</li><li>Unmodified Pico SDK blink_simple on both CPU modes</li></ul></section>
+              <section><h3>Known gaps</h3><ul><li>Cortex-M33 and Hazard3 direct-ELF modes implement compiler-facing ISA subsets</li><li>TrustZone, HSTX, USB, NVIC priority/preemption, and exact QMI timing are deferred</li><li>Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.</li><li>The manifest combines coverage from both supported CPU modes and identifies each contributing proof.</li><li>UART0 and TIMER0 are functional slices without physical baud or clock accuracy.</li><li>PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.</li><li>SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature.</li></ul></section></div>
+            </article>
+            <article class="target">
+              <header><div><code>esp32s3</code><h2>Espressif ESP32-S3</h2></div><span>PROVEN</span></header>
+              <p class="tier">Baseline proven — functional MCU model</p>
+              <dl><dt>CPU profiles</dt><dd>xtensa-lx7</dd>
+                <dt>Register evidence</dt><dd>3 registers across 2 required regions · <a href="register-coverage/esp32s3.json">manifest</a></dd></dl>
+              <div class="columns"><section><h3>Passing corpus</h3><ul><li>Pinned Espressif GCC qualification at -O0, -O2 and -Os</li><li>1,000-case generated C corpus</li><li>CoreMark standard performance and validation workloads</li><li>Unmodified ESP-IDF hello_world</li></ul></section>
+              <section><h3>Known gaps</h3><ul><li>the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model</li><li>windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy</li><li>exact SMP timing, wireless, ULP, and full USB are deferred</li><li>Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.</li><li>GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.</li><li>UART0 is transmit-focused and does not model physical baud timing.</li><li>Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.</li><li>Radio, analogue and security peripherals are outside the six-chip baseline.</li></ul></section></div>
+            </article>
+            <article class="target">
+              <header><div><code>esp32c6</code><h2>Espressif ESP32-C6</h2></div><span>PROVEN</span></header>
+              <p class="tier">Baseline proven — functional MCU model</p>
+              <dl><dt>CPU profiles</dt><dd>esp-rv32imac-hp</dd>
+                <dt>Register evidence</dt><dd>9 registers across 5 required regions · <a href="register-coverage/esp32c6.json">manifest</a></dd></dl>
+              <div class="columns"><section><h3>Passing corpus</h3><ul><li>Docker GCC, Clang and Rust compiler cases</li><li>1,000-case generated C corpus</li><li>CoreMark standard performance and validation workloads</li><li>Unmodified ESP-IDF hello_world</li></ul></section>
+              <section><h3>Known gaps</h3><ul><li>PMP permission enforcement, complete interrupt-matrix behavior, and vendor cache behavior are not implemented yet</li><li>LP core and wireless peripherals are deferred</li><li>Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.</li><li>GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.</li><li>UART0 is transmit-focused and does not model physical baud timing.</li><li>SYSTIMER and interrupt routing are functional subsets; timer-group behavior is additionally exercised by official MicroPython qualification.</li><li>Radio, analogue and security peripherals are outside the six-chip baseline.</li></ul></section></div>
+            </article>
+<section class="provenance"><h2>Provenance and licences</h2><p>Renvo: MIT OR Apache-2.0. Upstream samples are downloaded at pinned commits, verified by SHA-256, and compiled without changes; tracked adapters provide the SDK and native-MMIO boundary.</p><ul><li><a href="https://github.com/openwch/ch32v003">wch-evt</a> · <code>2ac68039c911</code> · vendor source-file notice; fetched on demand and not redistributed</li><li><a href="https://github.com/raspberrypi/pico-examples">pico-sdk</a> · <code>c81c855ffded</code> · BSD-3-Clause</li><li><a href="https://github.com/espressif/esp-idf">esp-idf</a> · <code>f992ff36f68a</code> · CC0-1.0 (sample file); ESP-IDF repository Apache-2.0</li></ul><p><a href="dashboard.json">Machine-readable dashboard</a> · <a href="vendor-samples.json">Vendor qualification</a> · <a href="../PLAN.html">Original plan</a></p></section>
+</main></body></html>

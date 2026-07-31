@@ -1,0 +1,59 @@
+{
+  "schema": "renvo.dashboard-spec.v1",
+  "targets": {
+    "ch32v003": {
+      "support_tier": "Baseline proven — functional MCU model",
+      "passing_corpus": [
+        "Docker GCC, Clang and Rust compiler cases",
+        "1,000-case generated C corpus",
+        "CoreMark 1,200-byte profile workload",
+        "Unmodified WCH EVT GPIO Toggle"
+      ]
+    },
+    "ch32v006": {
+      "support_tier": "Baseline proven — functional MCU model",
+      "passing_corpus": [
+        "Docker GCC, Clang and Rust compiler cases",
+        "1,000-case generated C corpus",
+        "CoreMark standard performance and validation workloads",
+        "Unmodified WCH EVT GPIO Toggle"
+      ]
+    },
+    "rp2040": {
+      "support_tier": "Baseline proven — functional MCU model",
+      "passing_corpus": [
+        "Docker GCC, Clang and Rust compiler cases",
+        "1,000-case generated C corpus",
+        "CoreMark standard performance and validation workloads",
+        "Unmodified Pico SDK blink_simple"
+      ]
+    },
+    "rp2350": {
+      "support_tier": "Baseline proven — Arm and Hazard3 functional MCU modes",
+      "passing_corpus": [
+        "Docker GCC, Clang and Rust cases on Cortex-M33 and Hazard3",
+        "1,000-case generated C corpus",
+        "CoreMark standard workloads on both CPU modes",
+        "Unmodified Pico SDK blink_simple on both CPU modes"
+      ]
+    },
+    "esp32s3": {
+      "support_tier": "Baseline proven — functional MCU model",
+      "passing_corpus": [
+        "Pinned Espressif GCC qualification at -O0, -O2 and -Os",
+        "1,000-case generated C corpus",
+        "CoreMark standard performance and validation workloads",
+        "Unmodified ESP-IDF hello_world"
+      ]
+    },
+    "esp32c6": {
+      "support_tier": "Baseline proven — functional MCU model",
+      "passing_corpus": [
+        "Docker GCC, Clang and Rust compiler cases",
+        "1,000-case generated C corpus",
+        "CoreMark standard performance and validation workloads",
+        "Unmodified ESP-IDF hello_world"
+      ]
+    }
+  }
+}

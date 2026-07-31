@@ -21,7 +21,7 @@ Status meanings:
 | 2 — Arm M-profile | Proven | RP2040 and RP2350 pass Docker C/Rust ABI and CoreMark suites; both take SysTick and bank-1 NVIC exceptions with architectural stacking/return; RP2350 runs compiler-emitted hard-float FPv5 and DSP code; Cortex-M33/Hazard3 share the same Rust computation matrix | None |
 | 3 — Xtensa LX7 | Proven | Pinned Espressif GCC emits and Renvo executes windowed ABI calls, register windows, S32C1I atomics, single-precision FPU code, level-one exception entry/RFE, and all four ESP32-S3 ELF memory views at `-O0`, `-O2` and `-Os`; every run repeats byte-identically | None |
 | 4 — Peripheral and VCD baseline | Proven | Four-state signals, scheduled input, stable VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART/PIO paths on all three CPU profiles, native ESP GPIO/timer/UART paths, official-firmware peripheral use, and six generated register-coverage/deviation manifests | None |
-| 5 — Distillation and selective depth | Partial | Immutable Docker builds, GCC/Clang/Rust matrices, 1,000 distinct C cases, comparison API, reduction primitive, CoreMark and stable JSON artifacts | Selected unmodified vendor samples, seeded end-to-end reduction on all three CPU families, Starlark, GDB and coverage dashboard |
+| 5 — Distillation and selective depth | Proven | Immutable Docker builds; GCC/Clang/Rust matrices; 1,000 distinct C cases; comparison and three-axis reduction; hash-pinned unmodified WCH EVT, Pico SDK and ESP-IDF samples; bounded Starlark assertions; GDB RSP; coverage/replay; and the six-target fidelity dashboard | None |
 
 ## Six-chip baseline definition
 
@@ -34,15 +34,40 @@ Status meanings:
 | Stable hierarchical VCD | Proven | Trace unit tests, Docker smoke VCDs and official-firmware qualification |
 | Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Proven | CLI controls and `qualification/stop-conditions.json` prove all non-exit stops independently on RISC-V, Arm and Xtensa; normal portfolio smoke proves exit |
 | Stable machine-readable result and event digest | Proven | CLI JSON artifacts and deterministic trace digests |
-| Selected unmodified WCH EVT, Pico SDK and ESP-IDF samples | Missing | Official MicroPython is valuable additional evidence but does not replace this named gate |
+| Selected unmodified WCH EVT, Pico SDK and ESP-IDF samples | Proven | `qualification/vendor-samples.json` binds exact upstream commits and source hashes; the byte-exact sources compile in pinned Docker toolchains and run through native WCH GPIO, RP SIO GPIO and ESP UART MMIO on all seven CPU profiles |
 | GCC, Clang and Rust across optimization levels | Proven | GCC/Clang C matrices pass; `qualification/rust-abi.json` proves exact RV32E, RV32IMAC, Armv6-M and Armv8-M Rust targets at `-O0`, `-O2` and `-Os` across all six applicable CPU profiles; `qualification/xtensa-cpu.json` proves Xtensa GCC at the same levels. |
 | Compare selected output and flag divergence | Proven | `renvo corpus compare` and comparison unit tests |
-| Reduce seeded divergence on RISC-V, Arm and Xtensa | Missing | Deterministic reducer primitive exists, but no three-family end-to-end proof |
-| Publish coverage, fidelity, unsupported behavior, provenance and licences | Partial | Source-linked target manifests and build provenance exist; register coverage/licence dashboard is missing |
+| Reduce seeded divergence on RISC-V, Arm and Xtensa | Proven | `qualification/reduction.json` records every Docker build/run evaluation and the one-item source/flag/input reproducer on CH32V003, RP2040 and ESP32-S3; final repeats are identical |
+| Publish coverage, fidelity, unsupported behavior, provenance and licences | Proven | `qualification/dashboard.html` and `.json` combine six source-linked target manifests, passing corpus, generated register coverage, known deviations and sample licence/provenance without claiming cycle or full-silicon fidelity |
 | Identical results across supported hosts | Proven | `scripts/qualify-host-determinism.sh` publishes the same canonical fake-multicore/timer digest on the supported Linux/amd64 and Linux/arm64 hosts |
-| Separate CPU/device/trace/script/CLI boundaries | Partial | Rust crate boundaries are clean; the Starlark scripting boundary is not implemented |
+| Separate CPU/device/trace/script/CLI boundaries | Proven | CPU, machine, device, trace, corpus, GDB and Starlark crates remain separate; `renvo-starlark` evaluates only explicitly supplied JSON and does not own kernel state |
 
-## Most recent closure
+## Phase 5 closure
+
+Phase 5 now meets its complete exit gate. `renvo corpus reduce` detects the
+seeded discrepancy and minimizes source fragments, compiler flags, and inputs
+on RISC-V, Arm, and Xtensa; all 45 predicate evaluations retain Docker build
+and run provenance, and each minimized case repeats identically. The bounded
+Starlark layer asserts over explicit JSON datasets without coupling scripting
+values to the simulation kernel.
+
+The direct runner publishes deterministic symbolicated instruction coverage
+and checks whole-result replay. The optional `renvo-gdb` crate and CLI serve a
+standards-level GDB remote session; the qualification reads registers and
+memory, inserts/removes a breakpoint, and single-steps each CPU family. The
+upstream sample gate downloads source from pinned WCH EVT, Pico examples, and
+ESP-IDF commits, verifies SHA-256, and compiles each file byte-exact in the
+pinned containers. Tracked SDK adapters route those programs to native GPIO or
+UART MMIO on all seven CPU profiles.
+
+`qualification/dashboard.html` and `qualification/dashboard.json` are the
+six-target exit artifact. They report functional support tier, passing corpus,
+observed register coverage, sources, licences, and known gaps. The complete
+Docker portfolio gate regenerates this evidence in 29 seconds on each of two
+final repeated runs on the current host; the complete `qualification/` trees
+were byte-identical.
+
+## Previous Phase 3 closure
 
 Phase 3 now meets its complete exit gate. The pinned Espressif GCC default
 windowed ABI generates nested `call8`, `ENTRY`, and `RETW` sequences which run

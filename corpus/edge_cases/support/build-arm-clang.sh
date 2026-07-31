@@ -16,7 +16,7 @@ do
         -ffreestanding -fno-builtin -nostdlib \
         "$optimization" -g0 -fuse-ld=lld \
         -Wno-unused-command-line-argument -Wno-tautological-compare \
-        -Wl,--build-id=none -Wl,-T,support/arm.ld \
+        -Wl,--build-id=none,--discard-all -Wl,-T,support/arm.ld \
         support/arm-start.S support/runtime.c "$source" \
         "-L$libgcc_dir" -lgcc \
         -o "/workspace/out/$name.elf"

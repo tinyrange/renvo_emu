@@ -141,6 +141,37 @@ The same gate also runs the windowed Xtensa ABI, exception, atomic, FPU, memory
 view, and deterministic-repeat matrix recorded in
 `qualification/xtensa-cpu.json`.
 
+The final distillation gate adds four bounded capabilities:
+
+- `renvo corpus reduce` minimizes source fragments, flags and numeric inputs,
+  recompiling every predicate inside the pinned Docker toolchain. The checked
+  three-family evidence is `qualification/reduction.json`.
+- `renvo script` evaluates Starlark assertions over caller-selected JSON only;
+  scripting never owns a machine or kernel state. Its portfolio proof is
+  `qualification/starlark.json`.
+- `renvo gdb` serves one GDB remote-protocol session with registers, memory,
+  breakpoints, step and continue. Direct runs additionally accept `--coverage`
+  and `--replay`. RISC-V, Arm and Xtensa evidence is in
+  `qualification/debug-observability.json`.
+- `scripts/generate-dashboard.sh` fails unless all six target manifests,
+  register manifests and Phase 5 artifacts pass, then regenerates
+  `qualification/dashboard.html` and `.json`.
+
+## Unmodified vendor sample gate
+
+`scripts/qualify-vendor-samples.sh` fetches three official files at immutable
+Git commits and rejects any SHA-256 mismatch: WCH EVT `GPIO_Toggle`, Raspberry
+Pi `blink_simple`, and ESP-IDF `hello_world`. The upstream C files are not
+patched. Tracked startup and narrow SDK compatibility adapters provide the
+direct-ELF boundary and native WCH GPIO/USART, RP SIO GPIO, or ESP UART MMIO.
+
+The samples compile only inside the pinned Docker images and pass on
+CH32V003, CH32V006, RP2040, RP2350 Arm, RP2350 Hazard3, ESP32-S3 and ESP32-C6.
+`qualification/vendor-samples.json` records repositories, commits, file paths,
+source hashes, build/run hashes and licence treatment. WCH source is fetched on
+demand and not redistributed because its file notice restricts its use;
+Pico's sample is BSD-3-Clause and the ESP-IDF sample is CC0-1.0.
+
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five
 Docker-only ELF layouts and runs seven CPU/target combinations. The checked
@@ -183,3 +214,9 @@ bus logs, verifies the portfolio, and regenerates all six manifests. The
 manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
+
+The human-readable portfolio view is
+[`qualification/dashboard.html`](../qualification/dashboard.html), with the
+same checked data in `qualification/dashboard.json`. “Baseline proven” there
+means a deterministic functional compiler/firmware model, never complete
+silicon compatibility or cycle accuracy.

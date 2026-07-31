@@ -22,6 +22,8 @@ The 1,000-case portable C baseline is documented in
 [corpus/edge_cases/README.md](corpus/edge_cases/README.md).
 The six-MCU CoreMark qualification and host-calibrated results are in
 [docs/COREMARK.md](docs/COREMARK.md).
+The generated six-target support, provenance and known-gap dashboard is
+[qualification/dashboard.html](qualification/dashboard.html).
 
 ## Official MicroPython qualification
 
@@ -65,10 +67,10 @@ once every queued chunk has executed and the matching final prompt is
 observed. The release gate performs 25 official-firmware runs plus five pinned
 MQuickJS profiles. The latest local v4 evidence completed in 38.882 seconds.
 
-This is a qualification milestone, not yet the final contract in
-[PLAN.html](PLAN.html). The pinned upstream MicroPython test selection, broader
-board peripheral suite, watchdog/PWM/ADC/serial-bus coverage, and deterministic
-ESP Wi-Fi/BLE environments remain required.
+This is additional evidence beyond the restored baseline contract in
+[PLAN.html](PLAN.html). A broader MicroPython suite, watchdog/PWM/ADC/serial-bus
+coverage, and virtual ESP radios are deliberately not completion requirements
+for that plan.
 
 ## Toolchain isolation
 
@@ -130,6 +132,10 @@ cargo run -p renvo-cli -- run \
 After both Dockerfiles have been built and their immutable IDs match the
 toolchain TOMLs, `scripts/docker-smoke.sh` compiles and runs the complete
 six-chip portfolio. RP2350 is exercised in both Cortex-M33 and Hazard3 modes.
+The gate also runs three-family reduction, GDB/coverage/replay, unmodified
+vendor samples, bounded Starlark assertions, and regenerates the support
+dashboard. Its two final warm-cache runs each completed in 29 seconds and
+produced byte-identical qualification trees.
 
 Run the Docker-only behavioral corpus at one supported optimization level:
 

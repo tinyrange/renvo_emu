@@ -6,6 +6,7 @@ args = [
     "-mthumb",
     "-ffreestanding",
     "-nostdlib",
+    "-Wl,--build-id=none,--discard-all",
 ]
 
 [environment]

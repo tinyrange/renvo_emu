@@ -26,7 +26,8 @@ riscv64-unknown-elf-gcc \
 riscv64-unknown-elf-gcc \
     -march="$assembler_march" -mabi=ilp32 -ffreestanding -nostdlib \
     start.S extensions.S /tmp/compiler-cases.o \
-    -Wl,-T,link.ld -o /workspace/out/smoke.elf
+    -Wl,--build-id=none,--discard-all -Wl,-T,link.ld \
+    -o /workspace/out/smoke.elf
 
 riscv64-unknown-elf-readelf -A /workspace/out/smoke.elf \
     > /workspace/out/elf-attributes.txt

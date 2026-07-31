@@ -1,0 +1,109 @@
+{
+  "schema": "renvo.vendor-sample-qualification.v1",
+  "generated_by": "scripts/qualify-vendor-samples.sh",
+  "source_sha256": "7b70efa4cddc211ba82a3490cf2c6fae59a552e7078a68a47193bebdfcbd2003",
+  "result": "pass",
+  "adapter_sha256": "b84ff636e99531a6c4f8955a9f0a16a828a4d01dd533b3d875ebf9bba575551c",
+  "sources": [
+    {
+      "corpus": "wch-evt",
+      "repository": "https://github.com/openwch/ch32v003",
+      "commit": "2ac68039c911e0313e2625811b631a8e9e55b9c0",
+      "path": "EVT/EXAM/GPIO/GPIO_Toggle/User/main.c",
+      "sha256": "b40b009fc1f744b56d4d760a5c3baafd17dfbb621f66f9045cb35131e99d4c0e",
+      "source_treatment": "downloaded and compiled unmodified",
+      "licence": "vendor source-file notice; fetched on demand and not redistributed"
+    },
+    {
+      "corpus": "pico-sdk",
+      "repository": "https://github.com/raspberrypi/pico-examples",
+      "commit": "c81c855ffdedc825975a40ba357723a71358ddf0",
+      "path": "blink_simple/blink_simple.c",
+      "sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
+      "source_treatment": "downloaded and compiled unmodified",
+      "licence": "BSD-3-Clause"
+    },
+    {
+      "corpus": "esp-idf",
+      "repository": "https://github.com/espressif/esp-idf",
+      "commit": "f992ff36f68a783d786d83178e5f85e9a9c76ead",
+      "path": "examples/get-started/hello_world/main/hello_world_main.c",
+      "sha256": "b2d1c8573307e010d276d2d0df537f1fe752416f8422e267aa8b1661c1744595",
+      "source_treatment": "downloaded and compiled unmodified",
+      "licence": "CC0-1.0 (sample file); ESP-IDF repository Apache-2.0"
+    }
+  ],
+  "adapter_boundary": "Tracked startup and SDK compatibility code supplies native Renvo MMIO; upstream sample source is byte-exact and receives no patch.",
+  "targets": [
+    {
+      "target": "ch32v003",
+      "corpus": "wch-evt",
+      "sample_sha256": "b40b009fc1f744b56d4d760a5c3baafd17dfbb621f66f9045cb35131e99d4c0e",
+      "result": "pass",
+      "build": ".renvo/qualification/vendor-samples/wch/build.json",
+      "build_sha256": "2cc88aa2549d7332a169fc3f6ef8e24127a51a5ea06147dd2344c634fbe00a21",
+      "run": ".renvo/qualification/vendor-samples/ch32v003/run.json",
+      "run_sha256": "e23bff4e999cf5ef11d38b4629579239446fa6b555e872ac509d17c1441f203d"
+    },
+    {
+      "target": "ch32v006",
+      "corpus": "wch-evt",
+      "sample_sha256": "b40b009fc1f744b56d4d760a5c3baafd17dfbb621f66f9045cb35131e99d4c0e",
+      "result": "pass",
+      "build": ".renvo/qualification/vendor-samples/wch/build.json",
+      "build_sha256": "2cc88aa2549d7332a169fc3f6ef8e24127a51a5ea06147dd2344c634fbe00a21",
+      "run": ".renvo/qualification/vendor-samples/ch32v006/run.json",
+      "run_sha256": "8e76df1b49b90edf2ecd298dcfac9c20599b0a5cd1c0cfd978134acf50f4efed"
+    },
+    {
+      "target": "rp2040",
+      "corpus": "pico-sdk",
+      "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
+      "result": "pass",
+      "build": ".renvo/qualification/vendor-samples/rp2040/build.json",
+      "build_sha256": "7b5e8b15de5b48e45950bc720b68999355095e6475ce2964d7c599ebc9984cc8",
+      "run": ".renvo/qualification/vendor-samples/rp2040/run.json",
+      "run_sha256": "00b949eee4b9cb267240090199b53cad3afd1bdbca1a7777d552b7be923d44d3"
+    },
+    {
+      "target": "rp2350-arm",
+      "corpus": "pico-sdk",
+      "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
+      "result": "pass",
+      "build": ".renvo/qualification/vendor-samples/rp2350-arm/build.json",
+      "build_sha256": "0028ec22f8bd139145e1c61368e593320aabda8c9e2983205a79dcb2dd2465f0",
+      "run": ".renvo/qualification/vendor-samples/rp2350-arm/run.json",
+      "run_sha256": "df57e7984d5766ace58cba7b4c8508cdc02dba0aea9ad73c88633995a237a1a3"
+    },
+    {
+      "target": "rp2350-riscv",
+      "corpus": "pico-sdk",
+      "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
+      "result": "pass",
+      "build": ".renvo/qualification/vendor-samples/rp2350-riscv/build.json",
+      "build_sha256": "d68d49ce29fca44b82ede3fa81525024d7b7f3b2ecfa90f7585eaf50a371872e",
+      "run": ".renvo/qualification/vendor-samples/rp2350-riscv/run.json",
+      "run_sha256": "b9a0409b73fd79c11377b02e877368d79cb60a9b550f80658b408ec4a44ddf1f"
+    },
+    {
+      "target": "esp32s3",
+      "corpus": "esp-idf",
+      "sample_sha256": "b2d1c8573307e010d276d2d0df537f1fe752416f8422e267aa8b1661c1744595",
+      "result": "pass",
+      "build": ".renvo/qualification/vendor-samples/esp32s3/build.json",
+      "build_sha256": "799a80e4075a8c25a82afd4977aaeeac4208c9f3ee690b06973d3c1f4c448caf",
+      "run": ".renvo/qualification/vendor-samples/esp32s3/run.json",
+      "run_sha256": "d30f5c23c0d7763a84dd18e0281a74f83e19241bea152a5caa2414ec087fb197"
+    },
+    {
+      "target": "esp32c6",
+      "corpus": "esp-idf",
+      "sample_sha256": "b2d1c8573307e010d276d2d0df537f1fe752416f8422e267aa8b1661c1744595",
+      "result": "pass",
+      "build": ".renvo/qualification/vendor-samples/esp32c6/build.json",
+      "build_sha256": "62c725b03ee25e90c2fff2f6b7d115d96d161d51e115fa92d108982cbc1e67f1",
+      "run": ".renvo/qualification/vendor-samples/esp32c6/run.json",
+      "run_sha256": "9b23e1b9547c1e69727b431cb06883dbbde76d6d9dd5b76836c140fe01087442"
+    }
+  ]
+}

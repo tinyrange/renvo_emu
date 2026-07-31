@@ -39,7 +39,7 @@ do
         -ffreestanding -fno-builtin -nostdlib \
         "$optimization" -g0 -fuse-ld=lld \
         -Wno-unused-command-line-argument -Wno-tautological-compare \
-        -Wl,--build-id=none -Wl,-T,"$linker" \
+        -Wl,--build-id=none,--discard-all -Wl,-T,"$linker" \
         support/riscv-start.S support/runtime.c "$source" \
         "-L$libgcc_dir" -lgcc \
         -o "/workspace/out/$name.elf"
