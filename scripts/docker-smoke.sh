@@ -81,6 +81,14 @@ build_case arm-timer toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/arm-time
     start.S
 run_case arm-timer rp2040 "$artifact_root/arm-timer/smoke.elf"
 
+build_case rp2040-native-timer toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-native-timer-arm rp2040 \
+    -DTIMER_BASE=0x40054000 -DTIMER_INTR_OFFSET=0x34 -DTIMER_INTE_OFFSET=0x38 start.S
+run_case rp2040-native-timer rp2040 "$artifact_root/rp2040-native-timer/smoke.elf"
+
+build_case rp2350-arm-native-timer toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-native-timer-arm rp2350 \
+    -DTIMER_BASE=0x400b0000 -DTIMER_INTR_OFFSET=0x3c -DTIMER_INTE_OFFSET=0x40 start.S
+run_case rp2350-arm-native-timer rp2350 "$artifact_root/rp2350-arm-native-timer/smoke.elf"
+
 build_case rp-riscv toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
     -O2 start.S main.c
 run_case rp2350-riscv rp2350 "$artifact_root/rp-riscv/smoke.elf"
@@ -88,6 +96,10 @@ run_case rp2350-riscv rp2350 "$artifact_root/rp-riscv/smoke.elf"
 build_case rp2350-riscv-uart toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
     -O2 start.S uart.c
 run_case rp2350-riscv-uart rp2350 "$artifact_root/rp2350-riscv-uart/smoke.elf"
+
+build_case rp2350-riscv-native-timer toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-native-timer-riscv rp2350 \
+    start.S
+run_case rp2350-riscv-native-timer rp2350 "$artifact_root/rp2350-riscv-native-timer/smoke.elf"
 
 build_case esp32c6 toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
     -O2 start.S main.c
@@ -121,5 +133,8 @@ jq -e '.exit_code == 0 and (.uart | implode == "RENVO-RP\n")' "$artifact_root/rp
 jq -e '.exit_code == 0 and (.uart | implode == "RENVO-RP\n")' "$artifact_root/rp2350-riscv-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "RENVO-ESP\n")' "$artifact_root/esp32c6-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "RENVO-ESP\n")' "$artifact_root/esp32s3-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2040-native-timer-run.json" >/dev/null
+jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-arm-native-timer-run.json" >/dev/null
+jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-riscv-native-timer-run.json" >/dev/null
 
 echo "portfolio Docker smoke passed; artifacts: $artifact_root"

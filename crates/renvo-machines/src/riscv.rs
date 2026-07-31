@@ -4138,6 +4138,7 @@ impl RiscVMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
+        let mut chip_timer_was_pending = 0_u16;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
         let mut esp_timer_was_pending = [[false; 2]; 2];
@@ -4206,6 +4207,10 @@ impl RiscVMachine {
                         .fold(0_u16, |pending, (timer, handle)| {
                             pending | (u16::from(handle.pending(self.now)) << (timer * 4))
                         });
+                stats.events = stats.events.saturating_add(u64::from(
+                    (chip_timer_pending & !chip_timer_was_pending).count_ones(),
+                ));
+                chip_timer_was_pending = chip_timer_pending;
                 for line in 0..self.chip_timers.len() * 4 {
                     self.cpu.set_hazard3_external_interrupt(
                         u16::try_from(line).expect("RP timer IRQ line fits u16"),
