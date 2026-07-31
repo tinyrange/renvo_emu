@@ -205,7 +205,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
         ],
         limitations: &[
-            "exact PFIC nesting and WCH XW instructions are not implemented yet",
+            "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
             "analog and debug-wire behavior is outside the baseline",
         ],
     },
@@ -239,7 +239,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
         ],
         limitations: &[
-            "exact PFIC nesting and V2C-specific XW extensions are not implemented yet",
+            "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
             "analog and touch peripherals are outside the baseline",
         ],
     },

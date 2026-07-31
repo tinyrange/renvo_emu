@@ -61,6 +61,15 @@ build_case wch-timer toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-timer ch3
 run_case ch32v003-timer ch32v003 "$artifact_root/wch-timer/smoke.elf"
 run_case ch32v006-timer ch32v006 "$artifact_root/wch-timer/smoke.elf"
 
+build_case wch-xw toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-xw ch32v003 \
+    start.S
+run_case ch32v003-xw ch32v003 "$artifact_root/wch-xw/smoke.elf"
+run_case ch32v006-xw ch32v006 "$artifact_root/wch-xw/smoke.elf"
+
+build_case wch-zmmul toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-xw ch32v006 \
+    zmmul.S
+run_case ch32v006-zmmul ch32v006 "$artifact_root/wch-zmmul/smoke.elf"
+
 build_case riscv-timer toolchains/riscv-gcc-rv32ec.toml corpus/smoke/riscv-timer ch32v003 \
     start.S
 run_case riscv-timer ch32v003 "$artifact_root/riscv-timer/smoke.elf"
@@ -161,6 +170,7 @@ grep -q '\$scope module pio0 ' "$artifact_root/rp2350-arm-pio.vcd"
 grep -q '\$scope module pio0 ' "$artifact_root/rp2350-riscv-pio.vcd"
 
 scripts/generate-register-coverage.sh "$artifact_root" qualification/register-coverage
+scripts/generate-riscv-cpu-qualification.sh "$artifact_root" qualification/riscv-cpu.json
 scripts/qualify-stop-conditions.sh
 scripts/qualify-rust-abi.sh
 

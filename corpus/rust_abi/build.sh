@@ -19,7 +19,7 @@ case "$profile" in
     *) echo "unsupported Rust machine profile: $profile" >&2; exit 2 ;;
 esac
 
-build_dir="/workspace/out/target-$profile-o$optimization"
+build_dir=/tmp/renvo-rust-target
 export CARGO_TARGET_DIR=$build_dir
 export RUSTFLAGS="-C linker=rust-lld -C link-arg=-T$linker -C link-arg=--gc-sections --cfg renvo_$profile"
 

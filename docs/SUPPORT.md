@@ -49,9 +49,12 @@ PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
 instructions, M and A where selected by the profile, Zicsr, WFI/MRET, basic
-machine interrupt entry, QingKe PFIC table-mode entry, and the compiler-facing
-Hazard3 bit-manipulation subset. WCH XW instructions, exact PFIC nesting, PMP,
-and complete privilege behavior remain unsupported.
+machine interrupt entry, QingKe PFIC table-mode entry, all eight QingKe XW
+compressed byte/halfword memory operations, the V2C multiply-only Zmmul
+subset, and the compiler-facing Hazard3 bit-manipulation subset. Exact PFIC
+nesting/HPE, PMP permission enforcement, and complete privilege behavior remain
+unsupported. `qualification/riscv-cpu.json` contains Docker and negative-profile
+proofs for XW and Zmmul.
 
 The Arm interpreter covers the 16-bit Thumb compiler baseline, BL, selected
 Thumb-2 immediate forms observed in Cortex-M33 output, stack operations,

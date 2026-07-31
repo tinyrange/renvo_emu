@@ -1,0 +1,97 @@
+{
+  "schema": "renvo.riscv-cpu.v1",
+  "source_sha256": "9f886b216ca01b032ec2ed8cdc7b1ecc2d4d5924a15ef310d6e86b3bbe0dc6a1",
+  "primary_sources": [
+    "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html"
+  ],
+  "implemented": {
+    "xw": [
+      "c.lbu",
+      "c.lhu",
+      "c.sb",
+      "c.sh",
+      "c.lbusp",
+      "c.lhusp",
+      "c.sbsp",
+      "c.shsp"
+    ],
+    "v2c": [
+      "Zmmul"
+    ]
+  },
+  "negative_tests": {
+    "artifact": ".renvo/portfolio-smoke/riscv-cpu-unit-tests.txt",
+    "sha256": "e32ebb50256f23dc010b034ce7e316e414431997c4e7e93ba835cc4b65190275",
+    "assertions": [
+      "XW is illegal outside QingKe profiles",
+      "V2A rejects Zmmul",
+      "V2C rejects M-extension divide"
+    ]
+  },
+  "proofs": [
+    {
+      "id": "ch32v003-xw",
+      "target": "ch32v003",
+      "cpu": "qingke-v2a",
+      "feature": "xw-eight-operations",
+      "build_artifact": ".renvo/portfolio-smoke/wch-xw-build.json",
+      "build_provenance_sha256": "d3240c6a0e284f9bd450a0a8f7ded5f6ca646b4370c70a3cf7a2b8ada3fdbddd",
+      "elf": ".renvo/portfolio-smoke/wch-xw/smoke.elf",
+      "elf_sha256": "142c74c0694123d9ed4c39b1bbffdb99e4f421a295228c01468dda7f807c36e9",
+      "result_artifact": ".renvo/portfolio-smoke/ch32v003-xw-run.json",
+      "result_sha256": "c3aafa91a39527c22d97258318eac3e9c03b657d42842abbe2fc5267b8e4f691",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 27,
+        "time": 27,
+        "events": 0
+      },
+      "trace_digest": "1489dfa3442a01bad4b42a2f4d3ac21161960e1201c8cd522f4dce4f39053c39",
+      "result": "pass"
+    },
+    {
+      "id": "ch32v006-xw",
+      "target": "ch32v006",
+      "cpu": "qingke-v2c",
+      "feature": "xw-eight-operations",
+      "build_artifact": ".renvo/portfolio-smoke/wch-xw-build.json",
+      "build_provenance_sha256": "d3240c6a0e284f9bd450a0a8f7ded5f6ca646b4370c70a3cf7a2b8ada3fdbddd",
+      "elf": ".renvo/portfolio-smoke/wch-xw/smoke.elf",
+      "elf_sha256": "142c74c0694123d9ed4c39b1bbffdb99e4f421a295228c01468dda7f807c36e9",
+      "result_artifact": ".renvo/portfolio-smoke/ch32v006-xw-run.json",
+      "result_sha256": "1d248cd511492677b8765b9f373558c36732d4fd9ab3955136d7d8cf74b54e11",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 27,
+        "time": 27,
+        "events": 0
+      },
+      "trace_digest": "13f23f61c400dbb938aa0547ca6436082b9ea3e8017fa13affd100f80def3ccb",
+      "result": "pass"
+    },
+    {
+      "id": "ch32v006-zmmul",
+      "target": "ch32v006",
+      "cpu": "qingke-v2c",
+      "feature": "zmmul",
+      "build_artifact": ".renvo/portfolio-smoke/wch-zmmul-build.json",
+      "build_provenance_sha256": "a85a96bdd41028da8b131f0751594ff39bd9f69e0f5412e09db154e9c37d60e6",
+      "elf": ".renvo/portfolio-smoke/wch-zmmul/smoke.elf",
+      "elf_sha256": "7410a667719f0d8779bd975f9dffe165a0298700d6b5217d6a6fdcdacf48c585",
+      "result_artifact": ".renvo/portfolio-smoke/ch32v006-zmmul-run.json",
+      "result_sha256": "c44138fb4e4ee40c00033ea774f25e8251a398eaeafee69db8b24f06b6dff5ac",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 11,
+        "time": 11,
+        "events": 0
+      },
+      "trace_digest": "13f23f61c400dbb938aa0547ca6436082b9ea3e8017fa13affd100f80def3ccb",
+      "result": "pass"
+    }
+  ],
+  "result": "pass"
+}

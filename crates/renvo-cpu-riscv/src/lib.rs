@@ -165,10 +165,14 @@ pub struct RiscVProfile {
     pub registers: u8,
     /// Integer multiply/divide extension.
     pub extension_m: bool,
+    /// Multiply-only `Zmmul` subset used by `QingKe` V2C.
+    pub extension_zmmul: bool,
     /// Atomic extension.
     pub extension_a: bool,
     /// Compressed extension.
     pub extension_c: bool,
+    /// WCH XW compressed byte/halfword memory operations.
+    pub extension_xw: bool,
     /// Compiler-facing bit manipulation subset.
     pub extension_b: bool,
     /// Zcmp compressed push/pop register-list instructions.
@@ -185,6 +189,18 @@ pub struct RiscVProfile {
     pub ebreak_halts: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QingKeXwOperation {
+    LoadByteCompact,
+    LoadHalfCompact,
+    StoreByteCompact,
+    StoreHalfCompact,
+    LoadByteStack,
+    LoadHalfStack,
+    StoreByteStack,
+    StoreHalfStack,
+}
+
 impl RiscVProfile {
     /// WCH CH32V003 `QingKe` V2A compiler profile.
     pub fn ch32v003() -> Self {
@@ -192,8 +208,10 @@ impl RiscVProfile {
             name: "wch-ch32v003-qingke-v2a".to_owned(),
             registers: 16,
             extension_m: false,
+            extension_zmmul: false,
             extension_a: false,
             extension_c: true,
+            extension_xw: true,
             extension_b: false,
             extension_zcmp: false,
             extension_zicsr: true,
@@ -208,6 +226,7 @@ impl RiscVProfile {
     pub fn ch32v006() -> Self {
         Self {
             name: "wch-ch32v006-qingke-v2c".to_owned(),
+            extension_zmmul: true,
             ..Self::ch32v003()
         }
     }
@@ -218,8 +237,10 @@ impl RiscVProfile {
             name: "espressif-esp32c6-hp".to_owned(),
             registers: 32,
             extension_m: true,
+            extension_zmmul: false,
             extension_a: true,
             extension_c: true,
+            extension_xw: false,
             extension_b: false,
             extension_zcmp: false,
             extension_zicsr: true,
@@ -236,8 +257,10 @@ impl RiscVProfile {
             name: "raspberrypi-rp2350-hazard3".to_owned(),
             registers: 32,
             extension_m: true,
+            extension_zmmul: false,
             extension_a: true,
             extension_c: true,
+            extension_xw: false,
             extension_b: true,
             extension_zcmp: true,
             extension_zicsr: true,
@@ -246,6 +269,10 @@ impl RiscVProfile {
             interrupt_model: InterruptModel::Hazard3,
             ebreak_halts: true,
         }
+    }
+
+    const fn supports_m_operation(&self, funct3: u32) -> bool {
+        self.extension_m || (self.extension_zmmul && funct3 <= 3)
     }
 
     fn validate(&self) -> Result<(), CpuFault> {
@@ -1001,7 +1028,7 @@ impl RiscVCpu {
                     if let Some(value) = execute_b_register(funct7, funct3, left, right) {
                         value
                     } else if funct7 == 1 {
-                        if !self.profile.extension_m {
+                        if !self.profile.supports_m_operation(funct3) {
                             return self.illegal(instruction);
                         }
                         execute_m(funct3, left, right).ok_or_else(|| {
@@ -1027,7 +1054,7 @@ impl RiscVCpu {
                         }
                     }
                 } else if funct7 == 1 {
-                    if !self.profile.extension_m {
+                    if !self.profile.supports_m_operation(funct3) {
                         return self.illegal(instruction);
                     }
                     execute_m(funct3, left, right).ok_or_else(|| {
@@ -1228,6 +1255,9 @@ impl RiscVCpu {
                 let rd = compact_register((instruction >> 2) & 0x7);
                 self.write_register(rd, self.registers[2].wrapping_add(immediate));
             }
+            (0, 1) if self.profile.extension_xw => {
+                self.execute_qingke_xw(instruction, QingKeXwOperation::LoadByteCompact, bus, now)?;
+            }
             (0, 2) => {
                 let rd = compact_register((instruction >> 2) & 0x7);
                 let rs1 = compact_register((instruction >> 7) & 0x7);
@@ -1237,6 +1267,18 @@ impl RiscVCpu {
                 let value = self.load(bus, address, AccessWidth::Word, now)?;
                 self.write_register(rd, value);
             }
+            (0, 4) if self.profile.extension_xw => self.execute_qingke_xw(
+                instruction,
+                match (instruction >> 5) & 3 {
+                    0 => QingKeXwOperation::LoadByteStack,
+                    1 => QingKeXwOperation::LoadHalfStack,
+                    2 => QingKeXwOperation::StoreByteStack,
+                    3 => QingKeXwOperation::StoreHalfStack,
+                    _ => unreachable!(),
+                },
+                bus,
+                now,
+            )?,
             (0, 4) if self.profile.extension_b => {
                 let operation = (instruction >> 10) & 3;
                 let register = compact_register((instruction >> 2) & 7);
@@ -1285,6 +1327,9 @@ impl RiscVCpu {
                     }
                     _ => unreachable!(),
                 }
+            }
+            (0, 5) if self.profile.extension_xw => {
+                self.execute_qingke_xw(instruction, QingKeXwOperation::StoreByteCompact, bus, now)?;
             }
             (0, 6) => {
                 let rs2 = compact_register((instruction >> 2) & 0x7);
@@ -1351,6 +1396,9 @@ impl RiscVCpu {
                 }
                 self.write_register(rd, self.read_register(rd)? << shift);
             }
+            (2, 1) if self.profile.extension_xw => {
+                self.execute_qingke_xw(instruction, QingKeXwOperation::LoadHalfCompact, bus, now)?;
+            }
             (2, 2) => {
                 let rd = ((instruction >> 7) & 0x1f) as u8;
                 self.check_register(rd)?;
@@ -1387,6 +1435,9 @@ impl RiscVCpu {
                     ),
                 }
             }
+            (2, 5) if self.profile.extension_xw => {
+                self.execute_qingke_xw(instruction, QingKeXwOperation::StoreHalfCompact, bus, now)?;
+            }
             (2, 5) if self.profile.extension_zcmp && instruction & 0xf800 == 0xb800 => {
                 if let Some(return_address) = self.execute_zcmp(instruction, bus, now)? {
                     next_pc = return_address;
@@ -1415,6 +1466,88 @@ impl RiscVCpu {
         }
         self.pc = next_pc;
         Ok(reason)
+    }
+
+    fn execute_qingke_xw(
+        &mut self,
+        instruction: u16,
+        operation: QingKeXwOperation,
+        bus: &mut dyn Bus,
+        now: SimTime,
+    ) -> Result<(), CpuFault> {
+        let data_register = compact_register((instruction >> 2) & 7);
+        let compact_base = compact_register((instruction >> 7) & 7);
+        let compact_byte_offset = u32::from((instruction >> 12) & 1)
+            | (u32::from((instruction >> 5) & 3) << 1)
+            | (u32::from((instruction >> 10) & 3) << 3);
+        let compact_half_offset =
+            (u32::from((instruction >> 5) & 3) << 1) | (u32::from((instruction >> 10) & 7) << 3);
+        let stack_byte_offset = u32::from((instruction >> 7) & 0xf);
+        let stack_half_offset =
+            (u32::from((instruction >> 8) & 7) << 1) | (u32::from((instruction >> 7) & 1) << 4);
+
+        let (base, register, offset, width, load) = match operation {
+            QingKeXwOperation::LoadByteCompact => (
+                compact_base,
+                data_register,
+                compact_byte_offset,
+                AccessWidth::Byte,
+                true,
+            ),
+            QingKeXwOperation::LoadHalfCompact => (
+                compact_base,
+                data_register,
+                compact_half_offset,
+                AccessWidth::HalfWord,
+                true,
+            ),
+            QingKeXwOperation::StoreByteCompact => (
+                compact_base,
+                data_register,
+                compact_byte_offset,
+                AccessWidth::Byte,
+                false,
+            ),
+            QingKeXwOperation::StoreHalfCompact => (
+                compact_base,
+                data_register,
+                compact_half_offset,
+                AccessWidth::HalfWord,
+                false,
+            ),
+            QingKeXwOperation::LoadByteStack => {
+                (2, data_register, stack_byte_offset, AccessWidth::Byte, true)
+            }
+            QingKeXwOperation::LoadHalfStack => (
+                2,
+                data_register,
+                stack_half_offset,
+                AccessWidth::HalfWord,
+                true,
+            ),
+            QingKeXwOperation::StoreByteStack => (
+                2,
+                data_register,
+                stack_byte_offset,
+                AccessWidth::Byte,
+                false,
+            ),
+            QingKeXwOperation::StoreHalfStack => (
+                2,
+                data_register,
+                stack_half_offset,
+                AccessWidth::HalfWord,
+                false,
+            ),
+        };
+        let address = self.read_register(base)?.wrapping_add(offset);
+        if load {
+            let value = self.load(bus, address, width, now)?;
+            self.write_register(register, value);
+        } else {
+            self.store(bus, address, width, self.read_register(register)?, now)?;
+        }
+        Ok(())
     }
 
     fn execute_zcmp(
@@ -2195,6 +2328,67 @@ mod tests {
         assert_eq!(
             cpu.step(&mut bus, SimTime::ZERO).unwrap().reason,
             StepReason::Halted
+        );
+    }
+
+    #[test]
+    fn qingke_xw_executes_all_eight_compressed_memory_operations() {
+        let mut bus = AddressSpace::default();
+        bus.map_ram("memory", 0, 4096, true).unwrap();
+        // c.sb/c.sh using x8 as the compact base and x9 as data, then the
+        // stack-relative forms, followed by the corresponding unsigned loads.
+        let instructions = [
+            0xbc44_u16, 0xb426, 0x86c4, 0x85e4, 0x3c44, 0x3426, 0x8684, 0x85a4,
+        ];
+        let bytes = instructions
+            .iter()
+            .flat_map(|instruction| instruction.to_le_bytes())
+            .collect::<Vec<_>>();
+        bus.load(0, &bytes).unwrap();
+        let mut cpu = RiscVCpu::new(RiscVProfile::ch32v003()).unwrap();
+        cpu.set_register(RiscVRegister::S0, 0x100).unwrap();
+        cpu.set_register(RiscVRegister::S1, 0xa1b2_c3d4).unwrap();
+        cpu.set_register(RiscVRegister::Sp, 0x180).unwrap();
+
+        for _ in 0..4 {
+            cpu.step(&mut bus, SimTime::ZERO).unwrap();
+        }
+        cpu.step(&mut bus, SimTime::ZERO).unwrap();
+        assert_eq!(cpu.register(RiscVRegister::S1).unwrap(), 0xd4);
+        cpu.step(&mut bus, SimTime::ZERO).unwrap();
+        assert_eq!(cpu.register(RiscVRegister::S1).unwrap(), 0xc3d4);
+        cpu.step(&mut bus, SimTime::ZERO).unwrap();
+        assert_eq!(cpu.register(RiscVRegister::S1).unwrap(), 0xd4);
+        cpu.step(&mut bus, SimTime::ZERO).unwrap();
+        assert_eq!(cpu.register(RiscVRegister::S1).unwrap(), 0xc3d4);
+    }
+
+    #[test]
+    fn qingke_xw_opcode_is_profile_gated() {
+        let (mut cpu, mut bus) = cpu_and_bus(&[0x0000_3c44], RiscVProfile::esp32c6());
+        let fault = cpu.step(&mut bus, SimTime::ZERO).unwrap_err();
+        assert_eq!(fault.kind, CpuFaultKind::IllegalInstruction);
+    }
+
+    #[test]
+    fn qingke_v2c_zmmul_accepts_multiply_but_rejects_divide() {
+        // mul x3,x1,x2; div x3,x1,x2
+        let words = [0x0220_81b3, 0x0220_c1b3];
+        let (mut cpu, mut bus) = cpu_and_bus(&words, RiscVProfile::ch32v006());
+        cpu.set_register(RiscVRegister::Ra, 6).unwrap();
+        cpu.set_register(RiscVRegister::Sp, 7).unwrap();
+
+        cpu.step(&mut bus, SimTime::ZERO).unwrap();
+        assert_eq!(cpu.register(RiscVRegister::Gp).unwrap(), 42);
+        let fault = cpu.step(&mut bus, SimTime::ZERO).unwrap_err();
+        assert_eq!(fault.kind, CpuFaultKind::IllegalInstruction);
+
+        let (mut v2a, mut v2a_bus) = cpu_and_bus(&words[..1], RiscVProfile::ch32v003());
+        v2a.set_register(RiscVRegister::Ra, 6).unwrap();
+        v2a.set_register(RiscVRegister::Sp, 7).unwrap();
+        assert_eq!(
+            v2a.step(&mut v2a_bus, SimTime::ZERO).unwrap_err().kind,
+            CpuFaultKind::IllegalInstruction
         );
     }
 }

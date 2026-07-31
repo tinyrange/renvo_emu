@@ -13,7 +13,7 @@ if [ ! -x "$renvo" ]; then
     cargo build -q -p renvo-cli
 fi
 
-root=.renvo/rust-abi-rv32e-qualification
+root=.renvo/rust-abi-qualification-v2
 proofs=$root/proofs.jsonl
 mkdir -p "$root" qualification
 : > "$proofs"
@@ -45,7 +45,8 @@ run_one()
     cmp "$result" "$repeat"
 
     elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
-    build_sha=$(sha256sum "$build_artifact" | cut -d ' ' -f 1)
+    build_sha=$(jq -S -c 'del(.stdout, .stderr)' "$build_artifact" \
+        | sha256sum | cut -d ' ' -f 1)
     result_sha=$(sha256sum "$result" | cut -d ' ' -f 1)
     jq -c \
         --arg id "$id-o$optimization" \
@@ -56,7 +57,7 @@ run_one()
         --arg elf "$elf" \
         --arg elf_sha256 "$elf_sha" \
         --arg build_artifact "$build_artifact" \
-        --arg build_sha256 "$build_sha" \
+        --arg build_provenance_sha256 "$build_sha" \
         --arg result_artifact "$result" \
         --arg result_sha256 "$result_sha" \
         '{
@@ -68,7 +69,7 @@ run_one()
           elf: $elf,
           elf_sha256: $elf_sha256,
           build_artifact: $build_artifact,
-          build_sha256: $build_sha256,
+          build_provenance_sha256: $build_provenance_sha256,
           result_artifact: $result_artifact,
           result_sha256: $result_sha256,
           reason,

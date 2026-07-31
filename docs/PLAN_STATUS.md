@@ -17,7 +17,7 @@ Status meanings:
 | Phase | Status | Current evidence | Required closure |
 |---|---|---|---|
 | 0 — Kernel contracts and manifests | Proven | Workspace contracts and ADRs; six source-linked manifests; fake dual-core/timer canonical digest across 64 repeat/insertion-stress variants on pinned Linux/amd64 and Linux/arm64 environments | None |
-| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, exact-RV32E and RV32IMAC Rust ABI matrix, CoreMark, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles, and typed breakpoint/watchpoint stops | Remaining WCH XW behavior, fuller ESP privilege/PMP proof, and plan-specific trap gate |
+| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, exact-RV32E and RV32IMAC Rust ABI matrix, CoreMark, QingKe XW/Zmmul, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles, and typed breakpoint/watchpoint stops | Fuller ESP privilege/PMP proof and plan-specific trap gate |
 | 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker C corpus, exact Armv6-M/Armv8-M Rust ABI matrix, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific exception gate |
 | 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
 | 4 — Peripheral and VCD baseline | Proven | Four-state signals, scheduled input, stable VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART/PIO paths on all three CPU profiles, native ESP GPIO/timer/UART paths, official-firmware peripheral use, and six generated register-coverage/deviation manifests | None |
@@ -44,6 +44,15 @@ Status meanings:
 
 ## Most recent closure
 
+The QingKe profiles now implement all eight XW compressed byte/halfword memory
+operations named by the WCH V2 manual. CH32V006 separately enables the V2C
+multiply-only Zmmul subset while CH32V003 rejects it and V2C continues to reject
+divide. Docker-built raw-opcode firmware passes on both WCH chips, and focused
+negative tests prove profile gating. Source, ELF, build, result, and unit-test
+hashes are collected in `qualification/riscv-cpu.json`.
+
+## Previous closure
+
 The pinned Rust 1.97.1 image now provides upstream bare-metal libraries for
 RV32IMAC, Armv6-M, and Armv8-M plus an image-prebuilt `core` for the exact
 `riscv32e-unknown-none-elf` QingKe register ABI. A freestanding Rust program exercises
@@ -54,7 +63,7 @@ Hazard3 each run every variant twice with byte-identical results. The 18 proof
 rows, compiler/container provenance, and hashes are in
 `qualification/rust-abi.json`.
 
-## Previous closure
+## Earlier stop-condition closure
 
 The public direct-run CLI now accepts typed breakpoints, data watchpoints, and
 named change/rising/falling signal stops. Arm `BKPT` and Xtensa `BREAK` report
