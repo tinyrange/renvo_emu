@@ -78,6 +78,15 @@ Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
 
+Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
+controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
+decimal or `0x`-prefixed hexadecimal. A breakpoint stops before executing the
+named address. A watchpoint stops after a completed CPU data read/write that
+overlaps the named byte, and records the access address and kind in JSON.
+Signal stops use stable hierarchical paths and preserve the triggering change
+in VCD/digest output. `scripts/qualify-stop-conditions.sh` checks every stop
+class on RISC-V, Arm, and Xtensa.
+
 The supported host matrix is Linux/amd64 and Linux/arm64. A pinned Rust
 container runs the fake dual-core/timer scheduler test on both architectures;
 each architecture checks 64 repeat and insertion-stress variants against the

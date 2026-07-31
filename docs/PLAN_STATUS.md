@@ -17,7 +17,7 @@ Status meanings:
 | Phase | Status | Current evidence | Required closure |
 |---|---|---|---|
 | 0 — Kernel contracts and manifests | Proven | Workspace contracts and ADRs; six source-linked manifests; fake dual-core/timer canonical digest across 64 repeat/insertion-stress variants on pinned Linux/amd64 and Linux/arm64 environments | None |
-| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, CoreMark, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles | Remaining WCH XW behavior, fuller ESP privilege/PMP proof, and explicit breakpoint/watchpoint gate |
+| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, CoreMark, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles, and typed breakpoint/watchpoint stops | Remaining WCH XW behavior, fuller ESP privilege/PMP proof, and plan-specific C/Rust ABI/trap gate |
 | 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker corpus, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific C/Rust ABI gate |
 | 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
 | 4 — Peripheral and VCD baseline | Proven | Four-state signals, scheduled input, stable VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART/PIO paths on all three CPU profiles, native ESP GPIO/timer/UART paths, official-firmware peripheral use, and six generated register-coverage/deviation manifests | None |
@@ -32,7 +32,7 @@ Status meanings:
 | Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Proven | Docker smoke covers native-address GPIO/UART and explicit WCH/RP timer interrupt paths; official MicroPython callbacks cover the ESP timer-group routes |
 | Scheduled pin input and resolved digital nets | Proven | Signal/device unit tests and MicroPython external-input qualification |
 | Stable hierarchical VCD | Proven | Trace unit tests, Docker smoke VCDs and official-firmware qualification |
-| Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Partial | Stop reasons exist; public breakpoint/watchpoint and signal-edge gates are incomplete |
+| Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Proven | CLI controls and `qualification/stop-conditions.json` prove all non-exit stops independently on RISC-V, Arm and Xtensa; normal portfolio smoke proves exit |
 | Stable machine-readable result and event digest | Proven | CLI JSON artifacts and deterministic trace digests |
 | Selected unmodified WCH EVT, Pico SDK and ESP-IDF samples | Missing | Official MicroPython is valuable additional evidence but does not replace this named gate |
 | GCC, Clang and Rust across optimization levels | Partial | GCC and Clang pass; the target Rust lane is missing |
@@ -44,6 +44,18 @@ Status meanings:
 
 ## Most recent closure
 
+The public direct-run CLI now accepts typed breakpoints, data watchpoints, and
+named change/rising/falling signal stops. Arm `BKPT` and Xtensa `BREAK` report
+the architectural breakpoint reason rather than masquerading as a halt, while
+RISC-V retains `EBREAK`. Watchpoints cover overlapping completed reads/writes
+without triggering on instruction fetch. Eighteen Docker-built proofs cover
+fault, breakpoint, watchpoint, signal edge, virtual-time deadline, and
+instruction-budget stops independently on RISC-V, Arm, and Xtensa; ordinary
+portfolio runs cover explicit exit. Their stable results and hashes are in
+`qualification/stop-conditions.json`.
+
+## Previous closure
+
 Phase 0 now has executable host-independent determinism evidence. A fake
 dual-core machine advances both CPUs in stable round-robin order alongside a
 timer, while 64 variants perturb event insertion IDs with same-time cancelled
@@ -53,7 +65,7 @@ for their selected architecture and publish the same digest in
 `qualification/host-determinism.json`; arm64 may be native or supplied through
 binfmt/QEMU on a development host.
 
-## Previous closure
+## Earlier register-coverage closure
 
 The Docker portfolio gate now records every completed bus access and generates
 one checked coverage manifest per chip. Each manifest contains only registers

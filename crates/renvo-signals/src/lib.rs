@@ -157,6 +157,9 @@ pub enum SignalError {
     /// Signal ID is not declared.
     #[error("unknown signal ID {0}")]
     UnknownSignal(u32),
+    /// Signal path is not declared.
+    #[error("unknown signal path {0:?}")]
+    UnknownPath(String),
     /// New value width differs from the declaration.
     #[error("signal width mismatch: expected {expected}, received {actual}")]
     WidthMismatch {

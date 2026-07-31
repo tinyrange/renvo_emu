@@ -1,4 +1,4 @@
-use crate::SimTime;
+use crate::{AccessKind, SimTime};
 use serde::{Deserialize, Serialize};
 
 /// Deterministic run budgets.
@@ -23,6 +23,13 @@ pub enum StopReason {
     Fault(String),
     /// User breakpoint.
     Breakpoint,
+    /// A watched data address was read or written.
+    Watchpoint {
+        /// First byte address of the triggering access.
+        address: u64,
+        /// Read or write operation that triggered the stop.
+        access: AccessKind,
+    },
     /// Named signal edge or condition.
     Signal(String),
     /// Machine has no runnable CPU and no pending events.

@@ -1,5 +1,8 @@
 use crate::arm::Rp2040UsbHost;
-use crate::{MemoryKind, PinStimulus, TargetId, target_manifest};
+use crate::{
+    MemoryKind, PinStimulus, SignalEdge, SignalStop, TargetId, matching_signal_stop,
+    resolve_signal_stop, target_manifest,
+};
 use md5::{Digest, Md5};
 use renvo_bus::{AddressSpace, Endianness, MapError, Permissions, SharedMemory};
 use renvo_core::{
@@ -263,6 +266,8 @@ pub struct RiscVMachine {
     usb_host: Option<Rp2040UsbHost>,
     esp_usb_serial_jtag: Option<EspUsbSerialJtagHandle>,
     stop_on_usb_input_complete: bool,
+    breakpoints: BTreeSet<u64>,
+    signal_stops: Vec<SignalStop>,
 }
 
 impl RiscVMachine {
@@ -829,6 +834,8 @@ impl RiscVMachine {
             usb_host,
             esp_usb_serial_jtag,
             stop_on_usb_input_complete: false,
+            breakpoints: BTreeSet::new(),
+            signal_stops: Vec::new(),
         })
     }
 
@@ -3742,6 +3749,30 @@ impl RiscVMachine {
         self.bus.access_log()
     }
 
+    /// Stops before executing an instruction at `address`.
+    pub fn add_breakpoint(&mut self, address: u64) {
+        self.breakpoints.insert(address);
+    }
+
+    /// Stops after a completed CPU data access overlaps `address`.
+    pub fn add_watchpoint(&mut self, address: u64) {
+        self.bus.add_watchpoint(address);
+    }
+
+    /// Stops when the named signal satisfies `edge`.
+    pub fn add_signal_stop(&mut self, path: &str, edge: SignalEdge) -> Result<(), MachineError> {
+        self.signal_stops
+            .push(resolve_signal_stop(&self.signals, path, edge)?);
+        Ok(())
+    }
+
+    /// Removes configured user breakpoints and data watchpoints.
+    pub fn clear_debug_stops(&mut self) {
+        self.breakpoints.clear();
+        self.bus.clear_watchpoints();
+        self.signal_stops.clear();
+    }
+
     /// Loads a parsed direct-mode ELF and sets its entry point.
     pub fn load_firmware(&mut self, image: &FirmwareImage) -> Result<(), MachineError> {
         if image.architecture != FirmwareArchitecture::RiscV32 {
@@ -4190,6 +4221,9 @@ impl RiscVMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
+            if self.breakpoints.contains(&self.cpu.snapshot().pc) {
+                break StopReason::Breakpoint;
+            }
 
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
@@ -4440,6 +4474,7 @@ impl RiscVMachine {
                     }
                 }
             }
+            self.bus.clear_watchpoint_hit();
             match self.service_functional_bootrom() {
                 Ok(true) => {
                     stats.instructions = stats.instructions.saturating_add(1);
@@ -4448,6 +4483,12 @@ impl RiscVMachine {
                         .checked_add(renvo_core::SimDuration::TICK)
                         .map_err(|_| MachineError::TimeOverflow)?;
                     stats.time = self.now;
+                    if let Some(hit) = self.bus.take_watchpoint_hit() {
+                        break StopReason::Watchpoint {
+                            address: hit.address,
+                            access: hit.kind,
+                        };
+                    }
                     continue;
                 }
                 Ok(false) => {}
@@ -4469,11 +4510,23 @@ impl RiscVMachine {
                 .map_err(|_| MachineError::TimeOverflow)?;
             stats.time = self.now;
 
+            let mut signal_stop = None;
             for change in self.signals.drain_changes() {
+                signal_stop =
+                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
                 digest.change(&change);
                 if let Some(sink) = trace.as_deref_mut() {
                     sink.change(&change)?;
                 }
+            }
+            if let Some(path) = signal_stop {
+                break StopReason::Signal(path);
+            }
+            if let Some(hit) = self.bus.take_watchpoint_hit() {
+                break StopReason::Watchpoint {
+                    address: hit.address,
+                    access: hit.kind,
+                };
             }
 
             match outcome.reason {
@@ -4505,6 +4558,13 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(1);
                 }
+                if self.breakpoints.contains(&self.cpu1.snapshot().pc) {
+                    if let Some(sio) = &self.sio {
+                        sio.select_core(0);
+                    }
+                    break StopReason::Breakpoint;
+                }
+                self.bus.clear_watchpoint_hit();
                 std::mem::swap(&mut self.cpu, &mut self.cpu1);
                 let hart1_rom = self.service_functional_bootrom();
                 std::mem::swap(&mut self.cpu, &mut self.cpu1);
@@ -4516,6 +4576,15 @@ impl RiscVMachine {
                             .checked_add(renvo_core::SimDuration::TICK)
                             .map_err(|_| MachineError::TimeOverflow)?;
                         stats.time = self.now;
+                        if let Some(hit) = self.bus.take_watchpoint_hit() {
+                            if let Some(sio) = &self.sio {
+                                sio.select_core(0);
+                            }
+                            break StopReason::Watchpoint {
+                                address: hit.address,
+                                access: hit.kind,
+                            };
+                        }
                     }
                     Ok(false) => {
                         let instruction_pc = self.cpu1.pc();
@@ -4536,6 +4605,15 @@ impl RiscVMachine {
                             .checked_add(hart1_outcome.elapsed)
                             .map_err(|_| MachineError::TimeOverflow)?;
                         stats.time = self.now;
+                        if let Some(hit) = self.bus.take_watchpoint_hit() {
+                            if let Some(sio) = &self.sio {
+                                sio.select_core(0);
+                            }
+                            break StopReason::Watchpoint {
+                                address: hit.address,
+                                access: hit.kind,
+                            };
+                        }
                         match hart1_outcome.reason {
                             StepReason::Advanced | StepReason::WaitForInterrupt => {}
                             StepReason::Halted => self.cpu1_active = false,
@@ -4557,11 +4635,17 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(0);
                 }
+                let mut signal_stop = None;
                 for change in self.signals.drain_changes() {
+                    signal_stop =
+                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
                     digest.change(&change);
                     if let Some(sink) = trace.as_deref_mut() {
                         sink.change(&change)?;
                     }
+                }
+                if let Some(path) = signal_stop {
+                    break StopReason::Signal(path);
                 }
             }
         };

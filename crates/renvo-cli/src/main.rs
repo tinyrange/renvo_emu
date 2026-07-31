@@ -10,8 +10,8 @@ use renvo_image::{
     EspFlashImage, FirmwareArchitecture, FirmwareImage, OfficialFirmwareSuite, Uf2Image,
 };
 use renvo_machines::{
-    ArmMachine, HOST_SCRIPT_COMPLETE_MARKER, PinStimulus, RiscVMachine, RunResult, TargetId,
-    XtensaMachine, target_manifests,
+    ArmMachine, HOST_SCRIPT_COMPLETE_MARKER, PinStimulus, RiscVMachine, RunResult, SignalEdge,
+    TargetId, XtensaMachine, target_manifests,
 };
 use renvo_signals::Logic;
 use renvo_trace::{Timescale, TraceSink, VcdWriter};
@@ -192,6 +192,29 @@ struct RunArgs {
     /// Optional JSON record of completed memory and MMIO operations.
     #[arg(long)]
     bus_log: Option<PathBuf>,
+    /// Stop before executing this address; accepts decimal or 0x-prefixed hex.
+    #[arg(long, value_parser = parse_address)]
+    breakpoint: Vec<u64>,
+    /// Stop after a data access overlaps this address; accepts decimal or 0x-prefixed hex.
+    #[arg(long, value_parser = parse_address)]
+    watchpoint: Vec<u64>,
+    /// Stop on PATH=change, PATH=rising, or PATH=falling.
+    #[arg(long = "stop-signal", value_parser = parse_signal_stop)]
+    signal_stops: Vec<SignalStopArg>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SignalStopArg {
+    path: String,
+    edge: SignalEdge,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct DirectRunControl<'a> {
+    record_accesses: bool,
+    breakpoints: &'a [u64],
+    watchpoints: &'a [u64],
+    signal_stops: &'a [SignalStopArg],
 }
 
 #[derive(Debug, Subcommand)]
@@ -783,7 +806,12 @@ fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
             limits,
             &stimuli,
             Some(&mut writer),
-            arguments.bus_log.is_some(),
+            DirectRunControl {
+                record_accesses: arguments.bus_log.is_some(),
+                breakpoints: &arguments.breakpoint,
+                watchpoints: &arguments.watchpoint,
+                signal_stops: &arguments.signal_stops,
+            },
         )?
     } else {
         run_loaded_recorded(
@@ -792,7 +820,12 @@ fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
             limits,
             &stimuli,
             None,
-            arguments.bus_log.is_some(),
+            DirectRunControl {
+                record_accesses: arguments.bus_log.is_some(),
+                breakpoints: &arguments.breakpoint,
+                watchpoints: &arguments.watchpoint,
+                signal_stops: &arguments.signal_stops,
+            },
         )?
     };
     write_access_log(arguments.bus_log.as_deref(), &accesses)?;
@@ -812,7 +845,15 @@ fn run_loaded(
     stimuli: &[PinStimulus],
     trace: Option<&mut dyn TraceSink>,
 ) -> Result<RunResult, Box<dyn Error>> {
-    Ok(run_loaded_recorded(target, image, limits, stimuli, trace, false)?.0)
+    Ok(run_loaded_recorded(
+        target,
+        image,
+        limits,
+        stimuli,
+        trace,
+        DirectRunControl::default(),
+    )?
+    .0)
 }
 
 fn run_loaded_recorded(
@@ -821,27 +862,54 @@ fn run_loaded_recorded(
     limits: RunLimits,
     stimuli: &[PinStimulus],
     trace: Option<&mut dyn TraceSink>,
-    record_accesses: bool,
+    control: DirectRunControl<'_>,
 ) -> Result<(RunResult, Vec<renvo_bus::BusAccessRecord>), Box<dyn Error>> {
     match image.architecture {
         FirmwareArchitecture::RiscV32 => {
             let mut machine = RiscVMachine::new(target)?;
             machine.load_firmware(image)?;
-            machine.set_access_recording(record_accesses);
+            for address in control.breakpoints {
+                machine.add_breakpoint(*address);
+            }
+            for address in control.watchpoints {
+                machine.add_watchpoint(*address);
+            }
+            for stop in control.signal_stops {
+                machine.add_signal_stop(&stop.path, stop.edge)?;
+            }
+            machine.set_access_recording(control.record_accesses);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
             Ok((result, machine.access_log().to_vec()))
         }
         FirmwareArchitecture::Arm => {
             let mut machine = ArmMachine::new(target)?;
             machine.load_firmware(image)?;
-            machine.set_access_recording(record_accesses);
+            for address in control.breakpoints {
+                machine.add_breakpoint(*address);
+            }
+            for address in control.watchpoints {
+                machine.add_watchpoint(*address);
+            }
+            for stop in control.signal_stops {
+                machine.add_signal_stop(&stop.path, stop.edge)?;
+            }
+            machine.set_access_recording(control.record_accesses);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
             Ok((result, machine.access_log().to_vec()))
         }
         FirmwareArchitecture::Xtensa => {
             let mut machine = XtensaMachine::new(target)?;
             machine.load_firmware(image)?;
-            machine.set_access_recording(record_accesses);
+            for address in control.breakpoints {
+                machine.add_breakpoint(*address);
+            }
+            for address in control.watchpoints {
+                machine.add_watchpoint(*address);
+            }
+            for stop in control.signal_stops {
+                machine.add_signal_stop(&stop.path, stop.edge)?;
+            }
+            machine.set_access_recording(control.record_accesses);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
             Ok((result, machine.access_log().to_vec()))
         }
@@ -866,6 +934,36 @@ fn parse_stimulus(value: &str) -> Result<PinStimulus, Box<dyn Error>> {
         at: SimTime::from_ticks(tick.parse()?),
         pin: pin.parse()?,
         value,
+    })
+}
+
+fn parse_address(value: &str) -> Result<u64, String> {
+    if let Some(hex) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        u64::from_str_radix(hex, 16).map_err(|error| error.to_string())
+    } else {
+        value.parse::<u64>().map_err(|error| error.to_string())
+    }
+}
+
+fn parse_signal_stop(value: &str) -> Result<SignalStopArg, String> {
+    let (path, edge) = value
+        .rsplit_once('=')
+        .ok_or_else(|| "signal stop must use PATH=change|rising|falling".to_owned())?;
+    if path.is_empty() {
+        return Err("signal stop path must not be empty".to_owned());
+    }
+    let edge = match edge.to_ascii_lowercase().as_str() {
+        "change" => SignalEdge::Change,
+        "rising" => SignalEdge::Rising,
+        "falling" => SignalEdge::Falling,
+        _ => return Err("signal edge must be change, rising, or falling".to_owned()),
+    };
+    Ok(SignalStopArg {
+        path: path.to_owned(),
+        edge,
     })
 }
 
@@ -1214,6 +1312,37 @@ mod tests {
             panic!("expected direct run");
         };
         assert_eq!(arguments.bus_log, Some(PathBuf::from("accesses.json")));
+    }
+
+    #[test]
+    fn direct_run_accepts_typed_debug_and_signal_stops() {
+        let parsed = Cli::try_parse_from([
+            "renvo",
+            "run",
+            "--target",
+            "ch32v003",
+            "--elf",
+            "firmware.elf",
+            "--breakpoint",
+            "0x20",
+            "--watchpoint",
+            "64",
+            "--stop-signal",
+            "board.ch32v003.gpioc.pin1=rising",
+        ])
+        .unwrap();
+        let Command::Run(arguments) = parsed.command else {
+            panic!("expected direct run");
+        };
+        assert_eq!(arguments.breakpoint, [0x20]);
+        assert_eq!(arguments.watchpoint, [64]);
+        assert_eq!(
+            arguments.signal_stops,
+            [SignalStopArg {
+                path: "board.ch32v003.gpioc.pin1".to_owned(),
+                edge: SignalEdge::Rising,
+            }]
+        );
     }
 
     #[test]

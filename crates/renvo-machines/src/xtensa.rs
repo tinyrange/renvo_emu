@@ -1,8 +1,8 @@
 use crate::HOST_SCRIPT_COMPLETE_MARKER;
 use crate::riscv::{TEST_DEVICE_SIZE, TEST_EXIT_SIZE};
 use crate::{
-    MemoryKind, PinStimulus, RunResult, TEST_EXIT, TEST_GPIO, TEST_TIMER, TEST_UART, TargetId,
-    target_manifest,
+    MemoryKind, PinStimulus, RunResult, SignalEdge, SignalStop, TEST_EXIT, TEST_GPIO, TEST_TIMER,
+    TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop, target_manifest,
 };
 use md5::{Digest, Md5};
 use renvo_bus::{AddressSpace, Endianness, MapError, Permissions, SharedMemory};
@@ -22,7 +22,7 @@ use renvo_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use renvo_signals::{Logic, SignalError};
 use renvo_trace::{TraceDigest, TraceError, TraceSink};
 use sha2::{Sha224, Sha256};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
 /// ESP32-S3 machine construction or execution failure.
@@ -385,6 +385,8 @@ pub struct XtensaMachine {
     setjmp_contexts: BTreeMap<u32, XtensaCpu>,
     flash: Vec<u8>,
     stop_on_usb_input_complete: bool,
+    breakpoints: BTreeSet<u64>,
+    signal_stops: Vec<SignalStop>,
 }
 
 impl XtensaMachine {
@@ -719,6 +721,8 @@ impl XtensaMachine {
             setjmp_contexts: BTreeMap::new(),
             flash: Vec::new(),
             stop_on_usb_input_complete: false,
+            breakpoints: BTreeSet::new(),
+            signal_stops: Vec::new(),
         })
     }
 
@@ -898,6 +902,34 @@ impl XtensaMachine {
     /// Returns completed bus operations when recording is enabled.
     pub fn access_log(&self) -> &[renvo_bus::BusAccessRecord] {
         self.bus.access_log()
+    }
+
+    /// Stops before executing an instruction at `address`.
+    pub fn add_breakpoint(&mut self, address: u64) {
+        self.breakpoints.insert(address);
+    }
+
+    /// Stops after a completed CPU data access overlaps `address`.
+    pub fn add_watchpoint(&mut self, address: u64) {
+        self.bus.add_watchpoint(address);
+    }
+
+    /// Stops when the named signal satisfies `edge`.
+    pub fn add_signal_stop(
+        &mut self,
+        path: &str,
+        edge: SignalEdge,
+    ) -> Result<(), XtensaMachineError> {
+        self.signal_stops
+            .push(resolve_signal_stop(&self.signals, path, edge)?);
+        Ok(())
+    }
+
+    /// Removes configured user breakpoints and data watchpoints.
+    pub fn clear_debug_stops(&mut self) {
+        self.breakpoints.clear();
+        self.bus.clear_watchpoints();
+        self.signal_stops.clear();
     }
 
     /// Queues deterministic CDC-ACM input for the native USB console.
@@ -2205,9 +2237,18 @@ impl XtensaMachine {
                 }
             }
             let running_cpu1 = next_core == 1 && self.appcpu_boot_address.is_some();
+            let next_pc = if running_cpu1 {
+                self.cpu1.snapshot().pc
+            } else {
+                self.cpu.snapshot().pc
+            };
+            if self.breakpoints.contains(&next_pc) {
+                break StopReason::Breakpoint;
+            }
             if running_cpu1 {
                 std::mem::swap(&mut self.cpu, &mut self.cpu1);
             }
+            self.bus.clear_watchpoint_hit();
             match self.service_functional_rom() {
                 Ok(true) => {
                     if running_cpu1 {
@@ -2219,6 +2260,12 @@ impl XtensaMachine {
                         .checked_add(renvo_core::SimDuration::TICK)
                         .map_err(|_| XtensaMachineError::TimeOverflow)?;
                     stats.time = self.now;
+                    if let Some(hit) = self.bus.take_watchpoint_hit() {
+                        break StopReason::Watchpoint {
+                            address: hit.address,
+                            access: hit.kind,
+                        };
+                    }
                     next_core = if self.appcpu_boot_address.is_some() {
                         next_core ^ 1
                     } else {
@@ -2258,11 +2305,23 @@ impl XtensaMachine {
             } else {
                 0
             };
+            let mut signal_stop = None;
             for change in self.signals.drain_changes() {
+                signal_stop =
+                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
                 digest.change(&change);
                 if let Some(sink) = trace.as_deref_mut() {
                     sink.change(&change)?;
                 }
+            }
+            if let Some(path) = signal_stop {
+                break StopReason::Signal(path);
+            }
+            if let Some(hit) = self.bus.take_watchpoint_hit() {
+                break StopReason::Watchpoint {
+                    address: hit.address,
+                    access: hit.kind,
+                };
             }
             match outcome.reason {
                 StepReason::Advanced | StepReason::WaitForInterrupt => {}

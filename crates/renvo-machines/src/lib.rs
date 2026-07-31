@@ -2,7 +2,8 @@
 #![allow(clippy::too_many_lines)]
 
 use renvo_core::SimTime;
-use renvo_signals::Logic;
+use renvo_devices::SignalHub;
+use renvo_signals::{Logic, SignalChange, SignalError, SignalId};
 use serde::Serialize;
 
 mod arm;
@@ -32,4 +33,59 @@ pub struct PinStimulus {
     pub pin: u8,
     /// Four-state value to drive.
     pub value: Logic,
+}
+
+/// Edge condition used by a named signal stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum SignalEdge {
+    /// Any real value transition.
+    Change,
+    /// The low bit changes from a non-one state to one.
+    Rising,
+    /// The low bit changes from a non-zero state to zero.
+    Falling,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SignalStop {
+    signal: SignalId,
+    path: String,
+    edge: SignalEdge,
+}
+
+pub(crate) fn resolve_signal_stop(
+    hub: &SignalHub,
+    path: &str,
+    edge: SignalEdge,
+) -> Result<SignalStop, SignalError> {
+    let signal = hub
+        .with_registry(|registry| registry.find(path))
+        .ok_or_else(|| SignalError::UnknownPath(path.to_owned()))?;
+    Ok(SignalStop {
+        signal,
+        path: path.to_owned(),
+        edge,
+    })
+}
+
+pub(crate) fn matching_signal_stop(change: &SignalChange, stops: &[SignalStop]) -> Option<String> {
+    stops
+        .iter()
+        .find(|stop| {
+            if stop.signal != change.signal {
+                return false;
+            }
+            match stop.edge {
+                SignalEdge::Change => change.previous != change.value,
+                SignalEdge::Rising => {
+                    change.previous.bit(0) != Some(Logic::One)
+                        && change.value.bit(0) == Some(Logic::One)
+                }
+                SignalEdge::Falling => {
+                    change.previous.bit(0) != Some(Logic::Zero)
+                        && change.value.bit(0) == Some(Logic::Zero)
+                }
+            }
+        })
+        .map(|stop| stop.path.clone())
 }

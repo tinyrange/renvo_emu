@@ -1,8 +1,8 @@
 use crate::HOST_SCRIPT_COMPLETE_MARKER;
 use crate::riscv::{TEST_DEVICE_SIZE, TEST_EXIT_SIZE};
 use crate::{
-    MemoryKind, PinStimulus, RunResult, TEST_EXIT, TEST_GPIO, TEST_TIMER, TEST_UART, TargetId,
-    target_manifest,
+    MemoryKind, PinStimulus, RunResult, SignalEdge, SignalStop, TEST_EXIT, TEST_GPIO, TEST_TIMER,
+    TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop, target_manifest,
 };
 use renvo_bus::{AddressSpace, BusAccessRecord, Endianness, MapError, Permissions, SharedMemory};
 use renvo_core::{
@@ -20,7 +20,7 @@ use renvo_devices::{
 use renvo_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use renvo_signals::{Logic, SignalError};
 use renvo_trace::{TraceDigest, TraceError, TraceSink};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
 /// Arm machine construction or execution failure.
@@ -464,6 +464,8 @@ pub struct ArmMachine {
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
     stop_on_usb_input_complete: bool,
+    breakpoints: BTreeSet<u64>,
+    signal_stops: Vec<SignalStop>,
 }
 
 impl ArmMachine {
@@ -1014,6 +1016,8 @@ impl ArmMachine {
             usb_dpram,
             usb_host,
             stop_on_usb_input_complete: false,
+            breakpoints: BTreeSet::new(),
+            signal_stops: Vec::new(),
         })
     }
 
@@ -1478,6 +1482,30 @@ impl ArmMachine {
         self.bus.access_log()
     }
 
+    /// Stops before executing an instruction at `address`.
+    pub fn add_breakpoint(&mut self, address: u64) {
+        self.breakpoints.insert(address);
+    }
+
+    /// Stops after a completed CPU data access overlaps `address`.
+    pub fn add_watchpoint(&mut self, address: u64) {
+        self.bus.add_watchpoint(address);
+    }
+
+    /// Stops when the named signal satisfies `edge`.
+    pub fn add_signal_stop(&mut self, path: &str, edge: SignalEdge) -> Result<(), ArmMachineError> {
+        self.signal_stops
+            .push(resolve_signal_stop(&self.signals, path, edge)?);
+        Ok(())
+    }
+
+    /// Removes configured user breakpoints and data watchpoints.
+    pub fn clear_debug_stops(&mut self) {
+        self.breakpoints.clear();
+        self.bus.clear_watchpoints();
+        self.signal_stops.clear();
+    }
+
     /// Drives or releases one compiler-facade GPIO pin.
     pub fn set_pin(&self, pin: u8, value: Logic) -> Result<(), ArmMachineError> {
         self.gpio.set_input(pin, value, self.now)?;
@@ -1558,6 +1586,9 @@ impl ArmMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
+            if self.breakpoints.contains(&self.cpu.snapshot().pc) {
+                break StopReason::Breakpoint;
+            }
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -1608,6 +1639,7 @@ impl ArmMachine {
             if vector_base != 0 {
                 self.cpu.set_vector_base(vector_base);
             }
+            self.bus.clear_watchpoint_hit();
             match self.service_functional_bootrom() {
                 Ok(true) => {
                     stats.instructions = stats.instructions.saturating_add(1);
@@ -1616,6 +1648,12 @@ impl ArmMachine {
                         .checked_add(renvo_core::SimDuration::TICK)
                         .map_err(|_| ArmMachineError::TimeOverflow)?;
                     stats.time = self.now;
+                    if let Some(hit) = self.bus.take_watchpoint_hit() {
+                        break StopReason::Watchpoint {
+                            address: hit.address,
+                            access: hit.kind,
+                        };
+                    }
                     continue;
                 }
                 Ok(false) => {}
@@ -1631,11 +1669,23 @@ impl ArmMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| ArmMachineError::TimeOverflow)?;
             stats.time = self.now;
+            let mut signal_stop = None;
             for change in self.signals.drain_changes() {
+                signal_stop =
+                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
                 digest.change(&change);
                 if let Some(sink) = trace.as_deref_mut() {
                     sink.change(&change)?;
                 }
+            }
+            if let Some(path) = signal_stop {
+                break StopReason::Signal(path);
+            }
+            if let Some(hit) = self.bus.take_watchpoint_hit() {
+                break StopReason::Watchpoint {
+                    address: hit.address,
+                    access: hit.kind,
+                };
             }
             match outcome.reason {
                 StepReason::Advanced | StepReason::WaitForInterrupt => {}
@@ -1659,6 +1709,11 @@ impl ArmMachine {
             }
             if self.cpu1_active {
                 self.sio.select_core(1);
+                if self.breakpoints.contains(&self.cpu1.snapshot().pc) {
+                    self.sio.select_core(0);
+                    break StopReason::Breakpoint;
+                }
+                self.bus.clear_watchpoint_hit();
                 // ROM services are shared between both processors. Temporarily
                 // place core 1 in the primary slot so the same architectural
                 // service implementation can complete its host call.
@@ -1673,6 +1728,13 @@ impl ArmMachine {
                             .checked_add(renvo_core::SimDuration::TICK)
                             .map_err(|_| ArmMachineError::TimeOverflow)?;
                         stats.time = self.now;
+                        if let Some(hit) = self.bus.take_watchpoint_hit() {
+                            self.sio.select_core(0);
+                            break StopReason::Watchpoint {
+                                address: hit.address,
+                                access: hit.kind,
+                            };
+                        }
                     }
                     Ok(false) => {
                         let core1_outcome = match self.cpu1.step(&mut self.bus, self.now) {
@@ -1688,6 +1750,13 @@ impl ArmMachine {
                             .checked_add(core1_outcome.elapsed)
                             .map_err(|_| ArmMachineError::TimeOverflow)?;
                         stats.time = self.now;
+                        if let Some(hit) = self.bus.take_watchpoint_hit() {
+                            self.sio.select_core(0);
+                            break StopReason::Watchpoint {
+                                address: hit.address,
+                                access: hit.kind,
+                            };
+                        }
                         match core1_outcome.reason {
                             StepReason::Advanced | StepReason::WaitForInterrupt => {}
                             StepReason::Halted => {
@@ -1705,11 +1774,17 @@ impl ArmMachine {
                     }
                 }
                 self.sio.select_core(0);
+                let mut signal_stop = None;
                 for change in self.signals.drain_changes() {
+                    signal_stop =
+                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
                     digest.change(&change);
                     if let Some(sink) = trace.as_deref_mut() {
                         sink.change(&change)?;
                     }
+                }
+                if let Some(path) = signal_stop {
+                    break StopReason::Signal(path);
                 }
             }
         };

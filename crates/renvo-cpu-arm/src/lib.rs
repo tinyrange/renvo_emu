@@ -2157,9 +2157,8 @@ impl ArmCpu {
             return Ok(StepReason::Advanced);
         }
         if instruction & 0xff00 == 0xbe00 {
-            self.halted = true;
             self.registers[15] = next;
-            return Ok(StepReason::Halted);
+            return Ok(StepReason::Breakpoint);
         }
         if instruction & 0xff00 == 0xbf00 {
             if instruction & 0x000f != 0 {
@@ -2495,7 +2494,7 @@ mod tests {
         assert_eq!(cpu.register(ArmRegister::R0).unwrap(), 12);
         assert_eq!(
             cpu.step(&mut bus, SimTime::from_ticks(2)).unwrap().reason,
-            StepReason::Halted
+            StepReason::Breakpoint
         );
     }
 

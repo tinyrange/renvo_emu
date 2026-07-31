@@ -127,6 +127,13 @@ build_case esp32s3-uart toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xten
     -O2 uart.c
 run_case esp32s3-uart esp32s3 "$artifact_root/esp32s3-uart/smoke.elf"
 
+build_case stop-riscv-fault toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-gpio ch32v003 \
+    -O2 start.S fault.c
+build_case stop-arm-fault toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp2040 \
+    -O2 start.S fault.c
+build_case stop-xtensa-fault toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtensa esp32s3 \
+    -O2 fault.c
+
 for result in "$artifact_root"/*-run.json
 do
     grep -q '"reason": "Halted"' "$result"
@@ -154,5 +161,6 @@ grep -q '\$scope module pio0 ' "$artifact_root/rp2350-arm-pio.vcd"
 grep -q '\$scope module pio0 ' "$artifact_root/rp2350-riscv-pio.vcd"
 
 scripts/generate-register-coverage.sh "$artifact_root" qualification/register-coverage
+scripts/qualify-stop-conditions.sh
 
 echo "portfolio Docker smoke passed; artifacts: $artifact_root"

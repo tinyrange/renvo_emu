@@ -1314,9 +1314,8 @@ impl XtensaCpu {
             }
         }
         if instruction & 0x00ff_ff0f == 0x0000_4000 {
-            self.halted = true;
             self.pc = next;
-            return Ok(StepReason::Halted);
+            return Ok(StepReason::Breakpoint);
         }
         Err(self.fault(
             CpuFaultKind::IllegalInstruction,
@@ -1559,7 +1558,7 @@ mod tests {
         assert_eq!(cpu.register(XtensaRegister::A8), 12);
         assert_eq!(
             cpu.step(&mut bus, SimTime::from_ticks(3)).unwrap().reason,
-            StepReason::Halted
+            StepReason::Breakpoint
         );
     }
 

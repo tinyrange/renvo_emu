@@ -1,0 +1,299 @@
+{
+  "schema": "renvo.stop-conditions.v1",
+  "source_sha256": "7bab7eeb45f6a251a5bf0e1cd4a8cd9a2a14eddbed52a99c757152ee6c03423b",
+  "cpu_families": [
+    "riscv",
+    "arm",
+    "xtensa"
+  ],
+  "conditions": [
+    "exit",
+    "fault",
+    "breakpoint",
+    "watchpoint",
+    "signal-edge",
+    "virtual-time",
+    "instruction-budget"
+  ],
+  "proofs": [
+    {
+      "id": "arm-breakpoint",
+      "artifact": ".renvo/stop-conditions/arm-breakpoint.json",
+      "sha256": "0e25414c6be8e9da17a2e3390ec2a15c73ddcc80f3614974d64c530d44051630",
+      "target": "rp2040",
+      "reason": "Breakpoint",
+      "stats": {
+        "instructions": 0,
+        "time": 0,
+        "events": 0
+      },
+      "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+      "result": "pass"
+    },
+    {
+      "id": "riscv-breakpoint",
+      "artifact": ".renvo/stop-conditions/riscv-breakpoint.json",
+      "sha256": "4359a0bfa9c088a26ed72d3bcaeb7da464a3d0c6e010a1aa164a8522ccc05566",
+      "target": "ch32v003",
+      "reason": "Breakpoint",
+      "stats": {
+        "instructions": 0,
+        "time": 0,
+        "events": 0
+      },
+      "trace_digest": "1489dfa3442a01bad4b42a2f4d3ac21161960e1201c8cd522f4dce4f39053c39",
+      "result": "pass"
+    },
+    {
+      "id": "xtensa-breakpoint",
+      "artifact": ".renvo/stop-conditions/xtensa-breakpoint.json",
+      "sha256": "6869d8d7239bb71ced501d9293c3cf5e1e266b860b636277241186e2e230d670",
+      "target": "esp32s3",
+      "reason": "Breakpoint",
+      "stats": {
+        "instructions": 0,
+        "time": 0,
+        "events": 0
+      },
+      "trace_digest": "e69db210e9b641498449be369672ae53c085ea2208247ae25f14a33a6b9151d4",
+      "result": "pass"
+    },
+    {
+      "id": "arm-fault",
+      "artifact": ".renvo/stop-conditions/arm-fault.json",
+      "sha256": "d844f7fa6d8bf8bdc75a48299604674e5427b6c2e62e7333ee1ebc452e57af67",
+      "target": "rp2040",
+      "reason": {
+        "Fault": "Unsupported CPU fault at PC 0x10000010: exception instruction 0xde00 is not modeled"
+      },
+      "stats": {
+        "instructions": 1,
+        "time": 1,
+        "events": 0
+      },
+      "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+      "result": "pass"
+    },
+    {
+      "id": "riscv-fault",
+      "artifact": ".renvo/stop-conditions/riscv-fault.json",
+      "sha256": "6d729a8ffc3b2ebeb5d44c46bdc68d9ad5df7e77448af7956d6030f5c3017b2b",
+      "target": "ch32v003",
+      "reason": {
+        "Fault": "RISC-V CPU fault at PC 0x00000016: IllegalInstruction CPU fault at PC 0x00000016: instruction 0xffffffff is not valid for wch-ch32v003-qingke-v2a"
+      },
+      "stats": {
+        "instructions": 3,
+        "time": 3,
+        "events": 0
+      },
+      "trace_digest": "1489dfa3442a01bad4b42a2f4d3ac21161960e1201c8cd522f4dce4f39053c39",
+      "result": "pass"
+    },
+    {
+      "id": "xtensa-fault",
+      "artifact": ".renvo/stop-conditions/xtensa-fault.json",
+      "sha256": "dfb0e9479827f7ac21515616ef98b44b241fd2c1d3436f9d20c8ff09d0d188d3",
+      "target": "esp32s3",
+      "reason": {
+        "Fault": "CPU0: IllegalInstruction CPU fault at PC 0x40370003: Xtensa instruction 0xffffff is not implemented"
+      },
+      "stats": {
+        "instructions": 1,
+        "time": 1,
+        "events": 0
+      },
+      "trace_digest": "e69db210e9b641498449be369672ae53c085ea2208247ae25f14a33a6b9151d4",
+      "result": "pass"
+    },
+    {
+      "id": "arm-instruction-limit",
+      "artifact": ".renvo/stop-conditions/arm-instruction-limit.json",
+      "sha256": "412e73fbf79f32c5b50d62dc7884831c88c886fb7606c44a865e33925a7ef057",
+      "target": "rp2040",
+      "reason": "InstructionLimit",
+      "stats": {
+        "instructions": 1,
+        "time": 1,
+        "events": 0
+      },
+      "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+      "result": "pass"
+    },
+    {
+      "id": "riscv-instruction-limit",
+      "artifact": ".renvo/stop-conditions/riscv-instruction-limit.json",
+      "sha256": "339b93b5769409bb99f912ff5dfccf547c6ca08ba88c83d68246f64775ae7c08",
+      "target": "ch32v003",
+      "reason": "InstructionLimit",
+      "stats": {
+        "instructions": 1,
+        "time": 1,
+        "events": 0
+      },
+      "trace_digest": "1489dfa3442a01bad4b42a2f4d3ac21161960e1201c8cd522f4dce4f39053c39",
+      "result": "pass"
+    },
+    {
+      "id": "xtensa-instruction-limit",
+      "artifact": ".renvo/stop-conditions/xtensa-instruction-limit.json",
+      "sha256": "8279c05e62372f8dc093137084e97e8015fb2765ee2d4923861722cc2392a0bc",
+      "target": "esp32s3",
+      "reason": "InstructionLimit",
+      "stats": {
+        "instructions": 1,
+        "time": 1,
+        "events": 0
+      },
+      "trace_digest": "e69db210e9b641498449be369672ae53c085ea2208247ae25f14a33a6b9151d4",
+      "result": "pass"
+    },
+    {
+      "id": "arm-signal",
+      "artifact": ".renvo/stop-conditions/arm-signal.json",
+      "sha256": "5485c65edc233a652c0d872e4dc61425b2dc5837fbe1bec04d0214f2c67aac85",
+      "target": "rp2040",
+      "reason": {
+        "Signal": "board.rp2040.chip_gpio.pin25"
+      },
+      "stats": {
+        "instructions": 8,
+        "time": 8,
+        "events": 0
+      },
+      "trace_digest": "a9875e9ac8444e223a17c4d93726de25b76ef44fd2a27c62fd15467c32ed7351",
+      "result": "pass"
+    },
+    {
+      "id": "riscv-signal",
+      "artifact": ".renvo/stop-conditions/riscv-signal.json",
+      "sha256": "14e54424daf3fe0b5f725f390ce3725fa74df02f0a6c7a55a787faaaf5f359f9",
+      "target": "ch32v003",
+      "reason": {
+        "Signal": "board.ch32v003.gpioc.pin1"
+      },
+      "stats": {
+        "instructions": 16,
+        "time": 16,
+        "events": 0
+      },
+      "trace_digest": "5128f8c0ba3ec5fa9f26b6d37c788b52d7a3e3f499c0a9308bc68ecd8c10ebc5",
+      "result": "pass"
+    },
+    {
+      "id": "xtensa-signal",
+      "artifact": ".renvo/stop-conditions/xtensa-signal.json",
+      "sha256": "58cc7219d885c8b00c3434f76501637826866398628a226ad364f6097aebbc7f",
+      "target": "esp32s3",
+      "reason": {
+        "Signal": "board.esp32s3.chip_gpio.pin2"
+      },
+      "stats": {
+        "instructions": 8,
+        "time": 8,
+        "events": 0
+      },
+      "trace_digest": "8f1061e072be91d2360e69f01701a0e815bda6d473400061851b632e71c677c4",
+      "result": "pass"
+    },
+    {
+      "id": "arm-time-limit",
+      "artifact": ".renvo/stop-conditions/arm-time-limit.json",
+      "sha256": "d64fe023133cd5110bffa0634f36db2c9fabe1aa82abf1e63de1171824de6d71",
+      "target": "rp2040",
+      "reason": "TimeLimit",
+      "stats": {
+        "instructions": 1,
+        "time": 1,
+        "events": 0
+      },
+      "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+      "result": "pass"
+    },
+    {
+      "id": "riscv-time-limit",
+      "artifact": ".renvo/stop-conditions/riscv-time-limit.json",
+      "sha256": "698b48f99e64a509aaab02555531c616920f479abcd41bb45dde9d7b20fbea43",
+      "target": "ch32v003",
+      "reason": "TimeLimit",
+      "stats": {
+        "instructions": 1,
+        "time": 1,
+        "events": 0
+      },
+      "trace_digest": "1489dfa3442a01bad4b42a2f4d3ac21161960e1201c8cd522f4dce4f39053c39",
+      "result": "pass"
+    },
+    {
+      "id": "xtensa-time-limit",
+      "artifact": ".renvo/stop-conditions/xtensa-time-limit.json",
+      "sha256": "82a76d8cc6d5417adc69260ec566c3409b83745569b386c4d6bc637763c2dae1",
+      "target": "esp32s3",
+      "reason": "TimeLimit",
+      "stats": {
+        "instructions": 1,
+        "time": 1,
+        "events": 0
+      },
+      "trace_digest": "e69db210e9b641498449be369672ae53c085ea2208247ae25f14a33a6b9151d4",
+      "result": "pass"
+    },
+    {
+      "id": "arm-watchpoint",
+      "artifact": ".renvo/stop-conditions/arm-watchpoint.json",
+      "sha256": "1a55872952e0e7efedf397e13704fd599a3218b9d472b5e7f2e6abfdaa3c6b37",
+      "target": "rp2040",
+      "reason": {
+        "Watchpoint": {
+          "address": 4294967280,
+          "access": "Write"
+        }
+      },
+      "stats": {
+        "instructions": 11,
+        "time": 11,
+        "events": 0
+      },
+      "trace_digest": "a9875e9ac8444e223a17c4d93726de25b76ef44fd2a27c62fd15467c32ed7351",
+      "result": "pass"
+    },
+    {
+      "id": "riscv-watchpoint",
+      "artifact": ".renvo/stop-conditions/riscv-watchpoint.json",
+      "sha256": "0a3f80ffedae98b817bf36daccbc8b3c6d3087e730bca78a85128fa6ba279a5c",
+      "target": "ch32v003",
+      "reason": {
+        "Watchpoint": {
+          "address": 4294967280,
+          "access": "Write"
+        }
+      },
+      "stats": {
+        "instructions": 19,
+        "time": 19,
+        "events": 0
+      },
+      "trace_digest": "5128f8c0ba3ec5fa9f26b6d37c788b52d7a3e3f499c0a9308bc68ecd8c10ebc5",
+      "result": "pass"
+    },
+    {
+      "id": "xtensa-watchpoint",
+      "artifact": ".renvo/stop-conditions/xtensa-watchpoint.json",
+      "sha256": "2a0aa4a88351c9e3a09702252cc83c026d5dc7887e61d0216ebb78610363e9df",
+      "target": "esp32s3",
+      "reason": {
+        "Watchpoint": {
+          "address": 4294967280,
+          "access": "Write"
+        }
+      },
+      "stats": {
+        "instructions": 18,
+        "time": 18,
+        "events": 0
+      },
+      "trace_digest": "8f1061e072be91d2360e69f01701a0e815bda6d473400061851b632e71c677c4",
+      "result": "pass"
+    }
+  ]
+}

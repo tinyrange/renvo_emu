@@ -3,6 +3,7 @@
 use renvo_core::{AccessKind, AccessWidth, Bus, BusFault, BusFaultKind, ResetKind, SimTime};
 use serde::Serialize;
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::rc::Rc;
 use thiserror::Error;
@@ -271,6 +272,8 @@ pub struct AddressSpace {
     regions: Vec<Region>,
     record_accesses: bool,
     access_log: Vec<BusAccessRecord>,
+    watchpoints: BTreeSet<u64>,
+    watchpoint_hit: Option<BusAccessRecord>,
 }
 
 impl Default for AddressSpace {
@@ -287,6 +290,8 @@ impl AddressSpace {
             regions: Vec::new(),
             record_accesses: false,
             access_log: Vec::new(),
+            watchpoints: BTreeSet::new(),
+            watchpoint_hit: None,
         }
     }
 
@@ -303,6 +308,39 @@ impl AddressSpace {
     /// Clears recorded bus operations without disabling recording.
     pub fn clear_access_log(&mut self) {
         self.access_log.clear();
+    }
+
+    /// Adds a byte address that stops the owning machine on a completed data access.
+    pub fn add_watchpoint(&mut self, address: u64) {
+        self.watchpoints.insert(address);
+    }
+
+    /// Removes every configured data watchpoint and pending hit.
+    pub fn clear_watchpoints(&mut self) {
+        self.watchpoints.clear();
+        self.watchpoint_hit = None;
+    }
+
+    /// Clears a pending hit while preserving configured watchpoints.
+    pub fn clear_watchpoint_hit(&mut self) {
+        self.watchpoint_hit = None;
+    }
+
+    /// Takes the first completed watched access since the previous clear/take.
+    pub fn take_watchpoint_hit(&mut self) -> Option<BusAccessRecord> {
+        self.watchpoint_hit.take()
+    }
+
+    fn record_watchpoint_hit(&mut self, record: &BusAccessRecord) {
+        if record.kind == AccessKind::Execute || self.watchpoint_hit.is_some() {
+            return;
+        }
+        let end = record
+            .address
+            .saturating_add(u64::from(record.width.bytes()));
+        if self.watchpoints.range(record.address..end).next().is_some() {
+            self.watchpoint_hit = Some(record.clone());
+        }
     }
 
     /// Maps zero-filled RAM and returns its shareable backing.
@@ -635,15 +673,17 @@ impl Bus for AddressSpace {
             })?,
         } & width.value_mask();
         let region_name = region.name.clone();
+        let record = BusAccessRecord {
+            at,
+            kind,
+            address,
+            width,
+            value,
+            region: region_name,
+        };
+        self.record_watchpoint_hit(&record);
         if record_accesses {
-            self.access_log.push(BusAccessRecord {
-                at,
-                kind,
-                address,
-                width,
-                value,
-                region: region_name,
-            });
+            self.access_log.push(record);
         }
         Ok(value)
     }
@@ -701,15 +741,17 @@ impl Bus for AddressSpace {
             }
         }
         let region_name = region.name.clone();
+        let record = BusAccessRecord {
+            at,
+            kind: AccessKind::Write,
+            address,
+            width,
+            value: masked,
+            region: region_name,
+        };
+        self.record_watchpoint_hit(&record);
         if record_accesses {
-            self.access_log.push(BusAccessRecord {
-                at,
-                kind: AccessKind::Write,
-                address,
-                width,
-                value: masked,
-                region: region_name,
-            });
+            self.access_log.push(record);
         }
         Ok(())
     }
@@ -798,5 +840,43 @@ mod tests {
                 .kind,
             BusFaultKind::Permission
         );
+    }
+
+    #[test]
+    fn watchpoints_report_completed_overlapping_data_accesses_only() {
+        let mut bus = AddressSpace::default();
+        bus.map_ram("ram", 0x1000, 16, true).unwrap();
+        bus.add_watchpoint(0x1002);
+
+        bus.read(
+            0x1000,
+            AccessWidth::Word,
+            AccessKind::Execute,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(bus.take_watchpoint_hit().is_none());
+
+        bus.write(
+            0x1000,
+            AccessWidth::Word,
+            0x4433_2211,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        let hit = bus.take_watchpoint_hit().unwrap();
+        assert_eq!(hit.address, 0x1000);
+        assert_eq!(hit.kind, AccessKind::Write);
+        assert_eq!(hit.width, AccessWidth::Word);
+
+        bus.clear_watchpoints();
+        bus.read(
+            0x1002,
+            AccessWidth::Byte,
+            AccessKind::Read,
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
+        assert!(bus.take_watchpoint_hit().is_none());
     }
 }
