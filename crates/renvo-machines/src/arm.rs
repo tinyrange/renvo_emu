@@ -126,6 +126,9 @@ pub(crate) struct Rp2040UsbHost {
     bulk_in: Option<u8>,
     bulk_out: Option<u8>,
     input: VecDeque<u8>,
+    input_queued: bool,
+    raw_chunks_queued: usize,
+    raw_chunks_completed: usize,
     output: Vec<u8>,
     sending_raw_chunk: bool,
     raw_prompt_ready: bool,
@@ -164,6 +167,9 @@ impl Rp2040UsbHost {
             bulk_in: None,
             bulk_out: None,
             input: VecDeque::new(),
+            input_queued: false,
+            raw_chunks_queued: 0,
+            raw_chunks_completed: 0,
             output: Vec::new(),
             sending_raw_chunk: false,
             raw_prompt_ready: false,
@@ -172,11 +178,21 @@ impl Rp2040UsbHost {
 
     pub(crate) fn queue_input(&mut self, bytes: &[u8]) {
         self.input.extend(bytes.iter().copied());
+        self.input_queued |= !bytes.is_empty();
+        self.raw_chunks_queued = self
+            .raw_chunks_queued
+            .saturating_add(bytes.iter().filter(|byte| **byte == 0x04).count());
         self.sending_raw_chunk |= !bytes.is_empty();
     }
 
     pub(crate) fn output(&self) -> Vec<u8> {
         self.output.clone()
+    }
+
+    pub(crate) fn input_complete(&self) -> bool {
+        self.input_queued
+            && self.raw_chunks_queued != 0
+            && self.raw_chunks_completed >= self.raw_chunks_queued
     }
 
     fn endpoint_buffer_control_offset(endpoint: u8, input: bool) -> usize {
@@ -308,6 +324,11 @@ impl Rp2040UsbHost {
                 {
                     self.raw_prompt_ready = true;
                 }
+                self.raw_chunks_completed = self
+                    .output
+                    .windows(3)
+                    .filter(|window| *window == b"\x04\x04>")
+                    .count();
             }
             let cleared = half & !(USB_BUF_AVAIL | USB_BUF_FULL);
             control = (control & !(0xffff << shift)) | (u32::from(cleared) << shift);
@@ -449,6 +470,7 @@ pub struct ArmMachine {
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
+    stop_on_usb_input_complete: bool,
 }
 
 impl ArmMachine {
@@ -985,6 +1007,7 @@ impl ArmMachine {
             usb,
             usb_dpram,
             usb_host,
+            stop_on_usb_input_complete: false,
         })
     }
 
@@ -1465,6 +1488,11 @@ impl ArmMachine {
         }
     }
 
+    /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
+    pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
+        self.stop_on_usb_input_complete = enabled;
+    }
+
     /// Runs until a limit, exit, breakpoint, or fault.
     pub fn run(
         &mut self,
@@ -1546,6 +1574,9 @@ impl ArmMachine {
             if let Some(usb) = &self.usb {
                 if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
                     stats.events = stats.events.saturating_add(host.poll(self.now, usb, dpram));
+                    if self.stop_on_usb_input_complete && host.input_complete() {
+                        break StopReason::HostInputComplete;
+                    }
                 }
                 let usb_irq: u8 = if self.target == TargetId::Rp2040 {
                     5
@@ -1698,5 +1729,18 @@ mod tests {
     fn both_raspberry_pi_arm_profiles_construct() {
         ArmMachine::new(TargetId::Rp2040).unwrap();
         ArmMachine::new(TargetId::Rp2350).unwrap();
+    }
+
+    #[test]
+    fn rp_usb_host_completes_only_after_the_final_raw_prompt() {
+        let mut host = Rp2040UsbHost::new();
+        assert!(!host.input_complete());
+        host.queue_input(b"\x01print(1)\n\x04");
+        host.input.clear();
+        host.sending_raw_chunk = false;
+        host.raw_prompt_ready = true;
+        host.output.extend_from_slice(b"OK\x04\x04>");
+        host.raw_chunks_completed = 1;
+        assert!(host.input_complete());
     }
 }

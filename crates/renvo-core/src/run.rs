@@ -27,6 +27,8 @@ pub enum StopReason {
     Signal(String),
     /// Machine has no runnable CPU and no pending events.
     Quiescent,
+    /// The queued deterministic host input completed and the guest returned to its prompt.
+    HostInputComplete,
 }
 
 /// Stable execution counters emitted with run artifacts.

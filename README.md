@@ -21,6 +21,39 @@ The 1,000-case portable C baseline is documented in
 The six-MCU CoreMark qualification and host-calibrated results are in
 [docs/COREMARK.md](docs/COREMARK.md).
 
+## Official MicroPython qualification
+
+The current offline qualification boots unmodified official MicroPython
+v1.28.0 firmware for M5Stack NanoC6, M5Stack AtomS3 Lite, Raspberry Pi Pico,
+and Raspberry Pi Pico 2 in both Arm and RISC-V modes. It runs two clean,
+deterministic repeats of:
+
+- a 15-case portable runtime workload
+- soft reset and raw-REPL recovery
+- multicore/thread behavior
+- periodic and one-shot timer callbacks
+- externally driven GPIO input and GPIO output helpers
+- persistent filesystem write/read across separate boots
+- VCD and ordered trace-digest checks
+- the pinned MQuickJS cross-runtime workload
+
+Run the complete release gate with:
+
+```sh
+scripts/qualify-micropython.sh
+```
+
+Raw-REPL script runs retain their conservative instruction ceilings but stop
+once every queued chunk has executed and the matching final prompt is
+observed. The gate is intentionally substantial: it performs 70 official
+firmware runs before the MQuickJS lane. The latest local v4 evidence completed
+all five profiles and 60 system-scenario runs successfully.
+
+This is a qualification milestone, not yet the final contract in
+[PLAN.html](PLAN.html). The pinned upstream MicroPython test selection, broader
+board peripheral suite, watchdog/PWM/ADC/serial-bus coverage, and deterministic
+ESP Wi-Fi/BLE environments remain required.
+
 ## Toolchain isolation
 
 Renvo itself builds with the Rust toolchain pinned by `rust-toolchain.toml`.

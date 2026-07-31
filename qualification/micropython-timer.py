@@ -41,3 +41,4 @@ timer.deinit()
 if len(events) != 1:
     raise AssertionError("one-shot Timer callback count: {}".format(len(events)))
 print("RENVO_TIMER_ONE_SHOT_OK", len(events))
+print("RENVO_TIMER_OK")

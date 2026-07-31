@@ -199,6 +199,9 @@ struct EspUsbSerialJtagState {
     rx: VecDeque<u8>,
     tx_packet: Vec<u8>,
     output: Vec<u8>,
+    input_queued: bool,
+    raw_chunks_queued: usize,
+    raw_chunks_completed: usize,
     interrupt_raw: u32,
     interrupt_enable: u32,
     registers: BTreeMap<u64, u32>,
@@ -210,6 +213,10 @@ impl EspUsbSerialJtagHandle {
         let mut state = self.state.lock().expect("USB Serial/JTAG lock poisoned");
         state.rx.extend(bytes.iter().copied());
         if !bytes.is_empty() {
+            state.input_queued = true;
+            state.raw_chunks_queued = state
+                .raw_chunks_queued
+                .saturating_add(bytes.iter().filter(|byte| **byte == 0x04).count());
             state.interrupt_raw |= 1 << 2;
         }
     }
@@ -221,6 +228,14 @@ impl EspUsbSerialJtagHandle {
             .expect("USB Serial/JTAG lock poisoned")
             .output
             .clone()
+    }
+
+    /// Reports that all queued raw-REPL input ran and its final prompt was flushed.
+    pub fn input_complete(&self) -> bool {
+        let state = self.state.lock().expect("USB Serial/JTAG lock poisoned");
+        state.input_queued
+            && state.raw_chunks_queued != 0
+            && state.raw_chunks_completed >= state.raw_chunks_queued
     }
 
     /// Reports whether an enabled USB Serial/JTAG interrupt is pending.
@@ -281,6 +296,11 @@ impl EspUsbSerialJtag {
 
     fn flush_tx(state: &mut EspUsbSerialJtagState) {
         state.output.append(&mut state.tx_packet);
+        state.raw_chunks_completed = state
+            .output
+            .windows(3)
+            .filter(|window| *window == b"\x04\x04>")
+            .count();
         // The functional host takes the packet immediately, making EP1
         // writable again and producing the hardware's IN-empty indication.
         state.interrupt_raw |= Self::SERIAL_IN_EMPTY;
@@ -4578,7 +4598,7 @@ mod tests {
     #[test]
     fn esp_usb_serial_jtag_moves_deterministic_host_packets() {
         let (mut usb, handle) = EspUsbSerialJtag::new("usb-serial-jtag");
-        handle.queue_input(b"x");
+        handle.queue_input(b"x\x04");
         usb.write(0x10, AccessWidth::Word, 1 << 2, SimTime::ZERO)
             .unwrap();
         assert!(handle.interrupt_pending());
@@ -4589,6 +4609,10 @@ mod tests {
         assert_eq!(
             usb.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
             u64::from(b'x')
+        );
+        assert_eq!(
+            usb.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(0x04_u8)
         );
         assert_eq!(
             usb.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
@@ -4602,6 +4626,14 @@ mod tests {
         assert!(handle.output().is_empty());
         usb.write(4, AccessWidth::Word, 1, SimTime::ZERO).unwrap();
         assert_eq!(handle.output(), b"hello");
+        assert!(!handle.input_complete());
+
+        for byte in b"\x04\x04>" {
+            usb.write(0, AccessWidth::Word, u64::from(*byte), SimTime::ZERO)
+                .unwrap();
+        }
+        usb.write(4, AccessWidth::Word, 1, SimTime::ZERO).unwrap();
+        assert!(handle.input_complete());
     }
 
     #[test]

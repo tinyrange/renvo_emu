@@ -10,6 +10,7 @@ workload="$repo_root/qualification/micropython-comprehensive.py"
 soft_reset_workload="$repo_root/qualification/micropython-soft-reset.py"
 thread_workload="$repo_root/qualification/micropython-thread-probe.py"
 gpio_input_workload="$repo_root/qualification/micropython-gpio-input.py"
+timer_workload="$repo_root/qualification/micropython-timer.py"
 persistence_write_workload="$repo_root/qualification/micropython-persistence-write.py"
 persistence_read_workload="$repo_root/qualification/micropython-persistence-read.py"
 
@@ -42,7 +43,7 @@ validate_run()
     vcd="$profile_root/pins.vcd"
 
     jq -er '.usb | implode' "$result" > "$transcript"
-    jq -e '.reason == "InstructionLimit" or .reason == "Halted"' "$result" >/dev/null
+    jq -e '.reason == "HostInputComplete" or .reason == "InstructionLimit" or .reason == "Halted"' "$result" >/dev/null
     grep -aF 'MicroPython v1.28.0 on 2026-04-06;' "$transcript" >/dev/null
     case_count=$(grep -ao 'RENVO_CASE ' "$transcript" | wc -l)
     test "$case_count" -eq 15
@@ -174,7 +175,7 @@ run_system_phase()
     "$@"
 
     jq -r '(.usb | implode), (.uart | implode)' "$result" > "$transcript"
-    jq -e '.reason == "InstructionLimit" or .reason == "Halted"' "$result" >/dev/null
+    jq -e '.reason == "HostInputComplete" or .reason == "InstructionLimit" or .reason == "Halted"' "$result" >/dev/null
     grep -aF "$marker" "$transcript" >/dev/null
     if grep -aE 'Traceback|MemoryError|AssertionError|Unhandled exception' "$transcript" >/dev/null
     then
@@ -213,8 +214,9 @@ run_system_profile()
     do
         soft_root="$run_root/$profile/system/soft-reset/repeat-$repeat"
         thread_root="$run_root/$profile/system/thread/repeat-$repeat"
+        timer_root="$run_root/$profile/system/timer/repeat-$repeat"
         persistence_root="$run_root/$profile/system/persistence/repeat-$repeat"
-        mkdir -p "$soft_root" "$thread_root" "$persistence_root"
+        mkdir -p "$soft_root" "$thread_root" "$timer_root" "$persistence_root"
 
         run_system_phase \
             "$profile" "$target" "$cpu" "$filename" "$limit" \
@@ -224,6 +226,10 @@ run_system_profile()
             "$profile" "$target" "$cpu" "$filename" "$limit" \
             thread "$repeat" run "$thread_workload" \
             "RENVO_THREAD_OK 0xd062b2b8 True" "$thread_root/flash.bin"
+        run_system_phase \
+            "$profile" "$target" "$cpu" "$filename" "$limit" \
+            timer "$repeat" run "$timer_workload" \
+            "RENVO_TIMER_OK" "$timer_root/flash.bin"
         gpio_root="$run_root/$profile/system/gpio-input/repeat-$repeat"
         mkdir -p "$gpio_root"
         run_system_phase \
@@ -293,7 +299,7 @@ done
 
 for profile in nanoc6-riscv atoms3-xtensa pico-arm pico2-arm pico2-riscv
 do
-    for scenario_phase in soft-reset:run thread:run gpio-input:run persistence:write persistence:read
+    for scenario_phase in soft-reset:run thread:run timer:run gpio-input:run persistence:write persistence:read
     do
         scenario=${scenario_phase%:*}
         phase=${scenario_phase#*:}
@@ -320,6 +326,7 @@ workload_sha=$(sha256sum "$workload" | cut -d ' ' -f 1)
 soft_reset_workload_sha=$(sha256sum "$soft_reset_workload" | cut -d ' ' -f 1)
 thread_workload_sha=$(sha256sum "$thread_workload" | cut -d ' ' -f 1)
 gpio_input_workload_sha=$(sha256sum "$gpio_input_workload" | cut -d ' ' -f 1)
+timer_workload_sha=$(sha256sum "$timer_workload" | cut -d ' ' -f 1)
 persistence_write_workload_sha=$(sha256sum "$persistence_write_workload" | cut -d ' ' -f 1)
 persistence_read_workload_sha=$(sha256sum "$persistence_read_workload" | cut -d ' ' -f 1)
 mquickjs_sha=$(sha256sum "$run_root/mquickjs/summary.json" | cut -d ' ' -f 1)
@@ -333,6 +340,7 @@ jq -Rn \
     --arg soft_reset_workload_sha256 "$soft_reset_workload_sha" \
     --arg thread_workload_sha256 "$thread_workload_sha" \
     --arg gpio_input_workload_sha256 "$gpio_input_workload_sha" \
+    --arg timer_workload_sha256 "$timer_workload_sha" \
     --arg persistence_write_workload_sha256 "$persistence_write_workload_sha" \
     --arg persistence_read_workload_sha256 "$persistence_read_workload_sha" \
     --arg mquickjs_summary_sha256 "$mquickjs_sha" \
@@ -363,7 +371,7 @@ jq -Rn \
         instructions: (.[10] | split(":")[0] | tonumber),
         events: (.[10] | split(":")[1] | tonumber)
     })) as $system_runs | {
-        schema: "renvo.micropython-acceptance.v3",
+        schema: "renvo.micropython-acceptance.v4",
         status: "passed",
         offline: true,
         release: "MicroPython v1.28.0 (2026-04-06)",
@@ -377,6 +385,7 @@ jq -Rn \
             soft_reset_sha256: $soft_reset_workload_sha256,
             thread_sha256: $thread_workload_sha256,
             gpio_input_sha256: $gpio_input_workload_sha256,
+            timer_sha256: $timer_workload_sha256,
             persistence_write_sha256: $persistence_write_workload_sha256,
             persistence_read_sha256: $persistence_read_workload_sha256
         },

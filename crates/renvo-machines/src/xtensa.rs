@@ -103,6 +103,9 @@ struct EspDwc2Host {
     bulk_in: Option<u8>,
     bulk_out: Option<u8>,
     input: VecDeque<u8>,
+    input_queued: bool,
+    raw_chunks_queued: usize,
+    raw_chunks_completed: usize,
     output: Vec<u8>,
     input_started: bool,
     sending_raw_chunk: bool,
@@ -140,6 +143,9 @@ impl EspDwc2Host {
             bulk_in: None,
             bulk_out: None,
             input: VecDeque::new(),
+            input_queued: false,
+            raw_chunks_queued: 0,
+            raw_chunks_completed: 0,
             output: Vec::new(),
             input_started: false,
             sending_raw_chunk: false,
@@ -149,11 +155,21 @@ impl EspDwc2Host {
 
     fn queue_input(&mut self, bytes: &[u8]) {
         self.input.extend(bytes.iter().copied());
+        self.input_queued |= !bytes.is_empty();
+        self.raw_chunks_queued = self
+            .raw_chunks_queued
+            .saturating_add(bytes.iter().filter(|byte| **byte == 0x04).count());
         self.sending_raw_chunk |= !bytes.is_empty();
     }
 
     fn output(&self) -> Vec<u8> {
         self.output.clone()
+    }
+
+    fn input_complete(&self) -> bool {
+        self.input_queued
+            && self.raw_chunks_queued != 0
+            && self.raw_chunks_completed >= self.raw_chunks_queued
     }
 
     fn input_started(&self) -> bool {
@@ -306,6 +322,11 @@ impl EspDwc2Host {
                     {
                         self.raw_prompt_ready = true;
                     }
+                    self.raw_chunks_completed = self
+                        .output
+                        .windows(3)
+                        .filter(|window| *window == b"\x04\x04>")
+                        .count();
                 }
                 events += 1;
             }
@@ -371,6 +392,7 @@ pub struct XtensaMachine {
     sha256_contexts: BTreeMap<u32, FunctionalSha256>,
     setjmp_contexts: BTreeMap<u32, XtensaCpu>,
     flash: Vec<u8>,
+    stop_on_usb_input_complete: bool,
 }
 
 impl XtensaMachine {
@@ -704,6 +726,7 @@ impl XtensaMachine {
             sha256_contexts: BTreeMap::new(),
             setjmp_contexts: BTreeMap::new(),
             flash: Vec::new(),
+            stop_on_usb_input_complete: false,
         })
     }
 
@@ -889,6 +912,11 @@ impl XtensaMachine {
     pub fn queue_usb_input(&mut self, bytes: &[u8]) {
         self.usb_serial_jtag.queue_input(bytes);
         self.usb_host.queue_input(bytes);
+    }
+
+    /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
+    pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
+        self.stop_on_usb_input_complete = enabled;
     }
 
     fn complete_functional_rom_call(&mut self, result: u32) -> Result<(), String> {
@@ -2022,6 +2050,9 @@ impl XtensaMachine {
                     .events
                     .saturating_add(self.usb_host.poll(self.now, &self.usb_otg));
             }
+            if self.stop_on_usb_input_complete && self.usb_host.input_complete() {
+                break StopReason::HostInputComplete;
+            }
             let usb_pending = self.usb_otg.interrupt_pending();
             if usb_pending && !usb_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -2271,5 +2302,18 @@ mod tests {
         assert!(!appcpu_systimer_level(true, true, false));
         assert!(appcpu_systimer_level(true, true, true));
         assert!(!appcpu_systimer_level(false, true, true));
+    }
+
+    #[test]
+    fn dwc2_host_completes_only_after_the_final_raw_prompt() {
+        let mut host = EspDwc2Host::new();
+        assert!(!host.input_complete());
+        host.queue_input(b"\x01print(1)\n\x04");
+        host.input.clear();
+        host.sending_raw_chunk = false;
+        host.raw_prompt_ready = true;
+        host.output.extend_from_slice(b"OK\x04\x04>");
+        host.raw_chunks_completed = 1;
+        assert!(host.input_complete());
     }
 }

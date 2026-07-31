@@ -465,6 +465,7 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
     } else {
         None
     };
+    let stop_on_usb_input_complete = arguments.usb_script.is_some();
     if matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3) {
         if arguments.boot_rom.is_some() {
             return Err("--boot-rom is not used by the ESP mask-ROM image handoff".into());
@@ -541,6 +542,7 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
                 if let Some(payload) = &usb_input {
                     machine.queue_usb_input(payload);
                 }
+                machine.stop_on_usb_input_complete(stop_on_usb_input_complete);
                 machine.set_access_recording(arguments.bus_log.is_some());
                 let result = if let Some(path) = &arguments.vcd {
                     let output = File::create(path)?;
@@ -560,6 +562,7 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
                 if let Some(payload) = &usb_input {
                     machine.queue_usb_input(payload);
                 }
+                machine.stop_on_usb_input_complete(stop_on_usb_input_complete);
                 machine.set_access_recording(arguments.bus_log.is_some());
                 let result = if let Some(path) = &arguments.vcd {
                     let output = File::create(path)?;
@@ -596,6 +599,7 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
         if let Some(payload) = &usb_input {
             machine.queue_usb_input(payload);
         }
+        machine.stop_on_usb_input_complete(stop_on_usb_input_complete);
         machine.set_access_recording(arguments.bus_log.is_some());
         let limits = RunLimits {
             instructions: Some(arguments.max_instructions),
@@ -641,6 +645,7 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
     if let Some(payload) = &usb_input {
         machine.queue_usb_input(payload);
     }
+    machine.stop_on_usb_input_complete(stop_on_usb_input_complete);
     machine.set_access_recording(arguments.bus_log.is_some());
     let limits = RunLimits {
         instructions: Some(arguments.max_instructions),

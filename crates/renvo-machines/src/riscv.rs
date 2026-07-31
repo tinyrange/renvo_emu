@@ -258,6 +258,7 @@ pub struct RiscVMachine {
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
     esp_usb_serial_jtag: Option<EspUsbSerialJtagHandle>,
+    stop_on_usb_input_complete: bool,
 }
 
 impl RiscVMachine {
@@ -797,6 +798,7 @@ impl RiscVMachine {
             usb_dpram,
             usb_host,
             esp_usb_serial_jtag,
+            stop_on_usb_input_complete: false,
         })
     }
 
@@ -3948,6 +3950,11 @@ impl RiscVMachine {
         }
     }
 
+    /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
+    pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
+        self.stop_on_usb_input_complete = enabled;
+    }
+
     /// Loads the official RP2350 RISC-V UF2 and performs its image-definition handoff.
     pub fn load_rp2350_riscv_uf2(&mut self, image: &Uf2Image) -> Result<(), MachineError> {
         const FAMILY: u32 = 0xe48b_ff5a;
@@ -4129,6 +4136,18 @@ impl RiscVMachine {
             if let Some(code) = self.exit.code() {
                 let _ = code;
                 break StopReason::Halted;
+            }
+            if self.stop_on_usb_input_complete
+                && (self
+                    .usb_host
+                    .as_ref()
+                    .is_some_and(Rp2040UsbHost::input_complete)
+                    || self
+                        .esp_usb_serial_jtag
+                        .as_ref()
+                        .is_some_and(EspUsbSerialJtagHandle::input_complete))
+            {
+                break StopReason::HostInputComplete;
             }
             if limits
                 .instructions

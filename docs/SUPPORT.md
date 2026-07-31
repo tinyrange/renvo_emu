@@ -26,6 +26,25 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+## Official MicroPython milestone
+
+Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
+REPL on NanoC6, AtomS3 Lite, Pico, and both Pico 2 CPU modes. The current
+acceptance matrix proves deterministic portable runtime behavior, soft reset,
+threads, persistent storage, external GPIO stimulus, and periodic/one-shot
+timer callbacks across all five execution profiles. RP2040, both RP2350 timer
+blocks, ESP32-C6 timer groups, and both ESP32-S3 timer groups have distinct
+functional register layouts and interrupt delivery.
+
+The host transport counts raw-REPL execution terminators and returned prompts,
+so a bounded run ends only after every queued chunk has executed. Instruction
+limits remain hard failure bounds rather than the normal completion mechanism.
+See `scripts/qualify-micropython.sh` and
+`qualification/acceptance-report.html`.
+
+This milestone does not yet cover the complete upstream MicroPython suite,
+PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
