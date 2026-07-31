@@ -16,7 +16,7 @@ Status meanings:
 
 | Phase | Status | Current evidence | Required closure |
 |---|---|---|---|
-| 0 — Kernel contracts and manifests | Partial | Workspace crates, checked `SimTime`, deterministic event queue, bus/device/CPU/trace contracts, four ADRs, and six source-linked manifests | Fake-multicore insertion-order stress and supported-host repeat evidence |
+| 0 — Kernel contracts and manifests | Proven | Workspace contracts and ADRs; six source-linked manifests; fake dual-core/timer canonical digest across 64 repeat/insertion-stress variants on pinned Linux/amd64 and Linux/arm64 environments | None |
 | 1 — RISC-V family | Partial | Docker GCC/Clang corpus, CoreMark, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles | Remaining WCH XW behavior, fuller ESP privilege/PMP proof, and explicit breakpoint/watchpoint gate |
 | 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker corpus, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific C/Rust ABI gate |
 | 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
@@ -39,10 +39,21 @@ Status meanings:
 | Compare selected output and flag divergence | Proven | `renvo corpus compare` and comparison unit tests |
 | Reduce seeded divergence on RISC-V, Arm and Xtensa | Missing | Deterministic reducer primitive exists, but no three-family end-to-end proof |
 | Publish coverage, fidelity, unsupported behavior, provenance and licences | Partial | Source-linked target manifests and build provenance exist; register coverage/licence dashboard is missing |
-| Identical results across supported hosts | Partial | Repeated local digests exist; supported-host matrix is not published |
+| Identical results across supported hosts | Proven | `scripts/qualify-host-determinism.sh` publishes the same canonical fake-multicore/timer digest on the supported Linux/amd64 and Linux/arm64 hosts |
 | Separate CPU/device/trace/script/CLI boundaries | Partial | Rust crate boundaries are clean; the Starlark scripting boundary is not implemented |
 
 ## Most recent closure
+
+Phase 0 now has executable host-independent determinism evidence. A fake
+dual-core machine advances both CPUs in stable round-robin order alongside a
+timer, while 64 variants perturb event insertion IDs with same-time cancelled
+events. Its fixed canonical digest is checked over 64 repeats in pinned
+Linux/amd64 and Linux/arm64 Rust containers. Both build and execute the test
+for their selected architecture and publish the same digest in
+`qualification/host-determinism.json`; arm64 may be native or supplied through
+binfmt/QEMU on a development host.
+
+## Previous closure
 
 The Docker portfolio gate now records every completed bus access and generates
 one checked coverage manifest per chip. Each manifest contains only registers
@@ -52,7 +63,7 @@ target identities and fails if any required GPIO, UART, timer/interrupt, PIO,
 or WCH-specific region disappears from tested coverage. Repeated generation
 is byte-for-byte deterministic.
 
-## Previous closure
+## Earlier PIO closure
 
 RP2040, RP2350 Arm, and RP2350 Hazard3 now run Docker-built firmware against
 native PIO0 registers. The functional PIO model covers instruction memory,

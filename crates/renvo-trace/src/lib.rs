@@ -305,7 +305,124 @@ impl TraceDigest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use renvo_core::EventQueue;
     use renvo_signals::{Logic, SignalValue};
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum FakeEvent {
+        Core(u8),
+        Timer,
+        CancelledNoise(u16),
+    }
+
+    fn fake_multicore_timer_digest(stress: u16) -> String {
+        let mut registry = SignalRegistry::new();
+        let core0 = registry
+            .declare(
+                "machine.fake.cpu0.pc",
+                SignalValue::from_u64(0, 8).unwrap(),
+                None,
+            )
+            .unwrap();
+        let core1 = registry
+            .declare(
+                "machine.fake.cpu1.pc",
+                SignalValue::from_u64(0, 8).unwrap(),
+                None,
+            )
+            .unwrap();
+        let timer = registry
+            .declare(
+                "machine.fake.timer.irq",
+                SignalValue::repeat(Logic::Zero, 1).unwrap(),
+                None,
+            )
+            .unwrap();
+        let mut digest = TraceDigest::new();
+        digest.begin(&registry);
+        let mut queue = EventQueue::new();
+
+        for tick in 1..=24_u64 {
+            let at = SimTime::from_ticks(tick);
+            let rotation = u32::try_from(tick).expect("bounded fake tick fits u32");
+            // Vary how many cancelled same-time events surround useful work.
+            // This stresses insertion IDs and lazy cancellation while keeping
+            // the ADR-defined semantic insertion order of CPU0, CPU1, timer.
+            let noise_before = usize::from(
+                u8::try_from(stress.rotate_left(rotation) & 3)
+                    .expect("two-bit noise count fits u8"),
+            );
+            for index in 0..noise_before {
+                let id = queue
+                    .schedule_at(
+                        at,
+                        FakeEvent::CancelledNoise(
+                            u16::try_from(index).expect("bounded noise index fits u16"),
+                        ),
+                    )
+                    .unwrap();
+                assert!(queue.cancel(id));
+            }
+            queue.schedule_at(at, FakeEvent::Core(0)).unwrap();
+            queue.schedule_at(at, FakeEvent::Core(1)).unwrap();
+            if tick % 3 == 0 {
+                queue.schedule_at(at, FakeEvent::Timer).unwrap();
+            }
+            let noise_after = usize::from(
+                u8::try_from(stress.rotate_right(rotation) & 3)
+                    .expect("two-bit noise count fits u8"),
+            );
+            for index in 0..noise_after {
+                let id = queue
+                    .schedule_at(
+                        at,
+                        FakeEvent::CancelledNoise(
+                            u16::try_from(index + 4).expect("bounded noise index fits u16"),
+                        ),
+                    )
+                    .unwrap();
+                assert!(queue.cancel(id));
+            }
+        }
+
+        let mut program_counters = [0_u8; 2];
+        let mut timer_level = false;
+        while let Some(event) = queue.pop() {
+            let change = match event.payload {
+                FakeEvent::Core(core) => {
+                    let index = usize::from(core);
+                    program_counters[index] =
+                        program_counters[index].wrapping_add(if core == 0 { 3 } else { 5 });
+                    registry
+                        .set(
+                            if core == 0 { core0 } else { core1 },
+                            SignalValue::from_u64(u64::from(program_counters[index]), 8).unwrap(),
+                            event.at,
+                        )
+                        .unwrap()
+                        .unwrap()
+                }
+                FakeEvent::Timer => {
+                    timer_level = !timer_level;
+                    registry
+                        .set(
+                            timer,
+                            SignalValue::repeat(
+                                if timer_level { Logic::One } else { Logic::Zero },
+                                1,
+                            )
+                            .unwrap(),
+                            event.at,
+                        )
+                        .unwrap()
+                        .unwrap()
+                }
+                FakeEvent::CancelledNoise(_) => panic!("cancelled event escaped the queue"),
+            };
+            digest.change(&change);
+        }
+        digest.finish()
+    }
 
     #[test]
     fn emits_hierarchical_vcd_and_suppresses_no_values() {
@@ -366,5 +483,20 @@ mod tests {
         let mut second = TraceDigest::new();
         second.begin(&registry);
         assert_eq!(first.finish(), second.finish());
+    }
+
+    #[test]
+    fn fake_multicore_timer_digest_survives_repeats_and_insertion_stress() {
+        const EXPECTED_HOST_INDEPENDENT_DIGEST: &str =
+            "6fdc01d7e6734b3a6674686e707a8ebdcffe0a2880c422af0fc4594a555784df";
+        let baseline = fake_multicore_timer_digest(0);
+        eprintln!("RENVO_HOST_DIGEST {baseline}");
+        assert_eq!(baseline, EXPECTED_HOST_INDEPENDENT_DIGEST);
+        for repeat in 0..64 {
+            assert_eq!(
+                fake_multicore_timer_digest(repeat),
+                EXPECTED_HOST_INDEPENDENT_DIGEST
+            );
+        }
     }
 }

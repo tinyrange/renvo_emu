@@ -78,6 +78,13 @@ Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
 
+The supported host matrix is Linux/amd64 and Linux/arm64. A pinned Rust
+container runs the fake dual-core/timer scheduler test on both architectures;
+each architecture checks 64 repeat and insertion-stress variants against the
+same fixed digest. `scripts/qualify-host-determinism.sh` regenerates the
+machine-readable evidence in `qualification/host-determinism.json`. A native
+arm64 host or configured aarch64 binfmt handler is required for the arm64 lane.
+
 ## Compiler containment
 
 Firmware compilation is never invoked directly on the host. The corpus runner
