@@ -189,6 +189,9 @@ struct RunArgs {
     /// Write the run result to this file instead of stdout.
     #[arg(long)]
     result: Option<PathBuf>,
+    /// Optional JSON record of completed memory and MMIO operations.
+    #[arg(long)]
+    bus_log: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -771,13 +774,28 @@ fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|value| parse_stimulus(value))
         .collect::<Result<Vec<_>, _>>()?;
-    let result = if let Some(path) = &arguments.vcd {
+    let (result, accesses) = if let Some(path) = &arguments.vcd {
         let output = File::create(path)?;
         let mut writer = VcdWriter::new(output, Timescale::Nanosecond);
-        run_loaded(target, &image, limits, &stimuli, Some(&mut writer))?
+        run_loaded_recorded(
+            target,
+            &image,
+            limits,
+            &stimuli,
+            Some(&mut writer),
+            arguments.bus_log.is_some(),
+        )?
     } else {
-        run_loaded(target, &image, limits, &stimuli, None)?
+        run_loaded_recorded(
+            target,
+            &image,
+            limits,
+            &stimuli,
+            None,
+            arguments.bus_log.is_some(),
+        )?
     };
+    write_access_log(arguments.bus_log.as_deref(), &accesses)?;
     let json = serde_json::to_vec_pretty(&result)?;
     if let Some(path) = &arguments.result {
         fs::write(path, json)?;
@@ -794,21 +812,38 @@ fn run_loaded(
     stimuli: &[PinStimulus],
     trace: Option<&mut dyn TraceSink>,
 ) -> Result<RunResult, Box<dyn Error>> {
+    Ok(run_loaded_recorded(target, image, limits, stimuli, trace, false)?.0)
+}
+
+fn run_loaded_recorded(
+    target: TargetId,
+    image: &FirmwareImage,
+    limits: RunLimits,
+    stimuli: &[PinStimulus],
+    trace: Option<&mut dyn TraceSink>,
+    record_accesses: bool,
+) -> Result<(RunResult, Vec<renvo_bus::BusAccessRecord>), Box<dyn Error>> {
     match image.architecture {
         FirmwareArchitecture::RiscV32 => {
             let mut machine = RiscVMachine::new(target)?;
             machine.load_firmware(image)?;
-            Ok(machine.run_with_stimuli(limits, stimuli, trace)?)
+            machine.set_access_recording(record_accesses);
+            let result = machine.run_with_stimuli(limits, stimuli, trace)?;
+            Ok((result, machine.access_log().to_vec()))
         }
         FirmwareArchitecture::Arm => {
             let mut machine = ArmMachine::new(target)?;
             machine.load_firmware(image)?;
-            Ok(machine.run_with_stimuli(limits, stimuli, trace)?)
+            machine.set_access_recording(record_accesses);
+            let result = machine.run_with_stimuli(limits, stimuli, trace)?;
+            Ok((result, machine.access_log().to_vec()))
         }
         FirmwareArchitecture::Xtensa => {
             let mut machine = XtensaMachine::new(target)?;
             machine.load_firmware(image)?;
-            Ok(machine.run_with_stimuli(limits, stimuli, trace)?)
+            machine.set_access_recording(record_accesses);
+            let result = machine.run_with_stimuli(limits, stimuli, trace)?;
+            Ok((result, machine.access_log().to_vec()))
         }
     }
 }
@@ -1160,6 +1195,25 @@ mod tests {
             panic!("expected firmware boot");
         };
         assert_eq!(arguments.pins, ["0=1@0", "1=z@42"]);
+    }
+
+    #[test]
+    fn direct_run_accepts_bus_log_artifact() {
+        let parsed = Cli::try_parse_from([
+            "renvo",
+            "run",
+            "--target",
+            "ch32v003",
+            "--elf",
+            "firmware.elf",
+            "--bus-log",
+            "accesses.json",
+        ])
+        .unwrap();
+        let Command::Run(arguments) = parsed.command else {
+            panic!("expected direct run");
+        };
+        assert_eq!(arguments.bus_log, Some(PathBuf::from("accesses.json")));
     }
 
     #[test]

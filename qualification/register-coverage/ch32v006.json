@@ -1,0 +1,232 @@
+{
+  "schema": "renvo.register-coverage.v1",
+  "target": "ch32v006",
+  "cpu_profiles": [
+    "QingKe RV32EC"
+  ],
+  "evidence_status": "passing",
+  "generated_by": "scripts/generate-register-coverage.sh",
+  "source_spec": {
+    "path": "qualification/register-coverage-spec.json",
+    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+  },
+  "proofs": [
+    {
+      "id": "ch32v006",
+      "result": ".renvo/portfolio-smoke/ch32v006-run.json",
+      "bus_log": ".renvo/portfolio-smoke/ch32v006-bus.json",
+      "result_sha256": "3cc177c41c987572befa20ffef350da2d5bdd6a0c8b2c226437623bdb9457bef",
+      "bus_log_sha256": "4f51f71ae1fde9f0fbd17579a07698227c856747ec81a9b8825f74835a190916",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "7a7021e59077ddae6b62fc84f847696608b22ca24ffed08327d51ebcfd3fd055",
+        "stats": {
+          "instructions": 19,
+          "time": 19,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "ch32v006-uart",
+      "result": ".renvo/portfolio-smoke/ch32v006-uart-run.json",
+      "bus_log": ".renvo/portfolio-smoke/ch32v006-uart-bus.json",
+      "result_sha256": "f8f997dfb04eaba0bed5d960bf18c4af394d429b0667a185d5270600c567ce3f",
+      "bus_log_sha256": "3eb55b5808935852c42fe03d0a6f5a18a6fdac22cf2480d74fcee6dcd125ce1a",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "13f23f61c400dbb938aa0547ca6436082b9ea3e8017fa13affd100f80def3ccb",
+        "stats": {
+          "instructions": 95,
+          "time": 95,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "ch32v006-timer",
+      "result": ".renvo/portfolio-smoke/ch32v006-timer-run.json",
+      "bus_log": ".renvo/portfolio-smoke/ch32v006-timer-bus.json",
+      "result_sha256": "3a175aaa378276afe842998f31037740982d64af8e2cca00ca8c345f210707d2",
+      "bus_log_sha256": "08e7ab390f6c232dc81d237b98e8946f92b193abf127404cd19005dc5b63beeb",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "13f23f61c400dbb938aa0547ca6436082b9ea3e8017fa13affd100f80def3ccb",
+        "stats": {
+          "instructions": 41,
+          "time": 41,
+          "events": 1
+        }
+      }
+    }
+  ],
+  "required_covered_regions": [
+    "ch32v006.gpioc",
+    "ch32v006.pfic",
+    "ch32v006.rcc",
+    "ch32v006.tim2",
+    "ch32v006.usart1"
+  ],
+  "covered_register_count": 13,
+  "covered_registers": [
+    {
+      "region": "ch32v006.gpioc",
+      "address": 1073811456,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "ch32v006.gpioc",
+      "address": 1073811472,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.pfic",
+      "address": 3758153988,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.rcc",
+      "address": 1073877016,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "ch32v006.tim2",
+      "address": 1073741824,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "ch32v006.tim2",
+      "address": 1073741836,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.tim2",
+      "address": 1073741840,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "ch32v006.tim2",
+      "address": 1073741864,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.tim2",
+      "address": 1073741868,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.usart1",
+      "address": 1073821696,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 10
+    },
+    {
+      "region": "ch32v006.usart1",
+      "address": 1073821700,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 10
+    },
+    {
+      "region": "ch32v006.usart1",
+      "address": 1073821704,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.usart1",
+      "address": 1073821708,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    }
+  ],
+  "additional_evidence": [
+    "scripts/edge-corpus.sh",
+    "scripts/qualify-coremark.sh"
+  ],
+  "known_deviations": [
+    "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+    "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
+    "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
+    "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
+    "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
+  ]
+}

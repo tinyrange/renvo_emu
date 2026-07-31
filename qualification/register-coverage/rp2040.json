@@ -1,0 +1,246 @@
+{
+  "schema": "renvo.register-coverage.v1",
+  "target": "rp2040",
+  "cpu_profiles": [
+    "Cortex-M0+"
+  ],
+  "evidence_status": "passing",
+  "generated_by": "scripts/generate-register-coverage.sh",
+  "source_spec": {
+    "path": "qualification/register-coverage-spec.json",
+    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+  },
+  "proofs": [
+    {
+      "id": "rp2040",
+      "result": ".renvo/portfolio-smoke/rp2040-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2040-bus.json",
+      "result_sha256": "38157b343c7a27760218d34e941aad3724d1547cfc4ebc67f571fcb2e5fba855",
+      "bus_log_sha256": "ba11470265bf76f1933f5fa7bbd791315560192c64badcac84b3bb065dab6260",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "a9875e9ac8444e223a17c4d93726de25b76ef44fd2a27c62fd15467c32ed7351",
+        "stats": {
+          "instructions": 11,
+          "time": 11,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2040-uart",
+      "result": ".renvo/portfolio-smoke/rp2040-uart-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2040-uart-bus.json",
+      "result_sha256": "b6584e4dfb5b27fb204e7862401cc986d7ac6ab69b1adf4cf88af99a936d2707",
+      "bus_log_sha256": "be46ae27f1eefbe606c7608a36339847ff4c820477f232f77b48f1f218b1625e",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+        "stats": {
+          "instructions": 84,
+          "time": 84,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2040-native-timer",
+      "result": ".renvo/portfolio-smoke/rp2040-native-timer-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2040-native-timer-bus.json",
+      "result_sha256": "c839b1a4b3daa83fe7ff88830a691b81f465b839c38eddf48e890a470962a2dd",
+      "bus_log_sha256": "55048ef8256a1b2c43e811285776d329107ad168a8ffecb0effd0b2f6202f6c7",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+        "stats": {
+          "instructions": 33,
+          "time": 33,
+          "events": 1
+        }
+      }
+    },
+    {
+      "id": "rp2040-pio",
+      "result": ".renvo/portfolio-smoke/rp2040-pio-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2040-pio-bus.json",
+      "result_sha256": "845bcec000495c420aa262c4e6c77a1a38e47d2e2299991baa45714b12f89cdd",
+      "bus_log_sha256": "1977272054099e3fe53b9d2a74a31a6dae5f4e466edde4a0de286a9b916ead5c",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "7a4baf526a9d0e57024854eb0595696273563eb59f8d84909846dbf039f63741",
+        "stats": {
+          "instructions": 127,
+          "time": 127,
+          "events": 105
+        }
+      }
+    }
+  ],
+  "required_covered_regions": [
+    "rp2040.pio0",
+    "rp2040.sio",
+    "rp2040.timer",
+    "rp2040.uart0"
+  ],
+  "covered_register_count": 13,
+  "covered_registers": [
+    {
+      "region": "rp2040.pio0",
+      "address": 1344274432,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2040.pio0",
+      "address": 1344274504,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.pio0",
+      "address": 1344274508,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.pio0",
+      "address": 1344274636,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.pio0",
+      "address": 1344274652,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.sio",
+      "address": 3489660948,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.sio",
+      "address": 3489660964,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.timer",
+      "address": 1074085904,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.timer",
+      "address": 1074085928,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.timer",
+      "address": 1074085940,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.timer",
+      "address": 1074085944,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.uart0",
+      "address": 1073954816,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 9
+    },
+    {
+      "region": "rp2040.uart0",
+      "address": 1073954840,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 9
+    }
+  ],
+  "additional_evidence": [
+    "scripts/qualify-micropython.sh",
+    "scripts/qualify-coremark.sh"
+  ],
+  "known_deviations": [
+    "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+    "SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.",
+    "UART0 is a transmit-focused PL011 slice without physical baud timing.",
+    "TIMER alarm routing is functional and deterministic, not clock accurate.",
+    "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
+  ]
+}

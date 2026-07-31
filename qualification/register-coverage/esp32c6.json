@@ -1,0 +1,170 @@
+{
+  "schema": "renvo.register-coverage.v1",
+  "target": "esp32c6",
+  "cpu_profiles": [
+    "RV32IMAC"
+  ],
+  "evidence_status": "passing",
+  "generated_by": "scripts/generate-register-coverage.sh",
+  "source_spec": {
+    "path": "qualification/register-coverage-spec.json",
+    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+  },
+  "proofs": [
+    {
+      "id": "esp32c6",
+      "result": ".renvo/portfolio-smoke/esp32c6-run.json",
+      "bus_log": ".renvo/portfolio-smoke/esp32c6-bus.json",
+      "result_sha256": "55ce2624ad25f72692e22372bce4e19f9b559e9e7927e6083f9855d6a6b15dc9",
+      "bus_log_sha256": "a026755a6a9c39605a208ed2e37525c8095a1e77346abf843ef714703a543067",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "68d2ed387b759c3e5f2c445e96ebfc8c3fb01ac920028dd52a690f5f2350e730",
+        "stats": {
+          "instructions": 11,
+          "time": 11,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "esp32c6-uart",
+      "result": ".renvo/portfolio-smoke/esp32c6-uart-run.json",
+      "bus_log": ".renvo/portfolio-smoke/esp32c6-uart-bus.json",
+      "result_sha256": "19918a99d52046030dfc21ef2ab6645f30e359b6a9a02801600c8677160ee6c1",
+      "bus_log_sha256": "2ee97a24c34ba16703645e7dd56b8d204e57f8abe9680b498383dc17b9a1e47e",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "de663e0c67526e3c8c3bf8ce62f4c724e07193c28cf7b23600dc0accafbbc46a",
+        "stats": {
+          "instructions": 26,
+          "time": 26,
+          "events": 0
+        }
+      }
+    }
+  ],
+  "required_covered_regions": [
+    "esp32c6.gpio",
+    "esp32c6.interrupt-controller-cpu0",
+    "esp32c6.interrupt-priority",
+    "esp32c6.systimer",
+    "esp32c6.uart0"
+  ],
+  "covered_register_count": 9,
+  "covered_registers": [
+    {
+      "region": "esp32c6.gpio",
+      "address": 1611206664,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32c6.gpio",
+      "address": 1611206692,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32c6.interrupt-controller-cpu0",
+      "address": 536875032,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 37
+    },
+    {
+      "region": "esp32c6.interrupt-controller-cpu0",
+      "address": 536875152,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 37
+    },
+    {
+      "region": "esp32c6.interrupt-priority",
+      "address": 1611419792,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 37
+    },
+    {
+      "region": "esp32c6.systimer",
+      "address": 1610653800,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 37
+    },
+    {
+      "region": "esp32c6.systimer",
+      "address": 1610653804,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 37
+    },
+    {
+      "region": "esp32c6.systimer",
+      "address": 1610653808,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 37
+    },
+    {
+      "region": "esp32c6.uart0",
+      "address": 1610612736,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 10
+    }
+  ],
+  "additional_evidence": [
+    "scripts/qualify-micropython.sh",
+    "qualification/acceptance-report.html",
+    "scripts/qualify-coremark.sh"
+  ],
+  "known_deviations": [
+    "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+    "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
+    "UART0 is transmit-focused and does not model physical baud timing.",
+    "SYSTIMER and interrupt routing are functional subsets; timer-group behavior is additionally exercised by official MicroPython qualification.",
+    "Radio, analogue and security peripherals are outside the six-chip baseline."
+  ]
+}

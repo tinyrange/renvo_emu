@@ -1,0 +1,128 @@
+{
+  "schema": "renvo.register-coverage-spec.v1",
+  "targets": {
+    "ch32v003": {
+      "cpu_profiles": ["QingKe RV32EC"],
+      "proofs": ["ch32v003", "ch32v003-uart", "ch32v003-timer"],
+      "required_covered_regions": [
+        "ch32v003.gpioc",
+        "ch32v003.pfic",
+        "ch32v003.rcc",
+        "ch32v003.tim2",
+        "ch32v003.usart1"
+      ],
+      "additional_evidence": ["scripts/edge-corpus.sh", "scripts/qualify-coremark.sh"],
+      "known_deviations": [
+        "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+        "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
+        "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
+        "TIM2 covers update timing and status clearing; capture/compare, encoder, slave and DMA modes are absent.",
+        "PFIC covers baseline enable, pending and table entry without exact priority nesting or tail chaining."
+      ]
+    },
+    "ch32v006": {
+      "cpu_profiles": ["QingKe RV32EC"],
+      "proofs": ["ch32v006", "ch32v006-uart", "ch32v006-timer"],
+      "required_covered_regions": [
+        "ch32v006.gpioc",
+        "ch32v006.pfic",
+        "ch32v006.rcc",
+        "ch32v006.tim2",
+        "ch32v006.usart1"
+      ],
+      "additional_evidence": ["scripts/edge-corpus.sh", "scripts/qualify-coremark.sh"],
+      "known_deviations": [
+        "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+        "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
+        "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
+        "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
+        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
+      ]
+    },
+    "rp2040": {
+      "cpu_profiles": ["Cortex-M0+"],
+      "proofs": ["rp2040", "rp2040-uart", "rp2040-native-timer", "rp2040-pio"],
+      "required_covered_regions": [
+        "rp2040.pio0",
+        "rp2040.sio",
+        "rp2040.timer",
+        "rp2040.uart0"
+      ],
+      "additional_evidence": ["scripts/qualify-micropython.sh", "scripts/qualify-coremark.sh"],
+      "known_deviations": [
+        "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+        "SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.",
+        "UART0 is a transmit-focused PL011 slice without physical baud timing.",
+        "TIMER alarm routing is functional and deterministic, not clock accurate.",
+        "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
+      ]
+    },
+    "rp2350": {
+      "cpu_profiles": ["Cortex-M33", "Hazard3 RV32IMAC/B"],
+      "proofs": [
+        "rp2350-arm",
+        "rp2350-arm-uart",
+        "rp2350-arm-native-timer",
+        "rp2350-arm-pio",
+        "rp2350-riscv",
+        "rp2350-riscv-uart",
+        "rp2350-riscv-native-timer",
+        "rp2350-riscv-pio"
+      ],
+      "required_covered_regions": [
+        "rp2350.pio0",
+        "rp2350.sio",
+        "rp2350.timer0",
+        "rp2350.uart0"
+      ],
+      "additional_evidence": ["scripts/qualify-micropython.sh", "scripts/qualify-coremark.sh"],
+      "known_deviations": [
+        "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+        "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
+        "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
+        "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
+        "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
+      ]
+    },
+    "esp32s3": {
+      "cpu_profiles": ["Xtensa LX7"],
+      "proofs": ["esp32s3", "esp32s3-uart"],
+      "required_covered_regions": ["esp32s3.gpio", "esp32s3.uart0"],
+      "additional_evidence": [
+        "scripts/qualify-micropython.sh",
+        "qualification/acceptance-report.html",
+        "scripts/qualify-coremark.sh"
+      ],
+      "known_deviations": [
+        "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+        "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
+        "UART0 is transmit-focused and does not model physical baud timing.",
+        "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
+        "Radio, analogue and security peripherals are outside the six-chip baseline."
+      ]
+    },
+    "esp32c6": {
+      "cpu_profiles": ["RV32IMAC"],
+      "proofs": ["esp32c6", "esp32c6-uart"],
+      "required_covered_regions": [
+        "esp32c6.gpio",
+        "esp32c6.interrupt-controller-cpu0",
+        "esp32c6.interrupt-priority",
+        "esp32c6.systimer",
+        "esp32c6.uart0"
+      ],
+      "additional_evidence": [
+        "scripts/qualify-micropython.sh",
+        "qualification/acceptance-report.html",
+        "scripts/qualify-coremark.sh"
+      ],
+      "known_deviations": [
+        "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+        "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
+        "UART0 is transmit-focused and does not model physical baud timing.",
+        "SYSTIMER and interrupt routing are functional subsets; timer-group behavior is additionally exercised by official MicroPython qualification.",
+        "Radio, analogue and security peripherals are outside the six-chip baseline."
+      ]
+    }
+  }
+}

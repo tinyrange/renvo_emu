@@ -131,3 +131,10 @@ the target manifests and `PLAN.html`, principally:
 
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
+
+The generated per-chip register evidence lives in
+`qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
+bus logs, verifies the portfolio, and regenerates all six manifests. The
+manifests list observed register addresses and access kinds, proof hashes, and
+known functional deviations; an unlisted address is not implicitly claimed as
+either supported or unsupported.

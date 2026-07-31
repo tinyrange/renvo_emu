@@ -1,0 +1,101 @@
+{
+  "schema": "renvo.register-coverage.v1",
+  "target": "esp32s3",
+  "cpu_profiles": [
+    "Xtensa LX7"
+  ],
+  "evidence_status": "passing",
+  "generated_by": "scripts/generate-register-coverage.sh",
+  "source_spec": {
+    "path": "qualification/register-coverage-spec.json",
+    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+  },
+  "proofs": [
+    {
+      "id": "esp32s3",
+      "result": ".renvo/portfolio-smoke/esp32s3-run.json",
+      "bus_log": ".renvo/portfolio-smoke/esp32s3-bus.json",
+      "result_sha256": "814b9b2e3f87b9ecc9659a62d6ffe45e74c43c0366186618529eaac12a09c5f5",
+      "bus_log_sha256": "de6479a3f5f092589ad1047f794d2502d540c0b512e13e3f75cbff3507fa712d",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 12,
+        "trace_digest": "8f1061e072be91d2360e69f01701a0e815bda6d473400061851b632e71c677c4",
+        "stats": {
+          "instructions": 18,
+          "time": 18,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "esp32s3-uart",
+      "result": ".renvo/portfolio-smoke/esp32s3-uart-run.json",
+      "bus_log": ".renvo/portfolio-smoke/esp32s3-uart-bus.json",
+      "result_sha256": "46424c88c8a56fe0482c1a1f199b1b89dd2ff2a05de4737491d5c37b36523237",
+      "bus_log_sha256": "3b1dea9cc660b191ed8ed001168f40eb21a43e10840358899ba2cd76a0baf409",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "e69db210e9b641498449be369672ae53c085ea2208247ae25f14a33a6b9151d4",
+        "stats": {
+          "instructions": 35,
+          "time": 35,
+          "events": 0
+        }
+      }
+    }
+  ],
+  "required_covered_regions": [
+    "esp32s3.gpio",
+    "esp32s3.uart0"
+  ],
+  "covered_register_count": 3,
+  "covered_registers": [
+    {
+      "region": "esp32s3.gpio",
+      "address": 1610629128,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.gpio",
+      "address": 1610629156,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.uart0",
+      "address": 1610612736,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 10
+    }
+  ],
+  "additional_evidence": [
+    "scripts/qualify-micropython.sh",
+    "qualification/acceptance-report.html",
+    "scripts/qualify-coremark.sh"
+  ],
+  "known_deviations": [
+    "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+    "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
+    "UART0 is transmit-focused and does not model physical baud timing.",
+    "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
+    "Radio, analogue and security peripherals are outside the six-chip baseline."
+  ]
+}

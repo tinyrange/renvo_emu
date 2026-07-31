@@ -1,0 +1,315 @@
+{
+  "schema": "renvo.register-coverage.v1",
+  "target": "rp2350",
+  "cpu_profiles": [
+    "Cortex-M33",
+    "Hazard3 RV32IMAC/B"
+  ],
+  "evidence_status": "passing",
+  "generated_by": "scripts/generate-register-coverage.sh",
+  "source_spec": {
+    "path": "qualification/register-coverage-spec.json",
+    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+  },
+  "proofs": [
+    {
+      "id": "rp2350-arm",
+      "result": ".renvo/portfolio-smoke/rp2350-arm-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2350-arm-bus.json",
+      "result_sha256": "c2ac5cf50d4f8e3d5de1d0eb84c7fcb847d0433557f4910e89b50d8f176cb9a9",
+      "bus_log_sha256": "3fb5916d80f821bd89964367b2762745df06b443afbb6c9569e65d23af805ad0",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+        "stats": {
+          "instructions": 11,
+          "time": 11,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-arm-uart",
+      "result": ".renvo/portfolio-smoke/rp2350-arm-uart-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2350-arm-uart-bus.json",
+      "result_sha256": "371a29bed0cafd8603a48d661a60b7e1e0db0c6ddb70f9547b865d7f3e1b8593",
+      "bus_log_sha256": "b1b157d412f113ef642029cc9a4c57206c105b7329bdd9ed4ac8703fce0d3720",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+        "stats": {
+          "instructions": 70,
+          "time": 70,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-arm-native-timer",
+      "result": ".renvo/portfolio-smoke/rp2350-arm-native-timer-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2350-arm-native-timer-bus.json",
+      "result_sha256": "570417ab48a184061dba4410fb9ec91792815c491cc770a5d7188d6c52c5a2c1",
+      "bus_log_sha256": "e2d8d04b36cee196f691ad0a14edc825b7115cd0cd59ce2104338c7f385ec3e4",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+        "stats": {
+          "instructions": 33,
+          "time": 33,
+          "events": 1
+        }
+      }
+    },
+    {
+      "id": "rp2350-arm-pio",
+      "result": ".renvo/portfolio-smoke/rp2350-arm-pio-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2350-arm-pio-bus.json",
+      "result_sha256": "6267e98697e0c878667588f67ad1973d439d5f55bd5de591b8beabe056cb2d16",
+      "bus_log_sha256": "185c4e5597e4ac60b34e3495494119aba96cead0a5253693af61d709b3cef0c2",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "e955769d8895b79228a16d50ba12c55bdfe1ea3fb5db0bfc2540c084d98b4444",
+        "stats": {
+          "instructions": 127,
+          "time": 127,
+          "events": 105
+        }
+      }
+    },
+    {
+      "id": "rp2350-riscv",
+      "result": ".renvo/portfolio-smoke/rp2350-riscv-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2350-riscv-bus.json",
+      "result_sha256": "0e6db0003ea949767553f05da6886ac2b119934ebcf22f62624ff720168a5905",
+      "bus_log_sha256": "8314c9dc5e2b6619cea33a8971c7354a02a7f190d3ff85030025801829f55ca2",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 12,
+        "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+        "stats": {
+          "instructions": 10,
+          "time": 10,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-riscv-uart",
+      "result": ".renvo/portfolio-smoke/rp2350-riscv-uart-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2350-riscv-uart-bus.json",
+      "result_sha256": "a4fa3a0380a9a6080047e77a427a2bdf0abc1693724d7fc0b0c99f22013d5a13",
+      "bus_log_sha256": "0d5fe57af93ad9ee63f6d10f7878dfcf953e8d5ce6f67d573b4f10e78d4a5ec6",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+        "stats": {
+          "instructions": 75,
+          "time": 75,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-riscv-native-timer",
+      "result": ".renvo/portfolio-smoke/rp2350-riscv-native-timer-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2350-riscv-native-timer-bus.json",
+      "result_sha256": "97ddade19791715f4a4b770c75d5cce7417aef5b07b4b03f613a4d5e9a1de85f",
+      "bus_log_sha256": "4538a61804f15fac8465097fe2661f286f6dc4102b187fd461691911cd41e391",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+        "stats": {
+          "instructions": 46,
+          "time": 46,
+          "events": 1
+        }
+      }
+    },
+    {
+      "id": "rp2350-riscv-pio",
+      "result": ".renvo/portfolio-smoke/rp2350-riscv-pio-run.json",
+      "bus_log": ".renvo/portfolio-smoke/rp2350-riscv-pio-bus.json",
+      "result_sha256": "30b68d0503a118a1e619fe2e514c7db6b52be9453ba7a82e22502043017e5ecf",
+      "bus_log_sha256": "efe603b147af24189499820fc84d54ab22810d50620f7de8115aaa9c8eb7b357",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "bbd43ef66235e6289fbe8590e84ed318b6fdcbf5c26e2d7110bb1d2553ecfcc2",
+        "stats": {
+          "instructions": 111,
+          "time": 111,
+          "events": 87
+        }
+      }
+    }
+  ],
+  "required_covered_regions": [
+    "rp2350.pio0",
+    "rp2350.sio",
+    "rp2350.timer0",
+    "rp2350.uart0"
+  ],
+  "covered_register_count": 13,
+  "covered_registers": [
+    {
+      "region": "rp2350.pio0",
+      "address": 1344274432,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.pio0",
+      "address": 1344274504,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.pio0",
+      "address": 1344274508,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.pio0",
+      "address": 1344274636,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.pio0",
+      "address": 1344274652,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.sio",
+      "address": 3489660948,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2350.sio",
+      "address": 3489660964,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2350.timer0",
+      "address": 1074462736,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.timer0",
+      "address": 1074462760,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.timer0",
+      "address": 1074462780,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.timer0",
+      "address": 1074462784,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.uart0",
+      "address": 1074200576,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 18
+    },
+    {
+      "region": "rp2350.uart0",
+      "address": 1074200600,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 18
+    }
+  ],
+  "additional_evidence": [
+    "scripts/qualify-micropython.sh",
+    "scripts/qualify-coremark.sh"
+  ],
+  "known_deviations": [
+    "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
+    "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
+    "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
+    "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
+    "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
+  ]
+}

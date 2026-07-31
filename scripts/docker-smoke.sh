@@ -42,6 +42,7 @@ run_case()
         --elf "$elf" \
         --max-instructions 10000 \
         --vcd "$artifact_root/$name.vcd" \
+        --bus-log "$artifact_root/$name-bus.json" \
         --result "$artifact_root/$name-run.json"
 }
 
@@ -151,5 +152,7 @@ jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2350-riscv-pio-
 grep -q '\$scope module pio0 ' "$artifact_root/rp2040-pio.vcd"
 grep -q '\$scope module pio0 ' "$artifact_root/rp2350-arm-pio.vcd"
 grep -q '\$scope module pio0 ' "$artifact_root/rp2350-riscv-pio.vcd"
+
+scripts/generate-register-coverage.sh "$artifact_root" qualification/register-coverage
 
 echo "portfolio Docker smoke passed; artifacts: $artifact_root"
