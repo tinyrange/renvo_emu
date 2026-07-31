@@ -1240,12 +1240,22 @@ impl Rp2040TimerState {
 /// Functional RP2040 64-bit microsecond timer and four alarms.
 pub struct Rp2040Timer {
     name: String,
+    layout: RpTimerLayout,
     state: Arc<Mutex<Rp2040TimerState>>,
+}
+
+/// Register layout implemented by the Raspberry Pi timer block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RpTimerLayout {
+    /// RP2040 timer layout with interrupt registers beginning at offset `0x34`.
+    Rp2040,
+    /// RP2350 timer layout with LOCKED/SOURCE and interrupts beginning at `0x3c`.
+    Rp2350,
 }
 
 impl Rp2040Timer {
     /// Creates the free-running timer and a scheduler-facing handle.
-    pub fn new(name: impl Into<String>) -> (Self, Rp2040TimerHandle) {
+    pub fn new(name: impl Into<String>, layout: RpTimerLayout) -> (Self, Rp2040TimerHandle) {
         let state = Arc::new(Mutex::new(Rp2040TimerState {
             alarms: [0; 4],
             armed: 0,
@@ -1261,6 +1271,7 @@ impl Rp2040Timer {
         (
             Self {
                 name: name.into(),
+                layout,
                 state,
             },
             handle,
@@ -1290,14 +1301,18 @@ impl Device for Rp2040Timer {
             0x20 => u32::from(state.armed),
             0x2c => state.debug_pause,
             0x30 => u32::from(state.paused),
-            0x34 => u32::from(state.raw_interrupt),
-            0x38 => u32::from(state.interrupt_enable),
-            0x3c => u32::from(state.force_interrupt),
-            0x40 => {
+            0x34 if self.layout == RpTimerLayout::Rp2040 => u32::from(state.raw_interrupt),
+            0x38 if self.layout == RpTimerLayout::Rp2040 => u32::from(state.interrupt_enable),
+            0x3c if self.layout == RpTimerLayout::Rp2040 => u32::from(state.force_interrupt),
+            0x40 if self.layout == RpTimerLayout::Rp2040 => {
                 u32::from((state.raw_interrupt | state.force_interrupt) & state.interrupt_enable)
             }
-            0x44 => u32::from(state.force_interrupt),
-            0x48 => {
+            // RP2350 inserts read-only LOCKED and SOURCE registers before INTR.
+            0x34 | 0x38 if self.layout == RpTimerLayout::Rp2350 => 0,
+            0x3c if self.layout == RpTimerLayout::Rp2350 => u32::from(state.raw_interrupt),
+            0x40 if self.layout == RpTimerLayout::Rp2350 => u32::from(state.interrupt_enable),
+            0x44 if self.layout == RpTimerLayout::Rp2350 => u32::from(state.force_interrupt),
+            0x48 if self.layout == RpTimerLayout::Rp2350 => {
                 u32::from((state.raw_interrupt | state.force_interrupt) & state.interrupt_enable)
             }
             register => {
@@ -1353,8 +1368,10 @@ impl Device for Rp2040Timer {
             0x20 => state.armed &= !(value as u8),
             0x2c => state.debug_pause = value & 6,
             0x30 => state.paused = value & 1 != 0,
-            0x34 => state.raw_interrupt &= !(value as u8),
-            0x38 => {
+            0x34 if self.layout == RpTimerLayout::Rp2040 => {
+                state.raw_interrupt &= !(value as u8);
+            }
+            0x38 if self.layout == RpTimerLayout::Rp2040 => {
                 state.interrupt_enable = update_alias(state.interrupt_enable, value as u8 & 0xf);
                 if std::env::var_os("RENVO_DEBUG_TIMERS").is_some() {
                     eprintln!(
@@ -1364,11 +1381,17 @@ impl Device for Rp2040Timer {
                     );
                 }
             }
-            0x3c => {
+            0x3c if self.layout == RpTimerLayout::Rp2040 => {
                 state.force_interrupt = update_alias(state.force_interrupt, value as u8 & 0xf);
             }
-            // RP2350 inserts LOCKED and SOURCE ahead of the interrupt registers.
-            0x40 => {
+            // LOCKED is read-only. SOURCE selection is not timing-visible in
+            // the functional model because both supported sources advance on
+            // the same deterministic simulation timeline.
+            0x34 | 0x38 if self.layout == RpTimerLayout::Rp2350 => {}
+            0x3c if self.layout == RpTimerLayout::Rp2350 => {
+                state.raw_interrupt &= !(value as u8);
+            }
+            0x40 if self.layout == RpTimerLayout::Rp2350 => {
                 state.interrupt_enable = update_alias(state.interrupt_enable, value as u8 & 0xf);
                 if std::env::var_os("RENVO_DEBUG_TIMERS").is_some() {
                     eprintln!(
@@ -1378,7 +1401,7 @@ impl Device for Rp2040Timer {
                     );
                 }
             }
-            0x44 => {
+            0x44 if self.layout == RpTimerLayout::Rp2350 => {
                 state.force_interrupt = update_alias(state.force_interrupt, value as u8 & 0xf);
             }
             register => {
@@ -1551,36 +1574,214 @@ impl Device for DeterministicRng {
     }
 }
 
-/// Functional subset of an ESP timer group used during ESP-IDF clock startup.
-///
-/// The RTC calibration block completes synchronously in the functional timing
-/// model. Its result is deterministic and represents a nominal 136 kHz slow
-/// clock measured against a 40 MHz crystal.
-pub struct EspTimerGroup {
-    name: String,
-    registers: Vec<u32>,
+/// ESP timer-group register layout.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EspTimerGroupKind {
+    /// ESP32-C6 timer group with one general-purpose timer.
+    Esp32C6,
+    /// ESP32-S3 timer group with two general-purpose timers.
+    Esp32S3,
 }
 
-impl EspTimerGroup {
-    /// Creates a reset timer group.
-    pub fn new(name: impl Into<String>) -> Self {
-        let mut device = Self {
-            name: name.into(),
-            registers: vec![0; 0x1000 / 4],
+impl EspTimerGroupKind {
+    const fn timer_count(self) -> usize {
+        match self {
+            Self::Esp32C6 => 1,
+            Self::Esp32S3 => 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct EspTimerCounter {
+    base_value: u64,
+    base_time: SimTime,
+    latched_value: u64,
+}
+
+struct EspTimerGroupState {
+    registers: Vec<u32>,
+    counters: [EspTimerCounter; 2],
+    kind: EspTimerGroupKind,
+}
+
+impl EspTimerGroupState {
+    const TIMER_STRIDE: usize = 0x24;
+    const CONFIG: usize = 0x00;
+    const COUNTER_LOW: usize = 0x04;
+    const COUNTER_HIGH: usize = 0x08;
+    const UPDATE: usize = 0x0c;
+    const ALARM_LOW: usize = 0x10;
+    const ALARM_HIGH: usize = 0x14;
+    const LOAD_LOW: usize = 0x18;
+    const LOAD_HIGH: usize = 0x1c;
+    const LOAD: usize = 0x20;
+    const INTERRUPT_ENABLE: usize = 0x70;
+    const INTERRUPT_RAW: usize = 0x74;
+    const INTERRUPT_STATUS: usize = 0x78;
+    const INTERRUPT_CLEAR: usize = 0x7c;
+    const COUNTER_MASK: u64 = (1_u64 << 54) - 1;
+
+    fn new(kind: EspTimerGroupKind) -> Self {
+        let counter = EspTimerCounter {
+            base_value: 0,
+            base_time: SimTime::ZERO,
+            latched_value: 0,
         };
-        device.reset_registers();
-        device
+        let mut state = Self {
+            registers: vec![0; 0x1000 / 4],
+            counters: [counter; 2],
+            kind,
+        };
+        state.reset();
+        state
     }
 
-    fn reset_registers(&mut self) {
+    fn reset(&mut self) {
         self.registers.fill(0);
-        // The reset configuration enables periodic calibration. By the time
-        // application startup observes the block, one nominal measurement is
-        // available in the functional model.
+        self.counters.fill(EspTimerCounter {
+            base_value: 0,
+            base_time: SimTime::ZERO,
+            latched_value: 0,
+        });
+        // The RTC calibration block completes synchronously in the functional
+        // timing model. This represents a nominal 136 kHz slow clock measured
+        // against a 40 MHz crystal.
         self.registers[0x68 / 4] = (1 << 12) | (1 << 15);
         self.registers[0x6c / 4] = (301_176 << 7) | 1;
         self.registers[0x80 / 4] = (3 << 3) | (0x01ff_ffff << 7);
         self.registers[0xf8 / 4] = 35_676_274;
+    }
+
+    fn timer_register(&self, offset: usize) -> Option<(usize, usize)> {
+        let timer = offset / Self::TIMER_STRIDE;
+        let register = offset % Self::TIMER_STRIDE;
+        (timer < self.kind.timer_count()).then_some((timer, register))
+    }
+
+    fn register(&self, timer: usize, register: usize) -> u32 {
+        self.registers[(timer * Self::TIMER_STRIDE + register) / 4]
+    }
+
+    fn set_register(&mut self, timer: usize, register: usize, value: u32) {
+        self.registers[(timer * Self::TIMER_STRIDE + register) / 4] = value;
+    }
+
+    fn divider(config: u32) -> u64 {
+        match (config >> 13) & 0xffff {
+            0 => 65_536,
+            1 | 2 => 2,
+            divider => u64::from(divider),
+        }
+    }
+
+    fn counter_value(&self, timer: usize, now: SimTime) -> u64 {
+        let counter = self.counters[timer];
+        let config = self.register(timer, Self::CONFIG);
+        if config & (1 << 31) == 0 {
+            return counter.base_value;
+        }
+        let elapsed = now.ticks().saturating_sub(counter.base_time.ticks());
+        // The functional timeline uses eight abstract source counts per
+        // instruction. This preserves the divider relationship while avoiding
+        // a claim of wall-clock or cycle accuracy.
+        let increment = elapsed
+            .saturating_mul(8)
+            .checked_div(Self::divider(config))
+            .unwrap_or(0);
+        if config & (1 << 30) != 0 {
+            counter.base_value.wrapping_add(increment) & Self::COUNTER_MASK
+        } else {
+            counter.base_value.wrapping_sub(increment) & Self::COUNTER_MASK
+        }
+    }
+
+    fn materialize(&mut self, timer: usize, now: SimTime) {
+        let value = self.counter_value(timer, now);
+        self.counters[timer].base_value = value;
+        self.counters[timer].base_time = now;
+    }
+
+    fn load_value(&self, timer: usize) -> u64 {
+        (u64::from(self.register(timer, Self::LOAD_HIGH) & 0x003f_ffff) << 32)
+            | u64::from(self.register(timer, Self::LOAD_LOW))
+    }
+
+    fn alarm_value(&self, timer: usize) -> u64 {
+        (u64::from(self.register(timer, Self::ALARM_HIGH) & 0x003f_ffff) << 32)
+            | u64::from(self.register(timer, Self::ALARM_LOW))
+    }
+
+    fn advance(&mut self, now: SimTime) {
+        for timer in 0..self.kind.timer_count() {
+            let config = self.register(timer, Self::CONFIG);
+            let mask = 1_u32 << timer;
+            if config & ((1 << 31) | (1 << 10)) != ((1 << 31) | (1 << 10))
+                || self.registers[Self::INTERRUPT_RAW / 4] & mask != 0
+            {
+                continue;
+            }
+            let counter = self.counter_value(timer, now);
+            let alarm = self.alarm_value(timer);
+            let reached = if config & (1 << 30) != 0 {
+                counter >= alarm
+            } else {
+                counter <= alarm
+            };
+            if !reached {
+                continue;
+            }
+
+            self.registers[Self::INTERRUPT_RAW / 4] |= mask;
+            self.set_register(timer, Self::CONFIG, config & !(1 << 10));
+            if config & (1 << 29) != 0 {
+                self.counters[timer].base_value = self.load_value(timer);
+            } else {
+                self.counters[timer].base_value = counter;
+            }
+            self.counters[timer].base_time = now;
+        }
+        self.registers[Self::INTERRUPT_STATUS / 4] =
+            self.registers[Self::INTERRUPT_RAW / 4] & self.registers[Self::INTERRUPT_ENABLE / 4];
+    }
+}
+
+/// Interrupt view of one ESP timer group.
+#[derive(Clone)]
+pub struct EspTimerGroupHandle {
+    state: Arc<Mutex<EspTimerGroupState>>,
+}
+
+impl EspTimerGroupHandle {
+    /// Advances the timers and returns masked timer interrupt levels.
+    pub fn pending(&self, now: SimTime) -> [bool; 2] {
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP timer-group state lock poisoned");
+        state.advance(now);
+        let status = state.registers[EspTimerGroupState::INTERRUPT_STATUS / 4];
+        [status & 1 != 0, status & 2 != 0]
+    }
+}
+
+/// Functional ESP32-C6/S3 general-purpose timer group and RTC calibration block.
+pub struct EspTimerGroup {
+    name: String,
+    state: Arc<Mutex<EspTimerGroupState>>,
+}
+
+impl EspTimerGroup {
+    /// Creates a reset timer group and scheduler-facing interrupt handle.
+    pub fn new(name: impl Into<String>, kind: EspTimerGroupKind) -> (Self, EspTimerGroupHandle) {
+        let state = Arc::new(Mutex::new(EspTimerGroupState::new(kind)));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+            },
+            EspTimerGroupHandle { state },
+        )
     }
 }
 
@@ -1589,14 +1790,20 @@ impl Device for EspTimerGroup {
         &self.name
     }
 
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+    fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new(
                 "ESP timer group requires aligned word access",
             ));
         }
         let index = usize::try_from(offset / 4).expect("timer-group offset fits");
-        self.registers
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP timer-group state lock poisoned");
+        state.advance(at);
+        state
+            .registers
             .get(index)
             .copied()
             .map(u64::from)
@@ -1608,33 +1815,91 @@ impl Device for EspTimerGroup {
         offset: u64,
         width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new(
                 "ESP timer group requires aligned word access",
             ));
         }
-        let index = usize::try_from(offset / 4).expect("timer-group offset fits");
+        let offset = usize::try_from(offset).expect("timer-group offset fits");
+        let index = offset / 4;
         let value = value as u32;
-        let register = self
-            .registers
-            .get_mut(index)
-            .ok_or_else(|| DeviceError::new(format!("{} write at {offset:#x}", self.name)))?;
-        *register = value;
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP timer-group state lock poisoned");
+        if index >= state.registers.len() {
+            return Err(DeviceError::new(format!(
+                "{} write at {offset:#x}",
+                self.name
+            )));
+        }
+        state.advance(at);
+        if std::env::var_os("RENVO_DEBUG_TIMERS").is_some() && offset <= 0x80 {
+            eprintln!(
+                "{} write at={} offset={offset:#04x} value={value:#010x}",
+                self.name,
+                at.ticks(),
+            );
+        }
+
+        if let Some((timer, register)) = state.timer_register(offset) {
+            match register {
+                EspTimerGroupState::CONFIG => {
+                    state.materialize(timer, at);
+                    state.set_register(timer, register, value);
+                }
+                EspTimerGroupState::UPDATE => {
+                    state.counters[timer].latched_value = state.counter_value(timer, at);
+                    let latched = state.counters[timer].latched_value;
+                    state.set_register(timer, EspTimerGroupState::COUNTER_LOW, latched as u32);
+                    state.set_register(
+                        timer,
+                        EspTimerGroupState::COUNTER_HIGH,
+                        u32::try_from(latched >> 32).expect("54-bit timer high word fits"),
+                    );
+                }
+                EspTimerGroupState::LOAD => {
+                    let load = state.load_value(timer);
+                    state.counters[timer].base_value = load;
+                    state.counters[timer].base_time = at;
+                    state.counters[timer].latched_value = load;
+                    state.set_register(timer, register, 0);
+                }
+                _ => state.set_register(timer, register, value),
+            }
+        } else {
+            match offset {
+                EspTimerGroupState::INTERRUPT_ENABLE => {
+                    state.registers[index] = value & 3;
+                }
+                EspTimerGroupState::INTERRUPT_RAW | EspTimerGroupState::INTERRUPT_STATUS => {}
+                EspTimerGroupState::INTERRUPT_CLEAR => {
+                    state.registers[EspTimerGroupState::INTERRUPT_RAW / 4] &= !(value & 3);
+                    state.registers[index] = 0;
+                }
+                _ => state.registers[index] = value,
+            }
+        }
+
         if offset == 0x68 && value & (1 << 31) != 0 {
             let calibration_cycles = ((value >> 16) & 0x7fff).max(1);
             let measured_xtal_cycles = (40_000_000_u64 * u64::from(calibration_cycles)) / 136_000;
-            self.registers[0x68 / 4] |= 1 << 15;
-            self.registers[0x6c / 4] =
+            state.registers[0x68 / 4] |= 1 << 15;
+            state.registers[0x6c / 4] =
                 (u32::try_from(measured_xtal_cycles).unwrap_or(u32::MAX) & 0x01ff_ffff) << 7;
-            self.registers[0x80 / 4] &= !1;
+            state.registers[0x80 / 4] &= !1;
         }
+        state.advance(at);
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.reset_registers();
+        self.state
+            .lock()
+            .expect("ESP timer-group state lock poisoned")
+            .reset();
     }
 }
 
@@ -4175,7 +4440,7 @@ mod tests {
 
     #[test]
     fn rp_timer_interrupt_aliases_accumulate_and_clear_bits() {
-        let (mut timer, handle) = Rp2040Timer::new("timer");
+        let (mut timer, handle) = Rp2040Timer::new("timer", RpTimerLayout::Rp2040);
         timer
             .write(0x2038, AccessWidth::Word, 0x8, SimTime::ZERO)
             .unwrap();
@@ -4195,6 +4460,111 @@ mod tests {
             .write(0x303c, AccessWidth::Word, 0x8, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.pending(SimTime::ZERO), 0);
+    }
+
+    #[test]
+    fn rp2350_timer_uses_shifted_interrupt_registers() {
+        let (mut timer, handle) = Rp2040Timer::new("timer", RpTimerLayout::Rp2350);
+        timer
+            .write(0x2040, AccessWidth::Word, 0x8, SimTime::ZERO)
+            .unwrap();
+        timer
+            .write(0x2040, AccessWidth::Word, 0x4, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            timer.read(0x40, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0xc
+        );
+
+        timer
+            .write(0x1c, AccessWidth::Word, 10, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.pending(SimTime::from_ticks(10)), 0x8);
+        timer
+            .write(0x3c, AccessWidth::Word, 0x8, SimTime::from_ticks(10))
+            .unwrap();
+        assert_eq!(handle.pending(SimTime::from_ticks(10)), 0);
+
+        timer
+            .write(0x2044, AccessWidth::Word, 0x8, SimTime::from_ticks(10))
+            .unwrap();
+        assert_eq!(handle.pending(SimTime::from_ticks(10)), 0x8);
+        timer
+            .write(0x3044, AccessWidth::Word, 0x8, SimTime::from_ticks(10))
+            .unwrap();
+        assert_eq!(handle.pending(SimTime::from_ticks(10)), 0);
+    }
+
+    #[test]
+    fn esp_timer_group_schedules_and_clears_alarm_interrupts() {
+        let (mut group, handle) = EspTimerGroup::new("timer-group", EspTimerGroupKind::Esp32C6);
+        group
+            .write(0x18, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x1c, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x20, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x10, AccessWidth::Word, 100, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x14, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x70, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        let config = (1 << 31) | (1 << 30) | (1 << 29) | (1 << 10) | (8 << 13);
+        group
+            .write(0, AccessWidth::Word, config, SimTime::ZERO)
+            .unwrap();
+
+        assert_eq!(handle.pending(SimTime::from_ticks(99)), [false, false]);
+        assert_eq!(handle.pending(SimTime::from_ticks(100)), [true, false]);
+        group
+            .write(0x7c, AccessWidth::Word, 1, SimTime::from_ticks(100))
+            .unwrap();
+        assert_eq!(handle.pending(SimTime::from_ticks(100)), [false, false]);
+
+        group
+            .write(0, AccessWidth::Word, config, SimTime::from_ticks(100))
+            .unwrap();
+        assert_eq!(handle.pending(SimTime::from_ticks(200)), [true, false]);
+    }
+
+    #[test]
+    fn esp32s3_timer_group_exposes_second_timer_interrupt() {
+        let (mut group, handle) = EspTimerGroup::new("timer-group", EspTimerGroupKind::Esp32S3);
+        group
+            .write(0x3c, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x40, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x44, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x34, AccessWidth::Word, 20, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x38, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(0x70, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        group
+            .write(
+                0x24,
+                AccessWidth::Word,
+                (1 << 31) | (1 << 30) | (1 << 10) | (8 << 13),
+                SimTime::ZERO,
+            )
+            .unwrap();
+
+        assert_eq!(handle.pending(SimTime::from_ticks(20)), [false, true]);
     }
 
     #[test]

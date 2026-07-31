@@ -275,6 +275,7 @@ pub struct RiscVCpu {
     hazard3_external_forced: [u16; HAZARD3_IRQ_WINDOWS],
     hazard3_external_priorities: [u16; HAZARD3_IRQ_WINDOWS],
     hazard3_external_active: bool,
+    esp32c6_active_interrupts: Vec<u16>,
     reservation: Option<u32>,
 }
 
@@ -297,6 +298,7 @@ impl RiscVCpu {
             hazard3_external_forced: [0; HAZARD3_IRQ_WINDOWS],
             hazard3_external_priorities: [0; HAZARD3_IRQ_WINDOWS],
             hazard3_external_active: false,
+            esp32c6_active_interrupts: Vec::new(),
             reservation: None,
         };
         cpu.initialize_csrs();
@@ -444,6 +446,31 @@ impl RiscVCpu {
                 .cmp(&self.hazard3_irq_priority(*right))
                 .then_with(|| right.cmp(left))
         })
+    }
+
+    fn hazard3_update_context_from_next(&mut self) {
+        const IRQ_MASK: u32 = 0x0000_1ff0;
+        const NOIRQ: u32 = 0x0000_8000;
+        const PREEMPT_MASK: u32 = 0x001f_0000;
+
+        let next = self.hazard3_next_external();
+        let mut context =
+            self.csrs[usize::from(CSR_MEICONTEXT)] & !(IRQ_MASK | NOIRQ | PREEMPT_MASK);
+        if let Some(line) = next {
+            context |= u32::from(line) << 4;
+            context |= u32::from(self.hazard3_irq_priority(line).saturating_add(1)) << 16;
+
+            // A forced request in MEIFA is acknowledged by the same MEINEXT
+            // update that selects it. Level-sensitive peripheral requests
+            // remain asserted until their device status is cleared.
+            let window = usize::from(line / 16);
+            let bit = line % 16;
+            self.hazard3_external_forced[window] &= !(1 << bit);
+        } else {
+            context |= NOIRQ | PREEMPT_MASK;
+        }
+        self.csrs[usize::from(CSR_MEICONTEXT)] = context;
+        self.refresh_hazard3_machine_external();
     }
 
     fn refresh_hazard3_machine_external(&mut self) {
@@ -681,9 +708,30 @@ impl RiscVCpu {
                 }
                 self.refresh_hazard3_machine_external();
             }
-            CSR_MEIPA | CSR_MEINEXT => {}
+            CSR_MEIPA => {}
+            CSR_MEINEXT => {
+                if value & 1 != 0 {
+                    self.hazard3_update_context_from_next();
+                }
+            }
             CSR_MEICONTEXT => {
-                self.csrs[usize::from(address)] = value;
+                const MRETEIRQ: u32 = 1;
+                const CLEARTS: u32 = 1 << 1;
+                const MSIESAVE: u32 = 1 << 2;
+                const MTIESAVE: u32 = 1 << 3;
+                const WRITABLE_CONTEXT: u32 = 0xff1f_9ff1;
+
+                if value & CLEARTS != 0 {
+                    self.csrs[usize::from(CSR_MIE)] &= !((1 << 3) | (1 << 7));
+                } else {
+                    if value & MSIESAVE != 0 {
+                        self.csrs[usize::from(CSR_MIE)] |= 1 << 3;
+                    }
+                    if value & MTIESAVE != 0 {
+                        self.csrs[usize::from(CSR_MIE)] |= 1 << 7;
+                    }
+                }
+                self.csrs[usize::from(address)] = (value & WRITABLE_CONTEXT) | (value & MRETEIRQ);
                 self.refresh_hazard3_machine_external();
             }
             CSR_PMPCFG0..=CSR_PMPCFG3 | CSR_PMPADDR0..=CSR_PMPADDR15
@@ -747,6 +795,8 @@ impl RiscVCpu {
                 !(*line == 11
                     && self.profile.interrupt_model == InterruptModel::Hazard3
                     && self.hazard3_external_active)
+                    && !(self.profile.esp32c6_memory_protection_csrs
+                        && self.esp32c6_active_interrupts.contains(line))
             })
             .find(|line| self.csrs[usize::from(CSR_MIE)] & (1_u32 << line) != 0)
     }
@@ -767,6 +817,11 @@ impl RiscVCpu {
             // itself merely because its level-sensitive request remains high.
             self.hazard3_external_active = true;
             self.csrs[0xbe5] |= 1; // meicontext.mreteirq
+        } else if self.profile.esp32c6_memory_protection_csrs {
+            // ESP32-C6's interrupt controller raises the effective threshold
+            // on entry. A level request cannot recursively preempt its own
+            // handler merely because the common prologue re-enables MIE.
+            self.esp32c6_active_interrupts.push(line);
         }
         self.pc = if mtvec & 0x3 == 1 {
             (mtvec & !0x3).wrapping_add(cause.wrapping_mul(4))
@@ -997,6 +1052,8 @@ impl RiscVCpu {
                     {
                         self.hazard3_external_active = false;
                         self.csrs[0xbe5] &= !1;
+                    } else if self.profile.esp32c6_memory_protection_csrs {
+                        self.esp32c6_active_interrupts.pop();
                     }
                     Ok(StepReason::Advanced)
                 }
@@ -1452,6 +1509,7 @@ impl Cpu for RiscVCpu {
         self.hazard3_external_forced = [0; HAZARD3_IRQ_WINDOWS];
         self.hazard3_external_priorities = [0; HAZARD3_IRQ_WINDOWS];
         self.hazard3_external_active = false;
+        self.esp32c6_active_interrupts.clear();
         self.reservation = None;
         self.initialize_csrs();
         Ok(())
@@ -1974,6 +2032,38 @@ mod tests {
 
         cpu.hazard3_irqarray_access(CSR_MEIEA, 1 << 30, 3).unwrap();
         assert_eq!(cpu.pending_interrupt(), None);
+    }
+
+    #[test]
+    fn hazard3_meinext_update_publishes_current_irq_context() {
+        let mut cpu = RiscVCpu::new(RiscVProfile::rp2350_hazard3()).unwrap();
+        cpu.set_hazard3_external_interrupt(14, true).unwrap();
+        cpu.hazard3_irqarray_access(CSR_MEIEA, (1 << 30) | 0, 2)
+            .unwrap();
+
+        assert_eq!(cpu.read_csr(CSR_MEINEXT).unwrap(), 14 * 4);
+        cpu.write_csr(CSR_MEINEXT, 1).unwrap();
+        let context = cpu.read_csr(CSR_MEICONTEXT).unwrap();
+        assert_eq!((context >> 4) & 0x1ff, 14);
+        assert_eq!(context & 0x8000, 0);
+        assert_eq!((context >> 16) & 0x1f, 1);
+    }
+
+    #[test]
+    fn esp32c6_level_interrupt_cannot_preempt_its_own_handler() {
+        let mut cpu = RiscVCpu::new(RiscVProfile::esp32c6()).unwrap();
+        cpu.write_csr(CSR_MSTATUS, MSTATUS_MIE).unwrap();
+        cpu.write_csr(CSR_MIE, 1 << 13).unwrap();
+        cpu.set_interrupt(13, true).unwrap();
+
+        assert_eq!(cpu.pending_interrupt(), Some(13));
+        cpu.take_interrupt(13);
+        cpu.write_csr(CSR_MSTATUS, MSTATUS_MIE).unwrap();
+        assert_eq!(cpu.pending_interrupt(), None);
+
+        cpu.csrs[usize::from(CSR_MSTATUS)] = MSTATUS_MPIE;
+        cpu.execute_system(0x3020_0073, 0, 0, 0).unwrap();
+        assert_eq!(cpu.pending_interrupt(), Some(13));
     }
 
     #[test]

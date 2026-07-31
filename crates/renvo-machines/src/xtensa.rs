@@ -12,10 +12,10 @@ use renvo_core::{
 use renvo_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use renvo_devices::{
     DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspUsbOtg, EspUsbOtgHandle,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
-    UartHandle,
+    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
+    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
+    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use renvo_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use renvo_signals::{Logic, SignalError};
@@ -361,6 +361,7 @@ pub struct XtensaMachine {
     usb_host: EspDwc2Host,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
+    timer_groups: Vec<EspTimerGroupHandle>,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -532,18 +533,15 @@ impl XtensaMachine {
             0x1000,
             Box::new(EspRtcControl::new("esp32s3.rtc-control")),
         )?;
-        bus.map_device(
-            "esp32s3.timer-group0",
-            0x6001_f000,
-            0x1000,
-            Box::new(EspTimerGroup::new("esp32s3.timer-group0")),
-        )?;
-        bus.map_device(
-            "esp32s3.timer-group1",
-            0x6002_0000,
-            0x1000,
-            Box::new(EspTimerGroup::new("esp32s3.timer-group1")),
-        )?;
+        let mut timer_groups = Vec::new();
+        for (name, base) in [
+            ("esp32s3.timer-group0", 0x6001_f000),
+            ("esp32s3.timer-group1", 0x6002_0000),
+        ] {
+            let (device, handle) = EspTimerGroup::new(name, EspTimerGroupKind::Esp32S3);
+            bus.map_device(name, base, 0x1000, Box::new(device))?;
+            timer_groups.push(handle);
+        }
         let (systimer_device, systimer) = EspSystimer::new("esp32s3.systimer");
         bus.map_device(
             "esp32s3.systimer",
@@ -696,6 +694,7 @@ impl XtensaMachine {
             usb_host: EspDwc2Host::new(),
             system,
             systimer,
+            timer_groups,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -1980,6 +1979,7 @@ impl XtensaMachine {
         let mut usb_was_pending = false;
         let mut crosscore_was_pending = [false; 2];
         let mut systimer_was_pending = [false; 3];
+        let mut timer_group_was_pending = [[false; 2]; 2];
         let mut next_core = 0_u8;
         let reason = loop {
             while stimuli
@@ -2142,6 +2142,36 @@ impl XtensaMachine {
                         "systimer target={target} source={source} has no route at={}",
                         self.now.ticks()
                     );
+                }
+            }
+            for (group, handle) in self.timer_groups.iter().enumerate() {
+                for (timer, pending) in handle.pending(self.now).into_iter().enumerate() {
+                    let source = match (group, timer) {
+                        (0, 0) => 50,
+                        (0, 1) => 51,
+                        (1, 0) => 53,
+                        (1, 1) => 54,
+                        _ => unreachable!("two ESP32-S3 groups with two timers"),
+                    };
+                    if pending && !timer_group_was_pending[group][timer] {
+                        stats.events = stats.events.saturating_add(1);
+                    }
+                    timer_group_was_pending[group][timer] = pending;
+                    for core in 0..2_u32 {
+                        let Some(interrupt) = self
+                            .interrupt_routes
+                            .get(&(core, source))
+                            .copied()
+                            .filter(|interrupt| *interrupt != 6)
+                        else {
+                            continue;
+                        };
+                        if core == 0 {
+                            self.cpu.set_interrupt(interrupt as u16, pending)?;
+                        } else if self.appcpu_boot_address.is_some() {
+                            self.cpu1.set_interrupt(interrupt as u16, pending)?;
+                        }
+                    }
                 }
             }
             let running_cpu1 = next_core == 1 && self.appcpu_boot_address.is_some();

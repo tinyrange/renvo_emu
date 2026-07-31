@@ -14,7 +14,7 @@ use renvo_devices::{
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpSioGpio, RpSioHandle,
-    SignalHub, TimerHandle, UartHandle,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use renvo_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use renvo_signals::{Logic, SignalError};
@@ -445,7 +445,7 @@ pub struct ArmMachine {
     bootrom_services: BTreeMap<u32, u32>,
     native_bootrom: bool,
     ppb: ArmPpbHandle,
-    chip_timer: Option<Rp2040TimerHandle>,
+    chip_timers: Vec<Rp2040TimerHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
@@ -504,7 +504,7 @@ impl ArmMachine {
         let mut default_stack = None;
         let mut flash = None;
         let mut flash_storage = None;
-        let mut chip_timer = None;
+        let mut chip_timers = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
@@ -754,9 +754,10 @@ impl ArmMachine {
                     vec![0; 8],
                 )),
             )?;
-            let (timer_device, timer_handle) = Rp2040Timer::new("rp2040.timer");
+            let (timer_device, timer_handle) =
+                Rp2040Timer::new("rp2040.timer", RpTimerLayout::Rp2040);
             bus.map_device("rp2040.timer", 0x4005_4000, 0x4000, Box::new(timer_device))?;
-            chip_timer = Some(timer_handle);
+            chip_timers.push(timer_handle);
             let dpram = SharedMemory::zeroed(0x1000);
             bus.map_shared(
                 "rp2040.usb-dpram",
@@ -922,9 +923,14 @@ impl ArmMachine {
                     vec![0; 0x1000 / 4],
                 )),
             )?;
-            let (timer_device, timer_handle) = Rp2040Timer::new("rp2350.timer0");
-            bus.map_device("rp2350.timer0", 0x400b_0000, 0x4000, Box::new(timer_device))?;
-            chip_timer = Some(timer_handle);
+            for (name, base) in [
+                ("rp2350.timer0", 0x400b_0000),
+                ("rp2350.timer1", 0x400b_8000),
+            ] {
+                let (timer_device, timer_handle) = Rp2040Timer::new(name, RpTimerLayout::Rp2350);
+                bus.map_device(name, base, 0x4000, Box::new(timer_device))?;
+                chip_timers.push(timer_handle);
+            }
             let dpram = SharedMemory::zeroed(0x1000);
             bus.map_shared(
                 "rp2350.usb-dpram",
@@ -975,7 +981,7 @@ impl ArmMachine {
             bootrom_services: BTreeMap::new(),
             native_bootrom: false,
             ppb,
-            chip_timer,
+            chip_timers,
             usb,
             usb_dpram,
             usb_host,
@@ -1522,15 +1528,20 @@ impl ArmMachine {
                 stats.events = stats.events.saturating_add(1);
             }
             timer_was_pending = timer_pending;
-            let chip_timer_pending = self
-                .chip_timer
-                .as_ref()
-                .map_or(0, |timer| timer.pending(self.now));
+            let chip_timer_pending =
+                self.chip_timers
+                    .iter()
+                    .enumerate()
+                    .fold(0_u16, |pending, (timer, handle)| {
+                        pending | (u16::from(handle.pending(self.now)) << (timer * 4))
+                    });
             self.cpu
                 .set_interrupt(0, timer_pending || chip_timer_pending & 1 != 0)?;
-            for line in 1..4 {
-                self.cpu
-                    .set_interrupt(line, chip_timer_pending & (1 << line) != 0)?;
+            for line in 1..self.chip_timers.len() * 4 {
+                self.cpu.set_interrupt(
+                    u16::try_from(line).expect("RP timer IRQ line fits u16"),
+                    chip_timer_pending & (1 << line) != 0,
+                )?;
             }
             if let Some(usb) = &self.usb {
                 if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {

@@ -8,11 +8,12 @@ use renvo_core::{
 };
 use renvo_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use renvo_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    RegisterBank, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
-    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance,
-    RpSioGpio, RpSioHandle, SignalHub, TimerHandle, UartHandle, WchGpio,
+    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
+    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
+    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpSioGpio, RpSioHandle, RpTimerLayout,
+    SignalHub, TimerHandle, UartHandle, WchGpio,
 };
 use renvo_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use renvo_signals::{Logic, SignalError};
@@ -250,8 +251,9 @@ pub struct RiscVMachine {
     esp_systimer_raw: u8,
     esp_flash_guard: u32,
     esp_flash: Vec<u8>,
+    esp_timer_groups: Vec<EspTimerGroupHandle>,
     flash_storage: Option<SharedMemory>,
-    chip_timer: Option<Rp2040TimerHandle>,
+    chip_timers: Vec<Rp2040TimerHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
@@ -272,11 +274,12 @@ impl RiscVMachine {
         };
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
-        let mut chip_timer = None;
+        let mut chip_timers = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
+        let mut esp_timer_groups = Vec::new();
         let mut sio = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
@@ -470,9 +473,14 @@ impl RiscVMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
-            let (timer, timer_handle) = Rp2040Timer::new("rp2350.timer0");
-            bus.map_device("rp2350.timer0", 0x400b_0000, 0x4000, Box::new(timer))?;
-            chip_timer = Some(timer_handle);
+            for (name, base) in [
+                ("rp2350.timer0", 0x400b_0000),
+                ("rp2350.timer1", 0x400b_8000),
+            ] {
+                let (timer, timer_handle) = Rp2040Timer::new(name, RpTimerLayout::Rp2350);
+                bus.map_device(name, base, 0x4000, Box::new(timer))?;
+                chip_timers.push(timer_handle);
+            }
             let dpram = SharedMemory::zeroed(0x1000);
             bus.map_shared(
                 "rp2350.usb-dpram",
@@ -715,18 +723,14 @@ impl RiscVMachine {
                     0x1000,
                     Box::new(Rp2040RegisterBank::new("esp32c6.saradc", saradc_reset)),
                 )?;
-                bus.map_device(
-                    "esp32c6.timer-group0",
-                    0x6000_8000,
-                    0x1000,
-                    Box::new(EspTimerGroup::new("esp32c6.timer-group0")),
-                )?;
-                bus.map_device(
-                    "esp32c6.timer-group1",
-                    0x6000_9000,
-                    0x1000,
-                    Box::new(EspTimerGroup::new("esp32c6.timer-group1")),
-                )?;
+                for (name, base) in [
+                    ("esp32c6.timer-group0", 0x6000_8000),
+                    ("esp32c6.timer-group1", 0x6000_9000),
+                ] {
+                    let (device, handle) = EspTimerGroup::new(name, EspTimerGroupKind::Esp32C6);
+                    bus.map_device(name, base, 0x1000, Box::new(device))?;
+                    esp_timer_groups.push(handle);
+                }
                 let (device, handle) = EspGpio::new(
                     "esp32c6.gpio",
                     31,
@@ -786,8 +790,9 @@ impl RiscVMachine {
             esp_systimer_raw: 0,
             esp_flash_guard: 0,
             esp_flash: Vec::new(),
+            esp_timer_groups,
             flash_storage,
-            chip_timer,
+            chip_timers,
             usb,
             usb_dpram,
             usb_host,
@@ -4107,6 +4112,7 @@ impl RiscVMachine {
         let mut timer_was_pending = false;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
+        let mut esp_timer_was_pending = [[false; 2]; 2];
         let reason = loop {
             if let Some(sio) = &self.sio {
                 sio.select_core(0);
@@ -4141,13 +4147,16 @@ impl RiscVMachine {
             timer_was_pending = timer_pending;
             self.cpu.set_interrupt(TIMER_INTERRUPT, timer_pending)?;
             if self.target == TargetId::Rp2350 {
-                let chip_timer_pending = self
-                    .chip_timer
-                    .as_ref()
-                    .map_or(0, |timer| timer.pending(self.now));
-                for line in 0..4 {
+                let chip_timer_pending =
+                    self.chip_timers
+                        .iter()
+                        .enumerate()
+                        .fold(0_u16, |pending, (timer, handle)| {
+                            pending | (u16::from(handle.pending(self.now)) << (timer * 4))
+                        });
+                for line in 0..self.chip_timers.len() * 4 {
                     self.cpu.set_hazard3_external_interrupt(
-                        line,
+                        u16::try_from(line).expect("RP timer IRQ line fits u16"),
                         chip_timer_pending & (1 << line) != 0,
                     )?;
                 }
@@ -4205,6 +4214,34 @@ impl RiscVMachine {
                 esp_crosscore_was_pending = deliver;
                 if interrupt < 32 {
                     self.cpu.set_interrupt(interrupt as u16, deliver)?;
+                }
+                for (group, handle) in self.esp_timer_groups.iter().enumerate() {
+                    for (timer, pending) in handle.pending(self.now).into_iter().enumerate() {
+                        let source = match (group, timer) {
+                            (0, 0) => 51,
+                            (1, 0) => 54,
+                            _ => continue,
+                        };
+                        let Some(interrupt) = self.esp_interrupt_routes.get(&source).copied()
+                        else {
+                            continue;
+                        };
+                        let priority = self
+                            .esp_interrupt_priorities
+                            .get(&interrupt)
+                            .copied()
+                            .unwrap_or(0);
+                        let deliver = pending
+                            && self.esp_enabled_interrupts.contains(&interrupt)
+                            && priority >= self.esp_interrupt_threshold;
+                        if deliver && !esp_timer_was_pending[group][timer] {
+                            stats.events = stats.events.saturating_add(1);
+                        }
+                        esp_timer_was_pending[group][timer] = deliver;
+                        if interrupt < 32 {
+                            self.cpu.set_interrupt(interrupt as u16, deliver)?;
+                        }
+                    }
                 }
                 const SYSTIMER_INT_RAW: u64 = 0x6000_a068;
                 const SYSTIMER_INT_CLR: u64 = 0x6000_a06c;
