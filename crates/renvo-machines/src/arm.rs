@@ -14,8 +14,8 @@ use renvo_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
+    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use renvo_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use renvo_signals::{Logic, SignalError};
@@ -459,6 +459,7 @@ pub struct ArmMachine {
     native_bootrom: bool,
     ppb: ArmPpbHandle,
     chip_timers: Vec<Rp2040TimerHandle>,
+    pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
@@ -519,6 +520,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
@@ -708,7 +710,6 @@ impl ArmMachine {
                 ("rp2040.adc", 0x4004_c000),
                 ("rp2040.pwm", 0x4005_0000),
                 ("rp2040.dma", 0x5000_0000),
-                ("rp2040.pio0", 0x5020_0000),
                 ("rp2040.pio1", 0x5030_0000),
             ] {
                 bus.map_device(
@@ -822,7 +823,6 @@ impl ArmMachine {
                 ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio0", 0x5020_0000),
                 ("rp2350.pio1", 0x5030_0000),
                 ("rp2350.pio2", 0x5040_0000),
             ] {
@@ -973,6 +973,19 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
+        let (pio0, handle) = RpPio::new(
+            format!("{target}.pio0"),
+            u16::from(manifest.gpio_count.min(32)),
+            &format!("board.{target}.pio0.gpio"),
+            signals.clone(),
+        )?;
+        bus.map_device(
+            format!("{target}.pio0"),
+            0x5020_0000,
+            0x4000,
+            Box::new(pio0),
+        )?;
+        pio.push(handle);
         Ok(Self {
             target,
             cpu: ArmCpu::new(profile),
@@ -996,6 +1009,7 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            pio,
             usb,
             usb_dpram,
             usb_host,
@@ -1560,6 +1574,11 @@ impl ArmMachine {
                 (chip_timer_pending & !chip_timer_was_pending).count_ones(),
             ));
             chip_timer_was_pending = chip_timer_pending;
+            for pio in &self.pio {
+                if pio.poll(self.now)? {
+                    stats.events = stats.events.saturating_add(1);
+                }
+            }
             self.cpu
                 .set_interrupt(0, timer_pending || chip_timer_pending & 1 != 0)?;
             for line in 1..self.chip_timers.len() * 4 {

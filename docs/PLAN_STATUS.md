@@ -20,7 +20,7 @@ Status meanings:
 | 1 — RISC-V family | Partial | Docker GCC/Clang corpus, CoreMark, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles | Remaining WCH XW behavior, fuller ESP privilege/PMP proof, and explicit breakpoint/watchpoint gate |
 | 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker corpus, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific C/Rust ABI gate |
 | 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
-| 4 — Peripheral and VCD baseline | Partial | Four-state signals, scheduled input, VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART paths on all three CPU profiles, native ESP GPIO/timer/UART paths, and official-firmware peripheral use | RP PIO proof and per-chip register coverage manifests |
+| 4 — Peripheral and VCD baseline | Partial | Four-state signals, scheduled input, VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART paths on all three CPU profiles, functional RP PIO0 execution on all three RP CPU profiles, native ESP GPIO/timer/UART paths, and official-firmware peripheral use | Per-chip register coverage and known-deviation manifests generated from tests |
 | 5 — Distillation and selective depth | Partial | Immutable Docker builds, GCC/Clang matrices, 1,000 distinct C cases, comparison API, reduction primitive, CoreMark and stable JSON artifacts | Rust compiler lane, selected unmodified vendor samples, seeded end-to-end reduction on all three CPU families, Starlark, GDB and coverage dashboard |
 
 ## Six-chip baseline definition
@@ -44,12 +44,23 @@ Status meanings:
 
 ## Most recent closure
 
+RP2040, RP2350 Arm, and RP2350 Hazard3 now run Docker-built firmware against
+native PIO0 registers. The functional PIO model covers instruction memory,
+state-machine configuration, direct execution, unconditional `JMP`, and `SET`
+to pins, pin directions, X, and Y. The smoke program executes a two-instruction
+`SET PINS` loop on GPIO25, and all three profiles produce a checked hierarchical
+PIO VCD scope and exit with code 0. One PIO instruction advances per abstract
+tick; FIFO, IRQ, `WAIT`, shift, side-set, delay fields, clock-divider timing,
+and PIO v1 extensions are explicit known deviations.
+
+## Previous closure
+
 RP2040, RP2350 Arm, and RP2350 Hazard3 now run Docker-built firmware that
 programs native TIMER alarm, interrupt-enable, and status registers. Each
 profile enters `WFI`, takes its NVIC or Hazard3-routed interrupt, clears the
 alarm, and exits with code 0 after exactly one recorded event.
 
-## Previous closure
+## Earlier closure
 
 Docker-built firmware now writes the chip UART0/FIFO addresses on RP2040,
 RP2350 Arm, RP2350 Hazard3, ESP32-S3, and ESP32-C6. Together with the existing
@@ -57,7 +68,7 @@ WCH USART proof, all seven target/CPU combinations produce an exact checked
 transcript through native-address MMIO. RP firmware also polls the PL011 flag
 register rather than relying on the compiler UART facade.
 
-## Earlier closure
+## Earlier WCH closure
 
 The WCH slice now includes deterministic TIM2 update timing, PFIC enable and
 pending registers, QingKe CSR `0x804`, and PFIC table-mode interrupt entry via

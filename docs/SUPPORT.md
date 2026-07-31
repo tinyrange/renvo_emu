@@ -10,8 +10,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
-| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC proof |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, and TIMER interrupt proofs in both CPU modes |
+| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 compiler-emitted subset | DRAM, IRAM, 16 MiB IROM window | GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform and native-address UART0 FIFO transcript |
 
@@ -68,9 +68,11 @@ Register-window calls, exceptions, atomics, and the FPU remain incomplete.
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
-Timers and external pin stimuli use that deterministic timeline. The model is
-not tied to target clock frequency. VCD uses one nanosecond per abstract tick
-as a display convention, not a hardware timing claim.
+Timers, PIO and external pin stimuli use that deterministic timeline. The
+model is not tied to target clock frequency. Baseline PIO executes one
+instruction per abstract tick and intentionally ignores divider and delay
+timing. VCD uses one nanosecond per abstract tick as a display convention, not
+a hardware timing claim.
 
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
@@ -122,7 +124,8 @@ the target manifests and `PLAN.html`, principally:
 - WCH CH32V003/CH32V006 datasheets, CH32V00x reference material, QingKe V2
   processor manual, and the official
   [OpenWCH CH32V003 EVT sources](https://github.com/openwch/ch32v003)
-- Raspberry Pi RP2040 and RP2350 datasheets
+- Raspberry Pi RP2040 and RP2350 datasheets and the official
+  [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
 - Espressif’s official tool package index and crosstool-NG releases
 

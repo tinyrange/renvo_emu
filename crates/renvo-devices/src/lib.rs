@@ -1985,6 +1985,336 @@ impl Device for Rp2040Timer {
     }
 }
 
+#[derive(Clone, Copy)]
+struct RpPioStateMachine {
+    clock_divider: u32,
+    execution_control: u32,
+    shift_control: u32,
+    address: u8,
+    instruction: u16,
+    pin_control: u32,
+    x: u32,
+    y: u32,
+}
+
+impl RpPioStateMachine {
+    const fn reset() -> Self {
+        Self {
+            clock_divider: 0x0001_0000,
+            execution_control: 0x0001_f000,
+            shift_control: 0x000c_0000,
+            address: 0,
+            instruction: 0,
+            pin_control: 0x1400_0000,
+            x: 0,
+            y: 0,
+        }
+    }
+}
+
+struct RpPioState {
+    control: u32,
+    debug: u32,
+    instructions: [u16; 32],
+    machines: [RpPioStateMachine; 4],
+    output: u32,
+    direction: u32,
+}
+
+impl RpPioState {
+    const fn reset() -> Self {
+        Self {
+            control: 0,
+            debug: 0,
+            instructions: [0; 32],
+            machines: [RpPioStateMachine::reset(); 4],
+            output: 0,
+            direction: 0,
+        }
+    }
+}
+
+/// Scheduler-facing handle for a functional Raspberry Pi PIO block.
+#[derive(Clone)]
+pub struct RpPioHandle {
+    state: Rc<RefCell<RpPioState>>,
+    hub: SignalHub,
+    output_signal: SignalId,
+    pins: u16,
+}
+
+impl RpPioHandle {
+    /// Executes one instruction on each enabled state machine.
+    ///
+    /// PIO clock dividers and delay fields are deliberately interpreted as one
+    /// deterministic abstract tick in the baseline model.
+    pub fn poll(&self, now: SimTime) -> Result<bool, SignalError> {
+        let mut state = self.state.borrow_mut();
+        let before = state.output;
+        for machine in 0..state.machines.len() {
+            if state.control & (1 << machine) == 0 {
+                continue;
+            }
+            let address = usize::from(state.machines[machine].address);
+            let instruction = state.instructions[address];
+            execute_rp_pio_instruction(&mut state, machine, instruction, true);
+        }
+        if state.output != before {
+            self.hub.set(
+                self.output_signal,
+                SignalValue::from_u64(u64::from(state.output), self.pins)?,
+                now,
+            )?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+}
+
+fn execute_rp_pio_instruction(
+    state: &mut RpPioState,
+    machine: usize,
+    instruction: u16,
+    advance: bool,
+) {
+    const JMP: u16 = 0x0000;
+    const SET: u16 = 0xe000;
+    let major = instruction & 0xe000;
+    let argument = (instruction >> 5) & 7;
+    let data = u32::from(instruction & 0x1f);
+    let sm = &mut state.machines[machine];
+    sm.instruction = instruction;
+    let mut jumped = false;
+    match major {
+        JMP if argument == 0 => {
+            sm.address = u8::try_from(data).expect("five-bit PIO address fits u8");
+            jumped = true;
+        }
+        SET => {
+            let base = (sm.pin_control >> 5) & 0x1f;
+            let count = (sm.pin_control >> 26) & 7;
+            let mask = if count == 0 {
+                0
+            } else {
+                ((1_u32 << count) - 1).rotate_left(base)
+            };
+            let value = data.rotate_left(base) & mask;
+            match argument {
+                0 => state.output = (state.output & !mask) | value,
+                1 => sm.x = data,
+                2 => sm.y = data,
+                4 => state.direction = (state.direction & !mask) | value,
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    if advance && !jumped {
+        let wrap_top = u8::try_from((sm.execution_control >> 12) & 0x1f)
+            .expect("five-bit PIO wrap address fits u8");
+        let wrap_bottom = u8::try_from((sm.execution_control >> 7) & 0x1f)
+            .expect("five-bit PIO wrap address fits u8");
+        sm.address = if sm.address == wrap_top {
+            wrap_bottom
+        } else {
+            sm.address.wrapping_add(1) & 0x1f
+        };
+    }
+}
+
+/// Functional RP2040-compatible PIO0 register and execution slice.
+///
+/// The baseline covers instruction memory, state-machine configuration,
+/// direct execution, unconditional `JMP`, and `SET` to pins, directions, X,
+/// and Y. FIFO, IRQ, `WAIT`, shift, side-set, and PIO v1 extensions remain
+/// outside this deliberately small proof.
+pub struct RpPio {
+    name: String,
+    state: Rc<RefCell<RpPioState>>,
+    hub: SignalHub,
+    output_signal: SignalId,
+    pins: u16,
+}
+
+impl RpPio {
+    /// Creates a reset PIO block and scheduler handle.
+    pub fn new(
+        name: impl Into<String>,
+        pins: u16,
+        signal_path: &str,
+        hub: SignalHub,
+    ) -> Result<(Self, RpPioHandle), SignalError> {
+        let output_signal = hub.declare(
+            signal_path,
+            SignalValue::from_u64(0, pins)?,
+            Some("Functional PIO output register".to_owned()),
+        )?;
+        let state = Rc::new(RefCell::new(RpPioState::reset()));
+        Ok((
+            Self {
+                name: name.into(),
+                state: state.clone(),
+                hub: hub.clone(),
+                output_signal,
+                pins,
+            },
+            RpPioHandle {
+                state,
+                hub,
+                output_signal,
+                pins,
+            },
+        ))
+    }
+
+    fn update_register(current: u32, alias: u64, value: u32) -> u32 {
+        match alias {
+            0 => value,
+            1 => current ^ value,
+            2 => current | value,
+            3 => current & !value,
+            _ => unreachable!("two-bit RP atomic alias"),
+        }
+    }
+
+    fn state_machine_register(offset: u64) -> Option<(usize, u64)> {
+        if !(0x0c8..0x128).contains(&offset) {
+            return None;
+        }
+        let relative = offset - 0x0c8;
+        let machine = usize::try_from(relative / 0x18).expect("PIO state machine index fits");
+        (machine < 4).then_some((machine, relative % 0x18))
+    }
+
+    fn publish_output(&self, at: SimTime) -> Result<(), DeviceError> {
+        let output = self.state.borrow().output;
+        self.hub
+            .set(
+                self.output_signal,
+                SignalValue::from_u64(u64::from(output), self.pins)
+                    .map_err(|error| DeviceError::new(error.to_string()))?,
+                at,
+            )
+            .map_err(|error| DeviceError::new(error.to_string()))
+    }
+}
+
+impl Device for RpPio {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        if width != AccessWidth::Word || offset % 4 != 0 {
+            return Err(DeviceError::new("RP PIO requires aligned word access"));
+        }
+        let register = offset & 0x0fff;
+        let state = self.state.borrow();
+        let value = if let Some((machine, sm_offset)) = Self::state_machine_register(register) {
+            let sm = state.machines[machine];
+            match sm_offset {
+                0x00 => sm.clock_divider,
+                0x04 => sm.execution_control,
+                0x08 => sm.shift_control,
+                0x0c => u32::from(sm.address),
+                0x10 => u32::from(sm.instruction),
+                0x14 => sm.pin_control,
+                _ => unreachable!("PIO state machine register stride"),
+            }
+        } else {
+            match register {
+                0x000 => state.control,
+                0x004 => 0x0f00_0f00,
+                0x008 => state.debug,
+                0x044 => (32 << 16) | (4 << 8) | 4,
+                0x048..=0x0c4 => {
+                    let index = usize::try_from((register - 0x048) / 4)
+                        .expect("PIO instruction index fits");
+                    u32::from(state.instructions[index])
+                }
+                _ => 0,
+            }
+        };
+        Ok(u64::from(value))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if width != AccessWidth::Word || offset % 4 != 0 {
+            return Err(DeviceError::new("RP PIO requires aligned word access"));
+        }
+        let register = offset & 0x0fff;
+        let alias = (offset >> 12) & 3;
+        let value =
+            u32::try_from(value & u64::from(u32::MAX)).expect("masked PIO register value fits u32");
+        let mut publish = false;
+        {
+            let mut state = self.state.borrow_mut();
+            if let Some((machine, sm_offset)) = Self::state_machine_register(register) {
+                match sm_offset {
+                    0x00 => {
+                        let current = state.machines[machine].clock_divider;
+                        state.machines[machine].clock_divider =
+                            Self::update_register(current, alias, value);
+                    }
+                    0x04 => {
+                        let current = state.machines[machine].execution_control;
+                        state.machines[machine].execution_control =
+                            Self::update_register(current, alias, value);
+                    }
+                    0x08 => {
+                        let current = state.machines[machine].shift_control;
+                        state.machines[machine].shift_control =
+                            Self::update_register(current, alias, value);
+                    }
+                    0x0c => {}
+                    0x10 => {
+                        let before = state.output;
+                        let instruction = u16::try_from(value & u32::from(u16::MAX))
+                            .expect("masked PIO instruction fits u16");
+                        execute_rp_pio_instruction(&mut state, machine, instruction, false);
+                        publish = state.output != before;
+                    }
+                    0x14 => {
+                        let current = state.machines[machine].pin_control;
+                        state.machines[machine].pin_control =
+                            Self::update_register(current, alias, value);
+                    }
+                    _ => unreachable!("PIO state machine register stride"),
+                }
+            } else {
+                match register {
+                    0x000 => {
+                        state.control = Self::update_register(state.control, alias, value) & 0xf;
+                    }
+                    0x008 => state.debug &= !value,
+                    0x048..=0x0c4 => {
+                        let index = usize::try_from((register - 0x048) / 4)
+                            .expect("PIO instruction index fits");
+                        state.instructions[index] = u16::try_from(value & u32::from(u16::MAX))
+                            .expect("masked PIO instruction fits u16");
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if publish {
+            self.publish_output(at)?;
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        *self.state.borrow_mut() = RpPioState::reset();
+        let _ = self.publish_output(SimTime::ZERO);
+    }
+}
+
 /// Storage-backed RP2040 APB register slice with atomic XOR, SET, and CLEAR aliases.
 ///
 /// This is used for configuration-only blocks whose values affect observability but do not yet
@@ -5008,6 +5338,34 @@ mod tests {
             .write(0x3044, AccessWidth::Word, 0x8, SimTime::from_ticks(10))
             .unwrap();
         assert_eq!(handle.pending(SimTime::from_ticks(10)), 0);
+    }
+
+    #[test]
+    fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
+        let hub = SignalHub::new();
+        let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio0.gpio", hub.clone()).unwrap();
+        pio.write(
+            0x0dc,
+            AccessWidth::Word,
+            (1_u64 << 26) | (25_u64 << 5),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        pio.write(0x0cc, AccessWidth::Word, 1 << 12, SimTime::ZERO)
+            .unwrap();
+        pio.write(0x048, AccessWidth::Word, 0xe001, SimTime::ZERO)
+            .unwrap();
+        pio.write(0x04c, AccessWidth::Word, 0xe000, SimTime::ZERO)
+            .unwrap();
+        pio.write(0x000, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+
+        assert!(handle.poll(SimTime::from_ticks(1)).unwrap());
+        assert!(handle.poll(SimTime::from_ticks(2)).unwrap());
+        let changes = hub.drain_changes();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].value.bit(25), Some(Logic::One));
+        assert_eq!(changes[1].value.bit(25), Some(Logic::Zero));
     }
 
     #[test]

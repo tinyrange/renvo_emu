@@ -77,6 +77,11 @@ build_case rp2350-arm-uart toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-si
     -O2 -DUART_BASE=0x40070000u start.S uart.c
 run_case rp2350-arm-uart rp2350 "$artifact_root/rp2350-arm-uart/smoke.elf"
 
+build_case rp-arm-pio toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp2040 \
+    -O2 start.S pio.c
+run_case rp2040-pio rp2040 "$artifact_root/rp-arm-pio/smoke.elf"
+run_case rp2350-arm-pio rp2350 "$artifact_root/rp-arm-pio/smoke.elf"
+
 build_case arm-timer toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/arm-timer rp2040 \
     start.S
 run_case arm-timer rp2040 "$artifact_root/arm-timer/smoke.elf"
@@ -100,6 +105,10 @@ run_case rp2350-riscv-uart rp2350 "$artifact_root/rp2350-riscv-uart/smoke.elf"
 build_case rp2350-riscv-native-timer toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-native-timer-riscv rp2350 \
     start.S
 run_case rp2350-riscv-native-timer rp2350 "$artifact_root/rp2350-riscv-native-timer/smoke.elf"
+
+build_case rp2350-riscv-pio toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
+    -O2 start.S pio.c
+run_case rp2350-riscv-pio rp2350 "$artifact_root/rp2350-riscv-pio/smoke.elf"
 
 build_case esp32c6 toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
     -O2 start.S main.c
@@ -136,5 +145,11 @@ jq -e '.exit_code == 0 and (.uart | implode == "RENVO-ESP\n")' "$artifact_root/e
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2040-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-arm-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-riscv-native-timer-run.json" >/dev/null
+jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2040-pio-run.json" >/dev/null
+jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2350-arm-pio-run.json" >/dev/null
+jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2350-riscv-pio-run.json" >/dev/null
+grep -q '\$scope module pio0 ' "$artifact_root/rp2040-pio.vcd"
+grep -q '\$scope module pio0 ' "$artifact_root/rp2350-arm-pio.vcd"
+grep -q '\$scope module pio0 ' "$artifact_root/rp2350-riscv-pio.vcd"
 
 echo "portfolio Docker smoke passed; artifacts: $artifact_root"
