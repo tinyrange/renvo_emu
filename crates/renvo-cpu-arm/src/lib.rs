@@ -27,6 +27,24 @@ pub enum ArmProfile {
     CortexM33,
 }
 
+/// Pending M-profile exception source modeled by the functional core.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ArmException {
+    /// Architectural `SysTick` exception (exception number 15).
+    SysTick,
+    /// NVIC external interrupt, numbered from zero (exception number 16+).
+    External(u16),
+}
+
+impl ArmException {
+    const fn exception_number(self) -> u16 {
+        match self {
+            Self::SysTick => 15,
+            Self::External(line) => line + 16,
+        }
+    }
+}
+
 /// Named Arm M-profile core register.
 ///
 /// The enum keeps architectural register selection explicit at API
@@ -96,8 +114,8 @@ pub struct ArmCpu {
     executing_in_it: bool,
     waiting: bool,
     halted: bool,
-    interrupts: BTreeSet<u16>,
-    active_interrupt: Option<u16>,
+    interrupts: BTreeSet<ArmException>,
+    active_interrupt: Option<ArmException>,
     exclusive_address: Option<u32>,
     fpu_registers: [u64; 32],
 }
@@ -188,6 +206,16 @@ impl ArmCpu {
     /// Sets the vector table base used by functional interrupt entry.
     pub fn set_vector_base(&mut self, address: u32) {
         self.vector_base = address & !0x7f;
+    }
+
+    /// Latches or clears the architectural `SysTick` exception request.
+    pub fn set_systick_interrupt(&mut self, asserted: bool) {
+        if asserted {
+            self.interrupts.insert(ArmException::SysTick);
+            self.waiting = false;
+        } else {
+            self.interrupts.remove(&ArmException::SysTick);
+        }
     }
 
     fn fault(&self, kind: CpuFaultKind, message: impl Into<String>) -> CpuFault {
@@ -2294,7 +2322,7 @@ impl ArmCpu {
 
     fn take_interrupt(
         &mut self,
-        line: u16,
+        exception: ArmException,
         bus: &mut dyn Bus,
         now: SimTime,
     ) -> Result<(), CpuFault> {
@@ -2322,11 +2350,13 @@ impl ArmCpu {
         }
         self.registers[13] = stack;
         self.registers[14] = 0xffff_fff9;
-        self.active_interrupt = Some(line);
-        self.xpsr = (self.xpsr & !0x1ff) | (u32::from(line) + 16);
+        self.interrupts.remove(&exception);
+        self.active_interrupt = Some(exception);
+        let exception_number = exception.exception_number();
+        self.xpsr = (self.xpsr & !0x1ff) | u32::from(exception_number);
         let vector = self
             .vector_base
-            .wrapping_add((u32::from(line) + 16).wrapping_mul(4));
+            .wrapping_add(u32::from(exception_number).wrapping_mul(4));
         let handler = self.read(bus, vector, AccessWidth::Word, AccessKind::Read, now)?;
         self.branch_exchange(handler, bus, now)?;
         self.waiting = false;
@@ -2366,9 +2396,9 @@ impl Cpu for ArmCpu {
         }
         if !self.primask
             && self.active_interrupt.is_none()
-            && let Some(line) = self.interrupts.iter().next().copied()
+            && let Some(exception) = self.interrupts.iter().next().copied()
         {
-            self.take_interrupt(line, bus, now)?;
+            self.take_interrupt(exception, bus, now)?;
             return Ok(StepOutcome::advanced(SimDuration::TICK));
         }
         if self.waiting {
@@ -2420,10 +2450,10 @@ impl Cpu for ArmCpu {
             ));
         }
         if asserted {
-            self.interrupts.insert(line);
+            self.interrupts.insert(ArmException::External(line));
             self.waiting = false;
         } else {
-            self.interrupts.remove(&line);
+            self.interrupts.remove(&ArmException::External(line));
         }
         Ok(())
     }
@@ -3256,6 +3286,26 @@ mod tests {
         cpu.set_interrupt(0, false).unwrap();
         cpu.step(&mut bus, SimTime::from_ticks(3)).unwrap();
         assert_eq!(cpu.register(ArmRegister::R0).unwrap(), 0);
+        assert_eq!(cpu.register(ArmRegister::Sp).unwrap(), 0x800);
+        assert_eq!(cpu.register(ArmRegister::Pc).unwrap(), 0x102);
+    }
+
+    #[test]
+    fn systick_uses_exception_vector_fifteen_and_returns() {
+        let mut bus = AddressSpace::default();
+        bus.map_ram("memory", 0, 0x1000, true).unwrap();
+        bus.load(15 * 4, &0x121_u32.to_le_bytes()).unwrap();
+        bus.load(0x100, &[0x30, 0xbf, 0x00, 0xbe]).unwrap(); // wfi; bkpt
+        bus.load(0x120, &[0x2a, 0x20, 0x70, 0x47]).unwrap(); // movs r0,#42; bx lr
+        let mut cpu = ArmCpu::new(ArmProfile::CortexM33);
+        cpu.set_vector_base(0);
+        cpu.set_direct_state(0x800, 0x101).unwrap();
+        cpu.step(&mut bus, SimTime::ZERO).unwrap();
+        cpu.set_systick_interrupt(true);
+        cpu.step(&mut bus, SimTime::from_ticks(1)).unwrap();
+        cpu.step(&mut bus, SimTime::from_ticks(2)).unwrap();
+        assert_eq!(cpu.register(ArmRegister::R0).unwrap(), 42);
+        cpu.step(&mut bus, SimTime::from_ticks(3)).unwrap();
         assert_eq!(cpu.register(ArmRegister::Sp).unwrap(), 0x800);
         assert_eq!(cpu.register(ArmRegister::Pc).unwrap(), 0x102);
     }

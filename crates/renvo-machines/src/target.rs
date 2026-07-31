@@ -270,7 +270,7 @@ const MANIFESTS: &[TargetManifest] = &[
         sources: &["https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"],
         limitations: &[
             "the initial Thumb interpreter covers the compiler baseline, not the complete ISA",
-            "complete NVIC depth, USB device fidelity, and exact XIP timing are deferred",
+            "NVIC priority/preemption, USB device fidelity, and exact XIP timing are deferred",
         ],
     },
     TargetManifest {
@@ -300,7 +300,7 @@ const MANIFESTS: &[TargetManifest] = &[
         sources: &["https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"],
         limitations: &[
             "Cortex-M33 and Hazard3 direct-ELF modes implement compiler-facing ISA subsets",
-            "TrustZone, core 1, HSTX, USB, and exact QMI timing are deferred",
+            "TrustZone, HSTX, USB, NVIC priority/preemption, and exact QMI timing are deferred",
         ],
     },
     TargetManifest {

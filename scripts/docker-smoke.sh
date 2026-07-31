@@ -104,6 +104,18 @@ build_case rp2350-arm-native-timer toolchains/arm-gcc-cortex-m33.toml corpus/smo
     -DTIMER_BASE=0x400b0000 -DTIMER_INTR_OFFSET=0x3c -DTIMER_INTE_OFFSET=0x40 start.S
 run_case rp2350-arm-native-timer rp2350 "$artifact_root/rp2350-arm-native-timer/smoke.elf"
 
+build_case rp2040-arm-exceptions toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/arm-qualification rp2040 \
+    exceptions.S
+run_case rp2040-arm-exceptions rp2040 "$artifact_root/rp2040-arm-exceptions/smoke.elf"
+
+build_case rp2350-arm-exceptions toolchains/arm-gcc-cortex-m33.toml corpus/smoke/arm-qualification rp2350 \
+    exceptions.S
+run_case rp2350-arm-exceptions rp2350 "$artifact_root/rp2350-arm-exceptions/smoke.elf"
+
+build_case rp2350-arm-hardfloat toolchains/arm-gcc-cortex-m33.toml corpus/smoke/arm-qualification rp2350 \
+    -O2 -mfpu=fpv5-sp-d16 -mfloat-abi=hard start.S hardfloat.c
+run_case rp2350-arm-hardfloat rp2350 "$artifact_root/rp2350-arm-hardfloat/smoke.elf"
+
 build_case rp-riscv toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
     -O2 start.S main.c
 run_case rp2350-riscv rp2350 "$artifact_root/rp-riscv/smoke.elf"
@@ -184,6 +196,7 @@ grep -q '\$scope module pio0 ' "$artifact_root/rp2350-riscv-pio.vcd"
 
 scripts/generate-register-coverage.sh "$artifact_root" qualification/register-coverage
 scripts/generate-riscv-cpu-qualification.sh "$artifact_root" qualification/riscv-cpu.json
+scripts/generate-arm-cpu-qualification.sh "$artifact_root" qualification/arm-cpu.json
 scripts/qualify-stop-conditions.sh
 scripts/qualify-rust-abi.sh
 

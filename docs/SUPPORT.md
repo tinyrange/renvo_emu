@@ -58,11 +58,13 @@ entry, MRET, and PMP CSR visibility. `qualification/riscv-cpu.json` contains
 Docker and negative-profile proofs for XW, Zmmul, ESP privilege/trap behavior,
 and the complete RP2350 compiler `-march` baseline.
 
-The Arm interpreter covers the 16-bit Thumb compiler baseline, BL, selected
-Thumb-2 immediate forms observed in Cortex-M33 output, stack operations,
-four-state run stops, WFI, functional exception stacking/vectoring, and
-EXC_RETURN. It does not yet cover the full Armv8-M, DSP, FPU, TrustZone, MPU, or
-complete NVIC register surface.
+The Arm interpreter covers the 16-bit Thumb compiler baseline, BL, Thumb-2 and
+DSP forms observed in Cortex-M33 output, FPv5 single-precision compiler output,
+stack operations, four-state run stops, WFI, functional exception
+stacking/vectoring, and EXC_RETURN. The private-peripheral model includes a
+deterministic SysTick and all eight NVIC enable/pending banks (240 external
+lines). It does not cover the full Armv8-M instruction set, TrustZone, MPU,
+NVIC priority/preemption, or complete system-control register surface.
 
 The Xtensa interpreter covers the instructions emitted by the portable C
 baseline in call0 mode, including L32R, MEMW, density forms, core integer ALU
@@ -128,7 +130,8 @@ ELF, build, result, source, compiler-image, and repeat-run hashes.
 `scripts/docker-smoke.sh` builds and runs all six targets, both RP2350 CPU
 modes, real-register GPIO cases, native-address UART cases, native WCH/RP
 timer-interrupt cases, the full RP2350 Hazard3 compiler ISA gate, and the Rust
-ABI matrix.
+ABI matrix. It also runs the Arm SysTick/multi-bank NVIC and Cortex-M33
+hard-float/DSP gates recorded in `qualification/arm-cpu.json`.
 
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five

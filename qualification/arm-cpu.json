@@ -1,0 +1,104 @@
+{
+  "schema": "renvo.arm-cpu.v1",
+  "source_sha256": "3feb854291d1e587f3b78a7b9bdb0a6cc1c3cb07de26a25987f1ba2845f495d8",
+  "primary_sources": [
+    "https://developer.arm.com/documentation/100235/0003/",
+    "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf",
+    "https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"
+  ],
+  "implemented": {
+    "cortex_m0plus": [
+      "Armv6-M compiler baseline",
+      "exception stacking/return",
+      "SysTick",
+      "NVIC banks 0-7"
+    ],
+    "cortex_m33": [
+      "Armv8-M Mainline compiler baseline",
+      "DSP multiply-accumulate",
+      "FPv5 single precision",
+      "exception stacking/return",
+      "SysTick",
+      "NVIC banks 0-7"
+    ],
+    "baseline_policy": [
+      "non-secure execution",
+      "TrustZone unsupported"
+    ]
+  },
+  "unit_tests": {
+    "artifact": ".renvo/portfolio-smoke/arm-cpu-unit-tests.txt",
+    "sha256": "54cb5982e7a03847277590eddff76e662c96239e3f1076da6880a0833bc4ec70"
+  },
+  "cross_profile_computation": {
+    "artifact": "qualification/rust-abi.json",
+    "sha256": "d7bbc791a06ebdb7ff7fbef36c181b007eedcbae499fb1ebcbef496ff84a265f",
+    "assertion": "the same Rust ABI computation passes Cortex-M33 and Hazard3 at O0/O2/Os"
+  },
+  "proofs": [
+    {
+      "id": "rp2040-exceptions",
+      "target": "rp2040",
+      "cpu": "cortex-m0plus",
+      "feature": "systick-and-multibank-nvic",
+      "build_artifact": ".renvo/portfolio-smoke/rp2040-arm-exceptions-build.json",
+      "build_provenance_sha256": "5de8370172d533af998e07c96f1053cefec6a2d5a2a8888abb7124ada305a4d7",
+      "elf": ".renvo/portfolio-smoke/rp2040-arm-exceptions/smoke.elf",
+      "elf_sha256": "2e22b5ed7f51348d1d5b63f0d4f1e1aa4da602e049b377d27a661fc67cffbf35",
+      "result_artifact": ".renvo/portfolio-smoke/rp2040-arm-exceptions-run.json",
+      "result_sha256": "935d1e3b6d0d28b8ae54f97badb162744be7440fc4d74dd97256c37ff07cf972",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 41,
+        "time": 41,
+        "events": 0
+      },
+      "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+      "result": "pass"
+    },
+    {
+      "id": "rp2350-exceptions",
+      "target": "rp2350",
+      "cpu": "cortex-m33",
+      "feature": "systick-and-multibank-nvic",
+      "build_artifact": ".renvo/portfolio-smoke/rp2350-arm-exceptions-build.json",
+      "build_provenance_sha256": "7bb18702cf9b978724891fcd770d017f14f399c0d4ea268d38d47180b60297e1",
+      "elf": ".renvo/portfolio-smoke/rp2350-arm-exceptions/smoke.elf",
+      "elf_sha256": "5a75c0818c6871fee39e3324fc1a11769582b86d6d7fb9e41b620a67a486522d",
+      "result_artifact": ".renvo/portfolio-smoke/rp2350-arm-exceptions-run.json",
+      "result_sha256": "b7aff0904e9f2a8d80102b0fb59b4991047d39eb91144e79b1f3dfb7f421b143",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 41,
+        "time": 41,
+        "events": 0
+      },
+      "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+      "result": "pass"
+    },
+    {
+      "id": "rp2350-hardfloat-dsp",
+      "target": "rp2350",
+      "cpu": "cortex-m33",
+      "feature": "fpv5-sp-and-dsp",
+      "build_artifact": ".renvo/portfolio-smoke/rp2350-arm-hardfloat-build.json",
+      "build_provenance_sha256": "24d1087c2b8296f0bfdeeca75ea476c549e4b15717ac58178aec6e8dca695cca",
+      "elf": ".renvo/portfolio-smoke/rp2350-arm-hardfloat/smoke.elf",
+      "elf_sha256": "8398c8ef46fd27505575b5ec5c4cd8ae4353036290a4be9f314c0cead5c618d6",
+      "result_artifact": ".renvo/portfolio-smoke/rp2350-arm-hardfloat-run.json",
+      "result_sha256": "77bf50b34901e16c1976f4a7e98240f6e0e68b96435b4cb5f429814dc0d66079",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 31,
+        "time": 31,
+        "events": 0
+      },
+      "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+      "result": "pass"
+    }
+  ],
+  "result": "pass"
+}

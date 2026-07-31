@@ -18,7 +18,7 @@ Status meanings:
 |---|---|---|---|
 | 0 — Kernel contracts and manifests | Proven | Workspace contracts and ADRs; six source-linked manifests; fake dual-core/timer canonical digest across 64 repeat/insertion-stress variants on pinned Linux/amd64 and Linux/arm64 environments | None |
 | 1 — RISC-V family | Proven | Docker GCC/Clang corpus, exact-RV32E and RV32IMAC Rust ABI matrix, CoreMark, QingKe XW/Zmmul, CH32V003/006 PFIC table entry, ESP32-C6 machine/user traps and PMP CSR visibility, typed stops, and the complete RP2350 Hazard3 compiler `-march` harness | None |
-| 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker C corpus, exact Armv6-M/Armv8-M Rust ABI matrix, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific exception gate |
+| 2 — Arm M-profile | Proven | RP2040 and RP2350 pass Docker C/Rust ABI and CoreMark suites; both take SysTick and bank-1 NVIC exceptions with architectural stacking/return; RP2350 runs compiler-emitted hard-float FPv5 and DSP code; Cortex-M33/Hazard3 share the same Rust computation matrix | None |
 | 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
 | 4 — Peripheral and VCD baseline | Proven | Four-state signals, scheduled input, stable VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART/PIO paths on all three CPU profiles, native ESP GPIO/timer/UART paths, official-firmware peripheral use, and six generated register-coverage/deviation manifests | None |
 | 5 — Distillation and selective depth | Partial | Immutable Docker builds, GCC/Clang/Rust matrices, 1,000 distinct C cases, comparison API, reduction primitive, CoreMark and stable JSON artifacts | Selected unmodified vendor samples, seeded end-to-end reduction on all three CPU families, Starlark, GDB and coverage dashboard |
@@ -43,6 +43,18 @@ Status meanings:
 | Separate CPU/device/trace/script/CLI boundaries | Partial | Rust crate boundaries are clean; the Starlark scripting boundary is not implemented |
 
 ## Most recent closure
+
+Phase 2 now meets its complete exit gate. The private-peripheral model advances
+a deterministic 24-bit SysTick and exposes all eight NVIC enable/pending banks
+for 240 external lines. Docker-built RP2040 and RP2350 ELFs take SysTick and
+bank-1 software-pended interrupts, stack architectural state, return through
+EXC_RETURN, and exit successfully. A hard-float Cortex-M33 ELF compiled with
+`-mfpu=fpv5-sp-d16 -mfloat-abi=hard` executes compiler-emitted fused
+single-precision arithmetic/comparison and DSP multiply-accumulate. The checked
+`qualification/arm-cpu.json` also binds the existing O0/O2/Os Rust computation
+that passes in both RP2350 Cortex-M33 and Hazard3 modes.
+
+## Previous Phase 1 closure
 
 Phase 1 now meets its complete exit gate. ESP32-C6 implements named
 machine/user privilege state, ECALL and illegal privileged-CSR traps, MRET,

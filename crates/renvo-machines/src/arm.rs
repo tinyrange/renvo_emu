@@ -1632,8 +1632,14 @@ impl ArmMachine {
                 };
                 self.cpu.set_interrupt(
                     u16::from(usb_irq),
-                    usb.interrupt_pending() && self.ppb.interrupt_enabled(usb_irq),
+                    usb.interrupt_pending() && self.ppb.interrupt_enabled(u16::from(usb_irq)),
                 )?;
+            }
+            if self.ppb.take_systick_pending(self.now) {
+                self.cpu.set_systick_interrupt(true);
+            }
+            for line in self.ppb.take_pending_interrupts() {
+                self.cpu.set_interrupt(line, true)?;
             }
             let vector_base = self.ppb.vector_base();
             if vector_base != 0 {

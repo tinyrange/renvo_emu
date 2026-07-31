@@ -3982,26 +3982,57 @@ impl ArmPpbHandle {
     }
 
     /// Returns whether firmware enabled an external interrupt line in the NVIC.
-    pub fn interrupt_enabled(&self, line: u8) -> bool {
-        line < 32
+    pub fn interrupt_enabled(&self, line: u16) -> bool {
+        let bank = usize::from(line / 32);
+        let bit = line % 32;
+        bank < 8
             && self
                 .state
                 .lock()
                 .expect("Arm PPB lock poisoned")
-                .interrupt_enable
-                & (1_u32 << line)
+                .interrupt_enable[bank]
+                & (1_u32 << bit)
                 != 0
+    }
+
+    /// Advances `SysTick` and consumes a pending architectural exception pulse.
+    pub fn take_systick_pending(&self, now: SimTime) -> bool {
+        let mut state = self.state.lock().expect("Arm PPB lock poisoned");
+        ArmPrivatePeripheralBus::advance_systick(&mut state, now);
+        std::mem::take(&mut state.systick_pending)
+    }
+
+    /// Consumes software-pended, enabled NVIC external interrupts.
+    pub fn take_pending_interrupts(&self) -> Vec<u16> {
+        let mut state = self.state.lock().expect("Arm PPB lock poisoned");
+        let mut pending = Vec::new();
+        for bank in 0..8 {
+            let ready = state.interrupt_pending[bank] & state.interrupt_enable[bank];
+            state.interrupt_pending[bank] &= !ready;
+            for bit in 0..32 {
+                if ready & (1_u32 << bit) != 0 {
+                    pending.push(u16::try_from(bank * 32 + bit).expect("NVIC line fits u16"));
+                }
+            }
+        }
+        pending
     }
 }
 
 struct ArmPpbState {
     bytes: Vec<u8>,
     vector_base: u32,
-    interrupt_enable: u32,
-    interrupt_pending: u32,
+    interrupt_enable: [u32; 8],
+    interrupt_pending: [u32; 8],
+    systick_control: u32,
+    systick_reload: u32,
+    systick_current: u32,
+    systick_countflag: bool,
+    systick_pending: bool,
+    systick_last_tick: u64,
 }
 
-/// Functional Cortex-M SysTick, NVIC, and SCB register window.
+/// Functional Cortex-M `SysTick`, NVIC, and SCB register window.
 pub struct ArmPrivatePeripheralBus {
     name: String,
     state: Arc<Mutex<ArmPpbState>>,
@@ -4014,8 +4045,14 @@ impl ArmPrivatePeripheralBus {
         let state = Arc::new(Mutex::new(ArmPpbState {
             bytes: vec![0; 0x1000],
             vector_base: 0,
-            interrupt_enable: 0,
-            interrupt_pending: 0,
+            interrupt_enable: [0; 8],
+            interrupt_pending: [0; 8],
+            systick_control: 0,
+            systick_reload: 0,
+            systick_current: 0,
+            systick_countflag: false,
+            systick_pending: false,
+            systick_last_tick: 0,
         }));
         let handle = ArmPpbHandle {
             state: state.clone(),
@@ -4030,16 +4067,39 @@ impl ArmPrivatePeripheralBus {
         )
     }
 
-    fn read_word(state: &ArmPpbState, offset: usize) -> u32 {
-        u32::from_le_bytes(
-            state.bytes[offset..offset + 4]
-                .try_into()
-                .expect("PPB word range validated"),
-        )
-    }
-
     fn write_word(state: &mut ArmPpbState, offset: usize, value: u32) {
         state.bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn advance_systick(state: &mut ArmPpbState, now: SimTime) {
+        let mut elapsed = now.ticks().saturating_sub(state.systick_last_tick);
+        state.systick_last_tick = now.ticks();
+        if state.systick_control & 1 == 0 || elapsed == 0 {
+            return;
+        }
+        let reload = state.systick_reload & 0x00ff_ffff;
+        while elapsed != 0 {
+            if state.systick_current == 0 {
+                state.systick_current = reload;
+                elapsed -= 1;
+                if reload == 0 {
+                    state.systick_countflag = true;
+                    if state.systick_control & 2 != 0 {
+                        state.systick_pending = true;
+                    }
+                }
+            } else if elapsed >= u64::from(state.systick_current) {
+                elapsed -= u64::from(state.systick_current);
+                state.systick_current = 0;
+                state.systick_countflag = true;
+                if state.systick_control & 2 != 0 {
+                    state.systick_pending = true;
+                }
+            } else {
+                state.systick_current -= u32::try_from(elapsed).expect("elapsed fits current");
+                elapsed = 0;
+            }
+        }
     }
 }
 
@@ -4048,7 +4108,7 @@ impl Device for ArmPrivatePeripheralBus {
         &self.name
     }
 
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+    fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
         if !width.is_aligned(offset) {
             return Err(DeviceError::new("Arm PPB access is not naturally aligned"));
         }
@@ -4061,22 +4121,42 @@ impl Device for ArmPrivatePeripheralBus {
             ));
         }
         let mut state = self.state.lock().expect("Arm PPB lock poisoned");
+        Self::advance_systick(&mut state, at);
         match offset {
-            0x100 => {
-                let value = state.interrupt_enable;
-                Self::write_word(&mut state, 0x100, value);
+            0x010 => {
+                let value =
+                    state.systick_control | if state.systick_countflag { 1 << 16 } else { 0 };
+                state.systick_countflag = false;
+                Self::write_word(&mut state, 0x010, value);
             }
-            0x180 => {
-                let value = state.interrupt_enable;
-                Self::write_word(&mut state, 0x180, value);
+            0x014 => {
+                let value = state.systick_reload;
+                Self::write_word(&mut state, 0x014, value);
             }
-            0x200 => {
-                let value = state.interrupt_pending;
-                Self::write_word(&mut state, 0x200, value);
+            0x018 => {
+                let value = state.systick_current;
+                Self::write_word(&mut state, 0x018, value);
             }
-            0x280 => {
-                let value = state.interrupt_pending;
-                Self::write_word(&mut state, 0x280, value);
+            0x01c => Self::write_word(&mut state, 0x01c, 0),
+            0x100..=0x11c if offset.is_multiple_of(4) => {
+                let bank = (offset - 0x100) / 4;
+                let value = state.interrupt_enable[bank];
+                Self::write_word(&mut state, offset, value);
+            }
+            0x180..=0x19c if offset.is_multiple_of(4) => {
+                let bank = (offset - 0x180) / 4;
+                let value = state.interrupt_enable[bank];
+                Self::write_word(&mut state, offset, value);
+            }
+            0x200..=0x21c if offset.is_multiple_of(4) => {
+                let bank = (offset - 0x200) / 4;
+                let value = state.interrupt_pending[bank];
+                Self::write_word(&mut state, offset, value);
+            }
+            0x280..=0x29c if offset.is_multiple_of(4) => {
+                let bank = (offset - 0x280) / 4;
+                let value = state.interrupt_pending[bank];
+                Self::write_word(&mut state, offset, value);
             }
             0xd00 => Self::write_word(&mut state, 0xd00, self.cpuid),
             0xd08 => {
@@ -4099,7 +4179,7 @@ impl Device for ArmPrivatePeripheralBus {
         offset: u64,
         width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
         if !width.is_aligned(offset) {
             return Err(DeviceError::new("Arm PPB access is not naturally aligned"));
@@ -4113,18 +4193,36 @@ impl Device for ArmPrivatePeripheralBus {
             ));
         }
         let mut state = self.state.lock().expect("Arm PPB lock poisoned");
+        Self::advance_systick(&mut state, at);
         let word = u32::try_from(value & u64::from(u32::MAX)).expect("masked PPB value fits");
         match (offset, width) {
-            (0x100, AccessWidth::Word) => state.interrupt_enable |= word,
-            (0x180, AccessWidth::Word) => state.interrupt_enable &= !word,
-            (0x200, AccessWidth::Word) => state.interrupt_pending |= word,
-            (0x280, AccessWidth::Word) => state.interrupt_pending &= !word,
+            (0x010, AccessWidth::Word) => state.systick_control = word & 7,
+            (0x014, AccessWidth::Word) => state.systick_reload = word & 0x00ff_ffff,
+            (0x018, AccessWidth::Word) => {
+                state.systick_current = 0;
+                state.systick_countflag = false;
+            }
+            (0x100..=0x11c, AccessWidth::Word) if offset.is_multiple_of(4) => {
+                state.interrupt_enable[(offset - 0x100) / 4] |= word;
+            }
+            (0x180..=0x19c, AccessWidth::Word) if offset.is_multiple_of(4) => {
+                state.interrupt_enable[(offset - 0x180) / 4] &= !word;
+            }
+            (0x200..=0x21c, AccessWidth::Word) if offset.is_multiple_of(4) => {
+                state.interrupt_pending[(offset - 0x200) / 4] |= word;
+            }
+            (0x280..=0x29c, AccessWidth::Word) if offset.is_multiple_of(4) => {
+                state.interrupt_pending[(offset - 0x280) / 4] &= !word;
+            }
+            (0xf00, AccessWidth::Word) if word < 240 => {
+                let line = usize::try_from(word).expect("NVIC line fits usize");
+                state.interrupt_pending[line / 32] |= 1_u32 << (line % 32);
+            }
             (0xd08, AccessWidth::Word) => {
                 state.vector_base = word & !0x7f;
                 let value = state.vector_base;
                 Self::write_word(&mut state, offset, value);
             }
-            (0x18, AccessWidth::Word) => Self::write_word(&mut state, offset, 0),
             _ => {
                 let bytes = value.to_le_bytes();
                 state.bytes[offset..offset + length].copy_from_slice(&bytes[..length]);
@@ -4137,8 +4235,14 @@ impl Device for ArmPrivatePeripheralBus {
         let mut state = self.state.lock().expect("Arm PPB lock poisoned");
         state.bytes.fill(0);
         state.vector_base = 0;
-        state.interrupt_enable = 0;
-        state.interrupt_pending = 0;
+        state.interrupt_enable = [0; 8];
+        state.interrupt_pending = [0; 8];
+        state.systick_control = 0;
+        state.systick_reload = 0;
+        state.systick_current = 0;
+        state.systick_countflag = false;
+        state.systick_pending = false;
+        state.systick_last_tick = 0;
     }
 }
 
@@ -5721,6 +5825,40 @@ mod tests {
         assert_eq!(
             sio.read(0x12c, AccessWidth::Word, SimTime::ZERO).unwrap(),
             1 << 11
+        );
+    }
+
+    #[test]
+    fn arm_ppb_models_all_nvic_banks_and_software_trigger() {
+        let (mut ppb, handle) = ArmPrivatePeripheralBus::new("ppb", 0x410f_d210);
+        ppb.write(0x11c, AccessWidth::Word, 1 << 15, SimTime::ZERO)
+            .unwrap();
+        ppb.write(0xf00, AccessWidth::Word, 239, SimTime::ZERO)
+            .unwrap();
+
+        assert!(handle.interrupt_enabled(239));
+        assert_eq!(handle.take_pending_interrupts(), vec![239]);
+        assert!(handle.take_pending_interrupts().is_empty());
+    }
+
+    #[test]
+    fn arm_ppb_systick_latches_a_deterministic_exception() {
+        let (mut ppb, handle) = ArmPrivatePeripheralBus::new("ppb", 0x410c_c601);
+        ppb.write(0x014, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        ppb.write(0x018, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        ppb.write(0x010, AccessWidth::Word, 7, SimTime::ZERO)
+            .unwrap();
+
+        assert!(!handle.take_systick_pending(SimTime::from_ticks(2)));
+        assert!(handle.take_systick_pending(SimTime::from_ticks(3)));
+        assert!(!handle.take_systick_pending(SimTime::from_ticks(3)));
+        assert_ne!(
+            ppb.read(0x010, AccessWidth::Word, SimTime::from_ticks(3))
+                .unwrap()
+                & (1 << 16),
+            0
         );
     }
 }

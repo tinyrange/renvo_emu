@@ -1,6 +1,6 @@
 {
   "schema": "renvo.stop-conditions.v1",
-  "source_sha256": "a1c73961bec645dc25587d969021f89b3ed411d0d373a2ebe095cd3455fb7518",
+  "source_sha256": "28c292b3a8fc76a8838a4431e76ab47f0ad57037ee665f00a939ae6524170cab",
   "cpu_families": [
     "riscv",
     "arm",
