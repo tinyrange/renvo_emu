@@ -55,6 +55,11 @@ build_case wch-uart toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-uart ch32v
 run_case ch32v003-uart ch32v003 "$artifact_root/wch-uart/smoke.elf"
 run_case ch32v006-uart ch32v006 "$artifact_root/wch-uart/smoke.elf"
 
+build_case wch-timer toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-timer ch32v003 \
+    start.S
+run_case ch32v003-timer ch32v003 "$artifact_root/wch-timer/smoke.elf"
+run_case ch32v006-timer ch32v006 "$artifact_root/wch-timer/smoke.elf"
+
 build_case riscv-timer toolchains/riscv-gcc-rv32ec.toml corpus/smoke/riscv-timer ch32v003 \
     start.S
 run_case riscv-timer ch32v003 "$artifact_root/riscv-timer/smoke.elf"
@@ -87,6 +92,8 @@ do
 done
 grep -q '"events": 1' "$artifact_root/riscv-timer-run.json"
 grep -q '"events": 1' "$artifact_root/arm-timer-run.json"
+jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v003-timer-run.json" >/dev/null
+jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v006-timer-run.json" >/dev/null
 jq -e '.uart | implode == "RENVO-WCH\n"' "$artifact_root/ch32v003-uart-run.json" >/dev/null
 jq -e '.uart | implode == "RENVO-WCH\n"' "$artifact_root/ch32v006-uart-run.json" >/dev/null
 

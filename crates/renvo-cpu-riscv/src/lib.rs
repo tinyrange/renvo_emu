@@ -49,6 +49,7 @@ const CSR_MEIFA: u16 = 0xbe2;
 const CSR_MEIPRA: u16 = 0xbe3;
 const CSR_MEINEXT: u16 = 0xbe4;
 const CSR_MEICONTEXT: u16 = 0xbe5;
+const CSR_QINGKE_INTSYSCR: u16 = 0x804;
 const MSTATUS_MIE: u32 = 1 << 3;
 const MSTATUS_MPIE: u32 = 1 << 7;
 const HAZARD3_IRQ_WINDOWS: usize = 32;
@@ -270,6 +271,7 @@ pub struct RiscVCpu {
     waiting: bool,
     halted: bool,
     asserted_interrupts: BTreeSet<u16>,
+    qingke_external_interrupts: BTreeSet<u16>,
     hazard3_external_interrupts: BTreeSet<u16>,
     hazard3_external_enabled: [u16; HAZARD3_IRQ_WINDOWS],
     hazard3_external_forced: [u16; HAZARD3_IRQ_WINDOWS],
@@ -293,6 +295,7 @@ impl RiscVCpu {
             waiting: false,
             halted: false,
             asserted_interrupts: BTreeSet::new(),
+            qingke_external_interrupts: BTreeSet::new(),
             hazard3_external_interrupts: BTreeSet::new(),
             hazard3_external_enabled: [0; HAZARD3_IRQ_WINDOWS],
             hazard3_external_forced: [0; HAZARD3_IRQ_WINDOWS],
@@ -372,6 +375,31 @@ impl RiscVCpu {
             self.csrs[usize::from(CSR_MIE)] |= 1_u32 << line;
         } else {
             self.csrs[usize::from(CSR_MIE)] &= !(1_u32 << line);
+        }
+        Ok(())
+    }
+
+    /// Asserts or clears one WCH PFIC interrupt input.
+    ///
+    /// PFIC interrupt numbers are not `mie` bit positions: `QingKe` table mode
+    /// uses the full device interrupt number to select an entry from the
+    /// vector table rooted at `mtvec`.
+    pub fn set_qingke_external_interrupt(
+        &mut self,
+        line: u16,
+        asserted: bool,
+    ) -> Result<(), CpuFault> {
+        if self.profile.interrupt_model != InterruptModel::QingKe || line >= 256 {
+            return Err(CpuFault::new(
+                CpuFaultKind::Unsupported,
+                self.pc.into(),
+                format!("QingKe external interrupt line {line} is unavailable"),
+            ));
+        }
+        if asserted {
+            self.qingke_external_interrupts.insert(line);
+        } else {
+            self.qingke_external_interrupts.remove(&line);
         }
         Ok(())
     }
@@ -680,6 +708,9 @@ impl RiscVCpu {
             CSR_ESP_PCCR_MACHINE if self.profile.esp32c6_memory_protection_csrs => {
                 self.cycle as u32
             }
+            CSR_QINGKE_INTSYSCR if self.profile.interrupt_model == InterruptModel::QingKe => {
+                self.csrs[usize::from(address)]
+            }
             CSR_MSTATUS | CSR_MISA | CSR_MEDELEG | CSR_MIDELEG | CSR_MIE | CSR_MTVEC
             | CSR_MCOUNTEREN | CSR_MSCRATCH | CSR_MEPC | CSR_MCAUSE | CSR_MTVAL | CSR_MIP => {
                 self.csrs[usize::from(address)]
@@ -752,6 +783,9 @@ impl RiscVCpu {
             CSR_ESP_PCCR_MACHINE if self.profile.esp32c6_memory_protection_csrs => {
                 self.cycle = (self.cycle & 0xffff_ffff_0000_0000) | u64::from(value);
             }
+            CSR_QINGKE_INTSYSCR if self.profile.interrupt_model == InterruptModel::QingKe => {
+                self.csrs[usize::from(address)] = value;
+            }
             CSR_MSTATUS | CSR_MEDELEG | CSR_MIDELEG | CSR_MIE | CSR_MTVEC | CSR_MCOUNTEREN
             | CSR_MSCRATCH | CSR_MEPC | CSR_MCAUSE | CSR_MTVAL | CSR_MIP => {
                 self.csrs[usize::from(address)] = value;
@@ -787,6 +821,11 @@ impl RiscVCpu {
     fn pending_interrupt(&self) -> Option<u16> {
         if self.csrs[usize::from(CSR_MSTATUS)] & MSTATUS_MIE == 0 {
             return None;
+        }
+        if self.profile.interrupt_model == InterruptModel::QingKe
+            && let Some(line) = self.qingke_external_interrupts.iter().next()
+        {
+            return Some(*line);
         }
         self.asserted_interrupts
             .iter()
@@ -829,6 +868,24 @@ impl RiscVCpu {
             mtvec & !0x3
         };
         self.waiting = false;
+    }
+
+    fn take_interrupt_with_bus(
+        &mut self,
+        line: u16,
+        bus: &mut dyn Bus,
+        now: SimTime,
+    ) -> Result<(), CpuFault> {
+        let qingke_table_interrupt = self.profile.interrupt_model == InterruptModel::QingKe
+            && self.qingke_external_interrupts.contains(&line)
+            && self.csrs[usize::from(CSR_MTVEC)] & 0x3 == 3;
+        self.take_interrupt(line);
+        if qingke_table_interrupt {
+            let table = self.csrs[usize::from(CSR_MTVEC)] & !0x3;
+            let entry = table.wrapping_add(u32::from(line).wrapping_mul(4));
+            self.pc = self.load(bus, entry, AccessWidth::Word, now)?;
+        }
+        Ok(())
     }
 
     fn execute32(
@@ -1504,6 +1561,7 @@ impl Cpu for RiscVCpu {
         self.waiting = false;
         self.halted = false;
         self.asserted_interrupts.clear();
+        self.qingke_external_interrupts.clear();
         self.hazard3_external_interrupts.clear();
         self.hazard3_external_enabled = [0; HAZARD3_IRQ_WINDOWS];
         self.hazard3_external_forced = [0; HAZARD3_IRQ_WINDOWS];
@@ -1523,7 +1581,7 @@ impl Cpu for RiscVCpu {
             });
         }
         if let Some(interrupt) = self.pending_interrupt() {
-            self.take_interrupt(interrupt);
+            self.take_interrupt_with_bus(interrupt, bus, now)?;
             self.cycle = self.cycle.wrapping_add(1);
             return Ok(StepOutcome::advanced(SimDuration::TICK));
         }
@@ -2008,6 +2066,25 @@ mod tests {
         cpu.csrs[usize::from(CSR_MSTATUS)] = MSTATUS_MPIE;
         cpu.execute_system(0x3020_0073, 0, 0, 0).unwrap();
         assert_eq!(cpu.pending_interrupt(), Some(11));
+    }
+
+    #[test]
+    fn qingke_pfic_interrupt_uses_mode_three_vector_table() {
+        let mut bus = AddressSpace::default();
+        bus.map_ram("memory", 0, 4096, true).unwrap();
+        bus.load(38 * 4, &0x0000_0200_u32.to_le_bytes()).unwrap();
+        let mut cpu = RiscVCpu::new(RiscVProfile::ch32v003()).unwrap();
+        cpu.write_csr(CSR_QINGKE_INTSYSCR, 3).unwrap();
+        assert_eq!(cpu.read_csr(CSR_QINGKE_INTSYSCR).unwrap(), 3);
+        cpu.write_csr(CSR_MTVEC, 3).unwrap();
+        cpu.write_csr(CSR_MSTATUS, MSTATUS_MIE).unwrap();
+        cpu.set_qingke_external_interrupt(38, true).unwrap();
+
+        cpu.step(&mut bus, SimTime::ZERO).unwrap();
+
+        assert_eq!(cpu.pc(), 0x200);
+        assert_eq!(cpu.read_csr(CSR_MCAUSE).unwrap(), 0x8000_0026);
+        assert_eq!(cpu.read_csr(CSR_MEPC).unwrap(), 0);
     }
 
     #[test]

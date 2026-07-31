@@ -8,8 +8,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
-| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO and USART1 register proofs; functional timer facade |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1 slice with independently sized map |
+| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; UART0 facade; exception/timer proof |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO low GPIO bank; direct ELF in both CPU modes |
 | ESP32-S3 | Xtensa LX7 compiler-emitted subset | DRAM, IRAM, 16 MiB IROM window | GPIO matrix low bank waveform; UART0 facade |
@@ -119,8 +119,9 @@ See [COREMARK.md](COREMARK.md) for scores and methodology.
 Machine facts and register choices are based on the vendor sources linked from
 the target manifests and `PLAN.html`, principally:
 
-- WCH CH32V003/CH32V006 datasheets, CH32V00x reference material, and QingKe V2
-  processor manual
+- WCH CH32V003/CH32V006 datasheets, CH32V00x reference material, QingKe V2
+  processor manual, and the official
+  [OpenWCH CH32V003 EVT sources](https://github.com/openwch/ch32v003)
 - Raspberry Pi RP2040 and RP2350 datasheets
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
 - Espressif’s official tool package index and crosstool-NG releases

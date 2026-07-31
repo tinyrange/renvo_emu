@@ -13,7 +13,8 @@ use renvo_devices::{
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpSioGpio, RpSioHandle, RpTimerLayout,
-    SignalHub, TimerHandle, UartHandle, WchGpio, WchUsart,
+    SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle,
+    WchUsart,
 };
 use renvo_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use renvo_signals::{Logic, SignalError};
@@ -254,6 +255,8 @@ pub struct RiscVMachine {
     esp_timer_groups: Vec<EspTimerGroupHandle>,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
+    wch_timer: Option<WchTimerHandle>,
+    wch_pfic: Option<WchPficHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
@@ -281,6 +284,8 @@ impl RiscVMachine {
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
+        let mut wch_timer = None;
+        let mut wch_pfic = None;
         let mut sio = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
@@ -585,6 +590,17 @@ impl RiscVMachine {
                     Box::new(wch_uart),
                 )?;
                 chip_uarts.push(handle);
+                let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
+                bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
+                wch_timer = Some(handle);
+                let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
+                bus.map_device(
+                    format!("{target}.pfic"),
+                    0xe000_e000,
+                    0x1000,
+                    Box::new(pfic),
+                )?;
+                wch_pfic = Some(handle);
             }
             TargetId::Esp32c6 => {
                 bus.map_device(
@@ -793,6 +809,8 @@ impl RiscVMachine {
             esp_timer_groups,
             flash_storage,
             chip_timers,
+            wch_timer,
+            wch_pfic,
             usb,
             usb_dpram,
             usb_host,
@@ -4116,6 +4134,7 @@ impl RiscVMachine {
         stimuli.sort_by_key(|stimulus| stimulus.at);
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
+        let mut wch_timer_was_pending = false;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
         let mut esp_timer_was_pending = [[false; 2]; 2];
@@ -4164,6 +4183,18 @@ impl RiscVMachine {
             }
             timer_was_pending = timer_pending;
             self.cpu.set_interrupt(TIMER_INTERRUPT, timer_pending)?;
+            if let (Some(timer), Some(pfic)) = (&self.wch_timer, &self.wch_pfic) {
+                const TIM2_INTERRUPT: u16 = 38;
+                let pending = timer.pending(self.now);
+                pfic.set_pending(TIM2_INTERRUPT, pending);
+                let deliver = pfic.next_pending() == Some(TIM2_INTERRUPT);
+                if deliver && !wch_timer_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                wch_timer_was_pending = deliver;
+                self.cpu
+                    .set_qingke_external_interrupt(TIM2_INTERRUPT, deliver)?;
+            }
             if self.target == TargetId::Rp2350 {
                 let chip_timer_pending =
                     self.chip_timers

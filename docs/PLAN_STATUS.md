@@ -17,10 +17,10 @@ Status meanings:
 | Phase | Status | Current evidence | Required closure |
 |---|---|---|---|
 | 0 — Kernel contracts and manifests | Partial | Workspace crates, checked `SimTime`, deterministic event queue, bus/device/CPU/trace contracts, four ADRs, and six source-linked manifests | Fake-multicore insertion-order stress and supported-host repeat evidence |
-| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, CoreMark, direct ELF execution, CH32V003/006, ESP32-C6 and RP2350 Hazard3 profiles | WCH XW/PFIC behavior, fuller ESP privilege/PMP proof, and explicit breakpoint/watchpoint gate |
+| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, CoreMark, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles | Remaining WCH XW behavior, fuller ESP privilege/PMP proof, and explicit breakpoint/watchpoint gate |
 | 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker corpus, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific C/Rust ABI gate |
 | 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
-| 4 — Peripheral and VCD baseline | Partial | Four-state signals, scheduled input, VCD, native WCH GPIO/USART, native RP/ESP GPIO and timers, and official-firmware peripheral use | Native timer-interrupt and UART proof on every chip, RP PIO proof, and per-chip register coverage manifests |
+| 4 — Peripheral and VCD baseline | Partial | Four-state signals, scheduled input, VCD, native WCH GPIO/USART/TIM2/PFIC, native RP/ESP GPIO and timers, and official-firmware peripheral use | Native timer-interrupt and UART proof on every remaining chip, RP PIO proof, and per-chip register coverage manifests |
 | 5 — Distillation and selective depth | Partial | Immutable Docker builds, GCC/Clang matrices, 1,000 distinct C cases, comparison API, reduction primitive, CoreMark and stable JSON artifacts | Rust compiler lane, selected unmodified vendor samples, seeded end-to-end reduction on all three CPU families, Starlark, GDB and coverage dashboard |
 
 ## Six-chip baseline definition
@@ -29,7 +29,7 @@ Status meanings:
 |---|---|---|
 | Compiler-produced ELF on every CPU profile | Proven | `scripts/edge-corpus.sh` runs seven target/CPU combinations |
 | Memory maps, reset, traps and interrupt entry | Partial | All maps and functional entry paths exist; CPU-specific limitations remain in `renvo targets --json` |
-| Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Partial | Strong RP/ESP official-firmware evidence and native WCH GPIO/USART; uniform native proof is incomplete |
+| Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Partial | Strong RP/ESP official-firmware evidence and native WCH GPIO/USART/TIM2/PFIC proofs; uniform native proof is incomplete |
 | Scheduled pin input and resolved digital nets | Proven | Signal/device unit tests and MicroPython external-input qualification |
 | Stable hierarchical VCD | Proven | Trace unit tests, Docker smoke VCDs and official-firmware qualification |
 | Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Partial | Stop reasons exist; public breakpoint/watchpoint and signal-edge gates are incomplete |
@@ -44,7 +44,13 @@ Status meanings:
 
 ## Most recent closure
 
-The WCH USART1 slice now models `STATR`, `DATAR`, `BRR`, `CTLR1/2/3` and
-`GPR`, including transmitter enable and reset behavior. Docker-built firmware
-uses those native registers and produces the exact `RENVO-WCH\n` transcript on
-both CH32V003 and CH32V006. `scripts/docker-smoke.sh` is the executable proof.
+The WCH slice now includes deterministic TIM2 update timing, PFIC enable and
+pending registers, QingKe CSR `0x804`, and PFIC table-mode interrupt entry via
+`mtvec` mode 3. Docker-built RV32EC firmware configures the native TIM2 and
+PFIC addresses, enters `WFI`, services interrupt 38 through its vector-table
+entry, clears the vendor status flag, and exits successfully on both CH32V003
+and CH32V006. `scripts/docker-smoke.sh` checks the exit code and single event.
+
+The preceding USART1 closure remains covered by the same gate: native
+`STATR`, `DATAR`, `BRR`, `CTLR1/2/3`, and `GPR` accesses produce the exact
+`RENVO-WCH\n` transcript on both WCH targets.
