@@ -189,6 +189,113 @@ impl Device for FunctionalUart {
     }
 }
 
+/// WCH CH32V00x USART register slice.
+///
+/// Transmission is functional and immediate: once USART and transmitter
+/// enable are set in `CTLR1`, writing `DATAR` appends one byte to the host
+/// terminal while `TXE` and `TC` remain asserted. Receive and line timing are
+/// deliberately outside the six-chip baseline.
+pub struct WchUsart {
+    name: String,
+    baud_rate: u32,
+    control: [u32; 3],
+    guard_prescaler: u32,
+    handle: UartHandle,
+}
+
+impl WchUsart {
+    const TXE: u32 = 1 << 7;
+    const TC: u32 = 1 << 6;
+    const UE: u32 = 1 << 13;
+    const TE: u32 = 1 << 3;
+
+    /// Creates a reset USART and its host-facing terminal handle.
+    pub fn new(name: impl Into<String>) -> (Self, UartHandle) {
+        let handle = UartHandle::default();
+        (
+            Self {
+                name: name.into(),
+                baud_rate: 0,
+                control: [0; 3],
+                guard_prescaler: 0,
+                handle: handle.clone(),
+            },
+            handle,
+        )
+    }
+
+    fn reset_registers(&mut self) {
+        self.baud_rate = 0;
+        self.control = [0; 3];
+        self.guard_prescaler = 0;
+    }
+}
+
+impl Device for WchUsart {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        if width != AccessWidth::Word {
+            return Err(DeviceError::new("WCH USART requires word access"));
+        }
+        let value = match offset {
+            0x00 => Self::TXE | Self::TC,
+            0x04 => 0,
+            0x08 => self.baud_rate,
+            0x0c => self.control[0],
+            0x10 => self.control[1],
+            0x14 => self.control[2],
+            0x18 => self.guard_prescaler,
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled WCH USART read at offset {offset:#x}"
+                )));
+            }
+        };
+        Ok(u64::from(value))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if width != AccessWidth::Word {
+            return Err(DeviceError::new("WCH USART requires word access"));
+        }
+        let value = u32::try_from(value & u64::from(u32::MAX))
+            .expect("masked USART register value fits u32");
+        match offset {
+            0x00 => {}
+            0x04 => {
+                if self.control[0] & (Self::UE | Self::TE) == (Self::UE | Self::TE) {
+                    self.handle.transmit(&[value as u8]);
+                }
+            }
+            0x08 => self.baud_rate = value & 0x0000_ffff,
+            0x0c => self.control[0] = value,
+            0x10 => self.control[1] = value,
+            0x14 => self.control[2] = value,
+            0x18 => self.guard_prescaler = value,
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled WCH USART write at offset {offset:#x}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        self.reset_registers();
+        self.handle.clear();
+    }
+}
+
 /// Host-facing state for the ESP USB Serial/JTAG CDC-ACM data endpoint.
 #[derive(Clone)]
 pub struct EspUsbSerialJtagHandle {
@@ -4544,6 +4651,40 @@ mod tests {
         uart.write(0, AccessWidth::Word, b'A'.into(), SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.text_lossy(), "A");
+    }
+
+    #[test]
+    fn wch_usart_requires_enable_and_preserves_configuration() {
+        let (mut usart, handle) = WchUsart::new("usart1");
+        assert_eq!(
+            usart.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0xc0
+        );
+        usart
+            .write(0x04, AccessWidth::Word, b'X'.into(), SimTime::ZERO)
+            .unwrap();
+        assert!(handle.bytes().is_empty());
+
+        usart
+            .write(0x08, AccessWidth::Word, 0x01a1, SimTime::ZERO)
+            .unwrap();
+        usart
+            .write(
+                0x0c,
+                AccessWidth::Word,
+                (1_u64 << 13) | (1_u64 << 3),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        usart
+            .write(0x04, AccessWidth::Word, b'A'.into(), SimTime::ZERO)
+            .unwrap();
+
+        assert_eq!(handle.bytes(), b"A");
+        assert_eq!(
+            usart.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x01a1
+        );
     }
 
     #[test]

@@ -50,6 +50,11 @@ build_case wch toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-gpio ch32v003 \
 run_case ch32v003 ch32v003 "$artifact_root/wch/smoke.elf"
 run_case ch32v006 ch32v006 "$artifact_root/wch/smoke.elf"
 
+build_case wch-uart toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-uart ch32v003 \
+    -O2 start.S main.c
+run_case ch32v003-uart ch32v003 "$artifact_root/wch-uart/smoke.elf"
+run_case ch32v006-uart ch32v006 "$artifact_root/wch-uart/smoke.elf"
+
 build_case riscv-timer toolchains/riscv-gcc-rv32ec.toml corpus/smoke/riscv-timer ch32v003 \
     start.S
 run_case riscv-timer ch32v003 "$artifact_root/riscv-timer/smoke.elf"
@@ -82,5 +87,7 @@ do
 done
 grep -q '"events": 1' "$artifact_root/riscv-timer-run.json"
 grep -q '"events": 1' "$artifact_root/arm-timer-run.json"
+jq -e '.uart | implode == "RENVO-WCH\n"' "$artifact_root/ch32v003-uart-run.json" >/dev/null
+jq -e '.uart | implode == "RENVO-WCH\n"' "$artifact_root/ch32v006-uart-run.json" >/dev/null
 
 echo "portfolio Docker smoke passed; artifacts: $artifact_root"

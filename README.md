@@ -16,6 +16,8 @@ interrupts, GPIO, timers, UART, external pin stimulus, and VCD traces. It does
 not claim cycle accuracy or complete peripheral coverage.
 The exact implemented/deferred boundary is in
 [docs/SUPPORT.md](docs/SUPPORT.md).
+Progress against the restored plan's own exit gates is tracked in
+[docs/PLAN_STATUS.md](docs/PLAN_STATUS.md).
 The 1,000-case portable C baseline is documented in
 [corpus/edge_cases/README.md](corpus/edge_cases/README.md).
 The six-MCU CoreMark qualification and host-calibrated results are in

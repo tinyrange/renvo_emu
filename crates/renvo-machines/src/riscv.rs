@@ -13,7 +13,7 @@ use renvo_devices::{
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpSioGpio, RpSioHandle, RpTimerLayout,
-    SignalHub, TimerHandle, UartHandle, WchGpio,
+    SignalHub, TimerHandle, UartHandle, WchGpio, WchUsart,
 };
 use renvo_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use renvo_signals::{Logic, SignalError};
@@ -577,8 +577,7 @@ impl RiscVMachine {
                     ],
                 );
                 bus.map_device(format!("{target}.rcc"), 0x4002_1000, 0x400, Box::new(rcc))?;
-                let (wch_uart, handle) =
-                    FunctionalUart::new_lenient(format!("{target}.usart1"), 0x04, 0x00, 0x00c0);
+                let (wch_uart, handle) = WchUsart::new(format!("{target}.usart1"));
                 bus.map_device(
                     format!("{target}.usart1"),
                     0x4001_3800,

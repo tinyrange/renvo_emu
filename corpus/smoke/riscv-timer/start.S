@@ -7,6 +7,8 @@ _start:
     csrw mtvec, t0
     li t0, 8
     csrs mstatus, t0
+    li t0, 128
+    csrs mie, t0
 
     li t0, 0xffff0208
     li t1, 20

@@ -1,0 +1,50 @@
+# Restored plan status
+
+This ledger tracks the restored `PLAN.html` and nothing broader. Features that
+the plan marks **deliberately later**, **deferred from baseline**, or
+**corpus-driven next** are not completion blockers unless an exit gate names
+them explicitly.
+
+Status meanings:
+
+- **Proven**: an executable check covers the stated requirement.
+- **Partial**: useful implementation exists, but the plan's full gate is not
+  yet demonstrated.
+- **Missing**: no adequate end-to-end evidence exists yet.
+
+## Phase gates
+
+| Phase | Status | Current evidence | Required closure |
+|---|---|---|---|
+| 0 — Kernel contracts and manifests | Partial | Workspace crates, checked `SimTime`, deterministic event queue, bus/device/CPU/trace contracts, four ADRs, and six source-linked manifests | Fake-multicore insertion-order stress and supported-host repeat evidence |
+| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, CoreMark, direct ELF execution, CH32V003/006, ESP32-C6 and RP2350 Hazard3 profiles | WCH XW/PFIC behavior, fuller ESP privilege/PMP proof, and explicit breakpoint/watchpoint gate |
+| 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker corpus, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific C/Rust ABI gate |
+| 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
+| 4 — Peripheral and VCD baseline | Partial | Four-state signals, scheduled input, VCD, native WCH GPIO/USART, native RP/ESP GPIO and timers, and official-firmware peripheral use | Native timer-interrupt and UART proof on every chip, RP PIO proof, and per-chip register coverage manifests |
+| 5 — Distillation and selective depth | Partial | Immutable Docker builds, GCC/Clang matrices, 1,000 distinct C cases, comparison API, reduction primitive, CoreMark and stable JSON artifacts | Rust compiler lane, selected unmodified vendor samples, seeded end-to-end reduction on all three CPU families, Starlark, GDB and coverage dashboard |
+
+## Six-chip baseline definition
+
+| Requirement from `PLAN.html` | Status | Evidence or gap |
+|---|---|---|
+| Compiler-produced ELF on every CPU profile | Proven | `scripts/edge-corpus.sh` runs seven target/CPU combinations |
+| Memory maps, reset, traps and interrupt entry | Partial | All maps and functional entry paths exist; CPU-specific limitations remain in `renvo targets --json` |
+| Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Partial | Strong RP/ESP official-firmware evidence and native WCH GPIO/USART; uniform native proof is incomplete |
+| Scheduled pin input and resolved digital nets | Proven | Signal/device unit tests and MicroPython external-input qualification |
+| Stable hierarchical VCD | Proven | Trace unit tests, Docker smoke VCDs and official-firmware qualification |
+| Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Partial | Stop reasons exist; public breakpoint/watchpoint and signal-edge gates are incomplete |
+| Stable machine-readable result and event digest | Proven | CLI JSON artifacts and deterministic trace digests |
+| Selected unmodified WCH EVT, Pico SDK and ESP-IDF samples | Missing | Official MicroPython is valuable additional evidence but does not replace this named gate |
+| GCC, Clang and Rust across optimization levels | Partial | GCC and Clang pass; the target Rust lane is missing |
+| Compare selected output and flag divergence | Proven | `renvo corpus compare` and comparison unit tests |
+| Reduce seeded divergence on RISC-V, Arm and Xtensa | Missing | Deterministic reducer primitive exists, but no three-family end-to-end proof |
+| Publish coverage, fidelity, unsupported behavior, provenance and licences | Partial | Source-linked target manifests and build provenance exist; register coverage/licence dashboard is missing |
+| Identical results across supported hosts | Partial | Repeated local digests exist; supported-host matrix is not published |
+| Separate CPU/device/trace/script/CLI boundaries | Partial | Rust crate boundaries are clean; the Starlark scripting boundary is not implemented |
+
+## Most recent closure
+
+The WCH USART1 slice now models `STATR`, `DATAR`, `BRR`, `CTLR1/2/3` and
+`GPR`, including transmitter enable and reset behavior. Docker-built firmware
+uses those native registers and produces the exact `RENVO-WCH\n` transcript on
+both CH32V003 and CH32V006. `scripts/docker-smoke.sh` is the executable proof.
