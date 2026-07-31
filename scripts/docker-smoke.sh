@@ -69,6 +69,14 @@ build_case rp-arm toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp20
 run_case rp2040 rp2040 "$artifact_root/rp-arm/smoke.elf"
 run_case rp2350-arm rp2350 "$artifact_root/rp-arm/smoke.elf"
 
+build_case rp2040-uart toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp2040 \
+    -O2 -DUART_BASE=0x40034000u start.S uart.c
+run_case rp2040-uart rp2040 "$artifact_root/rp2040-uart/smoke.elf"
+
+build_case rp2350-arm-uart toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-sio rp2350 \
+    -O2 -DUART_BASE=0x40070000u start.S uart.c
+run_case rp2350-arm-uart rp2350 "$artifact_root/rp2350-arm-uart/smoke.elf"
+
 build_case arm-timer toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/arm-timer rp2040 \
     start.S
 run_case arm-timer rp2040 "$artifact_root/arm-timer/smoke.elf"
@@ -77,13 +85,25 @@ build_case rp-riscv toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2
     -O2 start.S main.c
 run_case rp2350-riscv rp2350 "$artifact_root/rp-riscv/smoke.elf"
 
+build_case rp2350-riscv-uart toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
+    -O2 start.S uart.c
+run_case rp2350-riscv-uart rp2350 "$artifact_root/rp2350-riscv-uart/smoke.elf"
+
 build_case esp32c6 toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
     -O2 start.S main.c
 run_case esp32c6 esp32c6 "$artifact_root/esp32c6/smoke.elf"
 
+build_case esp32c6-uart toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
+    -O2 start.S uart.c
+run_case esp32c6-uart esp32c6 "$artifact_root/esp32c6-uart/smoke.elf"
+
 build_case esp32s3 toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtensa esp32s3 \
     -O2 main.c
 run_case esp32s3 esp32s3 "$artifact_root/esp32s3/smoke.elf"
+
+build_case esp32s3-uart toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtensa esp32s3 \
+    -O2 uart.c
+run_case esp32s3-uart esp32s3 "$artifact_root/esp32s3-uart/smoke.elf"
 
 for result in "$artifact_root"/*-run.json
 do
@@ -96,5 +116,10 @@ jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v003-timer-ru
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v006-timer-run.json" >/dev/null
 jq -e '.uart | implode == "RENVO-WCH\n"' "$artifact_root/ch32v003-uart-run.json" >/dev/null
 jq -e '.uart | implode == "RENVO-WCH\n"' "$artifact_root/ch32v006-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "RENVO-RP\n")' "$artifact_root/rp2040-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "RENVO-RP\n")' "$artifact_root/rp2350-arm-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "RENVO-RP\n")' "$artifact_root/rp2350-riscv-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "RENVO-ESP\n")' "$artifact_root/esp32c6-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "RENVO-ESP\n")' "$artifact_root/esp32s3-uart-run.json" >/dev/null
 
 echo "portfolio Docker smoke passed; artifacts: $artifact_root"

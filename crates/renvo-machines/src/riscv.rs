@@ -459,7 +459,6 @@ impl RiscVMachine {
                 )),
             )?;
             for (name, base) in [
-                ("rp2350.uart0", 0x4007_0000),
                 ("rp2350.uart1", 0x4007_8000),
                 ("rp2350.spi0", 0x4008_0000),
                 ("rp2350.spi1", 0x4008_8000),
@@ -769,6 +768,10 @@ impl RiscVMachine {
                 bus.map_device("rp2350.sio", 0xd000_0000, 0x200, Box::new(device))?;
                 chip_gpio.push(handle);
                 sio = Some(multicore);
+                let (uart0, handle) =
+                    FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
+                bus.map_device("rp2350.uart0", 0x4007_0000, 0x1000, Box::new(uart0))?;
+                chip_uarts.push(handle);
             }
             TargetId::Rp2040 | TargetId::Esp32s3 => unreachable!(),
         }

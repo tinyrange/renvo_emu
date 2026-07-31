@@ -10,10 +10,10 @@ it does not mean cycle accuracy or complete silicon compatibility.
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
-| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; UART0 facade; exception/timer proof |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO low GPIO bank; direct ELF in both CPU modes |
-| ESP32-S3 | Xtensa LX7 compiler-emitted subset | DRAM, IRAM, 16 MiB IROM window | GPIO matrix low bank waveform; UART0 facade |
-| ESP32-C6 | RV32IMAC/Zicsr subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform; UART0 facade |
+| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native-address UART0 transcript; exception/timer proof |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO low GPIO bank and native-address UART0 transcript in both CPU modes |
+| ESP32-S3 | Xtensa LX7 compiler-emitted subset | DRAM, IRAM, 16 MiB IROM window | GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-C6 | RV32IMAC/Zicsr subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform and native-address UART0 FIFO transcript |
 
 All targets also expose a stable compiler-test block:
 
@@ -49,9 +49,9 @@ PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
 instructions, M and A where selected by the profile, Zicsr, WFI/MRET, basic
-machine interrupt entry, and the compiler-facing Hazard3 bit-manipulation
-subset. WCH XW instructions, exact PFIC entry/nesting, PMP, and complete
-privilege behavior remain unsupported.
+machine interrupt entry, QingKe PFIC table-mode entry, and the compiler-facing
+Hazard3 bit-manipulation subset. WCH XW instructions, exact PFIC nesting, PMP,
+and complete privilege behavior remain unsupported.
 
 The Arm interpreter covers the 16-bit Thumb compiler baseline, BL, selected
 Thumb-2 immediate forms observed in Cortex-M33 output, stack operations,
@@ -91,8 +91,8 @@ requires an immutable Docker digest or image ID and applies:
 The initial cross-GCC image contains Ubuntu-packaged RISC-V and Arm
 bare-metal GCC. The Xtensa image verifies the SHA-256 of Espressif’s official
 toolchain archive before extracting it. `scripts/docker-smoke.sh` builds and
-runs all six targets, both RP2350 CPU modes, real-register GPIO cases, and Arm
-and RISC-V timer/interrupt cases.
+runs all six targets, both RP2350 CPU modes, real-register GPIO cases,
+native-address UART cases, and Arm and RISC-V timer/interrupt cases.
 
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five
