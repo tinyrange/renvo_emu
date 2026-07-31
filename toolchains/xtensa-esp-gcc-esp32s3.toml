@@ -1,0 +1,13 @@
+name = "espressif-gcc-14-esp32s3"
+image = "sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f"
+program = "xtensa-esp32s3-elf-gcc"
+args = [
+    "-ffreestanding",
+    "-nostdlib",
+    "-mlongcalls",
+    "-mtext-section-literals",
+]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

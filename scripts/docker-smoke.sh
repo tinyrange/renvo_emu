@@ -1,0 +1,86 @@
+#!/bin/sh
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$project_dir"
+
+cross_image=sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736
+xtensa_image=sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f
+
+docker image inspect "$cross_image" >/dev/null
+docker image inspect "$xtensa_image" >/dev/null
+
+cargo build -q -p renvo-cli
+renvo=target/debug/renvo
+artifact_root=.renvo/portfolio-smoke
+mkdir -p "$artifact_root"
+
+build_case()
+{
+    name=$1
+    toolchain=$2
+    source=$3
+    target=$4
+    shift 4
+    mkdir -p "$artifact_root/$name"
+    "$renvo" corpus build \
+        --toolchain "$toolchain" \
+        --source "$source" \
+        --output "$artifact_root/$name" \
+        --target "$target" \
+        --artifact "$artifact_root/$name-build.json" \
+        -- "$@" -Wl,-T,link.ld -o /workspace/out/smoke.elf
+}
+
+run_case()
+{
+    name=$1
+    target=$2
+    elf=$3
+    "$renvo" run \
+        --target "$target" \
+        --elf "$elf" \
+        --max-instructions 10000 \
+        --vcd "$artifact_root/$name.vcd" \
+        --result "$artifact_root/$name-run.json"
+}
+
+build_case wch toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-gpio ch32v003 \
+    -O2 start.S main.c
+run_case ch32v003 ch32v003 "$artifact_root/wch/smoke.elf"
+run_case ch32v006 ch32v006 "$artifact_root/wch/smoke.elf"
+
+build_case riscv-timer toolchains/riscv-gcc-rv32ec.toml corpus/smoke/riscv-timer ch32v003 \
+    start.S
+run_case riscv-timer ch32v003 "$artifact_root/riscv-timer/smoke.elf"
+
+build_case rp-arm toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp2040 \
+    -O2 start.S main.c
+run_case rp2040 rp2040 "$artifact_root/rp-arm/smoke.elf"
+run_case rp2350-arm rp2350 "$artifact_root/rp-arm/smoke.elf"
+
+build_case arm-timer toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/arm-timer rp2040 \
+    start.S
+run_case arm-timer rp2040 "$artifact_root/arm-timer/smoke.elf"
+
+build_case rp-riscv toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
+    -O2 start.S main.c
+run_case rp2350-riscv rp2350 "$artifact_root/rp-riscv/smoke.elf"
+
+build_case esp32c6 toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
+    -O2 start.S main.c
+run_case esp32c6 esp32c6 "$artifact_root/esp32c6/smoke.elf"
+
+build_case esp32s3 toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtensa esp32s3 \
+    -O2 main.c
+run_case esp32s3 esp32s3 "$artifact_root/esp32s3/smoke.elf"
+
+for result in "$artifact_root"/*-run.json
+do
+    grep -q '"reason": "Halted"' "$result"
+    grep -q '"exit_code":' "$result"
+done
+grep -q '"events": 1' "$artifact_root/riscv-timer-run.json"
+grep -q '"events": 1' "$artifact_root/arm-timer-run.json"
+
+echo "portfolio Docker smoke passed; artifacts: $artifact_root"

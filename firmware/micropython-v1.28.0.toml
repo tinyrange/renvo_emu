@@ -1,0 +1,64 @@
+schema = "renvo.official-firmware.v1"
+name = "micropython-v1.28.0-four-board-qualification"
+version = "v1.28.0"
+released = "2026-04-06"
+
+[[artifacts]]
+id = "m5stack-nanoc6"
+board = "M5Stack NanoC6"
+profile = "esp32-c6-riscv"
+url = "https://micropython.org/resources/firmware/M5STACK_NANOC6-20260406-v1.28.0.bin"
+filename = "M5STACK_NANOC6-20260406-v1.28.0.bin"
+sha256 = "30c63e16024a762799fcb1c4693c7dd5847b5a81ad42733edc03b0dd28308faa"
+format = "espbin"
+primary = true
+
+[[artifacts]]
+id = "m5stack-atoms3-lite"
+board = "M5Stack AtomS3 Lite"
+profile = "esp32-s3-xtensa"
+url = "https://micropython.org/resources/firmware/M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2"
+filename = "M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2"
+sha256 = "1fa0d339167164c03e675ed4b30489de685e713d320a8a74b78530d1266a7eaa"
+format = "uf2"
+primary = true
+
+[[artifacts]]
+id = "m5stack-atoms3-lite-bin"
+board = "M5Stack AtomS3 Lite"
+profile = "esp32-s3-xtensa"
+url = "https://micropython.org/resources/firmware/M5STACK_ATOMS3_LITE-20260406-v1.28.0.bin"
+filename = "M5STACK_ATOMS3_LITE-20260406-v1.28.0.bin"
+sha256 = "6caa63bdafbb0c29b9349361349063b3a7af63cc4bb3e661f566526206a01c8f"
+format = "espbin"
+primary = false
+
+[[artifacts]]
+id = "rpi-pico"
+board = "Raspberry Pi Pico"
+profile = "rp2040-cortex-m0plus"
+url = "https://micropython.org/resources/firmware/RPI_PICO-20260406-v1.28.0.uf2"
+filename = "RPI_PICO-20260406-v1.28.0.uf2"
+sha256 = "00aedb8431ebea83b470ef909509f16432c5b1b43e8f6eaf015f6f9560bc8152"
+format = "uf2"
+primary = true
+
+[[artifacts]]
+id = "rpi-pico2-arm"
+board = "Raspberry Pi Pico 2"
+profile = "rp2350-cortex-m33"
+url = "https://micropython.org/resources/firmware/RPI_PICO2-20260406-v1.28.0.uf2"
+filename = "RPI_PICO2-20260406-v1.28.0.uf2"
+sha256 = "e65ad62ae886a4f56da8ef2c07904fe504b92de69e5ae6489acf881bcf30b6ae"
+format = "uf2"
+primary = true
+
+[[artifacts]]
+id = "rpi-pico2-riscv"
+board = "Raspberry Pi Pico 2"
+profile = "rp2350-hazard3-riscv"
+url = "https://micropython.org/resources/firmware/RPI_PICO2-RISCV-20260406-v1.28.0.uf2"
+filename = "RPI_PICO2-RISCV-20260406-v1.28.0.uf2"
+sha256 = "835b6b14078c6b0645f18afd925333e60bfda777744b8da7d17049effa32a50a"
+format = "uf2"
+primary = true

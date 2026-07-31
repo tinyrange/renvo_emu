@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Renvo qualification evidence</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090c0b; --panel:#121815; --line:#2b3731; --text:#e8f0ec; --muted:#9eaca5; --ok:#72e2ad; }
+    * { box-sizing:border-box }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,sans-serif }
+    main { width:min(1050px,calc(100% - 36px)); margin:0 auto; padding:64px 0 100px }
+    h1 { margin:.2em 0; font-size:clamp(38px,7vw,72px); letter-spacing:-.05em }
+    h2 { margin-top:45px }
+    .ok { color:var(--ok) }
+    .lede,.muted { color:var(--muted) }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:30px 0 }
+    .metric,.card { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:18px }
+    .metric b { display:block; font-size:28px; color:var(--ok) }
+    table { width:100%; border-collapse:collapse; overflow:hidden; border:1px solid var(--line) }
+    th,td { padding:11px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top }
+    th { color:var(--muted); font-size:12px; text-transform:uppercase }
+    code { font:12px ui-monospace,monospace; color:#b9f2d6; word-break:break-all }
+    @media(max-width:700px){.metrics{grid-template-columns:repeat(2,1fr)} table{font-size:12px}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="ok">OFFICIAL-FIRMWARE ACCEPTANCE</div>
+  <h1 id="title">Loading evidence…</h1>
+  <p class="lede" id="lede"></p>
+  <div class="metrics" id="metrics"></div>
+  <h2>MicroPython runs</h2>
+  <div class="card"><table><thead><tr><th>Profile</th><th>Repeat</th><th>Instructions</th><th>Evidence digest</th><th>Trace digest</th></tr></thead><tbody id="runs"></tbody></table></div>
+  <h2>System and external-I/O scenarios</h2>
+  <div class="card"><table><thead><tr><th>Profile</th><th>Scenario</th><th>Phase</th><th>Repeat</th><th>Instructions</th><th>Persistent flash</th><th>VCD</th></tr></thead><tbody id="systems"></tbody></table></div>
+  <h2>Independent runtime</h2>
+  <div class="card" id="mquickjs"></div>
+</main>
+<script>
+fetch("summary.json").then(r => r.json()).then(d => {
+  title.textContent = d.status === "passed" ? "Qualification passed." : "Qualification failed.";
+  const systemRuns = d.system_scenarios || [];
+  lede.textContent = `${d.release}; official bytes, ${d.clean_repeats} clean deterministic repeats, VCD evidence, system recovery scenarios, and a pinned MQuickJS cross-check.`;
+  metrics.innerHTML = [["Boards",d.boards],["CPU profiles",d.execution_profiles],["Official patches",d.firmware_patches],["Verified runs",d.runs.length + systemRuns.length]].map(([k,v]) => `<div class="metric"><span>${k}</span><b>${v}</b></div>`).join("");
+  runs.innerHTML = d.runs.map(r => `<tr><td>${r.profile}</td><td>${r.repeat}</td><td>${r.instructions.toLocaleString()}</td><td><code>${r.evidence_digest}</code></td><td><code>${r.trace_digest}</code></td></tr>`).join("");
+  systems.innerHTML = systemRuns.map(r => `<tr><td>${r.profile}</td><td>${r.scenario}</td><td>${r.phase}</td><td>${r.repeat}</td><td>${r.instructions.toLocaleString()}</td><td><code>${r.flash_sha256}</code></td><td><code>${r.vcd_sha256}</code></td></tr>`).join("");
+  mquickjs.innerHTML = `<p><b class="ok">${d.mquickjs.profiles.length} / 5 profiles passed</b></p><p class="muted">Pinned commit <code>${d.mquickjs.commit}</code><br>Container <code>${d.mquickjs.image_id}</code></p>`;
+}).catch(error => { title.textContent = "Evidence unavailable."; lede.textContent = error; });
+</script>
+</body>
+</html>

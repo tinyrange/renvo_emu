@@ -1,0 +1,6 @@
+FROM espressif/idf@sha256:114a9f8cde8bdc5a7e95809745b492663f7c5afe9c2821a4127ff133754fafd2
+
+RUN python -m venv /opt/esptool-5.3 \
+    && /opt/esptool-5.3/bin/pip install --no-cache-dir esptool==5.3.0
+
+ENTRYPOINT ["/opt/esptool-5.3/bin/esptool"]

@@ -1,0 +1,1463 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="End-to-end plan for qualifying Renvo with official MicroPython firmware on four microcontroller boards.">
+  <title>Renvo — MicroPython Qualification Plan</title>
+  <style>
+    :root {
+      --bg: #090c0b;
+      --panel: #111614;
+      --panel-2: #161d1a;
+      --line: #29332f;
+      --line-soft: #202824;
+      --text: #e9f0ec;
+      --muted: #a3b0aa;
+      --faint: #74817b;
+      --green: #72e2ad;
+      --blue: #82b7ff;
+      --amber: #f6c86b;
+      --red: #ff8b7c;
+      --violet: #c8a6ff;
+      --radius: 14px;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 88% 4%, rgba(114, 226, 173, .08), transparent 30rem),
+        radial-gradient(circle at 4% 34%, rgba(130, 183, 255, .055), transparent 31rem),
+        var(--bg);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.62;
+    }
+
+    a { color: var(--blue); text-underline-offset: 3px; }
+    a:hover { color: #b6d3ff; }
+    code, pre { font-family: var(--mono); }
+    code { color: #b9f2d6; font-size: .91em; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1040px);
+      gap: 52px;
+      width: min(1370px, calc(100% - 48px));
+      margin: 0 auto;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 30px 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      margin-bottom: 30px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 33px;
+      height: 33px;
+      border: 1px solid rgba(114, 226, 173, .48);
+      border-radius: 8px;
+      color: var(--green);
+      background: rgba(114, 226, 173, .07);
+    }
+
+    nav { display: grid; gap: 2px; }
+
+    nav a {
+      padding: 7px 10px;
+      border-left: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    nav a:hover,
+    nav a:focus-visible {
+      border-left-color: var(--green);
+      color: var(--text);
+      background: linear-gradient(90deg, rgba(114, 226, 173, .08), transparent);
+      outline: 0;
+    }
+
+    .sidebar-note {
+      margin-top: auto;
+      padding: 13px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      color: var(--faint);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .sidebar-note strong {
+      display: block;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    main {
+      min-width: 0;
+      padding: 70px 0 120px;
+    }
+
+    .eyebrow,
+    .section-index,
+    .label {
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    .hero {
+      padding-bottom: 58px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .hero h1 {
+      max-width: 900px;
+      margin: 15px 0 22px;
+      font-size: clamp(48px, 7vw, 84px);
+      font-weight: 720;
+      letter-spacing: -.055em;
+      line-height: .98;
+    }
+
+    .hero h1 span { color: var(--green); }
+
+    .lede {
+      max-width: 800px;
+      margin: 0;
+      color: #c0cdc6;
+      font-size: clamp(18px, 2vw, 22px);
+      line-height: 1.48;
+    }
+
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 30px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(17, 22, 20, .72);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .pill::before {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 9px rgba(114, 226, 173, .7);
+      content: "";
+    }
+
+    section {
+      padding: 70px 0 6px;
+      scroll-margin-top: 18px;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr);
+      gap: 20px;
+      align-items: baseline;
+      margin-bottom: 28px;
+    }
+
+    .section-index { color: var(--faint); }
+
+    h2 {
+      margin: 0;
+      font-size: clamp(29px, 4vw, 42px);
+      letter-spacing: -.035em;
+      line-height: 1.1;
+    }
+
+    h3 {
+      margin: 0 0 9px;
+      font-size: 17px;
+      letter-spacing: -.015em;
+      line-height: 1.35;
+    }
+
+    h4 {
+      margin: 18px 0 7px;
+      color: #dce7e1;
+      font-size: 13px;
+      letter-spacing: .02em;
+    }
+
+    p { margin: 0 0 14px; }
+    ul, ol { margin: 9px 0 0; padding-left: 20px; }
+    li { margin: 5px 0; }
+    .muted { color: var(--muted); }
+
+    .grid-2,
+    .grid-3,
+    .grid-4 {
+      display: grid;
+      gap: 15px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .card,
+    .mini-card,
+    .callout {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(145deg, rgba(22, 29, 26, .96), rgba(16, 21, 19, .96));
+    }
+
+    .card { padding: 22px; }
+    .mini-card { padding: 18px; }
+    .mini-card p:last-child,
+    .card p:last-child { margin-bottom: 0; }
+
+    .callout {
+      padding: 20px 22px;
+      border-color: rgba(114, 226, 173, .35);
+      background: rgba(114, 226, 173, .055);
+    }
+
+    .callout.amber {
+      border-color: rgba(246, 200, 107, .35);
+      background: rgba(246, 200, 107, .055);
+    }
+
+    .callout.red {
+      border-color: rgba(255, 139, 124, .34);
+      background: rgba(255, 139, 124, .05);
+    }
+
+    .metric {
+      display: block;
+      margin: 5px 0 3px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 23px;
+      font-weight: 700;
+      letter-spacing: -.03em;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(17, 22, 20, .8);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+
+    th, td {
+      padding: 13px 15px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--faint);
+      background: rgba(255, 255, 255, .018);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    td { color: var(--muted); font-size: 13px; }
+    td:first-child { color: var(--text); }
+    tr:last-child td { border-bottom: 0; }
+
+    .status {
+      display: inline-block;
+      padding: 3px 7px;
+      border: 1px solid rgba(114, 226, 173, .3);
+      border-radius: 999px;
+      color: var(--green);
+      background: rgba(114, 226, 173, .06);
+      font-family: var(--mono);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .flow div {
+      position: relative;
+      min-height: 92px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .flow div:not(:last-child)::after {
+      position: absolute;
+      top: 37px;
+      right: -9px;
+      z-index: 2;
+      color: var(--green);
+      content: "→";
+    }
+
+    .flow b {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .flow span { color: var(--faint); font-size: 11px; line-height: 1.4; }
+
+    .timeline {
+      display: grid;
+      gap: 0;
+      border-left: 1px solid var(--line);
+      margin-left: 17px;
+    }
+
+    .phase {
+      position: relative;
+      padding: 0 0 38px 38px;
+    }
+
+    .phase::before {
+      position: absolute;
+      top: 2px;
+      left: -17px;
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border: 1px solid rgba(114, 226, 173, .42);
+      border-radius: 50%;
+      color: var(--green);
+      background: var(--bg);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      content: attr(data-phase);
+    }
+
+    .phase:last-child { padding-bottom: 0; }
+
+    .phase-body {
+      padding: 20px 22px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(145deg, var(--panel-2), var(--panel));
+    }
+
+    .phase-title {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 9px;
+    }
+
+    .phase-title h3 { margin: 0; }
+
+    .gate {
+      margin-top: 16px;
+      padding: 13px 14px;
+      border-left: 2px solid var(--green);
+      color: #c8d4ce;
+      background: rgba(114, 226, 173, .05);
+      font-size: 13px;
+    }
+
+    .checklist {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 22px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      position: relative;
+      margin: 0;
+      padding: 9px 0 9px 25px;
+      border-bottom: 1px solid var(--line-soft);
+      color: var(--muted);
+    }
+
+    .checklist li::before {
+      position: absolute;
+      left: 1px;
+      color: var(--green);
+      font-family: var(--mono);
+      content: "✓";
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 15px 0 0;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      color: #d6e2dc;
+      background: #080b0a;
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .source-list {
+      columns: 2;
+      column-gap: 28px;
+    }
+
+    .source-list li { break-inside: avoid; margin-bottom: 9px; }
+
+    footer {
+      margin-top: 72px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    @media (max-width: 1040px) {
+      .shell { grid-template-columns: 1fr; width: min(900px, calc(100% - 34px)); }
+      .sidebar { position: static; height: auto; padding-bottom: 0; }
+      nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      nav a { border-left: 0; border-bottom: 1px solid var(--line); }
+      .sidebar-note { display: none; }
+      main { padding-top: 32px; }
+      .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .flow { grid-template-columns: 1fr; }
+      .flow div:not(:last-child)::after { top: auto; right: 50%; bottom: -18px; content: "↓"; }
+    }
+
+    @media (max-width: 680px) {
+      .shell { width: min(100% - 24px, 900px); }
+      nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid-2, .grid-3, .grid-4, .checklist { grid-template-columns: 1fr; }
+      .section-head { grid-template-columns: 1fr; gap: 4px; }
+      .phase { padding-left: 28px; }
+      .phase-body { padding: 17px; }
+      .source-list { columns: 1; }
+      .hero h1 { font-size: 45px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">R</span>
+        <span>Renvo / MPY</span>
+      </div>
+      <nav aria-label="Plan sections">
+        <a href="#mission">Mission</a>
+        <a href="#targets">Targets</a>
+        <a href="#rules">Rules</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#target-work">Target work</a>
+        <a href="#toolchains">Containers</a>
+        <a href="#roadmap">Roadmap</a>
+        <a href="#testing">Test ladder</a>
+        <a href="#mquickjs">MQuickJS</a>
+        <a href="#acceptance">Final gate</a>
+        <a href="#risks">Risks</a>
+        <a href="#issues">Work queue</a>
+        <a href="#sources">Sources</a>
+      </nav>
+      <div class="sidebar-note">
+        <strong>Plan baseline</strong>
+        31 July 2026<br>
+        Official MicroPython v1.28.0<br>
+        Four boards · five CPU profiles
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <span class="eyebrow">End-to-end qualification plan</span>
+        <h1>Boot the real thing.<br><span>Trust the result.</span></h1>
+        <p class="lede">
+          Renvo will boot unmodified, official MicroPython firmware on four named boards and
+          pass a comprehensive runtime, peripheral, persistence, protocol, multicore, and
+          determinism qualification suite. MicroPython is the primary proof that these are
+          useful microcontroller emulators rather than instruction-test runners.
+        </p>
+        <div class="pills">
+          <span class="pill">Official release images</span>
+          <span class="pill">No JIT</span>
+          <span class="pill">Functional deterministic timing</span>
+          <span class="pill">Docker-only toolchains</span>
+          <span class="pill">VCD observability</span>
+          <span class="pill">MQuickJS cross-check</span>
+        </div>
+      </header>
+
+      <section id="mission">
+        <div class="section-head">
+          <span class="section-index">01</span>
+          <h2>Mission and completion rule</h2>
+        </div>
+
+        <div class="grid-2">
+          <article class="card">
+            <span class="label">Primary objective</span>
+            <p>
+              Run the exact firmware bytes published by MicroPython for M5Stack NanoC6,
+              M5Stack AtomS3 Lite, Raspberry Pi Pico, and Raspberry Pi Pico 2 from realistic
+              reset state through their normal boot path.
+            </p>
+            <p class="muted">
+              Development builds are permitted for symbols and diagnosis. They never count as
+              final evidence.
+            </p>
+          </article>
+          <article class="card">
+            <span class="label">Final statement we earn</span>
+            <p>
+              “The official MicroPython release boots and behaves correctly across the four
+              target boards, including both official RP2350 CPU modes, under a deterministic
+              and observable simulation.”
+            </p>
+            <p class="muted">
+              This is strong evidence of CPU, ABI, exceptions, interrupts, memory, flash,
+              timers, I/O and system integration. It is not a claim of electrical or
+              cycle-accurate silicon equivalence.
+            </p>
+          </article>
+        </div>
+
+        <div class="grid-4" style="margin-top:15px">
+          <div class="mini-card">
+            <span class="label">Boards</span>
+            <span class="metric">4</span>
+            <p class="muted">All mandatory.</p>
+          </div>
+          <div class="mini-card">
+            <span class="label">CPU profiles</span>
+            <span class="metric">5</span>
+            <p class="muted">RP2350 Arm and RISC-V both qualify.</p>
+          </div>
+          <div class="mini-card">
+            <span class="label">Firmware policy</span>
+            <span class="metric">0 patches</span>
+            <p class="muted">Official bytes remain unchanged.</p>
+          </div>
+          <div class="mini-card">
+            <span class="label">Unexpected skips</span>
+            <span class="metric">0</span>
+            <p class="muted">At the final release gate.</p>
+          </div>
+        </div>
+
+        <div class="callout amber" style="margin-top:15px">
+          <span class="label">Interpretation of “all four cores”</span>
+          <p style="margin:7px 0 0">
+            The required portfolio is the four named board targets. Pico 2 additionally ships
+            official Cortex-M33 and Hazard3/RISC-V firmware, so both are separate mandatory
+            execution profiles. Secondary physical cores are brought into scope wherever the
+            official firmware exposes them through <code>_thread</code>, SDK services, or
+            inter-core coordination.
+          </p>
+        </div>
+      </section>
+
+      <section id="targets">
+        <div class="section-head">
+          <span class="section-index">02</span>
+          <h2>Locked target portfolio</h2>
+        </div>
+
+        <p class="muted">
+          The reproducible baseline is MicroPython v1.28.0, published 6 April 2026. A rolling
+          lane may test later stable releases, but the locked release remains green until an
+          intentional baseline update records new hashes and expected changes.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Board</th>
+                <th>Execution profile</th>
+                <th>Official artifact used by final gate</th>
+                <th>Why it matters</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>M5Stack NanoC6</td>
+                <td>ESP32-C6 HP RISC-V</td>
+                <td><code>M5STACK_NANOC6-20260406-v1.28.0.bin</code></td>
+                <td>Modern RISC-V, ESP-IDF/FreeRTOS, flash partitions, USB Serial/JTAG, radio stack; available physical oracle.</td>
+              </tr>
+              <tr>
+                <td>M5Stack AtomS3 Lite</td>
+                <td>ESP32-S3 Xtensa LX7</td>
+                <td><code>M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2</code>, with official <code>.bin</code> cross-check</td>
+                <td>Windowed Xtensa ABI, exceptions, dual-core system services, ESP-IDF and native USB.</td>
+              </tr>
+              <tr>
+                <td>Raspberry Pi Pico</td>
+                <td>RP2040 Cortex-M0+</td>
+                <td><code>RPI_PICO-20260406-v1.28.0.uf2</code></td>
+                <td>Cleanest first vertical slice; boot2/XIP, NVIC, USB, PIO, DMA and RP2 MicroPython port.</td>
+              </tr>
+              <tr>
+                <td>Raspberry Pi Pico 2</td>
+                <td>RP2350 Cortex-M33</td>
+                <td><code>RPI_PICO2-20260406-v1.28.0.uf2</code></td>
+                <td>Armv8-M, RP2350 boot/QMI, richer interrupt and security architecture.</td>
+              </tr>
+              <tr>
+                <td>Raspberry Pi Pico 2</td>
+                <td>RP2350 Hazard3 RISC-V</td>
+                <td><code>RPI_PICO2-RISCV-20260406-v1.28.0.uf2</code></td>
+                <td>Same board and peripheral workload through a different official CPU architecture.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout" style="margin-top:15px">
+          <span class="label">Official-image rule</span>
+          <p style="margin:7px 0 0">
+            Final tests download from <code>micropython.org</code>, verify a committed SHA-256
+            manifest, decode the container format into simulated non-volatile storage, and
+            reset the machine. ESP ELF/map companions may label traces, but execution must come
+            from the official flash image. Pico ELF files generated in development containers
+            are diagnostic aids only.
+          </p>
+        </div>
+      </section>
+
+      <section id="rules">
+        <div class="section-head">
+          <span class="section-index">03</span>
+          <h2>Qualification rules</h2>
+        </div>
+
+        <div class="grid-3">
+          <article class="mini-card">
+            <span class="label">Permitted during development</span>
+            <ul>
+              <li>Symbol-rich source builds from the same MicroPython tag</li>
+              <li>Frozen diagnostic scripts</li>
+              <li>Single-step, register and MMIO traces</li>
+              <li>Hardware record/replay and fault injection</li>
+              <li>Temporary assertions in Renvo</li>
+            </ul>
+          </article>
+          <article class="mini-card">
+            <span class="label">Forbidden as final evidence</span>
+            <ul>
+              <li>Patched firmware or altered SDK configuration</li>
+              <li>Direct jump to <code>main</code> or <code>mp_task</code></li>
+              <li>Test-only MMIO escape devices</li>
+              <li>Replacing USB with a private UART console</li>
+              <li>Skipping a failure because “the REPL works”</li>
+            </ul>
+          </article>
+          <article class="mini-card">
+            <span class="label">Allowed silicon boundary</span>
+            <ul>
+              <li>Audited mask-ROM services where ROM bytes cannot be distributed</li>
+              <li>Deterministic host-backed physical environments</li>
+              <li>Functional rather than RF/electrical fidelity</li>
+              <li>Approximate timing with documented ordering</li>
+              <li>Explicit model-version metadata</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="callout red" style="margin-top:15px">
+          <span class="label">No success-by-stubbing</span>
+          <p style="margin:7px 0 0">
+            A ROM façade may implement a documented silicon service at the mask-ROM boundary.
+            A façade may not recognize MicroPython code, forge peripheral status to advance a
+            known boot, return canned Python output, or bypass the guest’s own interrupt,
+            scheduler, filesystem, networking, or protocol logic.
+          </p>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <div class="section-head">
+          <span class="section-index">04</span>
+          <h2>System capabilities required</h2>
+        </div>
+
+        <div class="flow" aria-label="Qualification data flow">
+          <div><b>Official artifact</b><span>Download, hash, parse UF2 or ESP image.</span></div>
+          <div><b>Realistic reset</b><span>ROM, boot2/bootloader, flash, clocks and reset state.</span></div>
+          <div><b>Renvo machine</b><span>CPU, buses, interrupts, devices, cores and deterministic time.</span></div>
+          <div><b>External lab</b><span>USB host, serial, pins, buses, virtual peers and VCD.</span></div>
+          <div><b>Evidence bundle</b><span>Transcript, assertions, traces, coverage, hashes and replay digest.</span></div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:22px">
+          <table>
+            <thead>
+              <tr>
+                <th>Layer</th>
+                <th>Required implementation</th>
+                <th>Evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Firmware images</td>
+                <td>UF2 block validation and flash placement; ESP bootloader/partition/app image validation; persistent sparse flash; erased-state and power-cycle snapshots.</td>
+                <td>Input hash, decoded segment map, flash hash before/after, rejected-corruption tests.</td>
+              </tr>
+              <tr>
+                <td>CPU engines</td>
+                <td>Compiler-used ISA plus privilege, exceptions, atomics, barriers, architectural timers and debug-quality illegal-instruction diagnostics for Armv6-M, Armv8-M, Hazard3, ESP RISC-V and Xtensa LX7.</td>
+                <td>ISA/ABI corpus, MicroPython native emitters, interrupt tests, mquickjs cross-check.</td>
+              </tr>
+              <tr>
+                <td>Boot and memory</td>
+                <td>Reset vectors, mask-ROM contract, boot2/second-stage loader, XIP/cache/MMU/QMI/SPI flash views, RAM aliases, linker-visible regions and executable permissions.</td>
+                <td>Cold-boot trace from reset to REPL without entry-point injection.</td>
+              </tr>
+              <tr>
+                <td>Interrupts and time</td>
+                <td>NVIC/PPB or vendor interrupt controller/matrix, priorities, masking, nesting, WFI wakeup, SysTick where present, system timers, alarm IRQs, watchdog and RTC.</td>
+                <td>Nested IRQ tests, callback ordering, wraparound, sleep/wake, watchdog reset cause.</td>
+              </tr>
+              <tr>
+                <td>Digital I/O</td>
+                <td>GPIO, pads, pin mux/matrix, pull/open-drain, edge/level IRQs, PWM/LEDC, PIO or RMT, resolved external nets and scheduled stimulus.</td>
+                <td>Python assertions plus protocol-decoded VCD edges.</td>
+              </tr>
+              <tr>
+                <td>Serial and buses</td>
+                <td>Bidirectional UART with FIFOs/IRQ, I²C controller and target behavior, SPI, DMA paths used by firmware, and deterministic virtual devices.</td>
+                <td>Loopback, framing/error cases, EEPROM/sensor/flash transactions, IRQ and DMA completion.</td>
+              </tr>
+              <tr>
+                <td>USB</td>
+                <td>Controller registers, endpoints, packet scheduling, reset/enumeration, descriptors, CDC control/data and USB Serial/JTAG where applicable.</td>
+                <td>Host enumeration and unmodified <code>pyboard.py</code>/<code>mpremote</code>-style raw REPL transport.</td>
+              </tr>
+              <tr>
+                <td>Storage</td>
+                <td>Flash erase/program rules, partition tables, NVS where required, littlefs/FAT block behavior, persistence across soft reset and power cycle.</td>
+                <td>Create/read/rename/delete/remount, wear-boundary and interrupted-write scenarios.</td>
+              </tr>
+              <tr>
+                <td>Multicore</td>
+                <td>Deterministic core scheduler, inter-core FIFOs/interrupts/spinlocks, core launch/park, memory ordering and guest-visible thread behavior.</td>
+                <td>Applicable upstream <code>_thread</code> tests and repeatable shared-memory stress.</td>
+              </tr>
+              <tr>
+                <td>ESP connectivity</td>
+                <td>Functional Wi-Fi and BLE control/data paths against deterministic virtual peers; sockets through a contained virtual network; no RF timing claim.</td>
+                <td>AP association, DHCP/DNS/TCP/UDP loopback, BLE advertise/scan/connect/GATT cases.</td>
+              </tr>
+              <tr>
+                <td>Observability</td>
+                <td>Typed events, MMIO coverage, interrupt provenance, USB/bus protocol logs, VCD, checkpoints, bounded tracing and deterministic replay digests.</td>
+                <td>Every failure is reducible to a self-contained evidence bundle.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="target-work">
+        <div class="section-head">
+          <span class="section-index">05</span>
+          <h2>Target-specific closure</h2>
+        </div>
+
+        <div class="grid-2">
+          <article class="card">
+            <span class="label">RP2040 · Pico</span>
+            <h3>First complete vertical slice</h3>
+            <ul>
+              <li>Complete the Cortex-M0+ ISA, exception return, PPB, NVIC and system control surface used by pico-sdk.</li>
+              <li>Decode UF2 into external flash, model boot ROM/boot2, SSI/XIP, clocks, PLLs and resets.</li>
+              <li>Implement SIO, IO_BANK0, PADS_BANK0, TIMER alarms, watchdog tick, RTC source and random/unique-ID contracts.</li>
+              <li>Add USB device/CDC, UART, I²C, SPI, PWM, ADC, DMA and PIO behavior used by the RP2 port.</li>
+              <li>Implement core 1, spinlocks, FIFO and deterministic <code>_thread</code> scheduling.</li>
+            </ul>
+            <div class="gate">Exit: official Pico UF2 cold-boots, enumerates as USB CDC, accepts raw REPL tests, persists files, and passes the RP2040 board suite.</div>
+          </article>
+
+          <article class="card">
+            <span class="label">RP2350 · Pico 2</span>
+            <h3>One chip, two mandatory architectures</h3>
+            <ul>
+              <li>Bring Cortex-M33 non-secure execution to the compiler/exception/DSP/FPU surface exercised by official firmware.</li>
+              <li>Complete Hazard3 RV32IMAC and bit-manipulation, privilege, interrupt and atomic behavior used by the RISC-V release.</li>
+              <li>Model RP2350 boot selection, QMI/XIP, clocks/resets/power state, SIO, timers, DMA, PIO and USB.</li>
+              <li>Share peripheral state between CPU profiles without sharing architecture-specific interrupt or reset assumptions.</li>
+              <li>Run identical high-level Python tests and compare only behavior that should be architecture-independent.</li>
+            </ul>
+            <div class="gate">Exit: both official Pico 2 UF2 variants independently cold-boot and pass the same applicable board suite, including multicore tests.</div>
+          </article>
+
+          <article class="card">
+            <span class="label">ESP32-C6 · NanoC6</span>
+            <h3>ESP-IDF and FreeRTOS on RISC-V</h3>
+            <ul>
+              <li>Complete ESP RISC-V privilege, CSR, PMP-visible, exception, interrupt and atomic behavior required by IDF.</li>
+              <li>Parse the combined ESP image and model ROM boot services, second-stage bootloader, partition table, cache and mapped flash.</li>
+              <li>Implement system/reset/clock/power controls, documented interrupt routing, SYSTIMER/TIMG, watchdogs and FreeRTOS tick sources.</li>
+              <li>Add GPIO/IO MUX, USB Serial/JTAG, UART, GDMA, I²C, SPI, ADC, LEDC/RMT, eFuse/unique-ID and deterministic RNG models.</li>
+              <li>Provide functional Wi-Fi/BLE virtual peers and persistent NVS/filesystem behavior.</li>
+              <li>Use the existing NanoC6 safely as a register/reset/output oracle; preserve its factory-flash backup.</li>
+            </ul>
+            <div class="gate">Exit: official NanoC6 combined BIN boots through the IDF chain, reaches its normal console, and passes ESP32-C6 runtime/peripheral/connectivity suites.</div>
+          </article>
+
+          <article class="card">
+            <span class="label">ESP32-S3 · AtomS3 Lite</span>
+            <h3>Xtensa is the final CPU closure</h3>
+            <ul>
+              <li>Implement LX7 register windows, window overflow/underflow, loop instructions, atomics, exceptions, interrupt levels, barriers and FPU operations used by IDF.</li>
+              <li>Model dual-core reset/start coordination and deterministic FreeRTOS scheduling when the official build uses the second core.</li>
+              <li>Parse official UF2/BIN, implement ROM/bootloader, cache/MMU and IRAM/DRAM/IROM/DROM behavior without PSRAM assumptions.</li>
+              <li>Add system/clock/reset, interrupt matrix, timers, watchdogs, GPIO matrix/IO MUX, USB, UART, GDMA, I²C, SPI, ADC, LEDC/RMT and flash/NVS.</li>
+              <li>Model the board button and addressable RGB path, then apply the shared ESP Wi-Fi/BLE environment.</li>
+            </ul>
+            <div class="gate">Exit: official AtomS3 Lite firmware cold-boots, reaches USB/serial REPL, and passes the ESP32-S3 board suite including windowed-ABI stress.</div>
+          </article>
+        </div>
+      </section>
+
+      <section id="toolchains">
+        <div class="section-head">
+          <span class="section-index">06</span>
+          <h2>Container and artifact discipline</h2>
+        </div>
+
+        <p>
+          Renvo executes on the host, but every compiler, SDK, firmware source build, test
+          controller and conversion tool runs in a pinned Docker image. Official release
+          firmware is downloaded, hashed and archived; it is not rebuilt for final acceptance.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Container</th>
+                <th>Contents</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>renvo/micropython-rp2</code></td>
+                <td>Pinned MicroPython tag/submodules, pico-sdk, Arm and Hazard3 compilers, CMake/Ninja, mpy-cross, picotool/UF2 tools.</td>
+                <td>Symbol-rich Pico/Pico2 builds, frozen probes, ELF/map extraction and native-emitter fixtures.</td>
+              </tr>
+              <tr>
+                <td><code>renvo/micropython-esp32</code></td>
+                <td>Pinned MicroPython tag, matching ESP-IDF revision/submodules, Espressif RISC-V/Xtensa tools and esptool.</td>
+                <td>Diagnostic NanoC6/AtomS3 builds, maps, partition inspection and hardware-oracle utilities.</td>
+              </tr>
+              <tr>
+                <td><code>renvo/micropython-tests</code></td>
+                <td>Pinned upstream test tree, CPython controller, pyboard transport adapter, VCD/protocol validators.</td>
+                <td>Runs the same test selection against every virtual board without host Python drift.</td>
+              </tr>
+              <tr>
+                <td><code>renvo/mquickjs</code></td>
+                <td>Pinned upstream commit, native build tools and all embedded cross-compilers.</td>
+                <td>Builds ROM-embedded 32-bit JavaScript workloads for every CPU profile.</td>
+              </tr>
+              <tr>
+                <td><code>renvo/firmware-fetch</code></td>
+                <td>Minimal TLS/downloader, SHA-256, manifest validator and archive unpackers.</td>
+                <td>Fetches official release artifacts once; final CI consumes the content-addressed cache offline.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid-3" style="margin-top:15px">
+          <article class="mini-card">
+            <span class="label">Build isolation</span>
+            <p class="muted">No network after image construction, read-only source mounts, dedicated output volume, dropped capabilities, bounded CPU/RAM/PIDs.</p>
+          </article>
+          <article class="mini-card">
+            <span class="label">Provenance</span>
+            <p class="muted">OCI digest, source commit/tag, submodule revisions, command line, environment, input and output hashes in one JSON manifest.</p>
+          </article>
+          <article class="mini-card">
+            <span class="label">Two lanes</span>
+            <p class="muted">Diagnostic source-build lane finds faults quickly; official-image lane alone decides compatibility.</p>
+          </article>
+        </div>
+
+        <pre aria-label="Conceptual qualification commands">renvo firmware fetch --suite micropython-v1.28.0 --verify
+renvo qualify --board rpi-pico --firmware official --suite comprehensive
+renvo qualify --board rpi-pico2 --cpu arm --firmware official --suite comprehensive
+renvo qualify --board rpi-pico2 --cpu riscv --firmware official --suite comprehensive
+renvo qualify --board m5stack-nanoc6 --firmware official --suite comprehensive
+renvo qualify --board m5stack-atoms3-lite --firmware official --suite comprehensive
+renvo report --input .renvo/qualification --require-clean</pre>
+      </section>
+
+      <section id="roadmap">
+        <div class="section-head">
+          <span class="section-index">07</span>
+          <h2>End-to-end implementation roadmap</h2>
+        </div>
+
+        <div class="timeline">
+          <article class="phase" data-phase="0">
+            <div class="phase-body">
+              <div class="phase-title">
+                <h3>Freeze evidence and build the qualification harness</h3>
+                <span class="status">Foundation</span>
+              </div>
+              <ul>
+                <li>Commit official v1.28.0 URLs, filenames, SHA-256 values, release date, board IDs and RP2350 CPU-mode metadata.</li>
+                <li>Add UF2 and ESP combined-image parsing, persistent flash snapshots and corruption tests.</li>
+                <li>Add virtual serial/USB endpoints, a transport compatible with upstream raw REPL tooling, and structured test results.</li>
+                <li>Add unknown-MMIO diagnostics, register coverage, IRQ provenance, checkpoints and deterministic replay digests.</li>
+                <li>Build the five pinned Docker images and offline artifact cache.</li>
+              </ul>
+              <div class="gate">Gate: every official image verifies and maps reproducibly; a synthetic USB/serial guest can be driven through the same host test transport.</div>
+            </div>
+          </article>
+
+          <article class="phase" data-phase="1">
+            <div class="phase-body">
+              <div class="phase-title">
+                <h3>RP2040 official boot to first prompt</h3>
+                <span class="status">First vertical</span>
+              </div>
+              <ul>
+                <li>Close Cortex-M0+ instruction and exception gaps using pico-sdk and MicroPython diagnostic ELFs.</li>
+                <li>Implement reset-to-ROM, boot2, external flash/XIP, clocks/resets, timer/watchdog and NVIC.</li>
+                <li>Implement enough USB CDC and flash filesystem behavior to see the normal banner and prompt.</li>
+                <li>Run one raw-REPL arithmetic script and a <code>machine.Pin</code> VCD blink from the official UF2.</li>
+              </ul>
+              <div class="gate">Gate: a pristine flash snapshot cold-boots the official Pico UF2 and executes an externally supplied Python script through its native USB REPL.</div>
+            </div>
+          </article>
+
+          <article class="phase" data-phase="2">
+            <div class="phase-body">
+              <div class="phase-title">
+                <h3>Complete the RP2040 MicroPython surface</h3>
+                <span class="status">Deepen</span>
+              </div>
+              <ul>
+                <li>Implement bidirectional UART, GPIO IRQ/pulls/open-drain, PWM, ADC, I²C, SPI, DMA and PIO.</li>
+                <li>Add core 1, SIO synchronization, <code>_thread</code>, WFI wakeups and deterministic multicore ordering.</li>
+                <li>Pass upstream language/runtime tests, native/viper emitter tests and the board peripheral suite.</li>
+                <li>Qualify filesystem persistence, soft reset, power cycle, watchdog and USB reconnect.</li>
+              </ul>
+              <div class="gate">Gate: Pico passes the complete acceptance suite with no Renvo-specific skips and becomes the reference implementation for shared RP devices.</div>
+            </div>
+          </article>
+
+          <article class="phase" data-phase="3">
+            <div class="phase-body">
+              <div class="phase-title">
+                <h3>RP2350 in Arm and RISC-V modes</h3>
+                <span class="status">Dual profile</span>
+              </div>
+              <ul>
+                <li>Close Cortex-M33 and Hazard3 ISA/exception/interrupt/atomic gaps independently.</li>
+                <li>Add RP2350 reset/boot, QMI/XIP and peripheral differences without aliasing RP2040 registers blindly.</li>
+                <li>Boot both official UF2 artifacts and run the same applicable tests through USB raw REPL.</li>
+                <li>Compare architecture-independent Python output, protocol traffic and waveform semantics across modes.</li>
+              </ul>
+              <div class="gate">Gate: both official Pico 2 firmware variants pass; a failure in one mode cannot be hidden by the other.</div>
+            </div>
+          </article>
+
+          <article class="phase" data-phase="4">
+            <div class="phase-body">
+              <div class="phase-title">
+                <h3>ESP32-C6 and the NanoC6 hardware oracle</h3>
+                <span class="status">ESP first</span>
+              </div>
+              <ul>
+                <li>Close ESP RISC-V, privilege, PMP-visible, interrupt and atomic behavior against IDF-generated code.</li>
+                <li>Implement ROM/bootloader/partition/cache path, FreeRTOS timing, flash/NVS and the normal console transport.</li>
+                <li>Use safe RAM/JTAG probes and restored flash images to compare reset values, IRQ routing and peripheral transcripts with the physical NanoC6.</li>
+                <li>Add ESP peripheral and functional Wi-Fi/BLE virtual-environment tests.</li>
+              </ul>
+              <div class="gate">Gate: official NanoC6 BIN cold-boots and passes the comprehensive ESP32-C6 suite; hardware-comparable cases agree within documented functional timing bounds.</div>
+            </div>
+          </article>
+
+          <article class="phase" data-phase="5">
+            <div class="phase-body">
+              <div class="phase-title">
+                <h3>ESP32-S3 / AtomS3 Lite</h3>
+                <span class="status">Xtensa closure</span>
+              </div>
+              <ul>
+                <li>Complete the LX7 windowed ABI, exceptions, atomics, interrupt levels and FPU from focused tests before entering IDF.</li>
+                <li>Implement S3 ROM/boot/cache/MMU, dual-core coordination and the official board’s no-PSRAM memory layout.</li>
+                <li>Reuse behavior-level ESP devices while keeping S3/C6 register maps and interrupt wiring distinct.</li>
+                <li>Qualify USB/serial, storage, machine peripherals, RGB/button, networking, BLE and applicable threads.</li>
+              </ul>
+              <div class="gate">Gate: official AtomS3 Lite UF2/BIN boots normally and passes the comprehensive ESP32-S3 suite.</div>
+            </div>
+          </article>
+
+          <article class="phase" data-phase="6">
+            <div class="phase-body">
+              <div class="phase-title">
+                <h3>Cross-runtime qualification with MQuickJS</h3>
+                <span class="status">Independent proof</span>
+              </div>
+              <ul>
+                <li>Build a small board shim in the existing Docker toolchains and embed upstream MQuickJS tests as ROM bytecode/source.</li>
+                <li>Run parser, VM, compacting GC, UTF-8, regexp, integer, double/soft-float, typed-array and memory-limit stress.</li>
+                <li>Run identical deterministic JavaScript workloads on all five CPU profiles and compare canonical results.</li>
+                <li>Keep this workload independent of MicroPython internals and test escape devices.</li>
+              </ul>
+              <div class="gate">Gate: all five profiles pass the pinned MQuickJS suite and seeded CPU/ABI faults are detected by at least one independent runtime.</div>
+            </div>
+          </article>
+
+          <article class="phase" data-phase="7">
+            <div class="phase-body">
+              <div class="phase-title">
+                <h3>Official-firmware release qualification</h3>
+                <span class="status">Final</span>
+              </div>
+              <ul>
+                <li>Start each run from a clean, erased-or-fixtured flash image and hardware reset state.</li>
+                <li>Run the full upstream and board suites, repeated determinism runs, persistent-state scenarios and negative tests.</li>
+                <li>Generate per-board support/coverage manifests and fail on unknown MMIO, unexpected skip, nondeterminism or undocumented approximation.</li>
+                <li>Archive content-addressed evidence and publish one four-board qualification report.</li>
+              </ul>
+              <div class="gate">Gate: every requirement in §10 is green in one reproducible invocation using only official firmware artifacts.</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="testing">
+        <div class="section-head">
+          <span class="section-index">08</span>
+          <h2>Test ladder</h2>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Level</th>
+                <th>Scope</th>
+                <th>Pass condition</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>L0 · Component</td>
+                <td>Instruction semantics, memory, MMIO registers, FIFOs, IRQs, USB packets, buses, flash rules and scheduler ordering.</td>
+                <td>Exhaustive/table/property tests pass; errors identify exact opcode/register/event.</td>
+              </tr>
+              <tr>
+                <td>L1 · Diagnostic firmware</td>
+                <td>Container-built, symbol-rich probes and focused SDK programs.</td>
+                <td>Expected state/transcript/VCD; no unknown MMIO; hardware comparison where available.</td>
+              </tr>
+              <tr>
+                <td>L2 · Official boot</td>
+                <td>Exact stable image from reset through normal boot and console enumeration.</td>
+                <td>Expected MicroPython identity/banner and raw REPL round trip without guest patching.</td>
+              </tr>
+              <tr>
+                <td>L3 · Runtime</td>
+                <td>Upstream MicroPython language, compiler, bytecode, GC, exception, import, native/viper and stress tests applicable to the official build.</td>
+                <td>Upstream expected outcomes; no Renvo-only skip list or flaky retries.</td>
+              </tr>
+              <tr>
+                <td>L4 · Machine APIs</td>
+                <td>Pin/IRQ, Timer, PWM, ADC, UART, I²C, SPI, RTC, WDT, unique ID, frequency control, sleep/reset, PIO/RMT/DMA and threads where exposed.</td>
+                <td>Python result, protocol transcript, IRQ sequence and waveform assertions all agree.</td>
+              </tr>
+              <tr>
+                <td>L5 · System</td>
+                <td>USB disconnect/reconnect, filesystem persistence/recovery, soft reset, power cycle, contention/errors, multicore and ESP virtual connectivity.</td>
+                <td>Correct recovery and reset causes; no deadlock; bounded completion.</td>
+              </tr>
+              <tr>
+                <td>L6 · Independent runtime</td>
+                <td>Pinned MQuickJS embedded suite on every CPU profile.</td>
+                <td>Canonical JavaScript results and memory limits match reference.</td>
+              </tr>
+              <tr>
+                <td>L7 · Determinism</td>
+                <td>Repeat every final scenario with trace perturbations disabled/enabled and on supported host platforms.</td>
+                <td>Same semantic result, event digest and protocol/VCD sequence; no wall-clock dependence.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top:25px">Board suite exercised through public MicroPython APIs</h3>
+        <ul class="checklist">
+          <li>Cold boot, banner, identity, help and friendly/raw REPL</li>
+          <li>Parser/compiler, closures, generators, exceptions and imports</li>
+          <li>GC pressure, fragmentation, memory exhaustion and recovery</li>
+          <li>Integers, floating point, hashing, collections and Unicode</li>
+          <li>Bytecode, <code>.mpy</code>, native and viper emitters where enabled</li>
+          <li>Filesystem create/read/write/rename/delete/remount/power-cycle</li>
+          <li>GPIO input/output, pull, open-drain and edge/level interrupt</li>
+          <li>One-shot/periodic timers, callback ordering and wraparound</li>
+          <li>PWM frequency/duty and VCD waveform validation</li>
+          <li>ADC driven input with tolerance and boundary assertions</li>
+          <li>UART loopback, buffering, IRQ, framing and overflow</li>
+          <li>I²C EEPROM/sensor and SPI flash/sensor virtual components</li>
+          <li>RTC/time, watchdog, reset cause, sleep and wake stimulus</li>
+          <li>USB enumerate, CDC raw REPL, disconnect and reconnect</li>
+          <li>PIO/DMA on RP chips; RMT/LEDC/GDMA on ESP chips</li>
+          <li>Applicable <code>_thread</code>, spinlock and shared-memory stress</li>
+          <li>ESP Wi-Fi sockets through virtual AP and contained network</li>
+          <li>ESP BLE advertise, scan, connect and GATT with virtual peer</li>
+          <li>Board button and LED/RGB behavior with VCD/protocol decoding</li>
+          <li>Unknown-register, unhandled-IRQ and unbounded-loop detectors remain silent</li>
+        </ul>
+
+        <div class="callout amber" style="margin-top:18px">
+          <span class="label">Upstream test policy</span>
+          <p style="margin:7px 0 0">
+            The suite may honor skips already made by upstream for that MicroPython port/build
+            and tests requiring physically absent hardware. Renvo may not add emulator-specific
+            skips. A physics-dependent feature included by the official firmware must receive a
+            deterministic functional environment or remain a release-blocking gap.
+          </p>
+        </div>
+      </section>
+
+      <section id="mquickjs">
+        <div class="section-head">
+          <span class="section-index">09</span>
+          <h2>MQuickJS as the independent workload</h2>
+        </div>
+
+        <div class="grid-2">
+          <article class="card">
+            <span class="label">Why it is valuable</span>
+            <p>
+              MicroPython and its vendor ports can repeatedly exercise the same compiler and
+              runtime patterns. MQuickJS adds a different C codebase, parser, bytecode VM,
+              compacting garbage collector, UTF-8/string implementation, regexp engine,
+              typed arrays and math implementation.
+            </p>
+            <p class="muted">
+              It is designed for embedded systems, can run in roughly 10 KiB of RAM, requires
+              little libc support, accepts a caller-supplied heap, and can execute 32-bit
+              persistent bytecode from ROM.
+            </p>
+          </article>
+          <article class="card">
+            <span class="label">How Renvo will use it</span>
+            <ul>
+              <li>Pin an exact upstream commit and retain its MIT license/provenance.</li>
+              <li>Compile per CPU profile in the same Docker toolchains used for firmware probes.</li>
+              <li>Embed scripts and expected canonical output; use normal UART and board timer/GPIO shims.</li>
+              <li>Exercise hardware float where available and the project’s software floating-point path elsewhere.</li>
+              <li>Run upstream basic tests, microbench kernels and targeted allocator/GC limits.</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="callout" style="margin-top:15px">
+          <span class="label">Position in the project</span>
+          <p style="margin:7px 0 0">
+            MQuickJS is a required independent CPU/ABI/runtime cross-check, not a replacement
+            firmware target and not a reason to postpone MicroPython peripheral work. Official
+            MicroPython remains the final compatibility claim.
+          </p>
+        </div>
+      </section>
+
+      <section id="acceptance">
+        <div class="section-head">
+          <span class="section-index">10</span>
+          <h2>Final acceptance contract</h2>
+        </div>
+
+        <div class="callout">
+          <span class="label">Single release gate</span>
+          <p style="margin:7px 0 0">
+            One offline command starts from the pinned official artifacts and a clean
+            content-addressed environment, executes every profile below, and exits successfully
+            only if every mandatory assertion passes.
+          </p>
+        </div>
+
+        <div class="table-wrap" style="margin-top:15px">
+          <table>
+            <thead>
+              <tr>
+                <th>Required run</th>
+                <th>Firmware origin</th>
+                <th>Mandatory final evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Pico / RP2040</td>
+                <td>Official v1.28.0 UF2</td>
+                <td>Cold boot, USB raw REPL, upstream suite, full RP board suite, threads, storage, VCD and repeat digest.</td>
+              </tr>
+              <tr>
+                <td>Pico 2 / Cortex-M33</td>
+                <td>Official v1.28.0 UF2</td>
+                <td>Same, with RP2350/Arm-specific native, exception, multicore and peripheral coverage.</td>
+              </tr>
+              <tr>
+                <td>Pico 2 / Hazard3</td>
+                <td>Official v1.28.0 RISC-V UF2</td>
+                <td>Same high-level suite plus RISC-V native/interrupt/atomic coverage and cross-mode semantic comparison.</td>
+              </tr>
+              <tr>
+                <td>NanoC6 / ESP32-C6</td>
+                <td>Official v1.28.0 combined BIN</td>
+                <td>ROM/bootloader boot, normal console, upstream suite, ESP board suite, NVS/storage, virtual Wi-Fi/BLE, VCD and hardware-oracle comparison subset.</td>
+              </tr>
+              <tr>
+                <td>AtomS3 Lite / ESP32-S3</td>
+                <td>Official v1.28.0 UF2/BIN</td>
+                <td>ROM/bootloader boot, normal console, upstream suite, ESP board suite, Xtensa windows/FPU/IRQs, dual-core where used, connectivity, VCD and repeat digest.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top:25px">The gate fails if any of these is true</h3>
+        <ul class="checklist">
+          <li>An official artifact hash is unknown or different</li>
+          <li>Execution begins after the normal hardware boot boundary</li>
+          <li>A firmware byte, partition or configuration is patched</li>
+          <li>USB/serial behavior is replaced by a private guest interface</li>
+          <li>An upstream-applicable test fails or receives a Renvo-only skip</li>
+          <li>A mandatory board API lacks a deterministic test environment</li>
+          <li>An unknown MMIO access or unhandled interrupt occurs</li>
+          <li>A test completes only because of a MicroPython-aware stub</li>
+          <li>Repeated runs differ semantically or in ordered event digest</li>
+          <li>Trace/VCD/protocol assertions disagree with Python-visible state</li>
+          <li>Persistent storage fails across soft reset or power cycle</li>
+          <li>Any of the five execution profiles is missing</li>
+        </ul>
+
+        <div class="grid-3" style="margin-top:18px">
+          <article class="mini-card">
+            <span class="label">Per-run bundle</span>
+            <p class="muted">Firmware hash, flash before/after, machine manifest, transcript, test results, event digest, VCD, protocol logs, MMIO/IRQ coverage and timing statistics.</p>
+          </article>
+          <article class="mini-card">
+            <span class="label">Portfolio report</span>
+            <p class="muted">Five profiles, pass counts, upstream skips, register coverage, known functional approximations, Docker digests and source links.</p>
+          </article>
+          <article class="mini-card">
+            <span class="label">Confidence claim</span>
+            <p class="muted">Strong functional confidence for documented, tested behavior; no claim of cycle, analog, RF, security side-channel or undocumented silicon-quirk fidelity.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="risks">
+        <div class="section-head">
+          <span class="section-index">11</span>
+          <h2>Primary risks and controls</h2>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Risk</th>
+                <th>Control</th>
+                <th>Warning sign</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>“Boots” is mistaken for “works”</td>
+                <td>Layered runtime, machine, protocol, persistence, multicore and determinism gates.</td>
+                <td>The milestone is declared complete at the first REPL prompt.</td>
+              </tr>
+              <tr>
+                <td>Official image is too opaque to debug</td>
+                <td>Reproduce the same tag in containers for ELF/map symbols, then confirm every fix against untouched official bytes.</td>
+                <td>A fix only works in the development build.</td>
+              </tr>
+              <tr>
+                <td>ROM façade becomes application emulation</td>
+                <td>Versioned, sourced ROM API boundary with unit tests and call tracing; ban caller-specific results.</td>
+                <td>The façade checks the guest PC or MicroPython symbol.</td>
+              </tr>
+              <tr>
+                <td>USB consumes the project</td>
+                <td>Packet-level functional model, CDC first, reusable host controller, strict endpoint coverage ledger.</td>
+                <td>Device enumeration relies on hard-coded descriptor responses.</td>
+              </tr>
+              <tr>
+                <td>ESP-IDF dependency explosion</td>
+                <td>Fault-guided closure from boot, shared behavior models with distinct register adapters, and explicit phase gates.</td>
+                <td>Large permissive register banks silently accept accesses.</td>
+              </tr>
+              <tr>
+                <td>Wireless becomes RF simulation</td>
+                <td>Functional virtual AP/BLE peer at controller/environment boundary; document timing and RF omissions.</td>
+                <td>Work begins on modulation or antenna behavior.</td>
+              </tr>
+              <tr>
+                <td>Multicore loses determinism</td>
+                <td>Single host-thread scheduler, explicit quanta, stable same-time ordering, checkpoints and replay digests.</td>
+                <td>Results depend on host thread scheduling.</td>
+              </tr>
+              <tr>
+                <td>RP2040 behavior copied into RP2350</td>
+                <td>Separate manifests/register adapters and tests derived from each datasheet.</td>
+                <td>Pico 2 passes only through undocumented RP2040 aliases.</td>
+              </tr>
+              <tr>
+                <td>Xtensa gaps are masked by call0 tests</td>
+                <td>Windowed-ABI corpus, exceptions, interrupts and official ESP-IDF firmware are mandatory.</td>
+                <td>Compiler corpus passes but IDF fails immediately on a window instruction.</td>
+              </tr>
+              <tr>
+                <td>Test suite overfits MicroPython</td>
+                <td>MQuickJS, existing 1,000-case C corpus and focused ISA suites stay independent.</td>
+                <td>A CPU bug affects other binaries but not the Python runtime.</td>
+              </tr>
+              <tr>
+                <td>Latest release moves during development</td>
+                <td>Locked v1.28.0 gate plus non-blocking rolling stable lane and deliberate baseline updates.</td>
+                <td>CI silently downloads a different artifact under the same job.</td>
+              </tr>
+              <tr>
+                <td>Current six-chip work is discarded</td>
+                <td>Retain CH32/compiler corpus as regression coverage; focus new implementation milestones on the four MicroPython boards.</td>
+                <td>Shared CPU/device changes regress existing tests unnoticed.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="issues">
+        <div class="section-head">
+          <span class="section-index">12</span>
+          <h2>Ordered work queue</h2>
+        </div>
+
+        <ol>
+          <li><strong>Official artifact manifest:</strong> download v1.28.0 files, record hashes, formats, board IDs and licence/source references.</li>
+          <li><strong>UF2 loader:</strong> validate family IDs, ordering, duplication, address bounds and flash placement for RP and AtomS3 artifacts.</li>
+          <li><strong>ESP image loader:</strong> parse combined image, bootloader, partition table, app segments/checksums and mapped flash.</li>
+          <li><strong>Persistent flash:</strong> sparse COW images, erase/program rules, snapshot/reset/power-cycle APIs and artifact hashes.</li>
+          <li><strong>Qualification transport:</strong> virtual serial and USB host endpoints compatible with raw REPL tooling.</li>
+          <li><strong>Coverage diagnostics:</strong> unknown MMIO faults, register bitmap, IRQ provenance, boot checkpoints and bounded trace bundles.</li>
+          <li><strong>RP2040 CPU closure:</strong> run pico-sdk/MicroPython diagnostic ELF until no compiler/exception gap remains.</li>
+          <li><strong>RP2040 reset/XIP:</strong> boot ROM contract, boot2, SSI flash, aliases, clocks, resets, timer/watchdog and NVIC.</li>
+          <li><strong>RP2040 USB/repl:</strong> enumerate official UF2 and execute the first external raw-REPL script.</li>
+          <li><strong>RP peripherals:</strong> full GPIO/pads/IRQ, UART, I²C, SPI, PWM, ADC, DMA and PIO test slices.</li>
+          <li><strong>RP multicore:</strong> core launch, FIFO, spinlocks, memory ordering and deterministic <code>_thread</code>.</li>
+          <li><strong>RP2040 comprehensive gate:</strong> make Pico the first fully green board.</li>
+          <li><strong>RP2350 Arm:</strong> Cortex-M33, boot/QMI and RP2350-specific peripherals through official UF2.</li>
+          <li><strong>RP2350 RISC-V:</strong> Hazard3 and interrupt model through official RISC-V UF2.</li>
+          <li><strong>ESP32-C6 CPU/boot:</strong> IDF instruction/privilege closure, ROM, bootloader, partitions, cache, timers and interrupts.</li>
+          <li><strong>NanoC6 system:</strong> console, flash/NVS, GPIO, UART/USB, buses, DMA, analog/PWM/RMT and safe hardware comparisons.</li>
+          <li><strong>ESP virtual connectivity:</strong> deterministic AP/network and BLE peer with contained packet services.</li>
+          <li><strong>Xtensa LX7 closure:</strong> windows, exceptions, atomics, interrupt levels, FPU and IDF ABI.</li>
+          <li><strong>AtomS3 system:</strong> boot/cache/MMU, dual core, USB, flash/NVS, peripherals, RGB/button and connectivity.</li>
+          <li><strong>MQuickJS lane:</strong> pinned source, board shim, ROM workloads, upstream/basic stress and cross-profile comparison.</li>
+          <li><strong>Portfolio qualification:</strong> run all five profiles from official images, repeat for determinism and publish the evidence report.</li>
+        </ol>
+      </section>
+
+      <section id="sources">
+        <div class="section-head">
+          <span class="section-index">13</span>
+          <h2>Primary sources</h2>
+        </div>
+
+        <ul class="source-list">
+          <li><a href="https://micropython.org/download/M5STACK_NANOC6/">Official MicroPython M5Stack NanoC6 downloads</a></li>
+          <li><a href="https://micropython.org/download/M5STACK_ATOMS3_LITE/">Official MicroPython M5Stack AtomS3 Lite downloads</a></li>
+          <li><a href="https://micropython.org/download/RPI_PICO/">Official MicroPython Raspberry Pi Pico downloads</a></li>
+          <li><a href="https://micropython.org/download/RPI_PICO2/">Official MicroPython Raspberry Pi Pico 2 Arm and RISC-V downloads</a></li>
+          <li><a href="https://github.com/micropython/micropython">MicroPython source, ports and tests</a></li>
+          <li><a href="https://github.com/micropython/micropython/tree/master/ports/rp2">MicroPython RP2 port</a></li>
+          <li><a href="https://github.com/micropython/micropython/tree/master/ports/esp32">MicroPython ESP32 port</a></li>
+          <li><a href="https://github.com/micropython/micropython/tree/master/ports/esp32/boards/M5STACK_NANOC6">NanoC6 board definition</a></li>
+          <li><a href="https://github.com/micropython/micropython/tree/master/ports/esp32/boards/M5STACK_ATOMS3_LITE">AtomS3 Lite board definition</a></li>
+          <li><a href="https://github.com/micropython/micropython/tree/master/ports/rp2/boards/RPI_PICO2">Pico 2 Arm/RISC-V board variants</a></li>
+          <li><a href="https://docs.micropython.org/en/v1.28.0/">MicroPython v1.28.0 documentation</a></li>
+          <li><a href="https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf">RP2040 datasheet</a></li>
+          <li><a href="https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf">RP2350 datasheet</a></li>
+          <li><a href="https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf">ESP32-C6 technical reference manual</a></li>
+          <li><a href="https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf">ESP32-S3 technical reference manual</a></li>
+          <li><a href="https://github.com/bellard/mquickjs">Fabrice Bellard’s MQuickJS repository and tests</a></li>
+        </ul>
+      </section>
+
+      <footer>
+        Renvo MicroPython qualification plan · v1 · 2026-07-31<br>
+        Scope: official firmware on four boards, five execution profiles, deterministic functional emulation.
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

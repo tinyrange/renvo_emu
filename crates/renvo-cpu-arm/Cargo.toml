@@ -1,0 +1,18 @@
+[package]
+name = "renvo-cpu-arm"
+description = "Interpreted Arm M-profile CPUs for Renvo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+renvo-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+renvo-bus.workspace = true
+
+[lints]
+workspace = true

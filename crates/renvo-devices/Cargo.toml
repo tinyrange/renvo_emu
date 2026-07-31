@@ -1,0 +1,17 @@
+[package]
+name = "renvo-devices"
+description = "Reusable functional microcontroller peripherals for Renvo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+renvo-bus.workspace = true
+renvo-core.workspace = true
+renvo-signals.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,8 @@
+name = "clang-18-arm-batch"
+image = "sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac"
+program = "sh"
+args = ["support/build-arm-clang.sh"]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

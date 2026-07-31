@@ -1,0 +1,65 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/renvo-bus",
+    "crates/renvo-cli",
+    "crates/renvo-core",
+    "crates/renvo-corpus",
+    "crates/renvo-casegen",
+    "crates/renvo-cpu-arm",
+    "crates/renvo-cpu-riscv",
+    "crates/renvo-cpu-xtensa",
+    "crates/renvo-devices",
+    "crates/renvo-image",
+    "crates/renvo-machines",
+    "crates/renvo-signals",
+    "crates/renvo-trace",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["Renvo contributors"]
+repository = "https://example.invalid/renvo"
+
+[workspace.dependencies]
+clap = { version = "4.5.46", features = ["derive"] }
+hex = "0.4.3"
+md-5 = "0.10.6"
+object = { version = "0.37.3", default-features = false, features = ["read", "elf"] }
+renvo-bus = { path = "crates/renvo-bus" }
+renvo-core = { path = "crates/renvo-core" }
+renvo-corpus = { path = "crates/renvo-corpus" }
+renvo-cpu-arm = { path = "crates/renvo-cpu-arm" }
+renvo-cpu-riscv = { path = "crates/renvo-cpu-riscv" }
+renvo-cpu-xtensa = { path = "crates/renvo-cpu-xtensa" }
+renvo-devices = { path = "crates/renvo-devices" }
+renvo-image = { path = "crates/renvo-image" }
+renvo-machines = { path = "crates/renvo-machines" }
+renvo-signals = { path = "crates/renvo-signals" }
+renvo-trace = { path = "crates/renvo-trace" }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+sha2 = "0.10.9"
+tempfile = "3.21.0"
+thiserror = "2.0.16"
+toml = "0.9.5"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

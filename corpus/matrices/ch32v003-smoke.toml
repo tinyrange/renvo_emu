@@ -1,0 +1,24 @@
+name = "ch32v003-smoke"
+optimizations = ["-O0", "-O2", "-Os"]
+arguments = [
+    "-Wl,-T,link.ld",
+    "-o",
+    "/workspace/out/smoke.elf",
+    "start.S",
+    "main.c",
+]
+
+[[toolchains]]
+name = "gcc-13-rv32ec-ilp32e"
+image = "sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736"
+program = "riscv64-unknown-elf-gcc"
+args = [
+    "-march=rv32ec_zicsr",
+    "-mabi=ilp32e",
+    "-ffreestanding",
+    "-nostdlib",
+]
+
+[toolchains.environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"
