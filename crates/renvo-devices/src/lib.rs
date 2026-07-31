@@ -5,13 +5,15 @@ use renvo_core::{AccessWidth, ResetKind, SimTime};
 use renvo_signals::{
     DigitalNet, DriverId, Logic, SignalChange, SignalError, SignalId, SignalRegistry, SignalValue,
 };
+use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 /// Shared signal registry and append-only pending-change stream.
 #[derive(Clone, Default)]
 pub struct SignalHub {
-    inner: Arc<Mutex<SignalHubState>>,
+    inner: Rc<RefCell<SignalHubState>>,
 }
 
 #[derive(Default)]
@@ -34,8 +36,7 @@ impl SignalHub {
         description: Option<String>,
     ) -> Result<SignalId, SignalError> {
         self.inner
-            .lock()
-            .expect("signal hub lock poisoned")
+            .borrow_mut()
             .registry
             .declare(path, initial, description)
     }
@@ -47,7 +48,7 @@ impl SignalHub {
         value: SignalValue,
         at: SimTime,
     ) -> Result<(), SignalError> {
-        let mut state = self.inner.lock().expect("signal hub lock poisoned");
+        let mut state = self.inner.borrow_mut();
         if let Some(change) = state.registry.set(signal, value, at)? {
             state.changes.push(change);
         }
@@ -56,13 +57,13 @@ impl SignalHub {
 
     /// Runs a read-only operation against the registry.
     pub fn with_registry<T>(&self, operation: impl FnOnce(&SignalRegistry) -> T) -> T {
-        let state = self.inner.lock().expect("signal hub lock poisoned");
+        let state = self.inner.borrow();
         operation(&state.registry)
     }
 
     /// Removes all pending changes in chronological insertion order.
     pub fn drain_changes(&self) -> Vec<SignalChange> {
-        let mut state = self.inner.lock().expect("signal hub lock poisoned");
+        let mut state = self.inner.borrow_mut();
         core::mem::take(&mut state.changes)
     }
 }
@@ -200,12 +201,12 @@ struct EspUsbSerialJtagState {
     tx_packet: Vec<u8>,
     output: Vec<u8>,
     input_queued: bool,
-    raw_chunks_queued: usize,
-    raw_chunks_completed: usize,
     interrupt_raw: u32,
     interrupt_enable: u32,
     registers: BTreeMap<u64, u32>,
 }
+
+const HOST_SCRIPT_COMPLETE_MARKER: &[u8] = b"__RENVO_HOST_SCRIPT_COMPLETE__";
 
 impl EspUsbSerialJtagHandle {
     /// Queues bytes sent by the deterministic host to the CDC-ACM OUT endpoint.
@@ -214,9 +215,6 @@ impl EspUsbSerialJtagHandle {
         state.rx.extend(bytes.iter().copied());
         if !bytes.is_empty() {
             state.input_queued = true;
-            state.raw_chunks_queued = state
-                .raw_chunks_queued
-                .saturating_add(bytes.iter().filter(|byte| **byte == 0x04).count());
             state.interrupt_raw |= 1 << 2;
         }
     }
@@ -234,8 +232,11 @@ impl EspUsbSerialJtagHandle {
     pub fn input_complete(&self) -> bool {
         let state = self.state.lock().expect("USB Serial/JTAG lock poisoned");
         state.input_queued
-            && state.raw_chunks_queued != 0
-            && state.raw_chunks_completed >= state.raw_chunks_queued
+            && state
+                .output
+                .windows(HOST_SCRIPT_COMPLETE_MARKER.len())
+                .any(|window| window == HOST_SCRIPT_COMPLETE_MARKER)
+            && state.output.ends_with(b"\x04\x04>")
     }
 
     /// Reports whether an enabled USB Serial/JTAG interrupt is pending.
@@ -296,11 +297,6 @@ impl EspUsbSerialJtag {
 
     fn flush_tx(state: &mut EspUsbSerialJtagState) {
         state.output.append(&mut state.tx_packet);
-        state.raw_chunks_completed = state
-            .output
-            .windows(3)
-            .filter(|window| *window == b"\x04\x04>")
-            .count();
         // The functional host takes the packet immediately, making EP1
         // writable again and producing the hardware's IN-empty indication.
         state.interrupt_raw |= Self::SERIAL_IN_EMPTY;
@@ -1209,13 +1205,13 @@ impl Device for Rp2040Watchdog {
 /// Shared RP2040 timer interrupt view.
 #[derive(Clone)]
 pub struct Rp2040TimerHandle {
-    state: Arc<Mutex<Rp2040TimerState>>,
+    state: Rc<RefCell<Rp2040TimerState>>,
 }
 
 impl Rp2040TimerHandle {
     /// Returns the four masked alarm interrupt bits at `now`.
     pub fn pending(&self, now: SimTime) -> u8 {
-        let mut state = self.state.lock().expect("RP2040 timer lock poisoned");
+        let mut state = self.state.borrow_mut();
         let previous = state.raw_interrupt;
         state.update(now);
         let pending = (state.raw_interrupt | state.force_interrupt) & state.interrupt_enable;
@@ -1261,7 +1257,7 @@ impl Rp2040TimerState {
 pub struct Rp2040Timer {
     name: String,
     layout: RpTimerLayout,
-    state: Arc<Mutex<Rp2040TimerState>>,
+    state: Rc<RefCell<Rp2040TimerState>>,
 }
 
 /// Register layout implemented by the Raspberry Pi timer block.
@@ -1276,7 +1272,7 @@ pub enum RpTimerLayout {
 impl Rp2040Timer {
     /// Creates the free-running timer and a scheduler-facing handle.
     pub fn new(name: impl Into<String>, layout: RpTimerLayout) -> (Self, Rp2040TimerHandle) {
-        let state = Arc::new(Mutex::new(Rp2040TimerState {
+        let state = Rc::new(RefCell::new(Rp2040TimerState {
             alarms: [0; 4],
             armed: 0,
             raw_interrupt: 0,
@@ -1308,7 +1304,7 @@ impl Device for Rp2040Timer {
         if width != AccessWidth::Word {
             return Err(DeviceError::new("RP2040 TIMER requires word access"));
         }
-        let mut state = self.state.lock().expect("RP2040 timer lock poisoned");
+        let mut state = self.state.borrow_mut();
         state.update(at);
         let ticks = at.ticks();
         let value = match offset & 0x0fff {
@@ -1355,7 +1351,7 @@ impl Device for Rp2040Timer {
             return Err(DeviceError::new("RP2040 TIMER requires word access"));
         }
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked timer value fits");
-        let mut state = self.state.lock().expect("RP2040 timer lock poisoned");
+        let mut state = self.state.borrow_mut();
         state.update(at);
         if std::env::var_os("RENVO_DEBUG_TIMERS").is_some() {
             eprintln!(
@@ -1434,7 +1430,7 @@ impl Device for Rp2040Timer {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        let mut state = self.state.lock().expect("RP2040 timer lock poisoned");
+        let mut state = self.state.borrow_mut();
         state.alarms = [0; 4];
         state.armed = 0;
         state.raw_interrupt = 0;
@@ -1769,16 +1765,13 @@ impl EspTimerGroupState {
 /// Interrupt view of one ESP timer group.
 #[derive(Clone)]
 pub struct EspTimerGroupHandle {
-    state: Arc<Mutex<EspTimerGroupState>>,
+    state: Rc<RefCell<EspTimerGroupState>>,
 }
 
 impl EspTimerGroupHandle {
     /// Advances the timers and returns masked timer interrupt levels.
     pub fn pending(&self, now: SimTime) -> [bool; 2] {
-        let mut state = self
-            .state
-            .lock()
-            .expect("ESP timer-group state lock poisoned");
+        let mut state = self.state.borrow_mut();
         state.advance(now);
         let status = state.registers[EspTimerGroupState::INTERRUPT_STATUS / 4];
         [status & 1 != 0, status & 2 != 0]
@@ -1788,13 +1781,13 @@ impl EspTimerGroupHandle {
 /// Functional ESP32-C6/S3 general-purpose timer group and RTC calibration block.
 pub struct EspTimerGroup {
     name: String,
-    state: Arc<Mutex<EspTimerGroupState>>,
+    state: Rc<RefCell<EspTimerGroupState>>,
 }
 
 impl EspTimerGroup {
     /// Creates a reset timer group and scheduler-facing interrupt handle.
     pub fn new(name: impl Into<String>, kind: EspTimerGroupKind) -> (Self, EspTimerGroupHandle) {
-        let state = Arc::new(Mutex::new(EspTimerGroupState::new(kind)));
+        let state = Rc::new(RefCell::new(EspTimerGroupState::new(kind)));
         (
             Self {
                 name: name.into(),
@@ -1817,10 +1810,7 @@ impl Device for EspTimerGroup {
             ));
         }
         let index = usize::try_from(offset / 4).expect("timer-group offset fits");
-        let mut state = self
-            .state
-            .lock()
-            .expect("ESP timer-group state lock poisoned");
+        let mut state = self.state.borrow_mut();
         state.advance(at);
         state
             .registers
@@ -1845,10 +1835,7 @@ impl Device for EspTimerGroup {
         let offset = usize::try_from(offset).expect("timer-group offset fits");
         let index = offset / 4;
         let value = value as u32;
-        let mut state = self
-            .state
-            .lock()
-            .expect("ESP timer-group state lock poisoned");
+        let mut state = self.state.borrow_mut();
         if index >= state.registers.len() {
             return Err(DeviceError::new(format!(
                 "{} write at {offset:#x}",
@@ -1916,10 +1903,7 @@ impl Device for EspTimerGroup {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.state
-            .lock()
-            .expect("ESP timer-group state lock poisoned")
-            .reset();
+        self.state.borrow_mut().reset();
     }
 }
 
@@ -2004,15 +1988,14 @@ struct EspSystemState {
 /// Observation handle for the ESP32-S3 system block's cross-core interrupts.
 #[derive(Clone)]
 pub struct EspSystemHandle {
-    state: Arc<Mutex<EspSystemState>>,
+    state: Rc<RefCell<EspSystemState>>,
 }
 
 impl EspSystemHandle {
     /// Reports whether one FROM_CPU interrupt source is asserted.
     pub fn from_cpu_pending(&self, source: usize) -> bool {
         self.state
-            .lock()
-            .expect("ESP system state lock poisoned")
+            .borrow()
             .from_cpu_pending
             .get(source)
             .copied()
@@ -2026,13 +2009,13 @@ impl EspSystemHandle {
 /// registers additionally expose their level to the machine interrupt router.
 pub struct EspSystem {
     name: String,
-    state: Arc<Mutex<EspSystemState>>,
+    state: Rc<RefCell<EspSystemState>>,
 }
 
 impl EspSystem {
     /// Creates the system register page and its interrupt observation handle.
     pub fn new(name: impl Into<String>) -> (Self, EspSystemHandle) {
-        let state = Arc::new(Mutex::new(EspSystemState {
+        let state = Rc::new(RefCell::new(EspSystemState {
             registers: vec![0; 0x1000 / 4],
             from_cpu_pending: [false; 4],
         }));
@@ -2058,8 +2041,7 @@ impl Device for EspSystem {
             ));
         }
         self.state
-            .lock()
-            .expect("ESP system state lock poisoned")
+            .borrow()
             .registers
             .get(usize::try_from(offset / 4).expect("system offset fits"))
             .copied()
@@ -2079,7 +2061,7 @@ impl Device for EspSystem {
                 "ESP system block requires aligned word access",
             ));
         }
-        let mut state = self.state.lock().expect("ESP system state lock poisoned");
+        let mut state = self.state.borrow_mut();
         let index = usize::try_from(offset / 4).expect("system offset fits");
         let register = state
             .registers
@@ -2097,7 +2079,7 @@ impl Device for EspSystem {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        let mut state = self.state.lock().expect("ESP system state lock poisoned");
+        let mut state = self.state.borrow_mut();
         state.registers.fill(0);
         state.from_cpu_pending = [false; 4];
     }
@@ -2221,17 +2203,14 @@ struct EspSystimerState {
 /// Observation and interrupt handle for the ESP32-S3 system timer.
 #[derive(Clone)]
 pub struct EspSystimerHandle {
-    state: Arc<Mutex<EspSystimerState>>,
+    state: Rc<RefCell<EspSystimerState>>,
 }
 
 impl EspSystimerHandle {
     /// Advances comparator state and returns enabled target interrupts.
     pub fn pending(&self, now: SimTime) -> [bool; 3] {
         const COUNTER_MASK: u64 = (1_u64 << 52) - 1;
-        let mut state = self
-            .state
-            .lock()
-            .expect("ESP system timer state lock poisoned");
+        let mut state = self.state.borrow_mut();
         let current = now.ticks() & COUNTER_MASK;
         let config = state.registers[0];
         for target in 0..3 {
@@ -2266,7 +2245,7 @@ impl EspSystimerHandle {
 /// Functional ESP32-S3 system timer with synchronous counter latching.
 pub struct EspSystimer {
     name: String,
-    state: Arc<Mutex<EspSystimerState>>,
+    state: Rc<RefCell<EspSystimerState>>,
 }
 
 impl EspSystimer {
@@ -2274,7 +2253,7 @@ impl EspSystimer {
     pub fn new(name: impl Into<String>) -> (Self, EspSystimerHandle) {
         let mut registers = vec![0; 0x1000 / 4];
         registers[0] = 1 << 30;
-        let state = Arc::new(Mutex::new(EspSystimerState {
+        let state = Rc::new(RefCell::new(EspSystimerState {
             registers,
             latched: [0; 2],
         }));
@@ -2299,10 +2278,7 @@ impl Device for EspSystimer {
                 "ESP system timer requires aligned word access",
             ));
         }
-        let state = self
-            .state
-            .lock()
-            .expect("ESP system timer state lock poisoned");
+        let state = self.state.borrow();
         let value = match offset {
             0x04 | 0x08 => 1 << 29,
             0x40 => (state.latched[0] >> 32) as u32,
@@ -2330,10 +2306,7 @@ impl Device for EspSystimer {
                 "ESP system timer requires aligned word access",
             ));
         }
-        let mut state = self
-            .state
-            .lock()
-            .expect("ESP system timer state lock poisoned");
+        let mut state = self.state.borrow_mut();
         if matches!(offset, 0x04 | 0x08) {
             let unit = usize::from(offset == 0x08);
             state.latched[unit] = at.ticks() & ((1_u64 << 52) - 1);
@@ -2361,10 +2334,7 @@ impl Device for EspSystimer {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        let mut state = self
-            .state
-            .lock()
-            .expect("ESP system timer state lock poisoned");
+        let mut state = self.state.borrow_mut();
         state.registers.fill(0);
         state.registers[0] = 1 << 30;
         state.latched = [0; 2];
@@ -3642,7 +3612,7 @@ pub struct RpSioGpio {
     quotient: u32,
     remainder: u32,
     divider_dirty: bool,
-    multicore: Arc<Mutex<RpSioMulticoreState>>,
+    multicore: Rc<RefCell<RpSioMulticoreState>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3695,35 +3665,25 @@ impl Default for RpSioMulticoreState {
 /// SIO boot-ROM launch protocol.
 #[derive(Clone)]
 pub struct RpSioHandle {
-    state: Arc<Mutex<RpSioMulticoreState>>,
+    state: Rc<RefCell<RpSioMulticoreState>>,
 }
 
 impl RpSioHandle {
     /// Selects which processor owns subsequent accesses to the shared SIO
     /// device. Machines call this immediately before stepping that processor.
     pub fn select_core(&self, core: u8) {
-        self.state
-            .lock()
-            .expect("RP SIO multicore lock poisoned")
-            .selected_core = core.min(1);
+        self.state.borrow_mut().selected_core = core.min(1);
     }
 
     /// Takes a core-1 launch that completed the documented six-word ROM
     /// handshake.
     pub fn take_core1_launch(&self) -> Option<RpCoreLaunch> {
-        self.state
-            .lock()
-            .expect("RP SIO multicore lock poisoned")
-            .pending_launch
-            .take()
+        self.state.borrow_mut().pending_launch.take()
     }
 
     /// Returns whether core 1 has left its boot-ROM launch protocol.
     pub fn core1_launched(&self) -> bool {
-        self.state
-            .lock()
-            .expect("RP SIO multicore lock poisoned")
-            .core1_launched
+        self.state.borrow().core1_launched
     }
 }
 
@@ -3784,7 +3744,7 @@ impl RpSioGpio {
         layout: RpSioLayout,
     ) -> Result<(Self, GpioHandle, RpSioHandle), SignalError> {
         let (state, signals, handle) = vendor_gpio(pins, path, &hub)?;
-        let multicore = Arc::new(Mutex::new(RpSioMulticoreState::default()));
+        let multicore = Rc::new(RefCell::new(RpSioMulticoreState::default()));
         Ok((
             Self {
                 name: name.into(),
@@ -3830,10 +3790,7 @@ impl Device for RpSioGpio {
             return Err(DeviceError::new("RP SIO requires word access"));
         }
         if matches!(offset, 0x000 | 0x050 | 0x058) {
-            let mut state = self
-                .multicore
-                .lock()
-                .expect("RP SIO multicore lock poisoned");
+            let mut state = self.multicore.borrow_mut();
             let core = usize::from(state.selected_core);
             return match offset {
                 0x000 => Ok(u64::from(state.selected_core)),
@@ -3899,10 +3856,7 @@ impl Device for RpSioGpio {
         let value =
             u32::try_from(value & u64::from(u32::MAX)).expect("masked value always fits u32");
         if matches!(offset, 0x050 | 0x054) {
-            let mut state = self
-                .multicore
-                .lock()
-                .expect("RP SIO multicore lock poisoned");
+            let mut state = self.multicore.borrow_mut();
             let core = usize::from(state.selected_core);
             if offset == 0x050 {
                 // FIFO_ST WOF/ROE are write-one-to-clear.
@@ -4018,10 +3972,7 @@ impl Device for RpSioGpio {
         gpio.direction = 0;
         gpio.output = 0;
         drop(gpio);
-        *self
-            .multicore
-            .lock()
-            .expect("RP SIO multicore lock poisoned") = RpSioMulticoreState::default();
+        *self.multicore.borrow_mut() = RpSioMulticoreState::default();
         self.spinlocks = u32::MAX;
         self.dividend = 0;
         self.quotient = 0;
@@ -4132,13 +4083,13 @@ struct TimerState {
 /// Host/machine-facing timer state.
 #[derive(Clone)]
 pub struct TimerHandle {
-    state: Arc<Mutex<TimerState>>,
+    state: Rc<RefCell<TimerState>>,
 }
 
 impl TimerHandle {
     /// Updates pending state at the current simulation time.
     pub fn poll(&self, now: SimTime) -> bool {
-        let mut state = self.state.lock().expect("timer lock poisoned");
+        let mut state = self.state.borrow_mut();
         if state.enabled && now.ticks() >= state.compare {
             state.pending = true;
             if state.periodic && state.period != 0 {
@@ -4154,19 +4105,19 @@ impl TimerHandle {
 
     /// Clears the interrupt pending latch.
     pub fn clear(&self) {
-        self.state.lock().expect("timer lock poisoned").pending = false;
+        self.state.borrow_mut().pending = false;
     }
 
     /// Current pending state.
     pub fn pending(&self) -> bool {
-        self.state.lock().expect("timer lock poisoned").pending
+        self.state.borrow().pending
     }
 }
 
 /// Functional timer with counter, compare, control, period, and status words.
 pub struct FunctionalTimer {
     name: String,
-    state: Arc<Mutex<TimerState>>,
+    state: Rc<RefCell<TimerState>>,
 }
 
 impl FunctionalTimer {
@@ -4183,7 +4134,7 @@ impl FunctionalTimer {
 
     /// Creates a stopped timer and machine handle.
     pub fn new(name: impl Into<String>) -> (Self, TimerHandle) {
-        let state = Arc::new(Mutex::new(TimerState {
+        let state = Rc::new(RefCell::new(TimerState {
             enabled: false,
             periodic: false,
             compare: u64::MAX,
@@ -4211,7 +4162,7 @@ impl Device for FunctionalTimer {
                 "timer requires word or double-word access",
             ));
         }
-        let state = self.state.lock().expect("timer lock poisoned");
+        let state = self.state.borrow();
         match offset {
             Self::COUNTER => Ok(at.ticks()),
             Self::COMPARE => Ok(state.compare),
@@ -4236,7 +4187,7 @@ impl Device for FunctionalTimer {
                 "timer requires word or double-word access",
             ));
         }
-        let mut state = self.state.lock().expect("timer lock poisoned");
+        let mut state = self.state.borrow_mut();
         match offset {
             Self::COMPARE => state.compare = value,
             Self::CONTROL => {
@@ -4256,7 +4207,7 @@ impl Device for FunctionalTimer {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        let mut state = self.state.lock().expect("timer lock poisoned");
+        let mut state = self.state.borrow_mut();
         state.enabled = false;
         state.periodic = false;
         state.compare = u64::MAX;
@@ -4628,7 +4579,7 @@ mod tests {
         assert_eq!(handle.output(), b"hello");
         assert!(!handle.input_complete());
 
-        for byte in b"\x04\x04>" {
+        for byte in b"__RENVO_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>" {
             usb.write(0, AccessWidth::Word, u64::from(*byte), SimTime::ZERO)
                 .unwrap();
         }

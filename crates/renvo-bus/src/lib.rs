@@ -2,8 +2,9 @@
 
 use renvo_core::{AccessKind, AccessWidth, Bus, BusFault, BusFaultKind, ResetKind, SimTime};
 use serde::Serialize;
+use std::cell::RefCell;
 use std::fmt;
-use std::sync::{Arc, RwLock};
+use std::rc::Rc;
 use thiserror::Error;
 
 /// Byte ordering used by a mapped address space.
@@ -147,27 +148,27 @@ pub trait Device {
 /// Shareable memory bytes used to create aliases.
 #[derive(Clone, Debug)]
 pub struct SharedMemory {
-    bytes: Arc<RwLock<Vec<u8>>>,
+    bytes: Rc<RefCell<Vec<u8>>>,
 }
 
 impl SharedMemory {
     /// Allocates zero-filled memory.
     pub fn zeroed(size: usize) -> Self {
         Self {
-            bytes: Arc::new(RwLock::new(vec![0; size])),
+            bytes: Rc::new(RefCell::new(vec![0; size])),
         }
     }
 
     /// Allocates memory initialized from bytes.
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         Self {
-            bytes: Arc::new(RwLock::new(bytes)),
+            bytes: Rc::new(RefCell::new(bytes)),
         }
     }
 
     /// Returns the backing size in bytes.
     pub fn len(&self) -> usize {
-        self.bytes.read().expect("memory lock poisoned").len()
+        self.bytes.borrow().len()
     }
 
     /// Returns true when the backing contains no bytes.
@@ -177,19 +178,19 @@ impl SharedMemory {
 
     /// Copies bytes from the backing store.
     pub fn to_vec(&self) -> Vec<u8> {
-        self.bytes.read().expect("memory lock poisoned").clone()
+        self.bytes.borrow().clone()
     }
 
     /// Copies a checked byte range from the backing store.
     pub fn read_range(&self, offset: usize, length: usize) -> Option<Vec<u8>> {
-        let bytes = self.bytes.read().expect("memory lock poisoned");
+        let bytes = self.bytes.borrow();
         let end = offset.checked_add(length)?;
         bytes.get(offset..end).map(<[u8]>::to_vec)
     }
 
     /// Replaces a checked byte range in the backing store.
     pub fn write_range(&self, offset: usize, value: &[u8]) -> bool {
-        let mut bytes = self.bytes.write().expect("memory lock poisoned");
+        let mut bytes = self.bytes.borrow_mut();
         let Some(end) = offset.checked_add(value.len()) else {
             return false;
         };
@@ -493,8 +494,7 @@ impl AddressSpace {
                 } => {
                     let offset = usize::try_from(current - region.start)
                         .expect("mapped region offset fits usize");
-                    storage.bytes.write().expect("memory lock poisoned")
-                        [*storage_offset + offset] = byte;
+                    storage.bytes.borrow_mut()[*storage_offset + offset] = byte;
                 }
                 Backing::Device(_) => {
                     return Err(BusFault::new(
@@ -607,7 +607,7 @@ impl Bus for AddressSpace {
                 let start =
                     *storage_offset + usize::try_from(relative).expect("mapped offset fits usize");
                 let end = start + usize::from(width.bytes());
-                let bytes = storage.bytes.read().expect("memory lock poisoned");
+                let bytes = storage.bytes.borrow();
                 let slice = &bytes[start..end];
                 match endianness {
                     Endianness::Little => {
@@ -670,7 +670,7 @@ impl Bus for AddressSpace {
                     let start = *storage_offset
                         + usize::try_from(relative).expect("mapped offset fits usize");
                     let end = start + usize::from(width.bytes());
-                    let mut bytes = storage.bytes.write().expect("memory lock poisoned");
+                    let mut bytes = storage.bytes.borrow_mut();
                     match endianness {
                         Endianness::Little => {
                             for (index, byte) in bytes[start..end].iter_mut().enumerate() {

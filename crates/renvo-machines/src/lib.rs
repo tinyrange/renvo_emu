@@ -20,6 +20,9 @@ pub use target::{
 };
 pub use xtensa::{XtensaMachine, XtensaMachineError};
 
+/// Deterministic raw-REPL marker emitted by the CLI's final framing chunk.
+pub const HOST_SCRIPT_COMPLETE_MARKER: &str = "__RENVO_HOST_SCRIPT_COMPLETE__";
+
 /// One deterministic external GPIO drive or release.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct PinStimulus {

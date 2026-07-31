@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+gate_started_ns=$(date +%s%N)
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 renvo=${RENVO_BIN:-"$repo_root/target/release/renvo"}
 firmware_root=${RENVO_FIRMWARE_CACHE:-"$repo_root/.renvo/firmware/micropython-v1.28.0"}
@@ -20,6 +21,79 @@ records="$run_root/records.tsv"
 scenario_records="$run_root/system-records.tsv"
 : > "$records"
 : > "$scenario_records"
+
+jobs=${RENVO_ACCEPTANCE_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n')}
+clean_repeats=${RENVO_CLEAN_REPEATS:-1}
+system_repeats=${RENVO_SYSTEM_REPEATS:-1}
+case "$jobs" in
+    ''|*[!0-9]*|0)
+        echo "RENVO_ACCEPTANCE_JOBS must be a positive integer" >&2
+        exit 1
+        ;;
+esac
+if [ "$jobs" -gt 64 ]
+then
+    jobs=64
+fi
+case "$clean_repeats" in
+    1|2) ;;
+    *)
+        echo "RENVO_CLEAN_REPEATS must be 1 or 2" >&2
+        exit 1
+        ;;
+esac
+case "$system_repeats" in
+    1|2) ;;
+    *)
+        echo "RENVO_SYSTEM_REPEATS must be 1 or 2" >&2
+        exit 1
+        ;;
+esac
+
+job_fifo="$run_root/job-tokens.fifo"
+mkfifo "$job_fifo"
+exec 9<> "$job_fifo"
+rm "$job_fifo"
+job_index=0
+while [ "$job_index" -lt "$jobs" ]
+do
+    printf 'token\n' >&9
+    job_index=$((job_index + 1))
+done
+job_pids=
+
+spawn_job()
+{
+    # Acquire the slot in the dispatcher.  Having each child compete for a token
+    # allows the kernel to wake waiters out of order, which can leave an early,
+    # expensive job until the end of the gate and create a long idle tail.
+    IFS= read -r _token <&9
+    (
+        status=0
+        "$@" || status=$?
+        printf 'token\n' >&9
+        exit "$status"
+    ) &
+    job_pids="$job_pids $!"
+}
+
+wait_for_jobs()
+{
+    failed=0
+    for pid in $job_pids
+    do
+        if ! wait "$pid"
+        then
+            failed=1
+        fi
+    done
+    exec 9>&-
+    if [ "$failed" -ne 0 ]
+    then
+        echo "One or more acceptance jobs failed" >&2
+        exit 1
+    fi
+}
 
 if [ ! -x "$renvo" ]
 then
@@ -72,10 +146,10 @@ validate_run()
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$profile" "$repeat" "$firmware_sha" "$expected_digest" \
         "$transcript_sha" "$trace_digest" "$result_sha" "$vcd_sha" \
-        "$instructions" "$events" >> "$records"
+        "$instructions" "$events" > "$profile_root/record.tsv"
 }
 
-run_profile()
+run_profile_repeat()
 {
     profile=$1
     target=$2
@@ -83,43 +157,39 @@ run_profile()
     filename=$4
     limit=$5
     expected_digest=$6
+    repeat=$7
     image="$firmware_root/$filename"
+    profile_root="$run_root/$profile/repeat-$repeat"
+    mkdir -p "$profile_root"
+    echo "MicroPython qualification: $profile repeat $repeat/$clean_repeats"
 
-    repeat=1
-    while [ "$repeat" -le 2 ]
-    do
-        profile_root="$run_root/$profile/repeat-$repeat"
-        mkdir -p "$profile_root"
-        echo "MicroPython qualification: $profile repeat $repeat/2"
+    set -- "$renvo" firmware boot \
+        --target "$target" \
+        --image "$image" \
+        --usb-script "$workload" \
+        --max-instructions "$limit" \
+        --vcd "$profile_root/pins.vcd" \
+        --result "$profile_root/result.json"
+    if [ -n "$cpu" ]
+    then
+        set -- "$@" --cpu "$cpu"
+    fi
+    if [ "$profile" = atoms3-xtensa ]
+    then
+        set -- "$@" \
+            --esp-base-image \
+            "$firmware_root/M5STACK_ATOMS3_LITE-20260406-v1.28.0.bin"
+    fi
+    case "$target" in
+        esp32c6|esp32s3)
+            set -- "$@" --flash-state "$profile_root/flash.bin"
+            ;;
+    esac
+    "$@"
 
-        set -- "$renvo" firmware boot \
-            --target "$target" \
-            --image "$image" \
-            --usb-script "$workload" \
-            --max-instructions "$limit" \
-            --vcd "$profile_root/pins.vcd" \
-            --result "$profile_root/result.json"
-        if [ -n "$cpu" ]
-        then
-            set -- "$@" --cpu "$cpu"
-        fi
-        if [ "$profile" = atoms3-xtensa ]
-        then
-            set -- "$@" \
-                --esp-base-image \
-                "$firmware_root/M5STACK_ATOMS3_LITE-20260406-v1.28.0.bin"
-        fi
-        case "$target" in
-            esp32c6|esp32s3)
-                set -- "$@" --flash-state "$profile_root/flash.bin"
-                ;;
-        esac
-        "$@"
+    validate_run \
+        "$profile" "$repeat" "$expected_digest" "$image" "$profile_root"
 
-        validate_run \
-            "$profile" "$repeat" "$expected_digest" "$image" "$profile_root"
-        repeat=$((repeat + 1))
-    done
 }
 
 run_system_phase()
@@ -136,6 +206,8 @@ run_system_phase()
     marker=${10}
     flash_state=${11}
     stimulus_set=${12:-none}
+    extra_script_1=${13:-}
+    extra_script_2=${14:-}
     image="$firmware_root/$filename"
     phase_root="$run_root/$profile/system/$scenario/repeat-$repeat/$phase"
     result="$phase_root/result.json"
@@ -143,7 +215,7 @@ run_system_phase()
     vcd="$phase_root/pins.vcd"
     mkdir -p "$phase_root"
 
-    echo "MicroPython system qualification: $profile $scenario $phase repeat $repeat/2"
+    echo "MicroPython system qualification: $profile $scenario $phase repeat $repeat/$system_repeats"
     set -- "$renvo" firmware boot \
         --target "$target" \
         --image "$image" \
@@ -155,6 +227,14 @@ run_system_phase()
     if [ -n "$cpu" ]
     then
         set -- "$@" --cpu "$cpu"
+    fi
+    if [ -n "$extra_script_1" ]
+    then
+        set -- "$@" --usb-script "$extra_script_1"
+    fi
+    if [ -n "$extra_script_2" ]
+    then
+        set -- "$@" --usb-script "$extra_script_2"
     fi
     if [ "$profile" = atoms3-xtensa ]
     then
@@ -198,10 +278,10 @@ run_system_phase()
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$profile" "$scenario" "$repeat" "$phase" "$marker" \
         "$transcript_sha" "$trace_digest" "$result_sha" "$flash_sha" "$vcd_sha" \
-        "$instructions:$events" >> "$scenario_records"
+        "$instructions:$events" > "$phase_root/record.tsv"
 }
 
-run_system_profile()
+run_io_persistence_pair()
 {
     profile=$1
     target=$2
@@ -209,117 +289,186 @@ run_system_profile()
     filename=$4
     limit=$5
 
+    repeat=$6
+    pair_root="$run_root/$profile/system/io-persistence/repeat-$repeat"
+    mkdir -p "$pair_root"
+    run_system_phase \
+        "$profile" "$target" "$cpu" "$filename" "$limit" \
+        io-persistence "$repeat" write "$timer_workload" \
+        "RENVO_PERSIST_WRITE_OK 1024 0x1fe00" "$pair_root/flash.bin" gpio-input \
+        "$gpio_input_workload" "$persistence_write_workload"
+    transcript="$pair_root/write/transcript.txt"
+    grep -aF 'RENVO_TIMER_PERIODIC_OK' "$transcript" >/dev/null
+    grep -aF 'RENVO_TIMER_ONE_SHOT_OK 1' "$transcript" >/dev/null
+    grep -aF 'RENVO_TIMER_OK' "$transcript" >/dev/null
+    grep -aF 'RENVO_GPIO_INPUT_OK 1 0 010' "$transcript" >/dev/null
+    run_system_phase \
+        "$profile" "$target" "$cpu" "$filename" "$limit" \
+        persistence "$repeat" read "$persistence_read_workload" \
+        "RENVO_PERSIST_READ_OK 1024 0x1fe00" "$pair_root/flash.bin"
+}
+
+schedule_profile_jobs()
+{
     repeat=1
-    while [ "$repeat" -le 2 ]
+    while [ "$repeat" -le "$clean_repeats" ]
     do
-        soft_root="$run_root/$profile/system/soft-reset/repeat-$repeat"
-        thread_root="$run_root/$profile/system/thread/repeat-$repeat"
-        timer_root="$run_root/$profile/system/timer/repeat-$repeat"
-        persistence_root="$run_root/$profile/system/persistence/repeat-$repeat"
-        mkdir -p "$soft_root" "$thread_root" "$timer_root" "$persistence_root"
-
-        run_system_phase \
-            "$profile" "$target" "$cpu" "$filename" "$limit" \
-            soft-reset "$repeat" run "$soft_reset_workload" \
-            "RENVO_SOFT_RESET_OK 84" "$soft_root/flash.bin"
-        run_system_phase \
-            "$profile" "$target" "$cpu" "$filename" "$limit" \
-            thread "$repeat" run "$thread_workload" \
-            "RENVO_THREAD_OK 0xd062b2b8 True" "$thread_root/flash.bin"
-        run_system_phase \
-            "$profile" "$target" "$cpu" "$filename" "$limit" \
-            timer "$repeat" run "$timer_workload" \
-            "RENVO_TIMER_OK" "$timer_root/flash.bin"
-        gpio_root="$run_root/$profile/system/gpio-input/repeat-$repeat"
-        mkdir -p "$gpio_root"
-        run_system_phase \
-            "$profile" "$target" "$cpu" "$filename" "$limit" \
-            gpio-input "$repeat" run "$gpio_input_workload" \
-            "RENVO_GPIO_INPUT_OK 1 0 010" "$gpio_root/flash.bin" gpio-input
-        run_system_phase \
-            "$profile" "$target" "$cpu" "$filename" "$limit" \
-            persistence "$repeat" write "$persistence_write_workload" \
-            "RENVO_PERSIST_WRITE_OK 1024 0x1fe00" "$persistence_root/flash.bin"
-        run_system_phase \
-            "$profile" "$target" "$cpu" "$filename" "$limit" \
-            persistence "$repeat" read "$persistence_read_workload" \
-            "RENVO_PERSIST_READ_OK 1024 0x1fe00" "$persistence_root/flash.bin"
-
+        spawn_job run_profile_repeat "$1" "$2" "$3" "$4" "$5" "$6" "$repeat"
         repeat=$((repeat + 1))
     done
 }
 
-run_profile \
-    nanoc6-riscv esp32c6 "" \
-    M5STACK_NANOC6-20260406-v1.28.0.bin 25000000 \
-    14b3676418863a42de4e917e8f9c68b95e416c25ac9a80c7aee72c34ad022ecf
-run_profile \
+schedule_io_persistence_jobs()
+{
+    repeat=1
+    while [ "$repeat" -le "$system_repeats" ]
+    do
+        spawn_job run_io_persistence_pair "$1" "$2" "$3" "$4" "$5" "$repeat"
+        repeat=$((repeat + 1))
+    done
+}
+
+schedule_phase_repeats()
+{
+    profile=$1
+    target=$2
+    cpu=$3
+    filename=$4
+    limit=$5
+    scenario=$6
+    script=$7
+    marker=$8
+    stimulus_set=${9:-none}
+    repeat=1
+    while [ "$repeat" -le "$system_repeats" ]
+    do
+        phase_root="$run_root/$profile/system/$scenario/repeat-$repeat"
+        spawn_job run_system_phase \
+            "$profile" "$target" "$cpu" "$filename" "$limit" \
+            "$scenario" "$repeat" run "$script" "$marker" \
+            "$phase_root/flash.bin" "$stimulus_set"
+        repeat=$((repeat + 1))
+    done
+}
+
+run_mquickjs()
+{
+    MQUICKJS_OFFLINE=1 \
+    MQUICKJS_ARTIFACT_ROOT="$run_root/mquickjs" \
+        "$repo_root/scripts/qualify-mquickjs.sh"
+}
+
+echo "MicroPython acceptance: $jobs parallel jobs"
+run_mquickjs
+
+# Longest independent jobs enter the bounded queue first.
+schedule_profile_jobs \
     atoms3-xtensa esp32s3 "" \
     M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2 75000000 \
     bddff80c4a7e1b11362031cfeda5f8b87d26f835d46dc349606a20944f5c4627
-run_profile \
+schedule_profile_jobs \
     pico-arm rp2040 arm \
     RPI_PICO-20260406-v1.28.0.uf2 55000000 \
     986e7d814fc89da543d49ce7948cae2c461add4739add21e427fc581d3bb67b0
-run_profile \
-    pico2-arm rp2350 arm \
-    RPI_PICO2-20260406-v1.28.0.uf2 55000000 \
-    261aaaaef68699f8d96dbccd9e390a4b32d82b3e9a3e39b5131a33b17fb9c56c
-run_profile \
+schedule_profile_jobs \
     pico2-riscv rp2350 riscv \
     RPI_PICO2-RISCV-20260406-v1.28.0.uf2 105000000 \
     261aaaaef68699f8d96dbccd9e390a4b32d82b3e9a3e39b5131a33b17fb9c56c
-
-run_system_profile \
-    nanoc6-riscv esp32c6 "" \
-    M5STACK_NANOC6-20260406-v1.28.0.bin 60000000
-run_system_profile \
-    atoms3-xtensa esp32s3 "" \
-    M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2 80000000
-run_system_profile \
-    pico-arm rp2040 arm \
-    RPI_PICO-20260406-v1.28.0.uf2 60000000
-run_system_profile \
+schedule_profile_jobs \
     pico2-arm rp2350 arm \
-    RPI_PICO2-20260406-v1.28.0.uf2 60000000
-run_system_profile \
-    pico2-riscv rp2350 riscv \
+    RPI_PICO2-20260406-v1.28.0.uf2 55000000 \
+    261aaaaef68699f8d96dbccd9e390a4b32d82b3e9a3e39b5131a33b17fb9c56c
+schedule_profile_jobs \
+    nanoc6-riscv esp32c6 "" \
+    M5STACK_NANOC6-20260406-v1.28.0.bin 25000000 \
+    14b3676418863a42de4e917e8f9c68b95e416c25ac9a80c7aee72c34ad022ecf
+
+schedule_io_persistence_jobs atoms3-xtensa esp32s3 "" \
+    M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2 80000000
+schedule_io_persistence_jobs nanoc6-riscv esp32c6 "" \
+    M5STACK_NANOC6-20260406-v1.28.0.bin 60000000
+schedule_io_persistence_jobs pico-arm rp2040 arm \
+    RPI_PICO-20260406-v1.28.0.uf2 60000000
+schedule_io_persistence_jobs pico2-riscv rp2350 riscv \
     RPI_PICO2-RISCV-20260406-v1.28.0.uf2 110000000
+schedule_io_persistence_jobs pico2-arm rp2350 arm \
+    RPI_PICO2-20260406-v1.28.0.uf2 60000000
 
-for profile in nanoc6-riscv atoms3-xtensa pico-arm pico2-arm pico2-riscv
-do
-    first=$(awk -F '\t' -v profile="$profile" '$1 == profile && $2 == 1 { print $5 ":" $6 }' "$records")
-    second=$(awk -F '\t' -v profile="$profile" '$1 == profile && $2 == 2 { print $5 ":" $6 }' "$records")
-    if [ "$first" != "$second" ]
-    then
-        echo "$profile is nondeterministic across clean repeats" >&2
-        exit 1
-    fi
-done
+schedule_phase_repeats atoms3-xtensa esp32s3 "" \
+    M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2 80000000 \
+    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+schedule_phase_repeats atoms3-xtensa esp32s3 "" \
+    M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2 80000000 \
+    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
 
-for profile in nanoc6-riscv atoms3-xtensa pico-arm pico2-arm pico2-riscv
-do
-    for scenario_phase in soft-reset:run thread:run timer:run gpio-input:run persistence:write persistence:read
+schedule_phase_repeats nanoc6-riscv esp32c6 "" \
+    M5STACK_NANOC6-20260406-v1.28.0.bin 60000000 \
+    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+schedule_phase_repeats nanoc6-riscv esp32c6 "" \
+    M5STACK_NANOC6-20260406-v1.28.0.bin 60000000 \
+    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+schedule_phase_repeats pico-arm rp2040 arm \
+    RPI_PICO-20260406-v1.28.0.uf2 60000000 \
+    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+schedule_phase_repeats pico2-riscv rp2350 riscv \
+    RPI_PICO2-RISCV-20260406-v1.28.0.uf2 110000000 \
+    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+schedule_phase_repeats pico2-arm rp2350 arm \
+    RPI_PICO2-20260406-v1.28.0.uf2 60000000 \
+    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+schedule_phase_repeats pico-arm rp2040 arm \
+    RPI_PICO-20260406-v1.28.0.uf2 60000000 \
+    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+schedule_phase_repeats pico2-riscv rp2350 riscv \
+    RPI_PICO2-RISCV-20260406-v1.28.0.uf2 110000000 \
+    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+schedule_phase_repeats pico2-arm rp2350 arm \
+    RPI_PICO2-20260406-v1.28.0.uf2 60000000 \
+    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+wait_for_jobs
+
+tab=$(printf '\t')
+cat "$run_root"/*/repeat-*/record.tsv \
+    | LC_ALL=C sort -t "$tab" -k1,1 -k2,2n > "$records"
+cat "$run_root"/*/system/*/repeat-*/*/record.tsv \
+    | LC_ALL=C sort -t "$tab" -k1,1 -k2,2 -k3,3n -k4,4 > "$scenario_records"
+
+if [ "$clean_repeats" -ge 2 ]
+then
+    for profile in nanoc6-riscv atoms3-xtensa pico-arm pico2-arm pico2-riscv
     do
-        scenario=${scenario_phase%:*}
-        phase=${scenario_phase#*:}
-        first=$(awk -F '\t' -v profile="$profile" -v scenario="$scenario" -v phase="$phase" \
-            '$1 == profile && $2 == scenario && $3 == 1 && $4 == phase { print $6 ":" $7 ":" $9 ":" $10 }' \
-            "$scenario_records")
-        second=$(awk -F '\t' -v profile="$profile" -v scenario="$scenario" -v phase="$phase" \
-            '$1 == profile && $2 == scenario && $3 == 2 && $4 == phase { print $6 ":" $7 ":" $9 ":" $10 }' \
-            "$scenario_records")
+        first=$(awk -F '\t' -v profile="$profile" '$1 == profile && $2 == 1 { print $5 ":" $6 }' "$records")
+        second=$(awk -F '\t' -v profile="$profile" '$1 == profile && $2 == 2 { print $5 ":" $6 }' "$records")
         if [ "$first" != "$second" ]
         then
-            echo "$profile $scenario $phase is nondeterministic across clean repeats" >&2
+            echo "$profile is nondeterministic across clean repeats" >&2
             exit 1
         fi
     done
-done
+fi
 
-MQUICKJS_OFFLINE=1 \
-MQUICKJS_ARTIFACT_ROOT="$run_root/mquickjs" \
-    "$repo_root/scripts/qualify-mquickjs.sh"
+if [ "$system_repeats" -ge 2 ]
+then
+    for profile in nanoc6-riscv atoms3-xtensa pico-arm pico2-arm pico2-riscv
+    do
+        for scenario_phase in soft-reset:run thread:run io-persistence:write persistence:read
+        do
+            scenario=${scenario_phase%:*}
+            phase=${scenario_phase#*:}
+            first=$(awk -F '\t' -v profile="$profile" -v scenario="$scenario" -v phase="$phase" \
+                '$1 == profile && $2 == scenario && $3 == 1 && $4 == phase { print $6 ":" $7 ":" $9 ":" $10 }' \
+                "$scenario_records")
+            second=$(awk -F '\t' -v profile="$profile" -v scenario="$scenario" -v phase="$phase" \
+                '$1 == profile && $2 == scenario && $3 == 2 && $4 == phase { print $6 ":" $7 ":" $9 ":" $10 }' \
+                "$scenario_records")
+            if [ "$first" != "$second" ]
+            then
+                echo "$profile $scenario $phase is nondeterministic across clean repeats" >&2
+                exit 1
+            fi
+        done
+    done
+fi
 
 renvo_sha=$(sha256sum "$renvo" | cut -d ' ' -f 1)
 workload_sha=$(sha256sum "$workload" | cut -d ' ' -f 1)
@@ -330,6 +479,7 @@ timer_workload_sha=$(sha256sum "$timer_workload" | cut -d ' ' -f 1)
 persistence_write_workload_sha=$(sha256sum "$persistence_write_workload" | cut -d ' ' -f 1)
 persistence_read_workload_sha=$(sha256sum "$persistence_read_workload" | cut -d ' ' -f 1)
 mquickjs_sha=$(sha256sum "$run_root/mquickjs/summary.json" | cut -d ' ' -f 1)
+gate_elapsed_ms=$((($(date +%s%N) - gate_started_ns) / 1000000))
 
 jq -Rn \
     --slurpfile firmware "$run_root/firmware.json" \
@@ -345,6 +495,10 @@ jq -Rn \
     --arg persistence_read_workload_sha256 "$persistence_read_workload_sha" \
     --arg mquickjs_summary_sha256 "$mquickjs_sha" \
     --arg run_directory "${run_root#"$repo_root/"}" \
+    --argjson parallel_jobs "$jobs" \
+    --argjson clean_repeats "$clean_repeats" \
+    --argjson system_repeats "$system_repeats" \
+    --argjson gate_elapsed_ms "$gate_elapsed_ms" \
     '[inputs | split("\t") | {
         profile: .[0],
         repeat: (.[1] | tonumber),
@@ -377,7 +531,13 @@ jq -Rn \
         release: "MicroPython v1.28.0 (2026-04-06)",
         boards: 4,
         execution_profiles: 5,
-        clean_repeats: 2,
+        clean_repeats: $clean_repeats,
+        system_repeats: $system_repeats,
+        gate_runtime: {
+            parallel_jobs: $parallel_jobs,
+            wall_time_ms: $gate_elapsed_ms,
+            target_ms: 60000
+        },
         firmware_patches: 0,
         renvo_sha256: $renvo_sha256,
         workloads: {
@@ -401,4 +561,20 @@ cp "$run_root/summary.json" "$artifact_root/summary.json"
 cp "$repo_root/qualification/acceptance-report.html" "$run_root/report.html"
 cp "$repo_root/qualification/acceptance-report.html" "$artifact_root/report.html"
 
+if [ -n "${RENVO_ACCEPTANCE_MAX_SECONDS:-}" ]
+then
+    case "$RENVO_ACCEPTANCE_MAX_SECONDS" in
+        ''|*[!0-9]*|0)
+            echo "RENVO_ACCEPTANCE_MAX_SECONDS must be a positive integer" >&2
+            exit 1
+            ;;
+    esac
+    if [ "$gate_elapsed_ms" -ge "$((RENVO_ACCEPTANCE_MAX_SECONDS * 1000))" ]
+    then
+        echo "MicroPython acceptance exceeded ${RENVO_ACCEPTANCE_MAX_SECONDS}s: ${gate_elapsed_ms}ms" >&2
+        exit 1
+    fi
+fi
+
 echo "MicroPython acceptance passed: $artifact_root/report.html"
+echo "MicroPython acceptance runtime: ${gate_elapsed_ms}ms"

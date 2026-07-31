@@ -1,3 +1,4 @@
+use crate::HOST_SCRIPT_COMPLETE_MARKER;
 use crate::riscv::{TEST_DEVICE_SIZE, TEST_EXIT_SIZE};
 use crate::{
     MemoryKind, PinStimulus, RunResult, TEST_EXIT, TEST_GPIO, TEST_TIMER, TEST_UART, TargetId,
@@ -104,8 +105,6 @@ struct EspDwc2Host {
     bulk_out: Option<u8>,
     input: VecDeque<u8>,
     input_queued: bool,
-    raw_chunks_queued: usize,
-    raw_chunks_completed: usize,
     output: Vec<u8>,
     input_started: bool,
     sending_raw_chunk: bool,
@@ -144,8 +143,6 @@ impl EspDwc2Host {
             bulk_out: None,
             input: VecDeque::new(),
             input_queued: false,
-            raw_chunks_queued: 0,
-            raw_chunks_completed: 0,
             output: Vec::new(),
             input_started: false,
             sending_raw_chunk: false,
@@ -156,9 +153,6 @@ impl EspDwc2Host {
     fn queue_input(&mut self, bytes: &[u8]) {
         self.input.extend(bytes.iter().copied());
         self.input_queued |= !bytes.is_empty();
-        self.raw_chunks_queued = self
-            .raw_chunks_queued
-            .saturating_add(bytes.iter().filter(|byte| **byte == 0x04).count());
         self.sending_raw_chunk |= !bytes.is_empty();
     }
 
@@ -168,8 +162,11 @@ impl EspDwc2Host {
 
     fn input_complete(&self) -> bool {
         self.input_queued
-            && self.raw_chunks_queued != 0
-            && self.raw_chunks_completed >= self.raw_chunks_queued
+            && self
+                .output
+                .windows(HOST_SCRIPT_COMPLETE_MARKER.len())
+                .any(|window| window == HOST_SCRIPT_COMPLETE_MARKER.as_bytes())
+            && self.output.ends_with(b"\x04\x04>")
     }
 
     fn input_started(&self) -> bool {
@@ -322,11 +319,6 @@ impl EspDwc2Host {
                     {
                         self.raw_prompt_ready = true;
                     }
-                    self.raw_chunks_completed = self
-                        .output
-                        .windows(3)
-                        .filter(|window| *window == b"\x04\x04>")
-                        .count();
                 }
                 events += 1;
             }
@@ -387,7 +379,7 @@ pub struct XtensaMachine {
     now: SimTime,
     stack: u32,
     appcpu_boot_address: Option<u32>,
-    interrupt_routes: BTreeMap<(u32, u32), u32>,
+    interrupt_routes: [[u8; 128]; 2],
     md5_contexts: BTreeMap<u32, Vec<u8>>,
     sha256_contexts: BTreeMap<u32, FunctionalSha256>,
     setjmp_contexts: BTreeMap<u32, XtensaCpu>,
@@ -721,7 +713,7 @@ impl XtensaMachine {
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
             appcpu_boot_address: None,
-            interrupt_routes: BTreeMap::new(),
+            interrupt_routes: [[u8::MAX; 128]; 2],
             md5_contexts: BTreeMap::new(),
             sha256_contexts: BTreeMap::new(),
             setjmp_contexts: BTreeMap::new(),
@@ -1712,7 +1704,17 @@ impl XtensaMachine {
                 if std::env::var_os("RENVO_DEBUG_INTERRUPTS").is_some() {
                     eprintln!("interrupt route cpu={cpu} source={source} line={interrupt}");
                 }
-                self.interrupt_routes.insert((cpu, source), interrupt);
+                if let Some(route) = usize::try_from(cpu)
+                    .ok()
+                    .and_then(|cpu| self.interrupt_routes.get_mut(cpu))
+                    .and_then(|routes| {
+                        usize::try_from(source)
+                            .ok()
+                            .and_then(|source| routes.get_mut(source))
+                    })
+                {
+                    *route = u8::try_from(interrupt).unwrap_or(u8::MAX);
+                }
                 self.complete_functional_rom_call(0)?;
             }
             // ROM analog-I2C register helpers used during clock/PHY setup.
@@ -2099,16 +2101,12 @@ impl XtensaMachine {
             for core in 0..2_u32 {
                 // IDF maps every unused source to CPU interrupt 6, the
                 // architecture's disabled/reserved matrix sink.
-                if let Some(interrupt) = self
-                    .interrupt_routes
-                    .get(&(core, 38))
-                    .copied()
-                    .filter(|interrupt| *interrupt != 6)
-                {
+                let interrupt = self.interrupt_routes[core as usize][38];
+                if interrupt != u8::MAX && interrupt != 6 {
                     if core == 0 {
-                        self.cpu.set_interrupt(interrupt as u16, usb_pending)?;
+                        self.cpu.set_interrupt(u16::from(interrupt), usb_pending)?;
                     } else if self.appcpu_boot_address.is_some() {
-                        self.cpu1.set_interrupt(interrupt as u16, usb_pending)?;
+                        self.cpu1.set_interrupt(u16::from(interrupt), usb_pending)?;
                     }
                 }
             }
@@ -2120,7 +2118,8 @@ impl XtensaMachine {
                 }
                 crosscore_was_pending[core as usize] = crosscore_pending;
                 let source = 79 + core;
-                if let Some(interrupt) = self.interrupt_routes.get(&(core, source)).copied() {
+                let interrupt = self.interrupt_routes[core as usize][source as usize];
+                if interrupt != u8::MAX {
                     if newly_pending && std::env::var_os("RENVO_DEBUG_INTERRUPTS").is_some() {
                         let (ps, pending_bits, enable_bits) = if core == 0 {
                             self.cpu.interrupt_state()
@@ -2134,10 +2133,10 @@ impl XtensaMachine {
                     }
                     if core == 0 {
                         self.cpu
-                            .set_interrupt(interrupt as u16, crosscore_pending)?;
+                            .set_interrupt(u16::from(interrupt), crosscore_pending)?;
                     } else if self.appcpu_boot_address.is_some() {
                         self.cpu1
-                            .set_interrupt(interrupt as u16, crosscore_pending)?;
+                            .set_interrupt(u16::from(interrupt), crosscore_pending)?;
                     }
                 }
             }
@@ -2149,7 +2148,11 @@ impl XtensaMachine {
                 systimer_was_pending[target] = pending;
                 let source = 57 + u32::try_from(target).expect("three timer targets fit u32");
                 let core = u32::try_from(target).expect("three timer targets fit u32");
-                if let Some(interrupt) = self.interrupt_routes.get(&(core, source)).copied() {
+                let interrupt = self
+                    .interrupt_routes
+                    .get(core as usize)
+                    .map_or(u8::MAX, |routes| routes[source as usize]);
+                if interrupt != u8::MAX {
                     if pending
                         && newly_pending
                         && std::env::var_os("RENVO_DEBUG_INTERRUPTS").is_some()
@@ -2164,7 +2167,7 @@ impl XtensaMachine {
                             self.now.ticks(),
                         );
                     }
-                    self.set_systimer_interrupt(core, interrupt, pending)?;
+                    self.set_systimer_interrupt(core, u32::from(interrupt), pending)?;
                 } else if pending
                     && newly_pending
                     && std::env::var_os("RENVO_DEBUG_INTERRUPTS").is_some()
@@ -2189,18 +2192,14 @@ impl XtensaMachine {
                     }
                     timer_group_was_pending[group][timer] = pending;
                     for core in 0..2_u32 {
-                        let Some(interrupt) = self
-                            .interrupt_routes
-                            .get(&(core, source))
-                            .copied()
-                            .filter(|interrupt| *interrupt != 6)
-                        else {
+                        let interrupt = self.interrupt_routes[core as usize][source as usize];
+                        if interrupt == u8::MAX || interrupt == 6 {
                             continue;
-                        };
+                        }
                         if core == 0 {
-                            self.cpu.set_interrupt(interrupt as u16, pending)?;
+                            self.cpu.set_interrupt(u16::from(interrupt), pending)?;
                         } else if self.appcpu_boot_address.is_some() {
-                            self.cpu1.set_interrupt(interrupt as u16, pending)?;
+                            self.cpu1.set_interrupt(u16::from(interrupt), pending)?;
                         }
                     }
                 }
@@ -2312,8 +2311,8 @@ mod tests {
         host.input.clear();
         host.sending_raw_chunk = false;
         host.raw_prompt_ready = true;
-        host.output.extend_from_slice(b"OK\x04\x04>");
-        host.raw_chunks_completed = 1;
+        host.output
+            .extend_from_slice(b"__RENVO_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
         assert!(host.input_complete());
     }
 }

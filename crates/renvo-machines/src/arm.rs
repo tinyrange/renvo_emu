@@ -1,3 +1,4 @@
+use crate::HOST_SCRIPT_COMPLETE_MARKER;
 use crate::riscv::{TEST_DEVICE_SIZE, TEST_EXIT_SIZE};
 use crate::{
     MemoryKind, PinStimulus, RunResult, TEST_EXIT, TEST_GPIO, TEST_TIMER, TEST_UART, TargetId,
@@ -127,8 +128,6 @@ pub(crate) struct Rp2040UsbHost {
     bulk_out: Option<u8>,
     input: VecDeque<u8>,
     input_queued: bool,
-    raw_chunks_queued: usize,
-    raw_chunks_completed: usize,
     output: Vec<u8>,
     sending_raw_chunk: bool,
     raw_prompt_ready: bool,
@@ -168,8 +167,6 @@ impl Rp2040UsbHost {
             bulk_out: None,
             input: VecDeque::new(),
             input_queued: false,
-            raw_chunks_queued: 0,
-            raw_chunks_completed: 0,
             output: Vec::new(),
             sending_raw_chunk: false,
             raw_prompt_ready: false,
@@ -179,9 +176,6 @@ impl Rp2040UsbHost {
     pub(crate) fn queue_input(&mut self, bytes: &[u8]) {
         self.input.extend(bytes.iter().copied());
         self.input_queued |= !bytes.is_empty();
-        self.raw_chunks_queued = self
-            .raw_chunks_queued
-            .saturating_add(bytes.iter().filter(|byte| **byte == 0x04).count());
         self.sending_raw_chunk |= !bytes.is_empty();
     }
 
@@ -191,8 +185,11 @@ impl Rp2040UsbHost {
 
     pub(crate) fn input_complete(&self) -> bool {
         self.input_queued
-            && self.raw_chunks_queued != 0
-            && self.raw_chunks_completed >= self.raw_chunks_queued
+            && self
+                .output
+                .windows(HOST_SCRIPT_COMPLETE_MARKER.len())
+                .any(|window| window == HOST_SCRIPT_COMPLETE_MARKER.as_bytes())
+            && self.output.ends_with(b"\x04\x04>")
     }
 
     fn endpoint_buffer_control_offset(endpoint: u8, input: bool) -> usize {
@@ -324,11 +321,6 @@ impl Rp2040UsbHost {
                 {
                     self.raw_prompt_ready = true;
                 }
-                self.raw_chunks_completed = self
-                    .output
-                    .windows(3)
-                    .filter(|window| *window == b"\x04\x04>")
-                    .count();
             }
             let cleared = half & !(USB_BUF_AVAIL | USB_BUF_FULL);
             control = (control & !(0xffff << shift)) | (u32::from(cleared) << shift);
@@ -1739,8 +1731,8 @@ mod tests {
         host.input.clear();
         host.sending_raw_chunk = false;
         host.raw_prompt_ready = true;
-        host.output.extend_from_slice(b"OK\x04\x04>");
-        host.raw_chunks_completed = 1;
+        host.output
+            .extend_from_slice(b"__RENVO_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
         assert!(host.input_complete());
     }
 }

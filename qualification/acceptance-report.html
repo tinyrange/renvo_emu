@@ -40,8 +40,11 @@
 fetch("summary.json").then(r => r.json()).then(d => {
   title.textContent = d.status === "passed" ? "Qualification passed." : "Qualification failed.";
   const systemRuns = d.system_scenarios || [];
-  lede.textContent = `${d.release}; official bytes, ${d.clean_repeats} clean deterministic repeats, timer and external-I/O VCD evidence, system recovery scenarios, and a pinned MQuickJS cross-check.`;
-  metrics.innerHTML = [["Boards",d.boards],["CPU profiles",d.execution_profiles],["Official patches",d.firmware_patches],["Verified runs",d.runs.length + systemRuns.length]].map(([k,v]) => `<div class="metric"><span>${k}</span><b>${v}</b></div>`).join("");
+  const cleanLabel = `${d.clean_repeats} comprehensive pass${d.clean_repeats === 1 ? "" : "es"}`;
+  const systemLabel = `${d.system_repeats || 1} system pass${(d.system_repeats || 1) === 1 ? "" : "es"}`;
+  lede.textContent = `${d.release}; official bytes, ${cleanLabel}, ${systemLabel}, fixed evidence digests, timer and external-I/O VCD evidence, recovery scenarios, and a pinned MQuickJS cross-check.`;
+  const runtime = d.gate_runtime ? `${(d.gate_runtime.wall_time_ms / 1000).toFixed(3)}s` : "n/a";
+  metrics.innerHTML = [["Boards",d.boards],["CPU profiles",d.execution_profiles],["Verified runs",d.runs.length + systemRuns.length],["Gate runtime",runtime]].map(([k,v]) => `<div class="metric"><span>${k}</span><b>${v}</b></div>`).join("");
   runs.innerHTML = d.runs.map(r => `<tr><td>${r.profile}</td><td>${r.repeat}</td><td>${r.instructions.toLocaleString()}</td><td><code>${r.evidence_digest}</code></td><td><code>${r.trace_digest}</code></td></tr>`).join("");
   systems.innerHTML = systemRuns.map(r => `<tr><td>${r.profile}</td><td>${r.scenario}</td><td>${r.phase}</td><td>${r.repeat}</td><td>${r.instructions.toLocaleString()}</td><td><code>${r.flash_sha256}</code></td><td><code>${r.vcd_sha256}</code></td></tr>`).join("");
   mquickjs.innerHTML = `<p><b class="ok">${d.mquickjs.profiles.length} / 5 profiles passed</b></p><p class="muted">Pinned commit <code>${d.mquickjs.commit}</code><br>Container <code>${d.mquickjs.image_id}</code></p>`;

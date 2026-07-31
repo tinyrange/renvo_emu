@@ -10,7 +10,8 @@ use renvo_image::{
     EspFlashImage, FirmwareArchitecture, FirmwareImage, OfficialFirmwareSuite, Uf2Image,
 };
 use renvo_machines::{
-    ArmMachine, PinStimulus, RiscVMachine, RunResult, TargetId, XtensaMachine, target_manifests,
+    ArmMachine, HOST_SCRIPT_COMPLETE_MARKER, PinStimulus, RiscVMachine, RunResult, TargetId,
+    XtensaMachine, target_manifests,
 };
 use renvo_signals::Logic;
 use renvo_trace::{Timescale, TraceSink, VcdWriter};
@@ -130,9 +131,10 @@ struct FirmwareBootArgs {
     /// Bytes to deliver after native USB enumeration, typically a REPL transcript.
     #[arg(long)]
     usb_input: Option<PathBuf>,
-    /// Python source to deliver through the standard raw REPL.
+    /// Python source to deliver through the standard raw REPL; repeat to run
+    /// multiple sources in one firmware session.
     #[arg(long, conflicts_with = "usb_input")]
-    usb_script: Option<PathBuf>,
+    usb_script: Vec<PathBuf>,
     /// Persistent full flash state; created on first run.
     #[arg(long)]
     flash_state: Option<PathBuf>,
@@ -447,25 +449,30 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
         .collect::<Result<Vec<_>, _>>()?;
     let usb_input = if let Some(path) = &arguments.usb_input {
         Some(fs::read(path)?)
-    } else if let Some(path) = &arguments.usb_script {
+    } else if !arguments.usb_script.is_empty() {
         const CHUNK_MARKER: &str = "# RENVO_CHUNK";
-        let source = fs::read_to_string(path)?;
         let mut payload = Vec::new();
         payload.push(0x01); // enter standard raw REPL
-        for chunk in source.split(CHUNK_MARKER) {
-            let chunk = chunk.trim();
-            if chunk.is_empty() {
-                continue;
+        for path in &arguments.usb_script {
+            let source = fs::read_to_string(path)?;
+            for chunk in source.split(CHUNK_MARKER) {
+                let chunk = chunk.trim();
+                if chunk.is_empty() {
+                    continue;
+                }
+                payload.extend_from_slice(chunk.as_bytes());
+                payload.push(b'\n');
+                payload.push(0x04); // compile and execute this bounded chunk
             }
-            payload.extend_from_slice(chunk.as_bytes());
-            payload.push(b'\n');
-            payload.push(0x04); // compile and execute this bounded chunk
         }
+        payload.extend_from_slice(b"print(\"");
+        payload.extend_from_slice(HOST_SCRIPT_COMPLETE_MARKER.as_bytes());
+        payload.extend_from_slice(b"\")\n\x04");
         Some(payload)
     } else {
         None
     };
-    let stop_on_usb_input_complete = arguments.usb_script.is_some();
+    let stop_on_usb_input_complete = !arguments.usb_script.is_empty();
     if matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3) {
         if arguments.boot_rom.is_some() {
             return Err("--boot-rom is not used by the ESP mask-ROM image handoff".into());
@@ -1153,5 +1160,33 @@ mod tests {
             panic!("expected firmware boot");
         };
         assert_eq!(arguments.pins, ["0=1@0", "1=z@42"]);
+    }
+
+    #[test]
+    fn firmware_boot_accepts_multiple_raw_repl_scripts() {
+        let parsed = Cli::try_parse_from([
+            "renvo",
+            "firmware",
+            "boot",
+            "--target",
+            "rp2040",
+            "--image",
+            "firmware.uf2",
+            "--usb-script",
+            "timer.py",
+            "--usb-script",
+            "gpio.py",
+        ])
+        .unwrap();
+        let Command::Firmware {
+            command: FirmwareCommand::Boot(arguments),
+        } = parsed.command
+        else {
+            panic!("expected firmware boot");
+        };
+        assert_eq!(
+            arguments.usb_script,
+            [PathBuf::from("timer.py"), PathBuf::from("gpio.py")]
+        );
     }
 }

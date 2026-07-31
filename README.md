@@ -25,8 +25,9 @@ The six-MCU CoreMark qualification and host-calibrated results are in
 
 The current offline qualification boots unmodified official MicroPython
 v1.28.0 firmware for M5Stack NanoC6, M5Stack AtomS3 Lite, Raspberry Pi Pico,
-and Raspberry Pi Pico 2 in both Arm and RISC-V modes. It runs two clean,
-deterministic repeats of:
+and Raspberry Pi Pico 2 in both Arm and RISC-V modes. The release gate runs
+every distinct check once and validates the comprehensive results against
+fixed per-profile evidence digests:
 
 - a 15-case portable runtime workload
 - soft reset and raw-REPL recovery
@@ -43,11 +44,24 @@ Run the complete release gate with:
 scripts/qualify-micropython.sh
 ```
 
+On an eight-thread host, the gate dispatches independent firmware boots in
+parallel. Enforce the one-minute release budget with:
+
+```sh
+RENVO_ACCEPTANCE_MAX_SECONDS=60 scripts/qualify-micropython.sh
+```
+
+An exhaustive stress mode reruns both the comprehensive and system scenarios
+and compares the resulting evidence directly:
+
+```sh
+RENVO_CLEAN_REPEATS=2 RENVO_SYSTEM_REPEATS=2 scripts/qualify-micropython.sh
+```
+
 Raw-REPL script runs retain their conservative instruction ceilings but stop
 once every queued chunk has executed and the matching final prompt is
-observed. The gate is intentionally substantial: it performs 70 official
-firmware runs before the MQuickJS lane. The latest local v4 evidence completed
-all five profiles and 60 system-scenario runs successfully.
+observed. The release gate performs 25 official-firmware runs plus five pinned
+MQuickJS profiles. The latest local v4 evidence completed in 38.882 seconds.
 
 This is a qualification milestone, not yet the final contract in
 [PLAN.html](PLAN.html). The pinned upstream MicroPython test selection, broader

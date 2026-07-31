@@ -111,25 +111,45 @@ compile_profile()
     elf_hash=$(sha256sum "$profile_dir/mquickjs.elf" | cut -d ' ' -f 1)
     trace_digest=$(jq -r '.trace_digest' "$profile_dir/run.json")
     printf '%s\t%s\t%s\t%s\n' "$profile" "$elf_hash" "$trace_digest" "$exit_code" \
-        >> "$artifact_root/profiles.tsv"
+        > "$profile_dir/profile.tsv"
 }
 
 : > "$artifact_root/profiles.tsv"
 compile_profile pico-arm arm-none-eabi-gcc rp2040 start_arm.S link_rp_arm.ld \
     -DRENVO_STACK_TOP=0 \
-    -mcpu=cortex-m0plus -mthumb
+    -mcpu=cortex-m0plus -mthumb &
+pids=$!
 compile_profile pico2-arm arm-none-eabi-gcc rp2350 start_arm.S link_rp_arm.ld \
     -DRENVO_STACK_TOP=0 \
-    -mcpu=cortex-m33 -mthumb
+    -mcpu=cortex-m33 -mthumb &
+pids="$pids $!"
 compile_profile pico2-riscv riscv64-unknown-elf-gcc rp2350 start_riscv.S link_rp_riscv.ld \
     -DRENVO_STACK_TOP=0x20082000 \
-    -march=rv32imac_zicsr -mabi=ilp32
+    -march=rv32imac_zicsr -mabi=ilp32 &
+pids="$pids $!"
 compile_profile nanoc6-riscv riscv64-unknown-elf-gcc esp32c6 start_riscv.S link_esp_riscv.ld \
     -DRENVO_STACK_TOP=0x40880000 \
-    -march=rv32imac_zicsr -mabi=ilp32
+    -march=rv32imac_zicsr -mabi=ilp32 &
+pids="$pids $!"
 compile_profile atoms3-xtensa xtensa-esp32s3-elf-gcc esp32s3 start_xtensa.S link_xtensa.ld \
     -DRENVO_STACK_TOP=0 \
-    -mlongcalls -mtext-section-literals
+    -mlongcalls -mtext-section-literals &
+pids="$pids $!"
+
+failed=0
+for pid in $pids
+do
+    if ! wait "$pid"
+    then
+        failed=1
+    fi
+done
+if [ "$failed" -ne 0 ]
+then
+    echo "One or more MQuickJS profiles failed" >&2
+    exit 1
+fi
+cat "$artifact_root"/*/profile.tsv | LC_ALL=C sort > "$artifact_root/profiles.tsv"
 
 jq -Rn \
     --arg image "$image" \
