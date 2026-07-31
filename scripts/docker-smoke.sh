@@ -108,6 +108,15 @@ build_case rp-riscv toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2
     -O2 start.S main.c
 run_case rp2350-riscv rp2350 "$artifact_root/rp-riscv/smoke.elf"
 
+mkdir -p "$artifact_root/hazard3"
+"$renvo" corpus build \
+    --toolchain toolchains/riscv-gcc-hazard3.toml \
+    --source corpus/smoke/hazard3 \
+    --output "$artifact_root/hazard3" \
+    --target rp2350-hazard3 \
+    --artifact "$artifact_root/hazard3-build.json"
+run_case hazard3-extensions rp2350 "$artifact_root/hazard3/smoke.elf"
+
 build_case rp2350-riscv-uart toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
     -O2 start.S uart.c
 run_case rp2350-riscv-uart rp2350 "$artifact_root/rp2350-riscv-uart/smoke.elf"
@@ -127,6 +136,10 @@ run_case esp32c6 esp32c6 "$artifact_root/esp32c6/smoke.elf"
 build_case esp32c6-uart toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
     -O2 start.S uart.c
 run_case esp32c6-uart esp32c6 "$artifact_root/esp32c6-uart/smoke.elf"
+
+build_case esp32c6-privilege toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
+    privilege.S
+run_case esp32c6-privilege esp32c6 "$artifact_root/esp32c6-privilege/smoke.elf"
 
 build_case esp32s3 toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtensa esp32s3 \
     -O2 main.c

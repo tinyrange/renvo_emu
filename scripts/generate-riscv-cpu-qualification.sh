@@ -12,6 +12,8 @@ mkdir -p "$(dirname -- "$output")"
 : > "$proofs"
 
 cargo test -q -p renvo-cpu-riscv qingke_ > "$unit_log"
+cargo test -q -p renvo-cpu-riscv esp32c6_ >> "$unit_log"
+cargo test -q -p renvo-cpu-riscv hazard3_ >> "$unit_log"
 
 add_proof()
 {
@@ -67,12 +69,27 @@ add_proof ch32v006-xw ch32v006 qingke-v2c xw-eight-operations \
 add_proof ch32v006-zmmul ch32v006 qingke-v2c zmmul \
     "$root/wch-zmmul-build.json" "$root/wch-zmmul/smoke.elf" \
     "$root/ch32v006-zmmul-run.json"
+add_proof esp32c6-privilege esp32c6 esp-rv32imac-hp user-traps-and-pmp-visibility \
+    "$root/esp32c6-privilege-build.json" "$root/esp32c6-privilege/smoke.elf" \
+    "$root/esp32c6-privilege-run.json"
+add_proof rp2350-hazard3-extensions rp2350 hazard3 documented-compiler-march \
+    "$root/hazard3-build.json" "$root/hazard3/smoke.elf" \
+    "$root/hazard3-extensions-run.json"
+
+grep -qx 'rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb_zcb_zcmp' \
+    "$root/hazard3/full-march.txt"
 
 source_sha=$(sha256sum \
     crates/renvo-cpu-riscv/src/lib.rs \
     corpus/smoke/wch-xw/link.ld \
     corpus/smoke/wch-xw/start.S \
     corpus/smoke/wch-xw/zmmul.S \
+    corpus/smoke/esp32c6/privilege.S \
+    corpus/smoke/hazard3/build.sh \
+    corpus/smoke/hazard3/compiler-cases.c \
+    corpus/smoke/hazard3/extensions.S \
+    corpus/smoke/hazard3/link.ld \
+    corpus/smoke/hazard3/start.S \
     scripts/docker-smoke.sh \
     scripts/generate-riscv-cpu-qualification.sh | sha256sum | cut -d ' ' -f 1)
 unit_sha=$(sha256sum "$unit_log" | cut -d ' ' -f 1)
@@ -87,11 +104,16 @@ jq -n \
       schema: $schema,
       source_sha256: $source_sha256,
       primary_sources: [
-        "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html"
+        "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
+        "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
+        "https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf",
+        "https://wren.wtf/hazard3/doc/"
       ],
       implemented: {
         xw: ["c.lbu", "c.lhu", "c.sb", "c.sh", "c.lbusp", "c.lhusp", "c.sbsp", "c.shsp"],
-        v2c: ["Zmmul"]
+        v2c: ["Zmmul"],
+        esp32c6: ["machine/user transition", "user ECALL", "privileged CSR trap", "PMP CSR visibility"],
+        hazard3: ["RV32IMAC", "Zicsr", "Zifencei", "Zba", "Zbb", "Zbs", "Zbkb", "Zcb", "Zcmp"]
       },
       negative_tests: {
         artifact: $unit_test_artifact,
@@ -99,11 +121,15 @@ jq -n \
         assertions: [
           "XW is illegal outside QingKe profiles",
           "V2A rejects Zmmul",
-          "V2C rejects M-extension divide"
+          "V2C rejects M-extension divide",
+          "ESP32-C6 user ECALL enters machine mode",
+          "ESP32-C6 user access to a machine CSR traps as illegal",
+          "Hazard3 Zcb compact byte/halfword memory operations execute",
+          "Hazard3 Zcmp push/popret preserves the architectural register list"
         ]
       },
       proofs: $proofs,
       result: "pass"
     }' > "$output"
 
-echo "QingKe XW/Zmmul qualification passed; artifact: $output"
+echo "RISC-V CPU qualification passed; artifact: $output"

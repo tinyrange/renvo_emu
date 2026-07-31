@@ -52,6 +52,7 @@ const CSR_MEICONTEXT: u16 = 0xbe5;
 const CSR_QINGKE_INTSYSCR: u16 = 0x804;
 const MSTATUS_MIE: u32 = 1 << 3;
 const MSTATUS_MPIE: u32 = 1 << 7;
+const MSTATUS_MPP: u32 = 3 << 11;
 const HAZARD3_IRQ_WINDOWS: usize = 32;
 
 /// Interrupt and trap behaviour selected by a chip profile.
@@ -63,6 +64,16 @@ pub enum InterruptModel {
     QingKe,
     /// Raspberry Pi Hazard3 machine-mode profile.
     Hazard3,
+}
+
+/// Active architectural privilege level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum RiscVPrivilege {
+    /// Unprivileged application execution.
+    User = 0,
+    /// Machine-mode firmware and trap handlers.
+    Machine = 3,
 }
 
 /// Named RISC-V integer register using the standard ABI names.
@@ -181,6 +192,8 @@ pub struct RiscVProfile {
     pub extension_zicsr: bool,
     /// ESP32-C6 physical-memory-attribute and protection CSRs.
     pub esp32c6_memory_protection_csrs: bool,
+    /// User mode and machine/user trap transitions.
+    pub user_mode: bool,
     /// Initial reset vector.
     pub reset_vector: u32,
     /// Trap/interrupt integration profile.
@@ -216,6 +229,7 @@ impl RiscVProfile {
             extension_zcmp: false,
             extension_zicsr: true,
             esp32c6_memory_protection_csrs: false,
+            user_mode: false,
             reset_vector: 0,
             interrupt_model: InterruptModel::QingKe,
             ebreak_halts: true,
@@ -245,6 +259,7 @@ impl RiscVProfile {
             extension_zcmp: false,
             extension_zicsr: true,
             esp32c6_memory_protection_csrs: true,
+            user_mode: true,
             reset_vector: 0x4000_0000,
             interrupt_model: InterruptModel::Machine,
             ebreak_halts: true,
@@ -265,6 +280,7 @@ impl RiscVProfile {
             extension_zcmp: true,
             extension_zicsr: true,
             esp32c6_memory_protection_csrs: false,
+            user_mode: false,
             reset_vector: 0,
             interrupt_model: InterruptModel::Hazard3,
             ebreak_halts: true,
@@ -297,6 +313,7 @@ pub struct RiscVCpu {
     instret: u64,
     waiting: bool,
     halted: bool,
+    privilege: RiscVPrivilege,
     asserted_interrupts: BTreeSet<u16>,
     qingke_external_interrupts: BTreeSet<u16>,
     hazard3_external_interrupts: BTreeSet<u16>,
@@ -321,6 +338,7 @@ impl RiscVCpu {
             instret: 0,
             waiting: false,
             halted: false,
+            privilege: RiscVPrivilege::Machine,
             asserted_interrupts: BTreeSet::new(),
             qingke_external_interrupts: BTreeSet::new(),
             hazard3_external_interrupts: BTreeSet::new(),
@@ -343,6 +361,11 @@ impl RiscVCpu {
     /// Current 32-bit program counter.
     pub const fn pc(&self) -> u32 {
         self.pc
+    }
+
+    /// Current architectural privilege level.
+    pub const fn privilege(&self) -> RiscVPrivilege {
+        self.privilege
     }
 
     /// Sets the direct-load entry point.
@@ -616,6 +639,9 @@ impl RiscVCpu {
         if self.profile.extension_c {
             misa |= 1 << (b'C' - b'A');
         }
+        if self.profile.user_mode {
+            misa |= 1 << (b'U' - b'A');
+        }
         self.csrs[usize::from(CSR_MISA)] = misa;
         self.csrs[usize::from(CSR_MTVEC)] = self.profile.reset_vector;
         if self.profile.interrupt_model == InterruptModel::Hazard3 {
@@ -717,17 +743,12 @@ impl RiscVCpu {
                 .hazard3_next_external()
                 .map_or(0x8000_0000, |line| u32::from(line) * 4),
             CSR_MEICONTEXT => self.csrs[usize::from(address)],
-            CSR_PMPCFG0..=CSR_PMPCFG3 | CSR_PMPADDR0..=CSR_PMPADDR15
-                if self.profile.esp32c6_memory_protection_csrs =>
-            {
-                self.csrs[usize::from(address)]
-            }
-            CSR_PMACFG0..=CSR_PMACFG15 | CSR_PMAADDR0..=CSR_PMAADDR15
-                if self.profile.esp32c6_memory_protection_csrs =>
-            {
-                self.csrs[usize::from(address)]
-            }
-            CSR_ESP_PCER_MACHINE | CSR_ESP_PCMR_MACHINE
+            CSR_PMPCFG0..=CSR_PMPCFG3
+            | CSR_PMPADDR0..=CSR_PMPADDR15
+            | CSR_PMACFG0..=CSR_PMACFG15
+            | CSR_PMAADDR0..=CSR_PMAADDR15
+            | CSR_ESP_PCER_MACHINE
+            | CSR_ESP_PCMR_MACHINE
                 if self.profile.esp32c6_memory_protection_csrs =>
             {
                 self.csrs[usize::from(address)]
@@ -792,17 +813,12 @@ impl RiscVCpu {
                 self.csrs[usize::from(address)] = (value & WRITABLE_CONTEXT) | (value & MRETEIRQ);
                 self.refresh_hazard3_machine_external();
             }
-            CSR_PMPCFG0..=CSR_PMPCFG3 | CSR_PMPADDR0..=CSR_PMPADDR15
-                if self.profile.esp32c6_memory_protection_csrs =>
-            {
-                self.csrs[usize::from(address)] = value;
-            }
-            CSR_PMACFG0..=CSR_PMACFG15 | CSR_PMAADDR0..=CSR_PMAADDR15
-                if self.profile.esp32c6_memory_protection_csrs =>
-            {
-                self.csrs[usize::from(address)] = value;
-            }
-            CSR_ESP_PCER_MACHINE | CSR_ESP_PCMR_MACHINE
+            CSR_PMPCFG0..=CSR_PMPCFG3
+            | CSR_PMPADDR0..=CSR_PMPADDR15
+            | CSR_PMACFG0..=CSR_PMACFG15
+            | CSR_PMAADDR0..=CSR_PMAADDR15
+            | CSR_ESP_PCER_MACHINE
+            | CSR_ESP_PCMR_MACHINE
                 if self.profile.esp32c6_memory_protection_csrs =>
             {
                 self.csrs[usize::from(address)] = value;
@@ -846,7 +862,9 @@ impl RiscVCpu {
     }
 
     fn pending_interrupt(&self) -> Option<u16> {
-        if self.csrs[usize::from(CSR_MSTATUS)] & MSTATUS_MIE == 0 {
+        if self.privilege == RiscVPrivilege::Machine
+            && self.csrs[usize::from(CSR_MSTATUS)] & MSTATUS_MIE == 0
+        {
             return None;
         }
         if self.profile.interrupt_model == InterruptModel::QingKe
@@ -858,25 +876,18 @@ impl RiscVCpu {
             .iter()
             .copied()
             .filter(|line| {
-                !(*line == 11
-                    && self.profile.interrupt_model == InterruptModel::Hazard3
-                    && self.hazard3_external_active)
-                    && !(self.profile.esp32c6_memory_protection_csrs
-                        && self.esp32c6_active_interrupts.contains(line))
+                !(self.profile.esp32c6_memory_protection_csrs
+                    && self.esp32c6_active_interrupts.contains(line)
+                    || *line == 11
+                        && self.profile.interrupt_model == InterruptModel::Hazard3
+                        && self.hazard3_external_active)
             })
             .find(|line| self.csrs[usize::from(CSR_MIE)] & (1_u32 << line) != 0)
     }
 
     fn take_interrupt(&mut self, line: u16) {
         let cause = u32::from(line);
-        self.csrs[usize::from(CSR_MEPC)] = self.pc;
-        self.csrs[usize::from(CSR_MCAUSE)] = 0x8000_0000 | cause;
-        self.csrs[usize::from(CSR_MTVAL)] = 0;
-        let status = self.csrs[usize::from(CSR_MSTATUS)];
-        let previous_ie = (status & MSTATUS_MIE) << 4;
-        self.csrs[usize::from(CSR_MSTATUS)] =
-            (status & !(MSTATUS_MIE | MSTATUS_MPIE)) | previous_ie;
-        let mtvec = self.csrs[usize::from(CSR_MTVEC)];
+        self.enter_trap(cause, 0, true);
         if line == 11 && self.profile.interrupt_model == InterruptModel::Hazard3 {
             // Hazard3 saves the external-interrupt preemption context on entry.
             // Until MRET restores that context, an interrupt cannot preempt
@@ -889,7 +900,22 @@ impl RiscVCpu {
             // handler merely because the common prologue re-enables MIE.
             self.esp32c6_active_interrupts.push(line);
         }
-        self.pc = if mtvec & 0x3 == 1 {
+    }
+
+    fn enter_trap(&mut self, cause: u32, trap_value: u32, interrupt: bool) {
+        self.csrs[usize::from(CSR_MEPC)] = self.pc;
+        self.csrs[usize::from(CSR_MCAUSE)] = cause | if interrupt { 1 << 31 } else { 0 };
+        self.csrs[usize::from(CSR_MTVAL)] = trap_value;
+        let status = self.csrs[usize::from(CSR_MSTATUS)];
+        let previous_ie = (status & MSTATUS_MIE) << 4;
+        let previous_privilege = (self.privilege as u32) << 11;
+        self.csrs[usize::from(CSR_MSTATUS)] = (status
+            & !(MSTATUS_MIE | MSTATUS_MPIE | MSTATUS_MPP))
+            | previous_ie
+            | previous_privilege;
+        self.privilege = RiscVPrivilege::Machine;
+        let mtvec = self.csrs[usize::from(CSR_MTVEC)];
+        self.pc = if interrupt && mtvec & 0x3 == 1 {
             (mtvec & !0x3).wrapping_add(cause.wrapping_mul(4))
         } else {
             mtvec & !0x3
@@ -1083,13 +1109,15 @@ impl RiscVCpu {
             }
             0x0f => {} // FENCE/FENCE.I are ordering no-ops in the functional model.
             0x73 => {
+                let system_pc = self.pc;
                 reason = self.execute_system(instruction, rd, rs1, funct3)?;
                 if reason == StepReason::WaitForInterrupt {
                     self.waiting = true;
                 } else if reason == StepReason::Halted {
                     self.halted = true;
-                } else if instruction == 0x3020_0073 {
-                    next_pc = self.csrs[usize::from(CSR_MEPC)];
+                }
+                if self.pc != system_pc {
+                    next_pc = self.pc;
                 }
             }
             0x2f if funct3 == 2 && self.profile.extension_a => {
@@ -1118,19 +1146,32 @@ impl RiscVCpu {
     ) -> Result<StepReason, CpuFault> {
         if funct3 == 0 {
             return match instruction {
-                0x0000_0073 => Err(CpuFault::new(
-                    CpuFaultKind::Architecture,
-                    self.pc.into(),
-                    "environment call from machine mode",
-                )),
+                0x0000_0073 => {
+                    let cause = if self.privilege == RiscVPrivilege::User {
+                        8
+                    } else {
+                        11
+                    };
+                    self.enter_trap(cause, 0, false);
+                    Ok(StepReason::Advanced)
+                }
                 0x0010_0073 if self.profile.ebreak_halts => Ok(StepReason::Halted),
                 0x0010_0073 => Ok(StepReason::Breakpoint),
                 0x1050_0073 => Ok(StepReason::WaitForInterrupt),
                 0x3020_0073 => {
+                    if self.privilege != RiscVPrivilege::Machine {
+                        self.enter_trap(2, instruction, false);
+                        return Ok(StepReason::Advanced);
+                    }
                     let status = self.csrs[usize::from(CSR_MSTATUS)];
                     let restored_ie = (status & MSTATUS_MPIE) >> 4;
+                    let return_privilege = match (status & MSTATUS_MPP) >> 11 {
+                        0 if self.profile.user_mode => RiscVPrivilege::User,
+                        _ => RiscVPrivilege::Machine,
+                    };
                     self.csrs[usize::from(CSR_MSTATUS)] =
-                        (status | MSTATUS_MPIE) & !MSTATUS_MIE | restored_ie;
+                        ((status | MSTATUS_MPIE) & !(MSTATUS_MIE | MSTATUS_MPP)) | restored_ie;
+                    self.privilege = return_privilege;
                     if self.profile.interrupt_model == InterruptModel::Hazard3
                         && self.csrs[0xbe5] & 1 != 0
                     {
@@ -1139,6 +1180,7 @@ impl RiscVCpu {
                     } else if self.profile.esp32c6_memory_protection_csrs {
                         self.esp32c6_active_interrupts.pop();
                     }
+                    self.pc = self.csrs[usize::from(CSR_MEPC)];
                     Ok(StepReason::Advanced)
                 }
                 _ => self.illegal(instruction),
@@ -1148,6 +1190,11 @@ impl RiscVCpu {
             return self.illegal(instruction);
         }
         let csr_address = (instruction >> 20) as u16;
+        let required_privilege = ((csr_address >> 8) & 3) as u8;
+        if (self.privilege as u8) < required_privilege {
+            self.enter_trap(2, instruction, false);
+            return Ok(StepReason::Advanced);
+        }
         let source = match funct3 {
             1..=3 => self.read_register(rs1)?,
             5..=7 => u32::from(rs1),
@@ -1693,6 +1740,7 @@ impl Cpu for RiscVCpu {
         self.instret = 0;
         self.waiting = false;
         self.halted = false;
+        self.privilege = RiscVPrivilege::Machine;
         self.asserted_interrupts.clear();
         self.qingke_external_interrupts.clear();
         self.hazard3_external_interrupts.clear();
@@ -1770,6 +1818,11 @@ impl Cpu for RiscVCpu {
             })
             .collect::<Vec<_>>();
         registers.extend([
+            RegisterValue {
+                name: "privilege".to_owned(),
+                value: self.privilege as u64,
+                bits: 2,
+            },
             RegisterValue {
                 name: "mstatus".to_owned(),
                 value: u64::from(self.csrs[usize::from(CSR_MSTATUS)]),
@@ -2141,6 +2194,56 @@ mod tests {
     }
 
     #[test]
+    fn esp32c6_user_mode_ecall_and_privileged_csr_access_trap_to_machine() {
+        let mut cpu = RiscVCpu::new(RiscVProfile::esp32c6()).unwrap();
+        cpu.write_csr(CSR_MTVEC, 0x100).unwrap();
+        cpu.write_csr(CSR_MEPC, 0x40).unwrap();
+        cpu.write_csr(CSR_MSTATUS, 0).unwrap();
+
+        cpu.execute_system(0x3020_0073, 0, 0, 0).unwrap();
+        assert_eq!(cpu.privilege(), RiscVPrivilege::User);
+        assert_eq!(cpu.pc(), 0x40);
+
+        cpu.execute_system(0x0000_0073, 0, 0, 0).unwrap();
+        assert_eq!(cpu.privilege(), RiscVPrivilege::Machine);
+        assert_eq!(cpu.pc(), 0x100);
+        assert_eq!(cpu.read_csr(CSR_MCAUSE).unwrap(), 8);
+        assert_eq!(cpu.read_csr(CSR_MEPC).unwrap(), 0x40);
+        assert_eq!(cpu.read_csr(CSR_MSTATUS).unwrap() & MSTATUS_MPP, 0);
+
+        cpu.write_csr(CSR_MEPC, 0x44).unwrap();
+        cpu.execute_system(0x3020_0073, 0, 0, 0).unwrap();
+        assert_eq!(cpu.privilege(), RiscVPrivilege::User);
+        // csrrs x1,mstatus,x0 is illegal from user mode.
+        let instruction = 0x3000_20f3;
+        cpu.execute_system(instruction, 1, 0, 2).unwrap();
+        assert_eq!(cpu.privilege(), RiscVPrivilege::Machine);
+        assert_eq!(cpu.pc(), 0x100);
+        assert_eq!(cpu.read_csr(CSR_MCAUSE).unwrap(), 2);
+        assert_eq!(cpu.read_csr(CSR_MTVAL).unwrap(), instruction);
+        assert_eq!(cpu.read_csr(CSR_MEPC).unwrap(), 0x44);
+    }
+
+    #[test]
+    fn user_mode_machine_interrupt_saves_user_privilege_in_mpp() {
+        let mut cpu = RiscVCpu::new(RiscVProfile::esp32c6()).unwrap();
+        cpu.write_csr(CSR_MTVEC, 0x100).unwrap();
+        cpu.write_csr(CSR_MEPC, 0x40).unwrap();
+        cpu.execute_system(0x3020_0073, 0, 0, 0).unwrap();
+        assert_eq!(cpu.privilege(), RiscVPrivilege::User);
+
+        cpu.set_machine_interrupt_enabled(7, true).unwrap();
+        cpu.set_interrupt(7, true).unwrap();
+        assert_eq!(cpu.pending_interrupt(), Some(7));
+        cpu.take_interrupt(7);
+
+        assert_eq!(cpu.privilege(), RiscVPrivilege::Machine);
+        assert_eq!(cpu.pc(), 0x100);
+        assert_eq!(cpu.read_csr(CSR_MCAUSE).unwrap(), 0x8000_0007);
+        assert_eq!(cpu.read_csr(CSR_MSTATUS).unwrap() & MSTATUS_MPP, 0);
+    }
+
+    #[test]
     fn hazard3_zcb_lhu_loads_a_compact_halfword() {
         let mut bus = AddressSpace::default();
         bus.map_ram("memory", 0, 4096, true).unwrap();
@@ -2188,8 +2291,7 @@ mod tests {
         cpu.write_csr(CSR_MSTATUS, MSTATUS_MIE).unwrap();
         cpu.write_csr(CSR_MIE, 1 << 11).unwrap();
         cpu.set_hazard3_external_interrupt(14, true).unwrap();
-        cpu.hazard3_irqarray_access(CSR_MEIEA, (1 << 30) | 0, 2)
-            .unwrap();
+        cpu.hazard3_irqarray_access(CSR_MEIEA, 1 << 30, 2).unwrap();
 
         assert_eq!(cpu.pending_interrupt(), Some(11));
         cpu.take_interrupt(11);
@@ -2248,8 +2350,7 @@ mod tests {
     fn hazard3_meinext_update_publishes_current_irq_context() {
         let mut cpu = RiscVCpu::new(RiscVProfile::rp2350_hazard3()).unwrap();
         cpu.set_hazard3_external_interrupt(14, true).unwrap();
-        cpu.hazard3_irqarray_access(CSR_MEIEA, (1 << 30) | 0, 2)
-            .unwrap();
+        cpu.hazard3_irqarray_access(CSR_MEIEA, 1 << 30, 2).unwrap();
 
         assert_eq!(cpu.read_csr(CSR_MEINEXT).unwrap(), 14 * 4);
         cpu.write_csr(CSR_MEINEXT, 1).unwrap();

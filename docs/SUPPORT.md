@@ -13,7 +13,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 compiler-emitted subset | DRAM, IRAM, 16 MiB IROM window | GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
-| ESP32-C6 | RV32IMAC/Zicsr subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform and native-address UART0 FIFO transcript |
+| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
 
@@ -52,9 +52,11 @@ instructions, M and A where selected by the profile, Zicsr, WFI/MRET, basic
 machine interrupt entry, QingKe PFIC table-mode entry, all eight QingKe XW
 compressed byte/halfword memory operations, the V2C multiply-only Zmmul
 subset, and the compiler-facing Hazard3 bit-manipulation subset. Exact PFIC
-nesting/HPE, PMP permission enforcement, and complete privilege behavior remain
-unsupported. `qualification/riscv-cpu.json` contains Docker and negative-profile
-proofs for XW and Zmmul.
+nesting/HPE and PMP permission enforcement remain unsupported. ESP32-C6 supports
+machine/user transitions, user ECALL, illegal privileged-CSR traps, interrupt
+entry, MRET, and PMP CSR visibility. `qualification/riscv-cpu.json` contains
+Docker and negative-profile proofs for XW, Zmmul, ESP privilege/trap behavior,
+and the complete RP2350 compiler `-march` baseline.
 
 The Arm interpreter covers the 16-bit Thumb compiler baseline, BL, selected
 Thumb-2 immediate forms observed in Cortex-M33 output, stack operations,
@@ -125,7 +127,8 @@ ELF, build, result, source, compiler-image, and repeat-run hashes.
 
 `scripts/docker-smoke.sh` builds and runs all six targets, both RP2350 CPU
 modes, real-register GPIO cases, native-address UART cases, native WCH/RP
-timer-interrupt cases, and the Rust ABI matrix.
+timer-interrupt cases, the full RP2350 Hazard3 compiler ISA gate, and the Rust
+ABI matrix.
 
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five

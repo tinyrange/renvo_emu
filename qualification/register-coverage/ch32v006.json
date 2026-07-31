@@ -15,7 +15,7 @@
       "id": "ch32v006",
       "result": ".renvo/portfolio-smoke/ch32v006-run.json",
       "bus_log": ".renvo/portfolio-smoke/ch32v006-bus.json",
-      "result_sha256": "3cc177c41c987572befa20ffef350da2d5bdd6a0c8b2c226437623bdb9457bef",
+      "result_sha256": "f032a73ecdd4f7df96f643495dd0d4ffccc628b5508146cfac7bad988fad9602",
       "bus_log_sha256": "4f51f71ae1fde9f0fbd17579a07698227c856747ec81a9b8825f74835a190916",
       "outcome": {
         "reason": "Halted",
@@ -32,7 +32,7 @@
       "id": "ch32v006-uart",
       "result": ".renvo/portfolio-smoke/ch32v006-uart-run.json",
       "bus_log": ".renvo/portfolio-smoke/ch32v006-uart-bus.json",
-      "result_sha256": "f8f997dfb04eaba0bed5d960bf18c4af394d429b0667a185d5270600c567ce3f",
+      "result_sha256": "67d8007793c5432fd06811d9264976f5d84a4264200d1ca52ea6ba676ca00b04",
       "bus_log_sha256": "3eb55b5808935852c42fe03d0a6f5a18a6fdac22cf2480d74fcee6dcd125ce1a",
       "outcome": {
         "reason": "Halted",
@@ -49,7 +49,7 @@
       "id": "ch32v006-timer",
       "result": ".renvo/portfolio-smoke/ch32v006-timer-run.json",
       "bus_log": ".renvo/portfolio-smoke/ch32v006-timer-bus.json",
-      "result_sha256": "3a175aaa378276afe842998f31037740982d64af8e2cca00ca8c345f210707d2",
+      "result_sha256": "49b439d1c4b2e471f4f7f1e3297fd444a6b2c7b28e8163ea41454548ea3e8c21",
       "bus_log_sha256": "08e7ab390f6c232dc81d237b98e8946f92b193abf127404cd19005dc5b63beeb",
       "outcome": {
         "reason": "Halted",

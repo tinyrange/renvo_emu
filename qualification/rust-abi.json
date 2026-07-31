@@ -24,7 +24,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-wch-o0.json",
       "build_provenance_sha256": "dde73e976932a8988452933354ad7097fc475dfa24dc07cbdc9217810e76d945",
       "result_artifact": ".renvo/rust-abi-qualification-v2/ch32v003-o0-run.json",
-      "result_sha256": "3b2a271df9c1096fcf8589a01367bf613e159e185585dde7814035a0225769b2",
+      "result_sha256": "ad611d62316187b1de6f8c4da246ebaef4ce960bf18ff6fe299971372a2dc6ff",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -47,7 +47,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-wch-o0.json",
       "build_provenance_sha256": "dde73e976932a8988452933354ad7097fc475dfa24dc07cbdc9217810e76d945",
       "result_artifact": ".renvo/rust-abi-qualification-v2/ch32v006-o0-run.json",
-      "result_sha256": "de86c305cf86d11df0c6f6453044346d84ecc2ede974bd848ba1ef437287d902",
+      "result_sha256": "a8d79c7acee919a98a66097720483a6a8623dbd4552550e3e89b1d0acc5d25b4",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -70,7 +70,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-esp32c6-o0.json",
       "build_provenance_sha256": "6adc32f56be3e9300bb39913a1c1731cfb4d597d419ed5c4f81bba430b66e56c",
       "result_artifact": ".renvo/rust-abi-qualification-v2/esp32c6-o0-run.json",
-      "result_sha256": "e1ffdde836c23396ca29c8146c38d7eae2ebd571c8942674e7c9437d47f98ead",
+      "result_sha256": "a29d90a0d8da3a0d62337c8447812712836fe360c6a47dd4ec0e0588eeba2a3c",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -139,7 +139,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-rp2350-riscv-o0.json",
       "build_provenance_sha256": "9e38e6bec0a3d1ebba0da3b7c5d0acaec3fef3fe4a080a51260b9df9f22d4d1e",
       "result_artifact": ".renvo/rust-abi-qualification-v2/rp2350-riscv-o0-run.json",
-      "result_sha256": "7aa7ec457cf78b2e9f16b50574e1745e5275253adf8a0a33f9bc44d751e7b24b",
+      "result_sha256": "8cfbf99b6c399ae1d83f54605ec05a4498a01ed25245bfb641ec567f2364655b",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -162,7 +162,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-wch-o2.json",
       "build_provenance_sha256": "3287d46709d90b25e2b01f11e38f2380ba872e496963da709e9c6f17ff0f2554",
       "result_artifact": ".renvo/rust-abi-qualification-v2/ch32v003-o2-run.json",
-      "result_sha256": "c0f8f81014e0301f91649ddc5107a075b17bd00b9326558799adc00d15203914",
+      "result_sha256": "fa989db128507f9d5d9f3b63d5dcb059795c5e31df43c0e7692129a62324ee43",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -185,7 +185,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-wch-o2.json",
       "build_provenance_sha256": "3287d46709d90b25e2b01f11e38f2380ba872e496963da709e9c6f17ff0f2554",
       "result_artifact": ".renvo/rust-abi-qualification-v2/ch32v006-o2-run.json",
-      "result_sha256": "c3ad25b3809513df9b1325042b615133b6ce5df22dbdb1668ae37ccbec560510",
+      "result_sha256": "a3e21a8ddfa8fa85320187d5542fbbde331613048d81a053060524b9ed1cfd37",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -208,7 +208,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-esp32c6-o2.json",
       "build_provenance_sha256": "6465cebc9ac191bbc03e8e67f2797dfa574e25b4fb697e3a4dcf31d26fd4f8cb",
       "result_artifact": ".renvo/rust-abi-qualification-v2/esp32c6-o2-run.json",
-      "result_sha256": "9f7951abb0b307c1aded793ad84999ade61d1d214938abdf6fc48494119df7ed",
+      "result_sha256": "a2d8e12ecc5316713c37174b39aa824ced0e7ec1e285a780df40964356ac6f44",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -277,7 +277,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-rp2350-riscv-o2.json",
       "build_provenance_sha256": "d8529475ac7be6a6dafc98fb75c82efa1bf89185f3ef547f388ab092707c63cf",
       "result_artifact": ".renvo/rust-abi-qualification-v2/rp2350-riscv-o2-run.json",
-      "result_sha256": "3da960beb4013a079391c529f985791951e688f3ef537495ebdbb269032fda6b",
+      "result_sha256": "8ad2aa70337669141cda141d627eb8537158d0148cb4477250ccc2ad68d84f86",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -300,7 +300,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-wch-os.json",
       "build_provenance_sha256": "bc73110559cd2d3447f476d6d94c4d1466324d7724406bbd3d91b6f1f14e9103",
       "result_artifact": ".renvo/rust-abi-qualification-v2/ch32v003-os-run.json",
-      "result_sha256": "21b3c6be8aa3ad8c0330f69b24f24f20d6986f88532dbed71b2fd0c8ca6f5a41",
+      "result_sha256": "b102d553753b7131b1e97a73d4276cc92beaa968237868208a765eff730890a2",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -323,7 +323,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-wch-os.json",
       "build_provenance_sha256": "bc73110559cd2d3447f476d6d94c4d1466324d7724406bbd3d91b6f1f14e9103",
       "result_artifact": ".renvo/rust-abi-qualification-v2/ch32v006-os-run.json",
-      "result_sha256": "659ec8bb83736e0770fa2327c1bdb09b19e64b184a6b346eadcabd5b07853fba",
+      "result_sha256": "508131c8193d57f0e329f4c00be25a19f4d614810e5bd1e57bf9cf0d4447e0bc",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -346,7 +346,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-esp32c6-os.json",
       "build_provenance_sha256": "1aeecb26bee553c25780cb8356f1b98a007f24bc38db3b035b9bfaa934a84cd2",
       "result_artifact": ".renvo/rust-abi-qualification-v2/esp32c6-os-run.json",
-      "result_sha256": "a22de45b382346d6f7568871ba801978610c6626ce5257563be4f0497cb1a6d9",
+      "result_sha256": "4ffc646a8fe8fd18a6506c5277efa764731492fd1fe5ce2685b18dad67deab5d",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -415,7 +415,7 @@
       "build_artifact": ".renvo/rust-abi-qualification-v2/build-rp2350-riscv-os.json",
       "build_provenance_sha256": "64459e466ab03fc4652e2a7d75684b75d93d30b55e9ec84568303c500c7f9cba",
       "result_artifact": ".renvo/rust-abi-qualification-v2/rp2350-riscv-os-run.json",
-      "result_sha256": "51fac872ec84e21a3d116c9adf0ecb6ab0d75c2cc8eedeb80b98d598bcf115dd",
+      "result_sha256": "6b8a857f044ce357690b5568ebe0b4c752478be74309fd3862a3e76344d9f708",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {

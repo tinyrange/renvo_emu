@@ -44,3 +44,11 @@ not ship its library, so the image compiles `core` once from its pinned
 `rust-src` and installs that artifact into the sysroot. This makes later RV32E
 case builds fast and fully offline; the separate GCC lane covers compressed
 RV32EC code generation.
+
+`riscv-gcc-hazard3.toml` records the RP2350 software-facing
+`rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb_zcb_zcmp` ISA string. GCC 13 accepts
+that complete string and emits a checked assembly artifact. Its bundled
+binutils predates the Zcb/Zcmp attribute names, so the executable qualification
+assembles the supported compiler output and supplies specification-defined raw
+Zcb/Zcmp halfwords in the same CPU harness. The build provenance records and
+hashes both artifacts.

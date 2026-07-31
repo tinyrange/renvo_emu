@@ -15,7 +15,7 @@
       "id": "esp32c6",
       "result": ".renvo/portfolio-smoke/esp32c6-run.json",
       "bus_log": ".renvo/portfolio-smoke/esp32c6-bus.json",
-      "result_sha256": "55ce2624ad25f72692e22372bce4e19f9b559e9e7927e6083f9855d6a6b15dc9",
+      "result_sha256": "9aec3942cb9b4f1fbacfb27b40ae7826049e9b3e8276974941e287265bbe619c",
       "bus_log_sha256": "a026755a6a9c39605a208ed2e37525c8095a1e77346abf843ef714703a543067",
       "outcome": {
         "reason": "Halted",
@@ -32,7 +32,7 @@
       "id": "esp32c6-uart",
       "result": ".renvo/portfolio-smoke/esp32c6-uart-run.json",
       "bus_log": ".renvo/portfolio-smoke/esp32c6-uart-bus.json",
-      "result_sha256": "19918a99d52046030dfc21ef2ab6645f30e359b6a9a02801600c8677160ee6c1",
+      "result_sha256": "8a014f6d505fe9b695317a45a161acb43b82377bc50f5278761eb38a272fed2e",
       "bus_log_sha256": "2ee97a24c34ba16703645e7dd56b8d204e57f8abe9680b498383dc17b9a1e47e",
       "outcome": {
         "reason": "Halted",

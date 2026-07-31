@@ -1,6 +1,6 @@
 {
   "schema": "renvo.stop-conditions.v1",
-  "source_sha256": "57cb09bea8c96ce48baed54d5bb9d73c14eb180f62f88658fc60fe14ad7bbb05",
+  "source_sha256": "a1c73961bec645dc25587d969021f89b3ed411d0d373a2ebe095cd3455fb7518",
   "cpu_families": [
     "riscv",
     "arm",
@@ -33,7 +33,7 @@
     {
       "id": "riscv-breakpoint",
       "artifact": ".renvo/stop-conditions/riscv-breakpoint.json",
-      "sha256": "4359a0bfa9c088a26ed72d3bcaeb7da464a3d0c6e010a1aa164a8522ccc05566",
+      "sha256": "f85b598f7637ce30661537c65f3ae29828264fb64fea58d5de03b02ac1d62937",
       "target": "ch32v003",
       "reason": "Breakpoint",
       "stats": {
@@ -77,7 +77,7 @@
     {
       "id": "riscv-fault",
       "artifact": ".renvo/stop-conditions/riscv-fault.json",
-      "sha256": "6d729a8ffc3b2ebeb5d44c46bdc68d9ad5df7e77448af7956d6030f5c3017b2b",
+      "sha256": "751b2989716ae294cddb6f5583950cf319b7fb30a66afd32d38f8ca1426f75e5",
       "target": "ch32v003",
       "reason": {
         "Fault": "RISC-V CPU fault at PC 0x00000016: IllegalInstruction CPU fault at PC 0x00000016: instruction 0xffffffff is not valid for wch-ch32v003-qingke-v2a"
@@ -123,7 +123,7 @@
     {
       "id": "riscv-instruction-limit",
       "artifact": ".renvo/stop-conditions/riscv-instruction-limit.json",
-      "sha256": "339b93b5769409bb99f912ff5dfccf547c6ca08ba88c83d68246f64775ae7c08",
+      "sha256": "2dcb8bffd587db06d21238868d491f255d5ec19c5a0c0a3fd9dbd1f709e4c4fd",
       "target": "ch32v003",
       "reason": "InstructionLimit",
       "stats": {
@@ -167,7 +167,7 @@
     {
       "id": "riscv-signal",
       "artifact": ".renvo/stop-conditions/riscv-signal.json",
-      "sha256": "14e54424daf3fe0b5f725f390ce3725fa74df02f0a6c7a55a787faaaf5f359f9",
+      "sha256": "785de569e85f4f77b11e8abd070e9a51fbd31e08ed0c927e688777d23b72d782",
       "target": "ch32v003",
       "reason": {
         "Signal": "board.ch32v003.gpioc.pin1"
@@ -213,7 +213,7 @@
     {
       "id": "riscv-time-limit",
       "artifact": ".renvo/stop-conditions/riscv-time-limit.json",
-      "sha256": "698b48f99e64a509aaab02555531c616920f479abcd41bb45dde9d7b20fbea43",
+      "sha256": "72f8019f594038e53e246707e07a944e5d8a654f5503d4a94a51e0f194f0773c",
       "target": "ch32v003",
       "reason": "TimeLimit",
       "stats": {
@@ -260,7 +260,7 @@
     {
       "id": "riscv-watchpoint",
       "artifact": ".renvo/stop-conditions/riscv-watchpoint.json",
-      "sha256": "0a3f80ffedae98b817bf36daccbc8b3c6d3087e730bca78a85128fa6ba279a5c",
+      "sha256": "6097c0db106a31acf280a7963db1c11b9886c12103d9fe1b6c94e4f5c2f358e3",
       "target": "ch32v003",
       "reason": {
         "Watchpoint": {

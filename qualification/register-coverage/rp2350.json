@@ -84,7 +84,7 @@
       "id": "rp2350-riscv",
       "result": ".renvo/portfolio-smoke/rp2350-riscv-run.json",
       "bus_log": ".renvo/portfolio-smoke/rp2350-riscv-bus.json",
-      "result_sha256": "0e6db0003ea949767553f05da6886ac2b119934ebcf22f62624ff720168a5905",
+      "result_sha256": "562c78d5648599b6f5d4018c88eed32c4aa46a0e7615ca9a5eda31393dd735bb",
       "bus_log_sha256": "8314c9dc5e2b6619cea33a8971c7354a02a7f190d3ff85030025801829f55ca2",
       "outcome": {
         "reason": "Halted",
@@ -101,7 +101,7 @@
       "id": "rp2350-riscv-uart",
       "result": ".renvo/portfolio-smoke/rp2350-riscv-uart-run.json",
       "bus_log": ".renvo/portfolio-smoke/rp2350-riscv-uart-bus.json",
-      "result_sha256": "a4fa3a0380a9a6080047e77a427a2bdf0abc1693724d7fc0b0c99f22013d5a13",
+      "result_sha256": "4a8d6b290832a750dd1d61206a1de7d2142afde38733fe82e69f962a6e8d0c15",
       "bus_log_sha256": "0d5fe57af93ad9ee63f6d10f7878dfcf953e8d5ce6f67d573b4f10e78d4a5ec6",
       "outcome": {
         "reason": "Halted",
@@ -118,7 +118,7 @@
       "id": "rp2350-riscv-native-timer",
       "result": ".renvo/portfolio-smoke/rp2350-riscv-native-timer-run.json",
       "bus_log": ".renvo/portfolio-smoke/rp2350-riscv-native-timer-bus.json",
-      "result_sha256": "97ddade19791715f4a4b770c75d5cce7417aef5b07b4b03f613a4d5e9a1de85f",
+      "result_sha256": "b85e7ea50db9e06fa63299bab1985561e64ceb9762ab1264e0665658343e2148",
       "bus_log_sha256": "4538a61804f15fac8465097fe2661f286f6dc4102b187fd461691911cd41e391",
       "outcome": {
         "reason": "Halted",
@@ -135,7 +135,7 @@
       "id": "rp2350-riscv-pio",
       "result": ".renvo/portfolio-smoke/rp2350-riscv-pio-run.json",
       "bus_log": ".renvo/portfolio-smoke/rp2350-riscv-pio-bus.json",
-      "result_sha256": "30b68d0503a118a1e619fe2e514c7db6b52be9453ba7a82e22502043017e5ecf",
+      "result_sha256": "a8e70ab7c7da8af2afa1a353c6ee40cf5aaa68463fdcedfafcad044333435bf3",
       "bus_log_sha256": "efe603b147af24189499820fc84d54ab22810d50620f7de8115aaa9c8eb7b357",
       "outcome": {
         "reason": "Halted",
