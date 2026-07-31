@@ -205,7 +205,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
         ],
         limitations: &[
-            "PFIC and WCH XW instructions are not implemented yet",
+            "exact PFIC nesting and WCH XW instructions are not implemented yet",
             "analog and debug-wire behavior is outside the baseline",
         ],
     },
@@ -239,7 +239,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
         ],
         limitations: &[
-            "PFIC and V2C-specific extensions are not implemented yet",
+            "exact PFIC nesting and V2C-specific XW extensions are not implemented yet",
             "analog and touch peripherals are outside the baseline",
         ],
     },
@@ -270,7 +270,7 @@ const MANIFESTS: &[TargetManifest] = &[
         sources: &["https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"],
         limitations: &[
             "the initial Thumb interpreter covers the compiler baseline, not the complete ISA",
-            "NVIC depth, core 1, USB, and exact XIP timing are deferred",
+            "complete NVIC depth, USB device fidelity, and exact XIP timing are deferred",
         ],
     },
     TargetManifest {
@@ -340,7 +340,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         limitations: &[
             "the initial LX7 interpreter covers a compiler-emitted integer subset",
-            "register-window calls, exceptions, and the FPU remain incomplete",
+            "remaining register-window, exception-level, atomic, and FPU cases are corpus-driven",
             "CPU1, wireless, ULP, and full USB are deferred",
         ],
     },
@@ -387,7 +387,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
         ],
         limitations: &[
-            "PMP, interrupt matrix, and vendor cache behavior are not implemented yet",
+            "PMP permission enforcement, complete interrupt-matrix behavior, and vendor cache behavior are not implemented yet",
             "LP core and wireless peripherals are deferred",
         ],
     },

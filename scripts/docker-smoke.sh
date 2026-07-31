@@ -162,5 +162,6 @@ grep -q '\$scope module pio0 ' "$artifact_root/rp2350-riscv-pio.vcd"
 
 scripts/generate-register-coverage.sh "$artifact_root" qualification/register-coverage
 scripts/qualify-stop-conditions.sh
+scripts/qualify-rust-abi.sh
 
 echo "portfolio Docker smoke passed; artifacts: $artifact_root"

@@ -1,0 +1,23 @@
+[package]
+name = "renvo-rust-abi"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[profile.release]
+codegen-units = 1
+debug = false
+incremental = false
+lto = false
+panic = "abort"
+
+[lints.rust]
+unexpected_cfgs = { level = "deny", check-cfg = [
+    "cfg(renvo_wch)",
+    "cfg(renvo_esp32c6)",
+    "cfg(renvo_rp2040)",
+    "cfg(renvo_rp2350_arm)",
+    "cfg(renvo_rp2350_riscv)",
+] }

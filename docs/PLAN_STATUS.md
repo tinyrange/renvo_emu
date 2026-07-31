@@ -17,11 +17,11 @@ Status meanings:
 | Phase | Status | Current evidence | Required closure |
 |---|---|---|---|
 | 0 — Kernel contracts and manifests | Proven | Workspace contracts and ADRs; six source-linked manifests; fake dual-core/timer canonical digest across 64 repeat/insertion-stress variants on pinned Linux/amd64 and Linux/arm64 environments | None |
-| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, CoreMark, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles, and typed breakpoint/watchpoint stops | Remaining WCH XW behavior, fuller ESP privilege/PMP proof, and plan-specific C/Rust ABI/trap gate |
-| 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker corpus, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific C/Rust ABI gate |
+| 1 — RISC-V family | Partial | Docker GCC/Clang corpus, exact-RV32E and RV32IMAC Rust ABI matrix, CoreMark, direct ELF execution, CH32V003/006 PFIC table entry, ESP32-C6 and RP2350 Hazard3 profiles, and typed breakpoint/watchpoint stops | Remaining WCH XW behavior, fuller ESP privilege/PMP proof, and plan-specific trap gate |
+| 2 — Arm M-profile | Partial | RP2040 and RP2350 Arm run Docker C corpus, exact Armv6-M/Armv8-M Rust ABI matrix, CoreMark and official firmware; exception and multicore paths have focused tests | Required M33 DSP/FPU closure, fuller NVIC proof, and plan-specific exception gate |
 | 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
 | 4 — Peripheral and VCD baseline | Proven | Four-state signals, scheduled input, stable VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART/PIO paths on all three CPU profiles, native ESP GPIO/timer/UART paths, official-firmware peripheral use, and six generated register-coverage/deviation manifests | None |
-| 5 — Distillation and selective depth | Partial | Immutable Docker builds, GCC/Clang matrices, 1,000 distinct C cases, comparison API, reduction primitive, CoreMark and stable JSON artifacts | Rust compiler lane, selected unmodified vendor samples, seeded end-to-end reduction on all three CPU families, Starlark, GDB and coverage dashboard |
+| 5 — Distillation and selective depth | Partial | Immutable Docker builds, GCC/Clang/Rust matrices, 1,000 distinct C cases, comparison API, reduction primitive, CoreMark and stable JSON artifacts | Selected unmodified vendor samples, seeded end-to-end reduction on all three CPU families, Starlark, GDB and coverage dashboard |
 
 ## Six-chip baseline definition
 
@@ -35,7 +35,7 @@ Status meanings:
 | Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Proven | CLI controls and `qualification/stop-conditions.json` prove all non-exit stops independently on RISC-V, Arm and Xtensa; normal portfolio smoke proves exit |
 | Stable machine-readable result and event digest | Proven | CLI JSON artifacts and deterministic trace digests |
 | Selected unmodified WCH EVT, Pico SDK and ESP-IDF samples | Missing | Official MicroPython is valuable additional evidence but does not replace this named gate |
-| GCC, Clang and Rust across optimization levels | Partial | GCC and Clang pass; the target Rust lane is missing |
+| GCC, Clang and Rust across optimization levels | Proven | GCC/Clang C matrices pass; `qualification/rust-abi.json` proves exact RV32E, RV32IMAC, Armv6-M and Armv8-M Rust targets at `-O0`, `-O2` and `-Os` across all six applicable CPU profiles. Phase 3 separately names Xtensa GCC. |
 | Compare selected output and flag divergence | Proven | `renvo corpus compare` and comparison unit tests |
 | Reduce seeded divergence on RISC-V, Arm and Xtensa | Missing | Deterministic reducer primitive exists, but no three-family end-to-end proof |
 | Publish coverage, fidelity, unsupported behavior, provenance and licences | Partial | Source-linked target manifests and build provenance exist; register coverage/licence dashboard is missing |
@@ -43,6 +43,18 @@ Status meanings:
 | Separate CPU/device/trace/script/CLI boundaries | Partial | Rust crate boundaries are clean; the Starlark scripting boundary is not implemented |
 
 ## Most recent closure
+
+The pinned Rust 1.97.1 image now provides upstream bare-metal libraries for
+RV32IMAC, Armv6-M, and Armv8-M plus an image-prebuilt `core` for the exact
+`riscv32e-unknown-none-elf` QingKe register ABI. A freestanding Rust program exercises
+slice iteration, structure passing, a five-argument C ABI boundary, calls,
+rotates, wrapping arithmetic, and static data. Docker compiles it at `-O0`,
+`-O2`, and `-Os`; CH32V003, CH32V006, ESP32-C6, RP2040, RP2350 Arm, and RP2350
+Hazard3 each run every variant twice with byte-identical results. The 18 proof
+rows, compiler/container provenance, and hashes are in
+`qualification/rust-abi.json`.
+
+## Previous closure
 
 The public direct-run CLI now accepts typed breakpoints, data watchpoints, and
 named change/rising/falling signal stops. Arm `BKPT` and Xtensa `BREAK` report
@@ -54,7 +66,7 @@ instruction-budget stops independently on RISC-V, Arm, and Xtensa; ordinary
 portfolio runs cover explicit exit. Their stable results and hashes are in
 `qualification/stop-conditions.json`.
 
-## Previous closure
+## Earlier Phase 0 closure
 
 Phase 0 now has executable host-independent determinism evidence. A fake
 dual-core machine advances both CPUs in stable round-robin order alongside a

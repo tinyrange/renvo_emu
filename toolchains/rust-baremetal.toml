@@ -1,0 +1,8 @@
+name = "rust-1.97.1-bare-metal"
+image = "sha256:2d5afa621ffb2cfb6e2e3ffb9d463ab7be21301eb5f6d9a1c9fae08b807194df"
+program = "sh"
+args = ["build.sh"]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

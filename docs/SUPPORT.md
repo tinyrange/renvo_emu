@@ -108,9 +108,21 @@ requires an immutable Docker digest or image ID and applies:
 
 The initial cross-GCC image contains Ubuntu-packaged RISC-V and Arm
 bare-metal GCC. The Xtensa image verifies the SHA-256 of Espressif’s official
-toolchain archive before extracting it. `scripts/docker-smoke.sh` builds and
-runs all six targets, both RP2350 CPU modes, real-register GPIO cases,
-native-address UART cases, and native WCH/RP timer-interrupt cases.
+toolchain archive before extracting it. The Rust image pins Rust 1.97.1 and
+prebuilds `core` for the otherwise undistributed exact RV32E register-ABI target while
+installing the upstream RV32IMAC, Armv6-M, and Armv8-M libraries. Every actual
+Rust case build remains network-isolated and read-only.
+
+`scripts/qualify-rust-abi.sh` compiles one freestanding ABI/behavior program at
+`-O0`, `-O2`, and `-Os`. Its 18 deterministic proof runs cover CH32V003,
+CH32V006, ESP32-C6, RP2040, RP2350 Arm, and RP2350 Hazard3. The program exercises
+calls, slice iteration, structure and five-argument ABI passing, rotates,
+wrapping arithmetic, and static data. `qualification/rust-abi.json` records the
+ELF, build, result, source, compiler-image, and repeat-run hashes.
+
+`scripts/docker-smoke.sh` builds and runs all six targets, both RP2350 CPU
+modes, real-register GPIO cases, native-address UART cases, native WCH/RP
+timer-interrupt cases, and the Rust ABI matrix.
 
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five
