@@ -121,6 +121,7 @@ pub struct XtensaCpu {
     waiting: bool,
     halted: bool,
     interrupts: BTreeSet<u16>,
+    software_interrupts: u32,
 }
 
 impl XtensaCpu {
@@ -143,6 +144,7 @@ impl XtensaCpu {
             waiting: false,
             halted: false,
             interrupts: BTreeSet::new(),
+            software_interrupts: 0,
         }
     }
 
@@ -160,6 +162,8 @@ impl XtensaCpu {
         self.loop_count = 0;
         self.waiting = false;
         self.halted = false;
+        self.interrupts.clear();
+        self.software_interrupts = 0;
     }
 
     /// Shares functional FreeRTOS task snapshots with another CPU.
@@ -578,9 +582,17 @@ impl XtensaCpu {
             match special {
                 3 => self.sar = value & 0x1f,
                 230 => self.ps = value,
-                // INTSET and INTCLEAR share the interrupt-pending bank.
-                226 => self.special_registers[226] |= value,
-                227 => self.special_registers[226] &= !value,
+                // Guest-written software interrupts coexist with externally
+                // asserted peripheral lines. Machine polling must not erase
+                // an INTSET bit before the following instruction can take it.
+                226 => {
+                    self.software_interrupts |= value;
+                    self.special_registers[226] |= value;
+                }
+                227 => {
+                    self.software_interrupts &= !value;
+                    self.special_registers[226] &= !value;
+                }
                 _ => self.special_registers[special] = value,
             }
             self.pc = next;
@@ -1359,6 +1371,7 @@ impl Cpu for XtensaCpu {
         self.waiting = false;
         self.halted = false;
         self.interrupts.clear();
+        self.software_interrupts = 0;
         Ok(())
     }
 
@@ -1485,7 +1498,7 @@ impl Cpu for XtensaCpu {
         } else {
             self.interrupts.remove(&line);
         }
-        let mut pending = 0_u32;
+        let mut pending = self.software_interrupts;
         for interrupt in &self.interrupts {
             pending |= 1_u32 << u32::from(*interrupt);
         }
@@ -1606,6 +1619,57 @@ mod tests {
             .unwrap();
 
         assert_eq!(cpu.registers[9], 0x4037_4000);
+    }
+
+    #[test]
+    fn software_interrupt_survives_external_line_poll_until_guest_clear() {
+        let mut bus = AddressSpace::default();
+        let mut cpu = XtensaCpu::new();
+        cpu.registers[8] = 1;
+
+        // wsr.intset a8; the machine then polls external interrupt line zero.
+        cpu.execute_wide(0x13e2_80, &mut bus, SimTime::ZERO)
+            .unwrap();
+        cpu.set_interrupt(0, false).unwrap();
+        assert_eq!(cpu.special_registers[226], 1);
+
+        // wsr.intclear a8
+        cpu.execute_wide(0x13e3_80, &mut bus, SimTime::ZERO)
+            .unwrap();
+        cpu.set_interrupt(0, false).unwrap();
+        assert_eq!(cpu.special_registers[226], 0);
+    }
+
+    #[test]
+    fn s32c1i_returns_old_word_and_only_stores_on_compare() {
+        let mut bus = AddressSpace::default();
+        bus.map_ram("memory", 0, 0x100, true).unwrap();
+        bus.load(0x40, &0x1122_3344_u32.to_le_bytes()).unwrap();
+        let mut cpu = XtensaCpu::new();
+        cpu.registers[8] = 0x40;
+        cpu.registers[9] = 0xa5a5_5a5a;
+        cpu.special_registers[12] = 0x1122_3344;
+
+        // s32c1i a9,a8,0
+        cpu.execute_wide(0x00e8_92, &mut bus, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(cpu.registers[9], 0x1122_3344);
+        assert_eq!(
+            bus.read(0x40, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
+                .unwrap(),
+            0xa5a5_5a5a
+        );
+
+        cpu.registers[9] = 0xffff_ffff;
+        cpu.special_registers[12] = 0;
+        cpu.execute_wide(0x00e8_92, &mut bus, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(cpu.registers[9], 0xa5a5_5a5a);
+        assert_eq!(
+            bus.read(0x40, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
+                .unwrap(),
+            0xa5a5_5a5a
+        );
     }
 
     #[test]

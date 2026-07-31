@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 compiler-emitted subset | DRAM, IRAM, 16 MiB IROM window | GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -66,11 +66,16 @@ deterministic SysTick and all eight NVIC enable/pending banks (240 external
 lines). It does not cover the full Armv8-M instruction set, TrustZone, MPU,
 NVIC priority/preemption, or complete system-control register surface.
 
-The Xtensa interpreter covers the instructions emitted by the portable C
-baseline in call0 mode, including L32R, MEMW, density forms, core integer ALU
-and comparisons, multiply/divide, SAR-based shifts, conditional branches,
-direct calls/returns, jump-table dispatch, and zero-overhead loops.
-Register-window calls, exceptions, atomics, and the FPU remain incomplete.
+The Xtensa interpreter covers 16-bit density and 24-bit compiler instruction
+forms, core integer ALU and comparisons, multiply/divide, SAR-based shifts,
+branches, jump-table dispatch, and zero-overhead loops. It implements logical
+register windows for the Espressif toolchain's default windowed ABI, level-one
+interrupt entry and `RFE`, `S32C1I`/`SCOMPARE1` atomics, and the
+single-precision FPU operations emitted by the qualification workload.
+`qualification/xtensa-cpu.json` records pinned-GCC proofs at `-O0`, `-O2`, and
+`-Os`, including byte-identical repeat runs and IRAM/DRAM/IROM/DROM execution.
+Precise window-overflow traps, complete interrupt priority/nesting, and the
+full optional Xtensa ISA remain outside the functional baseline.
 
 ## Timing and tracing
 
@@ -132,6 +137,9 @@ modes, real-register GPIO cases, native-address UART cases, native WCH/RP
 timer-interrupt cases, the full RP2350 Hazard3 compiler ISA gate, and the Rust
 ABI matrix. It also runs the Arm SysTick/multi-bank NVIC and Cortex-M33
 hard-float/DSP gates recorded in `qualification/arm-cpu.json`.
+The same gate also runs the windowed Xtensa ABI, exception, atomic, FPU, memory
+view, and deterministic-repeat matrix recorded in
+`qualification/xtensa-cpu.json`.
 
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five

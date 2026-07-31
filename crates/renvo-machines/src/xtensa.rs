@@ -2355,6 +2355,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn direct_load_starts_with_appcpu_reset_and_parked() {
+        let machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+        assert!(machine.appcpu_boot_address.is_none());
+        assert_eq!(machine.cpu1.snapshot().pc, 0);
+        assert!(!machine.cpu1.snapshot().waiting);
+        assert!(!machine.cpu1.snapshot().halted);
+    }
+
+    #[test]
     fn appcpu_systimer_defers_to_a_logical_window_safe_point_during_usb_execution() {
         assert!(appcpu_systimer_level(true, false, false));
         assert!(!appcpu_systimer_level(true, true, false));

@@ -1,0 +1,125 @@
+{
+  "schema": "renvo.xtensa-cpu.v1",
+  "source_sha256": "b643632929be8106b5e245f72c503ce596d18ae70755a235023afd1ec07da960",
+  "primary_sources": [
+    "https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf",
+    "https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/tools/idf-tools.html",
+    "https://github.com/espressif/crosstool-NG"
+  ],
+  "toolchain": {
+    "name": "xtensa-esp32s3-elf-gcc",
+    "container_reference": "sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f",
+    "container_image_id": "sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f",
+    "default_abi": "windowed"
+  },
+  "implemented": [
+    "16-bit density and 24-bit compiler instruction decoding",
+    "integer, branch, zero-overhead loop, multiply and divide operations",
+    "windowed calls, ENTRY and RETW register-window behavior",
+    "level-one interrupt entry, INTLEVEL state and RFE",
+    "S32C1I atomic compare/store and SCOMPARE1",
+    "single-precision LX7 FPU compiler operations",
+    "ESP32-S3 IRAM, DRAM, IROM and DROM direct ELF mappings",
+    "CPU0 direct execution with CPU1 reset and parked"
+  ],
+  "unit_tests": {
+    "artifact": ".renvo/portfolio-smoke/xtensa-cpu-unit-tests.txt",
+    "sha256": "ef46a6fc3e0ad36621b1e751c0b28eaf49242259b320a09432ef11b6f732f9b9"
+  },
+  "proofs": [
+    {
+      "id": "xtensa-o0",
+      "target": "esp32s3",
+      "cpu": "xtensa-lx7",
+      "optimization": "-O0",
+      "build_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-o0-build.json",
+      "build_provenance_sha256": "6db6a99701cd4504469910f60b7b78dd599e806112608e78b84cf4f225c9b21d",
+      "elf": ".renvo/portfolio-smoke/esp32s3-xtensa-o0/smoke.elf",
+      "elf_sha256": "e31841ca9380b911c844bb02f437a96faa4a411daf02b55746ef750429a4ab75",
+      "result_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-o0-run.json",
+      "repeat_result_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-o0-repeat-run.json",
+      "result_sha256": "e0aee9f6ce0afaff302487511de979b5c21f2f26339dd3880891f55127cabcf8",
+      "disassembly_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-o0-disassembly.txt",
+      "disassembly_sha256": "97ea5c3c6b765f19eb75662d6920c5e51edc2e263fb57f39513f2a2690a6b669",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 334,
+        "time": 334,
+        "events": 0
+      },
+      "deterministic_repeat": true,
+      "features": [
+        "windowed ABI and register windows",
+        "S32C1I atomic compare/store",
+        "single-precision FPU",
+        "level-one exception entry and RFE",
+        "IRAM/DRAM/IROM/DROM direct ELF views"
+      ],
+      "result": "pass"
+    },
+    {
+      "id": "xtensa-o2",
+      "target": "esp32s3",
+      "cpu": "xtensa-lx7",
+      "optimization": "-O2",
+      "build_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-o2-build.json",
+      "build_provenance_sha256": "869a6a3157c78169141241780ae5a33c0c005c758ccc9a0ac3e7bdd5718d5f2e",
+      "elf": ".renvo/portfolio-smoke/esp32s3-xtensa-o2/smoke.elf",
+      "elf_sha256": "d0f1ed388e06f6ace6e950f4bf14dbfdda1a77cb45bd0b1f517551d1f01fc901",
+      "result_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-o2-run.json",
+      "repeat_result_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-o2-repeat-run.json",
+      "result_sha256": "9a1159fa62e7bae29bab1ae453d08f820c460cb6d75ebee631c5d655e4e8ce3e",
+      "disassembly_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-o2-disassembly.txt",
+      "disassembly_sha256": "03914fb2a71511221205e7bb8078ed1595af45130f87dea34766a7de3e48ee6e",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 175,
+        "time": 175,
+        "events": 0
+      },
+      "deterministic_repeat": true,
+      "features": [
+        "windowed ABI and register windows",
+        "S32C1I atomic compare/store",
+        "single-precision FPU",
+        "level-one exception entry and RFE",
+        "IRAM/DRAM/IROM/DROM direct ELF views"
+      ],
+      "result": "pass"
+    },
+    {
+      "id": "xtensa-os",
+      "target": "esp32s3",
+      "cpu": "xtensa-lx7",
+      "optimization": "-Os",
+      "build_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-os-build.json",
+      "build_provenance_sha256": "c8577bf725bdc4bf82ed00e8b640308176575d45bf08f7c14417d90743205fb4",
+      "elf": ".renvo/portfolio-smoke/esp32s3-xtensa-os/smoke.elf",
+      "elf_sha256": "551925beb7de9646076ff180bdde8de2dd05be44b27556166f4926badaf3e7b1",
+      "result_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-os-run.json",
+      "repeat_result_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-os-repeat-run.json",
+      "result_sha256": "ef01ddc1ca181f2f65e95ad1aa2534170d110bc5169a67ab4b1bb1cf661c1cb0",
+      "disassembly_artifact": ".renvo/portfolio-smoke/esp32s3-xtensa-os-disassembly.txt",
+      "disassembly_sha256": "19d204d17136f3412cf16384fc0d0bcfba00d1e9863f4b3c082e57134edeefa1",
+      "reason": "Halted",
+      "exit_code": 0,
+      "stats": {
+        "instructions": 184,
+        "time": 184,
+        "events": 0
+      },
+      "deterministic_repeat": true,
+      "features": [
+        "windowed ABI and register windows",
+        "S32C1I atomic compare/store",
+        "single-precision FPU",
+        "level-one exception entry and RFE",
+        "IRAM/DRAM/IROM/DROM direct ELF views"
+      ],
+      "result": "pass"
+    }
+  ],
+  "result": "pass"
+}

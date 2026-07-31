@@ -19,7 +19,7 @@ Status meanings:
 | 0 — Kernel contracts and manifests | Proven | Workspace contracts and ADRs; six source-linked manifests; fake dual-core/timer canonical digest across 64 repeat/insertion-stress variants on pinned Linux/amd64 and Linux/arm64 environments | None |
 | 1 — RISC-V family | Proven | Docker GCC/Clang corpus, exact-RV32E and RV32IMAC Rust ABI matrix, CoreMark, QingKe XW/Zmmul, CH32V003/006 PFIC table entry, ESP32-C6 machine/user traps and PMP CSR visibility, typed stops, and the complete RP2350 Hazard3 compiler `-march` harness | None |
 | 2 — Arm M-profile | Proven | RP2040 and RP2350 pass Docker C/Rust ABI and CoreMark suites; both take SysTick and bank-1 NVIC exceptions with architectural stacking/return; RP2350 runs compiler-emitted hard-float FPv5 and DSP code; Cortex-M33/Hazard3 share the same Rust computation matrix | None |
-| 3 — Xtensa LX7 | Partial | ESP32-S3 runs Docker GCC corpus, CoreMark and official firmware; register windows and task switching have focused tests | Remaining exception, atomic and FPU behavior plus the plan's optimization/ABI gate |
+| 3 — Xtensa LX7 | Proven | Pinned Espressif GCC emits and Renvo executes windowed ABI calls, register windows, S32C1I atomics, single-precision FPU code, level-one exception entry/RFE, and all four ESP32-S3 ELF memory views at `-O0`, `-O2` and `-Os`; every run repeats byte-identically | None |
 | 4 — Peripheral and VCD baseline | Proven | Four-state signals, scheduled input, stable VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART/PIO paths on all three CPU profiles, native ESP GPIO/timer/UART paths, official-firmware peripheral use, and six generated register-coverage/deviation manifests | None |
 | 5 — Distillation and selective depth | Partial | Immutable Docker builds, GCC/Clang/Rust matrices, 1,000 distinct C cases, comparison API, reduction primitive, CoreMark and stable JSON artifacts | Selected unmodified vendor samples, seeded end-to-end reduction on all three CPU families, Starlark, GDB and coverage dashboard |
 
@@ -28,14 +28,14 @@ Status meanings:
 | Requirement from `PLAN.html` | Status | Evidence or gap |
 |---|---|---|
 | Compiler-produced ELF on every CPU profile | Proven | `scripts/edge-corpus.sh` runs seven target/CPU combinations |
-| Memory maps, reset, traps and interrupt entry | Partial | All maps and functional entry paths exist; CPU-specific limitations remain in `renvo targets --json` |
+| Memory maps, reset, traps and interrupt entry | Proven | The three CPU-family qualification artifacts prove the required direct maps and functional entry paths; fidelity beyond the baseline remains explicit in `renvo targets --json` |
 | Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Proven | Docker smoke covers native-address GPIO/UART and explicit WCH/RP timer interrupt paths; official MicroPython callbacks cover the ESP timer-group routes |
 | Scheduled pin input and resolved digital nets | Proven | Signal/device unit tests and MicroPython external-input qualification |
 | Stable hierarchical VCD | Proven | Trace unit tests, Docker smoke VCDs and official-firmware qualification |
 | Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Proven | CLI controls and `qualification/stop-conditions.json` prove all non-exit stops independently on RISC-V, Arm and Xtensa; normal portfolio smoke proves exit |
 | Stable machine-readable result and event digest | Proven | CLI JSON artifacts and deterministic trace digests |
 | Selected unmodified WCH EVT, Pico SDK and ESP-IDF samples | Missing | Official MicroPython is valuable additional evidence but does not replace this named gate |
-| GCC, Clang and Rust across optimization levels | Proven | GCC/Clang C matrices pass; `qualification/rust-abi.json` proves exact RV32E, RV32IMAC, Armv6-M and Armv8-M Rust targets at `-O0`, `-O2` and `-Os` across all six applicable CPU profiles. Phase 3 separately names Xtensa GCC. |
+| GCC, Clang and Rust across optimization levels | Proven | GCC/Clang C matrices pass; `qualification/rust-abi.json` proves exact RV32E, RV32IMAC, Armv6-M and Armv8-M Rust targets at `-O0`, `-O2` and `-Os` across all six applicable CPU profiles; `qualification/xtensa-cpu.json` proves Xtensa GCC at the same levels. |
 | Compare selected output and flag divergence | Proven | `renvo corpus compare` and comparison unit tests |
 | Reduce seeded divergence on RISC-V, Arm and Xtensa | Missing | Deterministic reducer primitive exists, but no three-family end-to-end proof |
 | Publish coverage, fidelity, unsupported behavior, provenance and licences | Partial | Source-linked target manifests and build provenance exist; register coverage/licence dashboard is missing |
@@ -44,7 +44,19 @@ Status meanings:
 
 ## Most recent closure
 
-Phase 2 now meets its complete exit gate. The private-peripheral model advances
+Phase 3 now meets its complete exit gate. The pinned Espressif GCC default
+windowed ABI generates nested `call8`, `ENTRY`, and `RETW` sequences which run
+successfully at `-O0`, `-O2`, and `-Os`. The same freestanding ELF proof uses
+compiler-generated `S32C1I` atomics and single-precision FPU operations, takes
+a guest-raised level-one exception, returns through `RFE`, and executes or
+reads sections in IRAM, DRAM, IROM, and DROM. Each variant runs twice with an
+identical result, while a focused machine test proves CPU1 starts reset and
+parked. Build, disassembly, ELF, result, and unit-test hashes are bound in
+`qualification/xtensa-cpu.json`.
+
+## Previous Phase 2 closure
+
+Phase 2 meets its complete exit gate. The private-peripheral model advances
 a deterministic 24-bit SysTick and exposes all eight NVIC enable/pending banks
 for 240 external lines. Docker-built RP2040 and RP2350 ELFs take SysTick and
 bank-1 software-pended interrupts, stack architectural state, return through

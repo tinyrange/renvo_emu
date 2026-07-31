@@ -157,6 +157,23 @@ build_case esp32s3 toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtensa es
     -O2 main.c
 run_case esp32s3 esp32s3 "$artifact_root/esp32s3/smoke.elf"
 
+for optimization in o0 o2 os
+do
+    case "$optimization" in
+        o0) flag=-O0 ;;
+        o2) flag=-O2 ;;
+        os) flag=-Os ;;
+    esac
+    build_case "esp32s3-xtensa-$optimization" \
+        toolchains/xtensa-esp-gcc-esp32s3.toml \
+        corpus/smoke/xtensa-qualification esp32s3 \
+        "$flag" exception.S main.c
+    run_case "esp32s3-xtensa-$optimization" esp32s3 \
+        "$artifact_root/esp32s3-xtensa-$optimization/smoke.elf"
+    run_case "esp32s3-xtensa-$optimization-repeat" esp32s3 \
+        "$artifact_root/esp32s3-xtensa-$optimization/smoke.elf"
+done
+
 build_case esp32s3-uart toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtensa esp32s3 \
     -O2 uart.c
 run_case esp32s3-uart esp32s3 "$artifact_root/esp32s3-uart/smoke.elf"
@@ -197,6 +214,7 @@ grep -q '\$scope module pio0 ' "$artifact_root/rp2350-riscv-pio.vcd"
 scripts/generate-register-coverage.sh "$artifact_root" qualification/register-coverage
 scripts/generate-riscv-cpu-qualification.sh "$artifact_root" qualification/riscv-cpu.json
 scripts/generate-arm-cpu-qualification.sh "$artifact_root" qualification/arm-cpu.json
+scripts/generate-xtensa-cpu-qualification.sh "$artifact_root" qualification/xtensa-cpu.json
 scripts/qualify-stop-conditions.sh
 scripts/qualify-rust-abi.sh
 
