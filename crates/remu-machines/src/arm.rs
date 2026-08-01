@@ -44,6 +44,7 @@ pub struct ArmMachine {
     sio: RpSioHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
+    chip_uart1: UartHandle,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -300,7 +301,6 @@ impl ArmMachine {
                 Box::new(Rp2040RegisterBank::new("rp2040.io-qspi", vec![0; 64])),
             )?;
             for (name, base) in [
-                ("rp2040.uart1", 0x4003_8000),
                 ("rp2040.spi0", 0x4003_c000),
                 ("rp2040.spi1", 0x4004_0000),
                 ("rp2040.i2c0", 0x4004_4000),
@@ -413,7 +413,6 @@ impl ArmMachine {
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
             )?;
             for (name, base) in [
-                ("rp2350.uart1", 0x4007_8000),
                 ("rp2350.spi0", 0x4008_0000),
                 ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
@@ -571,6 +570,19 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
+        let uart1_base = match target {
+            TargetId::Rp2040 => 0x4003_8000,
+            TargetId::Rp2350 => 0x4007_8000,
+            _ => unreachable!(),
+        };
+        let (uart1_device, chip_uart1) =
+            FunctionalUart::new_lenient(format!("{target}.uart1"), 0x00, 0x18, 0x0090);
+        bus.map_device(
+            format!("{target}.uart1"),
+            uart1_base,
+            0x1000,
+            Box::new(uart1_device),
+        )?;
         let (pio0, handle) = RpPio::new(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
@@ -596,6 +608,7 @@ impl ArmMachine {
             sio,
             uart,
             chip_uart,
+            chip_uart1,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1450,6 +1463,7 @@ impl ArmMachine {
             uart: {
                 let mut bytes = self.uart.bytes();
                 bytes.extend(self.chip_uart.bytes());
+                bytes.extend(self.chip_uart1.bytes());
                 bytes
             },
             usb: self
@@ -1462,12 +1476,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
