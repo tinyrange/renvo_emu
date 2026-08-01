@@ -17,7 +17,8 @@ use remu_devices::{
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
     Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle,
+    TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -67,6 +68,20 @@ impl VendorTimer {
     }
 }
 
+enum VendorWatchdog {
+    Samd21(Samd21WdtHandle),
+    Stm32(Stm32WatchdogHandle),
+}
+
+impl VendorWatchdog {
+    fn take_reset(&self, now: SimTime) -> bool {
+        match self {
+            Self::Samd21(handle) => handle.take_reset(now),
+            Self::Stm32(handle) => handle.take_reset(now),
+        }
+    }
+}
+
 /// Direct-ELF Arm machine for vendor microcontrollers outside the Raspberry Pi family.
 pub struct ArmMcuMachine {
     target: TargetId,
@@ -80,7 +95,7 @@ pub struct ArmMcuMachine {
     timer: VendorTimer,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
-    watchdog: Option<Samd21WdtHandle>,
+    watchdog: Option<VendorWatchdog>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -256,7 +271,7 @@ impl ArmMcuMachine {
                     VendorTimer::Samd21(timer),
                     Some(eic),
                     None,
-                    Some(watchdog),
+                    Some(VendorWatchdog::Samd21(watchdog)),
                 )
             }
             TargetId::Stm32l432kc => {
@@ -282,11 +297,13 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (watchdog_device, watchdog) = Stm32Watchdog::new("stm32l432kc.iwdg");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    watchdog_device,
                 )?;
                 (
                     gpio,
@@ -294,7 +311,7 @@ impl ArmMcuMachine {
                     VendorTimer::Stm32(timer),
                     None,
                     None,
-                    None,
+                    Some(VendorWatchdog::Stm32(watchdog)),
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -410,6 +427,7 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        watchdog: Stm32Watchdog,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -474,6 +492,7 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device("stm32l432kc.iwdg", 0x4000_3000, 0x10, Box::new(watchdog))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;

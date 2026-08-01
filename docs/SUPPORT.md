@@ -259,3 +259,9 @@ The human-readable portfolio view is
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
+
+The STM32L432KC slice includes the native independent-watchdog window at
+`0x40003000`: key unlock/start/reload commands, prescaler and reload state,
+deterministic timeout reset requests, and integration with the Arm machine's
+watchdog reset path. Window watchdog timing and low-power clock behavior remain
+outside this functional boundary.
