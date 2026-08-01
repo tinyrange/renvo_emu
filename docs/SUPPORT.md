@@ -1038,3 +1038,8 @@ The STM32L432KC CRC slice maps the native data, independent-data, control,
 initial-value, and polynomial registers. It supports deterministic word feeds
 and exposes the current result for host-side qualification; DMA feeding and
 cycle-level AHB timing remain deferred.
+
+The STM32L432KC RTC slice maps the native calendar, prescaler, alarm, and
+write-protection registers. It advances deterministically on the abstract
+timeline and exposes alarm flags for qualification; oscillator drift, backup
+domain power behavior, tamper inputs, and subsecond fidelity remain deferred.

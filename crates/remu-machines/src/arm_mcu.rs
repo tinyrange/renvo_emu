@@ -20,8 +20,9 @@ use remu_devices::{
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
     Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32Crc, Stm32CrcHandle, Stm32Gpio,
-    Stm32I2c, Stm32I2cHandle, Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
+    Stm32I2c, Stm32I2cHandle, Stm32Rtc, Stm32RtcHandle, Stm32Spi, Stm32SpiHandle, Stm32Timer,
+    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle,
+    TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -115,6 +116,7 @@ pub struct ArmMcuMachine {
     stm32_i2c: Vec<(u16, Stm32I2cHandle)>,
     stm32_adc: Option<Stm32AdcHandle>,
     stm32_crc: Option<Stm32CrcHandle>,
+    stm32_rtc: Option<Stm32RtcHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -267,6 +269,7 @@ impl ArmMcuMachine {
         let mut stm32_spi = Vec::new();
         let mut stm32_adc = None;
         let mut stm32_crc = None;
+        let mut stm32_rtc = None;
         let (
             gpio,
             uart,
@@ -408,6 +411,8 @@ impl ArmMcuMachine {
                 stm32_adc = Some(adc);
                 let (crc_device, crc) = Stm32Crc::new("stm32l432kc.crc");
                 stm32_crc = Some(crc);
+                let (rtc_device, rtc) = Stm32Rtc::new("stm32l432kc.rtc");
+                stm32_rtc = Some(rtc);
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -422,6 +427,7 @@ impl ArmMcuMachine {
                     watchdog_device,
                     adc_device,
                     crc_device,
+                    rtc_device,
                 )?;
                 (
                     gpio,
@@ -507,6 +513,7 @@ impl ArmMcuMachine {
             stm32_i2c,
             stm32_adc,
             stm32_crc,
+            stm32_rtc,
             compiler_timer,
             exit,
             ppb,
@@ -627,6 +634,7 @@ impl ArmMcuMachine {
         watchdog: Stm32Watchdog,
         adc: Stm32Adc,
         crc: Stm32Crc,
+        rtc: Stm32Rtc,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -702,6 +710,7 @@ impl ArmMcuMachine {
         // (the 0x5000_0000 base is used by other MCU families).
         bus.map_device("stm32l432kc.adc1", 0x5004_0000, 0x400, Box::new(adc))?;
         bus.map_device("stm32l432kc.crc", 0x4002_3000, 0x400, Box::new(crc))?;
+        bus.map_device("stm32l432kc.rtc", 0x4000_2800, 0x400, Box::new(rtc))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -912,6 +921,11 @@ impl ArmMcuMachine {
     /// Returns the host-facing STM32 CRC state.
     pub fn crc(&self) -> Option<Stm32CrcHandle> {
         self.stm32_crc.clone()
+    }
+
+    /// Returns the host-facing STM32 RTC state.
+    pub fn rtc(&self) -> Option<Stm32RtcHandle> {
+        self.stm32_rtc.clone()
     }
 
     /// Reads guest-visible bytes for qualification and debugger adapters.
@@ -1643,6 +1657,27 @@ mod tests {
                 .unwrap() as u32,
             machine.crc().unwrap().value()
         );
+    }
+
+    #[test]
+    fn stm32l432_maps_rtc_calendar_and_alarm_registers() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine.rtc().unwrap().set_seconds(0);
+        machine
+            .bus
+            .write(0x4000_281c, AccessWidth::Word, 1 << 8, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4000_2818, AccessWidth::Word, 1 << 8, SimTime::ZERO)
+            .unwrap();
+        let _ = machine.bus.read(
+            0x4000_2800,
+            AccessWidth::Word,
+            AccessKind::Read,
+            SimTime::from_ticks(60),
+        );
+        assert!(machine.rtc().unwrap().alarm_flags().0);
     }
 
     #[test]
