@@ -211,6 +211,11 @@ impl AvrMcuMachine {
         self.gpio[port].set_input(local_pin, value, self.now)?;
         Ok(())
     }
+
+    /// Supplies the next byte returned by the ATmega328PB SPI0 master.
+    pub fn inject_spi_rx(&self, value: u8) {
+        self.io.inject_spi_rx(value);
+    }
     /// Current PORTB output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio[0].output()
@@ -405,5 +410,14 @@ mod tests {
         assert_eq!(result.reason, StopReason::Halted);
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(machine.gpio_output(), 1);
+    }
+
+    #[test]
+    fn atmega_maps_native_spi0_registers() {
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.inject_spi_rx(0x5a);
+        machine.debug_write_memory(0x4c, &[1 << 6]).unwrap();
+        machine.debug_write_memory(0x4e, &[0xa6]).unwrap();
+        assert_eq!(machine.debug_read_memory(0x4e, 1).unwrap(), [0x5a]);
     }
 }
