@@ -259,3 +259,9 @@ The human-readable portfolio view is
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
+
+The R7FA4M1AB3CFM model includes POEG groups A-D at `0x40042000`. Configuration,
+filtered input status, GPT/software output-disable requests, and clearable
+status flags are available through the native group registers and a deterministic
+host trigger API. Exact noise-filter sampling and GPT output gating latency are
+not modeled.
