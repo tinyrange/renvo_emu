@@ -26,6 +26,8 @@ const WDTCSR: u16 = 0x60;
 const PCICR: u16 = 0x68;
 const EICRA: u16 = 0x69;
 const PCMSK0: u16 = 0x6b;
+const PCMSK1: u16 = 0x6c;
+const PCMSK2: u16 = 0x6d;
 const TIMSK0: u16 = 0x6e;
 const TIMSK1: u16 = 0x6f;
 const TCCR1B: u16 = 0x81;
@@ -49,6 +51,7 @@ struct AtmegaState {
     timer1_started: u64,
     timer1_pending: bool,
     previous_pinb: u8,
+    previous_pinc: u8,
     previous_pind: u8,
     watchdog_started: u64,
     watchdog_reset: bool,
@@ -56,7 +59,10 @@ struct AtmegaState {
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
     pcint0_irq_signal: SignalId,
+    pcint1_irq_signal: SignalId,
+    pcint2_irq_signal: SignalId,
     int0_irq_signal: SignalId,
+    int1_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
 
@@ -124,9 +130,29 @@ impl AtmegaIoHandle {
             set_bit_signal(&state, state.pcint0_irq_signal, true, now);
             lines.push(2);
         }
+        let pinc = resolved(&state.ports[1]);
+        let changed = pinc ^ state.previous_pinc;
+        state.previous_pinc = pinc;
+        if changed & state.registers[usize::from(PCMSK1 - IO_BASE)] != 0
+            && state.registers[usize::from(PCICR - IO_BASE)] & (1 << 1) != 0
+        {
+            state.registers[usize::from(PCIFR - IO_BASE)] |= 1 << 1;
+            set_bit_signal(&state, state.pcint1_irq_signal, true, now);
+            lines.push(3);
+        }
         let pind = resolved(&state.ports[2]);
+        let changed = pind ^ state.previous_pind;
+        if changed & state.registers[usize::from(PCMSK2 - IO_BASE)] != 0
+            && state.registers[usize::from(PCICR - IO_BASE)] & (1 << 2) != 0
+        {
+            state.registers[usize::from(PCIFR - IO_BASE)] |= 1 << 2;
+            set_bit_signal(&state, state.pcint2_irq_signal, true, now);
+            lines.push(4);
+        }
         let old_int0 = state.previous_pind & (1 << 2) != 0;
         let new_int0 = pind & (1 << 2) != 0;
+        let old_int1 = state.previous_pind & (1 << 3) != 0;
+        let new_int1 = pind & (1 << 3) != 0;
         state.previous_pind = pind;
         let sense = state.registers[usize::from(EICRA - IO_BASE)] & 3;
         let int0_event = match sense {
@@ -139,6 +165,18 @@ impl AtmegaIoHandle {
             state.registers[usize::from(EIFR - IO_BASE)] |= 1;
             set_bit_signal(&state, state.int0_irq_signal, true, now);
             lines.push(0);
+        }
+        let sense = (state.registers[usize::from(EICRA - IO_BASE)] >> 4) & 3;
+        let int1_event = match sense {
+            0 => !new_int1,
+            1 => old_int1 != new_int1,
+            2 => old_int1 && !new_int1,
+            _ => !old_int1 && new_int1,
+        };
+        if int1_event && state.registers[usize::from(EIMSK - IO_BASE)] & (1 << 1) != 0 {
+            state.registers[usize::from(EIFR - IO_BASE)] |= 1 << 1;
+            set_bit_signal(&state, state.int1_irq_signal, true, now);
+            lines.push(1);
         }
         if state.registers[usize::from(WDTCSR - IO_BASE)] & (1 << 3) != 0
             && now.ticks().saturating_sub(state.watchdog_started) >= 2048
@@ -219,10 +257,25 @@ impl AtmegaIo {
             SignalValue::from_u64(0, 1)?,
             Some("pin-change interrupt group zero request".to_owned()),
         )?;
+        let pcint1_irq_signal = hub.declare(
+            "board.atmega328pb.interrupt.pcint1",
+            SignalValue::from_u64(0, 1)?,
+            Some("pin-change interrupt group one request".to_owned()),
+        )?;
+        let pcint2_irq_signal = hub.declare(
+            "board.atmega328pb.interrupt.pcint2",
+            SignalValue::from_u64(0, 1)?,
+            Some("pin-change interrupt group two request".to_owned()),
+        )?;
         let int0_irq_signal = hub.declare(
             "board.atmega328pb.interrupt.int0",
             SignalValue::from_u64(0, 1)?,
             Some("external interrupt zero request".to_owned()),
+        )?;
+        let int1_irq_signal = hub.declare(
+            "board.atmega328pb.interrupt.int1",
+            SignalValue::from_u64(0, 1)?,
+            Some("external interrupt one request".to_owned()),
         )?;
         let watchdog_reset_signal = hub.declare(
             "board.atmega328pb.watchdog.reset",
@@ -241,6 +294,7 @@ impl AtmegaIo {
             timer1_started: 0,
             timer1_pending: false,
             previous_pinb: 0,
+            previous_pinc: 0,
             previous_pind: 0,
             watchdog_started: 0,
             watchdog_reset: false,
@@ -248,7 +302,10 @@ impl AtmegaIo {
             timer0_irq_signal,
             timer1_irq_signal,
             pcint0_irq_signal,
+            pcint1_irq_signal,
+            pcint2_irq_signal,
             int0_irq_signal,
+            int1_irq_signal,
             watchdog_reset_signal,
         }));
         Ok((
@@ -370,11 +427,20 @@ impl Device for AtmegaIo {
                 if value & 1 != 0 {
                     set_bit_signal(&state, state.pcint0_irq_signal, false, at);
                 }
+                if value & (1 << 1) != 0 {
+                    set_bit_signal(&state, state.pcint1_irq_signal, false, at);
+                }
+                if value & (1 << 2) != 0 {
+                    set_bit_signal(&state, state.pcint2_irq_signal, false, at);
+                }
             }
             EIFR => {
                 state.registers[usize::from(EIFR - IO_BASE)] &= !value;
                 if value & 1 != 0 {
                     set_bit_signal(&state, state.int0_irq_signal, false, at);
+                }
+                if value & (1 << 1) != 0 {
+                    set_bit_signal(&state, state.int1_irq_signal, false, at);
                 }
             }
             UDR0 => {
@@ -415,11 +481,17 @@ impl Device for AtmegaIo {
         state.uart.clear();
         state.timer_pending = false;
         state.timer1_pending = false;
+        state.previous_pinb = 0;
+        state.previous_pinc = 0;
+        state.previous_pind = 0;
         state.watchdog_reset = false;
         set_bit_signal(&state, state.timer0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer1_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.pcint0_irq_signal, false, SimTime::ZERO);
+        set_bit_signal(&state, state.pcint1_irq_signal, false, SimTime::ZERO);
+        set_bit_signal(&state, state.pcint2_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.int0_irq_signal, false, SimTime::ZERO);
+        set_bit_signal(&state, state.int1_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.watchdog_reset_signal, false, SimTime::ZERO);
         for port in &state.ports {
             let mut port = port.lock().expect("ATmega GPIO lock poisoned");
@@ -482,5 +554,95 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15]);
+    }
+
+    #[test]
+    fn pin_change_groups_and_int1_report_distinct_interrupt_lines() {
+        let hub = SignalHub::new();
+        let (mut io, handle, ports) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        io.write(
+            u64::from(PCICR - IO_BASE),
+            AccessWidth::Byte,
+            (1 << 1) | (1 << 2),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(PCMSK1 - IO_BASE),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(PCMSK2 - IO_BASE),
+            AccessWidth::Byte,
+            1 << 4,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(EICRA - IO_BASE),
+            AccessWidth::Byte,
+            3 << 4,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(EIMSK - IO_BASE),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        ports[1].set_input(0, Logic::Zero, SimTime::ZERO).unwrap();
+        ports[2].set_input(3, Logic::Zero, SimTime::ZERO).unwrap();
+        ports[2].set_input(4, Logic::Zero, SimTime::ZERO).unwrap();
+        assert!(handle.poll(SimTime::ZERO).is_empty());
+        ports[1]
+            .set_input(0, Logic::One, SimTime::from_ticks(1))
+            .unwrap();
+        ports[2]
+            .set_input(3, Logic::One, SimTime::from_ticks(1))
+            .unwrap();
+        ports[2]
+            .set_input(4, Logic::One, SimTime::from_ticks(1))
+            .unwrap();
+        let lines = handle.poll(SimTime::from_ticks(1));
+        assert!(lines.contains(&1));
+        assert!(lines.contains(&3));
+        assert!(lines.contains(&4));
+        io.write(
+            u64::from(PCIFR - IO_BASE),
+            AccessWidth::Byte,
+            (1 << 1) | (1 << 2),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        io.write(
+            u64::from(EIFR - IO_BASE),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        assert_eq!(
+            io.read(
+                u64::from(PCIFR - IO_BASE),
+                AccessWidth::Byte,
+                SimTime::from_ticks(1),
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            io.read(
+                u64::from(EIFR - IO_BASE),
+                AccessWidth::Byte,
+                SimTime::from_ticks(1),
+            )
+            .unwrap(),
+            0
+        );
     }
 }
