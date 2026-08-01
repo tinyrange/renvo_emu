@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040WatchdogHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -55,6 +55,7 @@ pub struct ArmMachine {
     native_bootrom: bool,
     ppb: ArmPpbHandle,
     chip_timers: Vec<Rp2040TimerHandle>,
+    watchdog: Option<Rp2040WatchdogHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -118,6 +119,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut watchdog = None;
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -337,12 +339,15 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Pll::new("rp2040.pll-usb")),
             )?;
+            let (watchdog_device, watchdog_handle) =
+                Rp2040Watchdog::new_with_handle("rp2040.watchdog");
             bus.map_device(
                 "rp2040.watchdog",
                 0x4005_8000,
                 0x4000,
-                Box::new(Rp2040Watchdog::new("rp2040.watchdog")),
+                Box::new(watchdog_device),
             )?;
+            watchdog = Some(watchdog_handle);
             bus.map_device(
                 "rp2040.rtc",
                 0x4005_c000,
@@ -607,6 +612,7 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            watchdog,
             pio,
             usb,
             usb_dpram,
@@ -1229,6 +1235,13 @@ impl ArmMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
+            if self
+                .watchdog
+                .as_ref()
+                .is_some_and(|watchdog| watchdog.take_reset(self.now))
+            {
+                break StopReason::Fault("RP2040 watchdog reset".to_owned());
+            }
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }
@@ -1462,12 +1475,5 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+#[path = "arm_tests.rs"]
+mod tests;
