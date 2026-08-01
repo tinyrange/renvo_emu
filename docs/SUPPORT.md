@@ -90,6 +90,33 @@ Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
 
+## ATSAMD21 TCC PWM slice
+
+The ATSAMD21E18 model maps the three native timer/counter-for-control blocks:
+
+| Block | Base | Counter | Channels | NVIC | Waveform signals |
+|---|---:|---:|---:|---:|---|
+| TCC0 | `0x42002000` | 24-bit | CC0..CC3 | 15 | `board.atsamd21e18.tcc0.wo0..wo3` |
+| TCC1 | `0x42002400` | 24-bit | CC0..CC1 | 16 | `board.atsamd21e18.tcc1.wo0..wo1` |
+| TCC2 | `0x42002800` | 16-bit | CC0..CC1 | 17 | `board.atsamd21e18.tcc2.wo0..wo1` |
+
+The functional slice follows the SAM D21 native register layout: `CTRLA` at
+`0x00`, `DRVCTRL` at `0x18`, interrupt enable/flag registers at `0x24`,
+`0x28`, and `0x2c`, `COUNT` at `0x34`, `WAVE` at `0x3c`, `PER` at `0x40`,
+and `CCx` at `0x44 + 4*x`. `WAVE.WAVEGEN=NPWM (2)` produces deterministic
+single-slope PWM (`COUNT < CCx`), with the prescaler in `CTRLA.PRESCALER` and
+overflow/compare flags delivered to the corresponding NVIC line. `DRVCTRL`
+channel inversion is modeled for the exposed waveform outputs.
+
+This is a functional, abstract-time model rather than a clock-accurate TCC:
+capture, events, pin multiplexing, buffering/dithering, fault handling, DMA,
+and exact synchronization behavior remain deferred. The register offsets and
+interrupt assignments are sourced from the [Microchip SAM D21/DA1 family data
+sheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU32/ProductDocuments/DataSheets/SAM-D21DA1-Family-Data-Sheet-DS40001882H.pdf)
+and the [TCC control register](https://onlinedocs.microchip.com/oxy/GUID-22527069-B4D6-49B9-BACC-3AF1C52EB48C-en-US-21/GUID-1409C653-5590-455E-A0E4-A192C9A79E64.html)/[interrupt-enable
+register](https://onlinedocs.microchip.com/oxy/GUID-22527069-B4D6-49B9-BACC-3AF1C52EB48C-en-US-21/GUID-C563B168-632A-4339-A444-1F0519CD4F47.html)
+reference pages.
+
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
 decimal or `0x`-prefixed hexadecimal. A breakpoint stops before executing the
