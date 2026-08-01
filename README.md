@@ -175,12 +175,13 @@ COREMARK_OFFLINE=1 scripts/qualify-coremark.sh
 scripts/qualify-host-determinism.sh
 ```
 
-The default GitHub Actions workflow currently runs formatting, Clippy, all
-workspace tests, source-layout checks, and package-manifest validation. The
-larger Docker, native-image, MicroPython, CoreMark, and host-determinism gates
-remain explicit qualification commands with checked artifacts in the
-repository; moving reproducible subsets into scheduled public CI is follow-up
-work.
+The default GitHub Actions workflow runs formatting, Clippy, all workspace
+tests, source-layout checks, package-manifest validation, and a bounded machine
+smoke matrix covering RISC-V, Arm, Xtensa, AVR, MSP430, PIC16, and MCS-51.
+The larger Docker, native-image, MicroPython, CoreMark, and host-determinism
+gates remain explicit qualification commands with checked artifacts in the
+repository; moving those reproducible subsets into scheduled public CI is
+follow-up work.
 
 Read [CoreMark methodology and results](docs/COREMARK.md), the
 [1,000-case corpus notes](corpus/edge_cases/README.md), and the
