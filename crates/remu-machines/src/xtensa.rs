@@ -382,6 +382,7 @@ pub struct XtensaMachine {
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
+    windowed_handoff_pending: bool,
     appcpu_boot_address: Option<u32>,
     interrupt_routes: [[u8; 128]; 2],
     md5_contexts: BTreeMap<u32, Vec<u8>>,
@@ -719,6 +720,7 @@ impl XtensaMachine {
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
+            windowed_handoff_pending: false,
             appcpu_boot_address: None,
             interrupt_routes: [[u8::MAX; 128]; 2],
             md5_contexts: BTreeMap::new(),
@@ -736,6 +738,7 @@ impl XtensaMachine {
         if image.architecture != FirmwareArchitecture::Xtensa {
             return Err(XtensaMachineError::Architecture(image.architecture));
         }
+        self.windowed_handoff_pending = false;
         for segment in &image.segments {
             self.bus
                 .load(segment.address, &segment.data)
@@ -757,6 +760,7 @@ impl XtensaMachine {
         image: &EspFlashImage,
     ) -> Result<(), XtensaMachineError> {
         const PAGE_SIZE: u32 = 64 * 1024;
+        self.windowed_handoff_pending = true;
         for segment in &image.application.segments {
             self.bus
                 .load(u64::from(segment.address), &segment.data)
@@ -854,7 +858,7 @@ impl XtensaMachine {
                 })?;
         }
         self.cpu
-            .set_direct_state(self.stack, image.application.header.entry);
+            .set_windowed_entry_state(self.stack, image.application.header.entry);
         Ok(())
     }
 
@@ -1303,6 +1307,43 @@ impl XtensaMachine {
                     }
                     break StopReason::Fault(message);
                 }
+            }
+            if self.windowed_handoff_pending {
+                let pc = self.cpu.pc();
+                let instruction = match (
+                    self.bus.read(
+                        u64::from(pc),
+                        AccessWidth::HalfWord,
+                        AccessKind::Execute,
+                        self.now,
+                    ),
+                    self.bus.read(
+                        u64::from(pc.wrapping_add(2)),
+                        AccessWidth::Byte,
+                        AccessKind::Execute,
+                        self.now,
+                    ),
+                ) {
+                    (Ok(low), Ok(high)) => (low as u32) | ((high as u32) << 16),
+                    (Err(error), _) | (_, Err(error)) => {
+                        if running_cpu1 {
+                            std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                        }
+                        break StopReason::Fault(format!(
+                            "ESP32-S3 verified handoff fetch at {pc:#010x} failed: {error}"
+                        ));
+                    }
+                };
+                if instruction & 0x0000_0fff != 0x0136 {
+                    let (ps, depth) = self.cpu.window_state();
+                    if running_cpu1 {
+                        std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                    }
+                    break StopReason::Fault(format!(
+                        "ESP32-S3 verified handoff at {pc:#010x} requires ENTRY for CALLX8 window setup (PS={ps:#010x}, window_depth={depth})"
+                    ));
+                }
+                self.windowed_handoff_pending = false;
             }
             let outcome = match self.cpu.step(&mut self.bus, self.now) {
                 Ok(outcome) => outcome,

@@ -77,6 +77,12 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+Verified ESP32-S3 application images enter through a modeled `CALLX8`
+windowed-ABI handoff. The first application instruction must be `ENTRY`; the
+emulator reports the pending `PS.CALLINC` and window depth when that prologue
+is absent. Direct ELF loading remains the intentionally weaker debugging mode
+with synthetic direct state.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

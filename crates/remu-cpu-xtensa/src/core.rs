@@ -168,6 +168,16 @@ impl XtensaCpu {
         self.software_interrupts = 0;
     }
 
+    /// Establishes an ESP32-S3 verified-image handoff made through `CALLX8`.
+    ///
+    /// The application must begin with an `ENTRY` instruction; that
+    /// instruction consumes the pending CALLINC state and creates the first
+    /// logical register window.
+    pub fn set_windowed_entry_state(&mut self, stack: u32, entry: u32) {
+        self.set_direct_state(stack, entry);
+        self.ps = 2 << 16;
+    }
+
     /// Shares functional FreeRTOS task snapshots with another CPU.
     ///
     /// ESP-IDF may migrate a task between ESP32-S3's application cores. A
@@ -211,6 +221,11 @@ impl XtensaCpu {
             self.special_registers[226],
             self.special_registers[228],
         )
+    }
+
+    /// Returns the visible PS value and logical register-window depth.
+    pub fn window_state(&self) -> (u32, usize) {
+        (self.ps, self.window_stack.len())
     }
 
     /// Reports whether the core has explicitly entered `WAITI`.
