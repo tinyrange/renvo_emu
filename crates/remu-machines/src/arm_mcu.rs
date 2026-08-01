@@ -16,8 +16,8 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Rng, Stm32RngHandle,
+    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -80,6 +80,7 @@ pub struct ArmMcuMachine {
     timer: VendorTimer,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
+    rng: Option<Stm32RngHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
@@ -230,7 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, ra_icu, rng, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -255,6 +256,7 @@ impl ArmMcuMachine {
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
                     Some(eic),
+                    None,
                     None,
                     Some(watchdog),
                 )
@@ -282,11 +284,13 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (rng_device, rng) = Stm32Rng::new("stm32l432kc.rng");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    rng_device,
                 )?;
                 (
                     gpio,
@@ -294,6 +298,7 @@ impl ArmMcuMachine {
                     VendorTimer::Stm32(timer),
                     None,
                     None,
+                    Some(rng),
                     None,
                 )
             }
@@ -321,6 +326,7 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     None,
+                    None,
                 )
             }
             _ => unreachable!(),
@@ -338,6 +344,7 @@ impl ArmMcuMachine {
             timer,
             eic,
             ra_icu,
+            rng,
             watchdog,
             compiler_timer,
             exit,
@@ -410,6 +417,7 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        rng: Stm32Rng,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -427,6 +435,7 @@ impl ArmMcuMachine {
                 ],
             )),
         )?;
+        bus.map_device("stm32l432kc.rng", 0x5006_0800, 0x400, Box::new(rng))?;
         bus.map_device(
             "stm32l432kc.pwr",
             0x4000_7000,
@@ -652,6 +661,11 @@ impl ArmMcuMachine {
     /// Current vendor GPIO output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio.output()
+    }
+
+    /// Returns the host-facing STM32 RNG state.
+    pub fn rng(&self) -> Option<Stm32RngHandle> {
+        self.rng.clone()
     }
 
     /// Reads guest-visible bytes for qualification and debugger adapters.
@@ -957,6 +971,36 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_maps_rng_and_replays_seeded_value() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine.rng().unwrap().seed(0x1234_5678);
+        machine
+            .bus
+            .write(0x5006_0800, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        let first = machine
+            .bus
+            .read(
+                0x5006_0808,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine.rng().unwrap().seed(0x1234_5678);
+        let replay = machine
+            .bus
+            .read(
+                0x5006_0808,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(first, replay);
     }
 
     #[test]
