@@ -758,6 +758,25 @@ impl XtensaMachine {
     ) -> Result<(), XtensaMachineError> {
         const PAGE_SIZE: u32 = 64 * 1024;
         for segment in &image.application.segments {
+            let segment_end = usize::try_from(segment.flash_offset)
+                .ok()
+                .and_then(|start| start.checked_add(segment.data.len()))
+                .ok_or_else(|| XtensaMachineError::Load {
+                    address: u64::from(segment.address),
+                    message: "ESP application segment flash range overflows the host address space"
+                        .to_owned(),
+                })?;
+            if segment_end > self.flash.len() {
+                return Err(XtensaMachineError::Load {
+                    address: u64::from(segment.address),
+                    message: format!(
+                        "ESP application segment flash range {:#x}..{:#x} exceeds simulated flash size {:#x}",
+                        segment.flash_offset,
+                        segment_end,
+                        self.flash.len()
+                    ),
+                });
+            }
             self.bus
                 .load(u64::from(segment.address), &segment.data)
                 .map_err(|error| XtensaMachineError::Load {

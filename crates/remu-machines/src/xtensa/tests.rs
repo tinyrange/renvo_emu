@@ -1,4 +1,72 @@
 use super::*;
+use remu_image::{
+    EspExecutableImage, EspFlashImage, EspImageHeader, EspImageSegment, EspPartition,
+    EspPartitionTable,
+};
+
+fn merged_flash_image() -> EspFlashImage {
+    let header = EspImageHeader {
+        segment_count: 3,
+        flash_mode: 0,
+        flash_size_frequency: 0,
+        entry: 0x4200_0020,
+        write_protect_pin: 0,
+        drive_settings: [0; 3],
+        chip_id: 9,
+        minimum_revision_legacy: 0,
+        minimum_revision: 0,
+        maximum_revision: u16::MAX,
+        hash_appended: false,
+    };
+    let application = EspExecutableImage {
+        flash_offset: 0x10_000,
+        header: header.clone(),
+        segments: vec![
+            EspImageSegment {
+                address: 0x4200_0020,
+                flash_offset: 0x10_020,
+                data: vec![0x11, 0x22, 0x33, 0x44],
+            },
+            EspImageSegment {
+                address: 0x3c00_1000,
+                flash_offset: 0x11_000,
+                data: vec![0xa1, 0xb2, 0xc3, 0xd4],
+            },
+            EspImageSegment {
+                address: 0x3fc8_0000,
+                flash_offset: 0x12_000,
+                data: vec![0x55, 0x66, 0x77, 0x88],
+            },
+        ],
+        checksum: 0,
+        appended_sha256: None,
+        end_offset: 0x12_100,
+    };
+    let application_partition = EspPartition {
+        partition_type: 0,
+        subtype: 0,
+        offset: 0x10_000,
+        size: 0x20_000,
+        label: "factory".to_owned(),
+        flags: 0,
+    };
+    EspFlashImage {
+        bootloader: EspExecutableImage {
+            flash_offset: 0,
+            header,
+            segments: Vec::new(),
+            checksum: 0,
+            appended_sha256: None,
+            end_offset: 0,
+        },
+        partition_table: EspPartitionTable {
+            partitions: vec![application_partition.clone()],
+            has_md5: false,
+        },
+        application,
+        application_partition,
+    }
+}
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -28,4 +96,63 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
     host.output
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
+}
+
+#[test]
+fn esp32s3_flash_application_loads_xip_and_dram_segments() {
+    let image = merged_flash_image();
+    let mut flash = vec![0xff; 0x13_000];
+    flash[0x10_020..0x10_024].copy_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+    flash[0x11_000..0x11_004].copy_from_slice(&[0xa1, 0xb2, 0xc3, 0xd4]);
+
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine.set_esp_flash_image(&flash);
+    machine.load_esp_application(&image).unwrap();
+    machine.apply_pending_mmu_mappings().unwrap();
+
+    assert_eq!(
+        machine.debug_read_memory(0x4200_0020, 4).unwrap(),
+        vec![0x11, 0x22, 0x33, 0x44]
+    );
+    assert_eq!(
+        machine.debug_read_memory(0x3c00_1000, 4).unwrap(),
+        vec![0xa1, 0xb2, 0xc3, 0xd4]
+    );
+    assert_eq!(
+        machine.debug_read_memory(0x3fc8_0000, 4).unwrap(),
+        vec![0x55, 0x66, 0x77, 0x88]
+    );
+    assert_eq!(machine.debug_snapshot().pc, 0x4200_0020);
+}
+
+#[test]
+fn esp32s3_flash_application_rejects_noncongruent_xip_segments() {
+    let mut image = merged_flash_image();
+    image.application.segments[0].flash_offset = 0x10_001;
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine.set_esp_flash_image(&[0xff; 0x20_000]);
+    let error = machine.load_esp_application(&image).unwrap_err();
+    assert!(matches!(
+        error,
+        XtensaMachineError::Load {
+            address: 0x4200_0020,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn esp32s3_flash_application_rejects_segments_outside_simulated_flash() {
+    let mut image = merged_flash_image();
+    image.application.segments[0].flash_offset = 16 * 1024 * 1024;
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine.set_esp_flash_image(&[0xff; 0x20_000]);
+    let error = machine.load_esp_application(&image).unwrap_err();
+    assert!(matches!(
+        error,
+        XtensaMachineError::Load {
+            address: 0x4200_0020,
+            ..
+        }
+    ));
 }
