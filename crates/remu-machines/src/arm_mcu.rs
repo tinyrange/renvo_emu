@@ -353,6 +353,7 @@ impl ArmMcuMachine {
                     Vec::new(),
                     None,
                     None,
+                    None,
                     Some(watchdog),
                 )
             }
@@ -401,6 +402,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     Vec::new(),
+                    None,
                     None,
                     None,
                     None,
@@ -1515,6 +1517,32 @@ mod tests {
                 0x80
             );
         }
+    }
+
+    #[test]
+    fn ra4m1_maps_crc_calculator_registers() {
+        let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+        machine
+            .bus
+            .write(0x4007_4000, AccessWidth::Byte, 1 | (1 << 6), SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4007_4004, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.crc_value(), Some(0x07));
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4007_4008,
+                    AccessWidth::Byte,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x07
+        );
     }
 }
 

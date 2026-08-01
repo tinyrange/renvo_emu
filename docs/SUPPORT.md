@@ -489,6 +489,12 @@ exact SPI clock timing remain deferred. Register choices follow the [CH32V003
 reference material](https://www.wch-ic.com/downloads/CH32V003RM_PDF.html) and
 the [CH32V006 reference material](https://www.wch-ic.com/downloads/CH32V00XRM_PDF.html).
 
+The R7FA4M1AB3CFM model includes the RA4M1 CRC calculator at `0x40074000`.
+CRCCR0 selects CRC-8, CRC-16, CRC-CCITT, CRC-32, or CRC-32C and the LMS bit
+selects MSB-first or LSB-first processing. CRCDIR/CRCDOR streaming, the clear
+control, CRCCR1, and the snoop-address register are modeled. The calculator
+is deterministic and functional; automatic bus snooping is not yet enabled.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
