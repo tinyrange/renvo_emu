@@ -9,17 +9,17 @@ The smoke firmware checks the native MSP430 ABI (`int` and data pointers are
 16 bits), startup and data initialization, calls and recursion, switch
 lowering, 32-bit division helpers, volatile MMIO, CPUX instructions, interrupt
 entry/return and FRAM persistence. GPIO edge input, Timer_A low-power wake,
-eUSCI_A0 transmit and watchdog configuration are exercised. The same source is
-compiled at `-O0`, `-Os` and `-O2`; each binary emits `MSP430X-FR2433\n` and
+eUSCI_A0/A1 transmit and watchdog configuration are exercised. The same source
+is compiled at `-O0`, `-Os` and `-O2`; each binary emits `MSP430X-FR2433\n` and
 halts with R12 equal to zero.
 
 Implemented functionally: the CPUXv2 integer/interruption subset emitted by the
 pinned toolchain, the 20-bit unified address space, reset vectors, FRAM and
 SRAM, PM5 GPIO lock behavior, Ports 1–3, Port 1 edge interrupts, Timer0_A CCR0,
-eUSCI_A0 UART transmit/receive loopback, WDT_A reset and persistent FRAM.
-Clock-tree, timer prescaling and UART bit timing are deterministic
-approximations. Analog peripherals and unlisted serial modes are outside this
-acceptance slice.
+eUSCI_A0 and eUSCI_A1 UART transmit/receive loopback, WDT_A reset and persistent
+FRAM. Clock-tree, timer prescaling and UART bit timing are deterministic
+approximations. eUSCI_A1 IrDA, pin routing, SPI mode and analog peripherals are
+outside this acceptance slice.
 
 Run from the repository root:
 
