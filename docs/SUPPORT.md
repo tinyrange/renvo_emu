@@ -13,7 +13,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
-| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
+| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, PMP CSR visibility, and PARLIO sample-stream registers |
 
 All targets also expose a stable compiler-test block:
 
@@ -238,6 +238,13 @@ ESP32-C6 application RAM powers on with the deterministic nonzero byte pattern
 segments, leaving each `p_memsz - p_filesz` tail poisoned. Firmware must
 therefore perform its own `.bss` initialization, as it must on hardware. Other
 targets retain their existing reset-memory policy.
+
+ESP32-C6 PARLIO0 exposes native RX/TX configuration, status, interrupt, clock,
+and version registers. Because silicon moves samples through GDMA, remu
+documents offset `0x24` as a deterministic 16-bit FIFO aperture for host and
+firmware fixtures and emits TX/RX sample values through VCD signals. Parallel
+pin timing, GDMA descriptor ownership, and external-enable pulse fidelity
+remain unsupported.
 
 The native-image boundary covers every target advertised by `remu targets`.
 RP targets consume UF2 and preserve their Arm/RISC-V boot selection; Espressif

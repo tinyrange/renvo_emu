@@ -524,3 +524,45 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+#[test]
+fn esp_parlio_host_and_firmware_sample_streams_are_observable() {
+    let hub = SignalHub::new();
+    let (mut parlio, handle) =
+        EspParlio::new("parlio", "board.esp32c6.parlio", hub.clone()).unwrap();
+
+    parlio
+        .write(0x14, AccessWidth::Word, 0x07, SimTime::ZERO)
+        .unwrap();
+    parlio
+        .write(0x24, AccessWidth::Word, 0x1234, SimTime::from_ticks(1))
+        .unwrap();
+    assert_eq!(handle.take_tx_words(), vec![0x1234]);
+    assert_ne!(
+        parlio
+            .read(0x1c, AccessWidth::Word, SimTime::from_ticks(1))
+            .unwrap()
+            & 0x04,
+        0
+    );
+
+    handle.queue_rx_word(0xabcd);
+    assert!(handle.rx_available());
+    assert_eq!(
+        parlio
+            .read(0x24, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap(),
+        0xabcd
+    );
+    assert!(!handle.rx_available());
+    parlio
+        .write(0x20, AccessWidth::Word, 0x07, SimTime::from_ticks(2))
+        .unwrap();
+    assert_eq!(
+        parlio
+            .read(0x1c, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap()
+            & 0x04,
+        0
+    );
+}

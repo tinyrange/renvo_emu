@@ -237,3 +237,45 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn esp32c6_parlio_native_window_exposes_version_and_vcd_signals() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_5000 + 0x3fc,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        35_660_352
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_5000 + 0x10,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & (1 << 31),
+        1 << 31
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32c6.parlio.tx"))
+            .is_some()
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32c6.parlio.rx"))
+            .is_some()
+    );
+}
