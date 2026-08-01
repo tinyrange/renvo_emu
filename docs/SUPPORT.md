@@ -77,6 +77,25 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+## MSP430FR2433 eUSCI_B0 SPI slice
+
+The MSP430FR2433 model exposes the native eUSCI_B0 register window beginning at
+`0x0540`: `UCB0CTLW0` (`0x0540`), `UCB0STATW` (`0x0548`), `UCB0RXBUF`
+(`0x054c`), `UCB0TXBUF` (`0x054e`), `UCB0IE` (`0x056a`), `UCB0IFG`
+(`0x056c`), and `UCB0IV` (`0x056e`). In synchronous master SPI mode, writing
+`UCB0TXBUF` completes a deterministic full-duplex transfer, captures the MOSI
+byte, and places either an injected MISO byte or an echo in `UCB0RXBUF`.
+`UCB0IE`/`UCB0IFG` deliver the eUSCI_B0 vector at `0xffe0`.
+
+Host tests can provide the next MISO byte through the peripheral handle, while
+VCD exposes `board.msp430fr2433.spi0.tx_byte`,
+`board.msp430fr2433.spi0.rx_byte`, and `board.msp430fr2433.spi0.tx_strobe`.
+This is a functional SPI transfer model; I2C protocol state, pin-multiplexing,
+chip-select wiring, and exact serial timing remain deferred. Register addresses
+and reset semantics follow the [MSP430FR2433 data
+sheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf) and [MSP430FR2xx/
+FR4xx user's guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
