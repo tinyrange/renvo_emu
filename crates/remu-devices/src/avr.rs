@@ -36,6 +36,8 @@ const OCR1AH: u16 = 0x89;
 const UCSR0A: u16 = 0xc0;
 const UCSR0B: u16 = 0xc1;
 const UDR0: u16 = 0xc6;
+const UCSR1A: u16 = 0xc8;
+const UDR1: u16 = 0xce;
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -43,6 +45,7 @@ struct AtmegaState {
     port_signals: [Vec<SignalId>; 3],
     hub: SignalHub,
     uart: Vec<u8>,
+    uart1: Vec<u8>,
     eeprom: Vec<u8>,
     timer_started: u64,
     timer_pending: bool,
@@ -53,6 +56,7 @@ struct AtmegaState {
     watchdog_started: u64,
     watchdog_reset: bool,
     uart_tx_signal: SignalId,
+    uart1_tx_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
     pcint0_irq_signal: SignalId,
@@ -71,6 +75,15 @@ impl AtmegaIoHandle {
             .lock()
             .expect("ATmega I/O lock poisoned")
             .uart
+            .clone()
+    }
+
+    /// Captured USART1 bytes.
+    pub fn uart1_bytes(&self) -> Vec<u8> {
+        self.0
+            .lock()
+            .expect("ATmega I/O lock poisoned")
+            .uart1
             .clone()
     }
 
@@ -204,6 +217,11 @@ impl AtmegaIo {
             SignalValue::from_u64(0, 8)?,
             Some("last byte written to USART0 UDR".to_owned()),
         )?;
+        let uart1_tx_signal = hub.declare(
+            "board.atmega328pb.usart1.tx_byte",
+            SignalValue::from_u64(0, 8)?,
+            Some("last byte written to USART1 UDR".to_owned()),
+        )?;
         let timer0_irq_signal = hub.declare(
             "board.atmega328pb.timer0.overflow_irq",
             SignalValue::from_u64(0, 1)?,
@@ -235,6 +253,7 @@ impl AtmegaIo {
             port_signals: [signals_b, signals_c, signals_d],
             hub,
             uart: Vec::new(),
+            uart1: Vec::new(),
             eeprom: vec![0xff; 1024],
             timer_started: 0,
             timer_pending: false,
@@ -245,6 +264,7 @@ impl AtmegaIo {
             watchdog_started: 0,
             watchdog_reset: false,
             uart_tx_signal,
+            uart1_tx_signal,
             timer0_irq_signal,
             timer1_irq_signal,
             pcint0_irq_signal,
@@ -313,6 +333,7 @@ impl Device for AtmegaIo {
         }
         let value = match address {
             UCSR0A => state.registers[usize::from(address - IO_BASE)] | (1 << 5) | (1 << 6),
+            UCSR1A => state.registers[usize::from(address - IO_BASE)] | (1 << 5) | (1 << 6),
             EEDR => state.registers[usize::from(EEDR - IO_BASE)],
             _ => state.registers[usize::from(address - IO_BASE)],
         };
@@ -389,6 +410,18 @@ impl Device for AtmegaIo {
                     )
                     .expect("ATmega USART signal identity and width are fixed");
             }
+            UDR1 => {
+                state.uart1.push(value);
+                state
+                    .hub
+                    .set(
+                        state.uart1_tx_signal,
+                        SignalValue::from_u64(u64::from(value), 8)
+                            .expect("eight-bit signal is valid"),
+                        at,
+                    )
+                    .expect("ATmega USART1 signal identity and width are fixed");
+            }
             EECR => {
                 let address = usize::from(state.registers[usize::from(EEARL - IO_BASE)])
                     | (usize::from(state.registers[usize::from(EEARH - IO_BASE)] & 3) << 8);
@@ -413,6 +446,7 @@ impl Device for AtmegaIo {
         let mut state = self.state.lock().expect("ATmega I/O lock poisoned");
         state.registers.fill(0);
         state.uart.clear();
+        state.uart1.clear();
         state.timer_pending = false;
         state.timer1_pending = false;
         state.watchdog_reset = false;
@@ -482,5 +516,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15]);
+    }
+
+    #[test]
+    fn second_usart_captures_transmit_data_and_reports_ready() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        io.write(
+            u64::from(UDR1 - IO_BASE),
+            AccessWidth::Byte,
+            b'Z'.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(handle.uart1_bytes(), b"Z");
+        assert_eq!(
+            io.read(
+                u64::from(UCSR1A - IO_BASE),
+                AccessWidth::Byte,
+                SimTime::ZERO
+            )
+            .unwrap() as u8
+                & (1 << 5),
+            1 << 5
+        );
     }
 }
