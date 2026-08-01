@@ -16,8 +16,8 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32Gpio,
+    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -80,6 +80,7 @@ pub struct ArmMcuMachine {
     timer: VendorTimer,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
+    adc: Option<Stm32AdcHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
@@ -230,7 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, ra_icu, adc, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -255,6 +256,7 @@ impl ArmMcuMachine {
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
                     Some(eic),
+                    None,
                     None,
                     Some(watchdog),
                 )
@@ -282,11 +284,13 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (adc_device, adc) = Stm32Adc::new("stm32l432kc.adc1");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    adc_device,
                 )?;
                 (
                     gpio,
@@ -294,6 +298,7 @@ impl ArmMcuMachine {
                     VendorTimer::Stm32(timer),
                     None,
                     None,
+                    Some(adc),
                     None,
                 )
             }
@@ -321,6 +326,7 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     None,
+                    None,
                 )
             }
             _ => unreachable!(),
@@ -338,6 +344,7 @@ impl ArmMcuMachine {
             timer,
             eic,
             ra_icu,
+            adc,
             watchdog,
             compiler_timer,
             exit,
@@ -410,6 +417,7 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        adc: Stm32Adc,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -474,6 +482,7 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device("stm32l432kc.adc1", 0x5000_0000, 0x400, Box::new(adc))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -652,6 +661,11 @@ impl ArmMcuMachine {
     /// Current vendor GPIO output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio.output()
+    }
+
+    /// Returns the host-facing STM32 ADC1 sample handle.
+    pub fn adc(&self) -> Option<Stm32AdcHandle> {
+        self.adc.clone()
     }
 
     /// Reads guest-visible bytes for qualification and debugger adapters.
@@ -957,6 +971,37 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_maps_adc1_and_converts_scripted_input() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine.adc().unwrap().set_input(4, 0x0abc);
+        machine
+            .bus
+            .write(0x5000_0030, AccessWidth::Word, 4 << 6, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x5000_0008, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x5000_0008, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.adc().unwrap().value(), 0x0abc);
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x5000_0040,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0abc
+        );
     }
 
     #[test]
