@@ -20,9 +20,9 @@ use remu_devices::{
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
     Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32Crc, Stm32CrcHandle, Stm32Gpio,
-    Stm32I2c, Stm32I2cHandle, Stm32Rtc, Stm32RtcHandle, Stm32Spi, Stm32SpiHandle, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle,
-    TimerHandle, UartHandle,
+    Stm32I2c, Stm32I2cHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc, Stm32RtcHandle, Stm32Spi,
+    Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, Stm32Watchdog,
+    Stm32WatchdogHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -117,6 +117,7 @@ pub struct ArmMcuMachine {
     stm32_adc: Option<Stm32AdcHandle>,
     stm32_crc: Option<Stm32CrcHandle>,
     stm32_rtc: Option<Stm32RtcHandle>,
+    stm32_rng: Option<Stm32RngHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -270,6 +271,7 @@ impl ArmMcuMachine {
         let mut stm32_adc = None;
         let mut stm32_crc = None;
         let mut stm32_rtc = None;
+        let mut stm32_rng = None;
         let (
             gpio,
             uart,
@@ -413,6 +415,8 @@ impl ArmMcuMachine {
                 stm32_crc = Some(crc);
                 let (rtc_device, rtc) = Stm32Rtc::new("stm32l432kc.rtc");
                 stm32_rtc = Some(rtc);
+                let (rng_device, rng) = Stm32Rng::new("stm32l432kc.rng");
+                stm32_rng = Some(rng);
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -428,6 +432,7 @@ impl ArmMcuMachine {
                     adc_device,
                     crc_device,
                     rtc_device,
+                    rng_device,
                 )?;
                 (
                     gpio,
@@ -514,6 +519,7 @@ impl ArmMcuMachine {
             stm32_adc,
             stm32_crc,
             stm32_rtc,
+            stm32_rng,
             compiler_timer,
             exit,
             ppb,
@@ -635,6 +641,7 @@ impl ArmMcuMachine {
         adc: Stm32Adc,
         crc: Stm32Crc,
         rtc: Stm32Rtc,
+        rng: Stm32Rng,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -652,6 +659,7 @@ impl ArmMcuMachine {
                 ],
             )),
         )?;
+        bus.map_device("stm32l432kc.rng", 0x5006_0800, 0x400, Box::new(rng))?;
         bus.map_device(
             "stm32l432kc.pwr",
             0x4000_7000,
@@ -926,6 +934,11 @@ impl ArmMcuMachine {
     /// Returns the host-facing STM32 RTC state.
     pub fn rtc(&self) -> Option<Stm32RtcHandle> {
         self.stm32_rtc.clone()
+    }
+
+    /// Returns the host-facing STM32 RNG state.
+    pub fn rng(&self) -> Option<Stm32RngHandle> {
+        self.stm32_rng.clone()
     }
 
     /// Reads guest-visible bytes for qualification and debugger adapters.
@@ -1691,6 +1704,36 @@ mod tests {
             SimTime::from_ticks(60),
         );
         assert!(machine.rtc().unwrap().alarm_flags().0);
+    }
+
+    #[test]
+    fn stm32l432_maps_rng_and_replays_seeded_value() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine.rng().unwrap().seed(0x1234_5678);
+        machine
+            .bus
+            .write(0x5006_0800, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        let first = machine
+            .bus
+            .read(
+                0x5006_0808,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine.rng().unwrap().seed(0x1234_5678);
+        let replay = machine
+            .bus
+            .read(
+                0x5006_0808,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(first, replay);
     }
 
     #[test]

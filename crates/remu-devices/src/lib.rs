@@ -221,6 +221,8 @@ mod stm32_crc;
 pub use stm32_crc::*;
 mod stm32_rtc;
 pub use stm32_rtc::*;
+mod stm32_rng;
+pub use stm32_rng::*;
 mod ra;
 pub use ra::*;
 mod avr;

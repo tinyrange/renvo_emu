@@ -945,6 +945,11 @@ levels. TC4/5 and SERCOM1–3 reuse their audited instance-generic functional
 models with the vendor IRQs. RTC calendar modes, TCC capture/fault/dead-time
 and exact clock/prescaler timing remain outside this support boundary.
 
+The STM32L432KC model includes the deterministic RNG at `0x50060800`. It
+models native enable/status/data registers with a replayable host-seeded stream
+for CI; this is an observability-friendly deterministic model, not a
+cryptographic entropy source or silicon noise model.
+
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the
 corresponding esptool application binary with `--esp-app-image` enables a
