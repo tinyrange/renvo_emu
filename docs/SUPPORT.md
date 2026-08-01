@@ -867,6 +867,14 @@ registers (`UDR0` at `0xc6` and `UDR1` at `0xce`), with native USART1
 enable/ready/complete status and separate trace signals. Receive, baud-rate
 timing, and modem-control fidelity remain outside this functional CI slice.
 
+## STM32L432KC SPI1/SPI3 slice
+
+The STM32L432KC map includes native SPI1 at `0x4001_3000` and SPI3 at
+`0x4000_3c00`. The functional slice covers CR1/CR2/SR/DR, enabled master-mode
+full-duplex transfers, deterministic injected-or-echoed MISO, TXE/RXNE status,
+and the SPI1 (35) and SPI3 (51) interrupt lines. Alternate-function pin routing,
+chip-select policy, DMA, CRC, I2S, and exact clock/baud timing remain deferred.
+
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
 bus logs, verifies the portfolio, and regenerates all six manifests. The

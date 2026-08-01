@@ -386,6 +386,126 @@ impl Device for Stm32Usart {
     }
 }
 
+const SPI_CR1_MSTR: u32 = 1 << 2;
+const SPI_CR1_SPE: u32 = 1 << 6;
+const SPI_CR2_RXNEIE: u32 = 1 << 6;
+const SPI_CR2_TXEIE: u32 = 1 << 7;
+const SPI_SR_RXNE: u32 = 1 << 0;
+const SPI_SR_TXE: u32 = 1 << 1;
+
+#[derive(Default)]
+struct SpiState {
+    cr1: u32,
+    cr2: u32,
+    sr: u32,
+    dr: u8,
+    tx: Vec<u8>,
+    rx: VecDeque<u8>,
+}
+
+/// Host handle for one STM32 SPI controller.
+#[derive(Clone)]
+pub struct Stm32SpiHandle(Arc<Mutex<SpiState>>);
+
+impl Stm32SpiHandle {
+    /// Returns bytes shifted out through MOSI.
+    pub fn tx_bytes(&self) -> Vec<u8> {
+        self.0.lock().expect("SPI lock poisoned").tx.clone()
+    }
+
+    /// Queues the next byte returned through MISO.
+    pub fn inject_rx(&self, value: u8) {
+        let mut state = self.0.lock().expect("SPI lock poisoned");
+        state.rx.push_back(value);
+        state.sr |= SPI_SR_RXNE;
+    }
+
+    /// Returns whether an enabled status source requests an interrupt.
+    pub fn interrupt_pending(&self) -> bool {
+        let state = self.0.lock().expect("SPI lock poisoned");
+        state.cr1 & SPI_CR1_SPE != 0
+            && ((state.sr & SPI_SR_RXNE != 0 && state.cr2 & SPI_CR2_RXNEIE != 0)
+                || (state.sr & SPI_SR_TXE != 0 && state.cr2 & SPI_CR2_TXEIE != 0))
+    }
+}
+
+/// Functional STM32L4 SPI master/full-duplex register slice.
+pub struct Stm32Spi {
+    name: String,
+    state: Arc<Mutex<SpiState>>,
+    registers: [u32; 8],
+}
+
+impl Stm32Spi {
+    /// Constructs one SPI controller and its host handle.
+    pub fn new(name: impl Into<String>) -> (Self, Stm32SpiHandle) {
+        let state = Arc::new(Mutex::new(SpiState {
+            sr: SPI_SR_TXE,
+            ..SpiState::default()
+        }));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+                registers: [0; 8],
+            },
+            Stm32SpiHandle(state),
+        )
+    }
+}
+
+impl Device for Stm32Spi {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        let state = self.state.lock().expect("SPI lock poisoned");
+        Ok(match offset {
+            0x00 => u64::from(state.cr1),
+            0x04 => u64::from(state.cr2),
+            0x08 => u64::from(state.sr),
+            0x0c => u64::from(state.dr),
+            _ => u64::from(self.registers[usize::try_from(offset / 4).unwrap_or(0).min(7)]),
+        } & width.value_mask())
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        _width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let mut state = self.state.lock().expect("SPI lock poisoned");
+        let value = value as u32;
+        match offset {
+            0x00 => state.cr1 = value,
+            0x04 => state.cr2 = value,
+            0x08 => state.sr &= !(value & SPI_SR_RXNE),
+            0x0c => {
+                state.dr = value as u8;
+                if state.cr1 & (SPI_CR1_SPE | SPI_CR1_MSTR) == (SPI_CR1_SPE | SPI_CR1_MSTR) {
+                    let mosi = state.dr;
+                    state.tx.push(mosi);
+                    state.dr = state.rx.pop_front().unwrap_or(mosi);
+                    state.sr |= SPI_SR_TXE | SPI_SR_RXNE;
+                }
+            }
+            _ => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(7)] = value,
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        *self.state.lock().expect("SPI lock poisoned") = SpiState {
+            sr: SPI_SR_TXE,
+            ..SpiState::default()
+        };
+        self.registers = [0; 8];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,5 +561,33 @@ mod tests {
             u64::from(b'R')
         );
         assert!(!handle.interrupt_pending());
+    }
+
+    #[test]
+    fn spi_master_transfer_exposes_status_and_miso() {
+        let (mut spi, handle) = Stm32Spi::new("spi1");
+        spi.write(
+            0x00,
+            AccessWidth::Word,
+            u64::from(SPI_CR1_SPE | SPI_CR1_MSTR),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        spi.write(
+            0x04,
+            AccessWidth::Word,
+            u64::from(SPI_CR2_RXNEIE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        handle.inject_rx(0xa5);
+        spi.write(0x0c, AccessWidth::Word, 0x3c, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.tx_bytes(), [0x3c]);
+        assert!(handle.interrupt_pending());
+        assert_eq!(
+            spi.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0xa5
+        );
     }
 }

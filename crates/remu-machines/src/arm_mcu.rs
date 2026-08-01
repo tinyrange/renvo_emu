@@ -19,8 +19,8 @@ use remu_devices::{
     Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle,
+    Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -88,6 +88,7 @@ pub struct ArmMcuMachine {
     samd_tc_irqs: Vec<(u16, Samd21TcHandle)>,
     samd_tcc_irqs: Vec<(u16, Samd21TccHandle)>,
     samd_rtc: Option<Samd21RtcHandle>,
+    stm32_spi: Vec<(u16, Stm32SpiHandle)>,
     eic: Option<Samd21EicHandle>,
     dmac: Option<Samd21DmacHandle>,
     i2s: Option<Samd21I2sHandle>,
@@ -245,6 +246,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
+        let mut stm32_spi = Vec::new();
         let (
             gpio,
             uart,
@@ -374,6 +376,9 @@ impl ArmMcuMachine {
                 let (usart1_device, usart1) = Stm32Usart::new("stm32l432kc.usart1");
                 let (usart2_device, usart2) = Stm32Usart::new("stm32l432kc.usart2");
                 let (lpuart1_device, lpuart1) = Stm32Usart::new("stm32l432kc.lpuart1");
+                let (spi1_device, spi1) = Stm32Spi::new("stm32l432kc.spi1");
+                let (spi3_device, spi3) = Stm32Spi::new("stm32l432kc.spi3");
+                stm32_spi.extend([(35, spi1), (51, spi3)]);
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -381,6 +386,8 @@ impl ArmMcuMachine {
                     usart1_device,
                     usart2_device,
                     lpuart1_device,
+                    spi1_device,
+                    spi3_device,
                 )?;
                 (
                     gpio,
@@ -452,6 +459,7 @@ impl ArmMcuMachine {
             samd_tc_irqs,
             samd_tcc_irqs,
             samd_rtc,
+            stm32_spi,
             eic,
             dmac,
             i2s,
@@ -573,6 +581,8 @@ impl ArmMcuMachine {
         usart1: Stm32Usart,
         usart2: Stm32Usart,
         lpuart1: Stm32Usart,
+        spi1: Stm32Spi,
+        spi3: Stm32Spi,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -639,6 +649,8 @@ impl ArmMcuMachine {
         bus.map_device("stm32l432kc.usart1", 0x4001_3800, 0x400, Box::new(usart1))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
         bus.map_device("stm32l432kc.lpuart1", 0x4000_8000, 0x400, Box::new(lpuart1))?;
+        bus.map_device("stm32l432kc.spi3", 0x4000_3c00, 0x400, Box::new(spi3))?;
+        bus.map_device("stm32l432kc.spi1", 0x4001_3000, 0x400, Box::new(spi1))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -1061,6 +1073,12 @@ impl ArmMcuMachine {
                 TargetId::R7fa4m1ab3cfm => {}
                 _ => unreachable!(),
             }
+            for (line, spi) in &self.stm32_spi {
+                let pending = spi.interrupt_pending();
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
             self.signals.set(
                 self.timer_irq_signal,
                 SignalValue::from_u64(u64::from(timer_pending), 1)?,
@@ -1401,6 +1419,45 @@ mod tests {
                 & (1 << 7),
             1 << 7
         );
+    }
+
+    #[test]
+    fn stm32l432_spi1_and_spi3_transfer_and_route_interrupt_status() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        for (index, base) in [(0, 0x4001_3000_u64), (1, 0x4000_3c00_u64)] {
+            machine.stm32_spi[index].1.inject_rx(0xa5 + index as u8);
+            machine
+                .bus
+                .write(
+                    base,
+                    AccessWidth::Word,
+                    u64::from((1_u32 << 6) | (1_u32 << 2)),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            machine
+                .bus
+                .write(base + 4, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base + 0x0c, AccessWidth::Word, 0x3c, SimTime::ZERO)
+                .unwrap();
+            assert_eq!(machine.stm32_spi[index].1.tx_bytes(), [0x3c]);
+            assert!(machine.stm32_spi[index].1.interrupt_pending());
+            assert_eq!(
+                machine
+                    .bus
+                    .read(
+                        base + 0x0c,
+                        AccessWidth::Word,
+                        AccessKind::Read,
+                        SimTime::ZERO
+                    )
+                    .unwrap(),
+                u64::from(0xa5 + index as u8)
+            );
+        }
     }
 
     #[test]
