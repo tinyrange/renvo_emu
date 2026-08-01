@@ -166,6 +166,54 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_pcnt_native_map_counts_gpio_edges() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x6001_2000,
+            AccessWidth::Word,
+            u64::from(1_u32 << 18 | 1 << 14),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x6001_2004, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6001_2048, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine.set_pin(0, Logic::Zero).unwrap();
+    machine.set_pin(0, Logic::One).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_2030,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_2044,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]

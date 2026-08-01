@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspGpio, EspPcnt, EspPcntHandle, EspSpiMem, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks,
+    Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -162,7 +162,6 @@ pub struct RunResult {
     /// Canonical digest over signal declarations and changes.
     pub trace_digest: String,
 }
-
 /// Runnable direct-ELF RISC-V vertical slice.
 pub struct RiscVMachine {
     target: TargetId,
@@ -207,6 +206,7 @@ pub struct RiscVMachine {
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
     esp_usb_serial_jtag: Option<EspUsbSerialJtagHandle>,
+    esp_pcnt: Option<EspPcntHandle>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
@@ -240,6 +240,7 @@ impl RiscVMachine {
         let mut usb_dpram = None;
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
+        let mut esp_pcnt = None;
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
         let mut wch_pfic = None;
@@ -478,7 +479,6 @@ impl RiscVMachine {
             usb = Some(usb_handle);
             usb_host = Some(Rp2040UsbHost::new());
         }
-
         let signals = SignalHub::new();
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
@@ -517,7 +517,6 @@ impl RiscVMachine {
             TEST_EXIT_SIZE,
             Box::new(exit_device),
         )?;
-
         let mut chip_gpio = Vec::new();
         let mut chip_uarts = Vec::new();
         match target {
@@ -653,7 +652,6 @@ impl RiscVMachine {
                     ("esp32c6.twai1", 0x6000_d000),
                     ("esp32c6.interrupt-matrix", 0x6001_0000),
                     ("esp32c6.atomic", 0x6001_1000),
-                    ("esp32c6.pcnt", 0x6001_2000),
                     ("esp32c6.etm", 0x6001_3000),
                     ("esp32c6.mcpwm", 0x6001_4000),
                     ("esp32c6.parlio", 0x6001_5000),
@@ -700,6 +698,9 @@ impl RiscVMachine {
                     Box::new(usb_serial_jtag),
                 )?;
                 esp_usb_serial_jtag = Some(handle);
+                let (pcnt, handle) = EspPcnt::new("esp32c6.pcnt", signals.clone())?;
+                bus.map_device("esp32c6.pcnt", 0x6001_2000, 0x1000, Box::new(pcnt))?;
+                esp_pcnt = Some(handle);
                 let mut saradc_reset = vec![0; 0x1000 / 4];
                 saradc_reset[0x2c / 4] = 2048;
                 saradc_reset[0x44 / 4] = (1 << 31) | (1 << 30);
@@ -806,6 +807,7 @@ impl RiscVMachine {
             usb_dpram,
             usb_host,
             esp_usb_serial_jtag,
+            esp_pcnt,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
@@ -920,6 +922,9 @@ impl RiscVMachine {
             if usize::from(pin) < gpio.pin_count() {
                 gpio.set_input(pin, value, self.now)?;
             }
+        }
+        if let Some(pcnt) = &self.esp_pcnt {
+            pcnt.observe_input(pin, value, self.now)?;
         }
         Ok(())
     }

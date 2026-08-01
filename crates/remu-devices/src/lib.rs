@@ -28,6 +28,8 @@ mod arm;
 pub use arm::*;
 mod esp_gpio;
 pub use esp_gpio::*;
+mod esp_pcnt;
+pub use esp_pcnt::*;
 mod functional;
 pub use functional::*;
 mod samd;

@@ -13,7 +13,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
-| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
+| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, four-unit PCNT edge counters, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
 
@@ -211,6 +211,13 @@ the target manifests and `PLAN.html`, principally:
 
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
+
+The ESP32-C6 PCNT window at `0x60012000` models four 16-bit signed pulse
+counters, native edge-action configuration, reset/pause control, threshold
+status and interrupt raw/enable/clear registers. The deterministic GPIO input
+matrix binds channels to pins 0–7 by default and can be overridden by the
+host-facing handle. Glitch-width filtering, GPIO-matrix register programming,
+control-input channels, and CPU interrupt delivery are not yet modeled.
 
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
