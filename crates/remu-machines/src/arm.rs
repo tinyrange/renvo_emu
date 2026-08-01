@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalI2c,
     FunctionalPwm, FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, I2cEvent, I2cHandle,
     PwmHandle, Rp2040Clocks, Rp2040IoBank, Rp2040IoBankHandle, Rp2040Pll, Rp2040Psm,
-    Rp2040RegisterBank, Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040Ssi, Rp2040Timer,
-    Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
+    Rp2040RegisterBank, Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040RtcHandle, Rp2040Ssi,
+    Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
     Rp2040Watchdog, Rp2040WatchdogHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp,
     Rp2350Powman, Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng,
     Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle,
@@ -72,6 +72,7 @@ pub struct ArmMachine {
     watchdog: Option<Rp2040WatchdogHandle>,
     i2c: Vec<RpI2cHandle>,
     spi: Vec<Rp2350SpiHandle>,
+    rtc: Option<Rp2040RtcHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -142,6 +143,7 @@ impl ArmMachine {
         let chip_pwm;
         let mut chip_spis = Vec::new();
         let mut chip_i2cs = Vec::new();
+        let mut rtc = None;
         let mut pio = Vec::new();
         let chip_adc;
         let mut usb = None;
@@ -364,12 +366,9 @@ impl ArmMachine {
                 Box::new(watchdog_device),
             )?;
             watchdog = Some(watchdog_handle);
-            bus.map_device(
-                "rp2040.rtc",
-                0x4005_c000,
-                0x4000,
-                Box::new(Rp2040Rtc::new("rp2040.rtc")),
-            )?;
+            let (rtc_device, rtc_handle) = Rp2040Rtc::new_with_handle("rp2040.rtc");
+            bus.map_device("rp2040.rtc", 0x4005_c000, 0x4000, Box::new(rtc_device))?;
+            rtc = Some(rtc_handle);
             bus.map_device(
                 "rp2040.rosc",
                 0x4006_0000,
@@ -716,6 +715,7 @@ impl ArmMachine {
             watchdog,
             i2c,
             spi,
+            rtc,
             pio,
             usb,
             usb_dpram,
@@ -1364,6 +1364,7 @@ impl ArmMachine {
         let mut chip_timer_was_pending = 0_u16;
         let mut rp2350_io_bank_was_pending = false;
         let mut trng_was_pending = false;
+        let mut rtc_was_pending = false;
         let reason = loop {
             self.sio.select_core(0);
             control.apply_stimuli(self.now, &mut stats, |stimulus| {
@@ -1431,6 +1432,11 @@ impl ArmMachine {
                     stats.events = stats.events.saturating_add(1);
                 }
             }
+            let rtc_pending = self.rtc.as_ref().is_some_and(|rtc| rtc.pending(self.now));
+            if rtc_pending && !rtc_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            rtc_was_pending = rtc_pending;
             self.cpu
                 .set_interrupt(0, timer_pending || chip_timer_pending & 1 != 0)?;
             for line in 1..self.chip_timers.len() * 4 {
@@ -1439,6 +1445,7 @@ impl ArmMachine {
                     chip_timer_pending & (1 << line) != 0,
                 )?;
             }
+            self.cpu.set_interrupt(25, rtc_pending)?;
             if let Some(usb) = &self.usb {
                 if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
                     stats.events = stats.events.saturating_add(host.poll(self.now, usb, dpram));

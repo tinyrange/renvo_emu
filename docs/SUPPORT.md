@@ -242,6 +242,22 @@ the public PHY-complete callback, remote termination, scan restart, and exact
 deterministic replay. Impossible or overlapping PHY instants stop through the
 radio legality validator rather than being silently accepted.
 
+## RP2040 RTC slice
+
+The RP2040 model includes a functional calendar and alarm block at the native
+`0x4005_c000` address. It supports the documented named register map, setup and
+load sequencing, the one-second divider, leap-day and month/year rollover,
+ordered `RTC_0`/`RTC_1` reads, raw/enable/force/status alarm state, and delivery
+of the masked alarm as the machine's RTC interrupt line. The implementation
+uses abstract simulation time, so it is deterministic and useful for firmware
+tests but is not a clock-frequency or low-power-domain model.
+
+Coverage includes calendar carry across leap days, read latching, alarm clear
+and force behavior, and machine-level interrupt polling. Dormant-mode wake,
+clock-source switching, power/reset-domain details, and silicon-specific
+electrical behavior remain outside this functional slice. The register
+semantics are based on the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf).
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
