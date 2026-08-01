@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// STM32L4 GPIO port with mode, input/output, bit-set/reset and alternate-function registers.
@@ -260,7 +261,16 @@ impl Device for Stm32Timer {
 struct UsartState {
     control: u32,
     bytes: Vec<u8>,
+    received: VecDeque<u8>,
+    status: u32,
 }
+
+const USART_CR1_RXNEIE: u32 = 1 << 5;
+const USART_CR1_TCIE: u32 = 1 << 6;
+const USART_CR1_TXEIE: u32 = 1 << 7;
+const USART_ISR_RXNE: u32 = 1 << 5;
+const USART_ISR_TC: u32 = 1 << 6;
+const USART_ISR_TXE: u32 = 1 << 7;
 
 /// Machine handle for STM32 USART output and TX-empty interrupt state.
 #[derive(Clone)]
@@ -271,9 +281,20 @@ impl Stm32UsartHandle {
     pub fn bytes(&self) -> Vec<u8> {
         self.0.lock().expect("USART lock poisoned").bytes.clone()
     }
+
+    /// Queues one byte for firmware reception and raises RXNE/RXFNE.
+    pub fn inject_rx(&self, value: u8) {
+        let mut state = self.0.lock().expect("USART lock poisoned");
+        state.received.push_back(value);
+        state.status |= USART_ISR_RXNE;
+    }
+
     /// Whether TX-empty interrupt is enabled.
     pub fn interrupt_pending(&self) -> bool {
-        self.0.lock().expect("USART lock poisoned").control & (1 << 7) != 0
+        let state = self.0.lock().expect("USART lock poisoned");
+        (state.control & USART_CR1_RXNEIE != 0 && state.status & USART_ISR_RXNE != 0)
+            || (state.control & USART_CR1_TCIE != 0 && state.status & USART_ISR_TC != 0)
+            || (state.control & USART_CR1_TXEIE != 0 && state.status & USART_ISR_TXE != 0)
     }
 }
 
@@ -287,7 +308,10 @@ pub struct Stm32Usart {
 impl Stm32Usart {
     /// Constructs USART2 and its machine handle.
     pub fn new(name: impl Into<String>) -> (Self, Stm32UsartHandle) {
-        let state = Arc::new(Mutex::new(UsartState::default()));
+        let state = Arc::new(Mutex::new(UsartState {
+            status: USART_ISR_TXE | USART_ISR_TC,
+            ..UsartState::default()
+        }));
         (
             Self {
                 name: name.into(),
@@ -308,12 +332,24 @@ impl Device for Stm32Usart {
             return Err(DeviceError::new("STM32 USART requires word accesses"));
         }
         if offset == 0x1c {
-            return Ok((1 << 7) | (1 << 6));
+            return Ok(u64::from(
+                self.state.lock().expect("USART lock poisoned").status
+                    | USART_ISR_TXE
+                    | USART_ISR_TC,
+            ));
         }
         if offset == 0 {
             return Ok(u64::from(
                 self.state.lock().expect("USART lock poisoned").control,
             ));
+        }
+        if offset == 0x24 {
+            let mut state = self.state.lock().expect("USART lock poisoned");
+            let value = state.received.pop_front().unwrap_or(0);
+            if state.received.is_empty() {
+                state.status &= !USART_ISR_RXNE;
+            }
+            return Ok(u64::from(value));
         }
         Ok(u64::from(
             self.registers[usize::try_from(offset / 4).unwrap_or(0).min(11)],
@@ -331,18 +367,21 @@ impl Device for Stm32Usart {
         }
         match offset {
             0 => self.state.lock().expect("USART lock poisoned").control = value as u32,
-            0x28 => self
-                .state
-                .lock()
-                .expect("USART lock poisoned")
-                .bytes
-                .push(value as u8),
+            0x20 => self.state.lock().expect("USART lock poisoned").status &= !(value as u32),
+            0x28 => {
+                let mut state = self.state.lock().expect("USART lock poisoned");
+                state.bytes.push(value as u8);
+                state.status |= USART_ISR_TXE | USART_ISR_TC;
+            }
             _ => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(11)] = value as u32,
         }
         Ok(())
     }
     fn reset(&mut self, _kind: ResetKind) {
-        *self.state.lock().expect("USART lock poisoned") = UsartState::default();
+        *self.state.lock().expect("USART lock poisoned") = UsartState {
+            status: USART_ISR_TXE | USART_ISR_TC,
+            ..UsartState::default()
+        };
         self.registers = [0; 12];
     }
 }
@@ -378,5 +417,29 @@ mod tests {
             .write(0x28, AccessWidth::Word, u64::from(b'S'), SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.bytes(), b"S");
+    }
+
+    #[test]
+    fn usart_receive_and_interrupt_flags_are_functional() {
+        let (mut usart, handle) = Stm32Usart::new("usart1");
+        handle.inject_rx(b'R');
+        usart
+            .write(
+                0x00,
+                AccessWidth::Word,
+                u64::from(USART_CR1_RXNEIE),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.interrupt_pending());
+        assert_eq!(
+            usart.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap() & u64::from(USART_ISR_RXNE),
+            u64::from(USART_ISR_RXNE)
+        );
+        assert_eq!(
+            usart.read(0x24, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(b'R')
+        );
+        assert!(!handle.interrupt_pending());
     }
 }
