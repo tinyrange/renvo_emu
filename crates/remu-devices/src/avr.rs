@@ -12,6 +12,7 @@ const PINC: u16 = 0x26;
 const PIND: u16 = 0x29;
 const TIFR0: u16 = 0x35;
 const TIFR1: u16 = 0x36;
+const TIFR2: u16 = 0x37;
 const EIFR: u16 = 0x3c;
 const EIMSK: u16 = 0x3d;
 const EECR: u16 = 0x3f;
@@ -28,6 +29,7 @@ const EICRA: u16 = 0x69;
 const PCMSK0: u16 = 0x6b;
 const TIMSK0: u16 = 0x6e;
 const TIMSK1: u16 = 0x6f;
+const TIMSK2: u16 = 0x70;
 const TCCR1B: u16 = 0x81;
 const TCNT1L: u16 = 0x84;
 const TCNT1H: u16 = 0x85;
@@ -36,6 +38,10 @@ const OCR1AH: u16 = 0x89;
 const UCSR0A: u16 = 0xc0;
 const UCSR0B: u16 = 0xc1;
 const UDR0: u16 = 0xc6;
+const TCCR2A: u16 = 0xb0;
+const TCCR2B: u16 = 0xb1;
+const TCNT2: u16 = 0xb2;
+const OCR2A: u16 = 0xb3;
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -48,6 +54,8 @@ struct AtmegaState {
     timer_pending: bool,
     timer1_started: u64,
     timer1_pending: bool,
+    timer2_started: u64,
+    timer2_pending: bool,
     previous_pinb: u8,
     previous_pind: u8,
     watchdog_started: u64,
@@ -55,6 +63,7 @@ struct AtmegaState {
     uart_tx_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
+    timer2_irq_signal: SignalId,
     pcint0_irq_signal: SignalId,
     int0_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
@@ -110,6 +119,35 @@ impl AtmegaIoHandle {
         if state.timer1_pending && state.registers[usize::from(TIMSK1 - IO_BASE)] & (1 << 1) != 0 {
             // TIMER1_COMPA is vector 11, represented by CPU interrupt line 10.
             lines.push(10);
+        }
+        let tccr2 = state.registers[usize::from(TCCR2B - IO_BASE)];
+        if tccr2 & 7 != 0 {
+            let ctc = state.registers[usize::from(TCCR2A - IO_BASE)] & 3 == 2;
+            let compare = state.registers[usize::from(OCR2A - IO_BASE)];
+            let period = if ctc && compare != 0 {
+                u64::from(compare) + 1
+            } else {
+                256
+            };
+            if now.ticks().saturating_sub(state.timer2_started) >= period {
+                state.timer2_started = now.ticks();
+                state.timer2_pending = true;
+                let flag = if ctc { 1 << 1 } else { 1 };
+                state.registers[usize::from(TIFR2 - IO_BASE)] |= flag;
+                state.registers[usize::from(TCNT2 - IO_BASE)] = 0;
+                set_bit_signal(&state, state.timer2_irq_signal, true, now);
+            }
+        }
+        let timer2_flags = state.registers[usize::from(TIFR2 - IO_BASE)];
+        let timer2_mask = state.registers[usize::from(TIMSK2 - IO_BASE)];
+        if timer2_flags & timer2_mask & (1 << 1) != 0 {
+            lines.push(6);
+        }
+        if timer2_flags & timer2_mask & (1 << 2) != 0 {
+            lines.push(7);
+        }
+        if timer2_flags & timer2_mask & 1 != 0 {
+            lines.push(8);
         }
         if state.registers[usize::from(UCSR0B - IO_BASE)] & (1 << 5) != 0 {
             lines.push(18);
@@ -214,6 +252,11 @@ impl AtmegaIo {
             SignalValue::from_u64(0, 1)?,
             Some("functional Timer1 compare-A request".to_owned()),
         )?;
+        let timer2_irq_signal = hub.declare(
+            "board.atmega328pb.timer2.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer2 interrupt request".to_owned()),
+        )?;
         let pcint0_irq_signal = hub.declare(
             "board.atmega328pb.interrupt.pcint0",
             SignalValue::from_u64(0, 1)?,
@@ -240,6 +283,8 @@ impl AtmegaIo {
             timer_pending: false,
             timer1_started: 0,
             timer1_pending: false,
+            timer2_started: 0,
+            timer2_pending: false,
             previous_pinb: 0,
             previous_pind: 0,
             watchdog_started: 0,
@@ -247,6 +292,7 @@ impl AtmegaIo {
             uart_tx_signal,
             timer0_irq_signal,
             timer1_irq_signal,
+            timer2_irq_signal,
             pcint0_irq_signal,
             int0_irq_signal,
             watchdog_reset_signal,
@@ -365,6 +411,17 @@ impl Device for AtmegaIo {
                     set_bit_signal(&state, state.timer1_irq_signal, false, at);
                 }
             }
+            TCCR2B if state.registers[usize::from(TCCR2B - IO_BASE)] & 7 == 0 && value & 7 != 0 => {
+                state.timer2_started = at.ticks();
+                state.registers[usize::from(TCCR2B - IO_BASE)] = value;
+            }
+            TIFR2 => {
+                state.registers[usize::from(TIFR2 - IO_BASE)] &= !value;
+                if value & 0x07 != 0 && state.registers[usize::from(TIFR2 - IO_BASE)] == 0 {
+                    state.timer2_pending = false;
+                    set_bit_signal(&state, state.timer2_irq_signal, false, at);
+                }
+            }
             PCIFR => {
                 state.registers[usize::from(PCIFR - IO_BASE)] &= !value;
                 if value & 1 != 0 {
@@ -415,9 +472,11 @@ impl Device for AtmegaIo {
         state.uart.clear();
         state.timer_pending = false;
         state.timer1_pending = false;
+        state.timer2_pending = false;
         state.watchdog_reset = false;
         set_bit_signal(&state, state.timer0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer1_irq_signal, false, SimTime::ZERO);
+        set_bit_signal(&state, state.timer2_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.pcint0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.int0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.watchdog_reset_signal, false, SimTime::ZERO);
@@ -482,5 +541,78 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15]);
+    }
+
+    #[test]
+    fn timer2_ctc_sets_and_clears_its_compare_interrupt() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub.clone()).unwrap();
+        let timer2_irq = hub
+            .with_registry(|registry| registry.find("board.atmega328pb.timer2.irq"))
+            .expect("Timer2 IRQ signal is declared");
+        io.write(
+            u64::from(OCR2A - IO_BASE),
+            AccessWidth::Byte,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TCCR2A - IO_BASE),
+            AccessWidth::Byte,
+            2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TIMSK2 - IO_BASE),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TCCR2B - IO_BASE),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        assert!(handle.poll(SimTime::from_ticks(3)).is_empty());
+        assert_eq!(
+            handle.poll(SimTime::from_ticks(4)),
+            vec![6],
+            "TIMER2_COMPA is AVR vector 8 / emulator interrupt line 6"
+        );
+        assert!(
+            hub.drain_changes().iter().any(
+                |change| change.signal == timer2_irq && change.value.bit(0) == Some(Logic::One)
+            )
+        );
+        assert_eq!(
+            io.read(
+                u64::from(TIFR2 - IO_BASE),
+                AccessWidth::Byte,
+                SimTime::from_ticks(4)
+            )
+            .unwrap(),
+            1 << 1
+        );
+
+        io.write(
+            u64::from(TIFR2 - IO_BASE),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::from_ticks(4),
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(4)).is_empty());
+        assert!(
+            hub.drain_changes()
+                .iter()
+                .any(|change| change.signal == timer2_irq
+                    && change.value.bit(0) == Some(Logic::Zero))
+        );
     }
 }
