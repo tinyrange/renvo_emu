@@ -4,7 +4,9 @@ use crate::{
     resolve_signal_stop, target_manifest,
 };
 use md5::{Digest, Md5};
-use renvo_bus::{AddressSpace, Endianness, MapError, Permissions, SharedMemory};
+use renvo_bus::{
+    AddressSpace, Endianness, MapError, Permissions, SharedBusAccessObserver, SharedMemory,
+};
 use renvo_core::{
     AccessKind, AccessWidth, Bus, Cpu, CpuFault, CpuSnapshot, ResetKind, RunLimits, RunStats,
     SimTime, StepReason, StopReason,
@@ -19,7 +21,9 @@ use renvo_devices::{
     RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
     WchTimerHandle, WchUsart,
 };
-use renvo_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
+use renvo_image::{
+    EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
+};
 use renvo_signals::{Logic, SignalError};
 use renvo_trace::{TraceDigest, TraceError, TraceSink};
 use serde::Serialize;
@@ -130,6 +134,9 @@ pub enum MachineError {
     /// The RP2350 RISC-V image-definition entry or initial stack is invalid.
     #[error("invalid RP2350 RISC-V boot block: {0}")]
     BootBlock(String),
+    /// An esptool application image cannot follow the ESP32-C6 boot handoff.
+    #[error("ESP32-C6 application image is not boot-compatible: {0}")]
+    Esp32c6BootLayout(String),
 }
 
 /// Stable machine-readable outcome of one invocation.
@@ -253,7 +260,22 @@ impl RiscVMachine {
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
-                    bus.map_ram(region.name, region.start, region.size, region.executable)?;
+                    if target == TargetId::Esp32c6 {
+                        bus.map_shared(
+                            region.name,
+                            region.start,
+                            region.size,
+                            if region.executable {
+                                Permissions::RWX
+                            } else {
+                                Permissions::RW
+                            },
+                            SharedMemory::from_bytes(vec![0xa5; region.size]),
+                            0,
+                        )?;
+                    } else {
+                        bus.map_ram(region.name, region.start, region.size, region.executable)?;
+                    }
                 }
                 MemoryKind::Flash | MemoryKind::Rom => {
                     let storage = if region.kind == MemoryKind::Flash {
@@ -813,6 +835,11 @@ impl RiscVMachine {
     /// Enables or disables completed bus-access recording.
     pub fn set_access_recording(&mut self, enabled: bool) {
         self.bus.set_access_recording(enabled);
+    }
+
+    /// Installs or removes a streaming completed-access observer.
+    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
+        self.bus.set_access_observer(observer);
     }
 
     /// Returns completed bus operations when recording is enabled.

@@ -5,7 +5,9 @@ use crate::{
     TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop, target_manifest,
 };
 use md5::{Digest, Md5};
-use renvo_bus::{AddressSpace, Endianness, MapError, Permissions, SharedMemory};
+use renvo_bus::{
+    AddressSpace, Endianness, MapError, Permissions, SharedBusAccessObserver, SharedMemory,
+};
 use renvo_core::{
     AccessKind, AccessWidth, Bus, Cpu, CpuFault, RunLimits, RunStats, SimTime, StepReason,
     StopReason,
@@ -899,6 +901,11 @@ impl XtensaMachine {
     /// Enables or disables completed bus-access recording.
     pub fn set_access_recording(&mut self, enabled: bool) {
         self.bus.set_access_recording(enabled);
+    }
+
+    /// Installs or removes a streaming completed-access observer.
+    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
+        self.bus.set_access_observer(observer);
     }
 
     /// Returns completed bus operations when recording is enabled.

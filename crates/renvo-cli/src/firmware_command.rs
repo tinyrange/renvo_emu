@@ -26,6 +26,15 @@ enum FirmwareInspection {
         application_partition: renvo_image::EspPartition,
         application: EspExecutableSummary,
     },
+    IntelHex {
+        entry: Option<u32>,
+        records: usize,
+        segments: Vec<ImageSegmentSummary>,
+    },
+    RawBin {
+        size: usize,
+        sha256: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -69,6 +78,9 @@ pub(super) fn firmware(command: FirmwareCommand) -> Result<(), Box<dyn Error>> {
                 FirmwareFormatArg::Auto if bytes.first() == Some(&0xe9) => {
                     FirmwareFormatArg::EspBin
                 }
+                FirmwareFormatArg::Auto if bytes.first() == Some(&b':') => {
+                    FirmwareFormatArg::IntelHex
+                }
                 FirmwareFormatArg::Auto => {
                     return Err(format!(
                         "cannot detect firmware container for {}",
@@ -107,6 +119,27 @@ pub(super) fn firmware(command: FirmwareCommand) -> Result<(), Box<dyn Error>> {
                         application: summarize_esp_executable(&image.application),
                     }
                 }
+                FirmwareFormatArg::IntelHex => {
+                    let image = IntelHexImage::parse(&bytes)?;
+                    FirmwareInspection::IntelHex {
+                        entry: image.entry,
+                        records: image.records.len(),
+                        segments: image
+                            .segments
+                            .into_iter()
+                            .map(|segment| ImageSegmentSummary {
+                                address: segment.address,
+                                size: segment.data.len(),
+                                flash_offset: None,
+                                not_main_flash: None,
+                            })
+                            .collect(),
+                    }
+                }
+                FirmwareFormatArg::RawBin => FirmwareInspection::RawBin {
+                    size: bytes.len(),
+                    sha256: hex::encode(Sha256::digest(&bytes)),
+                },
                 FirmwareFormatArg::Auto => unreachable!("auto format was resolved above"),
             };
             println!("{}", serde_json::to_string_pretty(&inspection)?);
@@ -171,7 +204,39 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
         None
     };
     let stop_on_usb_input_complete = !arguments.usb_script.is_empty();
+    if !matches!(
+        target,
+        TargetId::Rp2040 | TargetId::Rp2350 | TargetId::Esp32c6 | TargetId::Esp32s3
+    ) {
+        if usb_input.is_some()
+            || arguments.esp_base_image.is_some()
+            || arguments.boot_rom.is_some()
+            || arguments.flash_state.is_some()
+        {
+            return Err(
+                "USB input, --esp-base-image, --boot-rom, and --flash-state are not valid for this native image target"
+                    .into(),
+            );
+        }
+        let result =
+            crate::native_firmware::boot_native_image(arguments, target, &bytes, &stimuli)?;
+        return write_run_result(&result, arguments.result.as_deref());
+    }
     if matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3) {
+        match arguments.format {
+            FirmwareFormatArg::IntelHex | FirmwareFormatArg::RawBin => {
+                return Err(
+                    "ESP targets require --format esp-bin or an ESP application UF2".into(),
+                );
+            }
+            FirmwareFormatArg::Uf2 if !bytes.starts_with(b"UF2\n") => {
+                return Err("--format uf2 does not match the supplied ESP artifact".into());
+            }
+            FirmwareFormatArg::EspBin if bytes.starts_with(b"UF2\n") => {
+                return Err("--format esp-bin does not match the supplied UF2 artifact".into());
+            }
+            _ => {}
+        }
         if arguments.boot_rom.is_some() {
             return Err("--boot-rom is not used by the ESP mask-ROM image handoff".into());
         }
@@ -283,6 +348,12 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
             _ => unreachable!(),
         };
         return write_run_result(&result, arguments.result.as_deref());
+    }
+    if !matches!(
+        arguments.format,
+        FirmwareFormatArg::Auto | FirmwareFormatArg::Uf2
+    ) {
+        return Err("RP2040 and RP2350 firmware boot requires UF2".into());
     }
     let image = Uf2Image::parse(&bytes)?;
     if arguments.esp_base_image.is_some() {

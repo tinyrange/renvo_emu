@@ -3,7 +3,9 @@ use crate::{
     TEST_GPIO, TEST_TIMER, TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop,
     target_manifest,
 };
-use renvo_bus::{AddressSpace, BusAccessRecord, Endianness, Permissions, SharedMemory};
+use renvo_bus::{
+    AddressSpace, BusAccessRecord, Endianness, Permissions, SharedBusAccessObserver, SharedMemory,
+};
 use renvo_core::{
     AccessKind, AccessWidth, Bus, Cpu, ResetKind, RunLimits, RunStats, SimTime, StepReason,
     StopReason,
@@ -601,6 +603,11 @@ impl ArmMcuMachine {
         self.bus.set_access_recording(enabled);
     }
 
+    /// Installs or removes a streaming completed-access observer.
+    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
+        self.bus.set_access_observer(observer);
+    }
+
     /// Returns completed bus accesses retained for diagnostics.
     pub fn access_log(&self) -> &[BusAccessRecord] {
         self.bus.access_log()
@@ -912,6 +919,7 @@ mod tests {
             segments: vec![FirmwareSegment {
                 address: 0,
                 load_address: None,
+                initialized_size: code.len(),
                 data: code,
                 executable: true,
                 writable: false,

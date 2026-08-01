@@ -1,5 +1,138 @@
 use super::*;
+use renvo_image::{EspImageHeader, EspImageSegment, FirmwareSegment};
 use renvo_trace::{Timescale, VcdWriter};
+
+fn esp32c6_header(entry: u32, segment_count: u8) -> EspImageHeader {
+    EspImageHeader {
+        segment_count,
+        flash_mode: 2,
+        flash_size_frequency: 0x20,
+        entry,
+        write_protect_pin: 0xee,
+        drive_settings: [0; 3],
+        chip_id: 13,
+        minimum_revision_legacy: 0,
+        minimum_revision: 0,
+        maximum_revision: 0x63,
+        hash_appended: true,
+    }
+}
+
+fn esp32c6_elf(entry: u64, address: u64, data: Vec<u8>) -> FirmwareImage {
+    FirmwareImage {
+        architecture: FirmwareArchitecture::RiscV32,
+        entry,
+        segments: vec![FirmwareSegment {
+            address,
+            load_address: None,
+            initialized_size: data.len(),
+            data,
+            executable: true,
+            writable: false,
+            alignment: 0x1000,
+        }],
+        symbols: Vec::new(),
+    }
+}
+
+fn app_descriptor() -> Vec<u8> {
+    let mut descriptor = vec![0; 256];
+    descriptor[..4].copy_from_slice(&0xabcd_5432_u32.to_le_bytes());
+    descriptor
+}
+
+#[test]
+fn esp32c6_boot_validator_accepts_separate_descriptor_and_text_mappings() {
+    let text = (0_u8..64).collect::<Vec<_>>();
+    let elf = esp32c6_elf(0x4200_0100, 0x4200_0100, text.clone());
+    let application = EspExecutableImage {
+        flash_offset: 0,
+        header: esp32c6_header(0x4200_0100, 3),
+        segments: vec![
+            EspImageSegment {
+                address: 0x4201_0020,
+                flash_offset: 0x20,
+                data: app_descriptor(),
+            },
+            EspImageSegment {
+                address: 0x4200_0100,
+                flash_offset: 0x1_0100,
+                data: text,
+            },
+            EspImageSegment {
+                address: 0x4080_0000,
+                flash_offset: 0x1_0148,
+                data: vec![0; 8],
+            },
+        ],
+        checksum: 0xef,
+        appended_sha256: None,
+        end_offset: 0x1_0160,
+    };
+
+    RiscVMachine::validate_esp32c6_boot_image(&elf, &application, 0x1_0000).unwrap();
+}
+
+#[test]
+fn esp32c6_boot_validator_rejects_the_merged_descriptor_and_text_reproducer() {
+    let mut merged = app_descriptor();
+    merged.extend(0_u8..64);
+    let elf = esp32c6_elf(0x4200_0120, 0x4200_0020, merged.clone());
+    let application = EspExecutableImage {
+        flash_offset: 0,
+        header: esp32c6_header(0x4200_0120, 2),
+        segments: vec![
+            EspImageSegment {
+                address: 0x4200_0020,
+                flash_offset: 0x20,
+                data: merged,
+            },
+            EspImageSegment {
+                address: 0x4080_0000,
+                flash_offset: 0x168,
+                data: vec![0; 8],
+            },
+        ],
+        checksum: 0xef,
+        appended_sha256: None,
+        end_offset: 0x180,
+    };
+
+    let error =
+        RiscVMachine::validate_esp32c6_boot_image(&elf, &application, 0x1_0000).unwrap_err();
+    assert!(error.to_string().contains("exactly two mapped segments"));
+}
+
+#[test]
+fn esp32c6_direct_elf_leaves_the_bss_tail_poisoned() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let initialized = [0x13, 0, 0, 0];
+    let mut data = initialized.to_vec();
+    data.resize(12, 0);
+    let image = FirmwareImage {
+        architecture: FirmwareArchitecture::RiscV32,
+        entry: 0x4080_0000,
+        segments: vec![FirmwareSegment {
+            address: 0x4080_0000,
+            load_address: None,
+            data,
+            initialized_size: initialized.len(),
+            executable: true,
+            writable: true,
+            alignment: 4,
+        }],
+        symbols: Vec::new(),
+    };
+
+    machine.load_firmware(&image).unwrap();
+
+    assert_eq!(
+        machine.debug_read_memory(0x4080_0000, 12).unwrap(),
+        [
+            0x13, 0, 0, 0, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5
+        ]
+    );
+}
 
 #[test]
 fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {

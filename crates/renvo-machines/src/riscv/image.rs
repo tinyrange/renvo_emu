@@ -1,6 +1,129 @@
 use super::*;
 
 impl RiscVMachine {
+    /// Validates an esptool application image against the ESP32-C6 second-stage
+    /// bootloader's shared I/D-MMU handoff and its corresponding direct ELF.
+    pub fn validate_esp32c6_boot_image(
+        elf: &FirmwareImage,
+        application: &EspExecutableImage,
+        partition_offset: u32,
+    ) -> Result<(), MachineError> {
+        const CHIP_ID: u16 = 13;
+        const APP_DESC_MAGIC: u32 = 0xabcd_5432;
+        const MMU_PAGE_MASK: u32 = 0xffff;
+
+        if elf.architecture != FirmwareArchitecture::RiscV32 {
+            return Err(MachineError::Esp32c6BootLayout(format!(
+                "ELF architecture is {:?}, expected RISC-V",
+                elf.architecture
+            )));
+        }
+        if application.header.chip_id != CHIP_ID {
+            return Err(MachineError::Esp32c6BootLayout(format!(
+                "image chip ID is {}, expected {CHIP_ID}",
+                application.header.chip_id
+            )));
+        }
+        if u64::from(application.header.entry) != elf.entry {
+            return Err(MachineError::Esp32c6BootLayout(format!(
+                "image entry {:#010x} differs from ELF entry {:#010x}",
+                application.header.entry, elf.entry
+            )));
+        }
+
+        let mapped = application
+            .segments
+            .iter()
+            .filter(|segment| is_esp32c6_flash_mapped(segment.address))
+            .collect::<Vec<_>>();
+        if mapped.len() != 2 {
+            return Err(MachineError::Esp32c6BootLayout(format!(
+                "shared I/D-MMU handoff requires exactly two mapped segments (descriptor then text), found {}",
+                mapped.len()
+            )));
+        }
+        let descriptor = mapped[0];
+        let text = mapped[1];
+        let descriptor_magic = descriptor
+            .data
+            .get(..4)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u32::from_le_bytes);
+        if descriptor.data.len() < 256 || descriptor_magic != Some(APP_DESC_MAGIC) {
+            return Err(MachineError::Esp32c6BootLayout(
+                "first mapped segment does not begin with a complete esp_app_desc_t".to_owned(),
+            ));
+        }
+        let entry_segment = application
+            .segments
+            .iter()
+            .find(|segment| {
+                let Ok(length) = u32::try_from(segment.data.len()) else {
+                    return false;
+                };
+                segment.address <= application.header.entry
+                    && application.header.entry < segment.address.saturating_add(length)
+            })
+            .ok_or_else(|| {
+                MachineError::Esp32c6BootLayout(format!(
+                    "entry {:#010x} is not contained in an application segment",
+                    application.header.entry
+                ))
+            })?;
+        if is_esp32c6_flash_mapped(application.header.entry) && !std::ptr::eq(entry_segment, text) {
+            return Err(MachineError::Esp32c6BootLayout(format!(
+                "mapped entry {:#010x} is not in the second mapped text segment",
+                application.header.entry
+            )));
+        }
+
+        for (role, segment) in [("descriptor", descriptor), ("text", text)] {
+            let physical = partition_offset
+                .checked_add(segment.flash_offset)
+                .ok_or_else(|| {
+                    MachineError::Esp32c6BootLayout(format!(
+                        "{role} segment physical flash address overflows"
+                    ))
+                })?;
+            if physical & MMU_PAGE_MASK != segment.address & MMU_PAGE_MASK {
+                return Err(MachineError::Esp32c6BootLayout(format!(
+                    "{role} segment physical offset {physical:#010x} and virtual address {:#010x} have different 64 KiB page offsets",
+                    segment.address
+                )));
+            }
+        }
+
+        let Some(elf_text) = elf.segments.iter().find(|segment| {
+            let Ok(length) = u64::try_from(segment.data.len()) else {
+                return false;
+            };
+            segment.executable
+                && segment.address <= elf.entry
+                && elf.entry < segment.address.saturating_add(length)
+        }) else {
+            return Err(MachineError::Esp32c6BootLayout(
+                "ELF entry is not contained in an executable load segment".to_owned(),
+            ));
+        };
+        let elf_offset = usize::try_from(elf.entry - elf_text.address)
+            .expect("validated ELF entry offset fits usize");
+        let image_offset =
+            usize::try_from(u64::from(application.header.entry - entry_segment.address))
+                .expect("validated image entry offset fits usize");
+        let compare_length = 64
+            .min(elf_text.data.len().saturating_sub(elf_offset))
+            .min(entry_segment.data.len().saturating_sub(image_offset));
+        if compare_length == 0
+            || elf_text.data[elf_offset..elf_offset + compare_length]
+                != entry_segment.data[image_offset..image_offset + compare_length]
+        {
+            return Err(MachineError::Esp32c6BootLayout(
+                "application text at the entry point does not match the ELF".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Loads a parsed direct-mode ELF and sets its entry point.
     pub fn load_firmware(&mut self, image: &FirmwareImage) -> Result<(), MachineError> {
         if image.architecture != FirmwareArchitecture::RiscV32 {
@@ -10,8 +133,23 @@ impl RiscVMachine {
             });
         }
         for segment in &image.segments {
+            let data = if self.target == TargetId::Esp32c6 && segment.writable {
+                segment
+                    .data
+                    .get(..segment.initialized_size)
+                    .ok_or_else(|| MachineError::Load {
+                        address: segment.address,
+                        message: format!(
+                            "ELF initialized size {} exceeds memory size {}",
+                            segment.initialized_size,
+                            segment.data.len()
+                        ),
+                    })?
+            } else {
+                segment.data.as_slice()
+            };
             self.bus
-                .load(segment.address, &segment.data)
+                .load(segment.address, data)
                 .map_err(|error| MachineError::Load {
                     address: segment.address,
                     message: error.to_string(),
@@ -329,4 +467,8 @@ impl RiscVMachine {
             .expect("RP2350 target has XIP flash storage")
             .to_vec())
     }
+}
+
+fn is_esp32c6_flash_mapped(address: u32) -> bool {
+    (0x4200_0000..0x4300_0000).contains(&address)
 }

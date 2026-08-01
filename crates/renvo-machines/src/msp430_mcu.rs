@@ -2,7 +2,9 @@ use crate::{
     PinStimulus, RunResult, SignalEdge, SignalStop, TargetId, matching_signal_stop,
     resolve_signal_stop,
 };
-use renvo_bus::{AddressSpace, BusAccessRecord, Endianness, Permissions, SharedMemory};
+use renvo_bus::{
+    AddressSpace, BusAccessRecord, Endianness, Permissions, SharedBusAccessObserver, SharedMemory,
+};
 use renvo_core::{
     AccessKind, AccessWidth, Bus, Cpu, ResetKind, RunLimits, RunStats, SimTime, StepReason,
     StopReason,
@@ -166,6 +168,11 @@ impl Msp430McuMachine {
     /// Enables or disables completed bus-access recording.
     pub fn set_access_recording(&mut self, enabled: bool) {
         self.bus.set_access_recording(enabled);
+    }
+
+    /// Installs or removes a streaming completed-access observer.
+    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
+        self.bus.set_access_observer(observer);
     }
 
     /// Completed unified-space accesses retained for diagnostics.
@@ -397,6 +404,7 @@ mod tests {
             segments: vec![FirmwareSegment {
                 address: FRAM_START,
                 load_address: None,
+                initialized_size: fram.len(),
                 data: fram,
                 executable: true,
                 writable: true,

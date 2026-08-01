@@ -1,4 +1,5 @@
 use super::*;
+use crate::access_output::{AccessSummary, DirectAccessOutput};
 
 pub(super) fn list_targets(json: bool) -> Result<(), Box<dyn Error>> {
     if json {
@@ -36,6 +37,7 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
         .ok_or("one of --elf or --hex is required")?;
     let bytes = fs::read(elf)?;
     let image = FirmwareImage::parse(&bytes)?;
+    validate_esp32c6_boot_image(arguments, target, &image)?;
     let limits = RunLimits {
         instructions: Some(arguments.max_instructions),
         deadline: arguments.deadline.map(SimTime::from_ticks),
@@ -45,7 +47,10 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|value| parse_stimulus(value))
         .collect::<Result<Vec<_>, _>>()?;
-    let (result, accesses) = if let Some(path) = &arguments.vcd {
+    let access_output =
+        DirectAccessOutput::new(arguments.bus_log.as_deref(), arguments.coverage.is_some())?;
+    let observer = access_output.observer();
+    let result = if let Some(path) = &arguments.vcd {
         let output = File::create(path)?;
         let mut writer = VcdWriter::new(output, Timescale::Nanosecond);
         run_loaded_recorded(
@@ -55,7 +60,7 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
             &stimuli,
             Some(&mut writer),
             DirectRunControl {
-                record_accesses: arguments.bus_log.is_some() || arguments.coverage.is_some(),
+                access_observer: observer.clone(),
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -69,22 +74,46 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
             &stimuli,
             None,
             DirectRunControl {
-                record_accesses: arguments.bus_log.is_some() || arguments.coverage.is_some(),
+                access_observer: observer,
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
             },
         )?
     };
-    write_access_log(arguments.bus_log.as_deref(), &accesses)?;
+    let access_summary = access_output.finish()?;
     write_coverage(
         arguments.coverage.as_deref(),
         target,
-        FirmwareArchitecture::from(image.architecture),
+        image.architecture,
         Some(&image),
-        &accesses,
+        access_summary,
     )?;
     write_direct_result(arguments, &result)
+}
+
+fn validate_esp32c6_boot_image(
+    arguments: &RunArgs,
+    target: TargetId,
+    elf: &FirmwareImage,
+) -> Result<(), Box<dyn Error>> {
+    let Some(path) = &arguments.esp_app_image else {
+        if target == TargetId::Esp32c6 {
+            eprintln!(
+                "warning: direct ELF execution does not prove ESP32-C6 flash bootability; \
+                 pass --esp-app-image to validate an esptool application image"
+            );
+        }
+        return Ok(());
+    };
+    if target != TargetId::Esp32c6 {
+        return Err("--esp-app-image is supported only with --target esp32c6".into());
+    }
+    let application = EspExecutableImage::parse(&fs::read(path)?)?;
+    let partition_offset = u32::try_from(arguments.esp_app_offset.unwrap_or(0x1_0000))
+        .map_err(|_| "--esp-app-offset must fit in 32 bits")?;
+    RiscVMachine::validate_esp32c6_boot_image(elf, &application, partition_offset)?;
+    Ok(())
 }
 
 fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box<dyn Error>> {
@@ -103,13 +132,15 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
         .iter()
         .map(|value| parse_stimulus(value))
         .collect::<Result<Vec<_>, _>>()?;
+    let access_output =
+        DirectAccessOutput::new(arguments.bus_log.as_deref(), arguments.coverage.is_some())?;
     let control = DirectRunControl {
-        record_accesses: arguments.bus_log.is_some() || arguments.coverage.is_some(),
+        access_observer: access_output.observer(),
         breakpoints: &arguments.breakpoint,
         watchpoints: &arguments.watchpoint,
         signal_stops: &arguments.signal_stops,
     };
-    let (result, accesses, architecture) = match target {
+    let (result, architecture) = match target {
         TargetId::Pic16f15376 => {
             let program = image.program_words(14, ProgramWordEndianness::Little)?;
             let output = arguments.vcd.as_ref().map(File::create).transpose()?;
@@ -126,7 +157,7 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
             } else {
                 run_pic_program_recorded(target, &program, limits, &stimuli, None, control)?
             };
-            (result.0, result.1, FirmwareArchitecture::Pic16Enhanced)
+            (result, FirmwareArchitecture::Pic16Enhanced)
         }
         TargetId::Efm8bb52f32g => {
             let output = arguments.vcd.as_ref().map(File::create).transpose()?;
@@ -143,29 +174,29 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
             } else {
                 run_mcs51_program_recorded(target, &image, limits, &stimuli, None, control)?
             };
-            (result.0, result.1, FirmwareArchitecture::Mcs51)
+            (result, FirmwareArchitecture::Mcs51)
         }
         _ => unreachable!("target validity checked above"),
     };
-    write_access_log(arguments.bus_log.as_deref(), &accesses)?;
+    let access_summary = access_output.finish()?;
     write_coverage(
         arguments.coverage.as_deref(),
         target,
         architecture,
         None,
-        &accesses,
+        access_summary,
     )?;
     write_direct_result(arguments, &result)
 }
 
-fn run_mcs51_program_recorded(
+pub(crate) fn run_mcs51_program_recorded(
     target: TargetId,
     image: &IntelHexImage,
     limits: RunLimits,
     stimuli: &[PinStimulus],
     trace: Option<&mut dyn TraceSink>,
     control: DirectRunControl<'_>,
-) -> Result<(RunResult, Vec<renvo_bus::BusAccessRecord>), Box<dyn Error>> {
+) -> Result<RunResult, Box<dyn Error>> {
     let mut machine = Mcs51McuMachine::new(target)?;
     machine.load_program(image)?;
     for address in control.breakpoints {
@@ -177,9 +208,9 @@ fn run_mcs51_program_recorded(
     for stop in control.signal_stops {
         machine.add_signal_stop(&stop.path, stop.edge)?;
     }
-    machine.set_access_recording(control.record_accesses);
+    machine.set_access_observer(control.access_observer);
     let result = machine.run_with_stimuli(limits, stimuli, trace)?;
-    Ok((result, machine.access_log()))
+    Ok(result)
 }
 
 fn write_direct_result(arguments: &RunArgs, result: &RunResult) -> Result<(), Box<dyn Error>> {
@@ -224,19 +255,13 @@ fn write_coverage(
     target: TargetId,
     architecture: FirmwareArchitecture,
     image: Option<&FirmwareImage>,
-    accesses: &[renvo_bus::BusAccessRecord],
+    accesses: AccessSummary,
 ) -> Result<(), Box<dyn Error>> {
     let Some(path) = path else {
         return Ok(());
     };
-    let fetches = accesses
-        .iter()
-        .filter(|access| access.kind == AccessKind::Execute)
-        .collect::<Vec<_>>();
-    let addresses = fetches
-        .iter()
-        .map(|access| access.address)
-        .collect::<std::collections::BTreeSet<_>>()
+    let addresses = accesses
+        .execute_addresses
         .into_iter()
         .map(|address| {
             let (symbol, symbol_offset) = image
@@ -259,7 +284,7 @@ fn write_coverage(
         schema: "renvo.execution-coverage.v1",
         target,
         architecture,
-        fetch_accesses: fetches.len() as u64,
+        fetch_accesses: accesses.fetch_accesses,
         unique_addresses: addresses.len(),
         addresses,
         digest: hex::encode(digest.finalize()),
@@ -271,14 +296,14 @@ fn write_coverage(
     Ok(())
 }
 
-fn run_pic_program_recorded(
+pub(crate) fn run_pic_program_recorded(
     target: TargetId,
     image: &renvo_image::ProgramWordImage,
     limits: RunLimits,
     stimuli: &[PinStimulus],
     trace: Option<&mut dyn TraceSink>,
     control: DirectRunControl<'_>,
-) -> Result<(RunResult, Vec<renvo_bus::BusAccessRecord>), Box<dyn Error>> {
+) -> Result<RunResult, Box<dyn Error>> {
     let mut machine = Pic16McuMachine::new(target)?;
     machine.load_program(image)?;
     for address in control.breakpoints {
@@ -290,9 +315,9 @@ fn run_pic_program_recorded(
     for stop in control.signal_stops {
         machine.add_signal_stop(&stop.path, stop.edge)?;
     }
-    machine.set_access_recording(control.record_accesses);
+    machine.set_access_observer(control.access_observer);
     let result = machine.run_with_stimuli(limits, stimuli, trace)?;
-    Ok((result, machine.access_log()))
+    Ok(result)
 }
 
 pub(super) fn run_loaded(
@@ -302,25 +327,24 @@ pub(super) fn run_loaded(
     stimuli: &[PinStimulus],
     trace: Option<&mut dyn TraceSink>,
 ) -> Result<RunResult, Box<dyn Error>> {
-    Ok(run_loaded_recorded(
+    run_loaded_recorded(
         target,
         image,
         limits,
         stimuli,
         trace,
         DirectRunControl::default(),
-    )?
-    .0)
+    )
 }
 
-fn run_loaded_recorded(
+pub(crate) fn run_loaded_recorded(
     target: TargetId,
     image: &FirmwareImage,
     limits: RunLimits,
     stimuli: &[PinStimulus],
     trace: Option<&mut dyn TraceSink>,
     control: DirectRunControl<'_>,
-) -> Result<(RunResult, Vec<renvo_bus::BusAccessRecord>), Box<dyn Error>> {
+) -> Result<RunResult, Box<dyn Error>> {
     match image.architecture {
         FirmwareArchitecture::RiscV32 => {
             let mut machine = RiscVMachine::new(target)?;
@@ -334,9 +358,9 @@ fn run_loaded_recorded(
             for stop in control.signal_stops {
                 machine.add_signal_stop(&stop.path, stop.edge)?;
             }
-            machine.set_access_recording(control.record_accesses);
+            machine.set_access_observer(control.access_observer);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
-            Ok((result, machine.access_log().to_vec()))
+            Ok(result)
         }
         FirmwareArchitecture::Arm => {
             if matches!(
@@ -354,9 +378,9 @@ fn run_loaded_recorded(
                 for stop in control.signal_stops {
                     machine.add_signal_stop(&stop.path, stop.edge)?;
                 }
-                machine.set_access_recording(control.record_accesses);
+                machine.set_access_observer(control.access_observer);
                 let result = machine.run_with_stimuli(limits, stimuli, trace)?;
-                Ok((result, machine.access_log().to_vec()))
+                Ok(result)
             } else {
                 let mut machine = ArmMachine::new(target)?;
                 machine.load_firmware(image)?;
@@ -369,9 +393,9 @@ fn run_loaded_recorded(
                 for stop in control.signal_stops {
                     machine.add_signal_stop(&stop.path, stop.edge)?;
                 }
-                machine.set_access_recording(control.record_accesses);
+                machine.set_access_observer(control.access_observer);
                 let result = machine.run_with_stimuli(limits, stimuli, trace)?;
-                Ok((result, machine.access_log().to_vec()))
+                Ok(result)
             }
         }
         FirmwareArchitecture::Xtensa => {
@@ -386,9 +410,9 @@ fn run_loaded_recorded(
             for stop in control.signal_stops {
                 machine.add_signal_stop(&stop.path, stop.edge)?;
             }
-            machine.set_access_recording(control.record_accesses);
+            machine.set_access_observer(control.access_observer);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
-            Ok((result, machine.access_log().to_vec()))
+            Ok(result)
         }
         FirmwareArchitecture::Avr8 => {
             let mut machine = AvrMcuMachine::new(target)?;
@@ -402,9 +426,9 @@ fn run_loaded_recorded(
             for stop in control.signal_stops {
                 machine.add_signal_stop(&stop.path, stop.edge)?;
             }
-            machine.set_access_recording(control.record_accesses);
+            machine.set_access_observer(control.access_observer);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
-            Ok((result, machine.access_log().to_vec()))
+            Ok(result)
         }
         FirmwareArchitecture::Msp430X => {
             let mut machine = Msp430McuMachine::new(target)?;
@@ -418,9 +442,9 @@ fn run_loaded_recorded(
             for stop in control.signal_stops {
                 machine.add_signal_stop(&stop.path, stop.edge)?;
             }
-            machine.set_access_recording(control.record_accesses);
+            machine.set_access_observer(control.access_observer);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
-            Ok((result, machine.access_log().to_vec()))
+            Ok(result)
         }
         FirmwareArchitecture::Pic16Enhanced | FirmwareArchitecture::Mcs51 => Err(format!(
             "architecture {:?} does not have a runnable machine yet",

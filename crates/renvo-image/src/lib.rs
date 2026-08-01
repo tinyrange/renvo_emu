@@ -57,6 +57,8 @@ pub struct FirmwareSegment {
     pub load_address: Option<u64>,
     /// Complete memory image, padded to the ELF memory size.
     pub data: Vec<u8>,
+    /// Number of bytes backed by the ELF file before the zero-fill tail.
+    pub initialized_size: usize,
     /// Segment permits instruction execution.
     pub executable: bool,
     /// Segment permits runtime writes.
@@ -173,6 +175,7 @@ impl FirmwareImage {
                     .copied()
                     .filter(|address| *address != segment.address()),
                 data,
+                initialized_size: source.len(),
                 executable,
                 writable,
                 alignment: segment.align(),
@@ -291,6 +294,7 @@ mod tests {
         assert_eq!(image.segments.len(), 1);
         assert_eq!(image.segments[0].address, 0x1000);
         assert_eq!(image.segments[0].data, vec![0x13, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(image.segments[0].initialized_size, 4);
         assert!(image.segments[0].executable);
         assert!(!image.segments[0].writable);
     }

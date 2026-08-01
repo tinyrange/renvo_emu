@@ -1,6 +1,6 @@
 {
   "schema": "renvo.xtensa-cpu.v1",
-  "source_sha256": "7054d74ef63dd44ca7552af8df0124768b3ff6116233feb2b436271b973e8bee",
+  "source_sha256": "658cb8109a0cc2ec2673de3d6511b313c98d4f6157d4e648fe36577e14d6d244",
   "primary_sources": [
     "https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf",
     "https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/tools/idf-tools.html",
@@ -24,7 +24,7 @@
   ],
   "unit_tests": {
     "artifact": ".renvo/portfolio-smoke/xtensa-cpu-unit-tests.txt",
-    "sha256": "7d4d32c52f7c283f729641d8722a234c3d27b6b62d494b717368dc172ec6fee5"
+    "sha256": "15e2aea637e7727ef631d0ac6e85f16635b4cccdc7bccee0aeab15f76dd056f2"
   },
   "proofs": [
     {

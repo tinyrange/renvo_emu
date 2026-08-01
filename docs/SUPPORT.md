@@ -215,6 +215,34 @@ manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
+Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
+memory use is bounded independently of the number of accesses. The schema and
+pretty-printed ordering remain compatible with existing qualification
+artifacts. Coverage uses the same event stream but retains only unique executed
+addresses.
+
+For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
+does not exercise the second-stage bootloader's flash mappings. Supplying the
+corresponding esptool application binary with `--esp-app-image` enables a
+separate boot-layout gate. It checks the chip and entry metadata, descriptor
+and text segment ordering, 64 KiB mapping congruence, and correspondence with
+the executable ELF. The default application partition offset is `0x10000` and
+can be changed with `--esp-app-offset`.
+
+ESP32-C6 application RAM powers on with the deterministic nonzero byte pattern
+`0xa5`. Direct ELF loading copies only the file-backed portion of writable load
+segments, leaving each `p_memsz - p_filesz` tail poisoned. Firmware must
+therefore perform its own `.bss` initialization, as it must on hardware. Other
+targets retain their existing reset-memory policy.
+
+The native-image boundary covers every target advertised by `renvo targets`.
+RP targets consume UF2 and preserve their Arm/RISC-V boot selection; Espressif
+targets consume validated merged flash images (or the existing application-UF2
+overlay path); PIC16 and EFM8 consume Intel HEX; the remaining byte-addressed
+MCUs consume Intel HEX or addressless raw binaries rooted at their documented
+primary flash base. Native loading uses vector/reset semantics where the
+architecture defines them instead of inventing an ELF entry point.
+
 The human-readable portfolio view is
 [`qualification/dashboard.html`](../qualification/dashboard.html), with the
 same checked data in `qualification/dashboard.json`. “Baseline proven” there

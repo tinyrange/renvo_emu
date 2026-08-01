@@ -139,6 +139,52 @@ cargo run -p renvo-cli -- run \
   --result .renvo/smoke-rv32ec/run.json
 ```
 
+Direct ESP32-C6 ELF execution is an architectural/compiler oracle; it cannot by
+itself prove that the vendor bootloader can map the generated flash image. Pass
+the application binary produced by `esptool.py elf2image` to check the image
+layout against the ELF before execution:
+
+```sh
+cargo run -p renvo-cli -- run \
+  --target esp32c6 \
+  --elf build/firmware.elf \
+  --esp-app-image build/firmware.bin \
+  --esp-app-offset 0x10000
+```
+
+The check rejects merged or reordered mapped segments, a missing application
+descriptor, invalid 64 KiB flash/virtual alignment, an entry point outside the
+mapped text segment, and entry bytes that differ from the ELF. Without
+`--esp-app-image`, the CLI emits an explicit warning rather than implying that
+direct execution validates flash bootability.
+
+`--bus-log` writes the same deterministic JSON array in execution order while
+the emulator runs. It does not retain the complete access history in memory;
+coverage retains only its unique instruction-address set.
+
+Every exposed target also accepts its deployable flash artifact through
+`renvo firmware boot`. Format detection uses container magic for UF2 and ESP
+images, a leading `:` for Intel HEX, and otherwise treats the input as a raw
+binary rooted at the target's primary flash base.
+
+| Targets | Accepted native image |
+| --- | --- |
+| CH32V003, CH32V006 | raw binary or Intel HEX |
+| RP2040, RP2350 Arm, RP2350 RISC-V | UF2 |
+| ESP32-S3, ESP32-C6 | merged Espressif flash binary; application UF2 with `--esp-base-image` |
+| ATSAMD21E18, STM32L432KC, R7FA4M1AB3CFM | raw binary or Intel HEX |
+| ATmega328PB, MSP430FR2433 | Intel HEX or raw binary |
+| PIC16F15376, EFM8BB52F32G | Intel HEX |
+
+For example:
+
+```sh
+cargo run -p renvo-cli -- firmware boot \
+  --target atmega328pb \
+  --image build/firmware.hex \
+  --result build/native-run.json
+```
+
 After both Dockerfiles have been built and their immutable IDs match the
 toolchain TOMLs, `scripts/docker-smoke.sh` compiles and runs the complete
 six-chip portfolio. RP2350 is exercised in both Cortex-M33 and Hazard3 modes.

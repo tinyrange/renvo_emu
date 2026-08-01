@@ -80,6 +80,43 @@ fn direct_run_accepts_bus_log_artifact() {
 }
 
 #[test]
+fn direct_run_accepts_esp32c6_boot_image_validation() {
+    let parsed = Cli::try_parse_from([
+        "renvo",
+        "run",
+        "--target",
+        "esp32c6",
+        "--elf",
+        "firmware.elf",
+        "--esp-app-image",
+        "firmware.bin",
+        "--esp-app-offset",
+        "0x20000",
+    ])
+    .unwrap();
+    let Command::Run(arguments) = parsed.command else {
+        panic!("expected direct run");
+    };
+    assert_eq!(arguments.esp_app_image, Some(PathBuf::from("firmware.bin")));
+    assert_eq!(arguments.esp_app_offset, Some(0x2_0000));
+}
+
+#[test]
+fn direct_run_rejects_esp_offset_without_an_image() {
+    let result = Cli::try_parse_from([
+        "renvo",
+        "run",
+        "--target",
+        "esp32c6",
+        "--elf",
+        "firmware.elf",
+        "--esp-app-offset",
+        "0x10000",
+    ]);
+    assert!(result.is_err());
+}
+
+#[test]
 fn direct_run_accepts_typed_debug_and_signal_stops() {
     let parsed = Cli::try_parse_from([
         "renvo",

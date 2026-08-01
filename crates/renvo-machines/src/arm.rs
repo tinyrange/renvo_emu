@@ -4,7 +4,10 @@ use crate::{
     MemoryKind, PinStimulus, RunResult, SignalEdge, SignalStop, TEST_EXIT, TEST_GPIO, TEST_TIMER,
     TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop, target_manifest,
 };
-use renvo_bus::{AddressSpace, BusAccessRecord, Endianness, MapError, Permissions, SharedMemory};
+use renvo_bus::{
+    AddressSpace, BusAccessRecord, Endianness, MapError, Permissions, SharedBusAccessObserver,
+    SharedMemory,
+};
 use renvo_core::{
     AccessKind, AccessWidth, Bus, Cpu, CpuFault, RunLimits, RunStats, SimTime, StepReason,
     StopReason,
@@ -1068,6 +1071,11 @@ impl ArmMachine {
     /// Enables or disables completed bus-access recording.
     pub fn set_access_recording(&mut self, enabled: bool) {
         self.bus.set_access_recording(enabled);
+    }
+
+    /// Installs or removes a streaming completed-access observer.
+    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
+        self.bus.set_access_observer(observer);
     }
 
     /// Returns completed bus accesses retained for diagnostics.

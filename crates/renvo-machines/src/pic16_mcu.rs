@@ -2,7 +2,7 @@ use crate::{
     PinStimulus, RunResult, SignalEdge, SignalStop, TargetId, matching_signal_stop,
     resolve_signal_stop,
 };
-use renvo_bus::{AddressSpace, BusAccessRecord, Endianness};
+use renvo_bus::{AddressSpace, BusAccessRecord, Endianness, SharedBusAccessObserver};
 use renvo_core::{
     AccessKind, AccessWidth, Bus, Cpu, ResetKind, RunLimits, RunStats, SimTime, StepReason,
     StopReason,
@@ -65,6 +65,7 @@ pub struct Pic16McuMachine {
     now: SimTime,
     record_accesses: bool,
     execution_log: Vec<BusAccessRecord>,
+    access_observer: Option<SharedBusAccessObserver>,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
 }
@@ -89,6 +90,7 @@ impl Pic16McuMachine {
             now: SimTime::ZERO,
             record_accesses: false,
             execution_log: Vec::new(),
+            access_observer: None,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
         })
@@ -143,6 +145,12 @@ impl Pic16McuMachine {
             self.execution_log.clear();
         }
         self.bus.set_access_recording(enabled);
+    }
+
+    /// Installs or removes a streaming program/data access observer.
+    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
+        self.access_observer = observer.clone();
+        self.bus.set_access_observer(observer);
     }
 
     /// Completed data-space accesses retained for diagnostics.
@@ -300,16 +308,22 @@ impl Pic16McuMachine {
             }
             self.cpu.set_interrupt(0, self.peripherals.poll(self.now))?;
             self.bus.clear_watchpoint_hit();
-            if self.record_accesses {
+            if self.record_accesses || self.access_observer.is_some() {
                 let pc = self.cpu.snapshot().pc as u16;
-                self.execution_log.push(BusAccessRecord {
+                let record = BusAccessRecord {
                     at: self.now,
                     kind: AccessKind::Execute,
                     address: u64::from(pc),
                     width: AccessWidth::HalfWord,
                     value: u64::from(self.cpu.program_word(pc).unwrap_or(0x3fff)),
                     region: "pic16f15376.program".to_owned(),
-                });
+                };
+                if self.record_accesses {
+                    self.execution_log.push(record.clone());
+                }
+                if let Some(observer) = &self.access_observer {
+                    observer.borrow_mut().observe(&record);
+                }
             }
             let outcome = match self.cpu.step(&mut self.bus, self.now) {
                 Ok(outcome) => outcome,

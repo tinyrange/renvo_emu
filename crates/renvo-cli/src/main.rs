@@ -1,7 +1,7 @@
 //! Renvo command-line entry point.
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use renvo_core::{AccessKind, CpuSnapshot, RunLimits, SimTime, StopReason};
+use renvo_core::{CpuSnapshot, RunLimits, SimTime, StopReason};
 use renvo_corpus::{
     BuildArtifact, BuildRequest, CaseReductionResult, CompilerMatrix, DockerCompiler, DockerLimits,
     NamedObservation, ReductionCandidate, ToolchainSpec, compare_observations, reduce_case,
@@ -10,13 +10,13 @@ use renvo_gdb::{
     DebugArchitecture, DebugStop, DebugTarget, ServerConfig, SessionReport, serve_once,
 };
 use renvo_image::{
-    EspFlashImage, FirmwareArchitecture, FirmwareImage, IntelHexImage, OfficialFirmwareSuite,
-    ProgramWordEndianness, Uf2Image,
+    EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, IntelHexImage,
+    OfficialFirmwareSuite, ProgramWordEndianness, Uf2Image,
 };
 use renvo_machines::{
     ArmMachine, ArmMcuMachine, AvrMcuMachine, HOST_SCRIPT_COMPLETE_MARKER, Mcs51McuMachine,
     Msp430McuMachine, Pic16McuMachine, PinStimulus, RiscVMachine, RunResult, SignalEdge, TargetId,
-    XtensaMachine, target_manifests,
+    XtensaMachine, target_manifest, target_manifests,
 };
 use renvo_signals::Logic;
 use renvo_starlark::evaluate_script;
@@ -32,10 +32,12 @@ use std::path::{Path, PathBuf};
 
 mod corpus_command;
 use corpus_command::corpus;
+mod access_output;
 mod debug_command;
 use debug_command::{gdb, script};
 mod firmware_command;
-use firmware_command::{firmware, write_access_log};
+use firmware_command::firmware;
+mod native_firmware;
 mod run_command;
 use run_command::{
     inspect, list_targets, parse_address, parse_signal_stop, parse_stimulus, run, run_loaded,
@@ -122,15 +124,15 @@ struct ScriptArgs {
 enum FirmwareCommand {
     /// Verifies an official firmware cache against a pinned manifest.
     Verify(FirmwareVerifyArgs),
-    /// Parses and summarizes a UF2 or merged ESP flash image.
+    /// Parses and summarizes a supported native firmware container.
     Inspect(FirmwareInspectArgs),
-    /// Runs an official UF2 through the target's reset/boot boundary.
+    /// Runs a native flash image through the target's reset/boot boundary.
     Boot(FirmwareBootArgs),
     /// Reconstructs the contiguous payload from a UF2 for diagnostics.
     ExtractUf2(FirmwareExtractUf2Args),
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum FirmwareFormatArg {
     /// Detect from file magic.
     Auto,
@@ -138,6 +140,10 @@ enum FirmwareFormatArg {
     Uf2,
     /// Espressif merged flash binary.
     EspBin,
+    /// Intel HEX with absolute flash addresses.
+    IntelHex,
+    /// Addressless bytes rooted at the target's primary flash base.
+    RawBin,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -163,7 +169,7 @@ struct FirmwareVerifyArgs {
 
 #[derive(Debug, Args)]
 struct FirmwareInspectArgs {
-    /// UF2 or merged ESP flash image.
+    /// UF2, merged ESP binary, Intel HEX, or raw binary.
     image: PathBuf,
     /// Container format, or automatic magic detection.
     #[arg(long, value_enum, default_value_t = FirmwareFormatArg::Auto)]
@@ -172,15 +178,18 @@ struct FirmwareInspectArgs {
 
 #[derive(Debug, Args)]
 struct FirmwareBootArgs {
-    /// Raspberry Pi target receiving the official UF2.
+    /// Target receiving the native flash artifact.
     #[arg(long)]
     target: String,
     /// Processor architecture selected by a dual-ISA target.
     #[arg(long, value_enum, default_value_t = FirmwareCpuArg::Arm)]
     cpu: FirmwareCpuArg,
-    /// Official UF2 image.
+    /// Native flash image.
     #[arg(long)]
     image: PathBuf,
+    /// Native container format, or automatic detection from target and magic.
+    #[arg(long, value_enum, default_value_t = FirmwareFormatArg::Auto)]
+    format: FirmwareFormatArg,
     /// Official merged ESP image supplying bootloader/partitions for an app-only UF2.
     #[arg(long)]
     esp_base_image: Option<PathBuf>,
@@ -251,9 +260,15 @@ struct RunArgs {
     /// Write the run result to this file instead of stdout.
     #[arg(long)]
     result: Option<PathBuf>,
-    /// Optional JSON record of completed memory and MMIO operations.
+    /// Stream completed memory and MMIO operations to this JSON file.
     #[arg(long)]
     bus_log: Option<PathBuf>,
+    /// esptool application binary to validate against an ESP32-C6 direct ELF.
+    #[arg(long, requires = "elf", conflicts_with = "hex")]
+    esp_app_image: Option<PathBuf>,
+    /// Flash partition offset of --esp-app-image (default: 0x10000).
+    #[arg(long, requires = "esp_app_image", value_parser = parse_address)]
+    esp_app_offset: Option<u64>,
     /// Write deterministic instruction-fetch coverage as JSON.
     #[arg(long)]
     coverage: Option<PathBuf>,
@@ -277,9 +292,9 @@ struct SignalStopArg {
     edge: SignalEdge,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Default)]
 struct DirectRunControl<'a> {
-    record_accesses: bool,
+    access_observer: Option<renvo_bus::SharedBusAccessObserver>,
     breakpoints: &'a [u64],
     watchpoints: &'a [u64],
     signal_stops: &'a [SignalStopArg],

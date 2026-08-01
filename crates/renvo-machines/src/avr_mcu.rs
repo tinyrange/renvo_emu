@@ -2,7 +2,7 @@ use crate::{
     PinStimulus, RunResult, SignalEdge, SignalStop, TargetId, matching_signal_stop,
     resolve_signal_stop,
 };
-use renvo_bus::{AddressSpace, BusAccessRecord, Endianness};
+use renvo_bus::{AddressSpace, BusAccessRecord, Endianness, SharedBusAccessObserver};
 use renvo_core::{
     AccessKind, AccessWidth, Bus, Cpu, ResetKind, RunLimits, RunStats, SimTime, StepReason,
     StopReason,
@@ -164,6 +164,10 @@ impl AvrMcuMachine {
     /// Enables or disables completed bus-access recording.
     pub fn set_access_recording(&mut self, enabled: bool) {
         self.bus.set_access_recording(enabled);
+    }
+    /// Installs or removes a streaming completed-access observer.
+    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
+        self.bus.set_access_observer(observer);
     }
     /// Completed data-space accesses retained for diagnostics.
     pub fn access_log(&self) -> &[BusAccessRecord] {
@@ -369,13 +373,17 @@ mod tests {
     fn atmega_executes_ldi_out_and_break_with_named_exit_register() {
         // ldi r24, 0; ldi r16, 1; out DDRB,r16; out PORTB,r16; break
         let words = [0xe080_u16, 0xe001, 0xb904, 0xb905, 0x9598];
-        let code = words.into_iter().flat_map(u16::to_le_bytes).collect();
+        let code = words
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
         let image = FirmwareImage {
             architecture: FirmwareArchitecture::Avr8,
             entry: 0,
             segments: vec![FirmwareSegment {
                 address: 0,
                 load_address: None,
+                initialized_size: code.len(),
                 data: code,
                 executable: true,
                 writable: false,

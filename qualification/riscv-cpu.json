@@ -122,7 +122,7 @@
       "cpu": "esp-rv32imac-hp",
       "feature": "user-traps-and-pmp-visibility",
       "build_artifact": ".renvo/portfolio-smoke/esp32c6-privilege-build.json",
-      "build_provenance_sha256": "eac603d1835112741bf5ac915a096c28f829400f94f493ed0a9e5bbc050218a9",
+      "build_provenance_sha256": "5cc23f62211aa2ef2da73fb0a52e75fdc4d44e41bc3be49112424ef6a262992e",
       "elf": ".renvo/portfolio-smoke/esp32c6-privilege/smoke.elf",
       "elf_sha256": "1937ae2fbc3964056eb6f10814d32c718ff43c18cfd10275f305cc9dd015e5c0",
       "result_artifact": ".renvo/portfolio-smoke/esp32c6-privilege-run.json",

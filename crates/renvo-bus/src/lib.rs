@@ -265,15 +265,43 @@ pub struct BusAccessRecord {
     pub region: String,
 }
 
+/// Receives completed bus operations without retaining them in the address space.
+///
+/// Observers are intended for streaming diagnostics such as CLI bus logs. The
+/// existing in-memory access log remains available independently for debugger
+/// and library callers.
+pub trait BusAccessObserver {
+    /// Observes one successfully completed operation in execution order.
+    fn observe(&mut self, record: &BusAccessRecord);
+}
+
+/// Shareable observer handle used by machines with more than one access space.
+pub type SharedBusAccessObserver = Rc<RefCell<dyn BusAccessObserver>>;
+
 /// Deterministic, non-overlapping address space.
-#[derive(Debug)]
 pub struct AddressSpace {
     endianness: Endianness,
     regions: Vec<Region>,
     record_accesses: bool,
     access_log: Vec<BusAccessRecord>,
+    access_observer: Option<SharedBusAccessObserver>,
     watchpoints: BTreeSet<u64>,
     watchpoint_hit: Option<BusAccessRecord>,
+}
+
+impl fmt::Debug for AddressSpace {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AddressSpace")
+            .field("endianness", &self.endianness)
+            .field("regions", &self.regions)
+            .field("record_accesses", &self.record_accesses)
+            .field("access_log", &self.access_log)
+            .field("has_access_observer", &self.access_observer.is_some())
+            .field("watchpoints", &self.watchpoints)
+            .field("watchpoint_hit", &self.watchpoint_hit)
+            .finish()
+    }
 }
 
 impl Default for AddressSpace {
@@ -290,6 +318,7 @@ impl AddressSpace {
             regions: Vec::new(),
             record_accesses: false,
             access_log: Vec::new(),
+            access_observer: None,
             watchpoints: BTreeSet::new(),
             watchpoint_hit: None,
         }
@@ -308,6 +337,11 @@ impl AddressSpace {
     /// Clears recorded bus operations without disabling recording.
     pub fn clear_access_log(&mut self) {
         self.access_log.clear();
+    }
+
+    /// Installs or removes a streaming completed-access observer.
+    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
+        self.access_observer = observer;
     }
 
     /// Adds a byte address that stops the owning machine on a completed data access.
@@ -340,6 +374,16 @@ impl AddressSpace {
             .saturating_add(u64::from(record.width.bytes()));
         if self.watchpoints.range(record.address..end).next().is_some() {
             self.watchpoint_hit = Some(record.clone());
+        }
+    }
+
+    fn record_completed_access(&mut self, record: BusAccessRecord) {
+        self.record_watchpoint_hit(&record);
+        if self.record_accesses {
+            self.access_log.push(record.clone());
+        }
+        if let Some(observer) = &self.access_observer {
+            observer.borrow_mut().observe(&record);
         }
     }
 
@@ -633,7 +677,6 @@ impl Bus for AddressSpace {
         at: SimTime,
     ) -> Result<u64, BusFault> {
         let endianness = self.endianness;
-        let record_accesses = self.record_accesses;
         let region = self.region_for(address, width, kind)?;
         let relative = address - region.start;
         let value = match &mut region.backing {
@@ -681,10 +724,7 @@ impl Bus for AddressSpace {
             value,
             region: region_name,
         };
-        self.record_watchpoint_hit(&record);
-        if record_accesses {
-            self.access_log.push(record);
-        }
+        self.record_completed_access(record);
         Ok(value)
     }
 
@@ -696,7 +736,6 @@ impl Bus for AddressSpace {
         at: SimTime,
     ) -> Result<(), BusFault> {
         let endianness = self.endianness;
-        let record_accesses = self.record_accesses;
         let region = self.region_for(address, width, AccessKind::Write)?;
         let relative = address - region.start;
         let masked = value & width.value_mask();
@@ -749,10 +788,7 @@ impl Bus for AddressSpace {
             value: masked,
             region: region_name,
         };
-        self.record_watchpoint_hit(&record);
-        if record_accesses {
-            self.access_log.push(record);
-        }
+        self.record_completed_access(record);
         Ok(())
     }
 }
@@ -760,6 +796,14 @@ impl Bus for AddressSpace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct CollectingObserver(Rc<RefCell<Vec<BusAccessRecord>>>);
+
+    impl BusAccessObserver for CollectingObserver {
+        fn observe(&mut self, record: &BusAccessRecord) {
+            self.0.borrow_mut().push(record.clone());
+        }
+    }
 
     #[test]
     fn maps_and_accesses_little_endian_memory() {
@@ -878,5 +922,36 @@ mod tests {
         )
         .unwrap();
         assert!(bus.take_watchpoint_hit().is_none());
+    }
+
+    #[test]
+    fn observer_streams_without_populating_the_in_memory_log() {
+        let records = Rc::new(RefCell::new(Vec::new()));
+        let observer: SharedBusAccessObserver =
+            Rc::new(RefCell::new(CollectingObserver(records.clone())));
+        let mut bus = AddressSpace::default();
+        bus.map_ram("ram", 0x1000, 16, true).unwrap();
+        bus.set_access_observer(Some(observer));
+
+        bus.write(
+            0x1000,
+            AccessWidth::Word,
+            0x4433_2211,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        bus.read(
+            0x1000,
+            AccessWidth::Word,
+            AccessKind::Execute,
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
+
+        assert!(bus.access_log().is_empty());
+        let records = records.borrow();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].kind, AccessKind::Write);
+        assert_eq!(records[1].kind, AccessKind::Execute);
     }
 }

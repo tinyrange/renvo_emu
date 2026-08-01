@@ -13,6 +13,10 @@ pub enum FirmwareArtifactFormat {
     Uf2,
     /// Espressif merged flash binary.
     EspBin,
+    /// Intel HEX with absolute device addresses.
+    IntelHex,
+    /// Addressless raw flash bytes.
+    RawBin,
 }
 
 /// One immutable artifact published by a firmware project.
