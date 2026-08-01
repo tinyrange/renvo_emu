@@ -135,6 +135,36 @@ fn esp32c6_direct_elf_leaves_the_bss_tail_poisoned() {
 }
 
 #[test]
+fn esp32c6_saradc_native_map_completes_one_shot_conversion() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(0x6000_e040, AccessWidth::Word, 1_u64 << 31, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6000_e020,
+            AccessWidth::Word,
+            u64::from((2_u32 << 25) | (1 << 23) | (1 << 29) | (1 << 31)),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6000_e02c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        2_688
+    );
+}
+
+#[test]
 fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine.cpu.set_pc(0x4000_03d8).unwrap();
