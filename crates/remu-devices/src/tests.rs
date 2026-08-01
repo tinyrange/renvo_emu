@@ -1937,3 +1937,27 @@ fn pwm_phase_commands_adjust_counter_and_self_clear() {
     assert_eq!(handle.counter(0), Some(3));
     assert_eq!(pwm.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
 }
+
+#[test]
+fn i2c_executes_addressed_writes_and_queued_reads() {
+    let (mut i2c, handle) = FunctionalI2c::new("i2c");
+    handle.queue_read(0x58, &[0x12]);
+    i2c.write(0x04, AccessWidth::Word, 0x58, SimTime::ZERO).unwrap();
+    i2c.write(0x10, AccessWidth::Word, 0xa0, SimTime::ZERO).unwrap();
+    i2c.write(0x10, AccessWidth::Word, 1 << 8, SimTime::ZERO).unwrap();
+    assert_eq!(i2c.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(), 0x12);
+    assert_eq!(handle.events(), [
+        I2cEvent::Write { address: 0x58, value: 0xa0 },
+        I2cEvent::Read { address: 0x58, value: 0x12 },
+    ]);
+}
+
+#[test]
+fn i2c_reports_fifo_and_stop_interrupt_state() {
+    let (mut i2c, _handle) = FunctionalI2c::new("i2c");
+    i2c.write(0x30, AccessWidth::Word, (1 << 4) | (1 << 9), SimTime::ZERO).unwrap();
+    i2c.write(0x04, AccessWidth::Word, 0x20, SimTime::ZERO).unwrap();
+    i2c.write(0x10, AccessWidth::Word, (1 << 9) | 0x5a, SimTime::ZERO).unwrap();
+    assert_eq!(i2c.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap(), (1 << 4) | (1 << 9));
+    assert_eq!(i2c.read(0x70, AccessWidth::Word, SimTime::ZERO).unwrap(), 0x06);
+}

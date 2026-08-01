@@ -15,7 +15,8 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalPwm,
-    FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, Rp2040Clocks, Rp2040Pll,
+    FunctionalI2c, FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, I2cEvent, I2cHandle,
+    PwmHandle, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
@@ -51,6 +52,7 @@ pub struct ArmMachine {
     pub(crate) chip_adc: RpAdcHandle,
     pub(crate) chip_pwm: PwmHandle,
     pub(crate) chip_spis: Vec<SpiHandle>,
+    pub(crate) chip_i2cs: Vec<I2cHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -129,6 +131,7 @@ impl ArmMachine {
         let mut spi = Vec::new();
         let chip_pwm;
         let mut chip_spis = Vec::new();
+        let mut chip_i2cs = Vec::new();
         let mut pio = Vec::new();
         let chip_adc;
         let mut usb = None;
@@ -312,8 +315,6 @@ impl ArmMachine {
                 Box::new(Rp2040RegisterBank::new("rp2040.io-qspi", vec![0; 64])),
             )?;
             for (name, base) in [
-                ("rp2040.i2c0", 0x4004_4000),
-                ("rp2040.i2c1", 0x4004_8000),
                 ("rp2040.dma", 0x5000_0000),
             ] {
                 bus.map_device(
@@ -419,8 +420,6 @@ impl ArmMachine {
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
             )?;
             for (name, base) in [
-                ("rp2350.i2c0", 0x4009_0000),
-                ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.dma", 0x5000_0000),
             ] {
                 bus.map_device(
@@ -575,6 +574,17 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
+        let i2c_bases = match target {
+            TargetId::Rp2040 => [0x4004_4000, 0x4004_8000],
+            TargetId::Rp2350 => [0x4009_0000, 0x4009_8000],
+            _ => unreachable!(),
+        };
+        for (index, base) in i2c_bases.into_iter().enumerate() {
+            let name = format!("{target}.i2c{index}");
+            let (device, handle) = FunctionalI2c::new(&name);
+            bus.map_device(name, base, 0x1000, Box::new(device))?;
+            chip_i2cs.push(handle);
+        }
         let uart1_base = match target {
             TargetId::Rp2040 => 0x4003_8000,
             TargetId::Rp2350 => 0x4007_8000,
@@ -670,6 +680,7 @@ impl ArmMachine {
             chip_adc,
             chip_pwm,
             chip_spis,
+            chip_i2cs,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1225,6 +1236,20 @@ impl ArmMachine {
     /// Returns bytes transmitted by one of the target's functional SPI controllers.
     pub fn spi_transmitted(&self, index: usize) -> Option<Vec<u8>> {
         self.chip_spis.get(index).map(SpiHandle::transmitted)
+    }
+
+    /// Queues deterministic response bytes for one target I²C controller.
+    pub fn queue_i2c_read(&self, index: usize, address: u16, bytes: &[u8]) -> bool {
+        let Some(handle) = self.chip_i2cs.get(index) else {
+            return false;
+        };
+        handle.queue_read(address, bytes);
+        true
+    }
+
+    /// Returns byte-level events observed on one target I²C controller.
+    pub fn i2c_events(&self, index: usize) -> Option<Vec<I2cEvent>> {
+        self.chip_i2cs.get(index).map(I2cHandle::events)
     }
     /// Removes configured user breakpoints and data watchpoints.
     pub fn clear_debug_stops(&mut self) {

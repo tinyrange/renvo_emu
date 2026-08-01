@@ -15,6 +15,8 @@ mod signals;
 pub use signals::*;
 mod uart;
 pub use uart::*;
+mod i2c;
+pub use i2c::*;
 mod pwm;
 pub use pwm::*;
 mod spi;
