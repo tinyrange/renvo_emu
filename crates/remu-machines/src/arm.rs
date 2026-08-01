@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpIoBank, RpIoBankHandle,
+    RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -54,6 +54,7 @@ pub struct ArmMachine {
     bootrom_services: BTreeMap<u32, u32>,
     native_bootrom: bool,
     ppb: ArmPpbHandle,
+    io_bank: RpIoBankHandle,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
@@ -241,6 +242,19 @@ impl ArmMachine {
             0x200,
             Box::new(sio_device),
         )?;
+        let io_bank_base = if target == TargetId::Rp2040 {
+            0x4001_4000
+        } else {
+            0x4002_8000
+        };
+        let (io_bank_device, io_bank) =
+            RpIoBank::new(format!("{target}.io-bank0"), chip_gpio.clone());
+        bus.map_device(
+            format!("{target}.io-bank0"),
+            io_bank_base,
+            0x4000,
+            Box::new(io_bank_device),
+        )?;
         if target == TargetId::Rp2040 {
             let mut sysinfo_reset = vec![0; 8];
             // Production RP2040 B2: revision 2, RP2 part 2, Raspberry Pi
@@ -278,12 +292,6 @@ impl ArmMachine {
                 0x4002_4000,
                 0x4000,
                 Box::new(Rp2040Xosc::new("rp2040.xosc")),
-            )?;
-            bus.map_device(
-                "rp2040.io-bank0",
-                0x4001_4000,
-                0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2040.io-bank0", vec![0; 256])),
             )?;
             let mut pad_reset = vec![0x56; 64];
             pad_reset[0] = 0;
@@ -463,15 +471,6 @@ impl ArmMachine {
             // aliases; the electrical slew/drive details do not affect functional execution.
             let mut qspi_pad_reset = vec![0x56; 0x1000 / 4];
             qspi_pad_reset[0] = 0;
-            bus.map_device(
-                "rp2350.io-bank0",
-                0x4002_8000,
-                0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2350.io-bank0",
-                    vec![0; 0x1000 / 4],
-                )),
-            )?;
             let mut io_qspi_reset = vec![0; 0x1000 / 4];
             for offset in (0..=0x28).step_by(8) {
                 // The functional flash path begins with each QSPI output deasserted high.
@@ -594,6 +593,7 @@ impl ArmMachine {
             gpio,
             chip_gpio,
             sio,
+            io_bank,
             uart,
             chip_uart,
             timer,
@@ -1154,6 +1154,7 @@ impl ArmMachine {
         self.gpio.set_input(pin, value, self.now)?;
         if usize::from(pin) < self.chip_gpio.pin_count() {
             self.chip_gpio.set_input(pin, value, self.now)?;
+            self.io_bank.record_input(pin)?;
         }
         Ok(())
     }
@@ -1462,12 +1463,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
