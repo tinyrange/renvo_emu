@@ -208,6 +208,40 @@ fn esp32s3_timer_group_exposes_second_timer_interrupt() {
 }
 
 #[test]
+fn esp_i2c_fifo_exposes_master_transaction_and_completion_status() {
+    let (mut i2c, handle) = EspI2c::new("i2c0");
+    handle.queue_rx(&[0x34, 0x12]);
+    i2c.write(0x04, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x1c, AccessWidth::Word, 0xa0, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x1c, AccessWidth::Word, 0x00, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.busy());
+    assert_eq!(handle.take_tx(), [0xa0, 0x00]);
+    assert_eq!(
+        i2c.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x34
+    );
+    assert_eq!(
+        i2c.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x12
+    );
+    i2c.write(0x04, AccessWidth::Word, 1 << 1, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.busy());
+    i2c.write(0x24, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        i2c.read(0x28, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 7
+    );
+    i2c.write(0x30, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(i2c.read(0x28, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+}
+
+#[test]
 fn uart_captures_low_byte() {
     let (mut uart, handle) = FunctionalUart::new("uart", 0, 4, 1);
     uart.write(0, AccessWidth::Word, b'A'.into(), SimTime::ZERO)

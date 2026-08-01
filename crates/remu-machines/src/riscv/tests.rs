@@ -199,6 +199,31 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 }
 
 #[test]
+fn esp32c6_i2c0_uses_native_fifo_window() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(0x6000_4004, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_401c, AccessWidth::Word, 0xa0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6000_4008,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn gpio_facade_streams_valid_vcd() {
     // lui x1,0xffff0; addi x2,x0,1; sw x2,0(x1); sw x2,4(x1); ebreak
     let program = [
