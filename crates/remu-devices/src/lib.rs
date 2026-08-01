@@ -215,6 +215,8 @@ mod samd_wdt;
 pub use samd_wdt::*;
 mod stm32;
 pub use stm32::*;
+mod stm32_adc;
+pub use stm32_adc::*;
 mod ra;
 pub use ra::*;
 mod avr;

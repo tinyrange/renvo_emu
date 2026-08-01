@@ -1027,3 +1027,9 @@ watchdog reset path. The key values, prescaler encoding, reload width, and
 register offsets follow ST's [STM32L41/42/43/44 reference manual](https://www.st.com/resource/en/reference_manual/dm00151940-stm32l4x1-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf).
 Window watchdog timing and low-power clock behavior remain outside this
 functional boundary.
+
+The STM32L432KC ADC1 slice maps the native control, status, sequence, and data
+registers and accepts deterministic host-provided channel samples. Software
+start completes a single conversion immediately on the abstract timeline and
+publishes the result and end-of-conversion state. Analog voltage physics,
+calibration timing, injected groups, oversampling, and DMA remain deferred.

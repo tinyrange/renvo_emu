@@ -19,9 +19,9 @@ use remu_devices::{
     Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Spi, Stm32SpiHandle,
-    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle,
-    TimerHandle, UartHandle,
+    Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32Gpio, Stm32I2c, Stm32I2cHandle,
+    Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle,
+    Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -113,6 +113,7 @@ pub struct ArmMcuMachine {
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<VendorWatchdog>,
     stm32_i2c: Vec<(u16, Stm32I2cHandle)>,
+    stm32_adc: Option<Stm32AdcHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -263,6 +264,7 @@ impl ArmMcuMachine {
         )?;
 
         let mut stm32_spi = Vec::new();
+        let mut stm32_adc = None;
         let (
             gpio,
             uart,
@@ -400,6 +402,8 @@ impl ArmMcuMachine {
                 let (i2c1_device, i2c1) = Stm32I2c::new("stm32l432kc.i2c1");
                 let (i2c3_device, i2c3) = Stm32I2c::new("stm32l432kc.i2c3");
                 let (watchdog_device, watchdog) = Stm32Watchdog::new("stm32l432kc.iwdg");
+                let (adc_device, adc) = Stm32Adc::new("stm32l432kc.adc1");
+                stm32_adc = Some(adc);
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -412,6 +416,7 @@ impl ArmMcuMachine {
                     i2c1_device,
                     i2c3_device,
                     watchdog_device,
+                    adc_device,
                 )?;
                 (
                     gpio,
@@ -495,6 +500,7 @@ impl ArmMcuMachine {
             ra_icu,
             watchdog,
             stm32_i2c,
+            stm32_adc,
             compiler_timer,
             exit,
             ppb,
@@ -613,6 +619,7 @@ impl ArmMcuMachine {
         i2c1: Stm32I2c,
         i2c3: Stm32I2c,
         watchdog: Stm32Watchdog,
+        adc: Stm32Adc,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -684,6 +691,7 @@ impl ArmMcuMachine {
         bus.map_device("stm32l432kc.i2c1", 0x4000_5400, 0x400, Box::new(i2c1))?;
         bus.map_device("stm32l432kc.i2c3", 0x4000_5c00, 0x400, Box::new(i2c3))?;
         bus.map_device("stm32l432kc.iwdg", 0x4000_3000, 0x10, Box::new(watchdog))?;
+        bus.map_device("stm32l432kc.adc1", 0x5000_0000, 0x400, Box::new(adc))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -884,6 +892,11 @@ impl ArmMcuMachine {
     /// Current vendor GPIO output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio.output()
+    }
+
+    /// Returns the host-facing STM32 ADC1 sample handle.
+    pub fn adc(&self) -> Option<Stm32AdcHandle> {
+        self.stm32_adc.clone()
     }
 
     /// Reads guest-visible bytes for qualification and debugger adapters.
@@ -1558,6 +1571,37 @@ mod tests {
                 u64::from(0xa5 + index as u8)
             );
         }
+    }
+
+    #[test]
+    fn stm32l432_maps_adc1_and_converts_scripted_input() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine.adc().unwrap().set_input(4, 0x0abc);
+        machine
+            .bus
+            .write(0x5000_0030, AccessWidth::Word, 4 << 6, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x5000_0008, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x5000_0008, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.adc().unwrap().value(), 0x0abc);
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x5000_0040,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0abc
+        );
     }
 
     #[test]
