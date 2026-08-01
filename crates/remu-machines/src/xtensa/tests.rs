@@ -10,6 +10,33 @@ fn direct_load_starts_with_appcpu_reset_and_parked() {
 }
 
 #[test]
+fn esp32s3_auxiliary_uarts_capture_transmit_fifo_writes() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine
+        .bus
+        .write(0x6001_0000, AccessWidth::Word, 0x31, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6002_e000, AccessWidth::Word, 0x32, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.auxiliary_uarts[0].bytes(), [0x31]);
+    assert_eq!(machine.auxiliary_uarts[1].bytes(), [0x32]);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_001c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
 fn appcpu_systimer_defers_to_a_logical_window_safe_point_during_usb_execution() {
     assert!(appcpu_systimer_level(true, false, false));
     assert!(!appcpu_systimer_level(true, true, false));

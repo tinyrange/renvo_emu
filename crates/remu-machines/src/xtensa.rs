@@ -371,6 +371,7 @@ pub struct XtensaMachine {
     chip_gpio: GpioHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
+    auxiliary_uarts: Vec<UartHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     usb_serial_jtag: EspUsbSerialJtagHandle,
@@ -470,7 +471,6 @@ impl XtensaMachine {
             ("hinf", 0x6000_b000),
             ("uhci1", 0x6000_c000),
             ("i2s0", 0x6000_f000),
-            ("uart1", 0x6001_0000),
             ("bluetooth", 0x6001_1000),
             ("i2c0", 0x6001_3000),
             ("uhci0", 0x6001_4000),
@@ -492,7 +492,6 @@ impl XtensaMachine {
             ("twai", 0x6002_b000),
             ("pwm1", 0x6002_c000),
             ("i2s1", 0x6002_d000),
-            ("uart2", 0x6002_e000),
             ("usb-wrap", 0x6003_9000),
             ("aes", 0x6003_a000),
             ("sha", 0x6003_b000),
@@ -651,6 +650,13 @@ impl XtensaMachine {
             0x1000,
             Box::new(chip_uart_device),
         )?;
+        let mut auxiliary_uarts = Vec::new();
+        for (name, base) in [("uart1", 0x6001_0000), ("uart2", 0x6002_e000)] {
+            let (device, handle) =
+                FunctionalUart::new_lenient(format!("esp32s3.{name}"), 0, 0x1c, 0);
+            bus.map_device(format!("esp32s3.{name}"), base, 0x1000, Box::new(device))?;
+            auxiliary_uarts.push(handle);
+        }
         let (usb_serial_jtag_device, usb_serial_jtag) =
             EspUsbSerialJtag::new("esp32s3.usb-serial-jtag");
         bus.map_device(
@@ -708,6 +714,7 @@ impl XtensaMachine {
             chip_gpio,
             uart,
             chip_uart,
+            auxiliary_uarts,
             timer,
             exit,
             usb_serial_jtag,
@@ -1357,6 +1364,9 @@ impl XtensaMachine {
         }
         let mut uart = self.uart.bytes();
         uart.extend(self.chip_uart.bytes());
+        for auxiliary_uart in &self.auxiliary_uarts {
+            uart.extend(auxiliary_uart.bytes());
+        }
         let mut usb = self.usb_host.output();
         usb.extend(self.usb_serial_jtag.output());
         Ok(RunResult {
