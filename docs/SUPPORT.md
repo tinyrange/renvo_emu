@@ -1013,6 +1013,12 @@ registers (`UDR0` at `0xc6` and `UDR1` at `0xce`), with native USART1
 enable/ready/complete status and separate trace signals. Receive, baud-rate
 timing, and modem-control fidelity remain outside this functional CI slice.
 
+The RA4M1 slice maps both native IIC controllers at `0x40053000` and
+`0x40053100`. The deterministic functional boundary covers controller enable,
+start/stop state, transmit and host-injected receive bytes, TDRE/TEND/RDRF/
+NACKF/START/STOP status, and status-interrupt enables. Bit-level arbitration,
+clock stretching, and electrical open-drain resolution are not modeled.
+
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
 bus logs, verifies the portfolio, and regenerates all six manifests. The

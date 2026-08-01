@@ -15,7 +15,7 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_AGT0_INT, RA4M1_EVENT_AGT1_INT,
     RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle, RaGpt, RaGptHandle, RaIcu,
-    RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RaSpi, RegisterBank, Samd21Ac,
+    RaIcuHandle, RaIic, RaIoPort, RaPfs, RaSci, RaSciHandle, RaSpi, RegisterBank, Samd21Ac,
     Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
     Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
@@ -418,6 +418,8 @@ impl ArmMcuMachine {
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
                 let (agt0_device, agt0) = RaAgt::new("r7fa4m1ab3cfm.agt0");
                 let (agt1_device, agt1) = RaAgt::new("r7fa4m1ab3cfm.agt1");
+                let (iic0_device, _) = RaIic::new("r7fa4m1ab3cfm.iic0");
+                let (iic1_device, _) = RaIic::new("r7fa4m1ab3cfm.iic1");
                 Self::map_ra4m1(
                     &mut bus,
                     ports,
@@ -429,6 +431,8 @@ impl ArmMcuMachine {
                     agt1_device,
                     spi0_device,
                     spi1_device,
+                    iic0_device,
+                    iic1_device,
                 )?;
                 (
                     handles.remove(1),
@@ -669,6 +673,8 @@ impl ArmMcuMachine {
         agt1: RaAgt,
         spi0: RaSpi,
         spi1: RaSpi,
+        iic0: RaIic,
+        iic1: RaIic,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -694,6 +700,8 @@ impl ArmMcuMachine {
         bus.map_device("r7fa4m1ab3cfm.agt1", 0x4008_4100, 0x100, Box::new(agt1))?;
         bus.map_device("r7fa4m1ab3cfm.spi0", 0x4007_2000, 0x20, Box::new(spi0))?;
         bus.map_device("r7fa4m1ab3cfm.spi1", 0x4007_2100, 0x20, Box::new(spi1))?;
+        bus.map_device("r7fa4m1ab3cfm.iic0", 0x4005_3000, 0x20, Box::new(iic0))?;
+        bus.map_device("r7fa4m1ab3cfm.iic1", 0x4005_3100, 0x20, Box::new(iic1))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
@@ -1429,6 +1437,45 @@ mod tests {
                 .unwrap(),
             3
         );
+    }
+
+    #[test]
+    fn ra4m1_maps_both_native_iic_windows() {
+        let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+        for base in [0x4005_3000, 0x4005_3100] {
+            machine
+                .bus
+                .write(base, AccessWidth::Byte, 0x80, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base + 1, AccessWidth::Byte, 0x04, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base + 0x12, AccessWidth::Byte, 0x6e, SimTime::ZERO)
+                .unwrap();
+            assert_eq!(
+                machine
+                    .bus
+                    .read(
+                        base + 0x12,
+                        AccessWidth::Byte,
+                        AccessKind::Read,
+                        SimTime::ZERO,
+                    )
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                machine
+                    .bus
+                    .read(base + 8, AccessWidth::Byte, AccessKind::Read, SimTime::ZERO,)
+                    .unwrap()
+                    & 0x80,
+                0x80
+            );
+        }
     }
 }
 
