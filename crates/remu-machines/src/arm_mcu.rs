@@ -357,6 +357,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                     Some(watchdog),
                 )
             }
@@ -405,6 +406,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     Vec::new(),
+                    None,
                     None,
                     None,
                     None,
@@ -1556,6 +1558,36 @@ mod tests {
                 )
                 .unwrap(),
             0x07
+        );
+    }
+
+    #[test]
+    fn ra4m1_maps_doc_compare_registers() {
+        let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+        machine
+            .bus
+            .write(0x4005_4104, AccessWidth::HalfWord, 0x55aa, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4005_4100, AccessWidth::HalfWord, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4005_4102, AccessWidth::HalfWord, 0x55aa, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.doc_result(), Some(0x55aa));
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4005_4100,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            1 << 2 | 1 << 5
         );
     }
 }

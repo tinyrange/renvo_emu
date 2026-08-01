@@ -495,6 +495,12 @@ selects MSB-first or LSB-first processing. CRCDIR/CRCDOR streaming, the clear
 control, CRCCR1, and the snoop-address register are modeled. The calculator
 is deterministic and functional; automatic bus snooping is not yet enabled.
 
+The R7FA4M1AB3CFM model includes the RA4M1 Data Operation Circuit at
+`0x40054100`. Its compare, add, and subtract modes, detection polarity,
+operation flag/clear, and 16-bit input/reference/result registers are modeled
+for deterministic firmware tests. It does not claim the hardware's exact
+operation-completion latency.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
