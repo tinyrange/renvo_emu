@@ -312,7 +312,6 @@ impl ArmMachine {
                 ("rp2040.i2c0", 0x4004_4000),
                 ("rp2040.i2c1", 0x4004_8000),
                 ("rp2040.dma", 0x5000_0000),
-                ("rp2040.pio1", 0x5030_0000),
             ] {
                 bus.map_device(
                     name,
@@ -422,8 +421,6 @@ impl ArmMachine {
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio1", 0x5030_0000),
-                ("rp2350.pio2", 0x5040_0000),
             ] {
                 bus.map_device(
                     name,
@@ -623,6 +620,19 @@ impl ArmMachine {
         let (adc, adc_handle) = RpAdc::new_for_variant(adc_name, variant);
         bus.map_device(adc_name, adc_base, 0x1000, Box::new(adc))?;
         chip_adc = adc_handle;
+        let pio_count = if target == TargetId::Rp2350 { 3 } else { 2 };
+        for index in 1..pio_count {
+            let name = format!("{target}.pio{index}");
+            let base = 0x5020_0000 + (index as u64 * 0x0010_0000);
+            let (device, handle) = RpPio::new(
+                &name,
+                u16::from(manifest.gpio_count.min(32)),
+                &format!("board.{target}.pio{index}.gpio"),
+                signals.clone(),
+            )?;
+            bus.map_device(name, base, 0x4000, Box::new(device))?;
+            pio.push(handle);
+        }
         Ok(Self {
             target,
             cpu: ArmCpu::new(profile),
