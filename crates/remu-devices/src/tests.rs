@@ -51,6 +51,42 @@ fn timer_latches_and_clears_interrupt() {
 }
 
 #[test]
+fn spi_captures_transmit_and_provides_deterministic_loopback() {
+    let (mut spi, handle) = FunctionalSpi::new("spi");
+    assert_eq!(
+        spi.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x03
+    );
+    spi.write(0x08, AccessWidth::Word, 0xa5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.transmitted(), [0xa5]);
+    assert_eq!(
+        spi.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x0b
+    );
+    assert_eq!(
+        spi.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xa5
+    );
+    assert_eq!(
+        spi.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x03
+    );
+}
+
+#[test]
+fn spi_consumes_queued_host_bytes_before_loopback() {
+    let (mut spi, handle) = FunctionalSpi::new("spi");
+    handle.queue_received(&[0x5a]);
+    spi.write(0x08, AccessWidth::Word, 0x33, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        spi.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x5a
+    );
+}
+
+#[test]
 fn rp_timer_interrupt_aliases_accumulate_and_clear_bits() {
     let (mut timer, handle) = Rp2040Timer::new("timer", RpTimerLayout::Rp2040);
     timer

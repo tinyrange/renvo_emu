@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
-    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
-    Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalSpi,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank,
+    Rp2040Resets, Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -44,6 +45,7 @@ pub struct ArmMachine {
     sio: RpSioHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
+    chip_spis: Vec<SpiHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -118,6 +120,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut chip_spis = Vec::new();
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -301,8 +304,6 @@ impl ArmMachine {
             )?;
             for (name, base) in [
                 ("rp2040.uart1", 0x4003_8000),
-                ("rp2040.spi0", 0x4003_c000),
-                ("rp2040.spi1", 0x4004_0000),
                 ("rp2040.i2c0", 0x4004_4000),
                 ("rp2040.i2c1", 0x4004_8000),
                 ("rp2040.adc", 0x4004_c000),
@@ -414,8 +415,6 @@ impl ArmMachine {
             )?;
             for (name, base) in [
                 ("rp2350.uart1", 0x4007_8000),
-                ("rp2350.spi0", 0x4008_0000),
-                ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.adc", 0x400a_0000),
@@ -571,6 +570,17 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
+        let spi_bases = match target {
+            TargetId::Rp2040 => [0x4003_c000, 0x4004_0000],
+            TargetId::Rp2350 => [0x4008_0000, 0x4008_8000],
+            _ => unreachable!(),
+        };
+        for (index, base) in spi_bases.into_iter().enumerate() {
+            let name = format!("{target}.spi{index}");
+            let (device, handle) = FunctionalSpi::new(&name);
+            bus.map_device(name, base, 0x1000, Box::new(device))?;
+            chip_spis.push(handle);
+        }
         let (pio0, handle) = RpPio::new(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
@@ -596,6 +606,7 @@ impl ArmMachine {
             sio,
             uart,
             chip_uart,
+            chip_spis,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1142,6 +1153,11 @@ impl ArmMachine {
         Ok(())
     }
 
+    /// Returns bytes transmitted by one of the target's functional SPI controllers.
+    pub fn spi_transmitted(&self, index: usize) -> Option<Vec<u8>> {
+        self.chip_spis.get(index).map(SpiHandle::transmitted)
+    }
+
     /// Removes configured user breakpoints and data watchpoints.
     pub fn clear_debug_stops(&mut self) {
         self.breakpoints.clear();
@@ -1462,12 +1478,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
