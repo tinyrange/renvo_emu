@@ -363,6 +363,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                     Some(watchdog),
                 )
             }
@@ -411,6 +412,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     Vec::new(),
+                    None,
                     None,
                     None,
                     None,
@@ -1617,6 +1619,17 @@ mod tests {
                 .unwrap(),
             1 << 2 | 1 << 5
         );
+    }
+
+    #[test]
+    fn ra4m1_maps_poeg_groups_and_routes_host_trigger() {
+        let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+        machine
+            .bus
+            .write(0x4004_2000, AccessWidth::Word, 1 << 4, SimTime::ZERO)
+            .unwrap();
+        machine.poeg().unwrap().trigger_pin(0, true);
+        assert!(machine.poeg().unwrap().output_disabled(0));
     }
 }
 
