@@ -360,6 +360,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                     Some(watchdog),
                 )
             }
@@ -408,6 +409,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     Vec::new(),
+                    None,
                     None,
                     None,
                     None,
