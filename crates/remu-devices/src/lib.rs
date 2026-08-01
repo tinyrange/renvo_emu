@@ -55,6 +55,8 @@ mod rp_ticks;
 pub use rp_ticks::*;
 mod rp_powman;
 pub use rp_powman::*;
+mod rp_dma;
+pub use rp_dma::*;
 mod esp;
 pub use esp::*;
 mod esp_spi;

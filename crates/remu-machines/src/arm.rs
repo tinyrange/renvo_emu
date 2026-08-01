@@ -21,9 +21,10 @@ use remu_devices::{
     Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
     Rp2040Watchdog, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp, Rp2350Powman,
     Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle,
-    Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2c, RpI2cEvent, RpI2cHandle,
-    RpIoBank, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle, UartHandle, new_rp2350_hstx,
+    Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpI2c, RpI2cEvent,
+    RpI2cHandle, RpIoBank, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle, UartHandle,
+    new_rp2350_hstx,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -47,6 +48,7 @@ pub struct ArmMachine {
     gpio: GpioHandle,
     chip_gpio: GpioHandle,
     sio: RpSioHandle,
+    dma: RpDmaHandle,
     pub(crate) uart: UartHandle,
     pub(crate) chip_uart: UartHandle,
     pub(crate) chip_uart1: UartHandle,
@@ -263,6 +265,13 @@ impl ArmMachine {
             0x200,
             Box::new(sio_device),
         )?;
+        let (dma_device, dma) = RpDma::new(format!("{target}.dma"));
+        bus.map_device(
+            format!("{target}.dma"),
+            0x5000_0000,
+            0x4000,
+            Box::new(dma_device),
+        )?;
         let mut rp2040_io_bank = None;
         let mut rp2350_io_bank = None;
         if target == TargetId::Rp2040 {
@@ -324,14 +333,6 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2040.io-qspi", vec![0; 64])),
             )?;
-            for (name, base) in [("rp2040.dma", 0x5000_0000)] {
-                bus.map_device(
-                    name,
-                    base,
-                    0x4000,
-                    Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
-                )?;
-            }
             let mut qspi_pad_reset = vec![0x56; 8];
             qspi_pad_reset[0] = 0;
             bus.map_device(
@@ -427,14 +428,6 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2350AccessCtrl::new("rp2350.accessctrl")),
             )?;
-            for (name, base) in [("rp2350.dma", 0x5000_0000)] {
-                bus.map_device(
-                    name,
-                    base,
-                    0x4000,
-                    Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
-                )?;
-            }
             for (name, base) in [("rp2350.spi0", 0x4008_0000), ("rp2350.spi1", 0x4008_8000)] {
                 let (device, handle) = Rp2350Spi::new(name);
                 bus.map_device(name, base, 0x4000, Box::new(device))?;
@@ -694,6 +687,7 @@ impl ArmMachine {
             gpio,
             chip_gpio,
             sio,
+            dma,
             rp2040_io_bank,
             rp2350_io_bank,
             uart,
@@ -1375,6 +1369,9 @@ impl ArmMachine {
             if let Some(reason) = control.limit_reason(self.now, &stats) {
                 break reason;
             }
+            stats.events = stats
+                .events
+                .saturating_add(self.dma.service(&mut self.bus, self.now)? as u64);
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }

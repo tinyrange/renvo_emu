@@ -8,6 +8,55 @@ fn both_raspberry_pi_arm_profiles_construct() {
 }
 
 #[test]
+fn rp2040_dma_copies_a_word_and_reports_completion() {
+    let mut machine = ArmMachine::new(TargetId::Rp2040).unwrap();
+    machine
+        .bus
+        .write(0x2000_0000, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+        .unwrap();
+    for (offset, value) in [
+        (0x00, 0x2000_0000),
+        (0x04, 0x2000_0004),
+        (0x08, 1),
+        (0x0c, 1 | (2 << 2) | (1 << 4) | (1 << 5)),
+    ] {
+        machine
+            .bus
+            .write(
+                0x5000_0000 + offset,
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(0x5000_0404, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .dma
+            .service(&mut machine.bus, SimTime::ZERO)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x2000_0004,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x1234_5678
+    );
+    assert_eq!(machine.dma.pending(), 1);
+}
+
+#[test]
 fn raspberry_pi_uart1_has_functional_transmit_registers() {
     for (target, address) in [
         (TargetId::Rp2040, 0x4003_8000_u64),

@@ -174,6 +174,11 @@ impl RiscVMachine {
             if let Some(reason) = control.limit_reason(self.now, &stats) {
                 break reason;
             }
+            if let Some(dma) = &self.dma {
+                stats.events = stats
+                    .events
+                    .saturating_add(dma.service(&mut self.bus, self.now)? as u64);
+            }
             if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu.pc())) {
                 break StopReason::Breakpoint;
             }

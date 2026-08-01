@@ -20,10 +20,10 @@ use remu_devices::{
     Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
     Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp,
     Rp2350Powman, Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng,
-    Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2cHandle,
-    RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout,
-    SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle,
-    WchUsart, new_rp2350_hstx,
+    Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle,
+    RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
+    WchTimerHandle, WchUsart, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -215,6 +215,7 @@ pub struct RiscVMachine {
     boot_rom_loaded: bool,
     sio: Option<RpSioHandle>,
     io_bank: Option<RpIoBankHandle>,
+    dma: Option<RpDmaHandle>,
     bus: AddressSpace,
     signals: SignalHub,
     gpio: GpioHandle,
@@ -349,6 +350,7 @@ impl RiscVMachine {
         let mut chip_pwm = None;
         let mut sio = None;
         let mut io_bank = None;
+        let mut dma = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
             // Functional core-1 return point: the physical ROM parks a hart
@@ -544,7 +546,7 @@ impl RiscVMachine {
                 0x2_0000,
                 Box::new(Rp2350Otp::new("rp2350.otp")),
             )?;
-            for (name, base) in [("rp2350.uart1", 0x4007_8000), ("rp2350.dma", 0x5000_0000)] {
+            for (name, base) in [("rp2350.uart1", 0x4007_8000)] {
                 bus.map_device(
                     name,
                     base,
@@ -552,6 +554,9 @@ impl RiscVMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
+            let (device, handle) = RpDma::new("rp2350.dma");
+            bus.map_device("rp2350.dma", 0x5000_0000, 0x4000, Box::new(device))?;
+            dma = Some(handle);
             map_rp2350_spi(&mut bus, &mut spi)?;
             map_rp2350_i2c(&mut bus, &signals, &mut i2c)?;
             let (adc, adc_handle) = RpAdc::new_for_variant("rp2350.adc", RpAdcVariant::FiveChannel);
@@ -807,6 +812,7 @@ impl RiscVMachine {
             boot_rom_loaded: false,
             sio,
             io_bank,
+            dma,
             bus,
             signals,
             gpio,
