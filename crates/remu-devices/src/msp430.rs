@@ -58,6 +58,14 @@ const UCB0TXBUF: usize = 0x054e;
 const UCB0IE: usize = 0x056a;
 const UCB0IFG: usize = 0x056c;
 const UCB0IV: usize = 0x056e;
+const ADCCTL0: usize = 0x0700;
+const ADCCTL1: usize = 0x0702;
+const ADCCTL2: usize = 0x0704;
+const ADCMCTL0: usize = 0x070a;
+const ADCMEM0: usize = 0x0712;
+const ADCIE: usize = 0x071a;
+const ADCIFG: usize = 0x071c;
+const ADCIV: usize = 0x071e;
 
 const LOCKLPM5: u16 = 0x0001;
 const WDTHOLD: u16 = 0x0080;
@@ -67,6 +75,12 @@ const UCLISTEN: u8 = 0x80;
 const UCSYNC: u16 = 0x0100;
 const UCMODE_MASK: u16 = 0x0600;
 const UCMST: u16 = 0x0800;
+const ADCSC: u16 = 0x0001;
+const ADCENC: u16 = 0x0002;
+const ADCON: u16 = 0x0010;
+const ADCBUSY: u16 = 0x0001;
+const ADCIFG0: u16 = 0x0001;
+const ADCINCH_MASK: u16 = 0x000f;
 const CCIE: u16 = 0x0010;
 const CCIFG: u16 = 0x0001;
 const TAIFG: u16 = 0x0001;
@@ -88,6 +102,8 @@ pub const MSP430_RTC_VECTOR: u16 = 0xffe8;
 pub const MSP430_USCI_A1_VECTOR: u16 = 0xffe2;
 /// eUSCI_B0 receive/transmit vector address.
 pub const MSP430_USCI_B0_VECTOR: u16 = 0xffe0;
+/// ADC conversion-complete interrupt vector address.
+pub const MSP430_ADC_VECTOR: u16 = 0xffde;
 /// Timer0_A0 capture/compare vector address.
 pub const MSP430_TIMER0_A0_VECTOR: u16 = 0xfff8;
 /// Timer0_A1 capture/compare and overflow vector address.
@@ -133,6 +149,8 @@ struct Msp430State {
     spi0_tx: Vec<u8>,
     spi0_incoming: Vec<u8>,
     spi0_strobe: bool,
+    adc_inputs: [u16; 16],
+    adc_pending: Option<(u8, u64)>,
     previous_p1: u8,
     timer_epoch: [u64; 4],
     timer_a1_delivered: [bool; 4],
@@ -155,6 +173,8 @@ struct Msp430State {
     spi0_byte_signal: SignalId,
     spi0_rx_signal: SignalId,
     spi0_strobe_signal: SignalId,
+    adc_sample_signal: SignalId,
+    adc_strobe_signal: SignalId,
     port1_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -286,6 +306,13 @@ impl Msp430State {
         self.spi0_tx.clear();
         self.spi0_incoming.clear();
         self.spi0_strobe = false;
+        self.set_word(ADCCTL0, 0);
+        self.set_word(ADCCTL1, 0);
+        self.set_word(ADCCTL2, 0);
+        self.set_word(ADCMEM0, 0);
+        self.set_word(ADCIFG, 0);
+        self.adc_inputs.fill(0);
+        self.adc_pending = None;
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.loopback_pending = None;
@@ -310,6 +337,8 @@ impl Msp430State {
         self.set_signal(self.spi0_strobe_signal, 0, 1, at);
         self.set_signal(self.spi0_byte_signal, 0, 8, at);
         self.set_signal(self.spi0_rx_signal, 0, 8, at);
+        self.set_signal(self.adc_sample_signal, 0, 10, at);
+        self.set_signal(self.adc_strobe_signal, 0, 1, at);
         let _ = self.refresh_ports(at);
     }
 
@@ -475,6 +504,19 @@ impl Msp430PeripheralsHandle {
             .push(value);
     }
 
+    /// Sets the deterministic analog value returned for one ADC input channel.
+    pub fn set_adc_input(&self, channel: u8, value: u16) {
+        if let Some(input) = self
+            .0
+            .lock()
+            .expect("MSP430 peripheral lock poisoned")
+            .adc_inputs
+            .get_mut(usize::from(channel))
+        {
+            *input = value & 0x03ff;
+        }
+    }
+
     /// Advances functional timers and edge detection, returning pending vector addresses.
     pub fn poll(&self, now: SimTime) -> Vec<u16> {
         let mut state = self.0.lock().expect("MSP430 peripheral lock poisoned");
@@ -488,6 +530,25 @@ impl Msp430PeripheralsHandle {
             state.set_signal(signal, 0, 1, now);
         }
         state.set_signal(state.rtc_irq_signal, 0, 1, now);
+
+        if state.adc_pending.is_some_and(|(_, due)| now.ticks() >= due) {
+            let (channel, _) = state
+                .adc_pending
+                .take()
+                .expect("pending ADC conversion was just checked");
+            let sample = state.adc_inputs[usize::from(channel)] & 0x03ff;
+            state.set_word(ADCMEM0, sample);
+            let flags = state.word(ADCIFG) | ADCIFG0;
+            state.set_word(ADCIFG, flags);
+            let control = state.word(ADCCTL0) & !ADCSC;
+            state.set_word(ADCCTL0, control);
+            let status = state.word(ADCCTL1) & !ADCBUSY;
+            state.set_word(ADCCTL1, status);
+            state.set_signal(state.adc_sample_signal, u64::from(sample), 10, now);
+            state.set_signal(state.adc_strobe_signal, 1, 1, now);
+        } else {
+            state.set_signal(state.adc_strobe_signal, 0, 1, now);
+        }
 
         if state
             .loopback_pending
@@ -541,6 +602,9 @@ impl Msp430PeripheralsHandle {
         }
         if state.word(UCB0IE) & state.word(UCB0IFG) & (UCRXIFG | UCTXIFG) != 0 {
             vectors.push(MSP430_USCI_B0_VECTOR);
+        }
+        if state.word(ADCIE) & state.word(ADCIFG) & ADCIFG0 != 0 {
+            vectors.push(MSP430_ADC_VECTOR);
         }
 
         let watchdog = state.word(WDTCTL);
@@ -598,6 +662,16 @@ impl Msp430Peripherals {
             "board.msp430fr2433.uart1.tx_strobe",
             SignalValue::from_u64(0, 1)?,
             Some("eUSCI_A1 transmit event".to_owned()),
+        )?;
+        let adc_sample_signal = hub.declare(
+            "board.msp430fr2433.adc0.sample",
+            SignalValue::from_u64(0, 10)?,
+            Some("ADC10 conversion result".to_owned()),
+        )?;
+        let adc_strobe_signal = hub.declare(
+            "board.msp430fr2433.adc0.eoc",
+            SignalValue::from_u64(0, 1)?,
+            Some("ADC10 conversion complete event".to_owned()),
         )?;
         let spi0_byte_signal = hub.declare(
             "board.msp430fr2433.spi0.tx_byte",
@@ -661,6 +735,8 @@ impl Msp430Peripherals {
             spi0_tx: Vec::new(),
             spi0_incoming: Vec::new(),
             spi0_strobe: false,
+            adc_inputs: [0; 16],
+            adc_pending: None,
             previous_p1: 0,
             timer_epoch: [0; 4],
             timer_a1_delivered: [false; 4],
@@ -683,6 +759,8 @@ impl Msp430Peripherals {
             spi0_byte_signal,
             spi0_rx_signal,
             spi0_strobe_signal,
+            adc_sample_signal,
+            adc_strobe_signal,
             port1_irq_signal,
             watchdog_reset_signal,
         }));
@@ -834,6 +912,12 @@ impl Device for Msp430Peripherals {
             };
             state.set_word(UCB0IV, vector);
         }
+        if start == ADCIV && length >= 2 {
+            let flags = state.word(ADCIFG);
+            let vector = if flags & ADCIFG0 != 0 { 2 } else { 0 };
+            state.set_word(ADCIV, vector);
+            state.set_word(ADCIFG, flags & !ADCIFG0);
+        }
         if overlaps(start, length, UCA0RXBUF, 2) {
             let flags = state.word(UCA0IFG) & !UCRXIFG;
             state.set_word(UCA0IFG, flags);
@@ -912,6 +996,17 @@ impl Device for Msp430Peripherals {
                 state.rtc_delivered = false;
             } else if control & RTCIF == 0 {
                 state.rtc_delivered = false;
+            }
+        }
+        if overlaps(start, length, ADCCTL0, 2) {
+            let control = state.word(ADCCTL0);
+            if control & (ADCON | ADCENC | ADCSC) == (ADCON | ADCENC | ADCSC)
+                && state.adc_pending.is_none()
+            {
+                let channel = (state.word(ADCMCTL0) & ADCINCH_MASK) as u8;
+                state.adc_pending = Some((channel, at.ticks().saturating_add(4)));
+                let status = state.word(ADCCTL1) | ADCBUSY;
+                state.set_word(ADCCTL1, status);
             }
         }
         if overlaps(start, length, UCA0TXBUF, 2) && state.word(UCA0CTLW0) & UCSWRST == 0 {
@@ -1315,5 +1410,51 @@ mod tests {
             device.read(UCB0IV as u64, AccessWidth::HalfWord, SimTime::ZERO),
             Ok(4)
         );
+    }
+
+    #[test]
+    fn adc10_single_conversion_uses_injected_channel_and_interrupt() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        handle.set_adc_input(3, 0x2aa);
+        device
+            .write(ADCMCTL0 as u64, AccessWidth::HalfWord, 3, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                ADCIE as u64,
+                AccessWidth::HalfWord,
+                u64::from(ADCIFG0),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                ADCCTL0 as u64,
+                AccessWidth::HalfWord,
+                u64::from(ADCON | ADCENC | ADCSC),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(ADCCTL1 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(u64::from(ADCBUSY))
+        );
+        assert!(handle.poll(SimTime::from_ticks(3)).is_empty());
+        assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![MSP430_ADC_VECTOR]);
+        assert_eq!(
+            device.read(
+                ADCMEM0 as u64,
+                AccessWidth::HalfWord,
+                SimTime::from_ticks(4)
+            ),
+            Ok(0x2aa)
+        );
+        assert_eq!(
+            device.read(ADCIV as u64, AccessWidth::HalfWord, SimTime::from_ticks(4)),
+            Ok(2)
+        );
+        assert!(handle.poll(SimTime::from_ticks(5)).is_empty());
     }
 }

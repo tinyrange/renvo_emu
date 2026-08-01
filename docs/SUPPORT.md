@@ -398,6 +398,19 @@ Signals expose SPI transmit, receive, and transfer-strobe values under
 wiring, and exact serial timing remain deferred. Addresses and reset semantics
 follow the TI MSP430FR2433 data sheet and family user's guide linked above.
 
+## MSP430FR2433 ADC10 slice
+
+The ADC10 model covers the native `0x0700` control window, memory result at
+`0x0712`, and interrupt registers at `0x071a`–`0x071e`. A software-triggered,
+single-channel conversion samples the host-provided 10-bit channel value after
+a deterministic four-tick delay, updates busy/completion state, and raises the
+ADC vector at `0xffde` when enabled. Signals expose the sample and end-of-
+conversion event under `board.msp430fr2433.adc0`.
+
+Sequences, comparator windows, internal-reference electrical behavior,
+capacitive touch, pin multiplexing, and analog timing remain outside this
+functional model.
+
 ESP32-S3 DRAM and IRAM power on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only each segment's file-backed bytes, so
 the synthesized `.bss` tail remains poisoned until firmware clears it. This
