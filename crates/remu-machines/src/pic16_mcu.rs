@@ -208,6 +208,11 @@ impl Pic16McuMachine {
         Ok(())
     }
 
+    /// Drives a deterministic 10-bit value into one ADC channel.
+    pub fn set_adc_input(&self, channel: u8, value: u16) {
+        self.peripherals.set_adc_input(channel, value);
+    }
+
     /// Current Port A output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio[0].output()
@@ -416,5 +421,39 @@ mod tests {
             .unwrap();
         assert_eq!(result.reason, StopReason::InstructionLimit);
         assert_eq!(machine.gpio_output() & 1, 1);
+    }
+
+    #[test]
+    fn machine_exposes_pic16_adc_conversion() {
+        let image = ProgramWordImage {
+            word_bits: 14,
+            endianness: ProgramWordEndianness::Little,
+            segments: vec![ProgramWordSegment {
+                address: 0,
+                words: vec![0x0000, 0x0000, 0x0000],
+            }],
+            entry: None,
+        };
+        let mut machine = Pic16McuMachine::new(TargetId::Pic16f15376).unwrap();
+        machine.load_program(&image).unwrap();
+        machine.set_adc_input(2, 0x155);
+        machine
+            .bus
+            .write(0x09e, AccessWidth::Byte, 1 << 7, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x09d, AccessWidth::Byte, (2 << 2) | 0x03, SimTime::ZERO)
+            .unwrap();
+        machine
+            .run(
+                RunLimits {
+                    instructions: Some(2),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(machine.debug_read_memory(0x09b, 2).unwrap(), [0x55, 0x01]);
     }
 }
