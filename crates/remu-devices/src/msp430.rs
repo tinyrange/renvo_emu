@@ -8,6 +8,10 @@ const REGISTER_BYTES: usize = 0x1000;
 
 const PM5CTL0: usize = 0x0130;
 const FRCTL0: usize = 0x01a0;
+const CRC16DI: usize = 0x01c0;
+const CRCDIRB: usize = 0x01c2;
+const CRCINIRES: usize = 0x01c4;
+const CRCRESR: usize = 0x01c6;
 const WDTCTL: usize = 0x01cc;
 
 const PAIN: usize = 0x0200;
@@ -62,6 +66,8 @@ struct Msp430State {
     watchdog_epoch: u64,
     watchdog_reset: bool,
     loopback_pending: Option<(u8, u64)>,
+    crc: u16,
+    crc_data: u16,
     uart_strobe: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
@@ -77,6 +83,37 @@ impl Msp430State {
 
     fn set_word(&mut self, address: usize, value: u16) {
         self.registers[address..address + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn crc_update_byte(&mut self, byte: u8) {
+        self.crc ^= u16::from(byte) << 8;
+        for _ in 0..8 {
+            self.crc = if self.crc & 0x8000 != 0 {
+                (self.crc << 1) ^ 0x1021
+            } else {
+                self.crc << 1
+            };
+        }
+        self.set_word(CRCINIRES, self.crc);
+        self.set_word(CRC16DI, self.crc_data);
+    }
+
+    fn crc_update(&mut self, value: u16, bytes: usize, reverse_bits: bool) {
+        self.crc_data = if reverse_bits {
+            let mut translated = 0_u16;
+            for index in 0..bytes {
+                translated |=
+                    u16::from(((value >> (index * 8)) as u8).reverse_bits()) << (index * 8);
+            }
+            translated
+        } else {
+            value
+        };
+        self.set_word(CRC16DI, self.crc_data);
+        for index in 0..bytes {
+            let byte = (self.crc_data >> (index * 8)) as u8;
+            self.crc_update_byte(byte);
+        }
     }
 
     fn gpio_unlocked(&self) -> bool {
@@ -161,6 +198,10 @@ impl Msp430State {
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.loopback_pending = None;
+        self.crc = 0;
+        self.crc_data = 0;
+        self.set_word(CRCINIRES, self.crc);
+        self.set_word(CRC16DI, self.crc_data);
         self.set_signal(self.timer_irq_signal, 0, 1, at);
         self.set_signal(self.port1_irq_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
@@ -313,6 +354,8 @@ impl Msp430Peripherals {
             watchdog_epoch: 0,
             watchdog_reset: false,
             loopback_pending: None,
+            crc: 0,
+            crc_data: 0,
             uart_strobe: false,
             uart_byte_signal,
             uart_strobe_signal,
@@ -398,6 +441,18 @@ impl Device for Msp430Peripherals {
             };
             state.set_word(UCA0IV, vector);
         }
+        if start == CRCINIRES && length >= 2 {
+            let crc = state.crc;
+            state.set_word(CRCINIRES, crc);
+        }
+        if start == CRCRESR && length >= 2 {
+            let reversed = state.crc.reverse_bits();
+            state.set_word(CRCRESR, reversed);
+        }
+        if start == CRC16DI && length >= 2 {
+            let data = state.crc_data;
+            state.set_word(CRC16DI, data);
+        }
         if overlaps(start, length, UCA0RXBUF, 2) {
             let flags = state.word(UCA0IFG) & !UCRXIFG;
             state.set_word(UCA0IFG, flags);
@@ -428,8 +483,19 @@ impl Device for Msp430Peripherals {
             )));
         }
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
+        let input_value = value as u16;
         for index in 0..length {
             state.registers[start + index] = (value >> (index * 8)) as u8;
+        }
+        if start == CRCINIRES && length >= 2 {
+            state.crc = input_value;
+            state.set_word(CRCINIRES, input_value);
+        }
+        if start == CRC16DI {
+            state.crc_update(input_value, length.min(2), false);
+        }
+        if start == CRCDIRB {
+            state.crc_update(input_value, length.min(2), true);
         }
         if overlaps(start, length, WDTCTL, 2) {
             let written = state.word(WDTCTL);
@@ -563,6 +629,55 @@ mod tests {
         assert_eq!(
             device.read(UCA0IFG as u64, AccessWidth::HalfWord, SimTime::ZERO),
             Ok(UCTXIFG.into())
+        );
+    }
+
+    #[test]
+    fn crc16_registers_accumulate_normal_and_bit_reversed_data() {
+        let hub = SignalHub::new();
+        let (mut device, _handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        device
+            .write(
+                CRCINIRES as u64,
+                AccessWidth::HalfWord,
+                0xffff,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        for byte in b"123456789" {
+            device
+                .write(
+                    CRC16DI as u64,
+                    AccessWidth::Byte,
+                    u64::from(*byte),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            device.read(CRCINIRES as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x29b1)
+        );
+        assert_eq!(
+            device.read(CRCRESR as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x8d94)
+        );
+
+        device
+            .write(CRCINIRES as u64, AccessWidth::HalfWord, 0, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                CRCDIRB as u64,
+                AccessWidth::Byte,
+                u64::from(b'1'),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(CRC16DI as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(u64::from(b'1'.reverse_bits()))
         );
     }
 }
