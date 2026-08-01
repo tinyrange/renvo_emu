@@ -86,6 +86,13 @@ instruction per abstract tick and intentionally ignores divider and delay
 timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
 
+Every architecture uses the same bounded-run contract. A run must provide an
+instruction budget, an inclusive abstract-time deadline, or both. The shared
+policy checks the instruction budget first when both bounds are reached on the
+same iteration, then the deadline; this keeps stop reasons and result schemas
+stable across RISC-V, Arm, Xtensa, and AVR machines. Unbounded execution is
+rejected so a malformed CI invocation cannot hang indefinitely.
+
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.

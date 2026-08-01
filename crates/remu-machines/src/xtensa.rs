@@ -1042,7 +1042,7 @@ impl XtensaMachine {
         stimuli: &[PinStimulus],
         mut trace: Option<&mut dyn TraceSink>,
     ) -> Result<RunResult, XtensaMachineError> {
-        if limits.instructions.is_none() && limits.deadline.is_none() {
+        if !limits.is_bounded() {
             return Err(XtensaMachineError::MissingRunLimit);
         }
         let mut digest = TraceDigest::new();
@@ -1079,14 +1079,8 @@ impl XtensaMachine {
             if self.exit.code().is_some() {
                 break StopReason::Halted;
             }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
+            if let Some(reason) = limits.reached(stats.instructions, self.now) {
+                break reason;
             }
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
