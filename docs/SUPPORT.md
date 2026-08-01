@@ -15,6 +15,14 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
+The STM32L432KC functional slice also maps I2C1 at `0x40005400` and I2C3 at
+`0x40005800`. Each controller supports deterministic master START/STOP,
+programmable transfer counts, TXDR/RXDR transactions, injected target bytes,
+BUSY/TC/STOPF status, and event-interrupt routing (I2C1 event line 31 and I2C3
+event line 72). This is a transaction-level model: alternate-function pin
+muxing, clock stretching, arbitration, DMA, and electrical open-drain
+resolution remain outside the current slice.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
