@@ -513,75 +513,9 @@ impl Rp2040Ssi {
     }
 }
 
-/// Functional RP2040 real-time clock register window.
-pub struct Rp2040Rtc {
-    name: String,
-    registers: [u32; 16],
-}
-
-impl Rp2040Rtc {
-    /// Creates a stopped RTC.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            registers: [0; 16],
-        }
-    }
-}
-
-impl Device for Rp2040Rtc {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || !width.is_aligned(offset) {
-            return Err(DeviceError::new(
-                "RP2040 RTC requires aligned word accesses",
-            ));
-        }
-        let register_offset = offset & 0x0fff;
-        self.registers
-            .get(usize::try_from(register_offset / 4).expect("RTC offset fits usize"))
-            .copied()
-            .map(u64::from)
-            .ok_or_else(|| DeviceError::new("RP2040 RTC read outside register window"))
-    }
-
-    fn write(
-        &mut self,
-        offset: u64,
-        width: AccessWidth,
-        value: u64,
-        _at: SimTime,
-    ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || !width.is_aligned(offset) {
-            return Err(DeviceError::new(
-                "RP2040 RTC requires aligned word accesses",
-            ));
-        }
-        let alias = (offset >> 12) & 3;
-        let register_offset = offset & 0x0fff;
-        let register = self
-            .registers
-            .get_mut(usize::try_from(register_offset / 4).expect("RTC offset fits usize"))
-            .ok_or_else(|| DeviceError::new("RP2040 RTC write outside register window"))?;
-        Rp2040Resets::update(register, alias, value as u32)?;
-        if register_offset == 0x0c {
-            // CTRL.ENABLE becomes CTRL.RTC_ACTIVE immediately in the functional time model.
-            if *register & 1 != 0 {
-                *register |= 2;
-            } else {
-                *register &= !2;
-            }
-        }
-        Ok(())
-    }
-
-    fn reset(&mut self, _kind: ResetKind) {
-        self.registers.fill(0);
-    }
-}
+#[path = "rp2040_rtc.rs"]
+mod rp2040_rtc;
+pub use rp2040_rtc::*;
 
 impl Device for Rp2040Ssi {
     fn name(&self) -> &str {
