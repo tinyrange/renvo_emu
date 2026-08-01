@@ -689,6 +689,119 @@ pub struct Samd21Usart {
     registers: [u8; 0x34],
 }
 
+#[derive(Default)]
+struct DacState {
+    ctrla: u8,
+    ctrlb: u8,
+    evctrl: u8,
+    data: u16,
+    databuf: u16,
+}
+
+/// Host-facing SAM D21 DAC output state.
+#[derive(Clone)]
+pub struct Samd21DacHandle(Arc<Mutex<DacState>>);
+
+impl Samd21DacHandle {
+    /// Returns whether the DAC channel is enabled.
+    pub fn enabled(&self) -> bool {
+        self.0.lock().expect("DAC lock poisoned").ctrla & 1 != 0
+    }
+
+    /// Returns the 10-bit digital output code currently held by DATA.
+    pub fn data(&self) -> u16 {
+        self.0.lock().expect("DAC lock poisoned").data
+    }
+
+    /// Returns the selected reference and output mode bits.
+    pub fn control_b(&self) -> u8 {
+        self.0.lock().expect("DAC lock poisoned").ctrlb
+    }
+}
+
+/// Functional SAM D21 single-channel 10-bit DAC.
+///
+/// The model covers the register and data path used by bare-metal firmware:
+/// enable/reset, reference selection, DATA and DATABUF writes, and readback.
+/// Conversion settling, analog voltage, event triggers, and the output
+/// buffer are intentionally represented as a deterministic digital code.
+pub struct Samd21Dac {
+    name: String,
+    state: Arc<Mutex<DacState>>,
+}
+
+impl Samd21Dac {
+    /// Constructs a DAC and its host observation handle.
+    pub fn new(name: impl Into<String>) -> (Self, Samd21DacHandle) {
+        let state = Arc::new(Mutex::new(DacState::default()));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+            },
+            Samd21DacHandle(state),
+        )
+    }
+
+    fn reset_state(&mut self) {
+        *self.state.lock().expect("DAC lock poisoned") = DacState::default();
+    }
+}
+
+impl Device for Samd21Dac {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        let state = self.state.lock().expect("DAC lock poisoned");
+        let value = match offset {
+            0x00 => u64::from(state.ctrla),
+            0x01 => u64::from(state.ctrlb),
+            0x02 => u64::from(state.evctrl),
+            0x05 => 0, // INTFLAG: conversion complete is immediate in this model.
+            0x06 => 0, // STATUS.SYNCBUSY is never asserted for functional accesses.
+            0x08 => u64::from(state.data),
+            0x0c => u64::from(state.databuf),
+            _ => 0,
+        };
+        let bits = usize::from(width.bytes()) * 8;
+        Ok(if bits >= 64 {
+            value
+        } else {
+            value & ((1_u64 << bits) - 1)
+        })
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        _width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let value = value as u16;
+        if offset == 0x00 && value & 0x80 != 0 {
+            self.reset_state();
+            return Ok(());
+        }
+        let mut state = self.state.lock().expect("DAC lock poisoned");
+        match offset {
+            0x00 => state.ctrla = value as u8 & 0x47,
+            0x01 => state.ctrlb = value as u8 & 0x41,
+            0x02 => state.evctrl = value as u8 & 0x03,
+            0x08 => state.data = value & 0x03ff,
+            0x0c => state.databuf = value & 0x03ff,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        self.reset_state();
+    }
+}
+
 impl Samd21Usart {
     /// Constructs SERCOM and its observation handle.
     pub fn new(name: impl Into<String>) -> (Self, Samd21UsartHandle) {
@@ -1453,6 +1566,32 @@ mod tests {
             sercom.read(0x18, AccessWidth::Byte, SimTime::ZERO).unwrap() & 3,
             0
         );
+    }
+
+    #[test]
+    fn dac_latches_a_masked_code_and_reference_until_reset() {
+        let (mut dac, handle) = Samd21Dac::new("dac");
+        assert!(!handle.enabled());
+        dac.write(0x01, AccessWidth::Byte, 0x41, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x00, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x08, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x0c, AccessWidth::HalfWord, 0x0555, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.enabled());
+        assert_eq!(handle.control_b(), 0x41);
+        assert_eq!(handle.data(), 0x03ff);
+        assert_eq!(
+            dac.read(0x0c, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0x0155
+        );
+        dac.write(0x00, AccessWidth::Byte, 0x80, SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.enabled());
+        assert_eq!(handle.data(), 0);
     }
 
     #[test]

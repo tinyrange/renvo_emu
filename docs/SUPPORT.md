@@ -640,6 +640,12 @@ W1C, reset, and unresolved-private-source boundary is documented in
 [`esp-radio-interrupts.md`](esp-radio-interrupts.md) and enforced by
 `qualification/radio/interrupt-contract.json`.
 
+The ATSAMD21E18 slice also maps the native DAC at `0x42004800`. Its
+functional boundary covers enable/reset, reference and event-control register
+state, 10-bit `DATA`/`DATABUF` latches, and deterministic host readback. Analog
+settling, voltage/reference accuracy, event-triggered conversion, and the
+physical output buffer remain outside the model.
+
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the
 corresponding esptool application binary with `--esp-app-image` enables a

@@ -15,7 +15,7 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Ac,
-    Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic,
+    Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21Dmac, Samd21DmacHandle, Samd21Eic,
     Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock,
     Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
     Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
@@ -255,6 +255,7 @@ impl ArmMcuMachine {
                 let (usb_device, _usb) = Samd21UsbDevice::new("atsamd21e18.usb");
                 let (dmac_device, dmac) = Samd21Dmac::new("atsamd21e18.dmac");
                 let (i2s_device, i2s) = Samd21I2s::new("atsamd21e18.i2s");
+                let (dac_device, _) = Samd21Dac::new("atsamd21e18.dac");
                 Self::map_samd21(
                     &mut bus,
                     port_device,
@@ -268,6 +269,7 @@ impl ArmMcuMachine {
                     i2s_device,
                     adc_device,
                     ac_device,
+                    dac_device,
                 )?;
                 (
                     gpio,
@@ -403,6 +405,7 @@ impl ArmMcuMachine {
         i2s: Samd21I2s,
         adc: Samd21Adc,
         ac: Samd21Ac,
+        dac: Samd21Dac,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "atsamd21e18.pm",
@@ -437,6 +440,7 @@ impl ArmMcuMachine {
         bus.map_device("atsamd21e18.dmac", 0x4100_4800, 0x100, Box::new(dmac))?;
         bus.map_device("atsamd21e18.i2s", 0x4200_5000, 0x100, Box::new(i2s))?;
         bus.map_device("atsamd21e18.adc", 0x4200_4000, 0x100, Box::new(adc))?;
+        bus.map_device("atsamd21e18.dac", 0x4200_4800, 0x20, Box::new(dac))?;
         // NVMCTRL.INTFLAG.READY is set after reset.
         bus.map_device(
             "atsamd21e18.nvmctrl",
@@ -1165,6 +1169,31 @@ mod tests {
                 )
                 .unwrap(),
             1
+        );
+    }
+
+    #[test]
+    fn samd21_maps_the_native_dac_register_window() {
+        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
+        machine
+            .bus
+            .write(0x4200_4800, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4200_4808, AccessWidth::HalfWord, 0x02a5, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4200_4808,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x02a5
         );
     }
 
