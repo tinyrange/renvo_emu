@@ -231,6 +231,49 @@ fn gpio_facade_streams_valid_vcd() {
 }
 
 #[test]
+fn wch_exti_uses_afio_mapping_and_external_gpio_stimulus() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    // ebreak at address zero keeps the test independent of a firmware image.
+    machine
+        .load_bytes(0, &0x0010_0073_u32.to_le_bytes())
+        .unwrap();
+    machine.set_entry(0).unwrap();
+    machine
+        .bus
+        .write(0x4001_0008, AccessWidth::Word, 2 << (2 * 2), SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4001_0400, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4001_0408, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0xe000_e100, AccessWidth::Word, 1 << 20, SimTime::ZERO)
+        .unwrap();
+
+    let result = machine
+        .run_with_stimuli(
+            RunLimits {
+                instructions: Some(4),
+                deadline: None,
+            },
+            &[PinStimulus {
+                at: SimTime::ZERO,
+                pin: 2,
+                value: Logic::One,
+            }],
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.reason, StopReason::Halted);
+    assert!(result.stats.events >= 2);
+}
+
+#[test]
 fn unsupported_targets_fail_explicitly() {
     assert!(matches!(
         RiscVMachine::new(TargetId::Rp2040),
