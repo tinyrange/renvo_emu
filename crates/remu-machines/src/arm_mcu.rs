@@ -19,9 +19,9 @@ use remu_devices::{
     Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32Gpio, Stm32I2c, Stm32I2cHandle,
-    Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle,
-    Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
+    Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32Crc, Stm32CrcHandle, Stm32Gpio,
+    Stm32I2c, Stm32I2cHandle, Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -114,6 +114,7 @@ pub struct ArmMcuMachine {
     watchdog: Option<VendorWatchdog>,
     stm32_i2c: Vec<(u16, Stm32I2cHandle)>,
     stm32_adc: Option<Stm32AdcHandle>,
+    stm32_crc: Option<Stm32CrcHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -265,6 +266,7 @@ impl ArmMcuMachine {
 
         let mut stm32_spi = Vec::new();
         let mut stm32_adc = None;
+        let mut stm32_crc = None;
         let (
             gpio,
             uart,
@@ -404,6 +406,8 @@ impl ArmMcuMachine {
                 let (watchdog_device, watchdog) = Stm32Watchdog::new("stm32l432kc.iwdg");
                 let (adc_device, adc) = Stm32Adc::new("stm32l432kc.adc1");
                 stm32_adc = Some(adc);
+                let (crc_device, crc) = Stm32Crc::new("stm32l432kc.crc");
+                stm32_crc = Some(crc);
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -417,6 +421,7 @@ impl ArmMcuMachine {
                     i2c3_device,
                     watchdog_device,
                     adc_device,
+                    crc_device,
                 )?;
                 (
                     gpio,
@@ -501,6 +506,7 @@ impl ArmMcuMachine {
             watchdog,
             stm32_i2c,
             stm32_adc,
+            stm32_crc,
             compiler_timer,
             exit,
             ppb,
@@ -620,6 +626,7 @@ impl ArmMcuMachine {
         i2c3: Stm32I2c,
         watchdog: Stm32Watchdog,
         adc: Stm32Adc,
+        crc: Stm32Crc,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -694,6 +701,7 @@ impl ArmMcuMachine {
         // STM32L432 places ADC1 in the AHB2 peripheral window at 0x5004_0000
         // (the 0x5000_0000 base is used by other MCU families).
         bus.map_device("stm32l432kc.adc1", 0x5004_0000, 0x400, Box::new(adc))?;
+        bus.map_device("stm32l432kc.crc", 0x4002_3000, 0x400, Box::new(crc))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -899,6 +907,11 @@ impl ArmMcuMachine {
     /// Returns the host-facing STM32 ADC1 sample handle.
     pub fn adc(&self) -> Option<Stm32AdcHandle> {
         self.stm32_adc.clone()
+    }
+
+    /// Returns the host-facing STM32 CRC state.
+    pub fn crc(&self) -> Option<Stm32CrcHandle> {
+        self.stm32_crc.clone()
     }
 
     /// Reads guest-visible bytes for qualification and debugger adapters.
@@ -1603,6 +1616,32 @@ mod tests {
                 )
                 .unwrap(),
             0x0abc
+        );
+    }
+
+    #[test]
+    fn stm32l432_maps_crc_and_accepts_word_data() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine
+            .bus
+            .write(0x4002_3008, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_3000, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+            .unwrap();
+        assert_ne!(machine.crc().unwrap().value(), u32::MAX);
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4002_3000,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap() as u32,
+            machine.crc().unwrap().value()
         );
     }
 

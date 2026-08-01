@@ -1033,3 +1033,8 @@ It supports the native enable/calibration/start sequence, regular-rank channel
 selection, deterministic 12-bit host-injected samples, end-of-conversion flags,
 and data-register reads. Analog settling, calibration curves, injected groups,
 DMA, oversampling, and exact conversion timing remain deferred.
+
+The STM32L432KC CRC slice maps the native data, independent-data, control,
+initial-value, and polynomial registers. It supports deterministic word feeds
+and exposes the current result for host-side qualification; DMA feeding and
+cycle-level AHB timing remain deferred.
