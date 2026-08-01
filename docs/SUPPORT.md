@@ -45,6 +45,15 @@ See `scripts/qualify-micropython.sh` and
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
+## ESP32-C6 system-timer slice
+
+The ESP32-C6 native system-timer window at `0x6000a000` now uses a behavioral
+52-bit counter/alarm model rather than a zeroed register bank. Counter latching,
+one-shot and periodic target configuration, interrupt enable/raw/clear status,
+and deterministic abstract-time alarm evaluation are covered. Exact source
+clock calibration, interrupt-matrix routing, and low-power behavior remain
+outside this slice.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed

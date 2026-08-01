@@ -208,6 +208,49 @@ fn esp32s3_timer_group_exposes_second_timer_interrupt() {
 }
 
 #[test]
+fn esp_systimer_latches_alarm_and_clears_interrupt_status() {
+    let (mut systimer, handle) = EspSystimer::new("systimer");
+    systimer
+        .write(
+            0x00,
+            AccessWidth::Word,
+            (1 << 30) | (1 << 24),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    systimer
+        .write(0x1c, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    systimer
+        .write(0x20, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    systimer
+        .write(0x34, AccessWidth::Word, (1 << 30) | 10, SimTime::ZERO)
+        .unwrap();
+    systimer
+        .write(0x64, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        handle.pending(SimTime::from_ticks(4)),
+        [false, false, false]
+    );
+    assert_eq!(handle.pending(SimTime::from_ticks(5)), [true, false, false]);
+    assert_eq!(
+        systimer
+            .read(0x68, AccessWidth::Word, SimTime::from_ticks(5))
+            .unwrap(),
+        1
+    );
+    systimer
+        .write(0x6c, AccessWidth::Word, 1, SimTime::from_ticks(5))
+        .unwrap();
+    assert_eq!(
+        handle.pending(SimTime::from_ticks(5)),
+        [false, false, false]
+    );
+}
+
+#[test]
 fn uart_captures_low_byte() {
     let (mut uart, handle) = FunctionalUart::new("uart", 0, 4, 1);
     uart.write(0, AccessWidth::Word, b'A'.into(), SimTime::ZERO)
