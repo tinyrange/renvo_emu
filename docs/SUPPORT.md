@@ -31,6 +31,14 @@ the ESPI0 interrupt participates in the low/high priority interrupt inputs.
 FIFO operation, crossbar pin assignment, and exact serial clock timing remain
 outside this functional model.
 
+The STM32L432KC functional slice also maps I2C1 at `0x40005400` and I2C3 at
+`0x40005800`. Each controller supports deterministic master START/STOP,
+programmable transfer counts, TXDR/RXDR transactions, injected target bytes,
+BUSY/TC/STOPF status, and event-interrupt routing (I2C1 event line 31 and I2C3
+event line 72). This is a transaction-level model: alternate-function pin
+muxing, clock stretching, arbitration, DMA, and electrical open-drain
+resolution remain outside the current slice.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`

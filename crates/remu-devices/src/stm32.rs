@@ -305,6 +305,194 @@ pub struct Stm32Usart {
     registers: [u32; 12],
 }
 
+#[derive(Default)]
+struct I2cState {
+    control1: u32,
+    control2: u32,
+    timing: u32,
+    isr: u32,
+    tx_bytes: Vec<u8>,
+    rx_bytes: Vec<u8>,
+    nbytes: u8,
+    transferred: u8,
+    read_direction: bool,
+    busy: bool,
+}
+
+/// Machine-facing handle for a functional STM32 I2C master.
+#[derive(Clone)]
+pub struct Stm32I2cHandle(Arc<Mutex<I2cState>>);
+
+impl Stm32I2cHandle {
+    /// Bytes sent through the TXDR register.
+    pub fn bytes(&self) -> Vec<u8> {
+        self.0.lock().expect("I2C lock poisoned").tx_bytes.clone()
+    }
+
+    /// Supplies the next byte returned by an attached I2C target.
+    pub fn inject_rx(&self, byte: u8) {
+        let mut state = self.0.lock().expect("I2C lock poisoned");
+        state.rx_bytes.push(byte);
+        if state.busy && state.read_direction {
+            state.isr |= 1 << 2;
+        }
+    }
+
+    /// Returns whether an enabled I2C event interrupt is pending.
+    pub fn interrupt_pending(&self) -> bool {
+        let state = self.0.lock().expect("I2C lock poisoned");
+        let enabled = state.control1;
+        (enabled & (1 << 1) != 0 && state.isr & (1 << 1) != 0)
+            || (enabled & (1 << 2) != 0 && state.isr & (1 << 2) != 0)
+            || (enabled & (1 << 5) != 0 && state.isr & (1 << 5) != 0)
+            || (enabled & (1 << 6) != 0 && state.isr & (1 << 6) != 0)
+    }
+
+    /// Returns the currently latched status bits.
+    pub fn status(&self) -> u32 {
+        self.0.lock().expect("I2C lock poisoned").isr
+    }
+}
+
+/// Functional STM32L4 I2C master transaction slice.
+pub struct Stm32I2c {
+    name: String,
+    state: Arc<Mutex<I2cState>>,
+    registers: [u32; 12],
+}
+
+impl Stm32I2c {
+    /// Constructs an I2C controller and an external transaction handle.
+    pub fn new(name: impl Into<String>) -> (Self, Stm32I2cHandle) {
+        let state = Arc::new(Mutex::new(I2cState::default()));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+                registers: [0; 12],
+            },
+            Stm32I2cHandle(state),
+        )
+    }
+
+    fn start(state: &mut I2cState) {
+        state.busy = true;
+        state.transferred = 0;
+        state.nbytes = ((state.control2 >> 16) & 0xff) as u8;
+        state.read_direction = state.control2 & (1 << 10) != 0;
+        state.isr &= !((1 << 0) | (1 << 1) | (1 << 2) | (1 << 5) | (1 << 6) | (1 << 15));
+        state.isr |= 1 << 15;
+        if state.read_direction {
+            if !state.rx_bytes.is_empty() {
+                state.isr |= 1 << 2;
+            }
+        } else {
+            state.isr |= 1 << 1;
+        }
+    }
+
+    fn stop(state: &mut I2cState) {
+        state.busy = false;
+        state.isr &= !(1 << 15);
+        state.isr |= 1 << 5;
+    }
+}
+
+impl Device for Stm32I2c {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        if width != AccessWidth::Word {
+            return Err(DeviceError::new("STM32 I2C requires word accesses"));
+        }
+        let mut state = self.state.lock().expect("I2C lock poisoned");
+        match offset {
+            0x00 => Ok(u64::from(state.control1)),
+            0x04 => Ok(u64::from(state.control2)),
+            0x10 => Ok(u64::from(state.timing)),
+            0x18 => Ok(u64::from(state.isr)),
+            0x24 => {
+                let byte = state.rx_bytes.first().copied().unwrap_or(0);
+                if !state.rx_bytes.is_empty() {
+                    state.rx_bytes.remove(0);
+                }
+                if state.rx_bytes.is_empty() {
+                    state.isr &= !(1 << 2);
+                }
+                state.transferred = state.transferred.saturating_add(1);
+                if state.transferred >= state.nbytes && state.nbytes != 0 {
+                    state.isr |= 1 << 6;
+                    if state.control2 & (1 << 25) != 0 {
+                        Self::stop(&mut state);
+                    }
+                }
+                Ok(u64::from(byte))
+            }
+            _ => Ok(u64::from(
+                self.registers[usize::try_from(offset / 4).unwrap_or(0).min(11)],
+            )),
+        }
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if width != AccessWidth::Word {
+            return Err(DeviceError::new("STM32 I2C requires word accesses"));
+        }
+        let mut state = self.state.lock().expect("I2C lock poisoned");
+        let value = value as u32;
+        match offset {
+            0x00 => state.control1 = value,
+            0x04 => {
+                state.control2 = value;
+                if value & (1 << 13) != 0 {
+                    Self::start(&mut state);
+                }
+                if value & (1 << 14) != 0 {
+                    Self::stop(&mut state);
+                }
+            }
+            0x10 => state.timing = value,
+            0x1c => {
+                if value & (1 << 5) != 0 {
+                    state.isr &= !(1 << 5);
+                }
+                if value & (1 << 6) != 0 {
+                    state.isr &= !(1 << 6);
+                }
+            }
+            0x28 if state.busy && !state.read_direction => {
+                state.tx_bytes.push(value as u8);
+                state.transferred = state.transferred.saturating_add(1);
+                state.isr &= !(1 << 1);
+                if state.transferred >= state.nbytes && state.nbytes != 0 {
+                    state.isr |= 1 << 6;
+                    if state.control2 & (1 << 25) != 0 {
+                        Self::stop(&mut state);
+                    }
+                } else {
+                    state.isr |= 1 << 1;
+                }
+            }
+            0x28 => {}
+            _ => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(11)] = value,
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        *self.state.lock().expect("I2C lock poisoned") = I2cState::default();
+        self.registers = [0; 12];
+    }
+}
+
 impl Stm32Usart {
     /// Constructs USART2 and its machine handle.
     pub fn new(name: impl Into<String>) -> (Self, Stm32UsartHandle) {
@@ -588,6 +776,41 @@ mod tests {
         assert_eq!(
             spi.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
             0xa5
+        );
+    }
+
+    #[test]
+    fn i2c_master_exposes_tx_rx_status_and_stop() {
+        let (mut i2c, handle) = Stm32I2c::new("i2c1");
+        i2c.write(0x00, AccessWidth::Word, 1 << 1, SimTime::ZERO)
+            .unwrap();
+        i2c.write(
+            0x04,
+            AccessWidth::Word,
+            (0x52 << 1) | (1 << 13) | (1 << 25) | (2 << 16),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.interrupt_pending());
+        i2c.write(0x28, AccessWidth::Word, 0xa5, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.interrupt_pending());
+        i2c.write(0x28, AccessWidth::Word, 0x5a, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.bytes(), [0xa5, 0x5a]);
+        assert_ne!(handle.status() & (1 << 5), 0);
+
+        i2c.write(
+            0x04,
+            AccessWidth::Word,
+            (0x52 << 1) | (1 << 10) | (1 << 13) | (1 << 25),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        handle.inject_rx(0x3c);
+        assert_eq!(
+            i2c.read(0x24, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x3c
         );
     }
 }

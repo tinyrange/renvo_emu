@@ -19,8 +19,8 @@ use remu_devices::{
     Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle,
-    Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Spi, Stm32SpiHandle,
+    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -97,6 +97,7 @@ pub struct ArmMcuMachine {
     dac: Option<Samd21DacHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
+    stm32_i2c: Vec<(u16, Stm32I2cHandle)>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -263,6 +264,7 @@ impl ArmMcuMachine {
             dac,
             ra_icu,
             watchdog,
+            stm32_i2c,
         ) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
@@ -349,6 +351,7 @@ impl ArmMcuMachine {
                     Some(dac),
                     None,
                     Some(watchdog),
+                    Vec::new(),
                 )
             }
             TargetId::Stm32l432kc => {
@@ -379,6 +382,8 @@ impl ArmMcuMachine {
                 let (spi1_device, spi1) = Stm32Spi::new("stm32l432kc.spi1");
                 let (spi3_device, spi3) = Stm32Spi::new("stm32l432kc.spi3");
                 stm32_spi.extend([(35, spi1), (51, spi3)]);
+                let (i2c1_device, i2c1) = Stm32I2c::new("stm32l432kc.i2c1");
+                let (i2c3_device, i2c3) = Stm32I2c::new("stm32l432kc.i2c3");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -388,6 +393,8 @@ impl ArmMcuMachine {
                     lpuart1_device,
                     spi1_device,
                     spi3_device,
+                    i2c1_device,
+                    i2c3_device,
                 )?;
                 (
                     gpio,
@@ -405,6 +412,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    vec![(31, i2c1), (72, i2c3)],
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -440,6 +448,7 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     None,
+                    Vec::new(),
                 )
             }
             _ => unreachable!(),
@@ -468,6 +477,7 @@ impl ArmMcuMachine {
             dac,
             ra_icu,
             watchdog,
+            stm32_i2c,
             compiler_timer,
             exit,
             ppb,
@@ -583,6 +593,8 @@ impl ArmMcuMachine {
         lpuart1: Stm32Usart,
         spi1: Stm32Spi,
         spi3: Stm32Spi,
+        i2c1: Stm32I2c,
+        i2c3: Stm32I2c,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -651,6 +663,8 @@ impl ArmMcuMachine {
         bus.map_device("stm32l432kc.lpuart1", 0x4000_8000, 0x400, Box::new(lpuart1))?;
         bus.map_device("stm32l432kc.spi3", 0x4000_3c00, 0x400, Box::new(spi3))?;
         bus.map_device("stm32l432kc.spi1", 0x4001_3000, 0x400, Box::new(spi1))?;
+        bus.map_device("stm32l432kc.i2c1", 0x4000_5400, 0x400, Box::new(i2c1))?;
+        bus.map_device("stm32l432kc.i2c3", 0x4000_5800, 0x400, Box::new(i2c3))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -1038,6 +1052,12 @@ impl ArmMcuMachine {
                     }
                 }
             }
+            for (line, i2c) in &self.stm32_i2c {
+                let pending = i2c.interrupt_pending();
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
             match self.target {
                 TargetId::Atsamd21e18 => {
                     let uart_line = 9;
@@ -1418,6 +1438,67 @@ mod tests {
                 .unwrap()
                 & (1 << 7),
             1 << 7
+        );
+    }
+
+    #[test]
+    fn stm32l432_maps_both_i2c_event_controllers() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine
+            .bus
+            .write(0x4000_5400, AccessWidth::Word, 1 << 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(
+                0x4000_5404,
+                AccessWidth::Word,
+                (2 << 16) | (1 << 13) | (1 << 25),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(0x4000_5428, AccessWidth::Word, 0xa5, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4000_5428, AccessWidth::Word, 0x5a, SimTime::ZERO)
+            .unwrap();
+        assert_ne!(
+            machine
+                .bus
+                .read(
+                    0x4000_5418,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap()
+                & (1 << 5),
+            0
+        );
+        machine
+            .bus
+            .write(
+                0x4000_5804,
+                AccessWidth::Word,
+                (1 << 13) | (1 << 25),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_ne!(
+            machine
+                .bus
+                .read(
+                    0x4000_5818,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap()
+                & (1 << 15),
+            0
         );
     }
 
