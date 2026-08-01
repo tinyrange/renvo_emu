@@ -11,8 +11,8 @@ use remu_core::{
 };
 use remu_cpu_msp430::{Msp430Cpu, Msp430Register};
 use remu_devices::{
-    GpioHandle, MSP430_PORT1_VECTOR, MSP430_TIMER0_A0_VECTOR, MSP430_USCI_A0_VECTOR,
-    Msp430Peripherals, Msp430PeripheralsHandle, SignalHub,
+    GpioHandle, MSP430_ADC_VECTOR, MSP430_PORT1_VECTOR, MSP430_TIMER0_A0_VECTOR,
+    MSP430_USCI_A0_VECTOR, Msp430Peripherals, Msp430PeripheralsHandle, SignalHub,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::Logic;
@@ -233,6 +233,11 @@ impl Msp430McuMachine {
         self.gpio[0].output()
     }
 
+    /// Sets the deterministic analog value returned for one ADC input channel.
+    pub fn set_adc_input(&self, channel: u8, value: u16) {
+        self.peripherals.set_adc_input(channel, value);
+    }
+
     /// Reads guest-visible bytes from the unified address space.
     pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         (0..length)
@@ -329,6 +334,7 @@ impl Msp430McuMachine {
             for vector in [
                 MSP430_PORT1_VECTOR,
                 MSP430_USCI_A0_VECTOR,
+                MSP430_ADC_VECTOR,
                 MSP430_TIMER0_A0_VECTOR,
             ] {
                 self.cpu
