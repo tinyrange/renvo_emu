@@ -3,9 +3,11 @@
 mod button;
 mod led;
 mod sgp30;
+mod st7789;
 mod ws2812;
 
 pub use button::*;
 pub use led::*;
 pub use sgp30::*;
+pub use st7789::*;
 pub use ws2812::*;
