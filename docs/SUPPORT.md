@@ -106,6 +106,24 @@ same fixed digest. `scripts/qualify-host-determinism.sh` regenerates the
 machine-readable evidence in `qualification/host-determinism.json`. A native
 arm64 host or configured aarch64 binfmt handler is required for the arm64 lane.
 
+## STM32L432KC USART1/LPUART1 slice
+
+The STM32L432KC machine maps the native USART1 window at `0x4001_3800` and
+LPUART1 window at `0x4000_8000`, alongside the existing USART2 window at
+`0x4000_4400`. Each instance implements the common L4 `CR1`, `ISR`, `ICR`,
+`RDR`, and `TDR` register offsets. Firmware writes to `TDR` are captured as
+deterministic transmit bytes; host-injected bytes set `RXNE/RXFNE` and are
+consumed by reading `RDR`. `TXE/TXFNF`, `TC`, and receive/transmit interrupt
+enables are modeled functionally and routed to the corresponding NVIC lines
+(USART1 37, USART2 38, LPUART1 70).
+
+This is a register and byte-stream slice based on ST's
+[STM32L432KB/STM32L432KC data sheet](https://www.st.com/resource/en/datasheet/DM00257205.pdf)
+and [RM0394 reference manual](https://www.st.com/resource/en/reference_manual/rm0394-stm32l41xxx42xxx43xxx44xxx45xxx46xxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf).
+It does not claim baud-rate timing, DMA, alternate-function pin routing,
+framing/error generation, low-power clock behavior, or the other USART/LPUART
+modes.
+
 ## Compiler containment
 
 Firmware compilation is never invoked directly on the host. The corpus runner
