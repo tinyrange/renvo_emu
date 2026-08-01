@@ -941,7 +941,10 @@ impl XtensaCpu {
         {
             let call_increment =
                 usize::try_from(((instruction & 0xff) - 0xc0) >> 4).unwrap_or_default() * 4;
-            let target = self.registers[source];
+            // CALLX targets are word addresses. The hardware discards the
+            // low two bits before beginning the callee, even though the
+            // source register itself remains unchanged.
+            let target = self.registers[source] & !3;
             if call_increment == 0 {
                 self.registers[0] = next;
                 self.pc = target;
