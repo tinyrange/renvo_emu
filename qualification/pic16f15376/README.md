@@ -14,9 +14,10 @@ Implemented functionally: all 49 enhanced mid-range instruction families,
 14-bit word program memory, banked/common/linear RAM, the 16-level hardware
 stack, reset and interrupt vectors, oscillator-ready state, PORT/LAT/TRIS/
 ANSEL A–E, PPS register storage, PIR/PIE routing, Timer0/1, EUSART1 transmit and
-watchdog reset. Timer and serial timing are deterministic approximations.
-Analog modules, serial receive timing and unlisted peripherals remain
-unsupported and are not represented as hardware-accurate.
+MSSP1 SPI master byte transfers, and watchdog reset. Timer, serial and SPI
+timing are deterministic approximations. MSSP1 I²C/slave operation, analog
+modules, serial receive timing and unlisted peripherals remain unsupported and
+are not represented as hardware-accurate.
 
 Run from the repository root:
 
