@@ -14,6 +14,8 @@ mod signals;
 pub use signals::*;
 mod uart;
 pub use uart::*;
+mod adc;
+pub use adc::*;
 mod wch;
 pub use wch::*;
 mod esp_usb_serial_jtag;

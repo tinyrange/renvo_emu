@@ -524,3 +524,38 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+#[test]
+fn adc_converts_selected_channel_and_updates_fifo() {
+    let (mut adc, handle) = FunctionalAdc::new("adc");
+    assert!(handle.set_sample(2, 0xabc));
+    adc.write(0x08, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    adc.write(0x00, AccessWidth::Word, (2 << 12) | (1 << 2), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        adc.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xabc
+    );
+    assert_eq!(
+        adc.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xabc
+    );
+    assert_eq!(handle.conversions(), [0xabc]);
+}
+
+#[test]
+fn adc_temperature_channel_is_deterministic_and_ready() {
+    let (mut adc, handle) = FunctionalAdc::new("adc");
+    assert!(handle.set_sample(4, 0x456));
+    adc.write(0x00, AccessWidth::Word, (4 << 12) | (1 << 2), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        adc.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x456
+    );
+    assert_ne!(
+        adc.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 8),
+        0
+    );
+}
