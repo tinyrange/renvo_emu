@@ -1,4 +1,5 @@
 use super::*;
+use remu_image::FirmwareSegment;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -7,6 +8,37 @@ fn direct_load_starts_with_appcpu_reset_and_parked() {
     assert_eq!(machine.cpu1.snapshot().pc, 0);
     assert!(!machine.cpu1.snapshot().waiting);
     assert!(!machine.cpu1.snapshot().halted);
+}
+
+#[test]
+fn direct_elf_load_leaves_the_bss_tail_poisoned() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let initialized = [0x13, 0, 0, 0];
+    let mut data = initialized.to_vec();
+    data.resize(12, 0);
+    let image = FirmwareImage {
+        architecture: FirmwareArchitecture::Xtensa,
+        entry: 0x3fc8_0000,
+        segments: vec![FirmwareSegment {
+            address: 0x3fc8_0000,
+            load_address: None,
+            data,
+            initialized_size: initialized.len(),
+            executable: true,
+            writable: true,
+            alignment: 4,
+        }],
+        symbols: Vec::new(),
+    };
+
+    machine.load_firmware(&image).unwrap();
+
+    assert_eq!(
+        machine.debug_read_memory(0x3fc8_0000, 12).unwrap(),
+        [
+            0x13, 0, 0, 0, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5
+        ]
+    );
 }
 
 #[test]

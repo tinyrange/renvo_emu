@@ -77,6 +77,11 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+ESP32-S3 DRAM and IRAM power on with the deterministic nonzero byte pattern
+`0xa5`. Direct ELF loading copies only each segment's file-backed bytes, so
+the synthesized `.bss` tail remains poisoned until firmware clears it. This
+keeps direct ELF tests from accidentally depending on loader-provided zeroing.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
