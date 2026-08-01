@@ -12,19 +12,19 @@
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "ab6c0b1d47c9aa718fe1ae8669ac7314c7094562afbd68a3f775668baeccf69b"
+      "sha256": "d481b15463e9456e853b8d524bca3dabccdf9e821854fa035be1863891167f5f"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "835be2a226847a456dbb52a9333f860f9f1c9e8290d0607616cb324e9b5f23fb"
+      "sha256": "3a8695dbc6af78dedda13b169d774e03c9c4ca1d718cdab815fe8db2f6230257"
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "7e4a4f136c40b5a52a827369c89b686fc59cf65bb2341e87cc8cafcd77ceeefb"
+      "sha256": "b805f0d5ccd354761f79230c7beffbfca5c95d46467fbc9b2f3509215aea1c1f"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "e5fd86f0c36ac26891d2d4e48ad766cc9072d0b539c08936b7204279406db688"
+      "sha256": "27ca0f43909ef20409112bcc8a749663bea0607d4819faaa98f947171e7b5cce"
     },
     {
       "path": "qualification/vendor-samples.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "d42410aff6403a5ffdb85217f080f3f64850a2ca0bb6e9e5778997c4e74ae790"
+      "sha256": "271af3c7a9da384157ccf606855b196c93db5e42166d70f4fd14a8943e9c82ad"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "4c8b9b663dea5cf34afe2cd1171d4063ac2fcc1d05dad3365071717229161a64"
+      "sha256": "0c2f6c8fcb25153c3b71fe74598ee6badbac48cf75a0fc981c7ce82dac28a9e5"
     },
     {
       "path": "qualification/host-determinism.json",

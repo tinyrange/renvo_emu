@@ -1,6 +1,6 @@
 {
   "schema": "renvo.arm-cpu.v1",
-  "source_sha256": "94c4b21d5b57d2cc85a5b1720b009e12d859314bdee5c01acb2291b48d8dfee1",
+  "source_sha256": "cac04e4622bdfd6066c44f4d1214e21dd291ed5b449b1a7343230622d8ce1e4d",
   "primary_sources": [
     "https://developer.arm.com/documentation/100235/0003/",
     "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf",
@@ -28,7 +28,7 @@
   },
   "unit_tests": {
     "artifact": ".renvo/portfolio-smoke/arm-cpu-unit-tests.txt",
-    "sha256": "f0faac6e03e424be5b57b6b9ac07cd0eb6097d9cd51c9d2f8c138fa3e10e8cc8"
+    "sha256": "3d320be6fe6cfa4409caf1ca3ec8c5a6420653b8305c415b3c63dbe514cbfe86"
   },
   "cross_profile_computation": {
     "artifact": "qualification/rust-abi.json",

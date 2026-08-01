@@ -31,6 +31,7 @@ authors = ["Renvo contributors"]
 repository = "https://example.invalid/renvo"
 
 [workspace.dependencies]
+allocative = "0.3.4"
 clap = { version = "4.5.46", features = ["derive"] }
 hex = "0.4.3"
 md-5 = "0.10.6"

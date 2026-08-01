@@ -1,7 +1,8 @@
-//! Bounded Starlark assertions over immutable Renvo artifacts.
+//! Bounded Starlark assertions and declarative board assembly.
 //!
-//! The scripting layer receives JSON values selected by the caller. It does
-//! not own CPUs, buses, schedulers, or peripheral state.
+//! Assertion scripts receive JSON values selected by the caller. Board scripts
+//! produce immutable scenarios for the Rust machine layer. Neither mode owns
+//! CPUs, buses, schedulers, or live peripheral state.
 
 use anyhow::{Result, bail};
 use serde_json::Value as JsonValue;
@@ -11,6 +12,10 @@ use starlark::starlark_module;
 use starlark::syntax::{AstModule, Dialect};
 use starlark::values::{Value, none::NoneType};
 use std::collections::BTreeMap;
+
+mod board_dsl;
+
+pub use board_dsl::evaluate_board_script;
 
 #[starlark_module]
 fn assertion_globals(builder: &mut GlobalsBuilder) {

@@ -33,6 +33,8 @@ use std::path::{Path, PathBuf};
 mod corpus_command;
 use corpus_command::corpus;
 mod access_output;
+mod board_command;
+use board_command::board;
 mod debug_command;
 use debug_command::{gdb, script};
 mod firmware_command;
@@ -81,6 +83,8 @@ enum Command {
     },
     /// Evaluates bounded Starlark assertions over explicit JSON artifacts.
     Script(ScriptArgs),
+    /// Runs a declarative Starlark board/component scenario.
+    Board(BoardArgs),
     /// Serves one GDB remote-debugging session for a direct ELF.
     Gdb(GdbArgs),
 }
@@ -118,6 +122,22 @@ struct ScriptArgs {
     /// Stable JSON evaluation artifact.
     #[arg(long)]
     artifact: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct BoardArgs {
+    /// Starlark board test whose final expression is a board.
+    #[arg(long)]
+    file: PathBuf,
+    /// Root used to resolve confined `load("//package:file.star", ...)` labels.
+    #[arg(long, default_value = ".")]
+    load_root: PathBuf,
+    /// Stable board-simulation JSON artifact.
+    #[arg(long)]
+    artifact: PathBuf,
+    /// Optional VCD waveform output.
+    #[arg(long)]
+    vcd: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -447,6 +467,7 @@ fn execute(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Firmware { command } => firmware(command)?,
         Command::Corpus { command } => corpus(command)?,
         Command::Script(arguments) => script(&arguments)?,
+        Command::Board(arguments) => board(&arguments)?,
         Command::Gdb(arguments) => gdb(&arguments)?,
     }
     Ok(())

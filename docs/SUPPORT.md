@@ -149,6 +149,10 @@ The final distillation gate adds four bounded capabilities:
 - `renvo script` evaluates Starlark assertions over caller-selected JSON only;
   scripting never owns a machine or kernel state. Its portfolio proof is
   `qualification/starlark.json`.
+- `renvo board` resolves loaded Starlark board definitions into immutable
+  topology/actions, then hands that scenario to the Rust board runner. It does
+  not expose live CPU, scheduler, or peripheral state to the Starlark VM. See
+  `docs/BOARD_SIMULATION.md` and `scripts/qualify-board-models.sh`.
 - `renvo gdb` serves one GDB remote-protocol session with registers, memory,
   breakpoints, step and continue. Direct runs additionally accept `--coverage`
   and `--replay`. RISC-V, Arm and Xtensa evidence is in

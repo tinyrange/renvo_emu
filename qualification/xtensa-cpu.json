@@ -24,7 +24,7 @@
   ],
   "unit_tests": {
     "artifact": ".renvo/portfolio-smoke/xtensa-cpu-unit-tests.txt",
-    "sha256": "15e2aea637e7727ef631d0ac6e85f16635b4cccdc7bccee0aeab15f76dd056f2"
+    "sha256": "4d56310a6b303f5896ecf46b40abe8f094f8ccbb985fc0e0a561ce99f1241d8b"
   },
   "proofs": [
     {

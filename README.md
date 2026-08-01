@@ -35,6 +35,17 @@ original-six regression gate with:
 scripts/qualify-expansion.sh
 ```
 
+## Starlark boards and connected devices
+
+Board topology can be defined once in Starlark and loaded by test scripts. The
+initial M5Stack NanoC6 model exposes its onboard button, blue LED, WS2812 and
+Grove connector; reusable Rust models cover those devices plus the SGP30. A
+test attaches the sensor with `board.connect("grove", sensor)` and can emit a
+deterministic VCD of the resulting pin and protocol activity.
+
+The API, fidelity boundary, example scenario, and qualification command are in
+[docs/BOARD_SIMULATION.md](docs/BOARD_SIMULATION.md).
+
 ## Official MicroPython qualification
 
 The current offline qualification boots unmodified official MicroPython

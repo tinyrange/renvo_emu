@@ -44,6 +44,8 @@ mod pic16;
 pub use pic16::*;
 mod efm8;
 pub use efm8::*;
+mod board_components;
+pub use board_components::*;
 
 #[cfg(test)]
 mod tests;

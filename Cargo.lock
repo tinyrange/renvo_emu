@@ -1431,9 +1431,12 @@ dependencies = [
 name = "renvo-starlark"
 version = "0.1.0"
 dependencies = [
+ "allocative",
  "anyhow",
+ "renvo-machines",
  "serde_json",
  "starlark",
+ "tempfile",
 ]
 
 [[package]]
