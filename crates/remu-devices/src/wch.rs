@@ -436,3 +436,240 @@ impl Device for WchPfic {
         *self.state.borrow_mut() = WchPficState::reset();
     }
 }
+
+const SPI_CR1_MSTR: u32 = 1 << 2;
+const SPI_CR1_SPE: u32 = 1 << 6;
+const SPI_CR2_RXNEIE: u32 = 1 << 6;
+const SPI_CR2_TXEIE: u32 = 1 << 7;
+const SPI_SR_RXNE: u32 = 1 << 0;
+const SPI_SR_TXE: u32 = 1 << 1;
+
+#[derive(Clone)]
+/// Host-facing state for a CH32V00x SPI1 instance.
+pub struct WchSpiHandle {
+    state: Rc<RefCell<WchSpiState>>,
+}
+
+impl WchSpiHandle {
+    /// Captured MOSI bytes from completed SPI1 transfers.
+    pub fn tx_bytes(&self) -> Vec<u8> {
+        self.state.borrow().tx.clone()
+    }
+
+    /// Supplies the MISO byte returned by the next SPI1 transfer.
+    pub fn inject_rx(&self, value: u8) {
+        self.state.borrow_mut().incoming.push(value);
+    }
+
+    /// Reports whether an enabled SPI status flag requests the PFIC line.
+    pub fn pending(&self) -> bool {
+        let state = self.state.borrow();
+        state.cr1 & SPI_CR1_SPE != 0
+            && ((state.sr & SPI_SR_RXNE != 0 && state.cr2 & SPI_CR2_RXNEIE != 0)
+                || (state.sr & SPI_SR_TXE != 0 && state.cr2 & SPI_CR2_TXEIE != 0))
+    }
+}
+
+struct WchSpiState {
+    cr1: u32,
+    cr2: u32,
+    sr: u32,
+    dr: u32,
+    tx: Vec<u8>,
+    incoming: Vec<u8>,
+    hub: SignalHub,
+    tx_signal: SignalId,
+    rx_signal: SignalId,
+    strobe_signal: SignalId,
+    strobe: bool,
+}
+
+impl WchSpiState {
+    fn set_signal(&self, signal: SignalId, value: u64, width: u16, at: SimTime) {
+        self.hub
+            .set(
+                signal,
+                SignalValue::from_u64(value, width).expect("fixed WCH SPI signal width is valid"),
+                at,
+            )
+            .expect("WCH SPI signal identity is fixed at construction");
+    }
+
+    fn reset(&mut self, at: SimTime) {
+        self.cr1 = 0;
+        self.cr2 = 0;
+        self.sr = SPI_SR_TXE;
+        self.dr = 0;
+        self.tx.clear();
+        self.incoming.clear();
+        self.strobe = false;
+        self.set_signal(self.tx_signal, 0, 8, at);
+        self.set_signal(self.rx_signal, 0, 8, at);
+        self.set_signal(self.strobe_signal, 0, 1, at);
+    }
+}
+
+/// Functional CH32V00x SPI1 register slice.
+pub struct WchSpi {
+    name: String,
+    state: Rc<RefCell<WchSpiState>>,
+}
+
+impl WchSpi {
+    /// Creates SPI1 with native signals rooted at `board.<name>`.
+    pub fn new(
+        name: impl Into<String>,
+        hub: SignalHub,
+    ) -> Result<(Self, WchSpiHandle), SignalError> {
+        let name = name.into();
+        let tx_signal = hub.declare(
+            format!("board.{name}.tx_byte"),
+            SignalValue::from_u64(0, 8)?,
+            Some("CH32 SPI1 MOSI byte".to_owned()),
+        )?;
+        let rx_signal = hub.declare(
+            format!("board.{name}.rx_byte"),
+            SignalValue::from_u64(0, 8)?,
+            Some("CH32 SPI1 MISO byte".to_owned()),
+        )?;
+        let strobe_signal = hub.declare(
+            format!("board.{name}.tx_strobe"),
+            SignalValue::from_u64(0, 1)?,
+            Some("CH32 SPI1 transfer event".to_owned()),
+        )?;
+        let state = Rc::new(RefCell::new(WchSpiState {
+            cr1: 0,
+            cr2: 0,
+            sr: SPI_SR_TXE,
+            dr: 0,
+            tx: Vec::new(),
+            incoming: Vec::new(),
+            hub,
+            tx_signal,
+            rx_signal,
+            strobe_signal,
+            strobe: false,
+        }));
+        state.borrow_mut().reset(SimTime::ZERO);
+        Ok((
+            Self {
+                name,
+                state: state.clone(),
+            },
+            WchSpiHandle { state },
+        ))
+    }
+
+    fn require_access(offset: u64, width: AccessWidth) -> Result<(), DeviceError> {
+        if !matches!(width, AccessWidth::HalfWord | AccessWidth::Word) || offset & 3 != 0 {
+            return Err(DeviceError::new(
+                "WCH SPI requires aligned halfword or word access",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Device for WchSpi {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        Self::require_access(offset, width)?;
+        let mut state = self.state.borrow_mut();
+        let value = match offset {
+            0x00 => state.cr1,
+            0x04 => state.cr2,
+            0x08 => state.sr,
+            0x0c => {
+                let value = state.dr;
+                state.sr &= !SPI_SR_RXNE;
+                value
+            }
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled WCH SPI read at offset {offset:#x}"
+                )));
+            }
+        };
+        Ok(u64::from(value))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        Self::require_access(offset, width)?;
+        let value = u32::try_from(value & u64::from(u32::MAX))
+            .expect("masked WCH SPI register value fits u32");
+        let mut state = self.state.borrow_mut();
+        match offset {
+            0x00 => state.cr1 = value,
+            0x04 => state.cr2 = value,
+            0x08 => state.sr &= value | SPI_SR_TXE,
+            0x0c => {
+                if state.cr1 & (SPI_CR1_SPE | SPI_CR1_MSTR) == (SPI_CR1_SPE | SPI_CR1_MSTR) {
+                    let tx = value as u8;
+                    let rx = state.incoming.first().copied().unwrap_or(tx);
+                    if !state.incoming.is_empty() {
+                        state.incoming.remove(0);
+                    }
+                    state.tx.push(tx);
+                    state.dr = u32::from(rx);
+                    state.sr |= SPI_SR_RXNE | SPI_SR_TXE;
+                    state.set_signal(state.tx_signal, u64::from(tx), 8, at);
+                    state.set_signal(state.rx_signal, u64::from(rx), 8, at);
+                    state.strobe = !state.strobe;
+                    state.set_signal(state.strobe_signal, u64::from(state.strobe), 1, at);
+                }
+            }
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled WCH SPI write at offset {offset:#x}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        self.state.borrow_mut().reset(SimTime::ZERO);
+    }
+}
+
+#[cfg(test)]
+mod spi_tests {
+    use super::{SPI_CR1_MSTR, SPI_CR1_SPE, SPI_CR2_RXNEIE, SPI_CR2_TXEIE, WchSpi};
+    use crate::SignalHub;
+    use remu_bus::Device;
+    use remu_core::{AccessWidth, SimTime};
+
+    #[test]
+    fn spi1_master_transfer_returns_injected_miso_and_raises_pending() {
+        let (mut spi, handle) = WchSpi::new("ch32v003.spi1", SignalHub::new()).unwrap();
+        spi.write(
+            0x00,
+            AccessWidth::Word,
+            u64::from(SPI_CR1_MSTR | SPI_CR1_SPE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        spi.write(
+            0x04,
+            AccessWidth::Word,
+            u64::from(SPI_CR2_RXNEIE | SPI_CR2_TXEIE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        handle.inject_rx(0xa5);
+        spi.write(0x0c, AccessWidth::Word, 0x3c, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.tx_bytes(), [0x3c]);
+        assert!(handle.pending());
+        assert_eq!(spi.read(0x0c, AccessWidth::Word, SimTime::ZERO), Ok(0xa5));
+    }
+}

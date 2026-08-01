@@ -8,8 +8,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
-| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
+| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, SPI1, TIM2, PFIC and table-mode interrupt proofs |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/SPI1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
@@ -76,6 +76,22 @@ single-precision FPU operations emitted by the qualification workload.
 `-Os`, including byte-identical repeat runs and IRAM/DRAM/IROM/DROM execution.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
+
+## CH32V00x SPI1 slice
+
+Both CH32V003 and CH32V006 map the native SPI1 register block at `0x40013000`.
+The functional slice covers `CR1`, `CR2`, `SR`, and `DR`: an enabled master
+(`SPE|MSTR`) completes a deterministic full-duplex byte transfer, captures MOSI,
+and returns an injected MISO byte (or an echo when no external byte is queued).
+`RXNE`/`TXE` status and `RXNEIE`/`TXEIE` interrupt requests route through the
+WCH PFIC SPI1 line 35.
+
+VCD exposes `board.ch32v003.spi1.tx_byte`, `.rx_byte`, and `.tx_strobe` (with
+the corresponding `ch32v006` paths). This is a behavioral transfer model;
+alternate-function pin routing, chip-select wiring, DMA, CRC, I2S mode, and
+exact SPI clock timing remain deferred. Register choices follow the [CH32V003
+reference material](https://www.wch-ic.com/downloads/CH32V003RM_PDF.html) and
+the [CH32V006 reference material](https://www.wch-ic.com/downloads/CH32V00XRM_PDF.html).
 
 ## Timing and tracing
 
