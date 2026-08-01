@@ -682,6 +682,226 @@ pub struct Rp2040RegisterBank {
     registers: Vec<u32>,
 }
 
+/// RP2040/RP2350 IO_BANK0 interrupt and GPIO-function register slice.
+///
+/// The SIO block remains the owner of GPIO output latches. This device models
+/// the APB-side per-pin status/control registers and the processor interrupt
+/// enable/force/status windows. The machine-facing handle records external
+/// input transitions so edge events become visible to firmware deterministically.
+pub struct RpIoBank {
+    name: String,
+    pins: usize,
+    gpio: GpioHandle,
+    state: Arc<Mutex<RpIoBankState>>,
+}
+
+/// Host-facing input-transition handle for an RP IO_BANK block.
+#[derive(Clone)]
+pub struct RpIoBankHandle {
+    gpio: GpioHandle,
+    state: Arc<Mutex<RpIoBankState>>,
+}
+
+struct RpIoBankState {
+    control: Vec<u32>,
+    last_input: u32,
+    raw_interrupt: [u32; 4],
+    proc0_enable: [u32; 4],
+    proc0_force: [u32; 4],
+    proc1_enable: [u32; 4],
+    proc1_force: [u32; 4],
+}
+
+impl RpIoBank {
+    /// Creates an IO_BANK0 block sharing the SIO GPIO input net.
+    pub fn new(name: impl Into<String>, gpio: GpioHandle) -> (Self, RpIoBankHandle) {
+        let pins = gpio.pin_count().min(32);
+        let state = Arc::new(Mutex::new(RpIoBankState {
+            control: vec![0; pins],
+            last_input: 0,
+            raw_interrupt: [0; 4],
+            proc0_enable: [0; 4],
+            proc0_force: [0; 4],
+            proc1_enable: [0; 4],
+            proc1_force: [0; 4],
+        }));
+        let handle = RpIoBankHandle {
+            gpio: gpio.clone(),
+            state: state.clone(),
+        };
+        (
+            Self {
+                name: name.into(),
+                pins,
+                gpio,
+                state,
+            },
+            handle,
+        )
+    }
+
+    fn event_bank(pin: usize) -> (usize, u32) {
+        (pin / 8, 1_u32 << ((pin % 8) * 4))
+    }
+
+    fn input_value(&self) -> u32 {
+        (0..self.pins).fold(0, |value, pin| {
+            if self.gpio.resolved(pin as u8).ok() == Some(Logic::One) {
+                value | (1_u32 << pin)
+            } else {
+                value
+            }
+        })
+    }
+
+    fn interrupt_bank(offset: u64, base: u64) -> Option<(usize, u64)> {
+        if (base..base + 0x10).contains(&offset) {
+            Some((usize::try_from((offset - base) / 4).ok()?, 0))
+        } else {
+            None
+        }
+    }
+}
+
+impl RpIoBankHandle {
+    /// Records the current resolved value after an external pin stimulus.
+    pub fn record_input(&self, pin: u8) -> Result<(), DeviceError> {
+        let value = self.gpio.resolved(pin)?;
+        let mut state = self.state.lock().expect("RP IO_BANK lock poisoned");
+        let index = usize::from(pin);
+        if index >= state.control.len() {
+            return Err(DeviceError::new(format!("GPIO pin {pin} is out of range")));
+        }
+        let mask = 1_u32 << index;
+        let was_high = state.last_input & mask != 0;
+        let is_high = value == Logic::One;
+        if was_high != is_high {
+            let (bank, event_mask) = RpIoBank::event_bank(index);
+            let edge_mask = if is_high {
+                event_mask << 3
+            } else {
+                event_mask << 2
+            };
+            state.raw_interrupt[bank] |= edge_mask;
+        }
+        if is_high {
+            state.last_input |= mask;
+        } else {
+            state.last_input &= !mask;
+        }
+        Ok(())
+    }
+}
+
+impl Device for RpIoBank {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        if width != AccessWidth::Word || offset & 3 != 0 {
+            return Err(DeviceError::new("RP IO_BANK requires aligned word access"));
+        }
+        if offset < 0xf0 {
+            let pin = usize::try_from(offset / 8).expect("GPIO index fits usize");
+            if pin >= self.pins {
+                return Err(DeviceError::new(format!(
+                    "{} read outside GPIO pins at offset {offset:#x}",
+                    self.name
+                )));
+            }
+            return Ok(if offset % 8 == 4 {
+                u64::from(self.state.lock().expect("RP IO_BANK lock poisoned").control[pin])
+            } else {
+                u64::from(self.input_value() >> pin & 1)
+            });
+        }
+        let values = if let Some((index, _)) = Self::interrupt_bank(offset, 0xf0) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.raw_interrupt[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x100) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.proc0_enable[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x110) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.proc0_force[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x120) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            (state.raw_interrupt[index] & state.proc0_enable[index]) | state.proc0_force[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x130) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.proc1_enable[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x140) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.proc1_force[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x150) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            (state.raw_interrupt[index] & state.proc1_enable[index]) | state.proc1_force[index]
+        } else {
+            return Err(DeviceError::new(format!(
+                "{} read outside modeled registers at offset {offset:#x}",
+                self.name
+            )));
+        };
+        Ok(u64::from(values))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if width != AccessWidth::Word || offset & 3 != 0 {
+            return Err(DeviceError::new("RP IO_BANK requires aligned word access"));
+        }
+        let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits");
+        if offset < 0xf0 {
+            let pin = usize::try_from(offset / 8).expect("GPIO index fits usize");
+            if pin >= self.pins || offset % 8 != 4 {
+                return Err(DeviceError::new(format!(
+                    "{} write outside GPIO control registers at offset {offset:#x}",
+                    self.name
+                )));
+            }
+            self.state.lock().expect("RP IO_BANK lock poisoned").control[pin] = value;
+            return Ok(());
+        }
+        let mut state = self.state.lock().expect("RP IO_BANK lock poisoned");
+        if let Some((index, _)) = Self::interrupt_bank(offset, 0xf0) {
+            state.raw_interrupt[index] &= !value;
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x100) {
+            state.proc0_enable[index] = value;
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x110) {
+            state.proc0_force[index] = value;
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x130) {
+            state.proc1_enable[index] = value;
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x140) {
+            state.proc1_force[index] = value;
+        } else if offset >= 0x120 && offset < 0x160 {
+            return Err(DeviceError::new("RP IO_BANK interrupt status is read-only"));
+        } else {
+            return Err(DeviceError::new(format!(
+                "{} write outside modeled registers at offset {offset:#x}",
+                self.name
+            )));
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        let mut state = self.state.lock().expect("RP IO_BANK lock poisoned");
+        state.control.fill(0);
+        state.last_input = 0;
+        state.raw_interrupt = [0; 4];
+        state.proc0_enable = [0; 4];
+        state.proc0_force = [0; 4];
+        state.proc1_enable = [0; 4];
+        state.proc1_force = [0; 4];
+    }
+}
+
 impl Rp2040RegisterBank {
     /// Creates a word-addressed register slice initialized from `reset_values`.
     pub fn new(name: impl Into<String>, reset_values: Vec<u32>) -> Self {
