@@ -77,6 +77,25 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+## MSP430FR2433 ADC10 slice
+
+The MSP430FR2433 model exposes the native ADC register window beginning at
+`0x0700`: `ADCCTL0` (`0x0700`), `ADCCTL1` (`0x0702`), `ADCCTL2` (`0x0704`),
+`ADCMCTL0` (`0x070a`), `ADCMEM0` (`0x0712`), `ADCIE` (`0x071a`), `ADCIFG`
+(`0x071c`), and `ADCIV` (`0x071e`). A single conversion starts when `ADCON`,
+`ADCENC`, and `ADCSC` are set. After a deterministic four-tick conversion,
+the selected `ADCMCTL0` channel is written to the 10-bit `ADCMEM0`, `ADCIFG0`
+is raised, and the ADC vector at `0xffde` is delivered when enabled.
+
+Host tests set channel values through the peripheral handle; unset channels
+read as zero. VCD exposes `board.msp430fr2433.adc0.sample` and
+`board.msp430fr2433.adc0.eoc`. This is a functional single-conversion model;
+sequence/repeat modes, window comparison, reference generation, pin-mux
+control, temperature-sensor transfer characteristics, and exact ADC clock
+timing remain deferred. Register addresses follow the [MSP430FR2433 data
+sheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf) and the [MSP430FR2xx/
+FR4xx user's guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
