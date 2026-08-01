@@ -237,3 +237,45 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn esp32c6_lp_uart_window_exposes_native_identity_and_host_input() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x600b_1400 + 0x8c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        35_656_288
+    );
+    machine.queue_esp32c6_lp_uart_rx(b"x").unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x600b_1400,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        u64::from(b'x')
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32c6.lp_uart.tx"))
+            .is_some()
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32c6.lp_uart.rx"))
+            .is_some()
+    );
+}

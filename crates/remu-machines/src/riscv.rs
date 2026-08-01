@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspGpio, EspLpUart, EspLpUartHandle, EspSpiMem, EspTimerGroup,
+    EspTimerGroupHandle, EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice,
+    ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank,
+    Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -37,8 +37,8 @@ mod esp_bootrom_secondary;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;
+mod lp_uart;
 mod rp_bootrom;
-
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
 /// Synthetic, stable UART facade used by compiler cases.
@@ -64,13 +64,11 @@ const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
 const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
 const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
 const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;
-
 #[derive(Clone, Debug, Default)]
 struct EspFunctionalSha256 {
     sha224: bool,
     input: Vec<u8>,
 }
-
 /// Failure while constructing, loading, or running a machine.
 #[derive(Debug, Error)]
 pub enum MachineError {
@@ -138,7 +136,6 @@ pub enum MachineError {
     #[error("ESP32-C6 application image is not boot-compatible: {0}")]
     Esp32c6BootLayout(String),
 }
-
 /// Stable machine-readable outcome of one invocation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RunResult {
@@ -207,6 +204,7 @@ pub struct RiscVMachine {
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
     esp_usb_serial_jtag: Option<EspUsbSerialJtagHandle>,
+    esp_lp_uart: Option<EspLpUartHandle>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
@@ -520,6 +518,7 @@ impl RiscVMachine {
 
         let mut chip_gpio = Vec::new();
         let mut chip_uarts = Vec::new();
+        let mut esp_lp_uart = None;
         match target {
             TargetId::Ch32v003 | TargetId::Ch32v006 => {
                 for (port, base) in [
@@ -618,7 +617,7 @@ impl RiscVMachine {
                 bus.map_device(
                     "esp32c6.lp-aon",
                     0x600b_1000,
-                    0x1000,
+                    0x400,
                     Box::new(Rp2040RegisterBank::new(
                         "esp32c6.lp-aon",
                         vec![0; 0x1000 / 4],
@@ -728,6 +727,11 @@ impl RiscVMachine {
                 let (uart0, handle) = FunctionalUart::new_lenient("esp32c6.uart0", 0x00, 0x1c, 0);
                 bus.map_device("esp32c6.uart0", 0x6000_0000, 0x1000, Box::new(uart0))?;
                 chip_uarts.push(handle);
+                let (lp_uart, handle, lp_uart_host) =
+                    EspLpUart::new("esp32c6.lp-uart", "board.esp32c6.lp_uart", signals.clone())?;
+                bus.map_device("esp32c6.lp-uart", 0x600b_1400, 0x400, Box::new(lp_uart))?;
+                chip_uarts.push(handle);
+                esp_lp_uart = Some(lp_uart_host);
             }
             TargetId::Rp2350 => {
                 let (device, handle, multicore) = RpSioGpio::new_rp2350_with_multicore(
@@ -806,6 +810,7 @@ impl RiscVMachine {
             usb_dpram,
             usb_host,
             esp_usb_serial_jtag,
+            esp_lp_uart,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),

@@ -524,3 +524,51 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+#[test]
+fn esp_lp_uart_models_fifo_status_interrupts_and_vcd_bytes() {
+    let hub = SignalHub::new();
+    let (mut uart, output, handle) =
+        EspLpUart::new("lp-uart", "board.esp32c6.lp_uart", hub.clone()).unwrap();
+
+    assert_eq!(
+        uart.read(0x8c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        35_656_288
+    );
+    assert_eq!(
+        uart.read(0x9c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1_280
+    );
+    handle.queue_rx(b"ok");
+    assert_eq!(
+        uart.read(0x00, AccessWidth::Word, SimTime::from_ticks(1))
+            .unwrap(),
+        u64::from(b'o')
+    );
+    assert!(handle.rx_available());
+
+    uart.write(0x0c, AccessWidth::Word, 1 << 14, SimTime::ZERO)
+        .unwrap();
+    uart.write(
+        0x00,
+        AccessWidth::Word,
+        u64::from(b'!'),
+        SimTime::from_ticks(2),
+    )
+    .unwrap();
+    assert_eq!(output.bytes(), vec![b'!']);
+    assert_ne!(
+        uart.read(0x08, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap()
+            & (1 << 14),
+        0
+    );
+    assert_eq!(
+        (uart
+            .read(0x1c, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap()
+            >> 3)
+            & 0x1f,
+        1
+    );
+}
