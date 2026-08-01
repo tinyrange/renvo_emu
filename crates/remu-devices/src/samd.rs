@@ -261,7 +261,7 @@ struct TcState {
     compare: u16,
 }
 
-/// Machine-facing handle for the selected SAM D21 TC3 slice.
+/// Machine-facing handle for a SAM D21 TC COUNT16 slice.
 #[derive(Clone)]
 pub struct Samd21TcHandle(Arc<Mutex<TcState>>);
 
@@ -281,14 +281,14 @@ impl Samd21TcHandle {
     }
 }
 
-/// Functional SAM D21 TC3 COUNT16 register slice.
+/// Functional SAM D21 TC COUNT16 register slice.
 pub struct Samd21Tc {
     name: String,
     state: Arc<Mutex<TcState>>,
 }
 
 impl Samd21Tc {
-    /// Constructs TC3 and its interrupt handle.
+    /// Constructs a TC instance and its interrupt handle.
     pub fn new(name: impl Into<String>) -> (Self, Samd21TcHandle) {
         let state = Arc::new(Mutex::new(TcState::default()));
         (
