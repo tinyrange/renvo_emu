@@ -4,6 +4,15 @@ This document describes implemented behavior, not the long-term intent in
 `PLAN.html`. “Functional” means deterministic and useful for the named corpus;
 it does not mean cycle accuracy or complete silicon compatibility.
 
+## ESP32-C6 LP-I2C slice
+
+The low-power I2C controller is mapped at its native `0x600b1800` window.
+Reset-visible timing/configuration registers, the 32-byte TX/RX FIFO contract,
+eight command-link entries, immediate START/WRITE/READ/STOP/END execution,
+watermark and completion interrupts, and the version/date register are
+functional. Electrical arbitration, clock stretching, LP pad routing, DMA,
+and low-power-domain sequencing remain outside this baseline.
+
 ## Portfolio
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |

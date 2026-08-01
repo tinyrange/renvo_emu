@@ -208,6 +208,50 @@ fn esp32s3_timer_group_exposes_second_timer_interrupt() {
 }
 
 #[test]
+fn esp32c6_lp_i2c_executes_native_command_link_and_fifo_transfer() {
+    let (mut i2c, handle) = EspLpI2c::new("lp-i2c");
+    handle.queue_rx(&[0x34, 0x12]);
+    // WRITE two bytes, READ two bytes, then STOP. The command encoding follows
+    // lp_i2c_command_reg_t: byte count in bits 7:0 and opcode in bits 13:11.
+    i2c.write(0x58, AccessWidth::Word, 2 | (1 << 11), SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x5c, AccessWidth::Word, 2 | (3 << 11), SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x60, AccessWidth::Word, 2 | (2 << 11), SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x1c, AccessWidth::Word, 0xa0, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x1c, AccessWidth::Word, 0x00, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x04, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.busy());
+    assert_eq!(handle.take_tx(), [0xa0, 0x00]);
+    assert_eq!(
+        i2c.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x34
+    );
+    assert_eq!(
+        i2c.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x12
+    );
+    assert_ne!(
+        i2c.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 7),
+        0
+    );
+    i2c.write(0x24, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        i2c.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 7),
+        0
+    );
+    assert_eq!(
+        i2c.read(0xf8, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        35_656_003
+    );
+}
+
+#[test]
 fn uart_captures_low_byte() {
     let (mut uart, handle) = FunctionalUart::new("uart", 0, 4, 1);
     uart.write(0, AccessWidth::Word, b'A'.into(), SimTime::ZERO)

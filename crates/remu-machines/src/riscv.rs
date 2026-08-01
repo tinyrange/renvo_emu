@@ -37,6 +37,7 @@ mod esp_bootrom_secondary;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;
+mod lp_i2c;
 mod rp_bootrom;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
@@ -618,12 +619,13 @@ impl RiscVMachine {
                 bus.map_device(
                     "esp32c6.lp-aon",
                     0x600b_1000,
-                    0x1000,
+                    0x800,
                     Box::new(Rp2040RegisterBank::new(
                         "esp32c6.lp-aon",
-                        vec![0; 0x1000 / 4],
+                        vec![0; 0x800 / 4],
                     )),
                 )?;
+                lp_i2c::map_esp32c6_lp_i2c(&mut bus)?;
                 bus.map_device(
                     "esp32c6.modem-lpcon",
                     0x600a_f000,
