@@ -97,6 +97,163 @@ impl Device for Samd21RegisterBlock {
     }
 }
 
+#[derive(Default)]
+struct AdcState {
+    enabled: bool,
+    muxpos: u8,
+    result: u16,
+    intflag: u8,
+    intenset: u8,
+    inputs: [u16; 32],
+}
+
+/// Host-facing SAM D21 ADC input and conversion state.
+#[derive(Clone)]
+pub struct Samd21AdcHandle(Arc<Mutex<AdcState>>);
+
+impl Samd21AdcHandle {
+    /// Sets the deterministic analog value returned for one positive input.
+    pub fn set_input(&self, channel: u8, value: u16) {
+        if let Some(input) = self
+            .0
+            .lock()
+            .expect("ADC lock poisoned")
+            .inputs
+            .get_mut(usize::from(channel))
+        {
+            *input = value.min(0x0fff);
+        }
+    }
+
+    /// Returns whether RESRDY is both latched and enabled.
+    pub fn interrupt_pending(&self) -> bool {
+        let state = self.0.lock().expect("ADC lock poisoned");
+        state.intflag & 1 != 0 && state.intenset & 1 != 0
+    }
+}
+
+/// Functional SAM D21 12-bit ADC conversion slice.
+pub struct Samd21Adc {
+    name: String,
+    state: Arc<Mutex<AdcState>>,
+    registers: [u8; 0x40],
+}
+
+impl Samd21Adc {
+    /// Constructs the ADC and its deterministic analog-input handle.
+    pub fn new(name: impl Into<String>) -> (Self, Samd21AdcHandle) {
+        let state = Arc::new(Mutex::new(AdcState::default()));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+                registers: [0; 0x40],
+            },
+            Samd21AdcHandle(state),
+        )
+    }
+}
+
+impl Device for Samd21Adc {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        let state = self.state.lock().expect("ADC lock poisoned");
+        match offset {
+            0x00 => Ok(u64::from(state.enabled) << 1),
+            0x18 => Ok(u64::from(state.intflag)),
+            0x19 => Ok(0),
+            0x1c => {
+                if width != AccessWidth::HalfWord {
+                    return Err(DeviceError::new("ADC RESULT requires halfword access"));
+                }
+                Ok(u64::from(state.result))
+            }
+            _ => read_le(&self.registers, offset, width),
+        }
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let mut state = self.state.lock().expect("ADC lock poisoned");
+        match offset {
+            0x00 => {
+                if width != AccessWidth::Byte {
+                    return Err(DeviceError::new("ADC CTRLA requires byte access"));
+                }
+                let value = value as u8;
+                if value & 1 != 0 {
+                    let inputs = state.inputs;
+                    *state = AdcState {
+                        inputs,
+                        ..AdcState::default()
+                    };
+                } else {
+                    state.enabled = value & (1 << 1) != 0;
+                }
+                self.registers[0] = value & (1 << 1);
+            }
+            0x0c => {
+                if width != AccessWidth::Byte {
+                    return Err(DeviceError::new("ADC SWTRIG requires byte access"));
+                }
+                if value & 1 != 0 && state.enabled {
+                    state.result = state.inputs[usize::from(state.muxpos)];
+                    state.intflag |= 1;
+                    self.registers[0x1c..0x1e].copy_from_slice(&state.result.to_le_bytes());
+                }
+            }
+            0x10 => {
+                write_le(&mut self.registers, offset, width, value)?;
+                state.muxpos = (value as u8) & 0x1f;
+            }
+            0x16 => {
+                if width != AccessWidth::Byte {
+                    return Err(DeviceError::new("ADC INTENCLR requires byte access"));
+                }
+                state.intenset &= !(value as u8);
+                self.registers[0x17] = state.intenset;
+            }
+            0x17 => {
+                if width != AccessWidth::Byte {
+                    return Err(DeviceError::new("ADC INTENSET requires byte access"));
+                }
+                state.intenset |= value as u8;
+                self.registers[0x17] = state.intenset;
+            }
+            0x18 => {
+                if width != AccessWidth::Byte {
+                    return Err(DeviceError::new("ADC INTFLAG requires byte access"));
+                }
+                state.intflag &= !(value as u8);
+            }
+            0x1c => {
+                if width != AccessWidth::HalfWord {
+                    return Err(DeviceError::new("ADC RESULT is read-only halfword"));
+                }
+            }
+            _ => write_le(&mut self.registers, offset, width, value)?,
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        let inputs = self.state.lock().expect("ADC lock poisoned").inputs;
+        *self.state.lock().expect("ADC lock poisoned") = AdcState {
+            inputs,
+            ..AdcState::default()
+        };
+        self.registers.fill(0);
+    }
+}
+
 /// SAM D21 PORT group A with atomic direction/output aliases and pin configuration bytes.
 pub struct Samd21Port {
     name: String,
@@ -743,5 +900,28 @@ mod tests {
             .unwrap();
         assert!(!handle.take_reset(SimTime::from_ticks(14)));
         assert!(handle.take_reset(SimTime::from_ticks(15)));
+    }
+
+    #[test]
+    fn adc_returns_selected_input_and_latches_resrdy() {
+        let (mut adc, handle) = Samd21Adc::new("adc");
+        handle.set_input(3, 0x0abc);
+        adc.write(0x00, AccessWidth::Byte, 1 << 1, SimTime::ZERO)
+            .unwrap();
+        adc.write(0x10, AccessWidth::HalfWord, 3, SimTime::ZERO)
+            .unwrap();
+        adc.write(0x17, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        adc.write(0x0c, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.interrupt_pending());
+        assert_eq!(
+            adc.read(0x1c, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0x0abc
+        );
+        adc.write(0x18, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.interrupt_pending());
     }
 }
