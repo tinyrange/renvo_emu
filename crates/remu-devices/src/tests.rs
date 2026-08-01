@@ -208,6 +208,42 @@ fn esp32s3_timer_group_exposes_second_timer_interrupt() {
 }
 
 #[test]
+fn esp32c6_lp_watchdog_feeds_and_requests_stage_zero_reset() {
+    let (mut watchdog, handle) = EspLpWatchdog::new("lp-wdt");
+    watchdog
+        .write(0x04, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    watchdog
+        .write(
+            0x00,
+            AccessWidth::Word,
+            (1 << 31) | (2 << 28),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert!(!handle.take_reset(SimTime::from_ticks(2)));
+    watchdog
+        .write(0x14, AccessWidth::Word, 1, SimTime::from_ticks(2))
+        .unwrap();
+    assert!(!handle.take_reset(SimTime::from_ticks(4)));
+    assert!(handle.take_reset(SimTime::from_ticks(5)));
+    assert!(handle.interrupt_pending(SimTime::from_ticks(5)));
+    watchdog
+        .write(0x14, AccessWidth::Word, 1, SimTime::from_ticks(5))
+        .unwrap();
+    watchdog
+        .write(0x30, AccessWidth::Word, 1 << 31, SimTime::from_ticks(5))
+        .unwrap();
+    assert!(!handle.interrupt_pending(SimTime::from_ticks(5)));
+    assert_eq!(
+        watchdog
+            .read(0x3fc, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        34_676_864
+    );
+}
+
+#[test]
 fn uart_captures_low_byte() {
     let (mut uart, handle) = FunctionalUart::new("uart", 0, 4, 1);
     uart.write(0, AccessWidth::Word, b'A'.into(), SimTime::ZERO)

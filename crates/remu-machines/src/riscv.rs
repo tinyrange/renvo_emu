@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspGpio, EspLpWatchdogHandle, EspSpiMem, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks,
+    Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -38,7 +38,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
-
+mod watchdog;
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
 /// Synthetic, stable UART facade used by compiler cases.
@@ -207,6 +207,7 @@ pub struct RiscVMachine {
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
     esp_usb_serial_jtag: Option<EspUsbSerialJtagHandle>,
+    esp_lp_watchdog: Option<EspLpWatchdogHandle>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
@@ -240,6 +241,7 @@ impl RiscVMachine {
         let mut usb_dpram = None;
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
+        let mut esp_lp_watchdog = None;
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
         let mut wch_pfic = None;
@@ -618,12 +620,13 @@ impl RiscVMachine {
                 bus.map_device(
                     "esp32c6.lp-aon",
                     0x600b_1000,
-                    0x1000,
+                    0xc00,
                     Box::new(Rp2040RegisterBank::new(
                         "esp32c6.lp-aon",
-                        vec![0; 0x1000 / 4],
+                        vec![0; 0xc00 / 4],
                     )),
                 )?;
+                esp_lp_watchdog = Some(watchdog::map_esp32c6_lp_watchdog(&mut bus)?);
                 bus.map_device(
                     "esp32c6.modem-lpcon",
                     0x600a_f000,
@@ -762,7 +765,6 @@ impl RiscVMachine {
             | TargetId::Pic16f15376
             | TargetId::Efm8bb52f32g => unreachable!(),
         }
-
         Ok(Self {
             target,
             cpu: RiscVCpu::new(profile.clone())?,
@@ -806,6 +808,7 @@ impl RiscVMachine {
             usb_dpram,
             usb_host,
             esp_usb_serial_jtag,
+            esp_lp_watchdog,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
@@ -1035,7 +1038,9 @@ impl RiscVMachine {
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }
-
+            if self.poll_esp32c6_watchdog(&mut stats)? {
+                continue;
+            }
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
                 stats.events = stats.events.saturating_add(1);
