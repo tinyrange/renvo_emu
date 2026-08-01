@@ -1,0 +1,141 @@
+{
+  "schema": "remu.oracle.v1",
+  "fixture_id": "nanoc6-edge-corpus-v1",
+  "status": "hardware_capture",
+  "target": {
+    "architecture": "rv32imac",
+    "machine": "esp32c6",
+    "board": "M5Stack NanoC6"
+  },
+  "hardware": {
+    "board": "M5Stack NanoC6",
+    "mcu": "ESP32-C6FH4",
+    "revision": "0.2",
+    "probe": {
+      "kind": "built-in USB Serial/JTAG",
+      "tool": "OpenOCD from ESP-IDF v5.3.5",
+      "container_image": "sha256:114a9f8cde8bdc5a7e95809745b492663f7c5afe9c2821a4127ff133754fafd2"
+    },
+    "toolchain": {
+      "kind": "Espressif GCC",
+      "version": "13.2.0",
+      "container_image": "sha256:114a9f8cde8bdc5a7e95809745b492663f7c5afe9c2821a4127ff133754fafd2"
+    }
+  },
+  "firmware": {
+    "source_files": [
+      "hardware/nanoc6/CMakeLists.txt",
+      "hardware/nanoc6/main/CMakeLists.txt",
+      "hardware/nanoc6/main/app_main.c",
+      "hardware/nanoc6/sdkconfig.defaults",
+      "hardware/nanoc6/sdkconfig.ram.defaults",
+      "corpus/edge_cases/cases",
+      "corpus/edge_cases/manifest.tsv"
+    ],
+    "source_sha256": "5b0f64b4b297dcfd1de5462e66603fc77d1542f49bcc2885b776bcce00de59d2",
+    "image_sha256": "fe7501dbbce5c2afecd452546ca146b04154f05cf901ac4bf37619f160c167ab",
+    "build": {
+      "project": "hardware/nanoc6",
+      "mode": "RAM-only application loaded through JTAG",
+      "idf_version": "5.3.5",
+      "compiler_flags": ["-O2", "-fno-builtin"]
+    }
+  },
+  "initial_state": {
+    "reset": {
+      "method": "JTAG reset run",
+      "boot_path": "ESP-IDF RAM application entry",
+      "power_cycle": false
+    },
+    "registers": {
+      "captured": false,
+      "note": "The fixture observes the published result array after startup; it does not claim a complete reset-register dump."
+    },
+    "memory": {
+      "application": "RAM loaded by esptool without modifying flash",
+      "flash": "not part of this RAM-only run",
+      "result_symbol": "remu_hw_results"
+    }
+  },
+  "stimulus": {
+    "kind": "edge-corpus firmware run",
+    "steps": [
+      {
+        "action": "reset",
+        "method": "openocd reset run"
+      },
+      {
+        "action": "wait",
+        "condition": "remu_hw_ready == 0x52454e56"
+      },
+      {
+        "action": "read",
+        "symbol": "remu_hw_results",
+        "bytes": 160
+      }
+    ],
+    "case_selection": "one case from each of the 40 five-case-spaced corpus samples"
+  },
+  "observations": {
+    "format": "RENVO_HW case_<id> <little-endian uint32 hex>",
+    "records": [
+      {"case_id": "case_0000", "value_hex": "0xa32f29f7", "reference_value_hex": "0xa32f29f7"},
+      {"case_id": "case_0025", "value_hex": "0xb8d304b8", "reference_value_hex": "0xb8d304b8"},
+      {"case_id": "case_0050", "value_hex": "0x07d3bd58", "reference_value_hex": "0x07d3bd58"},
+      {"case_id": "case_0075", "value_hex": "0xe5e6f2b7", "reference_value_hex": "0xe5e6f2b7"},
+      {"case_id": "case_0100", "value_hex": "0xe58ea2fe", "reference_value_hex": "0xe58ea2fe"},
+      {"case_id": "case_0125", "value_hex": "0xf18dccdd", "reference_value_hex": "0xf18dccdd"},
+      {"case_id": "case_0150", "value_hex": "0xa0fa1178", "reference_value_hex": "0xa0fa1178"},
+      {"case_id": "case_0175", "value_hex": "0xe508e72c", "reference_value_hex": "0xe508e72c"},
+      {"case_id": "case_0200", "value_hex": "0x150869b1", "reference_value_hex": "0x150869b1"},
+      {"case_id": "case_0225", "value_hex": "0xdd3f1f00", "reference_value_hex": "0xdd3f1f00"},
+      {"case_id": "case_0250", "value_hex": "0x0e87aa8b", "reference_value_hex": "0x0e87aa8b"},
+      {"case_id": "case_0275", "value_hex": "0x6924b352", "reference_value_hex": "0x6924b352"},
+      {"case_id": "case_0300", "value_hex": "0x0ffbe960", "reference_value_hex": "0x0ffbe960"},
+      {"case_id": "case_0325", "value_hex": "0x6f9a6d37", "reference_value_hex": "0x6f9a6d37"},
+      {"case_id": "case_0350", "value_hex": "0xfdf340f9", "reference_value_hex": "0xfdf340f9"},
+      {"case_id": "case_0375", "value_hex": "0xec11480e", "reference_value_hex": "0xec11480e"},
+      {"case_id": "case_0400", "value_hex": "0x3608802d", "reference_value_hex": "0x3608802d"},
+      {"case_id": "case_0425", "value_hex": "0x8fc97950", "reference_value_hex": "0x8fc97950"},
+      {"case_id": "case_0450", "value_hex": "0x315954dc", "reference_value_hex": "0x315954dc"},
+      {"case_id": "case_0475", "value_hex": "0x0f1af64a", "reference_value_hex": "0x0f1af64a"},
+      {"case_id": "case_0500", "value_hex": "0x4d103cf3", "reference_value_hex": "0x4d103cf3"},
+      {"case_id": "case_0525", "value_hex": "0xe22ee616", "reference_value_hex": "0xe22ee616"},
+      {"case_id": "case_0550", "value_hex": "0x3e031506", "reference_value_hex": "0x3e031506"},
+      {"case_id": "case_0575", "value_hex": "0xf0e797ec", "reference_value_hex": "0xf0e797ec"},
+      {"case_id": "case_0600", "value_hex": "0x9890d94f", "reference_value_hex": "0x9890d94f"},
+      {"case_id": "case_0625", "value_hex": "0x6c12e4f3", "reference_value_hex": "0x6c12e4f3"},
+      {"case_id": "case_0650", "value_hex": "0xf3d12ba4", "reference_value_hex": "0xf3d12ba4"},
+      {"case_id": "case_0675", "value_hex": "0x8f810a46", "reference_value_hex": "0x8f810a46"},
+      {"case_id": "case_0700", "value_hex": "0x2793e0c0", "reference_value_hex": "0x2793e0c0"},
+      {"case_id": "case_0725", "value_hex": "0x2fe27bf8", "reference_value_hex": "0x2fe27bf8"},
+      {"case_id": "case_0750", "value_hex": "0xcc2c3228", "reference_value_hex": "0xcc2c3228"},
+      {"case_id": "case_0775", "value_hex": "0x75163e10", "reference_value_hex": "0x75163e10"},
+      {"case_id": "case_0800", "value_hex": "0xfa82b696", "reference_value_hex": "0xfa82b696"},
+      {"case_id": "case_0825", "value_hex": "0xf89cb0cc", "reference_value_hex": "0xf89cb0cc"},
+      {"case_id": "case_0850", "value_hex": "0x65826ebd", "reference_value_hex": "0x65826ebd"},
+      {"case_id": "case_0875", "value_hex": "0x97e98b2c", "reference_value_hex": "0x97e98b2c"},
+      {"case_id": "case_0900", "value_hex": "0xb92fc25e", "reference_value_hex": "0xb92fc25e"},
+      {"case_id": "case_0925", "value_hex": "0x5f819145", "reference_value_hex": "0x5f819145"},
+      {"case_id": "case_0950", "value_hex": "0x3b24cabb", "reference_value_hex": "0x3b24cabb"},
+      {"case_id": "case_0975", "value_hex": "0xdce19bc6", "reference_value_hex": "0xdce19bc6"}
+    ],
+    "canonical_sha256": "0216b58ccd9f63322cc16b3d9189cb6a9d084814602fa03285d220c63c86ab37"
+  },
+  "comparison": {
+    "reference": "corpus/edge_cases/manifest.tsv",
+    "equivalence": "exact 32-bit result equality",
+    "timing": {
+      "mode": "functional only",
+      "tolerance": "execution duration and instruction count are not compared"
+    }
+  },
+  "provenance": {
+    "captured_at": "2026-07-31",
+    "capture_method": "scripts/nanoc6-hardware.sh jtag-run",
+    "capture_source": ".remu/nanoc6/capture.txt",
+    "capture_source_sha256": "9871253c5d513a305616e19e59b58d64ba007e57b519cd2cc76a5efdbfaf972a",
+    "capture_format": "RENVO_HW case_<id> <hex>",
+    "operator_note": "Measured on the physical board; the raw capture is kept out of git as a local artifact."
+  }
+}
