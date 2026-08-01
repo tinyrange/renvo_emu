@@ -474,6 +474,12 @@ prebuilds `core` for the otherwise undistributed exact RV32E register-ABI target
 installing the upstream RV32IMAC, Armv6-M, and Armv8-M libraries. Every actual
 Rust case build remains network-isolated and read-only.
 
+The ATmega328PB functional slice includes the native TWI0 register contract
+(`TWBR`, `TWSR`, `TWAR`, `TWDR`, `TWCR`, and `TWAMR`) with deterministic START,
+transmit, receive, status, and interrupt behavior. It exposes host byte queues
+for tests, but does not claim electrical I²C arbitration, clock stretching, or
+TWI1 coverage.
+
 `scripts/qualify-rust-abi.sh` compiles one freestanding ABI/behavior program at
 `-O0`, `-O2`, and `-Os`. Its 18 deterministic proof runs cover CH32V003,
 CH32V006, ESP32-C6, RP2040, RP2350 Arm, and RP2350 Hazard3. The program exercises

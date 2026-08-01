@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const IO_BASE: u16 = 0x20;
@@ -55,6 +56,12 @@ const SPSR_WCOL: u8 = 1 << 6;
 const SPSR_SPI2X: u8 = 1;
 // AVR CPU lines are two below the datasheet vector number (line 0 is INT0).
 const SPI0_INTERRUPT_LINE: u16 = 16;
+const TWBR: u16 = 0xb8;
+const TWSR: u16 = 0xb9;
+const TWAR: u16 = 0xba;
+const TWDR: u16 = 0xbb;
+const TWCR: u16 = 0xbc;
+const TWAMR: u16 = 0xbd;
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -77,6 +84,8 @@ struct AtmegaState {
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
     spi_status_read: bool,
+    twi_tx: Vec<u8>,
+    twi_rx: VecDeque<u8>,
     uart_tx_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
@@ -177,6 +186,10 @@ impl AtmegaIoHandle {
         {
             lines.push(SPI0_INTERRUPT_LINE);
         }
+        let twcr = state.registers[usize::from(TWCR - IO_BASE)];
+        if twcr & (1 << 7) != 0 && twcr & (1 << 0) != 0 {
+            lines.push(24);
+        }
         let pinb = resolved(&state.ports[0]);
         let changed = pinb ^ state.previous_pinb;
         state.previous_pinb = pinb;
@@ -271,6 +284,21 @@ impl AtmegaIoHandle {
             .expect("ATmega I/O lock poisoned")
             .spi_tx
             .clone()
+    }
+
+    /// Queues one byte that the TWI controller should receive from its host.
+    pub fn queue_twi_rx(&self, byte: u8) {
+        self.0
+            .lock()
+            .expect("ATmega I/O lock poisoned")
+            .twi_rx
+            .push_back(byte);
+    }
+
+    /// Returns bytes transferred by the functional TWI0 controller.
+    pub fn take_twi_tx(&self) -> Vec<u8> {
+        let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
+        std::mem::take(&mut state.twi_tx)
     }
 }
 
@@ -383,6 +411,8 @@ impl AtmegaIo {
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
             spi_status_read: false,
+            twi_tx: Vec::new(),
+            twi_rx: VecDeque::new(),
             uart_tx_signal,
             timer0_irq_signal,
             timer1_irq_signal,
@@ -471,6 +501,8 @@ impl Device for AtmegaIo {
                 value
             }
             EEDR => state.registers[usize::from(EEDR - IO_BASE)],
+            TWCR => state.registers[usize::from(TWCR - IO_BASE)] | (1 << 6),
+            TWBR | TWAR | TWAMR => state.registers[usize::from(address - IO_BASE)],
             _ => state.registers[usize::from(address - IO_BASE)],
         };
         Ok(u64::from(value))
@@ -602,6 +634,28 @@ impl Device for AtmegaIo {
                 state.registers[usize::from(WDTCSR - IO_BASE)] = value;
                 state.watchdog_started = at.ticks();
             }
+            TWCR => {
+                let index = usize::from(TWCR - IO_BASE);
+                state.registers[index] = value;
+                if value & (1 << 7) != 0 && value & (1 << 2) != 0 {
+                    let status = if value & (1 << 5) != 0 {
+                        0x08
+                    } else if value & (1 << 4) != 0 {
+                        0xf8
+                    } else if let Some(byte) = state.twi_rx.pop_front() {
+                        state.registers[usize::from(TWDR - IO_BASE)] = byte;
+                        0x50
+                    } else {
+                        let byte = state.registers[usize::from(TWDR - IO_BASE)];
+                        state.twi_tx.push(byte);
+                        0x28
+                    };
+                    state.registers[usize::from(TWSR - IO_BASE)] =
+                        (state.registers[usize::from(TWSR - IO_BASE)] & 3) | status;
+                    state.registers[index] = (value | (1 << 7)) & !((1 << 5) | (1 << 4));
+                }
+            }
+            TWBR | TWAR | TWAMR => state.registers[usize::from(address - IO_BASE)] = value,
             _ => state.registers[usize::from(address - IO_BASE)] = value,
         }
         Ok(())
@@ -621,6 +675,8 @@ impl Device for AtmegaIo {
         state.spi_tx.clear();
         state.spi_rx.clear();
         state.spi_status_read = false;
+        state.twi_tx.clear();
+        state.twi_rx.clear();
         set_bit_signal(&state, state.timer0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer1_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer2_irq_signal, false, SimTime::ZERO);
@@ -956,5 +1012,64 @@ mod tests {
                 .unwrap(),
             0x22
         );
+    }
+
+    #[test]
+    fn twi0_start_transmit_and_receive_have_deterministic_status() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        let twcr = u64::from(TWCR - IO_BASE);
+        io.write(
+            u64::from(TWBR - IO_BASE),
+            AccessWidth::Byte,
+            12,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TWAR - IO_BASE),
+            AccessWidth::Byte,
+            0x22,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TWAMR - IO_BASE),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(twcr, AccessWidth::Byte, 0xA5 | 0x20, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            io.read(u64::from(TWSR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x08
+        );
+        io.write(
+            u64::from(TWDR - IO_BASE),
+            AccessWidth::Byte,
+            0x55,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(twcr, AccessWidth::Byte, 0x85, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.take_twi_tx(), vec![0x55]);
+        handle.queue_twi_rx(0xa5);
+        io.write(twcr, AccessWidth::Byte, 0x85, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            io.read(u64::from(TWDR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xa5
+        );
+        assert_eq!(
+            io.read(u64::from(TWSR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x50
+        );
+        assert!(handle.poll(SimTime::ZERO).contains(&24));
     }
 }
