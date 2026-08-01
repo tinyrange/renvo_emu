@@ -77,6 +77,12 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+Verified-image handoff starts with IROM instruction fetch disabled; the ROM
+`rom_config_instruction_cache_mode(0x4000, 8, 32)` entry point enables it and
+publishes the corresponding `CACHE_STATE` value. A fetch before that call
+stops with a diagnostic instead of appearing to work through a coherent-cache
+shortcut.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
