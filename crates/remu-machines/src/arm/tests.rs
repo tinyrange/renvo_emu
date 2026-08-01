@@ -57,6 +57,41 @@ fn rp2040_dma_copies_a_word_and_reports_completion() {
 }
 
 #[test]
+fn rp2040_watchdog_reset_is_visible_to_the_run_loop() {
+    let mut machine = ArmMachine::new(TargetId::Rp2040).unwrap();
+    machine
+        .bus
+        .load(u64::from(machine.flash_base), &[0x00, 0xbf])
+        .unwrap();
+    machine
+        .cpu
+        .set_direct_state(machine.default_stack, machine.flash_base | 1)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4005_8004, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4005_8000, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    let result = machine
+        .run(
+            RunLimits {
+                instructions: Some(8),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        result.reason,
+        StopReason::Fault("RP2040 watchdog reset".to_owned())
+    );
+    assert_eq!(result.stats.instructions, 1);
+}
+
+#[test]
 fn raspberry_pi_uart1_has_functional_transmit_registers() {
     for (target, address) in [
         (TargetId::Rp2040, 0x4003_8000_u64),

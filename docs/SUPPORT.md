@@ -182,6 +182,13 @@ native-address Cortex-M0+ firmware proof on both controllers. As with RP2350,
 pin-level SDA/SCL behavior, arbitration, slave mode, DMA handshakes, interrupt
 controller delivery, and exact bus timing are intentionally not claimed.
 
+The RP2040 watchdog model covers `CTRL`, `LOAD`, `REASON`, all eight scratch
+registers, `TICK`, atomic aliases, divider/countdown behavior, forced and timed
+reset reasons, and scratch persistence. The Arm scheduler stops at the modeled
+reset boundary with an explicit watchdog-reset reason. Debug pause inputs,
+`RESETS.WDSEL` fan-out, and a complete CPU reboot sequence remain outside the
+functional slice.
+
 RP2350's IO_BANK0 model covers the SDK-facing per-pin STATUS and CTRL
 registers, input/output/enable overrides, packed raw edge/level events, and
 PROC0/PROC1 enable, force, and status registers. Both Cortex-M33 and Hazard3

@@ -2745,6 +2745,74 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+fn watchdog_write(
+    device: &mut Rp2040Watchdog,
+    register: Rp2040WatchdogRegister,
+    value: u32,
+    at: u64,
+) {
+    device
+        .write(
+            register as u64,
+            AccessWidth::Word,
+            u64::from(value),
+            SimTime::from_ticks(at),
+        )
+        .unwrap();
+}
+
+fn watchdog_read(device: &mut Rp2040Watchdog, register: Rp2040WatchdogRegister, at: u64) -> u32 {
+    u32::try_from(
+        device
+            .read(register as u64, AccessWidth::Word, SimTime::from_ticks(at))
+            .unwrap(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn rp2040_watchdog_counts_down_with_e1_divide_by_two() {
+    let (mut device, handle) = Rp2040Watchdog::new_with_handle("watchdog");
+    watchdog_write(&mut device, Rp2040WatchdogRegister::Load, 5, 0);
+    watchdog_write(&mut device, Rp2040WatchdogRegister::Ctrl, 1 << 30, 0);
+    assert_eq!(
+        watchdog_read(&mut device, Rp2040WatchdogRegister::Ctrl, 0) & 0x00ff_ffff,
+        3
+    );
+    assert!(!handle.take_reset(SimTime::from_ticks(1)));
+    assert!(!handle.take_reset(SimTime::from_ticks(2)));
+    assert!(handle.take_reset(SimTime::from_ticks(3)));
+    assert_eq!(handle.reason(SimTime::from_ticks(3)), 1);
+}
+
+#[test]
+fn rp2040_watchdog_force_trigger_and_scratch_reset_semantics_are_deterministic() {
+    let (mut device, handle) = Rp2040Watchdog::new_with_handle("watchdog");
+    watchdog_write(&mut device, Rp2040WatchdogRegister::Ctrl, 1 << 31, 0);
+    assert!(handle.take_reset(SimTime::ZERO));
+    assert!(!handle.take_reset(SimTime::ZERO));
+    assert_eq!(
+        watchdog_read(&mut device, Rp2040WatchdogRegister::Reason, 0),
+        2
+    );
+    watchdog_write(
+        &mut device,
+        Rp2040WatchdogRegister::Scratch0,
+        0xfeed_cafe,
+        0,
+    );
+    Device::reset(&mut device, ResetKind::Software);
+    assert_eq!(
+        watchdog_read(&mut device, Rp2040WatchdogRegister::Scratch0, 0),
+        0xfeed_cafe
+    );
+    Device::reset(&mut device, ResetKind::PowerOn);
+    assert_eq!(
+        watchdog_read(&mut device, Rp2040WatchdogRegister::Scratch0, 0),
+        0
+    );
+}
 #[test]
 fn pwm_advances_counter_and_reports_compare_outputs() {
     let (mut pwm, handle) = FunctionalPwm::new("pwm", 2);

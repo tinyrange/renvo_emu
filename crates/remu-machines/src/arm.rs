@@ -19,12 +19,12 @@ use remu_devices::{
     PwmHandle, Rp2040Clocks, Rp2040IoBank, Rp2040IoBankHandle, Rp2040Pll, Rp2040Psm,
     Rp2040RegisterBank, Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040Ssi, Rp2040Timer,
     Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp, Rp2350Powman,
-    Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle,
-    Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpI2c, RpI2cEvent,
-    RpI2cHandle, RpIoBank, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
-    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle, UartHandle,
-    new_rp2350_hstx,
+    Rp2040Watchdog, Rp2040WatchdogHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp,
+    Rp2350Powman, Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng,
+    Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle,
+    RpI2c, RpI2cEvent, RpI2cHandle, RpIoBank, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion,
+    RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle,
+    UartHandle, new_rp2350_hstx,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -69,6 +69,7 @@ pub struct ArmMachine {
     rp2040_io_bank: Option<Rp2040IoBankHandle>,
     rp2350_io_bank: Option<RpIoBankHandle>,
     chip_timers: Vec<Rp2040TimerHandle>,
+    watchdog: Option<Rp2040WatchdogHandle>,
     i2c: Vec<RpI2cHandle>,
     spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
@@ -135,6 +136,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut watchdog = None;
         let mut i2c = Vec::new();
         let mut spi = Vec::new();
         let chip_pwm;
@@ -353,12 +355,15 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Pll::new("rp2040.pll-usb")),
             )?;
+            let (watchdog_device, watchdog_handle) =
+                Rp2040Watchdog::new_with_handle("rp2040.watchdog");
             bus.map_device(
                 "rp2040.watchdog",
                 0x4005_8000,
                 0x4000,
-                Box::new(Rp2040Watchdog::new("rp2040.watchdog")),
+                Box::new(watchdog_device),
             )?;
+            watchdog = Some(watchdog_handle);
             bus.map_device(
                 "rp2040.rtc",
                 0x4005_c000,
@@ -708,6 +713,7 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            watchdog,
             i2c,
             spi,
             pio,
@@ -1372,6 +1378,13 @@ impl ArmMachine {
             stats.events = stats
                 .events
                 .saturating_add(self.dma.service(&mut self.bus, self.now)? as u64);
+            if self
+                .watchdog
+                .as_ref()
+                .is_some_and(|watchdog| watchdog.take_reset(self.now))
+            {
+                break StopReason::Fault("RP2040 watchdog reset".to_owned());
+            }
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }

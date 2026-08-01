@@ -358,22 +358,234 @@ impl Device for Rp2040Pll {
     }
 }
 
+/// RP2040 WATCHDOG register identifiers.
+///
+/// Keeping the offsets named prevents the device model and its tests from
+/// silently drifting when a register is added or moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+pub enum Rp2040WatchdogRegister {
+    /// Watchdog control and remaining time.
+    Ctrl = 0x00,
+    /// Reload value for the watchdog counter.
+    Load = 0x04,
+    /// Reset reason bits.
+    Reason = 0x08,
+    /// Persistent scratch register zero.
+    Scratch0 = 0x0c,
+    /// Persistent scratch register one.
+    Scratch1 = 0x10,
+    /// Persistent scratch register two.
+    Scratch2 = 0x14,
+    /// Persistent scratch register three.
+    Scratch3 = 0x18,
+    /// Persistent scratch register four.
+    Scratch4 = 0x1c,
+    /// Persistent scratch register five.
+    Scratch5 = 0x20,
+    /// Persistent scratch register six.
+    Scratch6 = 0x24,
+    /// Persistent scratch register seven.
+    Scratch7 = 0x28,
+    /// Watchdog tick-generator configuration and status.
+    Tick = 0x2c,
+}
+
+impl TryFrom<u64> for Rp2040WatchdogRegister {
+    type Error = ();
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::Ctrl),
+            0x04 => Ok(Self::Load),
+            0x08 => Ok(Self::Reason),
+            0x0c => Ok(Self::Scratch0),
+            0x10 => Ok(Self::Scratch1),
+            0x14 => Ok(Self::Scratch2),
+            0x18 => Ok(Self::Scratch3),
+            0x1c => Ok(Self::Scratch4),
+            0x20 => Ok(Self::Scratch5),
+            0x24 => Ok(Self::Scratch6),
+            0x28 => Ok(Self::Scratch7),
+            0x2c => Ok(Self::Tick),
+            _ => Err(()),
+        }
+    }
+}
+
+const WATCHDOG_CTRL_TIME_MASK: u32 = 0x00ff_ffff;
+const WATCHDOG_CTRL_PAUSE_MASK: u32 = 0x0700_0000;
+const WATCHDOG_CTRL_ENABLE: u32 = 1 << 30;
+const WATCHDOG_CTRL_TRIGGER: u32 = 1 << 31;
+const WATCHDOG_TICK_CYCLES_MASK: u32 = 0x0000_01ff;
+const WATCHDOG_TICK_ENABLE: u32 = 1 << 9;
+const WATCHDOG_TICK_RUNNING: u32 = 1 << 10;
+const WATCHDOG_TICK_COUNT_MASK: u32 = 0x000f_f800;
+const WATCHDOG_REASON_TIMER: u32 = 1;
+const WATCHDOG_REASON_FORCE: u32 = 1 << 1;
+
+#[derive(Clone)]
+struct Rp2040WatchdogState {
+    ctrl: u32,
+    load: u32,
+    reason: u32,
+    scratch: [u32; 8],
+    tick: u32,
+    tick_countdown: u64,
+    remaining_counter: u64,
+    last_time: SimTime,
+    reset_pending: bool,
+}
+
+impl Rp2040WatchdogState {
+    fn reset_state() -> Self {
+        let tick = WATCHDOG_TICK_ENABLE;
+        Self {
+            ctrl: 0x0700_0000,
+            load: 0,
+            reason: 0,
+            scratch: [0; 8],
+            tick,
+            tick_countdown: Self::divider(tick),
+            remaining_counter: 0,
+            last_time: SimTime::ZERO,
+            reset_pending: false,
+        }
+    }
+
+    fn divider(tick: u32) -> u64 {
+        // CYCLES is encoded as the number of extra clk_tick cycles.  A zero
+        // setting therefore still produces one tick per abstract simulation
+        // tick, which keeps the default reset state live and deterministic.
+        u64::from(tick & WATCHDOG_TICK_CYCLES_MASK) + 1
+    }
+
+    fn advance(&mut self, now: SimTime) {
+        let elapsed = now.ticks().saturating_sub(self.last_time.ticks());
+        self.last_time = now;
+        if elapsed == 0 || self.tick & WATCHDOG_TICK_ENABLE == 0 {
+            return;
+        }
+
+        let divider = Self::divider(self.tick);
+        let tick_countdown = self.tick_countdown.max(1);
+        let generated = if elapsed < tick_countdown {
+            self.tick_countdown = tick_countdown - elapsed;
+            0
+        } else {
+            let after_first = elapsed - tick_countdown;
+            let generated = 1 + after_first / divider;
+            self.tick_countdown = divider - after_first % divider;
+            generated
+        };
+        if self.ctrl & WATCHDOG_CTRL_ENABLE == 0 || self.remaining_counter == 0 {
+            return;
+        }
+
+        // RP2040-E1: the hardware counter is decremented twice per generated
+        // watchdog tick, so LOAD=2 represents one abstract watchdog tick.
+        let decrement = generated.saturating_mul(2);
+        self.remaining_counter = self.remaining_counter.saturating_sub(decrement);
+        if self.remaining_counter == 0 {
+            self.reason |= WATCHDOG_REASON_TIMER;
+            self.reset_pending = true;
+        }
+    }
+
+    fn ctrl_value(&self) -> u32 {
+        let time = self
+            .remaining_counter
+            .div_ceil(2)
+            .min(u64::from(WATCHDOG_CTRL_TIME_MASK));
+        (self.ctrl & (WATCHDOG_CTRL_PAUSE_MASK | WATCHDOG_CTRL_ENABLE))
+            | u32::try_from(time).expect("watchdog time is masked to 24 bits")
+    }
+
+    fn tick_value(&self) -> u32 {
+        let running = self.tick & WATCHDOG_TICK_ENABLE != 0;
+        let count =
+            u32::try_from(self.tick_countdown.min(0x1ff)).expect("watchdog tick count fits");
+        (self.tick & (WATCHDOG_TICK_CYCLES_MASK | WATCHDOG_TICK_ENABLE))
+            | if running { WATCHDOG_TICK_RUNNING } else { 0 }
+            | ((count << 11) & WATCHDOG_TICK_COUNT_MASK)
+    }
+
+    fn apply_alias(register: &mut u32, alias: u64, value: u32) -> Result<(), DeviceError> {
+        Rp2040Clocks::update(register, alias, value)
+    }
+
+    fn load_counter(&mut self) {
+        self.remaining_counter = u64::from(self.load);
+        self.reset_pending = false;
+    }
+
+    fn reset(&mut self, kind: ResetKind) {
+        let scratch = match kind {
+            ResetKind::Software | ResetKind::Watchdog => self.scratch,
+            ResetKind::PowerOn | ResetKind::External => [0; 8],
+        };
+        let reason = (kind == ResetKind::Watchdog)
+            .then_some(self.reason)
+            .unwrap_or(0);
+        *self = Self::reset_state();
+        self.scratch = scratch;
+        self.reason = reason;
+    }
+}
+
+/// Shareable RP2040 watchdog reset/tick view used by the machine scheduler.
+#[derive(Clone)]
+pub struct Rp2040WatchdogHandle {
+    state: Arc<Mutex<Rp2040WatchdogState>>,
+}
+
+impl Rp2040WatchdogHandle {
+    /// Advances the watchdog and consumes one pending reset request.
+    pub fn take_reset(&self, now: SimTime) -> bool {
+        let mut state = self.state.lock().expect("RP2040 watchdog lock poisoned");
+        state.advance(now);
+        std::mem::take(&mut state.reset_pending)
+    }
+
+    /// Returns the reset reason bits latched by the previous trigger.
+    pub fn reason(&self, now: SimTime) -> u32 {
+        let mut state = self.state.lock().expect("RP2040 watchdog lock poisoned");
+        state.advance(now);
+        state.reason
+    }
+}
+
 /// Functional RP2040 watchdog and microsecond-tick divider.
 pub struct Rp2040Watchdog {
     name: String,
-    registers: [u32; 12],
+    state: Arc<Mutex<Rp2040WatchdogState>>,
 }
 
 impl Rp2040Watchdog {
-    /// Creates the watchdog reset state.
+    /// Creates the watchdog reset state without exposing a scheduler handle.
     pub fn new(name: impl Into<String>) -> Self {
-        let mut registers = [0; 12];
-        registers[0] = 0x0700_0000;
-        registers[0x2c / 4] = 0x200;
-        Self {
-            name: name.into(),
-            registers,
-        }
+        let (device, _) = Self::new_with_handle(name);
+        device
+    }
+
+    /// Creates the watchdog and a handle that reports functional reset requests.
+    pub fn new_with_handle(name: impl Into<String>) -> (Self, Rp2040WatchdogHandle) {
+        let state = Arc::new(Mutex::new(Rp2040WatchdogState::reset_state()));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+            },
+            Rp2040WatchdogHandle { state },
+        )
+    }
+
+    fn register(offset: u64) -> Result<Rp2040WatchdogRegister, DeviceError> {
+        Rp2040WatchdogRegister::try_from(offset).map_err(|()| {
+            DeviceError::new(format!(
+                "unmodeled RP2040 WATCHDOG register at offset {offset:#x}"
+            ))
+        })
     }
 }
 
@@ -382,22 +594,34 @@ impl Device for Rp2040Watchdog {
         &self.name
     }
 
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+    fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new(
                 "RP2040 WATCHDOG requires aligned word access",
             ));
         }
         let register_offset = offset & 0x0fff;
-        let index = usize::try_from(register_offset / 4).expect("small watchdog offset fits");
-        let mut value = *self.registers.get(index).ok_or_else(|| {
-            DeviceError::new(format!(
-                "unmodeled RP2040 WATCHDOG read at offset {register_offset:#x}"
-            ))
-        })?;
-        if register_offset == 0x2c && value & 0x200 != 0 {
-            value |= 0x400;
-        }
+        let register = Self::register(register_offset)?;
+        let mut state = self.state.lock().expect("RP2040 watchdog lock poisoned");
+        state.advance(at);
+        let value = match register {
+            Rp2040WatchdogRegister::Ctrl => state.ctrl_value(),
+            Rp2040WatchdogRegister::Load => state.load,
+            Rp2040WatchdogRegister::Reason => state.reason,
+            Rp2040WatchdogRegister::Scratch0
+            | Rp2040WatchdogRegister::Scratch1
+            | Rp2040WatchdogRegister::Scratch2
+            | Rp2040WatchdogRegister::Scratch3
+            | Rp2040WatchdogRegister::Scratch4
+            | Rp2040WatchdogRegister::Scratch5
+            | Rp2040WatchdogRegister::Scratch6
+            | Rp2040WatchdogRegister::Scratch7 => {
+                let index = usize::try_from((register_offset - 0x0c) / 4)
+                    .expect("watchdog scratch index fits");
+                state.scratch[index]
+            }
+            Rp2040WatchdogRegister::Tick => state.tick_value(),
+        };
         Ok(u64::from(value))
     }
 
@@ -406,7 +630,7 @@ impl Device for Rp2040Watchdog {
         offset: u64,
         width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new(
@@ -415,21 +639,68 @@ impl Device for Rp2040Watchdog {
         }
         let alias = (offset >> 12) & 3;
         let register_offset = offset & 0x0fff;
-        if register_offset == 0x08 {
-            return Err(DeviceError::new("RP2040 WATCHDOG REASON is read-only"));
-        }
-        let index = usize::try_from(register_offset / 4).expect("small watchdog offset fits");
-        let register = self.registers.get_mut(index).ok_or_else(|| {
-            DeviceError::new(format!(
-                "unmodeled RP2040 WATCHDOG write at offset {register_offset:#x}"
-            ))
-        })?;
+        let register = Self::register(register_offset)?;
+        let mut state = self.state.lock().expect("RP2040 watchdog lock poisoned");
+        state.advance(at);
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked watchdog value fits");
-        Rp2040Clocks::update(register, alias, value)
+        match register {
+            Rp2040WatchdogRegister::Ctrl => {
+                let mut config = state.ctrl & (WATCHDOG_CTRL_PAUSE_MASK | WATCHDOG_CTRL_ENABLE);
+                Rp2040WatchdogState::apply_alias(
+                    &mut config,
+                    alias,
+                    value & (WATCHDOG_CTRL_PAUSE_MASK | WATCHDOG_CTRL_ENABLE),
+                )?;
+                state.ctrl = config;
+                if value & WATCHDOG_CTRL_TRIGGER != 0 {
+                    state.reason |= WATCHDOG_REASON_FORCE;
+                    state.reset_pending = true;
+                }
+            }
+            Rp2040WatchdogRegister::Load => {
+                let mut load = state.load;
+                Rp2040WatchdogState::apply_alias(
+                    &mut load,
+                    alias,
+                    value & WATCHDOG_CTRL_TIME_MASK,
+                )?;
+                state.load = load & WATCHDOG_CTRL_TIME_MASK;
+                state.load_counter();
+            }
+            Rp2040WatchdogRegister::Reason => {
+                return Err(DeviceError::new("RP2040 WATCHDOG REASON is read-only"));
+            }
+            Rp2040WatchdogRegister::Scratch0
+            | Rp2040WatchdogRegister::Scratch1
+            | Rp2040WatchdogRegister::Scratch2
+            | Rp2040WatchdogRegister::Scratch3
+            | Rp2040WatchdogRegister::Scratch4
+            | Rp2040WatchdogRegister::Scratch5
+            | Rp2040WatchdogRegister::Scratch6
+            | Rp2040WatchdogRegister::Scratch7 => {
+                let index = usize::try_from((register_offset - 0x0c) / 4)
+                    .expect("watchdog scratch index fits");
+                Rp2040WatchdogState::apply_alias(&mut state.scratch[index], alias, value)?;
+            }
+            Rp2040WatchdogRegister::Tick => {
+                let mut tick = state.tick;
+                Rp2040WatchdogState::apply_alias(
+                    &mut tick,
+                    alias,
+                    value & (WATCHDOG_TICK_CYCLES_MASK | WATCHDOG_TICK_ENABLE),
+                )?;
+                state.tick = tick & (WATCHDOG_TICK_CYCLES_MASK | WATCHDOG_TICK_ENABLE);
+                state.tick_countdown = Rp2040WatchdogState::divider(state.tick);
+            }
+        }
+        Ok(())
     }
 
-    fn reset(&mut self, _kind: ResetKind) {
-        *self = Self::new(self.name.clone());
+    fn reset(&mut self, kind: ResetKind) {
+        self.state
+            .lock()
+            .expect("RP2040 watchdog lock poisoned")
+            .reset(kind);
     }
 }
 
