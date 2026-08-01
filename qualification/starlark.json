@@ -1,27 +1,27 @@
 {
-  "schema": "renvo.starlark-assertion.v1",
+  "schema": "remu.starlark-assertion.v1",
   "script": "qualification/portfolio.star",
   "script_sha256": "0e6c16ce2c786b153619c6ca9f23e6cbe148ec8f1d1e70bebd6fb2c488640b52",
   "datasets": [
     {
       "name": "riscv_cpu",
       "path": "qualification/riscv-cpu.json",
-      "sha256": "6459f837b4bff672c1c1fc2a5b388b0aa74ae35840cc2d7b81fe138702579552"
+      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
     },
     {
       "name": "arm_cpu",
       "path": "qualification/arm-cpu.json",
-      "sha256": "18e40e9ec97a421f0744d51937c5e3a051c100d31b77049f035747816803dffa"
+      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
     },
     {
       "name": "xtensa_cpu",
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "6ae69d22fadd0e278da0495db00ea3cbeb6943aa2284b35858bbab028ab078e2"
+      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
     },
     {
       "name": "reduction",
       "path": "qualification/reduction.json",
-      "sha256": "b805f0d5ccd354761f79230c7beffbfca5c95d46467fbc9b2f3509215aea1c1f"
+      "sha256": "7664050616ab60b6a53b1a1049233e85b29902ad7448a10921480d750bf0cfa6"
     }
   ],
   "value": true,

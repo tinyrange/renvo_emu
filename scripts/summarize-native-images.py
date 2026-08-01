@@ -72,7 +72,7 @@ def main() -> None:
             raise ValueError(f"{case_id}: probe did not report exit code zero")
         if direct_vcd.read_bytes() != native_vcd.read_bytes():
             raise ValueError(f"{case_id}: native and direct VCD output diverged")
-        if build.get("schema") != "renvo.build-artifact.v1":
+        if build.get("schema") != "remu.build-artifact.v1":
             raise ValueError(f"{build_path}: invalid build artifact")
         if build.get("exit_code") != 0 or build.get("timed_out"):
             raise ValueError(f"{build_path}: compilation failed")
@@ -112,7 +112,7 @@ def main() -> None:
         source_digest.update(str(path).encode("utf-8"))
         source_digest.update(path.read_bytes())
     output = {
-        "schema": "renvo.native-image-equivalence.v1",
+        "schema": "remu.native-image-equivalence.v1",
         "result": "pass",
         "source_sha256": source_digest.hexdigest(),
         "docker_compilation": True,

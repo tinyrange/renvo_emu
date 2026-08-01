@@ -20,12 +20,12 @@ scripts/nanoc6-hardware.sh test
 
 The optional `backup`, `build`, `flash`, and `capture` commands exercise the
 flash/serial path. `backup` reads all 4 MiB into
-`.renvo/nanoc6/factory-flash.bin` before a first flash. Flashing replaces only
+`.remu/nanoc6/factory-flash.bin` before a first flash. Flashing replaces only
 the ordinary bootloader, partition table, and application regions and is
 recoverable with that image or a new ESP-IDF application.
 
 Measured on an ESP32-C6FH4 revision 0.2 NanoC6 on 2026-07-31, all 40 cases
-matched both the manifest and Renvo's ESP32-C6 interpreter. The sample covers
+matched both the manifest and Renvo Emulator's ESP32-C6 interpreter. The sample covers
 one case from each corpus kernel; it validates RV32 compiler/CPU semantics, not
 the complete ESP32-C6 peripheral model or timing.
 

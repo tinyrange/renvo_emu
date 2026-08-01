@@ -1,0 +1,16 @@
+[package]
+name = "remu-signals"
+description = "Four-state digital ports, nets, and signal changes for Renvo Emulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+remu-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -4,11 +4,11 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 . scripts/lib/toolchain-images.sh
-expected_plan_sha=07811884d7c1f46ab87549e9ffc18966925237d437ac48723e396f7edb7e7940
+expected_plan_sha=5af63180eb1718ab631d2dc0482d19be9662ab09a635d223a56e754de9b09e21
 actual_plan_sha=$(sha256sum PLAN.html | cut -d ' ' -f 1)
 test "$actual_plan_sha" = "$expected_plan_sha"
 
-artifact_root=${RENVO_EXPANSION_ARTIFACT_ROOT:-.renvo/qualification/expansion}
+artifact_root=${REMU_EXPANSION_ARTIFACT_ROOT:-.remu/qualification/expansion}
 log_root="$artifact_root/logs"
 mkdir -p "$log_root"
 start=$(date +%s)
@@ -44,7 +44,7 @@ done
 (PIC16F15376_ARTIFACT_ROOT="$artifact_root/pic16f15376" scripts/qualify-pic16f15376.sh >"$log_root/pic16f15376.log" 2>&1) & p6=$!
 (EFM8BB52F32G_ARTIFACT_ROOT="$artifact_root/efm8bb52f32g" scripts/qualify-efm8bb52f32g.sh >"$log_root/efm8bb52f32g.log" 2>&1) & p7=$!
 (scripts/qualify-native-images.sh >"$log_root/native-images.log" 2>&1) & p8=$!
-(RENVO_BOARD_ARTIFACT_ROOT="$artifact_root/board-models" scripts/qualify-board-models.sh >"$log_root/board-models.log" 2>&1) & p9=$!
+(REMU_BOARD_ARTIFACT_ROOT="$artifact_root/board-models" scripts/qualify-board-models.sh >"$log_root/board-models.log" 2>&1) & p9=$!
 
 failed=0
 for job in "$p0" "$p1" "$p2" "$p3" "$p4" "$p5" "$p6" "$p7" "$p8" "$p9"

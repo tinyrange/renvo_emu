@@ -6,8 +6,8 @@ RUN rustup component add rust-src \
         thumbv6m-none-eabi \
         thumbv8m.main-none-eabi
 
-COPY preload /opt/renvo-rust-preload
-RUN cd /opt/renvo-rust-preload \
+COPY preload /opt/remu-rust-preload
+RUN cd /opt/remu-rust-preload \
     && RUSTC_BOOTSTRAP=1 cargo build --release \
         -Zbuild-std=core \
         --target riscv32e-unknown-none-elf \
@@ -16,7 +16,7 @@ RUN cd /opt/renvo-rust-preload \
     && cp target/riscv32e-unknown-none-elf/release/deps/lib*.rlib \
         "$sysroot/lib/rustlib/riscv32e-unknown-none-elf/lib/"
 
-LABEL org.opencontainers.image.title="Renvo freestanding Rust toolchain"
+LABEL org.opencontainers.image.title="Renvo Emulator freestanding Rust toolchain"
 LABEL org.opencontainers.image.source="toolchains/rust-baremetal/Dockerfile"
 
 WORKDIR /workspace/src

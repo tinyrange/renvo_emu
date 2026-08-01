@@ -1,8 +1,8 @@
 # Official firmware inputs
 
-`micropython-v1.28.0.toml` pins the exact upstream artifacts used by Renvo's
+`micropython-v1.28.0.toml` pins the exact upstream artifacts used by Renvo Emulator's
 four-board qualification baseline. The manifest is committed; downloaded
-firmware is content-addressed evidence under `.renvo/` and is intentionally not
+firmware is content-addressed evidence under `.remu/` and is intentionally not
 committed.
 
 Fetch through the pinned Docker boundary and verify all hashes:

@@ -1,6 +1,6 @@
 name = "clang-18-r7fa4m1ab3cfm-hard-float"
 image = "sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac"
-local_image = "renvo/cross-llvm:local"
+local_image = "remu/cross-llvm:local"
 program = "clang-18"
 args = [
     "--target=arm-none-eabi",

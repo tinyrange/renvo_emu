@@ -1,5 +1,5 @@
 /*
- * Renvo's bare-metal CoreMark port. The benchmark sources themselves remain
+ * Renvo Emulator's bare-metal CoreMark port. The benchmark sources themselves remain
  * byte-for-byte identical to the pinned EEMBC repository.
  */
 #ifndef CORE_PORTME_H
@@ -14,7 +14,7 @@
 #define HAS_PRINTF 0
 
 #define COMPILER_VERSION "GCC " __VERSION__
-#define COMPILER_FLAGS RENVO_COREMARK_FLAGS
+#define COMPILER_FLAGS REMU_COREMARK_FLAGS
 #define MEM_LOCATION "direct ELF: code in target executable memory, static data in target SRAM"
 
 typedef signed short ee_s16;

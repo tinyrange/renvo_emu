@@ -37,8 +37,8 @@ uses the corpus runner's read-only, capability-free, `--network=none` Docker
 boundary and records compiler command, image ID, inputs, outputs, and hashes.
 
 The command writes
-`.renvo/qualification/expansion/summary.json` using schema
-`renvo.expansion-qualification.v1`. The summary contains all seven exact part
+`.remu/qualification/expansion/summary.json` using schema
+`remu.expansion-qualification.v1`. The summary contains all seven exact part
 identities and their distinct CPU profile, image format, memory map, reset,
 interrupt routing, peripheral/VCD evidence, build provenance, vendor evidence,
 replay digest, and artifact hashes. The gate fails if repeat result JSON or VCD

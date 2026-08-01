@@ -1,5 +1,5 @@
 {
-  "schema": "renvo.register-coverage.v1",
+  "schema": "remu.register-coverage.v1",
   "target": "ch32v006",
   "cpu_profiles": [
     "QingKe RV32EC"
@@ -8,19 +8,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
   },
   "proofs": [
     {
       "id": "ch32v006",
-      "result": ".renvo/portfolio-smoke/ch32v006-run.json",
-      "bus_log": ".renvo/portfolio-smoke/ch32v006-bus.json",
-      "result_sha256": "f032a73ecdd4f7df96f643495dd0d4ffccc628b5508146cfac7bad988fad9602",
-      "bus_log_sha256": "4f51f71ae1fde9f0fbd17579a07698227c856747ec81a9b8825f74835a190916",
+      "result": ".remu/portfolio-smoke/ch32v006-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-bus.json",
+      "result_sha256": "caed8df76ddac3049a13cb7b252faa51ce48269fa099faca15fc0643c7e4a967",
+      "bus_log_sha256": "40741bd365656796fcc699489b0cc0af952503c92432e4dffaef1bf27f5222fc",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "7a7021e59077ddae6b62fc84f847696608b22ca24ffed08327d51ebcfd3fd055",
+        "trace_digest": "5a067e927260691b74e02cb73595c57e3e7316b4d6d6a2fc8037fc0db2dd46eb",
         "stats": {
           "instructions": 19,
           "time": 19,
@@ -30,31 +30,31 @@
     },
     {
       "id": "ch32v006-uart",
-      "result": ".renvo/portfolio-smoke/ch32v006-uart-run.json",
-      "bus_log": ".renvo/portfolio-smoke/ch32v006-uart-bus.json",
-      "result_sha256": "67d8007793c5432fd06811d9264976f5d84a4264200d1ca52ea6ba676ca00b04",
-      "bus_log_sha256": "3eb55b5808935852c42fe03d0a6f5a18a6fdac22cf2480d74fcee6dcd125ce1a",
+      "result": ".remu/portfolio-smoke/ch32v006-uart-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-uart-bus.json",
+      "result_sha256": "ea458205d4497185725353c2fd69f10f46e659d00664d4d1a78f5e719f402052",
+      "bus_log_sha256": "6bb0239073d7755868ccaa1d25744fc435715af09640c4a3d7ca77d732d1f778",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "13f23f61c400dbb938aa0547ca6436082b9ea3e8017fa13affd100f80def3ccb",
+        "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
         "stats": {
-          "instructions": 95,
-          "time": 95,
+          "instructions": 88,
+          "time": 88,
           "events": 0
         }
       }
     },
     {
       "id": "ch32v006-timer",
-      "result": ".renvo/portfolio-smoke/ch32v006-timer-run.json",
-      "bus_log": ".renvo/portfolio-smoke/ch32v006-timer-bus.json",
-      "result_sha256": "49b439d1c4b2e471f4f7f1e3297fd444a6b2c7b28e8163ea41454548ea3e8c21",
-      "bus_log_sha256": "08e7ab390f6c232dc81d237b98e8946f92b193abf127404cd19005dc5b63beeb",
+      "result": ".remu/portfolio-smoke/ch32v006-timer-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-timer-bus.json",
+      "result_sha256": "1471d7dbe1a81a1b0944c3348522454218362a366ca5df8539eac6439f7d655b",
+      "bus_log_sha256": "06595400a9d01145f902960e117f36c10337ca6a5011878ba0a62d8d84ef9fb9",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "13f23f61c400dbb938aa0547ca6436082b9ea3e8017fa13affd100f80def3ccb",
+        "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
         "stats": {
           "instructions": 41,
           "time": 41,
@@ -182,7 +182,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 10
+      "access_count": 9
     },
     {
       "region": "ch32v006.usart1",
@@ -193,7 +193,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 10
+      "access_count": 9
     },
     {
       "region": "ch32v006.usart1",

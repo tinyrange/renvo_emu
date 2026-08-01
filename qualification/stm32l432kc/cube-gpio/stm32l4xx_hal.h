@@ -1,5 +1,5 @@
-#ifndef RENVO_STM32L4XX_HAL_H
-#define RENVO_STM32L4XX_HAL_H
+#ifndef REMU_STM32L4XX_HAL_H
+#define REMU_STM32L4XX_HAL_H
 
 typedef unsigned int uint32_t;
 typedef unsigned char uint8_t;

@@ -1,12 +1,12 @@
 # Third-party inputs
 
-Renvo's tracked project code is licensed under `MIT OR Apache-2.0` unless a
+Renvo Emulator's tracked project code is licensed under `MIT OR Apache-2.0` unless a
 file says otherwise. The repository does not redistribute compiler images,
 official firmware binaries, or restricted vendor SDK source.
 
 Qualification scripts may fetch checksummed third-party inputs into the
-ignored `.renvo/` directory. Those inputs are separate works governed by their
-own licenses and are not relicensed by Renvo. The relevant source URL,
+ignored `.remu/` directory. Those inputs are separate works governed by their
+own licenses and are not relicensed by Renvo Emulator. The relevant source URL,
 revision, checksum, and license treatment are recorded in `evidence/targets.toml`,
 `firmware/`, the target qualification README, or `toolchains/README.md`.
 

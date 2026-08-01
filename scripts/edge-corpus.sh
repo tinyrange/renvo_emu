@@ -27,11 +27,11 @@ case "$optimization" in
     -Os) variant=os ;;
 esac
 
-cargo run -q -p renvo-casegen -- corpus/edge_cases
-cargo build -q -p renvo-cli
+cargo run -q -p remu-casegen -- corpus/edge_cases
+cargo build -q -p remu-cli
 
-renvo=target/debug/renvo
-artifact_root=".renvo/edge-$compiler-$variant"
+remu=target/debug/remu
+artifact_root=".remu/edge-$compiler-$variant"
 mkdir -p \
     "$artifact_root/wch" \
     "$artifact_root/rp" \
@@ -46,7 +46,7 @@ build_batch()
     toolchain=$2
     target=$3
     shift 3
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source corpus/edge_cases \
         --output "$artifact_root/$name" \
@@ -60,7 +60,7 @@ run_batch()
 {
     target=$1
     name=$2
-    "$renvo" corpus run \
+    "$remu" corpus run \
         --target "$target" \
         --input "$artifact_root/$name" \
         --manifest corpus/edge_cases/manifest.tsv \

@@ -5,12 +5,12 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$repo_root/scripts/lib/toolchain-images.sh"
 commit=1f483d5b8316753a742cbf5590caf5bd0a4e4777
 upstream=https://github.com/eembc/coremark.git
-source_root=${COREMARK_SOURCE:-"$repo_root/.renvo/reference/coremark-$commit"}
-artifact_root=${COREMARK_ARTIFACT_ROOT:-"$repo_root/.renvo/qualification/coremark"}
-renvo=${RENVO_BIN:-"$repo_root/target/release/renvo"}
+source_root=${COREMARK_SOURCE:-"$repo_root/.remu/reference/coremark-$commit"}
+artifact_root=${COREMARK_ARTIFACT_ROOT:-"$repo_root/.remu/qualification/coremark"}
+remu=${REMU_BIN:-"$repo_root/target/release/remu"}
 iterations=${COREMARK_ITERATIONS:-250}
-cross_image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 renvo/cross-gcc:local)
-xtensa_image=$(resolve_toolchain_image sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f renvo/xtensa-esp-gcc:local)
+cross_image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 remu/cross-gcc:local)
+xtensa_image=$(resolve_toolchain_image sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f remu/xtensa-esp-gcc:local)
 
 mkdir -p "$artifact_root"
 
@@ -55,9 +55,9 @@ do
     fi
 done
 
-if [ ! -x "$renvo" ]
+if [ ! -x "$remu" ]
 then
-    cargo build --release --package renvo-cli
+    cargo build --release --package remu-cli
 fi
 
 run_root=$(mktemp -d "$artifact_root/run-XXXXXX")
@@ -136,10 +136,10 @@ run_variant()
         "-DTOTAL_DATA_SIZE=$data_size"
     if [ -n "$stack" ]
     then
-        set -- "$@" "-DRENVO_STACK_TOP=$stack"
+        set -- "$@" "-DREMU_STACK_TOP=$stack"
     fi
     set -- "$@" \
-        "-DRENVO_COREMARK_FLAGS=\"$flags\"" \
+        "-DREMU_COREMARK_FLAGS=\"$flags\"" \
         "$start" \
         core_list_join.c core_main.c core_matrix.c core_state.c core_util.c \
         core_portme.c ee_printf.c \
@@ -147,7 +147,7 @@ run_variant()
         -o /workspace/out/coremark.elf
 
     echo "CoreMark: $mcu $cpu_mode $variant"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$repo_root/toolchains/$toolchain" \
         --source "$stage" \
         --output "$profile_root" \
@@ -156,7 +156,7 @@ run_variant()
         -- "$@"
 
     started_ns=$(date +%s%N)
-    "$renvo" run \
+    "$remu" run \
         --target "$target" \
         --elf "$profile_root/coremark.elf" \
         --max-instructions 1000000000 \
@@ -276,7 +276,7 @@ guard_stage="$run_root/stage-ch32v003-standard-guard"
 mkdir -p "$guard_root"
 stage_sources "$guard_stage" start_riscv.S link_wch003.ld
 set +e
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$repo_root/toolchains/riscv-gcc-rv32ec.toml" \
     --source "$guard_stage" \
     --output "$guard_root" \
@@ -285,8 +285,8 @@ set +e
     -- \
     -Os -ffunction-sections -fdata-sections \
     "-DITERATIONS=$iterations" -DPERFORMANCE_RUN=1 -DTOTAL_DATA_SIZE=2000 \
-    -DRENVO_STACK_TOP=0x20000800 \
-    '-DRENVO_COREMARK_FLAGS="-Os -march=rv32ec_zicsr -mabi=ilp32e"' \
+    -DREMU_STACK_TOP=0x20000800 \
+    '-DREMU_COREMARK_FLAGS="-Os -march=rv32ec_zicsr -mabi=ilp32e"' \
     start_riscv.S core_list_join.c core_main.c core_matrix.c core_state.c \
     core_util.c core_portme.c ee_printf.c \
     -Wl,--gc-sections -Wl,-T,link_wch003.ld -lgcc \
@@ -309,7 +309,7 @@ run_variant \
 
 host_model=$(lscpu | awk -F: '/^Model name:/{sub(/^[ \t]+/, "", $2); print $2}')
 host_kernel=$(uname -srmo)
-renvo_sha=$(sha256sum "$renvo" | cut -d ' ' -f 1)
+remu_sha=$(sha256sum "$remu" | cut -d ' ' -f 1)
 cross_image_id=$(docker image inspect --format '{{.Id}}' "$cross_image")
 xtensa_image_id=$(docker image inspect --format '{{.Id}}' "$xtensa_image")
 generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -320,7 +320,7 @@ jq -Rn \
     --arg generated_at "$generated_at" \
     --arg host_model "$host_model" \
     --arg host_kernel "$host_kernel" \
-    --arg renvo_sha256 "$renvo_sha" \
+    --arg remu_sha256 "$remu_sha" \
     --arg cross_image "$cross_image" \
     --arg cross_image_id "$cross_image_id" \
     --arg xtensa_image "$xtensa_image" \
@@ -356,7 +356,7 @@ jq -Rn \
             status: "passed"
         }
     ] as $runs | {
-        schema: "renvo.coremark-qualification.v1",
+        schema: "remu.coremark-qualification.v1",
         generated_at: $generated_at,
         source: {
             upstream: $upstream,
@@ -365,7 +365,7 @@ jq -Rn \
         },
         methodology: {
             compiler_execution: "pinned network-isolated Docker containers",
-            execution: "Renvo release interpreter on host",
+            execution: "Renvo Emulator release interpreter on host",
             score: "iterations divided by measured host wall-clock seconds",
             timing_disclaimer:
                 "host score measures emulator throughput, not MCU silicon performance",
@@ -375,7 +375,7 @@ jq -Rn \
             model: $host_model,
             kernel: $host_kernel
         },
-        renvo_sha256: $renvo_sha256,
+        remu_sha256: $remu_sha256,
         containers: [
             {reference: $cross_image, image_id: $cross_image_id},
             {reference: $xtensa_image, image_id: $xtensa_image_id}

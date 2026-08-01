@@ -35,7 +35,7 @@ than silently producing fewer than 1,000 structurally distinct cases.
 Do not edit generated case files by hand. Regenerate them with:
 
 ```sh
-cargo run -p renvo-casegen -- corpus/edge_cases
+cargo run -p remu-casegen -- corpus/edge_cases
 ```
 
 Firmware compilation is Docker-only. The batch recipes use immutable images,
@@ -61,8 +61,8 @@ combinations. ESP32-S3 remains on Espressif's Xtensa GCC because upstream Clang
 does not expose an Xtensa target. Both compiler families use GCC's target
 `libgcc` only for freestanding arithmetic helpers.
 
-Failures are collected in stable `renvo.corpus-suite.v1` JSON artifacts under
-`.renvo/`; successful cases are summarized rather than emitted individually.
+Failures are collected in stable `remu.corpus-suite.v1` JSON artifacts under
+`.remu/`; successful cases are summarized rather than emitted individually.
 
 [gcc-torture]: https://gcc.gnu.org/onlinedocs/gccint/Testsuites.html#index-gcc_002ec_002dtorture
 [llvm-tests]: https://llvm.org/docs/TestingGuide.html

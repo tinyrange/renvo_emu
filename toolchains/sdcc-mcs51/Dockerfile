@@ -53,7 +53,7 @@ COPY --from=build /opt/sdcc /opt/sdcc
 
 ENV PATH="/opt/sdcc/bin:${PATH}"
 
-LABEL org.opencontainers.image.title="Renvo source-built SDCC MCS-51 toolchain"
+LABEL org.opencontainers.image.title="Renvo Emulator source-built SDCC MCS-51 toolchain"
 LABEL org.opencontainers.image.source="toolchains/sdcc-mcs51/Dockerfile"
 LABEL org.opencontainers.image.sdcc="4.5.0"
 LABEL org.opencontainers.image.sdcc-source-sha256="d5030437fb436bb1d93a8dbdbfb46baaa60613318f4fb3f5871d72815d1eed80"

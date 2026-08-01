@@ -4,13 +4,13 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 
-renvo=${RENVO_BIN:-target/debug/renvo}
-portfolio=${RENVO_PORTFOLIO_ARTIFACTS:-.renvo/portfolio-smoke}
-root=.renvo/stop-conditions
+remu=${REMU_BIN:-target/debug/remu}
+portfolio=${REMU_PORTFOLIO_ARTIFACTS:-.remu/portfolio-smoke}
+root=.remu/stop-conditions
 artifact=qualification/stop-conditions.json
 mkdir -p "$root"
 
-test -x "$renvo"
+test -x "$remu"
 for elf in \
     "$portfolio/wch/smoke.elf" \
     "$portfolio/rp-arm/smoke.elf" \
@@ -25,9 +25,9 @@ done
 rv_elf=$portfolio/wch/smoke.elf
 arm_elf=$portfolio/rp-arm/smoke.elf
 xtensa_elf=$portfolio/esp32s3/smoke.elf
-rv_entry=$($renvo inspect "$rv_elf" | jq -r '.entry')
-arm_entry=$($renvo inspect "$arm_elf" | jq -r '.entry - (.entry % 2)')
-xtensa_entry=$($renvo inspect "$xtensa_elf" | jq -r '.entry')
+rv_entry=$($remu inspect "$rv_elf" | jq -r '.entry')
+arm_entry=$($remu inspect "$arm_elf" | jq -r '.entry - (.entry % 2)')
+xtensa_entry=$($remu inspect "$xtensa_elf" | jq -r '.entry')
 
 run()
 {
@@ -41,7 +41,7 @@ run()
         max_instructions=$2
         shift 2
     fi
-    "$renvo" run \
+    "$remu" run \
         --target "$target" \
         --elf "$elf" \
         --max-instructions "$max_instructions" \
@@ -113,20 +113,20 @@ source_sha=$(sha256sum \
     corpus/smoke/wch-gpio/fault.c \
     corpus/smoke/rp-sio/fault.c \
     corpus/smoke/xtensa/fault.c \
-    crates/renvo-core/src/run.rs \
-    crates/renvo-bus/src/lib.rs \
-    crates/renvo-signals/src/lib.rs \
-    crates/renvo-machines/src/lib.rs \
-    crates/renvo-machines/src/riscv.rs \
-    crates/renvo-machines/src/arm.rs \
-    crates/renvo-machines/src/xtensa.rs \
-    crates/renvo-cpu-arm/src/lib.rs \
-    crates/renvo-cpu-riscv/src/lib.rs \
-    crates/renvo-cpu-xtensa/src/lib.rs \
-    crates/renvo-cli/src/main.rs \
+    crates/remu-core/src/run.rs \
+    crates/remu-bus/src/lib.rs \
+    crates/remu-signals/src/lib.rs \
+    crates/remu-machines/src/lib.rs \
+    crates/remu-machines/src/riscv.rs \
+    crates/remu-machines/src/arm.rs \
+    crates/remu-machines/src/xtensa.rs \
+    crates/remu-cpu-arm/src/lib.rs \
+    crates/remu-cpu-riscv/src/lib.rs \
+    crates/remu-cpu-xtensa/src/lib.rs \
+    crates/remu-cli/src/main.rs \
     scripts/qualify-stop-conditions.sh | sha256sum | cut -d ' ' -f 1)
 jq -n \
-    --arg schema "renvo.stop-conditions.v1" \
+    --arg schema "remu.stop-conditions.v1" \
     --arg source_sha256 "$source_sha" \
     --slurpfile proofs "$proofs" \
     '{

@@ -1,5 +1,5 @@
 {
-  "schema": "renvo.register-coverage.v1",
+  "schema": "remu.register-coverage.v1",
   "target": "rp2040",
   "cpu_profiles": [
     "Cortex-M0+"
@@ -8,19 +8,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
   },
   "proofs": [
     {
       "id": "rp2040",
-      "result": ".renvo/portfolio-smoke/rp2040-run.json",
-      "bus_log": ".renvo/portfolio-smoke/rp2040-bus.json",
-      "result_sha256": "38157b343c7a27760218d34e941aad3724d1547cfc4ebc67f571fcb2e5fba855",
-      "bus_log_sha256": "ba11470265bf76f1933f5fa7bbd791315560192c64badcac84b3bb065dab6260",
+      "result": ".remu/portfolio-smoke/rp2040-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-bus.json",
+      "result_sha256": "55c75d891c5b494fb386a4dfcb1390326181f0cdb61e923c8e650444837d0132",
+      "bus_log_sha256": "bee40fe62032ac3922e950d18b4e0d5e4893545dc5e93cd6c2e6d34a49085e20",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "a9875e9ac8444e223a17c4d93726de25b76ef44fd2a27c62fd15467c32ed7351",
+        "trace_digest": "683fdc62f0ef19dc6353e2b81e4097d698a9d67a48b7ab886154e712c9093f8a",
         "stats": {
           "instructions": 11,
           "time": 11,
@@ -30,31 +30,31 @@
     },
     {
       "id": "rp2040-uart",
-      "result": ".renvo/portfolio-smoke/rp2040-uart-run.json",
-      "bus_log": ".renvo/portfolio-smoke/rp2040-uart-bus.json",
-      "result_sha256": "b6584e4dfb5b27fb204e7862401cc986d7ac6ab69b1adf4cf88af99a936d2707",
-      "bus_log_sha256": "be46ae27f1eefbe606c7608a36339847ff4c820477f232f77b48f1f218b1625e",
+      "result": ".remu/portfolio-smoke/rp2040-uart-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-uart-bus.json",
+      "result_sha256": "2db620ed721eb5ca1e2b94df5657cfe8770841417ee6e72125ad13797e6c09bd",
+      "bus_log_sha256": "444e30bdf60d42a7cb3676543cea16d3ef987a72affbc9207d5467a121bf8fbe",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+        "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
         "stats": {
-          "instructions": 84,
-          "time": 84,
+          "instructions": 76,
+          "time": 76,
           "events": 0
         }
       }
     },
     {
       "id": "rp2040-native-timer",
-      "result": ".renvo/portfolio-smoke/rp2040-native-timer-run.json",
-      "bus_log": ".renvo/portfolio-smoke/rp2040-native-timer-bus.json",
-      "result_sha256": "c839b1a4b3daa83fe7ff88830a691b81f465b839c38eddf48e890a470962a2dd",
-      "bus_log_sha256": "55048ef8256a1b2c43e811285776d329107ad168a8ffecb0effd0b2f6202f6c7",
+      "result": ".remu/portfolio-smoke/rp2040-native-timer-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-native-timer-bus.json",
+      "result_sha256": "13ae34fe579fd4ddc4b74437bc2e83a7dcb987c8cca85d8465c18052625ffe25",
+      "bus_log_sha256": "ef6b01b794093e945ac0d6487ed6b886e4d1be2b6c42bebc2ccfee799e628f0d",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+        "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
         "stats": {
           "instructions": 33,
           "time": 33,
@@ -64,14 +64,14 @@
     },
     {
       "id": "rp2040-pio",
-      "result": ".renvo/portfolio-smoke/rp2040-pio-run.json",
-      "bus_log": ".renvo/portfolio-smoke/rp2040-pio-bus.json",
-      "result_sha256": "845bcec000495c420aa262c4e6c77a1a38e47d2e2299991baa45714b12f89cdd",
-      "bus_log_sha256": "1977272054099e3fe53b9d2a74a31a6dae5f4e466edde4a0de286a9b916ead5c",
+      "result": ".remu/portfolio-smoke/rp2040-pio-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-pio-bus.json",
+      "result_sha256": "1019fd94ab37e2b4153528f2358becb5435a54bdd910559822021b533fa61e96",
+      "bus_log_sha256": "3441bd7397249e61e76f72770e2f6fa426153023aa1e19d93829ab2bb3b1941a",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "7a4baf526a9d0e57024854eb0595696273563eb59f8d84909846dbf039f63741",
+        "trace_digest": "17b51adb44f021f0a936aa206234410bf0c4204ce7716aa743f9f379bbc9b5b4",
         "stats": {
           "instructions": 127,
           "time": 127,
@@ -218,7 +218,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 9
+      "access_count": 8
     },
     {
       "region": "rp2040.uart0",
@@ -229,7 +229,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 9
+      "access_count": 8
     }
   ],
   "additional_evidence": [

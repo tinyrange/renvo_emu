@@ -10,7 +10,7 @@ RUN echo "4e090a6cbf1ff7769684d9a248c9b8bdbe4c0ada098adda54b4c67a91449afa7  /tmp
 
 ENV PATH="/opt/espressif/xtensa-esp-elf/bin:${PATH}"
 
-LABEL org.opencontainers.image.title="Renvo Espressif Xtensa GCC toolchain"
+LABEL org.opencontainers.image.title="Renvo Emulator Espressif Xtensa GCC toolchain"
 LABEL org.opencontainers.image.source="toolchains/xtensa-esp-gcc/Dockerfile"
 
 WORKDIR /workspace/src

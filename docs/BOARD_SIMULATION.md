@@ -1,6 +1,6 @@
 # Starlark board and device simulation
 
-Renvo can describe a physical board in one Starlark module and load it from
+Renvo Emulator can describe a physical board in one Starlark module and load it from
 many independent test scenarios. The Rust simulation kernel owns component
 behavior, deterministic time, signal resolution, protocol transactions, and
 VCD generation; Starlark only assembles topology and queues bounded actions.
@@ -39,11 +39,11 @@ extension point rather than the normal board API.
 Run a scenario and produce JSON plus VCD with:
 
 ```sh
-cargo run -p renvo-cli -- board \
+cargo run -p remu-cli -- board \
   --file qualification/m5stack-nanoc6-sgp30.star \
   --load-root . \
-  --artifact .renvo/board/result.json \
-  --vcd .renvo/board/signals.vcd
+  --artifact .remu/board/result.json \
+  --vcd .remu/board/signals.vcd
 ```
 
 `load()` labels are confined beneath `--load-root`; absolute paths, parent

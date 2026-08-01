@@ -22,19 +22,19 @@ ee_u32 default_num_contexts = 1;
 static CORETIMETYPE start_ticks;
 static CORETIMETYPE stop_ticks;
 
-static CORETIMETYPE renvo_ticks(void)
+static CORETIMETYPE remu_ticks(void)
 {
     return *(volatile ee_u32 *)0xffff0200u;
 }
 
 void start_time(void)
 {
-    start_ticks = renvo_ticks();
+    start_ticks = remu_ticks();
 }
 
 void stop_time(void)
 {
-    stop_ticks = renvo_ticks();
+    stop_ticks = remu_ticks();
 }
 
 CORE_TICKS get_time(void)
@@ -45,7 +45,7 @@ CORE_TICKS get_time(void)
 secs_ret time_in_secs(CORE_TICKS ticks)
 {
     /*
-     * One "second" in the emitted upstream report is one million Renvo
+     * One "second" in the emitted upstream report is one million Renvo Emulator
      * abstract instruction ticks. Documentation deliberately labels the
      * resulting metric as iterations/Mtick, not hardware CoreMark/s.
      */

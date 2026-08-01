@@ -32,7 +32,7 @@ RUN echo "4e090a6cbf1ff7769684d9a248c9b8bdbe4c0ada098adda54b4c67a91449afa7  /tmp
 
 ENV PATH="/opt/espressif/xtensa-esp-elf/bin:${PATH}"
 
-LABEL org.opencontainers.image.title="Renvo pinned MQuickJS cross-runtime toolchains"
+LABEL org.opencontainers.image.title="Renvo Emulator pinned MQuickJS cross-runtime toolchains"
 LABEL org.opencontainers.image.source="toolchains/mquickjs/Dockerfile"
 LABEL org.opencontainers.image.revision="${MQUICKJS_COMMIT}"
 

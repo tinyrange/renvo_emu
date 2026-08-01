@@ -1,6 +1,6 @@
 {
-  "schema": "renvo.arm-cpu.v1",
-  "source_sha256": "67e9cef6cb74d5d3a3c12c26f957c064cc44ceab409f3335285f13cb245f92e5",
+  "schema": "remu.arm-cpu.v1",
+  "source_sha256": "55695e65017948b534a8edd4921e8fe5478e6077bd97f37a58106d82603b1428",
   "primary_sources": [
     "https://developer.arm.com/documentation/100235/0003/",
     "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf",
@@ -27,12 +27,12 @@
     ]
   },
   "unit_tests": {
-    "artifact": ".renvo/portfolio-smoke/arm-cpu-unit-tests.txt",
+    "artifact": ".remu/portfolio-smoke/arm-cpu-unit-tests.txt",
     "sha256": "3d320be6fe6cfa4409caf1ca3ec8c5a6420653b8305c415b3c63dbe514cbfe86"
   },
   "cross_profile_computation": {
     "artifact": "qualification/rust-abi.json",
-    "sha256": "71e3f8457da8ab6a66c79c6f037d9cf4f34064114bb31ad9d048b93280031fd0",
+    "sha256": "a82fa38919cb76ec0aa4e21a7743f8960f1839f52c5ad757b33ebe932d2828b2",
     "assertion": "the same Rust ABI computation passes Cortex-M33 and Hazard3 at O0/O2/Os"
   },
   "proofs": [
@@ -41,12 +41,12 @@
       "target": "rp2040",
       "cpu": "cortex-m0plus",
       "feature": "systick-and-multibank-nvic",
-      "build_artifact": ".renvo/portfolio-smoke/rp2040-arm-exceptions-build.json",
-      "build_provenance_sha256": "88758b0b7f20481db0aa848038bb6589a5905b653a00148f42a9ccb09a8928f3",
-      "elf": ".renvo/portfolio-smoke/rp2040-arm-exceptions/smoke.elf",
+      "build_artifact": ".remu/portfolio-smoke/rp2040-arm-exceptions-build.json",
+      "build_provenance_sha256": "ddfe74b4ec25a999ac1f6c92507d02e1519f59099783f45114e267aad63a1b31",
+      "elf": ".remu/portfolio-smoke/rp2040-arm-exceptions/smoke.elf",
       "elf_sha256": "37a753381b5344c6056b6541134a7c2f637ec11b3cf6347a36424795b35bd17d",
-      "result_artifact": ".renvo/portfolio-smoke/rp2040-arm-exceptions-run.json",
-      "result_sha256": "935d1e3b6d0d28b8ae54f97badb162744be7440fc4d74dd97256c37ff07cf972",
+      "result_artifact": ".remu/portfolio-smoke/rp2040-arm-exceptions-run.json",
+      "result_sha256": "44f38dd304f23dc3ef5b32188fb2e903b787b391a80c03237d4192a93f976606",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -54,7 +54,7 @@
         "time": 41,
         "events": 0
       },
-      "trace_digest": "46dc176e56ff83e79f6209e74579b9ecb22d10cfcc2521e6004230fcdac0001c",
+      "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
       "result": "pass"
     },
     {
@@ -62,12 +62,12 @@
       "target": "rp2350",
       "cpu": "cortex-m33",
       "feature": "systick-and-multibank-nvic",
-      "build_artifact": ".renvo/portfolio-smoke/rp2350-arm-exceptions-build.json",
-      "build_provenance_sha256": "c1d5e1991f69acf6054d0ad7bf35498f80ae2d1820313cb9c69edec89ac341c1",
-      "elf": ".renvo/portfolio-smoke/rp2350-arm-exceptions/smoke.elf",
+      "build_artifact": ".remu/portfolio-smoke/rp2350-arm-exceptions-build.json",
+      "build_provenance_sha256": "a58b425045adaacd207eac984057be77505af43760eeecf15255d99e5bf538db",
+      "elf": ".remu/portfolio-smoke/rp2350-arm-exceptions/smoke.elf",
       "elf_sha256": "cf7d4b83bd42df01f3d6d0e96d4e8f597c5f91f0a057b07d199831fc41aa35ab",
-      "result_artifact": ".renvo/portfolio-smoke/rp2350-arm-exceptions-run.json",
-      "result_sha256": "b7aff0904e9f2a8d80102b0fb59b4991047d39eb91144e79b1f3dfb7f421b143",
+      "result_artifact": ".remu/portfolio-smoke/rp2350-arm-exceptions-run.json",
+      "result_sha256": "46139d6c760ef26936164b0501e4eb15dc02ff50a318e812d2999d43bc87c8d1",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -75,7 +75,7 @@
         "time": 41,
         "events": 0
       },
-      "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
       "result": "pass"
     },
     {
@@ -83,12 +83,12 @@
       "target": "rp2350",
       "cpu": "cortex-m33",
       "feature": "fpv5-sp-and-dsp",
-      "build_artifact": ".renvo/portfolio-smoke/rp2350-arm-hardfloat-build.json",
-      "build_provenance_sha256": "2ffc10ddea1afacd3cc555910e4c074bc25f9431bd5c5c354dd98588485aefb7",
-      "elf": ".renvo/portfolio-smoke/rp2350-arm-hardfloat/smoke.elf",
+      "build_artifact": ".remu/portfolio-smoke/rp2350-arm-hardfloat-build.json",
+      "build_provenance_sha256": "53ac4c2026aa1991012af329d3c216676320acffa4c386c032ea08cd5217f8b5",
+      "elf": ".remu/portfolio-smoke/rp2350-arm-hardfloat/smoke.elf",
       "elf_sha256": "8af49d5bea9b410905b17a283778c43222245911b0df8ee32b6ac634f32a93f5",
-      "result_artifact": ".renvo/portfolio-smoke/rp2350-arm-hardfloat-run.json",
-      "result_sha256": "77bf50b34901e16c1976f4a7e98240f6e0e68b96435b4cb5f429814dc0d66079",
+      "result_artifact": ".remu/portfolio-smoke/rp2350-arm-hardfloat-run.json",
+      "result_sha256": "ece4bcb2e45f76937c315503d4a44be51fe946649759b581c40a063633f62395",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -96,7 +96,7 @@
         "time": 31,
         "events": 0
       },
-      "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
       "result": "pass"
     }
   ],

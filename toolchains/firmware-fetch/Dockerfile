@@ -8,7 +8,7 @@ RUN apt-get update \
         curl=8.5.0-2ubuntu10.11 \
     && rm -rf /var/lib/apt/lists/*
 
-LABEL org.opencontainers.image.title="Renvo official firmware fetcher"
+LABEL org.opencontainers.image.title="Renvo Emulator official firmware fetcher"
 LABEL org.opencontainers.image.source="toolchains/firmware-fetch/Dockerfile"
 
 ENTRYPOINT ["/usr/bin/curl"]

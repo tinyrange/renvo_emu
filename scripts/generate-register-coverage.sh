@@ -4,13 +4,13 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 
-artifact_root=${1:-.renvo/portfolio-smoke}
+artifact_root=${1:-.remu/portfolio-smoke}
 output_root=${2:-qualification/register-coverage}
 spec=qualification/register-coverage-spec.json
 
 command -v jq >/dev/null
 command -v sha256sum >/dev/null
-jq -e '.schema == "renvo.register-coverage-spec.v1" and (.targets | length == 6)' "$spec" >/dev/null
+jq -e '.schema == "remu.register-coverage-spec.v1" and (.targets | length == 6)' "$spec" >/dev/null
 
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT HUP INT TERM
@@ -61,7 +61,7 @@ do
     jq -s '
         [ .[][]
           | select(.kind != "Execute")
-          | select(.region != "renvo.test.exit")
+          | select(.region != "remu.test.exit")
           | select(.region | test("(^|[.])(flash|ram|sram|dram|iram|rom|irom|xip)([.]|$)"; "i") | not)
         ]
         | sort_by(.region, .address, .kind, .width)
@@ -85,7 +85,7 @@ do
     done
 
     jq -n \
-        --arg schema "renvo.register-coverage.v1" \
+        --arg schema "remu.register-coverage.v1" \
         --arg target "$target" \
         --arg generated_by "scripts/generate-register-coverage.sh" \
         --arg source_spec "$spec" \

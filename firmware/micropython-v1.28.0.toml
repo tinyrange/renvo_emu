@@ -1,4 +1,4 @@
-schema = "renvo.official-firmware.v1"
+schema = "remu.official-firmware.v1"
 name = "micropython-v1.28.0-four-board-qualification"
 version = "v1.28.0"
 released = "2026-04-06"

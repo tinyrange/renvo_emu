@@ -21,7 +21,7 @@ RUN echo "b60851b61565e3ddd2193298a3fac5120c2402597174106cc5f8482b9e9986e6  /tmp
 
 ENV PATH="/opt/ti/msp430-gcc/bin:${PATH}"
 
-LABEL org.opencontainers.image.title="Renvo TI MSP430 GCC toolchain"
+LABEL org.opencontainers.image.title="Renvo Emulator TI MSP430 GCC toolchain"
 LABEL org.opencontainers.image.source="toolchains/msp430-gcc/Dockerfile"
 LABEL org.opencontainers.image.msp430-gcc="9.3.1.11"
 LABEL org.opencontainers.image.msp430-support="1.212"

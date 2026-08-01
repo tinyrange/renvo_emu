@@ -1,0 +1,19 @@
+[package]
+name = "remu-cpu-xtensa"
+description = "Interpreted Xtensa LX7 CPU for Renvo Emulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+remu-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+remu-bus.workspace = true
+
+[lints]
+workspace = true

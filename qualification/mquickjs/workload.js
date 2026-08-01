@@ -20,15 +20,15 @@ check(filtered.length === 24, "array-filter");
 var object = {alpha: 7, beta: 11, nested: {value: 19}};
 object.gamma = object.alpha * object.beta + object.nested.value;
 check(JSON.parse(JSON.stringify(object)).gamma === 96, "json-object");
-var text = "Renvo-1234-mquickjs";
-check(/^Renvo-[0-9]+-mquickjs$/.test(text), "regexp");
-check(text.replace(/[0-9]/g, "x") === "Renvo-xxxx-mquickjs", "replace");
+var text = "Renvo Emulator-1234-mquickjs";
+check(/^Renvo Emulator-[0-9]+-mquickjs$/.test(text), "regexp");
+check(text.replace(/[0-9]/g, "x") === "Renvo Emulator-xxxx-mquickjs", "replace");
 var bytes = new Uint8Array(64);
 var byte_values = [];
 for (i = 0; i < bytes.length; i++) { bytes[i] = (i * 29 + 7) & 255; byte_values.push(bytes[i]); }
 check(bytes[0] === 7 && bytes[63] === 42, "typed-array");
 var caught = false;
-try { throw new TypeError("renvo"); } catch (e) { caught = e.name === "TypeError"; }
+try { throw new TypeError("remu"); } catch (e) { caught = e.name === "TypeError"; }
 check(caught, "exceptions");
 var recursive = function f(n) { return n < 2 ? n : f(n - 1) + f(n - 2); };
 check(recursive(12) === 144, "recursion");

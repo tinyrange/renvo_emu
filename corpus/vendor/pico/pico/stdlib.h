@@ -1,5 +1,5 @@
-#ifndef RENVO_PICO_STDLIB_H
-#define RENVO_PICO_STDLIB_H
+#ifndef REMU_PICO_STDLIB_H
+#define REMU_PICO_STDLIB_H
 
 #include <stdbool.h>
 #include <stdint.h>

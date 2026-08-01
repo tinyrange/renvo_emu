@@ -1,6 +1,6 @@
 name = "sdcc-4.5.0-mcs51-efm8bb52"
 image = "sha256:ba8ecc7e43912412757079d7366e5f27b78a272dc08d61a244b79508139dbf75"
-local_image = "renvo/sdcc-mcs51:4.5.0"
+local_image = "remu/sdcc-mcs51:4.5.0"
 program = "sdcc"
 args = [
     "-mmcs51",

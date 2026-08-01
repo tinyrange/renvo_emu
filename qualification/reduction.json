@@ -1,6 +1,6 @@
 {
-  "schema": "renvo.reduction-qualification.v1",
-  "source_sha256": "f97f426be70f35a2641e6c78391b0a7a1ad3106c6b92ad12af08e7c00b28b00c",
+  "schema": "remu.reduction-qualification.v1",
+  "source_sha256": "315ab72835212a8d5d71cf366953c4f2daefa8bd5ccb751e09bd4c17434fc713",
   "axes": [
     "source",
     "compiler_flags",
@@ -11,18 +11,18 @@
     {
       "family": "riscv",
       "target": "ch32v003",
-      "artifact": ".renvo/qualification/reduction/riscv.json",
-      "artifact_sha256": "0ecec277f4e56828ba04699d7b09d7b284379025bdbd54492ad680268b2c3557",
+      "artifact": ".remu/qualification/reduction/riscv.json",
+      "artifact_sha256": "8bda441fc37b66373cc54b8ea38eae3efb207c7816c7a6765cacd4c0bcaa1ad8",
       "seeded_expected": 0,
       "original": {
         "source": [
-          "#define RENVO_NOISE_A 17",
-          "#define RENVO_SOURCE_TRIGGER 1",
-          "#define RENVO_NOISE_B 29"
+          "#define REMU_NOISE_A 17",
+          "#define REMU_SOURCE_TRIGGER 1",
+          "#define REMU_NOISE_B 29"
         ],
         "flags": [
           "-fno-common",
-          "-DRENVO_FLAG_TRIGGER=1",
+          "-DREMU_FLAG_TRIGGER=1",
           "-fno-strict-aliasing"
         ],
         "inputs": [
@@ -33,10 +33,10 @@
       },
       "minimized": {
         "source": [
-          "#define RENVO_SOURCE_TRIGGER 1"
+          "#define REMU_SOURCE_TRIGGER 1"
         ],
         "flags": [
-          "-DRENVO_FLAG_TRIGGER=1"
+          "-DREMU_FLAG_TRIGGER=1"
         ],
         "inputs": [
           7
@@ -53,18 +53,18 @@
     {
       "family": "arm",
       "target": "rp2040",
-      "artifact": ".renvo/qualification/reduction/arm.json",
-      "artifact_sha256": "6a697d058d23ce379470d3727996f878713cd88b1ec9d5a0b1d25c0f82179d5d",
+      "artifact": ".remu/qualification/reduction/arm.json",
+      "artifact_sha256": "bd95b85ea3cdb541de1aa7d2287808165d5d5e939d041e8972bcfd21bb2b010e",
       "seeded_expected": 0,
       "original": {
         "source": [
-          "#define RENVO_NOISE_A 17",
-          "#define RENVO_SOURCE_TRIGGER 1",
-          "#define RENVO_NOISE_B 29"
+          "#define REMU_NOISE_A 17",
+          "#define REMU_SOURCE_TRIGGER 1",
+          "#define REMU_NOISE_B 29"
         ],
         "flags": [
           "-fno-common",
-          "-DRENVO_FLAG_TRIGGER=1",
+          "-DREMU_FLAG_TRIGGER=1",
           "-fno-strict-aliasing"
         ],
         "inputs": [
@@ -75,10 +75,10 @@
       },
       "minimized": {
         "source": [
-          "#define RENVO_SOURCE_TRIGGER 1"
+          "#define REMU_SOURCE_TRIGGER 1"
         ],
         "flags": [
-          "-DRENVO_FLAG_TRIGGER=1"
+          "-DREMU_FLAG_TRIGGER=1"
         ],
         "inputs": [
           7
@@ -95,18 +95,18 @@
     {
       "family": "xtensa",
       "target": "esp32s3",
-      "artifact": ".renvo/qualification/reduction/xtensa.json",
-      "artifact_sha256": "aa405a181ad327285e805234d8ff3232667bddf2685879abc2ac198306135112",
+      "artifact": ".remu/qualification/reduction/xtensa.json",
+      "artifact_sha256": "d3193a4a0cbc4cdbe3b10bb5aa9fee2777414e9b23390d18d10c48e3ffc480bb",
       "seeded_expected": 0,
       "original": {
         "source": [
-          "#define RENVO_NOISE_A 17",
-          "#define RENVO_SOURCE_TRIGGER 1",
-          "#define RENVO_NOISE_B 29"
+          "#define REMU_NOISE_A 17",
+          "#define REMU_SOURCE_TRIGGER 1",
+          "#define REMU_NOISE_B 29"
         ],
         "flags": [
           "-fno-common",
-          "-DRENVO_FLAG_TRIGGER=1",
+          "-DREMU_FLAG_TRIGGER=1",
           "-fno-strict-aliasing"
         ],
         "inputs": [
@@ -117,10 +117,10 @@
       },
       "minimized": {
         "source": [
-          "#define RENVO_SOURCE_TRIGGER 1"
+          "#define REMU_SOURCE_TRIGGER 1"
         ],
         "flags": [
-          "-DRENVO_FLAG_TRIGGER=1"
+          "-DREMU_FLAG_TRIGGER=1"
         ],
         "inputs": [
           7

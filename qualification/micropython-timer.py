@@ -25,10 +25,10 @@ if len(events) < 4:
     raise AssertionError("periodic Timer callback count: {}".format(len(events)))
 if any(time.ticks_diff(right, left) <= 0 for left, right in zip(events, events[1:])):
     raise AssertionError("periodic Timer callback ordering")
-print("RENVO_TIMER_PERIODIC_OK", len(events))
+print("REMU_TIMER_PERIODIC_OK", len(events))
 
 
-# RENVO_CHUNK
+# REMU_CHUNK
 events = []
 timer.init(mode=Timer.ONE_SHOT, period=3, callback=timer_callback)
 
@@ -40,5 +40,5 @@ timer.deinit()
 
 if len(events) != 1:
     raise AssertionError("one-shot Timer callback count: {}".format(len(events)))
-print("RENVO_TIMER_ONE_SHOT_OK", len(events))
-print("RENVO_TIMER_OK")
+print("REMU_TIMER_ONE_SHOT_OK", len(events))
+print("REMU_TIMER_OK")

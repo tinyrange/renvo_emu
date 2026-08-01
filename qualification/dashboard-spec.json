@@ -1,5 +1,5 @@
 {
-  "schema": "renvo.dashboard-spec.v1",
+  "schema": "remu.dashboard-spec.v1",
   "targets": {
     "ch32v003": {
       "support_tier": "Baseline proven — functional MCU model",

@@ -1,0 +1,32 @@
+[package]
+name = "remu-cli"
+description = "Headless Renvo Emulator command-line interface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "remu"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+hex.workspace = true
+remu-bus.workspace = true
+remu-core.workspace = true
+remu-corpus.workspace = true
+remu-gdb.workspace = true
+remu-image.workspace = true
+remu-machines.workspace = true
+remu-signals.workspace = true
+remu-starlark = { path = "../remu-starlark" }
+remu-trace.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

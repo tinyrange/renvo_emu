@@ -4,12 +4,12 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 . scripts/lib/toolchain-images.sh
-artifact_root=${RENVO_NATIVE_ARTIFACT_ROOT:-.renvo/qualification/native-images}
-firmware_cache=${RENVO_FIRMWARE_CACHE:-.renvo/firmware/micropython-v1.28.0}
-cross_image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 renvo/cross-gcc:local)
-avr_image=$(resolve_toolchain_image sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c renvo/avr-gcc:local)
-msp_image=$(resolve_toolchain_image sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2 renvo/msp430-gcc:local)
-package_image=$(resolve_toolchain_image sha256:5aa633e02afc7f2657a5ddc76bdd1ba0f720545e8d6b8690eeca045c29496e09 renvo/nanoc6-esptool:5.3.0)
+artifact_root=${REMU_NATIVE_ARTIFACT_ROOT:-.remu/qualification/native-images}
+firmware_cache=${REMU_FIRMWARE_CACHE:-.remu/firmware/micropython-v1.28.0}
+cross_image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 remu/cross-gcc:local)
+avr_image=$(resolve_toolchain_image sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c remu/avr-gcc:local)
+msp_image=$(resolve_toolchain_image sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2 remu/msp430-gcc:local)
+package_image=$(resolve_toolchain_image sha256:5aa633e02afc7f2657a5ddc76bdd1ba0f720545e8d6b8690eeca045c29496e09 remu/nanoc6-esptool:5.3.0)
 
 for image in "$cross_image" "$avr_image" "$msp_image" "$package_image"
 do
@@ -18,8 +18,8 @@ done
 test -s "$firmware_cache/M5STACK_NANOC6-20260406-v1.28.0.bin"
 test -s "$firmware_cache/M5STACK_ATOMS3_LITE-20260406-v1.28.0.bin"
 
-cargo build -q -p renvo-cli
-renvo=target/debug/renvo
+cargo build -q -p remu-cli
+remu=target/debug/remu
 mkdir -p "$artifact_root/build" "$artifact_root/images" "$artifact_root/run" \
     "$artifact_root/rejections"
 
@@ -32,7 +32,7 @@ build_case()
     shift 4
     output="$artifact_root/build/$id"
     mkdir -p "$output"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source "$source" \
         --output "$output" \
@@ -188,10 +188,10 @@ run_pair()
     then
         native_cpu=--cpu=riscv
     fi
-    "$renvo" run --target "$target" "$direct_flag" "$direct_image" \
+    "$remu" run --target "$target" "$direct_flag" "$direct_image" \
         --max-instructions 200000 --vcd "$output/direct.vcd" \
         --result "$output/direct.json" "$@"
-    "$renvo" firmware boot --target "$target" --image "$native_image" \
+    "$remu" firmware boot --target "$target" --image "$native_image" \
         --max-instructions 200000 --vcd "$output/native.vcd" \
         --result "$output/native.json" $native_cpu "$@"
 }
@@ -240,13 +240,13 @@ expect_failure()
     fi
 }
 
-expect_failure wrong-rp-family "$renvo" firmware boot --target rp2350 \
+expect_failure wrong-rp-family "$remu" firmware boot --target rp2350 \
     --image "$artifact_root/images/rp2040.uf2" --max-instructions 1
-expect_failure wrong-esp-chip "$renvo" firmware boot --target esp32c6 \
+expect_failure wrong-esp-chip "$remu" firmware boot --target esp32c6 \
     --image "$artifact_root/images/esp32s3.bin" --max-instructions 1
-expect_failure raw-format-mismatch "$renvo" firmware boot --target ch32v003 \
+expect_failure raw-format-mismatch "$remu" firmware boot --target ch32v003 \
     --image "$artifact_root/build/wch/probe.bin" --format uf2 --max-instructions 1
-expect_failure wrong-hex-target "$renvo" firmware boot --target pic16f15376 \
+expect_failure wrong-hex-target "$remu" firmware boot --target pic16f15376 \
     --image "$artifact_root/build/efm8bb52f32g/probe.ihx" --max-instructions 1
 
 scripts/summarize-native-images.py \

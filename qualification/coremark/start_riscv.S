@@ -2,7 +2,7 @@
 .global _start
 .type _start, @function
 _start:
-    li sp, RENVO_STACK_TOP
+    li sp, REMU_STACK_TOP
     .option push
     .option norelax
     la gp, __global_pointer$

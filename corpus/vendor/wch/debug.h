@@ -1,5 +1,5 @@
-#ifndef RENVO_WCH_DEBUG_H
-#define RENVO_WCH_DEBUG_H
+#ifndef REMU_WCH_DEBUG_H
+#define REMU_WCH_DEBUG_H
 
 typedef unsigned char u8;
 typedef unsigned short u16;

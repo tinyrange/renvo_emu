@@ -1,5 +1,5 @@
 {
-  "schema": "renvo.register-coverage-spec.v1",
+  "schema": "remu.register-coverage-spec.v1",
   "targets": {
     "ch32v003": {
       "cpu_profiles": ["QingKe RV32EC"],

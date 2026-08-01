@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "renvo-rust-preload"
+name = "remu-rust-preload"
 version = "0.0.0"

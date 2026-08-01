@@ -2,9 +2,9 @@
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-source_dir=${RP2040_BOOTROM_SOURCE:-"$repo_root/.renvo/reference/pico-bootrom"}
-output_dir=${RP2040_BOOTROM_OUTPUT:-"$repo_root/.renvo/reference/pico-bootrom-build"}
-image=${RP2040_BOOTROM_IMAGE:-renvo/rp2040-bootrom:local}
+source_dir=${RP2040_BOOTROM_SOURCE:-"$repo_root/.remu/reference/pico-bootrom"}
+output_dir=${RP2040_BOOTROM_OUTPUT:-"$repo_root/.remu/reference/pico-bootrom-build"}
+image=${RP2040_BOOTROM_IMAGE:-remu/rp2040-bootrom:local}
 
 if [ ! -f "$source_dir/CMakeLists.txt" ]; then
     echo "RP2040 boot-ROM source is missing at $source_dir" >&2

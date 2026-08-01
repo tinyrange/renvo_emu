@@ -20,10 +20,10 @@ TARGETS = {
         "vendor_builds": ["harmony-port-build.json"],
         "vendor_runs": ["harmony-port-run/result.json"],
         "edges": {
-            "renvo.board.atsamd21e18.porta.pin7": ["1", "0"],
-            "renvo.board.atsamd21e18.tc3.irq": ["0", "1"],
-            "renvo.board.atsamd21e18.sercom0.tx_strobe": ["0", "1"],
-            "renvo.board.atsamd21e18.interrupt.request": ["0", "1"],
+            "remu.board.atsamd21e18.porta.pin7": ["1", "0"],
+            "remu.board.atsamd21e18.tc3.irq": ["0", "1"],
+            "remu.board.atsamd21e18.sercom0.tx_strobe": ["0", "1"],
+            "remu.board.atsamd21e18.interrupt.request": ["0", "1"],
         },
     },
     "stm32l432kc": {
@@ -42,10 +42,10 @@ TARGETS = {
         "vendor_builds": ["cube-gpio-build.json"],
         "vendor_runs": ["cube-gpio-run/result.json"],
         "edges": {
-            "renvo.board.stm32l432kc.gpioa.pin5": ["1", "0"],
-            "renvo.board.stm32l432kc.tim2.irq": ["0", "1"],
-            "renvo.board.stm32l432kc.usart2.tx_strobe": ["0", "1"],
-            "renvo.board.stm32l432kc.interrupt.request": ["0", "1"],
+            "remu.board.stm32l432kc.gpioa.pin5": ["1", "0"],
+            "remu.board.stm32l432kc.tim2.irq": ["0", "1"],
+            "remu.board.stm32l432kc.usart2.tx_strobe": ["0", "1"],
+            "remu.board.stm32l432kc.interrupt.request": ["0", "1"],
         },
     },
     "r7fa4m1ab3cfm": {
@@ -65,10 +65,10 @@ TARGETS = {
             "arduino-hardware-serial-run/result.json",
         ],
         "edges": {
-            "renvo.board.r7fa4m1ab3cfm.port1.pin11": ["1", "0"],
-            "renvo.board.r7fa4m1ab3cfm.gpt0.irq": ["0", "1"],
-            "renvo.board.r7fa4m1ab3cfm.sci9.tx_strobe": ["0", "1"],
-            "renvo.board.r7fa4m1ab3cfm.icu.request": ["0", "1"],
+            "remu.board.r7fa4m1ab3cfm.port1.pin11": ["1", "0"],
+            "remu.board.r7fa4m1ab3cfm.gpt0.irq": ["0", "1"],
+            "remu.board.r7fa4m1ab3cfm.sci9.tx_strobe": ["0", "1"],
+            "remu.board.r7fa4m1ab3cfm.icu.request": ["0", "1"],
         },
     },
     "atmega328pb": {
@@ -80,9 +80,9 @@ TARGETS = {
         "vendor_builds": ["avr-libc-build.json"],
         "vendor_runs": ["avr-libc-run/result.json"],
         "edges": {
-            "renvo.board.atmega328pb.portb.pin0": ["0", "1"],
-            "renvo.board.atmega328pb.timer0.overflow_irq": ["0", "1"],
-            "renvo.board.atmega328pb.interrupt.pcint0": ["0", "1"],
+            "remu.board.atmega328pb.portb.pin0": ["0", "1"],
+            "remu.board.atmega328pb.timer0.overflow_irq": ["0", "1"],
+            "remu.board.atmega328pb.interrupt.pcint0": ["0", "1"],
         },
     },
     "msp430fr2433": {
@@ -102,10 +102,10 @@ TARGETS = {
             "slac700-uart-run/result.json",
         ],
         "edges": {
-            "renvo.board.msp430fr2433.port1.pin0": ["0", "1"],
-            "renvo.board.msp430fr2433.timer_a0.ccr0_irq": ["0", "1"],
-            "renvo.board.msp430fr2433.uart0.tx_strobe": ["0", "1"],
-            "renvo.board.msp430fr2433.interrupt.port1": ["0", "1"],
+            "remu.board.msp430fr2433.port1.pin0": ["0", "1"],
+            "remu.board.msp430fr2433.timer_a0.ccr0_irq": ["0", "1"],
+            "remu.board.msp430fr2433.uart0.tx_strobe": ["0", "1"],
+            "remu.board.msp430fr2433.interrupt.port1": ["0", "1"],
         },
     },
     "pic16f15376": {
@@ -117,10 +117,10 @@ TARGETS = {
         "vendor_builds": ["register-timer0-build.json"],
         "vendor_runs": ["register-timer0-run/result.json"],
         "edges": {
-            "renvo.board.pic16f15376.porta.pin0": ["0", "1"],
-            "renvo.board.pic16f15376.timer0.irq": ["0", "1"],
-            "renvo.board.pic16f15376.eusart1.tx_strobe": ["0", "1"],
-            "renvo.board.pic16f15376.interrupt.request": ["0", "1"],
+            "remu.board.pic16f15376.porta.pin0": ["0", "1"],
+            "remu.board.pic16f15376.timer0.irq": ["0", "1"],
+            "remu.board.pic16f15376.eusart1.tx_strobe": ["0", "1"],
+            "remu.board.pic16f15376.interrupt.request": ["0", "1"],
         },
     },
     "efm8bb52f32g": {
@@ -138,10 +138,10 @@ TARGETS = {
         ],
         "vendor_runs": ["register-fixture-run/result.json"],
         "edges": {
-            "renvo.board.efm8bb52f32g.port0.pin0": ["0", "1"],
-            "renvo.board.efm8bb52f32g.timer0.irq": ["0", "1"],
-            "renvo.board.efm8bb52f32g.uart0.tx_strobe": ["0", "1"],
-            "renvo.board.efm8bb52f32g.interrupt.request": ["0", "1"],
+            "remu.board.efm8bb52f32g.port0.pin0": ["0", "1"],
+            "remu.board.efm8bb52f32g.timer0.irq": ["0", "1"],
+            "remu.board.efm8bb52f32g.uart0.tx_strobe": ["0", "1"],
+            "remu.board.efm8bb52f32g.interrupt.request": ["0", "1"],
         },
     },
 }
@@ -196,7 +196,7 @@ def contains_ordered_values(events: list[tuple[int, str]], expected: list[str]) 
 
 def validate_build(path: Path, target: str) -> dict:
     artifact = load_json(path)
-    if artifact.get("schema") != "renvo.build-artifact.v1":
+    if artifact.get("schema") != "remu.build-artifact.v1":
         raise ValueError(f"{path}: unexpected build schema")
     if artifact.get("target") != target:
         raise ValueError(f"{path}: target does not match {target}")
@@ -314,7 +314,7 @@ def main() -> None:
 
     native_images = load_json(args.native_images)
     if (
-        native_images.get("schema") != "renvo.native-image-equivalence.v1"
+        native_images.get("schema") != "remu.native-image-equivalence.v1"
         or native_images.get("result") != "pass"
         or native_images.get("case_count") != 14
         or native_images.get("physical_target_count") != 13
@@ -322,7 +322,7 @@ def main() -> None:
         raise ValueError("native-image equivalence evidence is incomplete")
 
     output = {
-        "schema": "renvo.expansion-qualification.v1",
+        "schema": "remu.expansion-qualification.v1",
         "result": "pass",
         "plan_sha256": sha256(args.plan),
         "elapsed_seconds": args.elapsed_seconds,

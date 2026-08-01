@@ -2,7 +2,7 @@
 
 int main(void)
 {
-    static const unsigned char message[] = "RENVO-ESP\n";
+    static const unsigned char message[] = "REMU-ESP\n";
     for (unsigned int index = 0; index < sizeof(message) - 1u; ++index) {
         UART_FIFO = message[index];
     }

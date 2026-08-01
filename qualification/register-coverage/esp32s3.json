@@ -1,5 +1,5 @@
 {
-  "schema": "renvo.register-coverage.v1",
+  "schema": "remu.register-coverage.v1",
   "target": "esp32s3",
   "cpu_profiles": [
     "Xtensa LX7"
@@ -8,19 +8,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
   },
   "proofs": [
     {
       "id": "esp32s3",
-      "result": ".renvo/portfolio-smoke/esp32s3-run.json",
-      "bus_log": ".renvo/portfolio-smoke/esp32s3-bus.json",
-      "result_sha256": "814b9b2e3f87b9ecc9659a62d6ffe45e74c43c0366186618529eaac12a09c5f5",
-      "bus_log_sha256": "de6479a3f5f092589ad1047f794d2502d540c0b512e13e3f75cbff3507fa712d",
+      "result": ".remu/portfolio-smoke/esp32s3-run.json",
+      "bus_log": ".remu/portfolio-smoke/esp32s3-bus.json",
+      "result_sha256": "16468c702352c8eeed0f172b4d3db30a0e51e96305c06ef09d22484dafca7586",
+      "bus_log_sha256": "7f4af2e245f705c25ea35bbeee3f6da59cd84f89c8cff30b2bd2a5c950f8eca2",
       "outcome": {
         "reason": "Halted",
         "exit_code": 12,
-        "trace_digest": "8f1061e072be91d2360e69f01701a0e815bda6d473400061851b632e71c677c4",
+        "trace_digest": "cf872020c2198b8dc7c592c33869197219214953dad039234766a980b653a4d8",
         "stats": {
           "instructions": 18,
           "time": 18,
@@ -30,17 +30,17 @@
     },
     {
       "id": "esp32s3-uart",
-      "result": ".renvo/portfolio-smoke/esp32s3-uart-run.json",
-      "bus_log": ".renvo/portfolio-smoke/esp32s3-uart-bus.json",
-      "result_sha256": "46424c88c8a56fe0482c1a1f199b1b89dd2ff2a05de4737491d5c37b36523237",
-      "bus_log_sha256": "3b1dea9cc660b191ed8ed001168f40eb21a43e10840358899ba2cd76a0baf409",
+      "result": ".remu/portfolio-smoke/esp32s3-uart-run.json",
+      "bus_log": ".remu/portfolio-smoke/esp32s3-uart-bus.json",
+      "result_sha256": "f5547a22b78f02ec5b68d2dc0c62f40814ac29ae9c414aa4b10abbf537483338",
+      "bus_log_sha256": "45b6299c8279d615705efa2a6156b24948a99e4b4323cbe7be77e1f3f5df831b",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "e69db210e9b641498449be369672ae53c085ea2208247ae25f14a33a6b9151d4",
+        "trace_digest": "3ca497c22c93a225244a272465c80983e699c7d9842e0450748191a1212b80c6",
         "stats": {
-          "instructions": 35,
-          "time": 35,
+          "instructions": 32,
+          "time": 32,
           "events": 0
         }
       }
@@ -83,7 +83,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 10
+      "access_count": 9
     }
   ],
   "additional_evidence": [

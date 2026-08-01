@@ -1,7 +1,7 @@
 {
-  "schema": "renvo.debug-observability-qualification.v1",
+  "schema": "remu.debug-observability-qualification.v1",
   "generated_by": "scripts/qualify-debug-observability.sh",
-  "source_sha256": "f1a7ade5e7e2cbaecfa1673e81b55ab0a0efbaa7acb0a2f04e7b8c6c87f10e20",
+  "source_sha256": "18fc8d4a9879ff5ef5179b13fe7f51af60c2116d5ac13fb9ad3580714df17161",
   "result": "pass",
   "families": [
     {
@@ -9,28 +9,28 @@
       "target": "ch32v003",
       "architecture": "riscv:rv32",
       "elf": {
-        "path": ".renvo/portfolio-smoke/wch/smoke.elf",
+        "path": ".remu/portfolio-smoke/wch/smoke.elf",
         "sha256": "3823d01cf0993cf31fbce4dc50d042b5a75de7177afc25a57c12195c5a6da6eb"
       },
       "replay": {
         "result": "pass",
         "byte_identical": true,
-        "path": ".renvo/qualification/debug-observability/riscv/run.json",
-        "sha256": "7fb4f415dfbab8114d43d04526e75eadeded1637684a22c1033f65168c21e59b"
+        "path": ".remu/qualification/debug-observability/riscv/run.json",
+        "sha256": "cd396d5e1eb01147c25e58a58e2d1c17eb7cee93da53b052cf7af1065ba833d0"
       },
       "coverage": {
-        "path": ".renvo/qualification/debug-observability/riscv/coverage.json",
-        "sha256": "20b7383c6aa54aa24bdc643a957dca4b2a941e3cb24f7d7f1e376f55d0113614",
+        "path": ".remu/qualification/debug-observability/riscv/coverage.json",
+        "sha256": "fd32b2c78cdbeeb4d86e0fe95ffb835848ae087c302f511a66d36bcdd18d94b3",
         "fetch_accesses": 29,
         "unique_addresses": 29,
         "digest": "f8a0a69fafc71dfefdca3f80c3cb849ad364c24bc6614a90d78e7949852a268f"
       },
       "gdb": {
         "result": "pass",
-        "session": ".renvo/qualification/debug-observability/riscv/gdb-session.json",
-        "session_sha256": "9cd3d458c8d4e5359ceba07dcf167be8944e92c4ab0cd7bb06038434331acf19",
-        "transcript": ".renvo/qualification/debug-observability/riscv/gdb-transcript.json",
-        "transcript_sha256": "a9e8bd09927038c61621289fb325c08ec6654a0ec12b1a20c2ebf1265da34ad8",
+        "session": ".remu/qualification/debug-observability/riscv/gdb-session.json",
+        "session_sha256": "7214097bb77dc4ee3a83f9568092167e165234e9f805cde4730e0cec3b141984",
+        "transcript": ".remu/qualification/debug-observability/riscv/gdb-transcript.json",
+        "transcript_sha256": "2c100e79a167eaa329627e0a755218f23a93f74323dbaba4d8385448183e0834",
         "report": {
           "architecture": "RiscV32",
           "packets": 11,
@@ -49,28 +49,28 @@
       "target": "rp2040",
       "architecture": "arm",
       "elf": {
-        "path": ".renvo/portfolio-smoke/rp-arm/smoke.elf",
+        "path": ".remu/portfolio-smoke/rp-arm/smoke.elf",
         "sha256": "4dbfc518fd17b32b65a699688f6ddb9f7e01211ab47bd930d9d12e7174c1e393"
       },
       "replay": {
         "result": "pass",
         "byte_identical": true,
-        "path": ".renvo/qualification/debug-observability/arm/run.json",
-        "sha256": "38157b343c7a27760218d34e941aad3724d1547cfc4ebc67f571fcb2e5fba855"
+        "path": ".remu/qualification/debug-observability/arm/run.json",
+        "sha256": "55c75d891c5b494fb386a4dfcb1390326181f0cdb61e923c8e650444837d0132"
       },
       "coverage": {
-        "path": ".renvo/qualification/debug-observability/arm/coverage.json",
-        "sha256": "1451584779af909aae3d100ee51add1754c4c0f29d557035194e015728eeb6fc",
+        "path": ".remu/qualification/debug-observability/arm/coverage.json",
+        "sha256": "ed328ab0734d4bb5009543119665b742fd1de3f0355639d3200b68e5a65def10",
         "fetch_accesses": 12,
         "unique_addresses": 12,
         "digest": "57eae2fa64b7a0152e6543189ee58e0cf656292043d6f760d5907669317672a6"
       },
       "gdb": {
         "result": "pass",
-        "session": ".renvo/qualification/debug-observability/arm/gdb-session.json",
-        "session_sha256": "407a1d1866fed885d229a5f5cd0ad775318e3782c91334104ca19e3927a6cae9",
-        "transcript": ".renvo/qualification/debug-observability/arm/gdb-transcript.json",
-        "transcript_sha256": "20c123ecd28d35e9dbb3df71d9e2be160d938e8d660cf4731cc157d649b874d7",
+        "session": ".remu/qualification/debug-observability/arm/gdb-session.json",
+        "session_sha256": "c7f87a122fb695640a3841593447edee09fdc7c6af581eb23ad29b3690bcf1bb",
+        "transcript": ".remu/qualification/debug-observability/arm/gdb-transcript.json",
+        "transcript_sha256": "ad84810c18a243e722f6fa3f948aa55e799e0aa39c6508a82a9a12037db25d98",
         "report": {
           "architecture": "Arm",
           "packets": 11,
@@ -89,28 +89,28 @@
       "target": "esp32s3",
       "architecture": "xtensa",
       "elf": {
-        "path": ".renvo/portfolio-smoke/esp32s3/smoke.elf",
+        "path": ".remu/portfolio-smoke/esp32s3/smoke.elf",
         "sha256": "adbaa77f372875d049d0bfc70bb25cbe0f6b2ea193c485d778033756404d98a7"
       },
       "replay": {
         "result": "pass",
         "byte_identical": true,
-        "path": ".renvo/qualification/debug-observability/xtensa/run.json",
-        "sha256": "814b9b2e3f87b9ecc9659a62d6ffe45e74c43c0366186618529eaac12a09c5f5"
+        "path": ".remu/qualification/debug-observability/xtensa/run.json",
+        "sha256": "16468c702352c8eeed0f172b4d3db30a0e51e96305c06ef09d22484dafca7586"
       },
       "coverage": {
-        "path": ".renvo/qualification/debug-observability/xtensa/coverage.json",
-        "sha256": "8fcfc3fee58e77e4f3fa4a3b150e39d62009b3391cbc9159d693fd319278f064",
+        "path": ".remu/qualification/debug-observability/xtensa/coverage.json",
+        "sha256": "7c7da492b8d76c4a816f3c1d8929bae25ead6494bac312433c94f94843fed424",
         "fetch_accesses": 46,
         "unique_addresses": 28,
         "digest": "01ee14a22d59d05ecdbdf1b3598dcd4ce3ab35e1aa09f2a327a3e953fce1bb58"
       },
       "gdb": {
         "result": "pass",
-        "session": ".renvo/qualification/debug-observability/xtensa/gdb-session.json",
-        "session_sha256": "25bf8d2c03393e0d7b8ad0e4cb3eb1235610bc265e9c9ddfcd4d3765cbc262d2",
-        "transcript": ".renvo/qualification/debug-observability/xtensa/gdb-transcript.json",
-        "transcript_sha256": "60fbc2fccd1bf8903340d62bd6b1d1f7eb9a5885dcc97fc0428c8d144c22ee2a",
+        "session": ".remu/qualification/debug-observability/xtensa/gdb-session.json",
+        "session_sha256": "517520b69224e09f11599fb3551c456a14c6e56d0c86092fe6f334fb630e7abe",
+        "transcript": ".remu/qualification/debug-observability/xtensa/gdb-transcript.json",
+        "transcript_sha256": "b5ba24602621b24aa72f12cf34b53f53dc84c4b6e0998929a096d0ad3eb07b62",
         "report": {
           "architecture": "Xtensa",
           "packets": 11,

@@ -25,7 +25,7 @@ RUN echo "${RPI_RISCV_TOOLCHAIN_SHA256}  /tmp/riscv-toolchain.tar.gz" | sha256su
     && tar -xzf /tmp/riscv-toolchain.tar.gz -C /opt/riscv \
     && rm /tmp/riscv-toolchain.tar.gz
 
-LABEL org.opencontainers.image.title="Renvo MicroPython RP2 reference builder"
+LABEL org.opencontainers.image.title="Renvo Emulator MicroPython RP2 reference builder"
 LABEL org.opencontainers.image.source="toolchains/micropython-rp2/Dockerfile"
 
 WORKDIR /source

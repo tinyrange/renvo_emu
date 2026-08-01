@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright 2026 Renvo contributors
+// Copyright 2026 Renvo Emulator contributors
 
 #include <SI_EFM8BB52_Register_Enums.h>
 #include <InitDevice.h>
 
 /*
- * Project-authored setup for the original Renvo register fixtures. The short
+ * Project-authored setup for the original Renvo Emulator register fixtures. The short
  * Timer2 reload keeps the functional-time qualification bounded.
  */
 void enter_DefaultMode_from_RESET(void)

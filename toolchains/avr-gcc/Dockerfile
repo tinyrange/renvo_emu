@@ -16,7 +16,7 @@ RUN echo "9be3dea84cf018c52d5a7499d57f8b246d410d701f9703f028250d1d18db8123  /tmp
     && unzip -q /tmp/atmega.atpack -d /opt/microchip/atmega-dfp \
     && rm /tmp/atmega.atpack
 
-LABEL org.opencontainers.image.title="Renvo ATmega328PB AVR GNU toolchain"
+LABEL org.opencontainers.image.title="Renvo Emulator ATmega328PB AVR GNU toolchain"
 LABEL org.opencontainers.image.source="toolchains/avr-gcc/Dockerfile"
 LABEL org.opencontainers.image.atmega-dfp="3.6.299"
 

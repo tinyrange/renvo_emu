@@ -5,16 +5,16 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 . scripts/lib/toolchain-images.sh
 
-root=${1:-.renvo/portfolio-smoke}
+root=${1:-.remu/portfolio-smoke}
 output=${2:-qualification/xtensa-cpu.json}
-image=$(resolve_toolchain_image sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f renvo/xtensa-esp-gcc:local)
+image=$(resolve_toolchain_image sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f remu/xtensa-esp-gcc:local)
 proofs=$root/xtensa-cpu-proofs.jsonl
 unit_log=$root/xtensa-cpu-unit-tests.txt
 mkdir -p "$(dirname -- "$output")"
 : > "$proofs"
 
-cargo test -q -p renvo-cpu-xtensa > "$unit_log"
-cargo test -q -p renvo-machines direct_load_starts_with_appcpu_reset_and_parked >> "$unit_log"
+cargo test -q -p remu-cpu-xtensa > "$unit_log"
+cargo test -q -p remu-machines direct_load_starts_with_appcpu_reset_and_parked >> "$unit_log"
 
 add_proof()
 {
@@ -108,8 +108,8 @@ add_proof os
 
 image_id=$(docker image inspect --format '{{.Id}}' "$image")
 source_sha=$(sha256sum \
-    crates/renvo-cpu-xtensa/src/lib.rs \
-    crates/renvo-machines/src/xtensa.rs \
+    crates/remu-cpu-xtensa/src/lib.rs \
+    crates/remu-machines/src/xtensa.rs \
     corpus/smoke/xtensa-qualification/exception.S \
     corpus/smoke/xtensa-qualification/link.ld \
     corpus/smoke/xtensa-qualification/main.c \
@@ -118,7 +118,7 @@ source_sha=$(sha256sum \
 unit_sha=$(sha256sum "$unit_log" | cut -d ' ' -f 1)
 
 jq -n \
-    --arg schema renvo.xtensa-cpu.v1 \
+    --arg schema remu.xtensa-cpu.v1 \
     --arg source_sha256 "$source_sha" \
     --arg unit_test_artifact "$unit_log" \
     --arg unit_test_sha256 "$unit_sha" \

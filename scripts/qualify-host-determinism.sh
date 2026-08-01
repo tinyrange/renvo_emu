@@ -6,11 +6,11 @@ cd "$repo_root"
 
 image=rust@sha256:5c6f46a6e4472ab1ca7ba7d494e6677f2f219ebc02f32025d3986f057635ec9c
 toolchain=1.97.1
-expected=6fdc01d7e6734b3a6674686e707a8ebdcffe0a2880c422af0fc4594a555784df
+expected=9eb80d6b526e771fd81cb2c94b6afc20921547ed82f1289cd531f76b0ec039e0
 artifact=qualification/host-determinism.json
-if test -n "${RENVO_CARGO_REGISTRY:-}"
+if test -n "${REMU_CARGO_REGISTRY:-}"
 then
-    registry=$RENVO_CARGO_REGISTRY
+    registry=$REMU_CARGO_REGISTRY
 else
     user_dir=$(getent passwd "$(id -u)" | cut -d: -f6)
     registry=$user_dir/.cargo/registry
@@ -19,7 +19,7 @@ fi
 command -v docker >/dev/null
 command -v jq >/dev/null
 test -d "$registry"
-mkdir -p .renvo/host-determinism/amd64-target .renvo/host-determinism/arm64-target
+mkdir -p .remu/host-determinism/amd64-target .remu/host-determinism/arm64-target
 
 run_platform()
 {
@@ -42,7 +42,7 @@ run_platform()
         -e CARGO_TARGET_DIR=/workspace-target \
         -e RUSTUP_TOOLCHAIN="$toolchain" \
         "$image" \
-        cargo test -p renvo-trace \
+        cargo test -p remu-trace \
             fake_multicore_timer_digest_survives_repeats_and_insertion_stress \
             --locked -- --nocapture 2>&1) || {
         printf '%s\n' "$output" >&2
@@ -52,7 +52,7 @@ run_platform()
         fi
         return 1
     }
-    digest=$(printf '%s\n' "$output" | sed -n 's/.*RENVO_HOST_DIGEST //p' | tail -n 1)
+    digest=$(printf '%s\n' "$output" | sed -n 's/.*REMU_HOST_DIGEST //p' | tail -n 1)
     test "$digest" = "$expected"
     rust_host=$(docker run --rm \
         --platform "$platform" \
@@ -70,17 +70,17 @@ run_platform()
         '{platform: $platform, architecture: $architecture, rust_host: $rust_host, digest: $digest, result: "pass"}'
 }
 
-amd64=$(run_platform linux/amd64 amd64 "$repo_root/.renvo/host-determinism/amd64-target")
-arm64=$(run_platform linux/arm64 arm64 "$repo_root/.renvo/host-determinism/arm64-target")
+amd64=$(run_platform linux/amd64 amd64 "$repo_root/.remu/host-determinism/amd64-target")
+arm64=$(run_platform linux/arm64 arm64 "$repo_root/.remu/host-determinism/arm64-target")
 test "$(printf '%s\n%s\n' "$amd64" "$arm64" | jq -s 'map(.digest) | unique | length')" -eq 1
 
 source_sha=$(sha256sum \
     Cargo.lock \
-    crates/renvo-core/src/event.rs \
-    crates/renvo-trace/src/lib.rs | sha256sum | cut -d ' ' -f 1)
+    crates/remu-core/src/event.rs \
+    crates/remu-trace/src/lib.rs | sha256sum | cut -d ' ' -f 1)
 mkdir -p "$(dirname -- "$artifact")"
 jq -n \
-    --arg schema "renvo.host-determinism.v1" \
+    --arg schema "remu.host-determinism.v1" \
     --arg image "$image" \
     --arg toolchain "$toolchain" \
     --arg digest "$expected" \

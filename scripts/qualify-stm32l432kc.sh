@@ -5,16 +5,16 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 . scripts/lib/toolchain-images.sh
 
-image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 renvo/cross-gcc:local)
-clang_image=$(resolve_toolchain_image sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac renvo/cross-llvm:local)
-artifact_root=${STM32L432_ARTIFACT_ROOT:-.renvo/qualification/stm32l432kc}
+image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 remu/cross-gcc:local)
+clang_image=$(resolve_toolchain_image sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac remu/cross-llvm:local)
+artifact_root=${STM32L432_ARTIFACT_ROOT:-.remu/qualification/stm32l432kc}
 toolchain=toolchains/arm-gcc-stm32l432kc.toml
 clang_toolchain=toolchains/arm-clang-stm32l432kc.toml
 
 docker image inspect "$image" >/dev/null
 docker image inspect "$clang_image" >/dev/null
-cargo build -q -p renvo-cli
-renvo=target/debug/renvo
+cargo build -q -p remu-cli
+remu=target/debug/remu
 mkdir -p "$artifact_root"
 
 qualify_abi()
@@ -23,7 +23,7 @@ qualify_abi()
     optimization=$2
     shift 2
     mkdir -p "$artifact_root/$abi-build" "$artifact_root/$abi-run"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source corpus/smoke/stm32l432kc \
         --output "$artifact_root/$abi-build" \
@@ -31,7 +31,7 @@ qualify_abi()
         --artifact "$artifact_root/$abi-build.json" \
         -- "$optimization" "$@" start.S main.c -Wl,-T,link.ld,-Map,/workspace/out/smoke.map -lgcc \
         -o /workspace/out/smoke.elf
-    "$renvo" run \
+    "$remu" run \
         --target stm32l432kc \
         --elf "$artifact_root/$abi-build/smoke.elf" \
         --max-instructions 10000 \
@@ -53,7 +53,7 @@ qualify_abi soft -O2 -mfloat-abi=soft
 qualify_abi softfp -O2 -mfpu=fpv4-sp-d16 -mfloat-abi=softfp
 qualify_abi hard -O2 -mfpu=fpv4-sp-d16 -mfloat-abi=hard
 mkdir -p "$artifact_root/hard-repeat"
-"$renvo" run \
+"$remu" run \
     --target stm32l432kc \
     --elf "$artifact_root/hard-build/smoke.elf" \
     --max-instructions 10000 \
@@ -73,7 +73,7 @@ grep -q 'vmul\.f32' "$artifact_root/hard-build/smoke.disassembly"
 grep -q 'vcvt\.s32\.f32' "$artifact_root/hard-build/smoke.disassembly"
 
 mkdir -p "$artifact_root/clang-build" "$artifact_root/clang-run"
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$clang_toolchain" \
     --source corpus/smoke/stm32l432kc \
     --output "$artifact_root/clang-build" \
@@ -81,7 +81,7 @@ mkdir -p "$artifact_root/clang-build" "$artifact_root/clang-run"
     --artifact "$artifact_root/clang-build.json" \
     -- -O2 start.S main.c -Wl,-T,link.ld,-Map,/workspace/out/smoke.map \
     -lgcc -o /workspace/out/smoke.elf
-"$renvo" run \
+"$remu" run \
     --target stm32l432kc \
     --elf "$artifact_root/clang-build/smoke.elf" \
     --max-instructions 30000 \
@@ -91,10 +91,10 @@ mkdir -p "$artifact_root/clang-build" "$artifact_root/clang-run"
 jq -e '.target == "stm32l432kc" and .reason == "Halted" and .exit_code == 0 and (.uart == [83,84,77,51,50,76,52,51,50,10])' \
     "$artifact_root/clang-run/result.json" >/dev/null
 
-upstream_root="$repo_root/.renvo/upstream/STM32CubeL4"
+upstream_root="$repo_root/.remu/upstream/STM32CubeL4"
 upstream_revision=a6fd67088a77dc546a00cef2aa67ac540abf9c9f
 if [ ! -d "$upstream_root/.git" ]; then
-    mkdir -p "$repo_root/.renvo/upstream"
+    mkdir -p "$repo_root/.remu/upstream"
     git clone --filter=blob:none --no-checkout \
         https://github.com/STMicroelectronics/STM32CubeL4.git "$upstream_root"
 fi
@@ -113,7 +113,7 @@ cp qualification/stm32l432kc/cube-gpio/link.ld "$cube_stage/link.ld"
 cp "$upstream_root/Projects/NUCLEO-L432KC/Examples/GPIO/GPIO_IOToggle/Src/main.c" \
     "$cube_stage/main.c"
 
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source "$cube_stage" \
     --output "$artifact_root/cube-gpio-build" \
@@ -122,7 +122,7 @@ cp "$upstream_root/Projects/NUCLEO-L432KC/Examples/GPIO/GPIO_IOToggle/Src/main.c
     -- -O2 -I. -mfpu=fpv4-sp-d16 -mfloat-abi=hard start.S main.c adapter.c \
     -Wl,-T,link.ld,-Map,/workspace/out/cube-gpio.map -o /workspace/out/cube-gpio.elf
 
-"$renvo" run \
+"$remu" run \
     --target stm32l432kc \
     --elf "$artifact_root/cube-gpio-build/cube-gpio.elf" \
     --max-instructions 10000 \

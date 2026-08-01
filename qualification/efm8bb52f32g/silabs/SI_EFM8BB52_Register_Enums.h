@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright 2026 Renvo contributors
+// Copyright 2026 Renvo Emulator contributors
 
-#ifndef RENVO_SI_EFM8BB52_REGISTER_ENUMS_H
-#define RENVO_SI_EFM8BB52_REGISTER_ENUMS_H
+#ifndef REMU_SI_EFM8BB52_REGISTER_ENUMS_H
+#define REMU_SI_EFM8BB52_REGISTER_ENUMS_H
 
 #include <stdint.h>
 
-/* SDCC declarations for the original Renvo EFM8BB52 register fixtures. */
+/* SDCC declarations for the original Renvo Emulator EFM8BB52 register fixtures. */
 #define SI_SBIT(name, address, bit) __sbit __at ((address) + (bit)) name
 #define SI_INTERRUPT(name, vector) void name(void) __interrupt (vector)
 

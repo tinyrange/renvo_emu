@@ -5,9 +5,9 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 
 image=sha256:114a9f8cde8bdc5a7e95809745b492663f7c5afe9c2821a4127ff133754fafd2
-loader_image=renvo/nanoc6-esptool:5.3.0
-device=${RENVO_NANOC6_PORT:-/dev/ttyACM0}
-artifact_dir=.renvo/nanoc6
+loader_image=remu/nanoc6-esptool:5.3.0
+device=${REMU_NANOC6_PORT:-/dev/ttyACM0}
+artifact_dir=.remu/nanoc6
 build_dir=/artifacts/build
 ram_build_dir=/artifacts/ram-build
 
@@ -50,14 +50,14 @@ case ${1:-test} in
             --mount "type=bind,src=$project_dir/$artifact_dir,dst=/artifacts" \
             "$loader_image" \
             --chip esp32c6 --port "$device" --no-stub \
-                load-ram /artifacts/ram-build/renvo_nanoc6_oracle.bin
+                load-ram /artifacts/ram-build/remu_nanoc6_oracle.bin
         ;;
     jtag-run)
-        ram_elf="$artifact_dir/ram-build/renvo_nanoc6_oracle.elf"
+        ram_elf="$artifact_dir/ram-build/remu_nanoc6_oracle.elf"
         results_addr=$(nm -n "$ram_elf" |
-            awk '$3 == "renvo_hw_results" { print "0x" $1 }')
+            awk '$3 == "remu_hw_results" { print "0x" $1 }')
         ready_addr=$(nm -n "$ram_elf" |
-            awk '$3 == "renvo_hw_ready" { print "0x" $1 }')
+            awk '$3 == "remu_hw_ready" { print "0x" $1 }')
 
         docker run --rm --privileged --network=none \
             "$image" \
@@ -87,7 +87,7 @@ case ${1:-test} in
             }
             {
                 sub(/^[[:space:]]+/, "")
-                printf "RENVO_HW case_%s %s\n", ids[NR], $1
+                printf "REMU_HW case_%s %s\n", ids[NR], $1
             }' | tee "$artifact_dir/capture.txt"
         ;;
     backup)

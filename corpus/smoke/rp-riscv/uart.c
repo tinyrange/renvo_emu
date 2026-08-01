@@ -3,7 +3,7 @@
 
 int main(void)
 {
-    static const unsigned char message[] = "RENVO-RP\n";
+    static const unsigned char message[] = "REMU-RP\n";
     for (unsigned int index = 0; index < sizeof(message) - 1u; ++index) {
         while ((UART_FR & (1u << 5)) != 0u) {
         }

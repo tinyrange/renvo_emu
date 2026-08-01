@@ -1,0 +1,17 @@
+[package]
+name = "remu-gdb"
+description = "GDB Remote Serial Protocol adapter for Renvo Emulator machines"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hex.workspace = true
+remu-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

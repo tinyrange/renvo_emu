@@ -4,8 +4,8 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 
-renvo=${RENVO_BIN:-target/debug/renvo}
-root=.renvo/qualification/debug-observability
+remu=${REMU_BIN:-target/debug/remu}
+root=.remu/qualification/debug-observability
 artifact=qualification/debug-observability.json
 rm -rf "$root"
 mkdir -p "$root"
@@ -31,15 +31,15 @@ qualify()
     repeat_coverage="$case_root/coverage-repeat.json"
     mkdir -p "$case_root"
 
-    "$renvo" run --target "$target" --elf "$elf" --max-instructions 10000 \
+    "$remu" run --target "$target" --elf "$elf" --max-instructions 10000 \
         --result "$baseline" --coverage "$coverage"
-    "$renvo" run --target "$target" --elf "$elf" --max-instructions 10000 \
+    "$remu" run --target "$target" --elf "$elf" --max-instructions 10000 \
         --replay "$baseline" --result "$repeat" --coverage "$repeat_coverage"
     cmp "$baseline" "$repeat"
     cmp "$coverage" "$repeat_coverage"
-    jq -e '.schema == "renvo.execution-coverage.v1" and .fetch_accesses > 0 and .unique_addresses > 0 and (.digest | length == 64)' "$coverage" >/dev/null
+    jq -e '.schema == "remu.execution-coverage.v1" and .fetch_accesses > 0 and .unique_addresses > 0 and (.digest | length == 64)' "$coverage" >/dev/null
 
-    "$renvo" gdb --target "$target" --elf "$elf" --listen 127.0.0.1:0 \
+    "$remu" gdb --target "$target" --elf "$elf" --listen 127.0.0.1:0 \
         --ready "$ready" --artifact "$session" >"$case_root/gdb.log" 2>&1 &
     server_pid=$!
     attempts=0
@@ -60,12 +60,12 @@ qualify()
         exit 1
     fi
     address=$(jq -r '.address' "$ready")
-    entry=$("$renvo" inspect "$elf" | jq -r '.entry')
+    entry=$("$remu" inspect "$elf" | jq -r '.entry')
     python3 qualification/gdb_client.py "$address" "$entry" "$architecture" "$transcript"
     wait "$server_pid"
 
-    jq -e '.schema == "renvo.gdb-session.v1" and .result == "pass" and .report.detached == true and .report.packets >= 11 and .report.register_reads >= 2 and .report.memory_reads >= 1 and .report.breakpoint_operations >= 2 and .report.steps >= 1 and .report.continues >= 1' "$session" >/dev/null
-    jq -e '.schema == "renvo.gdb-client-transcript.v1" and .result == "pass" and (.packets | length) >= 11' "$transcript" >/dev/null
+    jq -e '.schema == "remu.gdb-session.v1" and .result == "pass" and .report.detached == true and .report.packets >= 11 and .report.register_reads >= 2 and .report.memory_reads >= 1 and .report.breakpoint_operations >= 2 and .report.steps >= 1 and .report.continues >= 1' "$session" >/dev/null
+    jq -e '.schema == "remu.gdb-client-transcript.v1" and .result == "pass" and (.packets | length) >= 11' "$transcript" >/dev/null
 
     jq -n \
         --arg family "$family" \
@@ -95,21 +95,21 @@ qualify()
             report: $session_data[0].report}}' >"$case_root/summary.json"
 }
 
-qualify riscv ch32v003 .renvo/portfolio-smoke/wch/smoke.elf riscv:rv32
-qualify arm rp2040 .renvo/portfolio-smoke/rp-arm/smoke.elf arm
-qualify xtensa esp32s3 .renvo/portfolio-smoke/esp32s3/smoke.elf xtensa
+qualify riscv ch32v003 .remu/portfolio-smoke/wch/smoke.elf riscv:rv32
+qualify arm rp2040 .remu/portfolio-smoke/rp-arm/smoke.elf arm
+qualify xtensa esp32s3 .remu/portfolio-smoke/esp32s3/smoke.elf xtensa
 
 source_sha=$(sha256sum \
-    crates/renvo-gdb/src/lib.rs \
-    crates/renvo-cli/src/main.rs \
-    crates/renvo-machines/src/riscv.rs \
-    crates/renvo-machines/src/arm.rs \
-    crates/renvo-machines/src/xtensa.rs \
+    crates/remu-gdb/src/lib.rs \
+    crates/remu-cli/src/main.rs \
+    crates/remu-machines/src/riscv.rs \
+    crates/remu-machines/src/arm.rs \
+    crates/remu-machines/src/xtensa.rs \
     qualification/gdb_client.py \
     scripts/qualify-debug-observability.sh | sha256sum | cut -d ' ' -f 1)
 
 jq -s \
-    --arg schema renvo.debug-observability-qualification.v1 \
+    --arg schema remu.debug-observability-qualification.v1 \
     --arg generated_by scripts/qualify-debug-observability.sh \
     --arg source_sha256 "$source_sha" \
     '{schema: $schema, generated_by: $generated_by, source_sha256: $source_sha256,

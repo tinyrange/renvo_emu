@@ -5,19 +5,19 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 . scripts/lib/toolchain-images.sh
 
-image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 renvo/cross-gcc:local)
-clang_image=$(resolve_toolchain_image sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac renvo/cross-llvm:local)
-artifact_root=${RA4M1_ARTIFACT_ROOT:-.renvo/qualification/r7fa4m1ab3cfm}
+image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 remu/cross-gcc:local)
+clang_image=$(resolve_toolchain_image sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac remu/cross-llvm:local)
+artifact_root=${RA4M1_ARTIFACT_ROOT:-.remu/qualification/r7fa4m1ab3cfm}
 toolchain=toolchains/arm-gcc-r7fa4m1ab3cfm.toml
 clang_toolchain=toolchains/arm-clang-r7fa4m1ab3cfm.toml
 
 docker image inspect "$image" >/dev/null
 docker image inspect "$clang_image" >/dev/null
-cargo build -q -p renvo-cli
-renvo=target/debug/renvo
+cargo build -q -p remu-cli
+remu=target/debug/remu
 mkdir -p "$artifact_root/build" "$artifact_root/run-a" "$artifact_root/run-b"
 
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source corpus/smoke/r7fa4m1ab3cfm \
     --output "$artifact_root/build" \
@@ -37,7 +37,7 @@ docker run --rm --network=none --pull=never --read-only \
 run_once()
 {
     output=$1
-    "$renvo" run \
+    "$remu" run \
         --target r7fa4m1ab3cfm \
         --elf "$artifact_root/build/smoke.elf" \
         --max-instructions 20000 \
@@ -65,7 +65,7 @@ test -s "$artifact_root/build/smoke.hex"
 
 for optimization in O0 Os; do
     mkdir -p "$artifact_root/build-$optimization" "$artifact_root/run-$optimization"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source corpus/smoke/r7fa4m1ab3cfm \
         --output "$artifact_root/build-$optimization" \
@@ -73,7 +73,7 @@ for optimization in O0 Os; do
         --artifact "$artifact_root/build-$optimization.json" \
         -- "-$optimization" -mfpu=fpv4-sp-d16 -mfloat-abi=hard start.S main.c \
         -Wl,-T,link.ld,-Map,/workspace/out/smoke.map -o /workspace/out/smoke.elf
-    "$renvo" run \
+    "$remu" run \
         --target r7fa4m1ab3cfm \
         --elf "$artifact_root/build-$optimization/smoke.elf" \
         --max-instructions 30000 \
@@ -85,7 +85,7 @@ for optimization in O0 Os; do
 done
 
 mkdir -p "$artifact_root/clang-build" "$artifact_root/clang-run"
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$clang_toolchain" \
     --source corpus/smoke/r7fa4m1ab3cfm \
     --output "$artifact_root/clang-build" \
@@ -93,7 +93,7 @@ mkdir -p "$artifact_root/clang-build" "$artifact_root/clang-run"
     --artifact "$artifact_root/clang-build.json" \
     -- -O2 start.S main.c -Wl,-T,link.ld,-Map,/workspace/out/smoke.map \
     -lgcc -o /workspace/out/smoke.elf
-"$renvo" run \
+"$remu" run \
     --target r7fa4m1ab3cfm \
     --elf "$artifact_root/clang-build/smoke.elf" \
     --max-instructions 30000 \
@@ -107,10 +107,10 @@ fsp_revision=a409855a274402f69360a725656944e17929d1d9
 fsp_examples_revision=01a411dfc2e9808f489070c780a554a5bead6714
 arduino_core_revision=424e86eff92d37f72123c2b641dd8bbf06a38b47
 arduino_examples_revision=ad14bc44cb95555e5df7c16e6605559cad860d29
-test "$(git -C .renvo/upstream/fsp rev-parse HEAD)" = "$fsp_revision"
-test "$(git -C .renvo/upstream/ra-fsp-examples rev-parse HEAD)" = "$fsp_examples_revision"
-test "$(git -C .renvo/upstream/ArduinoCore-renesas rev-parse HEAD)" = "$arduino_core_revision"
-test "$(git -C .renvo/upstream/arduino-examples rev-parse HEAD)" = "$arduino_examples_revision"
+test "$(git -C .remu/upstream/fsp rev-parse HEAD)" = "$fsp_revision"
+test "$(git -C .remu/upstream/ra-fsp-examples rev-parse HEAD)" = "$fsp_examples_revision"
+test "$(git -C .remu/upstream/ArduinoCore-renesas rev-parse HEAD)" = "$arduino_core_revision"
+test "$(git -C .remu/upstream/arduino-examples rev-parse HEAD)" = "$arduino_examples_revision"
 
 fsp_stage="$artifact_root/fsp-source"
 mkdir -p "$fsp_stage" "$artifact_root/fsp-build" "$artifact_root/fsp-run"
@@ -122,12 +122,12 @@ cp qualification/r7fa4m1ab3cfm/fsp/adapter.c "$fsp_stage/adapter.c"
 cp qualification/r7fa4m1ab3cfm/fsp/harness.c "$fsp_stage/harness.c"
 cp qualification/r7fa4m1ab3cfm/fsp/start.S "$fsp_stage/start.S"
 cp qualification/r7fa4m1ab3cfm/fsp/link.ld "$fsp_stage/link.ld"
-cp .renvo/upstream/ra-fsp-examples/example_projects/ek_ra4m1/gpt/gpt_ek_ra4m1_ep/e2studio/src/gpt_timer.c \
+cp .remu/upstream/ra-fsp-examples/example_projects/ek_ra4m1/gpt/gpt_ek_ra4m1_ep/e2studio/src/gpt_timer.c \
     "$fsp_stage/gpt_timer.c"
-cp .renvo/upstream/ra-fsp-examples/example_projects/ek_ra4m1/sci_uart/sci_uart_ek_ra4m1_ep/e2studio/src/uart_ep.c \
+cp .remu/upstream/ra-fsp-examples/example_projects/ek_ra4m1/sci_uart/sci_uart_ek_ra4m1_ep/e2studio/src/uart_ep.c \
     "$fsp_stage/uart_ep.c"
 
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source "$fsp_stage" \
     --output "$artifact_root/fsp-build" \
@@ -136,7 +136,7 @@ cp .renvo/upstream/ra-fsp-examples/example_projects/ek_ra4m1/sci_uart/sci_uart_e
     -- -O2 -I. -ffunction-sections -fdata-sections start.S gpt_timer.c uart_ep.c \
     adapter.c harness.c -Wl,-T,link.ld,--gc-sections,-Map,/workspace/out/fsp.map \
     -o /workspace/out/fsp.elf
-"$renvo" run \
+"$remu" run \
     --target r7fa4m1ab3cfm \
     --elf "$artifact_root/fsp-build/fsp.elf" \
     --max-instructions 20000 \
@@ -160,7 +160,7 @@ qualify_arduino()
     cp qualification/r7fa4m1ab3cfm/arduino/start.S "$source_dir/start.S"
     cp qualification/r7fa4m1ab3cfm/arduino/link.ld "$source_dir/link.ld"
     cp "$sketch" "$source_dir/sketch.cpp"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source "$source_dir" \
         --output "$build_dir" \
@@ -173,8 +173,8 @@ qualify_arduino()
 }
 
 qualify_arduino blink \
-    .renvo/upstream/arduino-examples/examples/01.Basics/Blink/Blink.ino
-"$renvo" run \
+    .remu/upstream/arduino-examples/examples/01.Basics/Blink/Blink.ino
+"$remu" run \
     --target r7fa4m1ab3cfm \
     --elf "$artifact_root/arduino-blink-build/sketch.elf" \
     --max-instructions 10000 \
@@ -185,8 +185,8 @@ jq -e '.target == "r7fa4m1ab3cfm" and (.reason.Signal == "board.r7fa4m1ab3cfm.po
     "$artifact_root/arduino-blink-run/result.json" >/dev/null
 
 qualify_arduino hardware-serial \
-    .renvo/upstream/arduino-examples/examples/04.Communication/MultiSerial/MultiSerial.ino
-"$renvo" run \
+    .remu/upstream/arduino-examples/examples/04.Communication/MultiSerial/MultiSerial.ino
+"$remu" run \
     --target r7fa4m1ab3cfm \
     --elf "$artifact_root/arduino-hardware-serial-build/sketch.elf" \
     --max-instructions 10000 \

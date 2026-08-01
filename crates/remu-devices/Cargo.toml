@@ -1,0 +1,18 @@
+[package]
+name = "remu-devices"
+description = "Reusable functional microcontroller peripherals for Renvo Emulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+remu-bus.workspace = true
+remu-core.workspace = true
+remu-signals.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

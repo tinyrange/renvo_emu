@@ -4,15 +4,15 @@
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
-#[cfg(renvo_wch)]
+#[cfg(remu_wch)]
 global_asm!(include_str!("../start-wch.S"));
-#[cfg(renvo_esp32c6)]
+#[cfg(remu_esp32c6)]
 global_asm!(include_str!("../start-esp32c6.S"));
-#[cfg(renvo_rp2040)]
+#[cfg(remu_rp2040)]
 global_asm!(include_str!("../start-arm.S"));
-#[cfg(renvo_rp2350_arm)]
+#[cfg(remu_rp2350_arm)]
 global_asm!(include_str!("../start-arm.S"));
-#[cfg(renvo_rp2350_riscv)]
+#[cfg(remu_rp2350_riscv)]
 global_asm!(include_str!("../start-rp2350-riscv.S"));
 
 #[derive(Clone, Copy)]

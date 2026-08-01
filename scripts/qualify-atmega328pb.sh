@@ -5,19 +5,19 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 . scripts/lib/toolchain-images.sh
 
-image=$(resolve_toolchain_image sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c renvo/avr-gcc:local)
-artifact_root=${ATMEGA328PB_ARTIFACT_ROOT:-.renvo/qualification/atmega328pb}
+image=$(resolve_toolchain_image sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c remu/avr-gcc:local)
+artifact_root=${ATMEGA328PB_ARTIFACT_ROOT:-.remu/qualification/atmega328pb}
 toolchain=toolchains/avr-gcc-atmega328pb.toml
 
 docker image inspect "$image" >/dev/null
-cargo build -q -p renvo-cli
-renvo=target/debug/renvo
+cargo build -q -p remu-cli
+remu=target/debug/remu
 mkdir -p "$artifact_root" "$artifact_root/run-a" "$artifact_root/run-b"
 
 for optimization in O0 Os O2; do
     build="$artifact_root/build-$optimization"
     mkdir -p "$build"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source corpus/smoke/atmega328pb \
         --output "$build" \
@@ -30,7 +30,7 @@ done
 
 for optimization in O0 Os; do
     mkdir -p "$artifact_root/run-$optimization"
-    "$renvo" run \
+    "$remu" run \
         --target atmega328pb \
         --elf "$artifact_root/build-$optimization/smoke.elf" \
         --max-instructions 150000 \
@@ -51,7 +51,7 @@ docker run --rm --network=none \
 run_once()
 {
     output=$1
-    "$renvo" run \
+    "$remu" run \
         --target atmega328pb \
         --elf "$artifact_root/build-O2/smoke.elf" \
         --max-instructions 100000 \
@@ -76,10 +76,10 @@ grep -q 'timer0' "$artifact_root/run-a/signals.vcd"
 grep -q 'usart0' "$artifact_root/run-a/signals.vcd"
 grep -q 'pcint0' "$artifact_root/run-a/signals.vcd"
 
-upstream_root="$repo_root/.renvo/upstream/avr-libc"
+upstream_root="$repo_root/.remu/upstream/avr-libc"
 upstream_revision=3b40a25de8948396d0055565b791d80fbd02cab7
 if [ ! -d "$upstream_root/.git" ]; then
-    mkdir -p "$repo_root/.renvo/upstream"
+    mkdir -p "$repo_root/.remu/upstream"
     git clone --filter=blob:none https://github.com/avrdudes/avr-libc.git "$upstream_root"
 fi
 git -C "$upstream_root" checkout --detach "$upstream_revision" >/dev/null
@@ -94,7 +94,7 @@ cp "$upstream_root/doc/examples/stdiodemo/uart.c" "$official_source/uart.c"
 cp "$upstream_root/doc/examples/stdiodemo/uart.h" "$official_source/uart.h"
 cp "$upstream_root/doc/examples/stdiodemo/defines.h" "$official_source/defines.h"
 
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source "$official_source" \
     --output "$official_build" \
@@ -103,7 +103,7 @@ cp "$upstream_root/doc/examples/stdiodemo/defines.h" "$official_source/defines.h
     -- -Os -I. adapter.c uart.c -Wl,-Map,/workspace/out/official.map \
     -o /workspace/out/official.elf
 
-"$renvo" run \
+"$remu" run \
     --target atmega328pb \
     --elf "$official_build/official.elf" \
     --max-instructions 100000 \

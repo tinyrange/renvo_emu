@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture one complete Renvo result frame from an ESP USB serial console."""
+"""Capture one complete Renvo Emulator result frame from an ESP USB serial console."""
 
 from __future__ import annotations
 
@@ -31,14 +31,14 @@ def main() -> int:
             if not raw:
                 continue
             line = raw.decode("utf-8", errors="replace").strip()
-            if line.startswith("RENVO_HW_BEGIN "):
+            if line.startswith("REMU_HW_BEGIN "):
                 in_frame = True
             if in_frame:
                 print(line, flush=True)
-            if in_frame and line.startswith("RENVO_HW_END "):
+            if in_frame and line.startswith("REMU_HW_END "):
                 return 0
 
-    print("timed out waiting for a complete RENVO_HW frame", file=sys.stderr)
+    print("timed out waiting for a complete REMU_HW frame", file=sys.stderr)
     return 1
 
 

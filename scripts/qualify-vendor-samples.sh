@@ -4,8 +4,8 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 
-renvo=${RENVO_BIN:-target/debug/renvo}
-root=.renvo/qualification/vendor-samples
+remu=${REMU_BIN:-target/debug/remu}
+root=.remu/qualification/vendor-samples
 artifact=qualification/vendor-samples.json
 rm -rf "$root"
 mkdir -p "$root"
@@ -45,7 +45,7 @@ build()
     shift 4
     output="$root/$name/out"
     mkdir -p "$output"
-    "$renvo" corpus build --toolchain "$toolchain" --source "$source" \
+    "$remu" corpus build --toolchain "$toolchain" --source "$source" \
         --output "$output" --target "$target" \
         --artifact "$root/$name/build.json" -- "$@" -o /workspace/out/sample.elf
 }
@@ -56,7 +56,7 @@ run()
     target=$2
     elf=$3
     mkdir -p "$root/$name"
-    "$renvo" run --target "$target" --elf "$elf" --max-instructions 1000000 \
+    "$remu" run --target "$target" --elf "$elf" --max-instructions 1000000 \
         --vcd "$root/$name/trace.vcd" --bus-log "$root/$name/bus.json" \
         --result "$root/$name/run.json"
     jq -e '.exit_code == 0 and .reason == "Halted"' "$root/$name/run.json" >/dev/null
@@ -146,7 +146,7 @@ source_sha=$(sha256sum \
     toolchains/xtensa-esp-gcc-esp32s3.toml | sha256sum | cut -d ' ' -f 1)
 
 jq -n \
-    --arg schema renvo.vendor-sample-qualification.v1 \
+    --arg schema remu.vendor-sample-qualification.v1 \
     --arg generated_by scripts/qualify-vendor-samples.sh \
     --arg source_sha256 "$source_sha" \
     --arg adapter_sha256 "$adapter_sha" \
@@ -166,7 +166,7 @@ jq -n \
         {corpus: "esp-idf", repository: "https://github.com/espressif/esp-idf", commit: $esp_commit,
          path: $esp_path, sha256: $esp_hash, source_treatment: "downloaded and compiled unmodified",
          licence: "CC0-1.0 (sample file); ESP-IDF repository Apache-2.0"}],
-      adapter_boundary: "Tracked startup and SDK compatibility code supplies native Renvo MMIO; upstream sample source is byte-exact and receives no patch.",
+      adapter_boundary: "Tracked startup and SDK compatibility code supplies native Renvo Emulator MMIO; upstream sample source is byte-exact and receives no patch.",
       targets: $targets}' >"$artifact"
 
 jq -e '.result == "pass" and (.sources | length == 3) and (.targets | length == 7) and ([.targets[].result] | all(. == "pass"))' "$artifact" >/dev/null

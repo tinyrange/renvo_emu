@@ -13,7 +13,7 @@ foreach(CASE_ID IN LISTS CASE_IDS)
     if(NOT CMAKE_SCRIPT_MODE_FILE)
         set_source_files_properties(
             "${CASE_SOURCE}"
-            PROPERTIES COMPILE_DEFINITIONS "renvo_case=renvo_case_${CASE_ID}"
+            PROPERTIES COMPILE_DEFINITIONS "remu_case=remu_case_${CASE_ID}"
         )
     endif()
 endforeach()

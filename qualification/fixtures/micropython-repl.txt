@@ -1,1 +1,1 @@
-print("RENVO_USB_OK")
+print("REMU_USB_OK")

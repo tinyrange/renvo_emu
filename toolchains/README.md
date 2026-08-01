@@ -1,8 +1,8 @@
 # Containerized firmware toolchains
 
-Renvo never invokes host firmware compilers. Each corpus case names a
+Renvo Emulator never invokes host firmware compilers. Each corpus case names a
 `ToolchainSpec` with a reviewed immutable Docker image ID and a locally built
-fallback tag. Renvo resolves either reference to an immutable ID before use;
+fallback tag. Renvo Emulator resolves either reference to an immutable ID before use;
 builds run with `--pull=never` and `--network=none`.
 
 The runner mounts:
@@ -41,15 +41,15 @@ values where redistribution terms permit local image construction.
 Individual target-specific images can also be built directly:
 
 ```sh
-docker build --pull=false -t renvo/avr-gcc:local toolchains/avr-gcc
-docker build --pull=false -t renvo/msp430-gcc:local toolchains/msp430-gcc
-docker build --pull=false -t renvo-xc8:4.00-pic16f1xxxx-1.31.465 toolchains/xc8
-docker build --pull=false -t renvo/sdcc-mcs51:4.5.0 toolchains/sdcc-mcs51
+docker build --pull=false -t remu/avr-gcc:local toolchains/avr-gcc
+docker build --pull=false -t remu/msp430-gcc:local toolchains/msp430-gcc
+docker build --pull=false -t remu-xc8:4.00-pic16f1xxxx-1.31.465 toolchains/xc8
+docker build --pull=false -t remu/sdcc-mcs51:4.5.0 toolchains/sdcc-mcs51
 ```
 
 The XC8 recipe downloads Microchip's installer for a local qualification
 image. Do not publish or redistribute that image; review and accept the vendor
-licence yourself. Renvo records only the recipe, pinned installer/device-pack
+licence yourself. Renvo Emulator records only the recipe, pinned installer/device-pack
 hashes, and immutable local image identity.
 
 `xtensa-esp-gcc/Dockerfile` installs Espressif's official Xtensa GCC archive.

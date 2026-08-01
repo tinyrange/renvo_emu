@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Renvo — Seven-MCU Expansion Plan</title>
+  <title>Renvo Emulator — Seven-MCU Expansion Plan</title>
   <style>
     :root {
       --bg: #0a0d0c;
@@ -313,7 +313,7 @@
 <body>
   <div class="shell">
     <aside class="sidebar">
-      <div class="brand"><span class="brand-mark">R</span> Renvo</div>
+      <div class="brand"><span class="brand-mark">R</span> Renvo Emulator</div>
       <nav aria-label="Plan sections">
         <a href="#intent">Intent</a>
         <a href="#scope">Scope boundary</a>
@@ -339,7 +339,7 @@
         <div class="eyebrow">Follow-on implementation plan · 1 August 2026</div>
         <h1>Seven more MCUs.<br><span>Seven distinct machines.</span></h1>
         <p class="lede">
-          Extend Renvo with ATSAMD21E18, STM32L432KC, R7FA4M1AB3CFM, ATmega328PB,
+          Extend Renvo Emulator with ATSAMD21E18, STM32L432KC, R7FA4M1AB3CFM, ATmega328PB,
           MSP430FR2433, PIC16F15376 and EFM8BB52F32G.
           The outcome is a deterministic compiler and firmware baseline for each part—not a claim
           of complete peripheral or cycle-accurate emulation.
@@ -358,7 +358,7 @@
         <div class="grid">
           <div class="card pad">
             <span class="label">Objective</span>
-            <h3 style="margin-top: 8px;">Prove Renvo beyond its original CPU families</h3>
+            <h3 style="margin-top: 8px;">Prove Renvo Emulator beyond its original CPU families</h3>
             <p class="muted">
               Add three new Arm machines plus AVR8, MSP430X CPUXv2, enhanced mid-range PIC16
               and MCS-51 interpreters. Begin by splitting the current oversized implementation
@@ -438,15 +438,15 @@
           <table>
             <thead><tr><th>Current file</th><th>Current size</th><th>Initial module split</th></tr></thead>
             <tbody>
-              <tr><td><code>renvo-devices/src/lib.rs</code></td><td>5,864 lines</td><td><code>signals</code>, <code>functional</code>, <code>arm</code>, <code>rp</code>, <code>wch</code> and <code>esp</code>, with vendor submodules split by peripheral.</td></tr>
-              <tr><td><code>renvo-machines/src/riscv.rs</code></td><td>4,833 lines</td><td>Shared RISC-V runner plus separate WCH, ESP32-C6, host-service and qualification-support modules.</td></tr>
-              <tr><td><code>renvo-cpu-arm/src/lib.rs</code></td><td>3,312 lines</td><td><code>profile</code>, <code>register</code>, <code>decode</code>, <code>execute</code>, <code>exception</code>, <code>state</code> and tests.</td></tr>
-              <tr><td><code>renvo-cpu-riscv/src/lib.rs</code></td><td>2,495 lines</td><td><code>profile</code>, <code>register</code>, <code>decode</code>, execution groups, CSR/trap handling and tests.</td></tr>
-              <tr><td><code>renvo-machines/src/xtensa.rs</code></td><td>2,428 lines</td><td>Machine assembly, ESP image/boot support, host services, MMIO orchestration and run-result glue.</td></tr>
-              <tr><td><code>renvo-cpu-xtensa/src/lib.rs</code></td><td>2,088 lines</td><td>Profile/register state, decode, execution groups, window/exception handling and tests.</td></tr>
-              <tr><td><code>renvo-cli/src/main.rs</code></td><td>1,947 lines</td><td>Thin entry point plus <code>commands/run</code>, <code>firmware</code>, <code>corpus</code>, <code>gdb</code>, argument parsing and artifact output.</td></tr>
-              <tr><td><code>renvo-machines/src/arm.rs</code></td><td>1,885 lines</td><td>Shared Arm runner, RP2040, RP2350, USB host support and target-specific boot paths.</td></tr>
-              <tr><td><code>renvo-casegen/src/main.rs</code></td><td>1,696 lines</td><td>Thin entry point plus case families, generation primitives, manifests and output formatting.</td></tr>
+              <tr><td><code>remu-devices/src/lib.rs</code></td><td>5,864 lines</td><td><code>signals</code>, <code>functional</code>, <code>arm</code>, <code>rp</code>, <code>wch</code> and <code>esp</code>, with vendor submodules split by peripheral.</td></tr>
+              <tr><td><code>remu-machines/src/riscv.rs</code></td><td>4,833 lines</td><td>Shared RISC-V runner plus separate WCH, ESP32-C6, host-service and qualification-support modules.</td></tr>
+              <tr><td><code>remu-cpu-arm/src/lib.rs</code></td><td>3,312 lines</td><td><code>profile</code>, <code>register</code>, <code>decode</code>, <code>execute</code>, <code>exception</code>, <code>state</code> and tests.</td></tr>
+              <tr><td><code>remu-cpu-riscv/src/lib.rs</code></td><td>2,495 lines</td><td><code>profile</code>, <code>register</code>, <code>decode</code>, execution groups, CSR/trap handling and tests.</td></tr>
+              <tr><td><code>remu-machines/src/xtensa.rs</code></td><td>2,428 lines</td><td>Machine assembly, ESP image/boot support, host services, MMIO orchestration and run-result glue.</td></tr>
+              <tr><td><code>remu-cpu-xtensa/src/lib.rs</code></td><td>2,088 lines</td><td>Profile/register state, decode, execution groups, window/exception handling and tests.</td></tr>
+              <tr><td><code>remu-cli/src/main.rs</code></td><td>1,947 lines</td><td>Thin entry point plus <code>commands/run</code>, <code>firmware</code>, <code>corpus</code>, <code>gdb</code>, argument parsing and artifact output.</td></tr>
+              <tr><td><code>remu-machines/src/arm.rs</code></td><td>1,885 lines</td><td>Shared Arm runner, RP2040, RP2350, USB host support and target-specific boot paths.</td></tr>
+              <tr><td><code>remu-casegen/src/main.rs</code></td><td>1,696 lines</td><td>Thin entry point plus case families, generation primitives, manifests and output formatting.</td></tr>
             </tbody>
           </table>
         </div>
@@ -611,7 +611,7 @@
             <tbody>
               <tr>
                 <td>CPU families</td>
-                <td>Add <code>renvo-cpu-avr</code>, <code>renvo-cpu-msp430</code>, <code>renvo-cpu-pic16</code> and <code>renvo-cpu-mcs51</code>; extend <code>renvo-cpu-arm</code> with a real Cortex-M4F profile.</td>
+                <td>Add <code>remu-cpu-avr</code>, <code>remu-cpu-msp430</code>, <code>remu-cpu-pic16</code> and <code>remu-cpu-mcs51</code>; extend <code>remu-cpu-arm</code> with a real Cortex-M4F profile.</td>
                 <td>CPU crates remain independent of CLI, VCD, Starlark and vendor peripheral models.</td>
               </tr>
               <tr>
@@ -653,13 +653,13 @@
           </table>
         </div>
         <pre class="codebox" aria-label="Proposed workspace additions">crates/
-  renvo-cpu-arm/       # add CortexM4F profile
-  renvo-cpu-avr/       # ATmega AVR interpreter
-  renvo-cpu-msp430/    # MSP430X CPUXv2 interpreter
-  renvo-cpu-pic16/     # enhanced mid-range PIC16 interpreter
-  renvo-cpu-mcs51/     # reusable 8051/MCS-51 interpreter
-  renvo-machines/      # seven target definitions and vendor glue
-  renvo-image/         # new ELF identities and Intel HEX
+  remu-cpu-arm/       # add CortexM4F profile
+  remu-cpu-avr/       # ATmega AVR interpreter
+  remu-cpu-msp430/    # MSP430X CPUXv2 interpreter
+  remu-cpu-pic16/     # enhanced mid-range PIC16 interpreter
+  remu-cpu-mcs51/     # reusable 8051/MCS-51 interpreter
+  remu-machines/      # seven target definitions and vendor glue
+  remu-image/         # new ELF identities and Intel HEX
 toolchains/
   avr-gcc/
   msp430-gcc/
@@ -673,7 +673,7 @@ qualification/
       <section id="toolchains">
         <div class="section-head"><span class="section-index">06</span><h2>Containerized toolchains</h2></div>
         <p class="muted">
-          Renvo continues to invoke no host firmware compiler. Image construction may download a
+          Renvo Emulator continues to invoke no host firmware compiler. Image construction may download a
           vendor archive and device pack; case compilation is offline with a read-only root,
           <code>--network=none</code>, <code>--pull=never</code>, resource limits and an immutable image ID.
         </p>
@@ -801,7 +801,7 @@ qualification/
             Because development boards are available, selected qualification firmware should also
             run on the corresponding physical board. Record the exact board revision, MCU marking,
             tool used to flash it, UART output and captured pin timing, then compare logical edge
-            order with Renvo. Hardware correlation strengthens the evidence but does not turn this
+            order with Renvo Emulator. Hardware correlation strengthens the evidence but does not turn this
             tranche into a cycle-accuracy project or block completion when board automation is absent.
           </p>
         </div>
@@ -939,7 +939,7 @@ qualification/
       </section>
 
       <footer>
-        <span>Renvo · bounded seven-MCU expansion plan</span>
+        <span>Renvo Emulator · bounded seven-MCU expansion plan</span>
         <button class="print-button" type="button" onclick="window.print()">Print / save PDF</button>
       </footer>
     </main>

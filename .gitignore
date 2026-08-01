@@ -1,4 +1,4 @@
 /target/
-/.renvo/
+/.remu/
 *.vcd
 *.trace.json

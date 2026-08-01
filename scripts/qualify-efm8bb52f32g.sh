@@ -5,14 +5,14 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 . scripts/lib/toolchain-images.sh
 
-image=$(resolve_toolchain_image sha256:ba8ecc7e43912412757079d7366e5f27b78a272dc08d61a244b79508139dbf75 renvo/sdcc-mcs51:4.5.0)
-artifact_root=${EFM8BB52F32G_ARTIFACT_ROOT:-.renvo/qualification/efm8bb52f32g}
+image=$(resolve_toolchain_image sha256:ba8ecc7e43912412757079d7366e5f27b78a272dc08d61a244b79508139dbf75 remu/sdcc-mcs51:4.5.0)
+artifact_root=${EFM8BB52F32G_ARTIFACT_ROOT:-.remu/qualification/efm8bb52f32g}
 toolchain=toolchains/sdcc-mcs51-efm8bb52.toml
 
 docker image inspect "$image" >/dev/null
-cargo build -q -p renvo-cli
-cargo test -q -p renvo-cpu-mcs51 -p renvo-image
-renvo=target/debug/renvo
+cargo build -q -p remu-cli
+cargo test -q -p remu-cpu-mcs51 -p remu-image
+remu=target/debug/remu
 mkdir -p "$artifact_root"
 
 expected_uart='[69,70,77,56,66,66,53,50,58,79,75,10,73,82,81,10]'
@@ -26,14 +26,14 @@ for profile in baseline size speed; do
         size) optimization_flags=--opt-code-size ;;
         speed) optimization_flags=--opt-code-speed ;;
     esac
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source corpus/smoke/efm8bb52f32g \
         --output "$build" \
         --target efm8bb52f32g \
         --artifact "$artifact_root/build-$profile.json" \
         -- $optimization_flags main.c -o /workspace/out/smoke.ihx
-    "$renvo" run \
+    "$remu" run \
         --target efm8bb52f32g \
         --hex "$build/smoke.ihx" \
         --max-instructions 30000 \
@@ -50,7 +50,7 @@ for profile in baseline size speed; do
 done
 
 mkdir -p "$artifact_root/run-speed-repeat"
-"$renvo" run \
+"$remu" run \
     --target efm8bb52f32g \
     --hex "$artifact_root/build-speed/smoke.ihx" \
     --max-instructions 30000 \
@@ -72,28 +72,28 @@ jq -e '.architecture == "Mcs51" and .fetch_accesses > 100 and .unique_addresses 
 fixture="$artifact_root/register-fixture-build"
 fixture_run="$artifact_root/register-fixture-run"
 mkdir -p "$fixture" "$fixture_run"
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/efm8bb52f32g/silabs \
     --output "$fixture" \
     --target efm8bb52f32g \
     --artifact "$artifact_root/register-main-build.json" \
-    -- -I. -c renvo_blinky.c -o /workspace/out/main.rel
-"$renvo" corpus build \
+    -- -I. -c remu_blinky.c -o /workspace/out/main.rel
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/efm8bb52f32g/silabs \
     --output "$fixture" \
     --target efm8bb52f32g \
     --artifact "$artifact_root/register-isr-build.json" \
-    -- -I. -c renvo_timer2_irq.c -o /workspace/out/interrupts.rel
-"$renvo" corpus build \
+    -- -I. -c remu_timer2_irq.c -o /workspace/out/interrupts.rel
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/efm8bb52f32g/silabs \
     --output "$fixture" \
     --target efm8bb52f32g \
     --artifact "$artifact_root/register-adapter-build.json" \
     -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/efm8bb52f32g/silabs \
     --output "$fixture" \
@@ -101,7 +101,7 @@ mkdir -p "$fixture" "$fixture_run"
     --artifact "$artifact_root/register-link.json" \
     -- /workspace/out/main.rel /workspace/out/interrupts.rel \
     /workspace/out/adapter.rel -o /workspace/out/blinky.ihx
-"$renvo" run \
+"$remu" run \
     --target efm8bb52f32g \
     --hex "$fixture/blinky.ihx" \
     --max-instructions 10000 \
@@ -117,13 +117,13 @@ grep -q '^\$scope module port1 \$end$' "$fixture_run/signals.vcd"
 
 uart_build="$artifact_root/register-uart-build"
 mkdir -p "$uart_build"
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/efm8bb52f32g/silabs \
     --output "$uart_build" \
     --target efm8bb52f32g \
     --artifact "$artifact_root/register-uart-build.json" \
-    -- -I. -c renvo_uart_irq.c -o /workspace/out/uart.rel
+    -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
 
 docker inspect "$image" >"$artifact_root/toolchain-image.json"

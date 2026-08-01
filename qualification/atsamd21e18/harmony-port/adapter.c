@@ -13,17 +13,17 @@ void SYS_Initialize(void *data)
     PORT_DIRSET = 1u << 7;
 }
 
-uint32_t renvo_switch_get(void)
+uint32_t remu_switch_get(void)
 {
     return (PORT_IN >> 3) & 1u;
 }
 
-void renvo_led_clear(void)
+void remu_led_clear(void)
 {
     PORT_OUTCLR = 1u << 7;
 }
 
-void renvo_led_set(void)
+void remu_led_set(void)
 {
     PORT_OUTSET = 1u << 7;
 }

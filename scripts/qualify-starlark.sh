@@ -4,10 +4,10 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 
-renvo=${RENVO_BIN:-target/debug/renvo}
+remu=${REMU_BIN:-target/debug/remu}
 artifact=qualification/starlark.json
 
-"$renvo" script \
+"$remu" script \
     --file qualification/portfolio.star \
     --data riscv_cpu=qualification/riscv-cpu.json \
     --data arm_cpu=qualification/arm-cpu.json \
@@ -16,7 +16,7 @@ artifact=qualification/starlark.json
     --artifact "$artifact"
 
 jq -e '
-  .schema == "renvo.starlark-assertion.v1" and
+  .schema == "remu.starlark-assertion.v1" and
   .value == true and
   .result == "pass" and
   (.datasets | length == 4)

@@ -4,16 +4,16 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 
-root=${1:-.renvo/portfolio-smoke}
+root=${1:-.remu/portfolio-smoke}
 output=${2:-qualification/riscv-cpu.json}
 proofs=$root/riscv-cpu-proofs.jsonl
 unit_log=$root/riscv-cpu-unit-tests.txt
 mkdir -p "$(dirname -- "$output")"
 : > "$proofs"
 
-cargo test -q -p renvo-cpu-riscv qingke_ > "$unit_log"
-cargo test -q -p renvo-cpu-riscv esp32c6_ >> "$unit_log"
-cargo test -q -p renvo-cpu-riscv hazard3_ >> "$unit_log"
+cargo test -q -p remu-cpu-riscv qingke_ > "$unit_log"
+cargo test -q -p remu-cpu-riscv esp32c6_ >> "$unit_log"
+cargo test -q -p remu-cpu-riscv hazard3_ >> "$unit_log"
 
 add_proof()
 {
@@ -80,7 +80,7 @@ grep -qx 'rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb_zcb_zcmp' \
     "$root/hazard3/full-march.txt"
 
 source_sha=$(sha256sum \
-    crates/renvo-cpu-riscv/src/lib.rs \
+    crates/remu-cpu-riscv/src/lib.rs \
     corpus/smoke/wch-xw/link.ld \
     corpus/smoke/wch-xw/start.S \
     corpus/smoke/wch-xw/zmmul.S \
@@ -95,7 +95,7 @@ source_sha=$(sha256sum \
 unit_sha=$(sha256sum "$unit_log" | cut -d ' ' -f 1)
 
 jq -n \
-    --arg schema renvo.riscv-cpu.v1 \
+    --arg schema remu.riscv-cpu.v1 \
     --arg source_sha256 "$source_sha" \
     --arg unit_test_artifact "$unit_log" \
     --arg unit_test_sha256 "$unit_sha" \

@@ -21,7 +21,7 @@ RUN echo "a24104a8f1fa3dcd2e18d8e42c08485a6c26d5789960ed8bcc7e6bdc2c6b46c6  /tmp
 
 ENV PATH="/opt/microchip/xc8/bin:${PATH}"
 
-LABEL org.opencontainers.image.title="Renvo MPLAB XC8 PIC toolchain"
+LABEL org.opencontainers.image.title="Renvo Emulator MPLAB XC8 PIC toolchain"
 LABEL org.opencontainers.image.source="toolchains/xc8/Dockerfile"
 LABEL org.opencontainers.image.xc8="4.00"
 LABEL org.opencontainers.image.device-pack="Microchip.PIC16F1xxxx_DFP.1.31.465"

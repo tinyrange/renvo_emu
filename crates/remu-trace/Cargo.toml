@@ -1,0 +1,21 @@
+[package]
+name = "remu-trace"
+description = "Structured signal tracing, VCD output, and deterministic event digests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hex.workspace = true
+remu-core.workspace = true
+remu-signals.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

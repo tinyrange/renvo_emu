@@ -1,56 +1,56 @@
 {
   "generator": {
     "path": "scripts/generate-dashboard.py",
-    "sha256": "c1e609ffedfe376f87181293933f9fc212dae7a584fe67b81073b644f0defd36",
+    "sha256": "259a3f1f792a524bceb3808c153b98077d771d26b5adb2bd2a79497b5b42a6c1",
     "spec": "qualification/dashboard-spec.json",
-    "spec_sha256": "2b92fe42ff00e89e5a8f4762d9a27a8cfd5cb8fd1fcf348f0eb51568a5ef5814"
+    "spec_sha256": "c6cae39f15e7247520fda27dd508b20c63c66b7414f7a6208c783ffb62112af4"
   },
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "6459f837b4bff672c1c1fc2a5b388b0aa74ae35840cc2d7b81fe138702579552"
+      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "18e40e9ec97a421f0744d51937c5e3a051c100d31b77049f035747816803dffa"
+      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "6ae69d22fadd0e278da0495db00ea3cbeb6943aa2284b35858bbab028ab078e2"
+      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "b805f0d5ccd354761f79230c7beffbfca5c95d46467fbc9b2f3509215aea1c1f"
+      "sha256": "7664050616ab60b6a53b1a1049233e85b29902ad7448a10921480d750bf0cfa6"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "27ca0f43909ef20409112bcc8a749663bea0607d4819faaa98f947171e7b5cce"
+      "sha256": "f7dde1520d959d650c5a78a027f7388df279d2233e0d228a77f8982260e5fe97"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "80e00e3e6485f4ca1b5e7924f7c9303150b781987b4869b7c8422e53454d8137"
+      "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "16680c9eece18d4f5d3c916cb215bfd9dc0464df59fbfc60f5c5b5079ae9560a"
+      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
     },
     {
       "path": "qualification/rust-abi.json",
-      "sha256": "71e3f8457da8ab6a66c79c6f037d9cf4f34064114bb31ad9d048b93280031fd0"
+      "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "0c2f6c8fcb25153c3b71fe74598ee6badbac48cf75a0fc981c7ce82dac28a9e5"
+      "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
     },
     {
       "path": "qualification/host-determinism.json",
-      "sha256": "67aea517181a6a23581854ddbbd22cd81e0670cc8ddd66e81e3977be0871e7d8"
+      "sha256": "2acff2ec8840fdf2c8374423e0884c840e41c93ca7a0b3ec932701adcc40e130"
     }
   ],
   "portfolio": "six-chip baseline",
   "provenance_and_licences": {
-    "adapter_boundary": "Tracked startup and SDK compatibility code supplies native Renvo MMIO; upstream sample source is byte-exact and receives no patch.",
-    "renvo": "MIT OR Apache-2.0",
+    "adapter_boundary": "Tracked startup and SDK compatibility code supplies native Renvo Emulator MMIO; upstream sample source is byte-exact and receives no patch.",
+    "remu": "MIT OR Apache-2.0",
     "vendor_samples": [
       {
         "commit": "2ac68039c911e0313e2625811b631a8e9e55b9c0",
@@ -82,7 +82,7 @@
     ]
   },
   "result": "pass",
-  "schema": "renvo.support-dashboard.v1",
+  "schema": "remu.support-dashboard.v1",
   "scope_note": "Baseline proven means deterministic functional compiler/firmware testing; it does not claim cycle accuracy, complete ISA coverage, or complete peripherals.",
   "targets": [
     {
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "dfcae613c93663cd3560b8d44d0444ecdd0bd21448f983c294297798f21d8a93",
+        "manifest_sha256": "dff87cdf11a4ca63ec36435415dca6780fe2092c7acc71a7653d973f19189492",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -168,7 +168,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "f297f9129e271632e80e2469190773874d56f13372efbeb0906a090bf13a71c6",
+        "manifest_sha256": "f9183872e0295be232156081ca16457b0c7d655fa1a1280ac0885f92b29a85ca",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -215,7 +215,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "a15e64807566fb7cac3e0eb0cf12ebf7e9d4eb13c3689f26b3f7cc9d31ffefbf",
+        "manifest_sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -266,7 +266,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "f86840b0a831cb36e9a69dbcf2d14a2cd86d7ab2417a9f77d95920e748c80104",
+        "manifest_sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -315,7 +315,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "8e226df1f64f36633287440feb95c2730b2a52a4bb7719ff4ed32fcc79fe5742",
+        "manifest_sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"
@@ -360,7 +360,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "dd0d457ba3fbc3561f5a675cbc90df8f0eda91b84bdcdaf623d6cbc3b7811a81",
+        "manifest_sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

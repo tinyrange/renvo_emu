@@ -5,7 +5,7 @@ Status: accepted
 Firmware corpus compilation must run in Docker. The host compiler is never an
 implicit fallback.
 
-Toolchain specifications use a pinned image reference. Before execution, Renvo
+Toolchain specifications use a pinned image reference. Before execution, Renvo Emulator
 resolves and records the Docker image ID. Build containers:
 
 - run without a network;

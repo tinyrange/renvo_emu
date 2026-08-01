@@ -1,5 +1,5 @@
 NR == FNR {
-    if ($1 == "RENVO_HW" && $2 ~ /^case_[0-9][0-9][0-9][0-9]$/) {
+    if ($1 == "REMU_HW" && $2 ~ /^case_[0-9][0-9][0-9][0-9]$/) {
         actual[$2] = tolower($3)
     }
     next

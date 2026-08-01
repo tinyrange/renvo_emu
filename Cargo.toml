@@ -1,25 +1,25 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/renvo-bus",
-    "crates/renvo-cli",
-    "crates/renvo-core",
-    "crates/renvo-corpus",
-    "crates/renvo-casegen",
-    "crates/renvo-cpu-arm",
-    "crates/renvo-cpu-avr",
-    "crates/renvo-cpu-mcs51",
-    "crates/renvo-cpu-msp430",
-    "crates/renvo-cpu-pic16",
-    "crates/renvo-cpu-riscv",
-    "crates/renvo-cpu-xtensa",
-    "crates/renvo-devices",
-    "crates/renvo-gdb",
-    "crates/renvo-image",
-    "crates/renvo-machines",
-    "crates/renvo-signals",
-    "crates/renvo-starlark",
-    "crates/renvo-trace",
+    "crates/remu-bus",
+    "crates/remu-cli",
+    "crates/remu-core",
+    "crates/remu-corpus",
+    "crates/remu-casegen",
+    "crates/remu-cpu-arm",
+    "crates/remu-cpu-avr",
+    "crates/remu-cpu-mcs51",
+    "crates/remu-cpu-msp430",
+    "crates/remu-cpu-pic16",
+    "crates/remu-cpu-riscv",
+    "crates/remu-cpu-xtensa",
+    "crates/remu-devices",
+    "crates/remu-gdb",
+    "crates/remu-image",
+    "crates/remu-machines",
+    "crates/remu-signals",
+    "crates/remu-starlark",
+    "crates/remu-trace",
 ]
 
 [workspace.package]
@@ -27,7 +27,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.87"
 license = "MIT OR Apache-2.0"
-authors = ["Renvo contributors"]
+authors = ["Renvo Emulator contributors"]
 repository = "https://github.com/tinyrange/renvo_emu"
 
 [workspace.dependencies]
@@ -36,22 +36,22 @@ clap = { version = "4.5.46", features = ["derive"] }
 hex = "0.4.3"
 md-5 = "0.10.6"
 object = { version = "0.37.3", default-features = false, features = ["read", "elf"] }
-renvo-bus = { path = "crates/renvo-bus" }
-renvo-core = { path = "crates/renvo-core" }
-renvo-corpus = { path = "crates/renvo-corpus" }
-renvo-cpu-arm = { path = "crates/renvo-cpu-arm" }
-renvo-cpu-avr = { path = "crates/renvo-cpu-avr" }
-renvo-cpu-mcs51 = { path = "crates/renvo-cpu-mcs51" }
-renvo-cpu-msp430 = { path = "crates/renvo-cpu-msp430" }
-renvo-cpu-pic16 = { path = "crates/renvo-cpu-pic16" }
-renvo-cpu-riscv = { path = "crates/renvo-cpu-riscv" }
-renvo-cpu-xtensa = { path = "crates/renvo-cpu-xtensa" }
-renvo-devices = { path = "crates/renvo-devices" }
-renvo-gdb = { path = "crates/renvo-gdb" }
-renvo-image = { path = "crates/renvo-image" }
-renvo-machines = { path = "crates/renvo-machines" }
-renvo-signals = { path = "crates/renvo-signals" }
-renvo-trace = { path = "crates/renvo-trace" }
+remu-bus = { path = "crates/remu-bus" }
+remu-core = { path = "crates/remu-core" }
+remu-corpus = { path = "crates/remu-corpus" }
+remu-cpu-arm = { path = "crates/remu-cpu-arm" }
+remu-cpu-avr = { path = "crates/remu-cpu-avr" }
+remu-cpu-mcs51 = { path = "crates/remu-cpu-mcs51" }
+remu-cpu-msp430 = { path = "crates/remu-cpu-msp430" }
+remu-cpu-pic16 = { path = "crates/remu-cpu-pic16" }
+remu-cpu-riscv = { path = "crates/remu-cpu-riscv" }
+remu-cpu-xtensa = { path = "crates/remu-cpu-xtensa" }
+remu-devices = { path = "crates/remu-devices" }
+remu-gdb = { path = "crates/remu-gdb" }
+remu-image = { path = "crates/remu-image" }
+remu-machines = { path = "crates/remu-machines" }
+remu-signals = { path = "crates/remu-signals" }
+remu-trace = { path = "crates/remu-trace" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"
 sha2 = "0.10.9"

@@ -2,9 +2,9 @@
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-image=renvo/mquickjs:203d5bb79789bc47b74855d9207415dab71661a0
-artifact_root=${MQUICKJS_ARTIFACT_ROOT:-"$repo_root/.renvo/qualification/mquickjs"}
-renvo=${RENVO_BIN:-"$repo_root/target/release/renvo"}
+image=remu/mquickjs:203d5bb79789bc47b74855d9207415dab71661a0
+artifact_root=${MQUICKJS_ARTIFACT_ROOT:-"$repo_root/.remu/qualification/mquickjs"}
+remu=${REMU_BIN:-"$repo_root/target/release/remu"}
 workload=${MQUICKJS_WORKLOAD:-"$repo_root/qualification/mquickjs/workload.js"}
 
 mkdir -p "$artifact_root"
@@ -19,9 +19,9 @@ then
     docker build --pull=false --tag "$image" "$repo_root/toolchains/mquickjs"
 fi
 
-if [ ! -x "$renvo" ]
+if [ ! -x "$remu" ]
 then
-    "$HOME/.cargo/bin/cargo" build --release --package renvo-cli
+    "$HOME/.cargo/bin/cargo" build --release --package remu-cli
 fi
 
 image_id=$(docker image inspect --format '{{.Id}}' "$image")
@@ -79,7 +79,7 @@ compile_profile()
         -isystem /usr/include/newlib \
         "$@" \
         "$stack_define" \
-        "-DRENVO_ERROR_OFFSET=${MQUICKJS_ERROR_OFFSET:-0}" \
+        "-DREMU_ERROR_OFFSET=${MQUICKJS_ERROR_OFFSET:-0}" \
         -nostdlib \
         -Wl,--gc-sections \
         -Wl,-T,"/workspace/qualification/mquickjs/$linker" \
@@ -94,7 +94,7 @@ compile_profile()
         /opt/mquickjs/cutils.c \
         -lgcc
 
-    "$renvo" run \
+    "$remu" run \
         --target "$target" \
         --elf "$profile_dir/mquickjs.elf" \
         --max-instructions 30000000 \
@@ -116,23 +116,23 @@ compile_profile()
 
 : > "$artifact_root/profiles.tsv"
 compile_profile pico-arm arm-none-eabi-gcc rp2040 start_arm.S link_rp_arm.ld \
-    -DRENVO_STACK_TOP=0 \
+    -DREMU_STACK_TOP=0 \
     -mcpu=cortex-m0plus -mthumb &
 pids=$!
 compile_profile pico2-arm arm-none-eabi-gcc rp2350 start_arm.S link_rp_arm.ld \
-    -DRENVO_STACK_TOP=0 \
+    -DREMU_STACK_TOP=0 \
     -mcpu=cortex-m33 -mthumb &
 pids="$pids $!"
 compile_profile pico2-riscv riscv64-unknown-elf-gcc rp2350 start_riscv.S link_rp_riscv.ld \
-    -DRENVO_STACK_TOP=0x20082000 \
+    -DREMU_STACK_TOP=0x20082000 \
     -march=rv32imac_zicsr -mabi=ilp32 &
 pids="$pids $!"
 compile_profile nanoc6-riscv riscv64-unknown-elf-gcc esp32c6 start_riscv.S link_esp_riscv.ld \
-    -DRENVO_STACK_TOP=0x40880000 \
+    -DREMU_STACK_TOP=0x40880000 \
     -march=rv32imac_zicsr -mabi=ilp32 &
 pids="$pids $!"
 compile_profile atoms3-xtensa xtensa-esp32s3-elf-gcc esp32s3 start_xtensa.S link_xtensa.ld \
-    -DRENVO_STACK_TOP=0 \
+    -DREMU_STACK_TOP=0 \
     -mlongcalls -mtext-section-literals &
 pids="$pids $!"
 
@@ -162,7 +162,7 @@ jq -Rn \
         trace_digest: .[2],
         exit_code: (.[3] | tonumber)
     }] as $profiles | {
-        schema: "renvo.mquickjs-qualification.v1",
+        schema: "remu.mquickjs-qualification.v1",
         upstream: "https://github.com/bellard/mquickjs",
         commit: $commit,
         image: $image,

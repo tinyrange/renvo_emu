@@ -24,7 +24,7 @@ RUN curl --fail --location --proto '=https' --tlsv1.2 \
     && tar -xjf /tmp/arm-gcc.tar.bz2 --strip-components=1 -C /opt/arm-gcc \
     && rm /tmp/arm-gcc.tar.bz2
 
-LABEL org.opencontainers.image.title="Renvo RP2040 boot-ROM reference builder"
+LABEL org.opencontainers.image.title="Renvo Emulator RP2040 boot-ROM reference builder"
 LABEL org.opencontainers.image.source="toolchains/rp2040-bootrom/Dockerfile"
 
 ENV PATH=/opt/arm-gcc/bin:$PATH

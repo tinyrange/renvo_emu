@@ -2,10 +2,10 @@
 set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-manifest=${RENVO_FIRMWARE_MANIFEST:-"$project_dir/firmware/micropython-v1.28.0.toml"}
-cache=${RENVO_FIRMWARE_CACHE:-"$project_dir/.renvo/firmware/micropython-v1.28.0"}
-report=${RENVO_FIRMWARE_REPORT:-"$cache/verified.json"}
-image=renvo/firmware-fetch:local
+manifest=${REMU_FIRMWARE_MANIFEST:-"$project_dir/firmware/micropython-v1.28.0.toml"}
+cache=${REMU_FIRMWARE_CACHE:-"$project_dir/.remu/firmware/micropython-v1.28.0"}
+report=${REMU_FIRMWARE_REPORT:-"$cache/verified.json"}
+image=remu/firmware-fetch:local
 
 mkdir -p "$cache"
 
@@ -46,8 +46,8 @@ do
 done
 
 cargo=${CARGO:-cargo}
-"$cargo" build --quiet -p renvo-cli
-"$project_dir/target/debug/renvo" firmware verify \
+"$cargo" build --quiet -p remu-cli
+"$project_dir/target/debug/remu" firmware verify \
     --manifest "$manifest" \
     --cache "$cache" \
     --artifact "$report"

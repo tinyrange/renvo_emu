@@ -19,9 +19,9 @@ case "$profile" in
     *) echo "unsupported Rust machine profile: $profile" >&2; exit 2 ;;
 esac
 
-build_dir=/tmp/renvo-rust-target
+build_dir=/tmp/remu-rust-target
 export CARGO_TARGET_DIR=$build_dir
-export RUSTFLAGS="-C linker=rust-lld -C link-arg=-T$linker -C link-arg=--gc-sections --cfg renvo_$profile"
+export RUSTFLAGS="-C linker=rust-lld -C link-arg=-T$linker -C link-arg=--gc-sections --cfg remu_$profile"
 
 if [ "$optimization" = s ]; then
     opt_config='profile.release.opt-level="s"'
@@ -30,4 +30,4 @@ else
 fi
 
 cargo build --release --target "$target" --offline --config "$opt_config"
-cp "$build_dir/$target/release/renvo-rust-abi" "/workspace/out/$output"
+cp "$build_dir/$target/release/remu-rust-abi" "/workspace/out/$output"

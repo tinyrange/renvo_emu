@@ -5,19 +5,19 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 . scripts/lib/toolchain-images.sh
 
-image=$(resolve_toolchain_image sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2 renvo/msp430-gcc:local)
-artifact_root=${MSP430FR2433_ARTIFACT_ROOT:-.renvo/qualification/msp430fr2433}
+image=$(resolve_toolchain_image sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2 remu/msp430-gcc:local)
+artifact_root=${MSP430FR2433_ARTIFACT_ROOT:-.remu/qualification/msp430fr2433}
 toolchain=toolchains/msp430-gcc-msp430fr2433.toml
 
 docker image inspect "$image" >/dev/null
-cargo build -q -p renvo-cli
-renvo=target/debug/renvo
+cargo build -q -p remu-cli
+remu=target/debug/remu
 mkdir -p "$artifact_root" "$artifact_root/run-a" "$artifact_root/run-b"
 
 for optimization in O0 Os O2; do
     build="$artifact_root/build-$optimization"
     mkdir -p "$build"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source corpus/smoke/msp430fr2433 \
         --output "$build" \
@@ -30,7 +30,7 @@ done
 
 for optimization in O0 Os; do
     mkdir -p "$artifact_root/run-$optimization"
-    "$renvo" run \
+    "$remu" run \
         --target msp430fr2433 \
         --elf "$artifact_root/build-$optimization/smoke.elf" \
         --max-instructions 200000 \
@@ -53,7 +53,7 @@ docker run --rm --network=none \
 run_once()
 {
     output=$1
-    "$renvo" run \
+    "$remu" run \
         --target msp430fr2433 \
         --elf "$artifact_root/build-O2/smoke.elf" \
         --max-instructions 150000 \
@@ -79,7 +79,7 @@ grep -q 'uart0' "$artifact_root/run-a/signals.vcd"
 grep -q 'interrupt' "$artifact_root/run-a/signals.vcd"
 grep -q 'port1' "$artifact_root/run-a/signals.vcd"
 
-upstream_dir="$repo_root/.renvo/upstream/ti-slac700"
+upstream_dir="$repo_root/.remu/upstream/ti-slac700"
 archive="$upstream_dir/slac700e.zip"
 archive_url=https://dr-download.ti.com/software-development/code-example-or-demo/MD-nwyaC2If08/01.00.00.0E/slac700e.zip
 archive_sha=9d8b339b98949afd26a31609d16baed06257eeb06126043ac0a3eda09397e12d
@@ -105,7 +105,7 @@ build_official()
     shift
     output="$artifact_root/slac700-$name-build"
     mkdir -p "$output"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source "$official_source" \
         --output "$output" \
@@ -128,7 +128,7 @@ build_official timer msp430fr243x_ta0_02.c
 build_official uart msp430fr243x_euscia0_uart_03.c uart_loopback_adapter.c -Wl,--wrap=main
 
 mkdir -p "$artifact_root/slac700-gpio-run" "$artifact_root/slac700-timer-run" "$artifact_root/slac700-uart-run"
-"$renvo" run \
+"$remu" run \
     --target msp430fr2433 \
     --elf "$artifact_root/slac700-gpio-build/official.elf" \
     --max-instructions 20000 \
@@ -139,7 +139,7 @@ mkdir -p "$artifact_root/slac700-gpio-run" "$artifact_root/slac700-timer-run" "$
 jq -e '.reason == {"Signal":"board.msp430fr2433.port1.pin0"}' \
     "$artifact_root/slac700-gpio-run/result.json" >/dev/null
 
-"$renvo" run \
+"$remu" run \
     --target msp430fr2433 \
     --elf "$artifact_root/slac700-timer-build/official.elf" \
     --max-instructions 100000 \
@@ -150,7 +150,7 @@ jq -e '.reason == {"Signal":"board.msp430fr2433.port1.pin0"}' \
     "$artifact_root/slac700-timer-run/result.json" >/dev/null
 grep -q 'timer_a0' "$artifact_root/slac700-timer-run/signals.vcd"
 
-"$renvo" run \
+"$remu" run \
     --target msp430fr2433 \
     --elf "$artifact_root/slac700-uart-build/official.elf" \
     --max-instructions 20000 \

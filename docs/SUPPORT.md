@@ -1,4 +1,4 @@
-# Renvo support contract
+# Renvo Emulator support contract
 
 This document describes implemented behavior, not the long-term intent in
 `PLAN.html`. “Functional” means deterministic and useful for the named corpus;
@@ -143,17 +143,17 @@ view, and deterministic-repeat matrix recorded in
 
 The final distillation gate adds four bounded capabilities:
 
-- `renvo corpus reduce` minimizes source fragments, flags and numeric inputs,
+- `remu corpus reduce` minimizes source fragments, flags and numeric inputs,
   recompiling every predicate inside the pinned Docker toolchain. The checked
   three-family evidence is `qualification/reduction.json`.
-- `renvo script` evaluates Starlark assertions over caller-selected JSON only;
+- `remu script` evaluates Starlark assertions over caller-selected JSON only;
   scripting never owns a machine or kernel state. Its portfolio proof is
   `qualification/starlark.json`.
-- `renvo board` resolves loaded Starlark board definitions into immutable
+- `remu board` resolves loaded Starlark board definitions into immutable
   topology/actions, then hands that scenario to the Rust board runner. It does
   not expose live CPU, scheduler, or peripheral state to the Starlark VM. See
   `docs/BOARD_SIMULATION.md` and `scripts/qualify-board-models.sh`.
-- `renvo gdb` serves one GDB remote-protocol session with registers, memory,
+- `remu gdb` serves one GDB remote-protocol session with registers, memory,
   breakpoints, step and continue. Direct runs additionally accept `--coverage`
   and `--replay`. RISC-V, Arm and Xtensa evidence is in
   `qualification/debug-observability.json`.
@@ -239,7 +239,7 @@ segments, leaving each `p_memsz - p_filesz` tail poisoned. Firmware must
 therefore perform its own `.bss` initialization, as it must on hardware. Other
 targets retain their existing reset-memory policy.
 
-The native-image boundary covers every target advertised by `renvo targets`.
+The native-image boundary covers every target advertised by `remu targets`.
 RP targets consume UF2 and preserve their Arm/RISC-V boot selection; Espressif
 targets consume validated merged flash images (or the existing application-UF2
 overlay path); PIC16 and EFM8 consume Intel HEX; the remaining byte-addressed

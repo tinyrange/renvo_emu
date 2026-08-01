@@ -41,9 +41,9 @@ def escape_list(values: list[str]) -> str:
 
 
 def main() -> None:
-    renvo = ROOT / "target" / "debug" / "renvo"
+    remu = ROOT / "target" / "debug" / "remu"
     all_manifests = json.loads(
-        subprocess.check_output([str(renvo), "targets", "--json"], cwd=ROOT)
+        subprocess.check_output([str(remu), "targets", "--json"], cwd=ROOT)
     )
 
     spec_path = QUALIFICATION / "dashboard-spec.json"
@@ -111,7 +111,7 @@ def main() -> None:
         )
 
     dashboard = {
-        "schema": "renvo.support-dashboard.v1",
+        "schema": "remu.support-dashboard.v1",
         "portfolio": "six-chip baseline",
         "result": "pass",
         "scope_note": (
@@ -120,7 +120,7 @@ def main() -> None:
         ),
         "targets": targets,
         "provenance_and_licences": {
-            "renvo": "MIT OR Apache-2.0",
+            "remu": "MIT OR Apache-2.0",
             "vendor_samples": vendor["sources"],
             "adapter_boundary": vendor["adapter_boundary"],
         },
@@ -166,13 +166,13 @@ def main() -> None:
     )
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Renvo six-target support dashboard</title><style>
+<title>Renvo Emulator six-target support dashboard</title><style>
 :root{{--bg:#0b0e0d;--panel:#131816;--line:#29342f;--text:#e8efeb;--muted:#9baba3;--green:#73e2ae}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,sans-serif}}main{{width:min(1100px,calc(100% - 32px));margin:0 auto;padding:64px 0 96px}}h1{{font-size:clamp(38px,7vw,72px);line-height:1;margin:.15em 0}}.lede,.tier,dd{{color:var(--muted)}}.notice,.target,.provenance{{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:24px;margin:18px 0}}.notice{{border-left:3px solid var(--green)}}header{{display:flex;justify-content:space-between;gap:20px;align-items:start}}header span{{color:var(--green);font:700 12px monospace;letter-spacing:.12em}}h2{{margin:.2em 0}}h3{{font-size:14px}}code{{color:var(--green)}}dl{{display:grid;grid-template-columns:150px 1fr;gap:7px 16px}}dt{{font-weight:700}}dd{{margin:0}}.columns{{display:grid;grid-template-columns:1fr 1fr;gap:28px}}a{{color:var(--green)}}li{{margin:.35em 0}}@media(max-width:700px){{.columns{{grid-template-columns:1fr}}dl{{grid-template-columns:1fr}}}}
-</style></head><body><main><p><code>RENVO / QUALIFICATION</code></p><h1>Six-target support dashboard</h1>
+</style></head><body><main><p><code>REMU / QUALIFICATION</code></p><h1>Six-target support dashboard</h1>
 <p class="lede">Checked compiler, firmware, register, and observability evidence for the original baseline.</p>
 <div class="notice"><strong>What “proven” means.</strong> {html.escape(dashboard['scope_note'])}</div>
 {''.join(rows)}
-<section class="provenance"><h2>Provenance and licences</h2><p>Renvo: MIT OR Apache-2.0. Upstream samples are downloaded at pinned commits, verified by SHA-256, and compiled without changes; tracked adapters provide the SDK and native-MMIO boundary.</p><ul>{sources}</ul><p><a href="dashboard.json">Machine-readable dashboard</a> · <a href="vendor-samples.json">Vendor qualification</a> · <a href="../PLAN.html">Original plan</a></p></section>
+<section class="provenance"><h2>Provenance and licences</h2><p>Renvo Emulator: MIT OR Apache-2.0. Upstream samples are downloaded at pinned commits, verified by SHA-256, and compiled without changes; tracked adapters provide the SDK and native-MMIO boundary.</p><ul>{sources}</ul><p><a href="dashboard.json">Machine-readable dashboard</a> · <a href="vendor-samples.json">Vendor qualification</a> · <a href="../PLAN.html">Original plan</a></p></section>
 </main></body></html>"""
     (QUALIFICATION / "dashboard.html").write_text(page, encoding="utf-8")
     print("generated six-target dashboard: qualification/dashboard.html")

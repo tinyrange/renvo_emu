@@ -1241,34 +1241,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
-name = "renvo-bus"
+name = "remu-bus"
 version = "0.1.0"
 dependencies = [
- "renvo-core",
+ "remu-core",
  "serde",
  "serde_json",
  "thiserror",
 ]
 
 [[package]]
-name = "renvo-casegen"
+name = "remu-casegen"
 version = "0.1.0"
 
 [[package]]
-name = "renvo-cli"
+name = "remu-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
  "hex",
- "renvo-bus",
- "renvo-core",
- "renvo-corpus",
- "renvo-gdb",
- "renvo-image",
- "renvo-machines",
- "renvo-signals",
- "renvo-starlark",
- "renvo-trace",
+ "remu-bus",
+ "remu-core",
+ "remu-corpus",
+ "remu-gdb",
+ "remu-image",
+ "remu-machines",
+ "remu-signals",
+ "remu-starlark",
+ "remu-trace",
  "serde",
  "serde_json",
  "sha2",
@@ -1276,7 +1276,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "renvo-core"
+name = "remu-core"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -1284,7 +1284,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "renvo-corpus"
+name = "remu-corpus"
 version = "0.1.0"
 dependencies = [
  "hex",
@@ -1297,93 +1297,93 @@ dependencies = [
 ]
 
 [[package]]
-name = "renvo-cpu-arm"
+name = "remu-cpu-arm"
 version = "0.1.0"
 dependencies = [
- "renvo-bus",
- "renvo-core",
+ "remu-bus",
+ "remu-core",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "renvo-cpu-avr"
+name = "remu-cpu-avr"
 version = "0.1.0"
 dependencies = [
- "renvo-core",
+ "remu-core",
  "serde",
 ]
 
 [[package]]
-name = "renvo-cpu-mcs51"
+name = "remu-cpu-mcs51"
 version = "0.1.0"
 dependencies = [
- "renvo-bus",
- "renvo-core",
+ "remu-bus",
+ "remu-core",
  "serde",
 ]
 
 [[package]]
-name = "renvo-cpu-msp430"
+name = "remu-cpu-msp430"
 version = "0.1.0"
 dependencies = [
- "renvo-bus",
- "renvo-core",
+ "remu-bus",
+ "remu-core",
  "serde",
 ]
 
 [[package]]
-name = "renvo-cpu-pic16"
+name = "remu-cpu-pic16"
 version = "0.1.0"
 dependencies = [
- "renvo-bus",
- "renvo-core",
+ "remu-bus",
+ "remu-core",
  "serde",
 ]
 
 [[package]]
-name = "renvo-cpu-riscv"
+name = "remu-cpu-riscv"
 version = "0.1.0"
 dependencies = [
- "renvo-bus",
- "renvo-core",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "renvo-cpu-xtensa"
-version = "0.1.0"
-dependencies = [
- "renvo-bus",
- "renvo-core",
+ "remu-bus",
+ "remu-core",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "renvo-devices"
+name = "remu-cpu-xtensa"
 version = "0.1.0"
 dependencies = [
- "renvo-bus",
- "renvo-core",
- "renvo-signals",
+ "remu-bus",
+ "remu-core",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "renvo-gdb"
+name = "remu-devices"
+version = "0.1.0"
+dependencies = [
+ "remu-bus",
+ "remu-core",
+ "remu-signals",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "remu-gdb"
 version = "0.1.0"
 dependencies = [
  "hex",
- "renvo-core",
+ "remu-core",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "renvo-image"
+name = "remu-image"
 version = "0.1.0"
 dependencies = [
  "hex",
@@ -1396,56 +1396,56 @@ dependencies = [
 ]
 
 [[package]]
-name = "renvo-machines"
+name = "remu-machines"
 version = "0.1.0"
 dependencies = [
  "md-5",
- "renvo-bus",
- "renvo-core",
- "renvo-cpu-arm",
- "renvo-cpu-avr",
- "renvo-cpu-mcs51",
- "renvo-cpu-msp430",
- "renvo-cpu-pic16",
- "renvo-cpu-riscv",
- "renvo-cpu-xtensa",
- "renvo-devices",
- "renvo-image",
- "renvo-signals",
- "renvo-trace",
+ "remu-bus",
+ "remu-core",
+ "remu-cpu-arm",
+ "remu-cpu-avr",
+ "remu-cpu-mcs51",
+ "remu-cpu-msp430",
+ "remu-cpu-pic16",
+ "remu-cpu-riscv",
+ "remu-cpu-xtensa",
+ "remu-devices",
+ "remu-image",
+ "remu-signals",
+ "remu-trace",
  "serde",
  "sha2",
  "thiserror",
 ]
 
 [[package]]
-name = "renvo-signals"
+name = "remu-signals"
 version = "0.1.0"
 dependencies = [
- "renvo-core",
+ "remu-core",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "renvo-starlark"
+name = "remu-starlark"
 version = "0.1.0"
 dependencies = [
  "allocative",
  "anyhow",
- "renvo-machines",
+ "remu-machines",
  "serde_json",
  "starlark",
  "tempfile",
 ]
 
 [[package]]
-name = "renvo-trace"
+name = "remu-trace"
 version = "0.1.0"
 dependencies = [
  "hex",
- "renvo-core",
- "renvo-signals",
+ "remu-core",
+ "remu-signals",
  "sha2",
  "tempfile",
  "thiserror",

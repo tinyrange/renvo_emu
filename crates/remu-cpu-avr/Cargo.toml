@@ -1,0 +1,15 @@
+[package]
+name = "remu-cpu-avr"
+description = "Interpreted AVR8 CPU for Renvo Emulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+remu-core.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

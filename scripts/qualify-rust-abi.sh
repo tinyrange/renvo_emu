@@ -5,17 +5,17 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 . scripts/lib/toolchain-images.sh
 
-renvo=${RENVO_BIN:-target/debug/renvo}
+remu=${REMU_BIN:-target/debug/remu}
 toolchain=toolchains/rust-baremetal.toml
 recorded_image=$(sed -n 's/^image = "\(.*\)"/\1/p' "$toolchain")
 local_image=$(sed -n 's/^local_image = "\(.*\)"/\1/p' "$toolchain")
 image=$(resolve_toolchain_image "$recorded_image" "$local_image")
 
-if [ ! -x "$renvo" ]; then
-    cargo build -q -p renvo-cli
+if [ ! -x "$remu" ]; then
+    cargo build -q -p remu-cli
 fi
 
-root=.renvo/rust-abi-qualification-v2
+root=.remu/rust-abi-qualification-v2
 proofs=$root/proofs.jsonl
 mkdir -p "$root" qualification
 : > "$proofs"
@@ -32,12 +32,12 @@ run_one()
     result=$root/$id-o$optimization-run.json
     repeat=$root/$id-o$optimization-repeat.json
 
-    "$renvo" run \
+    "$remu" run \
         --target "$target" \
         --elf "$elf" \
         --max-instructions 100000 \
         --result "$result"
-    "$renvo" run \
+    "$remu" run \
         --target "$target" \
         --elf "$elf" \
         --max-instructions 100000 \
@@ -92,7 +92,7 @@ build_one()
     output=$root/build-$id-o$optimization
     artifact=$root/build-$id-o$optimization.json
     mkdir -p "$output"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source corpus/rust_abi \
         --output "$output" \
@@ -158,7 +158,7 @@ source_sha=$(sha256sum \
 image_id=$(docker image inspect "$image" --format '{{.Id}}')
 
 jq -n \
-    --arg schema renvo.rust-abi.v1 \
+    --arg schema remu.rust-abi.v1 \
     --arg source_sha256 "$source_sha" \
     --arg image "$image" \
     --arg image_id "$image_id" \

@@ -10,7 +10,7 @@ RUN apt-get update \
         gcc-riscv64-unknown-elf=13.2.0-11ubuntu1+12 \
     && rm -rf /var/lib/apt/lists/*
 
-LABEL org.opencontainers.image.title="Renvo freestanding cross-GCC toolchains"
+LABEL org.opencontainers.image.title="Renvo Emulator freestanding cross-GCC toolchains"
 LABEL org.opencontainers.image.source="toolchains/cross-gcc/Dockerfile"
 
 WORKDIR /workspace/src

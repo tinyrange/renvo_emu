@@ -4,16 +4,16 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 
-root=${1:-.renvo/portfolio-smoke}
+root=${1:-.remu/portfolio-smoke}
 output=${2:-qualification/arm-cpu.json}
 proofs=$root/arm-cpu-proofs.jsonl
 unit_log=$root/arm-cpu-unit-tests.txt
 mkdir -p "$(dirname -- "$output")"
 : > "$proofs"
 
-cargo test -q -p renvo-cpu-arm > "$unit_log"
-cargo test -q -p renvo-devices arm_ppb_ >> "$unit_log"
-cargo test -q -p renvo-devices rp_sio_echoes_bootrom_launch >> "$unit_log"
+cargo test -q -p remu-cpu-arm > "$unit_log"
+cargo test -q -p remu-devices arm_ppb_ >> "$unit_log"
+cargo test -q -p remu-devices rp_sio_echoes_bootrom_launch >> "$unit_log"
 
 add_proof()
 {
@@ -80,9 +80,9 @@ jq -e '[.proofs[] | select(.target == "rp2350" and
     qualification/rust-abi.json >/dev/null
 
 source_sha=$(sha256sum \
-    crates/renvo-cpu-arm/src/lib.rs \
-    crates/renvo-devices/src/lib.rs \
-    crates/renvo-machines/src/arm.rs \
+    crates/remu-cpu-arm/src/lib.rs \
+    crates/remu-devices/src/lib.rs \
+    crates/remu-machines/src/arm.rs \
     corpus/smoke/arm-qualification/exceptions.S \
     corpus/smoke/arm-qualification/hardfloat.c \
     corpus/smoke/arm-qualification/link.ld \
@@ -93,7 +93,7 @@ unit_sha=$(sha256sum "$unit_log" | cut -d ' ' -f 1)
 cross_profile_sha=$(sha256sum qualification/rust-abi.json | cut -d ' ' -f 1)
 
 jq -n \
-    --arg schema renvo.arm-cpu.v1 \
+    --arg schema remu.arm-cpu.v1 \
     --arg source_sha256 "$source_sha" \
     --arg unit_test_artifact "$unit_log" \
     --arg unit_test_sha256 "$unit_sha" \

@@ -1,5 +1,5 @@
-#ifndef RENVO_ESP_FLASH_H
-#define RENVO_ESP_FLASH_H
+#ifndef REMU_ESP_FLASH_H
+#define REMU_ESP_FLASH_H
 #include <stdint.h>
 typedef int esp_err_t;
 #define ESP_OK 0

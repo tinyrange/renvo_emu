@@ -1,6 +1,6 @@
 {
-  "schema": "renvo.riscv-cpu.v1",
-  "source_sha256": "bf66bfb5d37d20e1331fb18484f394e46c5965b0a0b233e5f12abb18853039ce",
+  "schema": "remu.riscv-cpu.v1",
+  "source_sha256": "bcad8a5e89292e10eae123444179519d82fb4679b7aa6d55ee0a4d3532c212c3",
   "primary_sources": [
     "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
     "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
@@ -40,7 +40,7 @@
     ]
   },
   "negative_tests": {
-    "artifact": ".renvo/portfolio-smoke/riscv-cpu-unit-tests.txt",
+    "artifact": ".remu/portfolio-smoke/riscv-cpu-unit-tests.txt",
     "sha256": "1f3fb77dc818cf65d8eefc30712a72bcf427704950d277defa9f21c806189cd0",
     "assertions": [
       "XW is illegal outside QingKe profiles",
@@ -58,12 +58,12 @@
       "target": "ch32v003",
       "cpu": "qingke-v2a",
       "feature": "xw-eight-operations",
-      "build_artifact": ".renvo/portfolio-smoke/wch-xw-build.json",
-      "build_provenance_sha256": "6d58164961059792983c11132a3a184641aa9799c31c7e46c58d6c21f5fa6d76",
-      "elf": ".renvo/portfolio-smoke/wch-xw/smoke.elf",
+      "build_artifact": ".remu/portfolio-smoke/wch-xw-build.json",
+      "build_provenance_sha256": "1f30c3d5ef1ffc7a60127eaaf4cd3c54802ee80d1abe327fb8285a35641579e6",
+      "elf": ".remu/portfolio-smoke/wch-xw/smoke.elf",
       "elf_sha256": "1222ca42eb6388f293b1dbf395c6ec02d97c82d1092c34be6291701597766083",
-      "result_artifact": ".renvo/portfolio-smoke/ch32v003-xw-run.json",
-      "result_sha256": "9b0f719238d022bcbbb2748c7bef9ea9429a188fa12d5d05d9eb6acf7f03edd6",
+      "result_artifact": ".remu/portfolio-smoke/ch32v003-xw-run.json",
+      "result_sha256": "294f03a6e9536403a9f817bcdf9a89013bf9cfaa5b82f5f16abb7a6eea261d43",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -71,7 +71,7 @@
         "time": 27,
         "events": 0
       },
-      "trace_digest": "1489dfa3442a01bad4b42a2f4d3ac21161960e1201c8cd522f4dce4f39053c39",
+      "trace_digest": "d66ab6bae96236ddc73f4fae73c7e61644c3e98efe07cceb62109f96ec9f120d",
       "result": "pass"
     },
     {
@@ -79,12 +79,12 @@
       "target": "ch32v006",
       "cpu": "qingke-v2c",
       "feature": "xw-eight-operations",
-      "build_artifact": ".renvo/portfolio-smoke/wch-xw-build.json",
-      "build_provenance_sha256": "6d58164961059792983c11132a3a184641aa9799c31c7e46c58d6c21f5fa6d76",
-      "elf": ".renvo/portfolio-smoke/wch-xw/smoke.elf",
+      "build_artifact": ".remu/portfolio-smoke/wch-xw-build.json",
+      "build_provenance_sha256": "1f30c3d5ef1ffc7a60127eaaf4cd3c54802ee80d1abe327fb8285a35641579e6",
+      "elf": ".remu/portfolio-smoke/wch-xw/smoke.elf",
       "elf_sha256": "1222ca42eb6388f293b1dbf395c6ec02d97c82d1092c34be6291701597766083",
-      "result_artifact": ".renvo/portfolio-smoke/ch32v006-xw-run.json",
-      "result_sha256": "f97a3485e0cec9d056e26c7862c764fabdf37ba76a88b15b0a1bbffe63ca0a42",
+      "result_artifact": ".remu/portfolio-smoke/ch32v006-xw-run.json",
+      "result_sha256": "5fdcca438732de887b3ca2e52c6f1262f6f881583b5a69d5906ba4de0fa9e55e",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -92,7 +92,7 @@
         "time": 27,
         "events": 0
       },
-      "trace_digest": "13f23f61c400dbb938aa0547ca6436082b9ea3e8017fa13affd100f80def3ccb",
+      "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
       "result": "pass"
     },
     {
@@ -100,12 +100,12 @@
       "target": "ch32v006",
       "cpu": "qingke-v2c",
       "feature": "zmmul",
-      "build_artifact": ".renvo/portfolio-smoke/wch-zmmul-build.json",
-      "build_provenance_sha256": "ae352ab2baea156177e16bb7a54f6684107d03c8401b585ed7bd5427ea76e14f",
-      "elf": ".renvo/portfolio-smoke/wch-zmmul/smoke.elf",
+      "build_artifact": ".remu/portfolio-smoke/wch-zmmul-build.json",
+      "build_provenance_sha256": "81bc6ca8eeb9bf132909aff93a5651b032bc2fd086fcd0dd420d54b8b148bf0d",
+      "elf": ".remu/portfolio-smoke/wch-zmmul/smoke.elf",
       "elf_sha256": "7d3bb91e96bdbfbfed57d87a24e2951928d9d092fd8ccd629b34037e84a8e658",
-      "result_artifact": ".renvo/portfolio-smoke/ch32v006-zmmul-run.json",
-      "result_sha256": "4ba1fa623d9c4bc8a01cc7b05a76bebcc3bbffe3a797c6d359fdfa0a6c3c2d19",
+      "result_artifact": ".remu/portfolio-smoke/ch32v006-zmmul-run.json",
+      "result_sha256": "ac802cf3e3552c57b417b8e6e2376154dd82a42490d0182d2e11b9865f447fc5",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -113,7 +113,7 @@
         "time": 11,
         "events": 0
       },
-      "trace_digest": "13f23f61c400dbb938aa0547ca6436082b9ea3e8017fa13affd100f80def3ccb",
+      "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
       "result": "pass"
     },
     {
@@ -121,12 +121,12 @@
       "target": "esp32c6",
       "cpu": "esp-rv32imac-hp",
       "feature": "user-traps-and-pmp-visibility",
-      "build_artifact": ".renvo/portfolio-smoke/esp32c6-privilege-build.json",
-      "build_provenance_sha256": "5cc23f62211aa2ef2da73fb0a52e75fdc4d44e41bc3be49112424ef6a262992e",
-      "elf": ".renvo/portfolio-smoke/esp32c6-privilege/smoke.elf",
+      "build_artifact": ".remu/portfolio-smoke/esp32c6-privilege-build.json",
+      "build_provenance_sha256": "7bce95bdc1e83b5ee73b77294fef981904f6facd44133d91ef5dfa2380e20887",
+      "elf": ".remu/portfolio-smoke/esp32c6-privilege/smoke.elf",
       "elf_sha256": "1937ae2fbc3964056eb6f10814d32c718ff43c18cfd10275f305cc9dd015e5c0",
-      "result_artifact": ".renvo/portfolio-smoke/esp32c6-privilege-run.json",
-      "result_sha256": "c90aaa5c8a37c4e8090e2c75242271b1f20420d1a98b063a1b547784deb80e99",
+      "result_artifact": ".remu/portfolio-smoke/esp32c6-privilege-run.json",
+      "result_sha256": "0bb721ffe71583260450d98d7287be9c128891691d4476b19ea2f9d73693a9f5",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -134,7 +134,7 @@
         "time": 27,
         "events": 0
       },
-      "trace_digest": "de663e0c67526e3c8c3bf8ce62f4c724e07193c28cf7b23600dc0accafbbc46a",
+      "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
       "result": "pass"
     },
     {
@@ -142,12 +142,12 @@
       "target": "rp2350",
       "cpu": "hazard3",
       "feature": "documented-compiler-march",
-      "build_artifact": ".renvo/portfolio-smoke/hazard3-build.json",
-      "build_provenance_sha256": "eb56391b62fe01697cc6d6183dc4253946b31902d0605ffe8823397020dc089f",
-      "elf": ".renvo/portfolio-smoke/hazard3/smoke.elf",
+      "build_artifact": ".remu/portfolio-smoke/hazard3-build.json",
+      "build_provenance_sha256": "74d98c59a7e787994d27b0e6d1eb3778f1e9ca4fdde1ead8bcc51990e63c6a56",
+      "elf": ".remu/portfolio-smoke/hazard3/smoke.elf",
       "elf_sha256": "0dd19dc8ca2cce47d7941a1b06f0124a6df022d203ca2b6568ab5b954ac9fcfe",
-      "result_artifact": ".renvo/portfolio-smoke/hazard3-extensions-run.json",
-      "result_sha256": "6e03dee7cfd13200da24b75790c40d57d85b6247977febe199fda6dbbd350223",
+      "result_artifact": ".remu/portfolio-smoke/hazard3-extensions-run.json",
+      "result_sha256": "d81b5c0629f80335ff62f5bf5bd681c26b559c6b4774c1d625e585127d520ded",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -155,7 +155,7 @@
         "time": 58,
         "events": 0
       },
-      "trace_digest": "b8823d843eabaf341ee52b230b0d16eb071fa030e6fd7dc7b24ca1400c0e954a",
+      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
       "result": "pass"
     }
   ],

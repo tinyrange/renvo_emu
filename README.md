@@ -1,7 +1,11 @@
-# Renvo
+# Renvo Emulator
 
-Renvo is a deterministic, interpreter-first microcontroller emulation framework
-written in Rust. The initial target portfolio is:
+Renvo Emulator is a deterministic, interpreter-first microcontroller emulation
+framework written in Rust. Its short name, used by the command-line tool and
+code namespaces, is `remu`. It is a separate project from the lightweight
+[Renvo Go compiler](https://github.com/tinyrange/renvo).
+
+The initial target portfolio is:
 
 - WCH CH32V003
 - WCH CH32V006
@@ -27,7 +31,7 @@ The generated six-target support, provenance and known-gap dashboard is
 
 ## License
 
-Renvo is available under either the Apache License 2.0 or the MIT License, at
+Renvo Emulator is available under either the Apache License 2.0 or the MIT License, at
 your option. See `LICENSE`, `LICENSE-APACHE`, and `LICENSE-MIT`. Inputs fetched
 by qualification scripts retain their own terms as described in
 `THIRD_PARTY_LICENSES.md`.
@@ -80,14 +84,14 @@ On an eight-thread host, the gate dispatches independent firmware boots in
 parallel. Enforce the one-minute release budget with:
 
 ```sh
-RENVO_ACCEPTANCE_MAX_SECONDS=60 scripts/qualify-micropython.sh
+REMU_ACCEPTANCE_MAX_SECONDS=60 scripts/qualify-micropython.sh
 ```
 
 An exhaustive stress mode reruns both the comprehensive and system scenarios
 and compares the resulting evidence directly:
 
 ```sh
-RENVO_CLEAN_REPEATS=2 RENVO_SYSTEM_REPEATS=2 scripts/qualify-micropython.sh
+REMU_CLEAN_REPEATS=2 REMU_SYSTEM_REPEATS=2 scripts/qualify-micropython.sh
 ```
 
 Raw-REPL script runs retain their conservative instruction ceilings but stop
@@ -102,7 +106,7 @@ for that plan.
 
 ## Toolchain isolation
 
-Renvo itself builds with the Rust toolchain pinned by `rust-toolchain.toml`.
+Renvo Emulator itself builds with the Rust toolchain pinned by `rust-toolchain.toml`.
 Firmware corpus cases are compiled only in pinned Docker containers. The corpus
 runner records the immutable image ID, command, target, flags, and input hashes
 with every build artifact.
@@ -120,7 +124,7 @@ cargo fmt --all --check
 List the source-linked portfolio manifests:
 
 ```sh
-cargo run -p renvo-cli -- targets
+cargo run -p remu-cli -- targets
 ```
 
 Bootstrap the local compiler images once, then compile firmware only through
@@ -128,12 +132,12 @@ the isolated corpus runner:
 
 ```sh
 scripts/bootstrap-toolchains.sh
-cargo run -p renvo-cli -- corpus build \
+cargo run -p remu-cli -- corpus build \
   --toolchain toolchains/riscv-gcc-rv32ec.toml \
   --source corpus/smoke/riscv \
-  --output .renvo/smoke-rv32ec \
+  --output .remu/smoke-rv32ec \
   --target ch32v003 \
-  --artifact .renvo/smoke-rv32ec-build.json \
+  --artifact .remu/smoke-rv32ec-build.json \
   -- -O2 -Wl,-T,link.ld -o /workspace/out/smoke.elf start.S main.c
 ```
 
@@ -141,7 +145,7 @@ Toolchain TOMLs record a reviewed image ID and a locally buildable fallback
 tag. The runner resolves either one to an immutable ID before execution and
 records that ID in the build artifact. Corpus containers run with no network,
 no capabilities, a read-only root filesystem, and explicit resource limits.
-Renvo currently executes compiler smoke ELFs for
+Renvo Emulator currently executes compiler smoke ELFs for
 CH32V003, CH32V006, ESP32-C6, RP2350 Hazard3, RP2040 Cortex-M0+, and RP2350
 Cortex-M33. These are direct-load functional baselines; the target manifests
 state the incomplete ISA, interrupt, boot, and peripheral surfaces explicitly.
@@ -151,12 +155,12 @@ Espressif compiler image.
 Run an ELF and produce both JSON and VCD:
 
 ```sh
-cargo run -p renvo-cli -- run \
+cargo run -p remu-cli -- run \
   --target ch32v003 \
-  --elf .renvo/smoke-rv32ec/smoke.elf \
+  --elf .remu/smoke-rv32ec/smoke.elf \
   --max-instructions 100000 \
-  --vcd .renvo/smoke-rv32ec/pins.vcd \
-  --result .renvo/smoke-rv32ec/run.json
+  --vcd .remu/smoke-rv32ec/pins.vcd \
+  --result .remu/smoke-rv32ec/run.json
 ```
 
 Direct ESP32-C6 ELF execution is an architectural/compiler oracle; it cannot by
@@ -165,7 +169,7 @@ the application binary produced by `esptool.py elf2image` to check the image
 layout against the ELF before execution:
 
 ```sh
-cargo run -p renvo-cli -- run \
+cargo run -p remu-cli -- run \
   --target esp32c6 \
   --elf build/firmware.elf \
   --esp-app-image build/firmware.bin \
@@ -183,7 +187,7 @@ the emulator runs. It does not retain the complete access history in memory;
 coverage retains only its unique instruction-address set.
 
 Every exposed target also accepts its deployable flash artifact through
-`renvo firmware boot`. Format detection uses container magic for UF2 and ESP
+`remu firmware boot`. Format detection uses container magic for UF2 and ESP
 images, a leading `:` for Intel HEX, and otherwise treats the input as a raw
 binary rooted at the target's primary flash base.
 
@@ -199,7 +203,7 @@ binary rooted at the target's primary flash base.
 For example:
 
 ```sh
-cargo run -p renvo-cli -- firmware boot \
+cargo run -p remu-cli -- firmware boot \
   --target atmega328pb \
   --image build/firmware.hex \
   --result build/native-run.json

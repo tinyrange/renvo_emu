@@ -1,7 +1,7 @@
 # EFM8BB52F32G qualification
 
 Run `scripts/qualify-efm8bb52f32g.sh` to build the SDCC small-model corpus and
-original Renvo register fixtures in the pinned, network-isolated container,
+original Renvo Emulator register fixtures in the pinned, network-isolated container,
 then execute the generated Intel HEX on the EFM8 machine.
 
 The gate covers all legal base MCS-51 opcodes, SDCC startup/calling convention,

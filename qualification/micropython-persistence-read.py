@@ -1,9 +1,9 @@
-"""Verify state written by a separate Renvo process and then clean it up."""
+"""Verify state written by a separate Renvo Emulator process and then clean it up."""
 
 import os
 
 
-path = "/.renvo-persistent-state"
+path = "/.remu-persistent-state"
 expected = bytes([((index * 73) ^ (index >> 1) ^ 0xA5) & 0xFF for index in range(1024)])
 
 assert path.rsplit("/", 1)[1] in os.listdir("/")
@@ -15,4 +15,4 @@ os.remove(path)
 if hasattr(os, "sync"):
     os.sync()
 
-print("RENVO_PERSIST_READ_OK", len(observed), hex(sum(observed) & 0xFFFFFFFF))
+print("REMU_PERSIST_READ_OK", len(observed), hex(sum(observed) & 0xFFFFFFFF))

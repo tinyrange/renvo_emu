@@ -1,5 +1,5 @@
-#ifndef RENVO_ESP_CHIP_INFO_H
-#define RENVO_ESP_CHIP_INFO_H
+#ifndef REMU_ESP_CHIP_INFO_H
+#define REMU_ESP_CHIP_INFO_H
 #include <stdint.h>
 typedef struct {
     uint32_t features;

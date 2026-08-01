@@ -1,6 +1,6 @@
-#ifndef RENVO_STDIO_H
-#define RENVO_STDIO_H
-typedef struct renvo_file FILE;
+#ifndef REMU_STDIO_H
+#define REMU_STDIO_H
+typedef struct remu_file FILE;
 #ifndef NULL
 #define NULL ((void *)0)
 #endif

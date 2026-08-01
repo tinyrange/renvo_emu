@@ -2,7 +2,7 @@
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-limit=${RENVO_RUST_FILE_LINE_LIMIT:-1500}
+limit=${REMU_RUST_FILE_LINE_LIMIT:-1500}
 failures=0
 
 find "$repo_root/crates" -path '*/src/*.rs' -type f -print |

@@ -5,14 +5,14 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 . scripts/lib/toolchain-images.sh
 
-image=$(resolve_toolchain_image sha256:744a8f397347c3a5b0a6448e55e8257f69aa24c51ecacc3be49c37284719ef7c renvo-xc8:4.00-pic16f1xxxx-1.31.465)
-artifact_root=${PIC16F15376_ARTIFACT_ROOT:-.renvo/qualification/pic16f15376}
+image=$(resolve_toolchain_image sha256:744a8f397347c3a5b0a6448e55e8257f69aa24c51ecacc3be49c37284719ef7c remu-xc8:4.00-pic16f1xxxx-1.31.465)
+artifact_root=${PIC16F15376_ARTIFACT_ROOT:-.remu/qualification/pic16f15376}
 toolchain=toolchains/xc8-pic16f15376.toml
 
 docker image inspect "$image" >/dev/null
-cargo build -q -p renvo-cli
-cargo test -q -p renvo-cpu-pic16 -p renvo-image
-renvo=target/debug/renvo
+cargo build -q -p remu-cli
+cargo test -q -p remu-cpu-pic16 -p remu-image
+remu=target/debug/remu
 mkdir -p "$artifact_root"
 
 expected_uart='[80,73,67,49,54,70,49,53,51,55,54,58,79,75,10,73,82,81,10]'
@@ -21,7 +21,7 @@ for optimization in O0 Os O2; do
     build="$artifact_root/build-$optimization"
     run="$artifact_root/run-$optimization"
     mkdir -p "$build" "$run"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source corpus/smoke/pic16f15376 \
         --output "$build" \
@@ -34,7 +34,7 @@ for optimization in O0 Os O2; do
         -v "$repo_root/$build:/workspace/out" \
         "$image" pic-objdump -d -S /workspace/out/smoke.elf \
         >"$build/smoke.disasm"
-    "$renvo" run \
+    "$remu" run \
         --target pic16f15376 \
         --hex "$build/smoke.hex" \
         --max-instructions 30000 \
@@ -51,7 +51,7 @@ for optimization in O0 Os O2; do
 done
 
 mkdir -p "$artifact_root/run-O2-repeat"
-"$renvo" run \
+"$remu" run \
     --target pic16f15376 \
     --hex "$artifact_root/build-O2/smoke.hex" \
     --max-instructions 30000 \
@@ -74,7 +74,7 @@ jq -e '.architecture == "Pic16Enhanced" and .fetch_accesses > 100 and .unique_ad
 
 isa_build="$artifact_root/isa-build"
 mkdir -p "$isa_build"
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/pic16f15376/isa \
     --output "$isa_build" \
@@ -89,20 +89,20 @@ test "$(awk '$1 ~ /^[0-9]+$/ && $1 >= 7 && $1 <= 55 { count++ } END { print coun
 fixture_build="$artifact_root/register-timer0-build"
 fixture_run="$artifact_root/register-timer0-run"
 mkdir -p "$fixture_build" "$fixture_run"
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/pic16f15376/fixture \
     --output "$fixture_build" \
     --target pic16f15376 \
     --artifact "$artifact_root/register-timer0-build.json" \
-    -- -Os renvo_timer0.c \
+    -- -Os remu_timer0.c \
     -Wl,-Map=/workspace/out/timer0.map \
     -o /workspace/out/timer0.elf
 docker run --rm --network=none \
     -v "$repo_root/$fixture_build:/workspace/out" \
     "$image" pic-objdump -d -S /workspace/out/timer0.elf \
     >"$fixture_build/timer0.disasm"
-"$renvo" run \
+"$remu" run \
     --target pic16f15376 \
     --hex "$fixture_build/timer0.hex" \
     --max-instructions 30000 \

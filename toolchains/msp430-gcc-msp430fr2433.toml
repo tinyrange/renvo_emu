@@ -1,6 +1,6 @@
 name = "ti-msp430-gcc-9.3.1.11-support-1.212"
 image = "sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2"
-local_image = "renvo/msp430-gcc:local"
+local_image = "remu/msp430-gcc:local"
 program = "msp430-elf-gcc"
 args = [
     "-mmcu=msp430fr2433",

@@ -1,6 +1,6 @@
 """External GPIO qualification through the official MicroPython API.
 
-Renvo's host drives pin 0 high and pin 1 low at virtual tick zero.  This
+Renvo Emulator's host drives pin 0 high and pin 1 low at virtual tick zero.  This
 workload is delivered through the normal raw REPL and observes those resolved
 net values using only public ``machine.Pin`` operations.
 """
@@ -29,4 +29,4 @@ states.append(output.value())
 if states != [0, 1, 0]:
     raise AssertionError("GPIO output helpers: {}".format(states))
 
-print("RENVO_GPIO_INPUT_OK", high, low, "".join(str(value) for value in states))
+print("REMU_GPIO_INPUT_OK", high, low, "".join(str(value) for value in states))

@@ -1,0 +1,30 @@
+[package]
+name = "remu-machines"
+description = "Microcontroller and board models for Renvo Emulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+md-5.workspace = true
+remu-bus.workspace = true
+remu-core.workspace = true
+remu-cpu-arm.workspace = true
+remu-cpu-avr.workspace = true
+remu-cpu-msp430.workspace = true
+remu-cpu-mcs51.workspace = true
+remu-cpu-pic16.workspace = true
+remu-cpu-riscv.workspace = true
+remu-cpu-xtensa.workspace = true
+remu-devices.workspace = true
+remu-image.workspace = true
+remu-signals.workspace = true
+remu-trace.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

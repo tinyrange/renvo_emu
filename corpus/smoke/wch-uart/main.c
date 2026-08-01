@@ -15,7 +15,7 @@ static void putc(unsigned char byte)
 
 int main(void)
 {
-    static const unsigned char message[] = "RENVO-WCH\n";
+    static const unsigned char message[] = "REMU-WCH\n";
     RCC_APB2PCENR |= 1u << 14;
     USART1_BRR = 0x01a1u;
     USART1_CTLR1 = (1u << 13) | (1u << 3);

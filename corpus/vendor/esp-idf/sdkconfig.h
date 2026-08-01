@@ -1,6 +1,6 @@
-#ifndef RENVO_SDKCONFIG_H
-#define RENVO_SDKCONFIG_H
+#ifndef REMU_SDKCONFIG_H
+#define REMU_SDKCONFIG_H
 #ifndef CONFIG_IDF_TARGET
-#define CONFIG_IDF_TARGET "Renvo"
+#define CONFIG_IDF_TARGET "Renvo Emulator"
 #endif
 #endif

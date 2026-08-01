@@ -1,0 +1,16 @@
+[package]
+name = "remu-cpu-mcs51"
+description = "Reusable interpreted MCS-51 CPU for Renvo Emulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+remu-bus.workspace = true
+remu-core.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

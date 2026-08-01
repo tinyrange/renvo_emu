@@ -3,18 +3,18 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
-artifact_root=${RENVO_BOARD_ARTIFACT_ROOT:-.renvo/qualification/board-models}
+artifact_root=${REMU_BOARD_ARTIFACT_ROOT:-.remu/qualification/board-models}
 mkdir -p "$artifact_root"
 
-cargo build -p renvo-cli --quiet
-target/debug/renvo board \
+cargo build -p remu-cli --quiet
+target/debug/remu board \
     --file qualification/m5stack-nanoc6-sgp30.star \
     --load-root . \
     --artifact "$artifact_root/result.json" \
     --vcd "$artifact_root/signals.vcd"
 
 jq -e '
-    .schema == "renvo.board-simulation.v1" and
+    .schema == "remu.board-simulation.v1" and
     .board == "m5stack_nanoc6" and
     .target == "esp32c6" and
     .result == "pass" and
@@ -42,7 +42,7 @@ grep -q '\$scope module m5stack_nanoc6' "$artifact_root/signals.vcd"
 grep -q '\$scope module grove' "$artifact_root/signals.vcd"
 grep -q '\$scope module air_quality' "$artifact_root/signals.vcd"
 
-target/debug/renvo board \
+target/debug/remu board \
     --file qualification/m5stack-nanoc6-sgp30.star \
     --load-root . \
     --artifact "$artifact_root/replay.json" \

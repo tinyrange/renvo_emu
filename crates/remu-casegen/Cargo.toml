@@ -1,0 +1,12 @@
+[package]
+name = "remu-casegen"
+description = "Deterministic generator for Renvo Emulator's portable C conformance corpus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

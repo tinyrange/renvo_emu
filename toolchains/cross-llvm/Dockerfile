@@ -12,7 +12,7 @@ RUN apt-get update \
         lld-18=1:18.1.3-1ubuntu1 \
     && rm -rf /var/lib/apt/lists/*
 
-LABEL org.opencontainers.image.title="Renvo freestanding cross-LLVM toolchains"
+LABEL org.opencontainers.image.title="Renvo Emulator freestanding cross-LLVM toolchains"
 LABEL org.opencontainers.image.source="toolchains/cross-llvm/Dockerfile"
 
 WORKDIR /workspace/src

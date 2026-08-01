@@ -5,7 +5,7 @@
 .type _start, %function
 .thumb_func
 _start:
-    bl renvo_case
+    bl remu_case
     ldr r1, =0xfffffff0
     str r0, [r1]
 1:

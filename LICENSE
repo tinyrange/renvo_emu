@@ -1,12 +1,12 @@
-Renvo is licensed, at your option, under either:
+Renvo Emulator is licensed, at your option, under either:
 
 * the Apache License, Version 2.0 (LICENSE-APACHE); or
 * the MIT License (LICENSE-MIT).
 
 Unless you explicitly state otherwise, any contribution intentionally
-submitted for inclusion in Renvo is offered under the same dual-license terms.
+submitted for inclusion in Renvo Emulator is offered under the same dual-license terms.
 
 Files that carry a different license notice are governed by that notice.
 Third-party firmware, compiler archives, SDK examples, and other inputs fetched
-by qualification scripts are not part of Renvo and remain subject to their
+by qualification scripts are not part of Renvo Emulator and remain subject to their
 respective owners' terms. See THIRD_PARTY_LICENSES.md.

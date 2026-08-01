@@ -1,6 +1,6 @@
 name = "mplab-xc8-4.00-pic16f1xxxx-dfp-1.31.465"
 image = "sha256:744a8f397347c3a5b0a6448e55e8257f69aa24c51ecacc3be49c37284719ef7c"
-local_image = "renvo-xc8:4.00-pic16f1xxxx-1.31.465"
+local_image = "remu-xc8:4.00-pic16f1xxxx-1.31.465"
 program = "xc8-cc"
 args = [
     "-mcpu=16F15376",

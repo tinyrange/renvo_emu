@@ -1,17 +1,17 @@
 # CoreMark qualification
 
-Renvo runs the upstream [EEMBC CoreMark](https://github.com/eembc/coremark)
+Renvo Emulator runs the upstream [EEMBC CoreMark](https://github.com/eembc/coremark)
 workload on all six initial MCUs. RP2350 is tested in both Cortex-M33 and
 Hazard3 modes, giving seven execution profiles.
 
 ## Results
 
-This snapshot was generated on 31 July 2026 with a release build of Renvo on
+This snapshot was generated on 31 July 2026 with a release build of Renvo Emulator on
 an Intel Core i7-1165G7 host. Each standard performance result used 250
 iterations and the required 2,000-byte dataset. The score is the number of
 emulated CoreMark iterations completed per host wall-clock second.
 
-| MCU | Emulated CPU | Standard result | Host iterations/s | Iterations/M Renvo actions |
+| MCU | Emulated CPU | Standard result | Host iterations/s | Iterations/M Renvo Emulator actions |
 |---|---|---:|---:|---:|
 | CH32V003 | QingKe V2A / RV32EC | Does not fit safely | — | — |
 | CH32V006 | QingKe V2C / RV32EC | Passed | 8.879 | 1.279283 |
@@ -21,13 +21,13 @@ emulated CoreMark iterations completed per host wall-clock second.
 | ESP32-S3 | Xtensa LX7 | Passed | 17.735 | 3.495416 |
 | ESP32-C6 | RV32IMAC | Passed | 9.975 | 3.191454 |
 
-These host-calibrated scores measure Renvo interpreter throughput on the named
+These host-calibrated scores measure Renvo Emulator interpreter throughput on the named
 host. They are useful for emulator performance regression testing, but they
 are **not MCU silicon scores** and must not be compared with hardware
-CoreMark/s or submitted as EEMBC results. Renvo is functionally timed: one
+CoreMark/s or submitted as EEMBC results. Renvo Emulator is functionally timed: one
 completed instruction or architectural action advances one abstract tick.
 
-The action-normalized column is deterministic for a fixed Renvo build and
+The action-normalized column is deterministic for a fixed Renvo Emulator build and
 firmware artifact. The host column additionally includes each machine's bus
 and device-model overhead. That is why RP2350 Hazard3 and ESP32-C6 have the
 same compiled instruction stream and action count but different host scores.
@@ -41,12 +41,12 @@ Every standard profile passed both upstream seed configurations:
 | Performance | 2,000 bytes | `0, 0, 0x66` | `0xe714` | `0x1fd7` | `0x8e3a` |
 | Validation | 2,000 bytes | `0x3415, 0x3415, 0x66` | `0xe3c1` | `0x0747` | `0x8d84` |
 
-The benchmark printed `Correct operation validated` and Renvo halted with
+The benchmark printed `Correct operation validated` and Renvo Emulator halted with
 exit code zero in all twelve standard executions. Both performance and
 validation runs lasted more than ten host seconds in this snapshot.
 
 The benchmark files are byte-identical to Git blobs at EEMBC commit
-`1f483d5b8316753a742cbf5590caf5bd0a4e4777`. Renvo supplies only the permitted
+`1f483d5b8316753a742cbf5590caf5bd0a4e4777`. Renvo Emulator supplies only the permitted
 port, startup, timer/UART/exit facade, and linker definitions. GCC compilation
 runs in pinned, network-isolated Docker images:
 
@@ -56,7 +56,7 @@ runs in pinned, network-isolated Docker images:
   `sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f`
 
 CoreMark exposed one missing ESP32-S3 instruction during qualification.
-Renvo now implements Xtensa `MULA.AA.LL` signed low-halfword multiplication
+Renvo Emulator now implements Xtensa `MULA.AA.LL` signed low-halfword multiplication
 with 40-bit accumulation, covered by a CPU unit test.
 
 ## CH32V003
@@ -69,7 +69,7 @@ leaving 16 bytes for the stack. The qualification linker requires a modest
 For behavioral coverage, CH32V003 instead passes CoreMark's upstream
 1,200-byte profile-generation workload with the expected `0x6a79`,
 `0x5608`, and `0xe5a4` algorithm CRCs. Its observed host throughput was
-32.173 iterations/s and 4.614803 iterations per million Renvo actions. This
+32.173 iterations/s and 4.614803 iterations per million Renvo Emulator actions. This
 is a reduced, differently seeded workload and is not a standard or
 cross-profile-comparable CoreMark result.
 
@@ -89,8 +89,8 @@ The script:
 4. proves the CH32V003 standard image violates the stack reserve;
 5. measures host elapsed time and validates all reported CRCs; and
 6. writes complete build, ELF, transcript, run, hash, container, and host
-   provenance under `.renvo/qualification/coremark/`.
+   provenance under `.remu/qualification/coremark/`.
 
 The latest machine-readable result is
-`.renvo/qualification/coremark/results.json`. Set `COREMARK_ITERATIONS` to a
+`.remu/qualification/coremark/results.json`. Set `COREMARK_ITERATIONS` to a
 larger value if a faster host completes a standard run in under ten seconds.

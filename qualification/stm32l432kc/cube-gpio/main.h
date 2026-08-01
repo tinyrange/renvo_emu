@@ -1,5 +1,5 @@
-#ifndef RENVO_STM32_CUBE_MAIN_H
-#define RENVO_STM32_CUBE_MAIN_H
+#ifndef REMU_STM32_CUBE_MAIN_H
+#define REMU_STM32_CUBE_MAIN_H
 
 #include "stm32l4xx_hal.h"
 

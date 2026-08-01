@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal standards-level GDB RSP client used by the Renvo qualification."""
+"""Minimal standards-level GDB RSP client used by the Renvo Emulator qualification."""
 
 import json
 import socket
@@ -66,7 +66,7 @@ def main() -> None:
     with open(transcript_path, "w", encoding="utf-8") as output:
         json.dump(
             {
-                "schema": "renvo.gdb-client-transcript.v1",
+                "schema": "remu.gdb-client-transcript.v1",
                 "architecture": expected_architecture,
                 "target_xml_size": len(xml) - 1,
                 "packets": transcript,

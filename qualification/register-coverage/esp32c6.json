@@ -1,5 +1,5 @@
 {
-  "schema": "renvo.register-coverage.v1",
+  "schema": "remu.register-coverage.v1",
   "target": "esp32c6",
   "cpu_profiles": [
     "RV32IMAC"
@@ -8,19 +8,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "f8c40e764cb5342da8458cc36da4c57a568265f9af33cbc48a25feace583bf7d"
+    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
   },
   "proofs": [
     {
       "id": "esp32c6",
-      "result": ".renvo/portfolio-smoke/esp32c6-run.json",
-      "bus_log": ".renvo/portfolio-smoke/esp32c6-bus.json",
-      "result_sha256": "9aec3942cb9b4f1fbacfb27b40ae7826049e9b3e8276974941e287265bbe619c",
-      "bus_log_sha256": "a026755a6a9c39605a208ed2e37525c8095a1e77346abf843ef714703a543067",
+      "result": ".remu/portfolio-smoke/esp32c6-run.json",
+      "bus_log": ".remu/portfolio-smoke/esp32c6-bus.json",
+      "result_sha256": "8b5520556136966e026d4e33e4354edc66178025283a2dd71375c2ef07637cd2",
+      "bus_log_sha256": "02445220648ec3f972c060c34110ef1a39d42071d4ed695826d5b5e1469fe862",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "68d2ed387b759c3e5f2c445e96ebfc8c3fb01ac920028dd52a690f5f2350e730",
+        "trace_digest": "cfe2b0394818d6dc9884894858625d53c909d90df7c370108e7d9be5c0a42931",
         "stats": {
           "instructions": 11,
           "time": 11,
@@ -30,17 +30,17 @@
     },
     {
       "id": "esp32c6-uart",
-      "result": ".renvo/portfolio-smoke/esp32c6-uart-run.json",
-      "bus_log": ".renvo/portfolio-smoke/esp32c6-uart-bus.json",
-      "result_sha256": "8a014f6d505fe9b695317a45a161acb43b82377bc50f5278761eb38a272fed2e",
-      "bus_log_sha256": "2ee97a24c34ba16703645e7dd56b8d204e57f8abe9680b498383dc17b9a1e47e",
+      "result": ".remu/portfolio-smoke/esp32c6-uart-run.json",
+      "bus_log": ".remu/portfolio-smoke/esp32c6-uart-bus.json",
+      "result_sha256": "db66b0a08ebb33a60c58fd0a8a41214f6da21d2c4d46d8e55d324fb7d3a9c9ad",
+      "bus_log_sha256": "643d34d4c31ec4c4fbf9fb1cd03bf2bd75721b1c1c3aff74c1e6bf85218aeea2",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "de663e0c67526e3c8c3bf8ce62f4c724e07193c28cf7b23600dc0accafbbc46a",
+        "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
         "stats": {
-          "instructions": 26,
-          "time": 26,
+          "instructions": 24,
+          "time": 24,
           "events": 0
         }
       }
@@ -86,7 +86,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 37
+      "access_count": 35
     },
     {
       "region": "esp32c6.interrupt-controller-cpu0",
@@ -97,7 +97,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 37
+      "access_count": 35
     },
     {
       "region": "esp32c6.interrupt-priority",
@@ -108,7 +108,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 37
+      "access_count": 35
     },
     {
       "region": "esp32c6.systimer",
@@ -119,7 +119,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 37
+      "access_count": 35
     },
     {
       "region": "esp32c6.systimer",
@@ -130,7 +130,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 37
+      "access_count": 35
     },
     {
       "region": "esp32c6.systimer",
@@ -141,7 +141,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 37
+      "access_count": 35
     },
     {
       "region": "esp32c6.uart0",
@@ -152,7 +152,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 10
+      "access_count": 9
     }
   ],
   "additional_evidence": [

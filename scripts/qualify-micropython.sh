@@ -3,10 +3,10 @@ set -eu
 
 gate_started_ns=$(date +%s%N)
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-renvo=${RENVO_BIN:-"$repo_root/target/release/renvo"}
-firmware_root=${RENVO_FIRMWARE_CACHE:-"$repo_root/.renvo/firmware/micropython-v1.28.0"}
-manifest=${RENVO_FIRMWARE_MANIFEST:-"$repo_root/firmware/micropython-v1.28.0.toml"}
-artifact_root=${RENVO_ACCEPTANCE_ROOT:-"$repo_root/.renvo/qualification/acceptance"}
+remu=${REMU_BIN:-"$repo_root/target/release/remu"}
+firmware_root=${REMU_FIRMWARE_CACHE:-"$repo_root/.remu/firmware/micropython-v1.28.0"}
+manifest=${REMU_FIRMWARE_MANIFEST:-"$repo_root/firmware/micropython-v1.28.0.toml"}
+artifact_root=${REMU_ACCEPTANCE_ROOT:-"$repo_root/.remu/qualification/acceptance"}
 workload="$repo_root/qualification/micropython-comprehensive.py"
 soft_reset_workload="$repo_root/qualification/micropython-soft-reset.py"
 thread_workload="$repo_root/qualification/micropython-thread-probe.py"
@@ -22,12 +22,12 @@ scenario_records="$run_root/system-records.tsv"
 : > "$records"
 : > "$scenario_records"
 
-jobs=${RENVO_ACCEPTANCE_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n')}
-clean_repeats=${RENVO_CLEAN_REPEATS:-1}
-system_repeats=${RENVO_SYSTEM_REPEATS:-1}
+jobs=${REMU_ACCEPTANCE_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n')}
+clean_repeats=${REMU_CLEAN_REPEATS:-1}
+system_repeats=${REMU_SYSTEM_REPEATS:-1}
 case "$jobs" in
     ''|*[!0-9]*|0)
-        echo "RENVO_ACCEPTANCE_JOBS must be a positive integer" >&2
+        echo "REMU_ACCEPTANCE_JOBS must be a positive integer" >&2
         exit 1
         ;;
 esac
@@ -38,14 +38,14 @@ fi
 case "$clean_repeats" in
     1|2) ;;
     *)
-        echo "RENVO_CLEAN_REPEATS must be 1 or 2" >&2
+        echo "REMU_CLEAN_REPEATS must be 1 or 2" >&2
         exit 1
         ;;
 esac
 case "$system_repeats" in
     1|2) ;;
     *)
-        echo "RENVO_SYSTEM_REPEATS must be 1 or 2" >&2
+        echo "REMU_SYSTEM_REPEATS must be 1 or 2" >&2
         exit 1
         ;;
 esac
@@ -95,12 +95,12 @@ wait_for_jobs()
     fi
 }
 
-if [ ! -x "$renvo" ]
+if [ ! -x "$remu" ]
 then
-    "$HOME/.cargo/bin/cargo" build --release --package renvo-cli
+    "$HOME/.cargo/bin/cargo" build --release --package remu-cli
 fi
 
-"$renvo" firmware verify \
+"$remu" firmware verify \
     --manifest "$manifest" \
     --cache "$firmware_root" \
     --artifact "$run_root/firmware.json"
@@ -119,10 +119,10 @@ validate_run()
     jq -er '.usb | implode' "$result" > "$transcript"
     jq -e '.reason == "HostInputComplete" or .reason == "InstructionLimit" or .reason == "Halted"' "$result" >/dev/null
     grep -aF 'MicroPython v1.28.0 on 2026-04-06;' "$transcript" >/dev/null
-    case_count=$(grep -ao 'RENVO_CASE ' "$transcript" | wc -l)
+    case_count=$(grep -ao 'REMU_CASE ' "$transcript" | wc -l)
     test "$case_count" -eq 15
-    grep -aF "RENVO_QUAL_DIGEST $expected_digest" "$transcript" >/dev/null
-    grep -aF 'RENVO_QUAL_OK 15' "$transcript" >/dev/null
+    grep -aF "REMU_QUAL_DIGEST $expected_digest" "$transcript" >/dev/null
+    grep -aF 'REMU_QUAL_OK 15' "$transcript" >/dev/null
     if grep -aE 'Traceback|MemoryError|AssertionError' "$transcript" >/dev/null
     then
         echo "$profile repeat $repeat contains a Python failure" >&2
@@ -163,7 +163,7 @@ run_profile_repeat()
     mkdir -p "$profile_root"
     echo "MicroPython qualification: $profile repeat $repeat/$clean_repeats"
 
-    set -- "$renvo" firmware boot \
+    set -- "$remu" firmware boot \
         --target "$target" \
         --image "$image" \
         --usb-script "$workload" \
@@ -216,7 +216,7 @@ run_system_phase()
     mkdir -p "$phase_root"
 
     echo "MicroPython system qualification: $profile $scenario $phase repeat $repeat/$system_repeats"
-    set -- "$renvo" firmware boot \
+    set -- "$remu" firmware boot \
         --target "$target" \
         --image "$image" \
         --usb-script "$script" \
@@ -295,17 +295,17 @@ run_io_persistence_pair()
     run_system_phase \
         "$profile" "$target" "$cpu" "$filename" "$limit" \
         io-persistence "$repeat" write "$timer_workload" \
-        "RENVO_PERSIST_WRITE_OK 1024 0x1fe00" "$pair_root/flash.bin" gpio-input \
+        "REMU_PERSIST_WRITE_OK 1024 0x1fe00" "$pair_root/flash.bin" gpio-input \
         "$gpio_input_workload" "$persistence_write_workload"
     transcript="$pair_root/write/transcript.txt"
-    grep -aF 'RENVO_TIMER_PERIODIC_OK' "$transcript" >/dev/null
-    grep -aF 'RENVO_TIMER_ONE_SHOT_OK 1' "$transcript" >/dev/null
-    grep -aF 'RENVO_TIMER_OK' "$transcript" >/dev/null
-    grep -aF 'RENVO_GPIO_INPUT_OK 1 0 010' "$transcript" >/dev/null
+    grep -aF 'REMU_TIMER_PERIODIC_OK' "$transcript" >/dev/null
+    grep -aF 'REMU_TIMER_ONE_SHOT_OK 1' "$transcript" >/dev/null
+    grep -aF 'REMU_TIMER_OK' "$transcript" >/dev/null
+    grep -aF 'REMU_GPIO_INPUT_OK 1 0 010' "$transcript" >/dev/null
     run_system_phase \
         "$profile" "$target" "$cpu" "$filename" "$limit" \
         persistence "$repeat" read "$persistence_read_workload" \
-        "RENVO_PERSIST_READ_OK 1024 0x1fe00" "$pair_root/flash.bin"
+        "REMU_PERSIST_READ_OK 1024 0x1fe00" "$pair_root/flash.bin"
 }
 
 schedule_profile_jobs()
@@ -396,35 +396,35 @@ schedule_io_persistence_jobs pico2-arm rp2350 arm \
 
 schedule_phase_repeats atoms3-xtensa esp32s3 "" \
     M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2 80000000 \
-    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+    soft-reset "$soft_reset_workload" "REMU_SOFT_RESET_OK 84"
 schedule_phase_repeats atoms3-xtensa esp32s3 "" \
     M5STACK_ATOMS3_LITE-20260406-v1.28.0.uf2 80000000 \
-    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+    thread "$thread_workload" "REMU_THREAD_OK 0xd062b2b8 True"
 
 schedule_phase_repeats nanoc6-riscv esp32c6 "" \
     M5STACK_NANOC6-20260406-v1.28.0.bin 60000000 \
-    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+    thread "$thread_workload" "REMU_THREAD_OK 0xd062b2b8 True"
 schedule_phase_repeats nanoc6-riscv esp32c6 "" \
     M5STACK_NANOC6-20260406-v1.28.0.bin 60000000 \
-    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+    soft-reset "$soft_reset_workload" "REMU_SOFT_RESET_OK 84"
 schedule_phase_repeats pico-arm rp2040 arm \
     RPI_PICO-20260406-v1.28.0.uf2 60000000 \
-    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+    thread "$thread_workload" "REMU_THREAD_OK 0xd062b2b8 True"
 schedule_phase_repeats pico2-riscv rp2350 riscv \
     RPI_PICO2-RISCV-20260406-v1.28.0.uf2 110000000 \
-    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+    thread "$thread_workload" "REMU_THREAD_OK 0xd062b2b8 True"
 schedule_phase_repeats pico2-arm rp2350 arm \
     RPI_PICO2-20260406-v1.28.0.uf2 60000000 \
-    thread "$thread_workload" "RENVO_THREAD_OK 0xd062b2b8 True"
+    thread "$thread_workload" "REMU_THREAD_OK 0xd062b2b8 True"
 schedule_phase_repeats pico-arm rp2040 arm \
     RPI_PICO-20260406-v1.28.0.uf2 60000000 \
-    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+    soft-reset "$soft_reset_workload" "REMU_SOFT_RESET_OK 84"
 schedule_phase_repeats pico2-riscv rp2350 riscv \
     RPI_PICO2-RISCV-20260406-v1.28.0.uf2 110000000 \
-    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+    soft-reset "$soft_reset_workload" "REMU_SOFT_RESET_OK 84"
 schedule_phase_repeats pico2-arm rp2350 arm \
     RPI_PICO2-20260406-v1.28.0.uf2 60000000 \
-    soft-reset "$soft_reset_workload" "RENVO_SOFT_RESET_OK 84"
+    soft-reset "$soft_reset_workload" "REMU_SOFT_RESET_OK 84"
 wait_for_jobs
 
 tab=$(printf '\t')
@@ -470,7 +470,7 @@ then
     done
 fi
 
-renvo_sha=$(sha256sum "$renvo" | cut -d ' ' -f 1)
+remu_sha=$(sha256sum "$remu" | cut -d ' ' -f 1)
 workload_sha=$(sha256sum "$workload" | cut -d ' ' -f 1)
 soft_reset_workload_sha=$(sha256sum "$soft_reset_workload" | cut -d ' ' -f 1)
 thread_workload_sha=$(sha256sum "$thread_workload" | cut -d ' ' -f 1)
@@ -485,7 +485,7 @@ jq -Rn \
     --slurpfile firmware "$run_root/firmware.json" \
     --slurpfile mquickjs "$run_root/mquickjs/summary.json" \
     --rawfile system_records "$scenario_records" \
-    --arg renvo_sha256 "$renvo_sha" \
+    --arg remu_sha256 "$remu_sha" \
     --arg workload_sha256 "$workload_sha" \
     --arg soft_reset_workload_sha256 "$soft_reset_workload_sha" \
     --arg thread_workload_sha256 "$thread_workload_sha" \
@@ -525,7 +525,7 @@ jq -Rn \
         instructions: (.[10] | split(":")[0] | tonumber),
         events: (.[10] | split(":")[1] | tonumber)
     })) as $system_runs | {
-        schema: "renvo.micropython-acceptance.v4",
+        schema: "remu.micropython-acceptance.v4",
         status: "passed",
         offline: true,
         release: "MicroPython v1.28.0 (2026-04-06)",
@@ -539,7 +539,7 @@ jq -Rn \
             target_ms: 60000
         },
         firmware_patches: 0,
-        renvo_sha256: $renvo_sha256,
+        remu_sha256: $remu_sha256,
         workloads: {
             comprehensive_sha256: $workload_sha256,
             soft_reset_sha256: $soft_reset_workload_sha256,
@@ -561,17 +561,17 @@ cp "$run_root/summary.json" "$artifact_root/summary.json"
 cp "$repo_root/qualification/acceptance-report.html" "$run_root/report.html"
 cp "$repo_root/qualification/acceptance-report.html" "$artifact_root/report.html"
 
-if [ -n "${RENVO_ACCEPTANCE_MAX_SECONDS:-}" ]
+if [ -n "${REMU_ACCEPTANCE_MAX_SECONDS:-}" ]
 then
-    case "$RENVO_ACCEPTANCE_MAX_SECONDS" in
+    case "$REMU_ACCEPTANCE_MAX_SECONDS" in
         ''|*[!0-9]*|0)
-            echo "RENVO_ACCEPTANCE_MAX_SECONDS must be a positive integer" >&2
+            echo "REMU_ACCEPTANCE_MAX_SECONDS must be a positive integer" >&2
             exit 1
             ;;
     esac
-    if [ "$gate_elapsed_ms" -ge "$((RENVO_ACCEPTANCE_MAX_SECONDS * 1000))" ]
+    if [ "$gate_elapsed_ms" -ge "$((REMU_ACCEPTANCE_MAX_SECONDS * 1000))" ]
     then
-        echo "MicroPython acceptance exceeded ${RENVO_ACCEPTANCE_MAX_SECONDS}s: ${gate_elapsed_ms}ms" >&2
+        echo "MicroPython acceptance exceeded ${REMU_ACCEPTANCE_MAX_SECONDS}s: ${gate_elapsed_ms}ms" >&2
         exit 1
     fi
 fi

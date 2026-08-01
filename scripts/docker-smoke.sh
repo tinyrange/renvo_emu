@@ -7,17 +7,17 @@ cd "$project_dir"
 
 cross_image=$(resolve_toolchain_image \
     sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 \
-    renvo/cross-gcc:local)
+    remu/cross-gcc:local)
 xtensa_image=$(resolve_toolchain_image \
     sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f \
-    renvo/xtensa-esp-gcc:local)
+    remu/xtensa-esp-gcc:local)
 
 docker image inspect "$cross_image" >/dev/null
 docker image inspect "$xtensa_image" >/dev/null
 
-cargo build -q -p renvo-cli
-renvo=target/debug/renvo
-artifact_root=.renvo/portfolio-smoke
+cargo build -q -p remu-cli
+remu=target/debug/remu
+artifact_root=.remu/portfolio-smoke
 mkdir -p "$artifact_root"
 
 build_case()
@@ -28,7 +28,7 @@ build_case()
     target=$4
     shift 4
     mkdir -p "$artifact_root/$name"
-    "$renvo" corpus build \
+    "$remu" corpus build \
         --toolchain "$toolchain" \
         --source "$source" \
         --output "$artifact_root/$name" \
@@ -42,7 +42,7 @@ run_case()
     name=$1
     target=$2
     elf=$3
-    "$renvo" run \
+    "$remu" run \
         --target "$target" \
         --elf "$elf" \
         --max-instructions 10000 \
@@ -126,7 +126,7 @@ build_case rp-riscv toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2
 run_case rp2350-riscv rp2350 "$artifact_root/rp-riscv/smoke.elf"
 
 mkdir -p "$artifact_root/hazard3"
-"$renvo" corpus build \
+"$remu" corpus build \
     --toolchain toolchains/riscv-gcc-hazard3.toml \
     --source corpus/smoke/hazard3 \
     --output "$artifact_root/hazard3" \
@@ -199,13 +199,13 @@ grep -q '"events": 1' "$artifact_root/riscv-timer-run.json"
 grep -q '"events": 1' "$artifact_root/arm-timer-run.json"
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v003-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v006-timer-run.json" >/dev/null
-jq -e '.uart | implode == "RENVO-WCH\n"' "$artifact_root/ch32v003-uart-run.json" >/dev/null
-jq -e '.uart | implode == "RENVO-WCH\n"' "$artifact_root/ch32v006-uart-run.json" >/dev/null
-jq -e '.exit_code == 0 and (.uart | implode == "RENVO-RP\n")' "$artifact_root/rp2040-uart-run.json" >/dev/null
-jq -e '.exit_code == 0 and (.uart | implode == "RENVO-RP\n")' "$artifact_root/rp2350-arm-uart-run.json" >/dev/null
-jq -e '.exit_code == 0 and (.uart | implode == "RENVO-RP\n")' "$artifact_root/rp2350-riscv-uart-run.json" >/dev/null
-jq -e '.exit_code == 0 and (.uart | implode == "RENVO-ESP\n")' "$artifact_root/esp32c6-uart-run.json" >/dev/null
-jq -e '.exit_code == 0 and (.uart | implode == "RENVO-ESP\n")' "$artifact_root/esp32s3-uart-run.json" >/dev/null
+jq -e '.uart | implode == "REMU-WCH\n"' "$artifact_root/ch32v003-uart-run.json" >/dev/null
+jq -e '.uart | implode == "REMU-WCH\n"' "$artifact_root/ch32v006-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2040-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-arm-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-riscv-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "REMU-ESP\n")' "$artifact_root/esp32c6-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "REMU-ESP\n")' "$artifact_root/esp32s3-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2040-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-arm-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-riscv-native-timer-run.json" >/dev/null

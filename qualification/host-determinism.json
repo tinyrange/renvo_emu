@@ -1,9 +1,9 @@
 {
-  "schema": "renvo.host-determinism.v1",
+  "schema": "remu.host-determinism.v1",
   "container_image": "rust@sha256:5c6f46a6e4472ab1ca7ba7d494e6677f2f219ebc02f32025d3986f057635ec9c",
   "rust_toolchain": "1.97.1",
-  "source_sha256": "c1415b5ca32fce1dd1ce12df63b8f13cf056365cfdfadac2507801c25d989186",
-  "fake_multicore_timer_digest": "6fdc01d7e6734b3a6674686e707a8ebdcffe0a2880c422af0fc4594a555784df",
+  "source_sha256": "5d91ce07cf6d8f823c3674513c87dc799ca56c56daa58858a72429d66ca63616",
+  "fake_multicore_timer_digest": "9eb80d6b526e771fd81cb2c94b6afc20921547ed82f1289cd531f76b0ec039e0",
   "repeats_per_platform": 64,
   "insertion_stress_variants_per_platform": 64,
   "supported_hosts": [
@@ -11,14 +11,14 @@
       "platform": "linux/amd64",
       "architecture": "amd64",
       "rust_host": "x86_64-unknown-linux-gnu",
-      "digest": "6fdc01d7e6734b3a6674686e707a8ebdcffe0a2880c422af0fc4594a555784df",
+      "digest": "9eb80d6b526e771fd81cb2c94b6afc20921547ed82f1289cd531f76b0ec039e0",
       "result": "pass"
     },
     {
       "platform": "linux/arm64",
       "architecture": "arm64",
       "rust_host": "aarch64-unknown-linux-gnu",
-      "digest": "6fdc01d7e6734b3a6674686e707a8ebdcffe0a2880c422af0fc4594a555784df",
+      "digest": "9eb80d6b526e771fd81cb2c94b6afc20921547ed82f1289cd531f76b0ec039e0",
       "result": "pass"
     }
   ]
