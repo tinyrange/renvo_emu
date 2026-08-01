@@ -15,6 +15,12 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
+ATSAMD21E18 maps SERCOM1, SERCOM2, and SERCOM3 at their native USART register
+windows (`0x42000c00`, `0x42001000`, and `0x42001400`). The functional slice
+supports the existing deterministic USART data/status/interrupt behavior for
+each instance and routes their interrupt lines 10–12. SERCOM SPI/I2C modes,
+pin muxing, receive FIFOs, and baud-rate timing remain separate work.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
