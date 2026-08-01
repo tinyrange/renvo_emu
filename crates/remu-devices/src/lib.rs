@@ -17,6 +17,8 @@ mod uart;
 pub use uart::*;
 mod pwm;
 pub use pwm::*;
+mod spi;
+pub use spi::*;
 mod wch;
 pub use wch::*;
 mod esp_usb_serial_jtag;

@@ -15,12 +15,12 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalPwm,
-    FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, Rp2040Clocks, Rp2040Pll,
+    FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
     RpAdc, RpAdcHandle, RpAdcVariant, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout,
-    RpPioVersion, SignalHub, TimerHandle, UartHandle,
+    RpPioVersion, SignalHub, SpiHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -49,6 +49,7 @@ pub struct ArmMachine {
     pub(crate) chip_uart1: UartHandle,
     pub(crate) chip_adc: RpAdcHandle,
     pub(crate) chip_pwm: PwmHandle,
+    pub(crate) chip_spis: Vec<SpiHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -124,6 +125,7 @@ impl ArmMachine {
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
         let chip_pwm;
+        let mut chip_spis = Vec::new();
         let mut pio = Vec::new();
         let chip_adc;
         let mut usb = None;
@@ -307,8 +309,6 @@ impl ArmMachine {
                 Box::new(Rp2040RegisterBank::new("rp2040.io-qspi", vec![0; 64])),
             )?;
             for (name, base) in [
-                ("rp2040.spi0", 0x4003_c000),
-                ("rp2040.spi1", 0x4004_0000),
                 ("rp2040.i2c0", 0x4004_4000),
                 ("rp2040.i2c1", 0x4004_8000),
                 ("rp2040.dma", 0x5000_0000),
@@ -416,8 +416,6 @@ impl ArmMachine {
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
             )?;
             for (name, base) in [
-                ("rp2350.spi0", 0x4008_0000),
-                ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.dma", 0x5000_0000),
@@ -595,6 +593,17 @@ impl ArmMachine {
             Box::new(pwm_device),
         )?;
         chip_pwm = pwm_handle;
+        let spi_bases = match target {
+            TargetId::Rp2040 => [0x4003_c000, 0x4004_0000],
+            TargetId::Rp2350 => [0x4008_0000, 0x4008_8000],
+            _ => unreachable!(),
+        };
+        for (index, base) in spi_bases.into_iter().enumerate() {
+            let name = format!("{target}.spi{index}");
+            let (device, handle) = FunctionalSpi::new(&name);
+            bus.map_device(name, base, 0x1000, Box::new(device))?;
+            chip_spis.push(handle);
+        }
         let pio_version = if target == TargetId::Rp2350 {
             RpPioVersion::Rp2350
         } else {
@@ -655,6 +664,7 @@ impl ArmMachine {
             chip_uart1,
             chip_adc,
             chip_pwm,
+            chip_spis,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1204,6 +1214,11 @@ impl ArmMachine {
     /// Returns the current A/B output state for one RP PWM slice.
     pub fn pwm_outputs(&self, slice: usize) -> Option<[bool; 2]> {
         self.chip_pwm.outputs(slice)
+    }
+
+    /// Returns bytes transmitted by one of the target's functional SPI controllers.
+    pub fn spi_transmitted(&self, index: usize) -> Option<Vec<u8>> {
+        self.chip_spis.get(index).map(SpiHandle::transmitted)
     }
     /// Removes configured user breakpoints and data watchpoints.
     pub fn clear_debug_stops(&mut self) {
