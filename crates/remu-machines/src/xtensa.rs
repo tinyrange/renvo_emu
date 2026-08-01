@@ -633,7 +633,7 @@ impl XtensaMachine {
         )?;
         let (chip_gpio_device, chip_gpio) = EspGpio::new(
             "esp32s3.gpio",
-            32,
+            49,
             "board.esp32s3.chip_gpio",
             signals.clone(),
         )?;
@@ -995,9 +995,11 @@ impl XtensaMachine {
         self.stop_on_usb_input_complete = enabled;
     }
 
-    /// Drives or releases one low GPIO bank pin.
+    /// Drives or releases one GPIO pin.
     pub fn set_pin(&self, pin: u8, value: Logic) -> Result<(), XtensaMachineError> {
-        self.gpio.set_input(pin, value, self.now)?;
+        if usize::from(pin) < self.gpio.pin_count() {
+            self.gpio.set_input(pin, value, self.now)?;
+        }
         self.chip_gpio.set_input(pin, value, self.now)?;
         Ok(())
     }

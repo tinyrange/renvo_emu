@@ -351,6 +351,37 @@ fn vendor_gpio_set_clear_registers_drive_signals() {
 }
 
 #[test]
+fn esp32s3_gpio_bank_one_exposes_and_drives_pin_38() {
+    let hub = SignalHub::new();
+    let (mut gpio, handle) =
+        EspGpio::new("esp32s3.gpio", 49, "board.esp32s3.chip_gpio", hub).unwrap();
+
+    assert_eq!(handle.pin_count(), 49);
+    gpio.write(0x30, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+        .unwrap();
+    gpio.write(0x14, AccessWidth::Word, 1 << 6, SimTime::from_ticks(1))
+        .unwrap();
+
+    assert_eq!(
+        gpio.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 6
+    );
+    assert_eq!(
+        gpio.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 6
+    );
+    assert_eq!(handle.resolved(38).unwrap(), Logic::One);
+    assert_eq!(
+        gpio.read(0x40, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 6
+    );
+
+    gpio.write(0x18, AccessWidth::Word, 1 << 6, SimTime::from_ticks(2))
+        .unwrap();
+    assert_eq!(handle.resolved(38).unwrap(), Logic::Zero);
+}
+
+#[test]
 fn rp2350_sio_uses_interleaved_low_and_high_gpio_registers() {
     let hub = SignalHub::new();
     let (mut sio, handle) =
