@@ -18,6 +18,28 @@ fn esp32c6_header(entry: u32, segment_count: u8) -> EspImageHeader {
     }
 }
 
+#[test]
+fn rp2350_hazard3_uart1_has_functional_transmit_registers() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    machine
+        .bus
+        .write(0x4007_8000, AccessWidth::Word, 0x5a, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.chip_uarts[1].bytes(), [0x5a]);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x4007_8018,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x90
+    );
+}
+
 fn esp32c6_elf(entry: u64, address: u64, data: Vec<u8>) -> FirmwareImage {
     FirmwareImage {
         architecture: FirmwareArchitecture::RiscV32,
