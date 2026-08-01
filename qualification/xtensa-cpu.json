@@ -1,6 +1,6 @@
 {
   "schema": "renvo.xtensa-cpu.v1",
-  "source_sha256": "658cb8109a0cc2ec2673de3d6511b313c98d4f6157d4e648fe36577e14d6d244",
+  "source_sha256": "8d8cb7924faf000ef352447007aa7f84b67bcb3cecab79bb0decaaa35a6ab476",
   "primary_sources": [
     "https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf",
     "https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/tools/idf-tools.html",

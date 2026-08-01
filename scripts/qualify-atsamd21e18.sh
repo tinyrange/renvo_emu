@@ -3,9 +3,10 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
+. scripts/lib/toolchain-images.sh
 
-image=sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736
-clang_image=sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac
+image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 renvo/cross-gcc:local)
+clang_image=$(resolve_toolchain_image sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac renvo/cross-llvm:local)
 artifact_root=${ATSAMD21_ARTIFACT_ROOT:-.renvo/qualification/atsamd21e18}
 toolchain=toolchains/arm-gcc-atsamd21e18.toml
 clang_toolchain=toolchains/arm-clang-atsamd21e18.toml

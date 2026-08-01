@@ -3,13 +3,14 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
+. scripts/lib/toolchain-images.sh
 
-image=sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb
+image=$(resolve_toolchain_image sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2 renvo/msp430-gcc:local)
 artifact_root=${MSP430FR2433_ARTIFACT_ROOT:-.renvo/qualification/msp430fr2433}
 toolchain=toolchains/msp430-gcc-msp430fr2433.toml
 
 docker image inspect "$image" >/dev/null
-PATH=/home/joshua/.cargo/bin:$PATH cargo build -q -p renvo-cli
+cargo build -q -p renvo-cli
 renvo=target/debug/renvo
 mkdir -p "$artifact_root" "$artifact_root/run-a" "$artifact_root/run-b"
 

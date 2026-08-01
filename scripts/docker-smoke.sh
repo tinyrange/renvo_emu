@@ -3,9 +3,14 @@ set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
+. scripts/lib/toolchain-images.sh
 
-cross_image=sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736
-xtensa_image=sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f
+cross_image=$(resolve_toolchain_image \
+    sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 \
+    renvo/cross-gcc:local)
+xtensa_image=$(resolve_toolchain_image \
+    sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f \
+    renvo/xtensa-esp-gcc:local)
 
 docker image inspect "$cross_image" >/dev/null
 docker image inspect "$xtensa_image" >/dev/null

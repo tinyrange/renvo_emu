@@ -29,6 +29,10 @@ pub struct ToolchainSpec {
     pub name: String,
     /// Immutable Docker image reference or image ID.
     pub image: String,
+    /// Optional locally built tag used when the recorded image ID is absent.
+    /// It is resolved to an immutable ID before the container is started.
+    #[serde(default)]
+    pub local_image: Option<String>,
     /// Compiler or build program inside the container.
     pub program: String,
     /// Arguments placed before request-specific arguments.
@@ -54,6 +58,13 @@ impl ToolchainSpec {
         }
         if !is_immutable_image_reference(&self.image) {
             return Err(CorpusError::MutableImageReference(self.image.clone()));
+        }
+        if let Some(local_image) = &self.local_image
+            && !is_safe_local_image_reference(local_image)
+        {
+            return Err(CorpusError::InvalidSpec(format!(
+                "invalid local Docker image fallback {local_image:?}"
+            )));
         }
         for key in self.environment.keys() {
             if key.is_empty()
@@ -132,7 +143,7 @@ pub struct BuildArtifact {
     pub schema: String,
     /// Stable toolchain name.
     pub toolchain: String,
-    /// Requested immutable image reference.
+    /// Image reference selected from the recorded ID or local fallback.
     pub image: String,
     /// Docker's locally resolved immutable image ID.
     pub image_id: String,
@@ -213,6 +224,14 @@ impl DockerCompiler {
 
     /// Returns Docker arguments without launching a container.
     pub fn command(&self, request: &BuildRequest) -> Result<Vec<String>, CorpusError> {
+        self.command_with_image(request, &request.toolchain.image)
+    }
+
+    fn command_with_image(
+        &self,
+        request: &BuildRequest,
+        image: &str,
+    ) -> Result<Vec<String>, CorpusError> {
         request.toolchain.validate()?;
         validate_limits(&request.limits)?;
         let source = canonical_directory(&request.source_dir)?;
@@ -256,7 +275,7 @@ impl DockerCompiler {
             arguments.push("--env".to_owned());
             arguments.push(format!("{key}={value}"));
         }
-        arguments.push(request.toolchain.image.clone());
+        arguments.push(image.to_owned());
         arguments.push(request.toolchain.program.clone());
         arguments.extend(request.toolchain.args.iter().cloned());
         arguments.extend(request.arguments.iter().cloned());
@@ -266,8 +285,9 @@ impl DockerCompiler {
     /// Runs an isolated compiler container and captures provenance.
     pub fn compile(&self, request: &BuildRequest) -> Result<BuildArtifact, CorpusError> {
         self.verify_available()?;
-        let docker_arguments = self.command(request)?;
-        let image_id = self.inspect_image(&request.toolchain.image)?;
+        request.toolchain.validate()?;
+        let (image, image_id) = self.resolve_image(&request.toolchain)?;
+        let docker_arguments = self.command_with_image(request, &image_id)?;
         let inputs = hash_tree(&request.source_dir)?;
 
         let mut child = Command::new(&self.executable)
@@ -345,7 +365,7 @@ impl DockerCompiler {
         Ok(BuildArtifact {
             schema: "renvo.build-artifact.v1".to_owned(),
             toolchain: request.toolchain.name.clone(),
-            image: request.toolchain.image.clone(),
+            image,
             image_id,
             target: request.target.clone(),
             argv: full_argv,
@@ -375,6 +395,19 @@ impl DockerCompiler {
             });
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    }
+
+    fn resolve_image(&self, spec: &ToolchainSpec) -> Result<(String, String), CorpusError> {
+        match self.inspect_image(&spec.image) {
+            Ok(image_id) => Ok((spec.image.clone(), image_id)),
+            Err(primary_error) => {
+                let Some(local_image) = &spec.local_image else {
+                    return Err(primary_error);
+                };
+                self.inspect_image(local_image)
+                    .map(|image_id| (local_image.clone(), image_id))
+            }
+        }
     }
 }
 
@@ -433,6 +466,17 @@ fn is_immutable_image_reference(image: &str) -> bool {
                 .chars()
                 .all(|character| character.is_ascii_hexdigit())
     })
+}
+
+fn is_safe_local_image_reference(image: &str) -> bool {
+    !image.is_empty()
+        && !image.starts_with('-')
+        && !image.ends_with(":latest")
+        && !image.contains('@')
+        && image.contains(':')
+        && image.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '/' | '_' | '-' | ':')
+        })
 }
 
 fn validate_limits(limits: &DockerLimits) -> Result<(), CorpusError> {
@@ -561,6 +605,7 @@ mod tests {
         let spec = ToolchainSpec {
             name: "gcc".to_owned(),
             image: "gcc:latest".to_owned(),
+            local_image: None,
             program: "gcc".to_owned(),
             args: vec![],
             environment: BTreeMap::new(),
@@ -582,6 +627,7 @@ mod tests {
             toolchain: ToolchainSpec {
                 name: "gcc".to_owned(),
                 image: IMAGE.to_owned(),
+                local_image: None,
                 program: "riscv-none-elf-gcc".to_owned(),
                 args: vec!["-ffreestanding".to_owned()],
                 environment,
@@ -612,6 +658,21 @@ mod tests {
             "/workspace/out/a.elf",
             "request arguments follow the program"
         );
+    }
+
+    #[test]
+    fn accepts_a_named_local_fallback_but_not_latest() {
+        let mut spec = ToolchainSpec {
+            name: "gcc".to_owned(),
+            image: IMAGE.to_owned(),
+            local_image: Some("renvo/cross-gcc:local".to_owned()),
+            program: "gcc".to_owned(),
+            args: vec![],
+            environment: BTreeMap::new(),
+        };
+        assert!(spec.validate().is_ok());
+        spec.local_image = Some("gcc:latest".to_owned());
+        assert!(matches!(spec.validate(), Err(CorpusError::InvalidSpec(_))));
     }
 
     #[test]

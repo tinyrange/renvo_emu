@@ -3,11 +3,13 @@ set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
+. scripts/lib/toolchain-images.sh
 
 renvo=${RENVO_BIN:-target/debug/renvo}
 toolchain=toolchains/rust-baremetal.toml
-image=$(sed -n 's/^image = "\(.*\)"/\1/p' "$toolchain")
-docker image inspect "$image" >/dev/null
+recorded_image=$(sed -n 's/^image = "\(.*\)"/\1/p' "$toolchain")
+local_image=$(sed -n 's/^local_image = "\(.*\)"/\1/p' "$toolchain")
+image=$(resolve_toolchain_image "$recorded_image" "$local_image")
 
 if [ ! -x "$renvo" ]; then
     cargo build -q -p renvo-cli

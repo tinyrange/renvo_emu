@@ -1,6 +1,6 @@
 {
   "schema": "renvo.rust-abi.v1",
-  "source_sha256": "8abfc346617923c839981525568787323eceaba63dc33e23f52ed07d93cb0bf5",
+  "source_sha256": "ba2dde70eff2ec96d527c15c45ebc59f1e6b100b01f7656c6cf9a0255959b5be",
   "toolchain": {
     "rustc": "1.97.1",
     "requested_image": "sha256:2d5afa621ffb2cfb6e2e3ffb9d463ab7be21301eb5f6d9a1c9fae08b807194df",

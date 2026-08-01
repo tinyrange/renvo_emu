@@ -25,8 +25,7 @@ scripts/qualify-pic16f15376.sh
 ```
 
 That command also assembles the complete 49-instruction fixture and compiles
-and runs the unchanged Microchip Timer0 source described under
-[`microchip`](microchip/README.md). The evidence is Microchip technical brief
-TB3285/DS90003285A and its linked online source under Microchip's publication
-terms. Only the exact PIC16F15376 device selection changes; the peripheral
-logic is unchanged and must produce the first RE0 Timer0 edge.
+and runs the original register-level Timer0 program described under
+[`fixture`](fixture/README.md). It is written from the public PIC16F15376 data
+sheet and must produce the first RE0 Timer0 edge without incorporating
+Microchip application-note or SDK source.

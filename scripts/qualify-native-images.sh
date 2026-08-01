@@ -3,14 +3,13 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
-export PATH=/home/joshua/.cargo/bin:$PATH
-
+. scripts/lib/toolchain-images.sh
 artifact_root=${RENVO_NATIVE_ARTIFACT_ROOT:-.renvo/qualification/native-images}
 firmware_cache=${RENVO_FIRMWARE_CACHE:-.renvo/firmware/micropython-v1.28.0}
-cross_image=sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736
-avr_image=sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c
-msp_image=sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2
-package_image=sha256:5aa633e02afc7f2657a5ddc76bdd1ba0f720545e8d6b8690eeca045c29496e09
+cross_image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 renvo/cross-gcc:local)
+avr_image=$(resolve_toolchain_image sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c renvo/avr-gcc:local)
+msp_image=$(resolve_toolchain_image sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2 renvo/msp430-gcc:local)
+package_image=$(resolve_toolchain_image sha256:5aa633e02afc7f2657a5ddc76bdd1ba0f720545e8d6b8690eeca045c29496e09 renvo/nanoc6-esptool:5.3.0)
 
 for image in "$cross_image" "$avr_image" "$msp_image" "$package_image"
 do

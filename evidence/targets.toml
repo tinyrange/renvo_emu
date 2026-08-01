@@ -207,9 +207,9 @@ manual_urls = [
 device_pack = "Microchip.PIC16F1xxxx_DFP.1.31.465.atpack"
 device_pack_url = "https://packs.download.microchip.com/Microchip.PIC16F1xxxx_DFP.1.31.465.atpack"
 device_pack_sha256 = "4ab50366f9ab7609c14c1b93e65cd9222d15d62d29fb2252e3ea0b9255dc125f"
-sample_url = "https://onlinedocs.microchip.com/oxy/GUID-76576783-C495-405D-B106-CD04836134D0-en-US-2/GUID-3AF5FBC3-2A7C-475B-81B2-26AC8E2E1384.html"
-sample_revision = "Microchip TB3285 / DS90003285A Timer0 8-bit periodic-interrupt bare-metal example"
-sample_adaptation = "Compiled for PIC16F15376 without peripheral-source changes; only the XC8 device selection differs from the PIC18F47Q10 publication target"
+sample_url = "qualification/pic16f15376/fixture/renvo_timer0.c"
+sample_revision = "original Renvo PIC16F15376 Timer0 register fixture"
+sample_adaptation = "project-authored fixture written from the public device data sheet; no vendor application-note source is incorporated"
 toolchain = "MPLAB XC8 4.00 for PIC plus PIC16F1xxxx DFP 1.31.465"
 compiler_flags = ["-mcpu=16F15376"]
 peripherals = ["OSC", "PORT", "LAT", "TRIS", "ANSEL", "PPS", "PIR", "PIE", "TMR0", "TMR1", "EUSART", "WDT"]
@@ -222,7 +222,7 @@ interrupt_routes = ["Timer0 PIR0/PIE0 plus PEIE/GIE -> vector 0x0004", "Timer1 P
 vcd_signals = ["board.pic16f15376.porta", "board.pic16f15376.timer0.irq", "board.pic16f15376.eusart1", "board.pic16f15376.interrupt.request"]
 fidelity_tier = "functional enhanced mid-range PIC16 and selected peripherals, deterministic timing"
 unsupported = ["analog peripherals", "CLC/NCO/PWM", "serial receive bit timing", "exact oscillator and instruction-cycle timing"]
-vendor_sample_license = "Microchip TB3285 documentation/source terms; peripheral source attribution and unchanged adaptation are documented locally"
+vendor_sample_license = "MIT OR Apache-2.0; original Renvo fixture"
 
 [[target]]
 id = "efm8bb52f32g"
@@ -241,9 +241,9 @@ manual_urls = [
   "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
   "https://sdcc.sourceforge.net/doc/sdccman.pdf",
 ]
-sample_url = "https://github.com/mathiasvr/silabs-8051-sdk"
-sample_revision = "eff6046fcb1705f00588bcd2d03cc8f0361bfc14 (mirror of Silicon Laboratories 8051 SDK 4.2.3, distributed through Simplicity Studio)"
-sample_adaptation = "Explorer Kit Blinky main/Timer2 ISR and Pro Kit UART ISR peripheral logic are unchanged; a tracked SDCC declaration header and documented startup adapter replace Simplicity Studio generated declarations/configuration"
+sample_url = "qualification/efm8bb52f32g/silabs/renvo_blinky.c"
+sample_revision = "original Renvo EFM8BB52 Timer2/GPIO and UART interrupt register fixtures"
+sample_adaptation = "project-authored fixtures written from the public data sheet and reference manual; no Silicon Labs SDK source is incorporated"
 toolchain = "source-built SDCC 4.5.0 MCS-51"
 compiler_flags = ["-mmcs51", "--model-small"]
 peripherals = ["RSTSRC", "CLKSEL", "WDTCN", "PORT0", "PORT1", "PORT2", "PORT3", "XBR", "TIMER0", "TIMER2", "UART0", "IE", "IP"]
@@ -251,9 +251,9 @@ image_formats = ["Intel HEX byte-addressed CODE image produced by SDCC"]
 memory_map = ["CODE flash 0x0000..0x7fff", "IDATA 0x00..0xff", "XDATA 0x0000..0x08ff", "paged SFR window 0x80..0xff with explicit bit-addressable access"]
 reset_assumptions = "Power-on reset starts at CODE 0x0000 with SP=0x07, register bank 0 and default SFR page; SDCC startup initializes memory before main"
 vectors = ["reset 0x0000", "Timer0 0x000b", "UART0 0x0023", "Timer2 0x002b", "low/high priority levels retained separately"]
-selected_pins = ["P0.1 external digital input", "P0.0 GPIO/timer ISR output", "P1.4 Silicon Labs Explorer Kit LED oracle", "UART0 logical TX"]
+selected_pins = ["P0.1 external digital input", "P0.0 GPIO/timer ISR output", "P1.4 register-fixture output", "UART0 logical TX"]
 interrupt_routes = ["TF0/ET0/EA -> Timer0 vector 0x000b", "RI/TI/ES0/EA -> UART0 vector 0x0023", "TF2H/ET2/EA -> Timer2 vector 0x002b", "IP selects low/high priority"]
 vcd_signals = ["board.efm8bb52f32g.port0", "board.efm8bb52f32g.timer0.irq", "board.efm8bb52f32g.timer2.irq", "board.efm8bb52f32g.uart0", "board.efm8bb52f32g.interrupt.request"]
 fidelity_tier = "functional EFM8-flavoured MCS-51 and selected peripherals, deterministic timing"
 unsupported = ["analog peripherals", "PCA", "SMBus", "SPI", "cycle-accurate pipelining and historical 8051 buses"]
-vendor_sample_license = "Silicon Laboratories 8051 SDK source licence retained in mirrored SDK files; local adapters are repository-licensed"
+vendor_sample_license = "MIT OR Apache-2.0; original Renvo fixtures"

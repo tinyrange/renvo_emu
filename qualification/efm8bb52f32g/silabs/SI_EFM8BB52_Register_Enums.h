@@ -1,9 +1,12 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright 2026 Renvo contributors
+
 #ifndef RENVO_SI_EFM8BB52_REGISTER_ENUMS_H
 #define RENVO_SI_EFM8BB52_REGISTER_ENUMS_H
 
 #include <stdint.h>
 
-/* SDCC declaration adapter for the official Silicon Labs sources. */
+/* SDCC declarations for the original Renvo EFM8BB52 register fixtures. */
 #define SI_SBIT(name, address, bit) __sbit __at ((address) + (bit)) name
 #define SI_INTERRUPT(name, vector) void name(void) __interrupt (vector)
 

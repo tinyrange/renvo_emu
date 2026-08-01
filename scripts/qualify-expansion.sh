@@ -3,8 +3,7 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
-export PATH=/home/joshua/.cargo/bin:$PATH
-
+. scripts/lib/toolchain-images.sh
 expected_plan_sha=07811884d7c1f46ab87549e9ffc18966925237d437ac48723e396f7edb7e7940
 actual_plan_sha=$(sha256sum PLAN.html | cut -d ' ' -f 1)
 test "$actual_plan_sha" = "$expected_plan_sha"
@@ -30,8 +29,10 @@ for spec in \
     toolchains/sdcc-mcs51-efm8bb52.toml
 do
     image=$(sed -n 's/^image = "\([^"]*\)"/\1/p' "$spec")
+    local_image=$(sed -n 's/^local_image = "\([^"]*\)"/\1/p' "$spec")
     test -n "$image"
-    docker image inspect "$image" >/dev/null
+    test -n "$local_image"
+    resolve_toolchain_image "$image" "$local_image" >/dev/null
 done
 
 (scripts/docker-smoke.sh >"$log_root/original-six.log" 2>&1) & p0=$!

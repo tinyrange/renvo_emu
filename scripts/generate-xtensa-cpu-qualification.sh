@@ -3,10 +3,11 @@ set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
+. scripts/lib/toolchain-images.sh
 
 root=${1:-.renvo/portfolio-smoke}
 output=${2:-qualification/xtensa-cpu.json}
-image=sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f
+image=$(resolve_toolchain_image sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f renvo/xtensa-esp-gcc:local)
 proofs=$root/xtensa-cpu-proofs.jsonl
 unit_log=$root/xtensa-cpu-unit-tests.txt
 mkdir -p "$(dirname -- "$output")"

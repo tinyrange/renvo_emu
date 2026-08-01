@@ -3,8 +3,6 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
-export PATH=/home/joshua/.cargo/bin:$PATH
-
 artifact_root=${RENVO_BOARD_ARTIFACT_ROOT:-.renvo/qualification/board-models}
 mkdir -p "$artifact_root"
 

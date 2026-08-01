@@ -1,6 +1,6 @@
 {
   "schema": "renvo.riscv-cpu.v1",
-  "source_sha256": "a36d76859c849c8db23d4b95236694f49fd10f68a84f4fbf59d3d1d1e1d3d499",
+  "source_sha256": "bf66bfb5d37d20e1331fb18484f394e46c5965b0a0b233e5f12abb18853039ce",
   "primary_sources": [
     "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
     "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",

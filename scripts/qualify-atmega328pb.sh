@@ -3,13 +3,14 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
+. scripts/lib/toolchain-images.sh
 
-image=sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c
+image=$(resolve_toolchain_image sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c renvo/avr-gcc:local)
 artifact_root=${ATMEGA328PB_ARTIFACT_ROOT:-.renvo/qualification/atmega328pb}
 toolchain=toolchains/avr-gcc-atmega328pb.toml
 
 docker image inspect "$image" >/dev/null
-PATH=/home/joshua/.cargo/bin:$PATH cargo build -q -p renvo-cli
+cargo build -q -p renvo-cli
 renvo=target/debug/renvo
 mkdir -p "$artifact_root" "$artifact_root/run-a" "$artifact_root/run-b"
 

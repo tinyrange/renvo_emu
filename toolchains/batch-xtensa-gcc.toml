@@ -1,5 +1,6 @@
 name = "espressif-gcc-14-esp32s3-batch"
 image = "sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f"
+local_image = "renvo/xtensa-esp-gcc:local"
 program = "sh"
 args = ["support/build-xtensa.sh"]
 

@@ -3,14 +3,15 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
+. scripts/lib/toolchain-images.sh
 
-image=sha256:744a8f397347c3a5b0a6448e55e8257f69aa24c51ecacc3be49c37284719ef7c
+image=$(resolve_toolchain_image sha256:744a8f397347c3a5b0a6448e55e8257f69aa24c51ecacc3be49c37284719ef7c renvo-xc8:4.00-pic16f1xxxx-1.31.465)
 artifact_root=${PIC16F15376_ARTIFACT_ROOT:-.renvo/qualification/pic16f15376}
 toolchain=toolchains/xc8-pic16f15376.toml
 
 docker image inspect "$image" >/dev/null
-PATH=/home/joshua/.cargo/bin:$PATH cargo build -q -p renvo-cli
-PATH=/home/joshua/.cargo/bin:$PATH cargo test -q -p renvo-cpu-pic16 -p renvo-image
+cargo build -q -p renvo-cli
+cargo test -q -p renvo-cpu-pic16 -p renvo-image
 renvo=target/debug/renvo
 mkdir -p "$artifact_root"
 
@@ -85,36 +86,36 @@ mkdir -p "$isa_build"
 test "$(awk '$1 ~ /^[0-9]+$/ && $1 >= 7 && $1 <= 55 { count++ } END { print count }' \
     "$isa_build/all_instructions.lst")" = 49
 
-official_build="$artifact_root/microchip-timer0-build"
-official_run="$artifact_root/microchip-timer0-run"
-mkdir -p "$official_build" "$official_run"
+fixture_build="$artifact_root/register-timer0-build"
+fixture_run="$artifact_root/register-timer0-run"
+mkdir -p "$fixture_build" "$fixture_run"
 "$renvo" corpus build \
     --toolchain "$toolchain" \
-    --source qualification/pic16f15376/microchip \
-    --output "$official_build" \
+    --source qualification/pic16f15376/fixture \
+    --output "$fixture_build" \
     --target pic16f15376 \
-    --artifact "$artifact_root/microchip-timer0-build.json" \
-    -- -Os timer0_periodic.c \
+    --artifact "$artifact_root/register-timer0-build.json" \
+    -- -Os renvo_timer0.c \
     -Wl,-Map=/workspace/out/timer0.map \
     -o /workspace/out/timer0.elf
 docker run --rm --network=none \
-    -v "$repo_root/$official_build:/workspace/out" \
+    -v "$repo_root/$fixture_build:/workspace/out" \
     "$image" pic-objdump -d -S /workspace/out/timer0.elf \
-    >"$official_build/timer0.disasm"
+    >"$fixture_build/timer0.disasm"
 "$renvo" run \
     --target pic16f15376 \
-    --hex "$official_build/timer0.hex" \
+    --hex "$fixture_build/timer0.hex" \
     --max-instructions 30000 \
     --stop-signal board.pic16f15376.porte.pin0=rising \
-    --vcd "$official_run/signals.vcd" \
-    --bus-log "$official_run/bus.json" \
-    --result "$official_run/result.json"
+    --vcd "$fixture_run/signals.vcd" \
+    --bus-log "$fixture_run/bus.json" \
+    --result "$fixture_run/result.json"
 jq -e '.target == "pic16f15376" and
        .reason == {"Signal":"board.pic16f15376.porte.pin0"}' \
-    "$official_run/result.json" >/dev/null
-grep -q 'timer0' "$official_run/signals.vcd"
-grep -q 'interrupt' "$official_run/signals.vcd"
-grep -q 'porte' "$official_run/signals.vcd"
+    "$fixture_run/result.json" >/dev/null
+grep -q 'timer0' "$fixture_run/signals.vcd"
+grep -q 'interrupt' "$fixture_run/signals.vcd"
+grep -q 'porte' "$fixture_run/signals.vcd"
 
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \
     >"$artifact_root/SHA256SUMS"

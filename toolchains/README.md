@@ -1,8 +1,9 @@
 # Containerized firmware toolchains
 
 Renvo never invokes host firmware compilers. Each corpus case names a
-`ToolchainSpec` with an immutable Docker digest. The image must already exist
-locally; builds run with `--pull=never` and `--network=none`.
+`ToolchainSpec` with a reviewed immutable Docker image ID and a locally built
+fallback tag. Renvo resolves either reference to an immutable ID before use;
+builds run with `--pull=never` and `--network=none`.
 
 The runner mounts:
 
@@ -14,20 +15,17 @@ Images should provide only the compiler, linker, binary utilities, and runtime
 files required by their target. `cross-gcc/Dockerfile` pins the RISC-V and Arm
 bare-metal GCC compilers. `cross-llvm/Dockerfile` pins Clang 18 and LLD 18 for an
 independent Arm/RISC-V code-generation lane, with the GCC packages retained only
-to provide target `libgcc` arithmetic helpers. A toolchain TOML records the
-resulting immutable image ID; tags are never accepted by the corpus runner.
+to provide target `libgcc` arithmetic helpers. A toolchain TOML records both
+the reviewed image ID and the corresponding local fallback tag.
 
-Build the local image, inspect its immutable ID, and place that ID in the
-toolchain TOML:
+Build the standard local toolchain set without editing any TOML files:
 
 ```sh
-docker build --pull=false -t renvo/cross-gcc:local toolchains/cross-gcc
-docker image inspect --format '{{.Id}}' renvo/cross-gcc:local
-docker build --pull=false -t renvo/cross-llvm:local toolchains/cross-llvm
-docker image inspect --format '{{.Id}}' renvo/cross-llvm:local
-docker build --pull=false -t renvo/rust-baremetal:local toolchains/rust-baremetal
-docker image inspect --format '{{.Id}}' renvo/rust-baremetal:local
+scripts/bootstrap-toolchains.sh
 ```
+
+The PIC/XC8 lane requires explicit acknowledgement after reviewing its vendor
+terms: `scripts/bootstrap-toolchains.sh --include-xc8`.
 
 The build itself may use the package network. Every corpus compilation runs
 later with `--pull=never`, `--network=none`, a read-only root filesystem,
@@ -40,8 +38,7 @@ and Clang/LLD 18 specifications. The AVR, MSP430, XC8, and SDCC Dockerfiles pin
 their compiler/device-pack archives and verify published or recorded SHA-256
 values where redistribution terms permit local image construction.
 
-Build the target-specific images locally when their pinned IDs are not already
-present:
+Individual target-specific images can also be built directly:
 
 ```sh
 docker build --pull=false -t renvo/avr-gcc:local toolchains/avr-gcc

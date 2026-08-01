@@ -60,6 +60,7 @@ mod tests {
             name: "gcc".to_owned(),
             image: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                 .to_owned(),
+            local_image: None,
             program: "cc".to_owned(),
             args: vec![],
             environment: BTreeMap::new(),

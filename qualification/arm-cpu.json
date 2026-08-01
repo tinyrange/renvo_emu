@@ -1,6 +1,6 @@
 {
   "schema": "renvo.arm-cpu.v1",
-  "source_sha256": "cac04e4622bdfd6066c44f4d1214e21dd291ed5b449b1a7343230622d8ce1e4d",
+  "source_sha256": "67e9cef6cb74d5d3a3c12c26f957c064cc44ceab409f3335285f13cb245f92e5",
   "primary_sources": [
     "https://developer.arm.com/documentation/100235/0003/",
     "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf",
@@ -32,7 +32,7 @@
   },
   "cross_profile_computation": {
     "artifact": "qualification/rust-abi.json",
-    "sha256": "d7bbc791a06ebdb7ff7fbef36c181b007eedcbae499fb1ebcbef496ff84a265f",
+    "sha256": "71e3f8457da8ab6a66c79c6f037d9cf4f34064114bb31ad9d048b93280031fd0",
     "assertion": "the same Rust ABI computation passes Cortex-M33 and Hazard3 at O0/O2/Os"
   },
   "proofs": [

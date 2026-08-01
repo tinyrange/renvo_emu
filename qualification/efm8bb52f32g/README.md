@@ -1,8 +1,8 @@
 # EFM8BB52F32G qualification
 
-Run `scripts/qualify-efm8bb52f32g.sh` to build SDCC small-model corpus lanes and
-the selected Silicon Labs SDK examples in the pinned, network-isolated
-container, then execute the generated Intel HEX on the EFM8 machine.
+Run `scripts/qualify-efm8bb52f32g.sh` to build the SDCC small-model corpus and
+original Renvo register fixtures in the pinned, network-isolated container,
+then execute the generated Intel HEX on the EFM8 machine.
 
 The gate covers all legal base MCS-51 opcodes, SDCC startup/calling convention,
 native 16-bit `int` and three-byte generic pointers, recursion, generated
@@ -19,9 +19,7 @@ CODE, IDATA, XDATA, paged SFR and bit-addressable accesses remain distinct.
 Timing, analog peripherals, PCA, SMBus and SPI remain explicitly
 functional/deferred as stated by the target manifest.
 
-The selected Silicon Labs 8051 SDK 4.2.3 sources are pinned through mirror
-revision `eff6046fcb1705f00588bcd2d03cc8f0361bfc14` and retain the Silicon
-Labs Software License Agreement v11 notice. The Blinky main/Timer2 ISR and
-UART ISR logic are unchanged. A tracked SDCC declaration header and startup
-adapter replace generated Simplicity Studio files; the expected result is a
-P1.4 LED transition while the UART ISR also compiles as an ABI proof.
+The register fixtures are original project code written from the public data
+sheet and reference manual; no Silicon Labs SDK source is distributed or
+required. The expected result is a P1.4 transition through Timer2 while a
+separate UART0 interrupt fixture proves the SDCC declaration and ABI surface.

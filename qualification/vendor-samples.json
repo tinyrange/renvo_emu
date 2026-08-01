@@ -1,7 +1,7 @@
 {
   "schema": "renvo.vendor-sample-qualification.v1",
   "generated_by": "scripts/qualify-vendor-samples.sh",
-  "source_sha256": "7b70efa4cddc211ba82a3490cf2c6fae59a552e7078a68a47193bebdfcbd2003",
+  "source_sha256": "de0b58ad039c0af8bce7c1c866d81ddf9518754881aabccc300b8ee5c33cf1dd",
   "result": "pass",
   "adapter_sha256": "b84ff636e99531a6c4f8955a9f0a16a828a4d01dd533b3d875ebf9bba575551c",
   "sources": [

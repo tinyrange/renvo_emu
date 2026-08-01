@@ -45,7 +45,7 @@ do
     mv "$cache/$part" "$cache/$filename"
 done
 
-cargo=${CARGO:-/home/joshua/.cargo/bin/cargo}
+cargo=${CARGO:-cargo}
 "$cargo" build --quiet -p renvo-cli
 "$project_dir/target/debug/renvo" firmware verify \
     --manifest "$manifest" \

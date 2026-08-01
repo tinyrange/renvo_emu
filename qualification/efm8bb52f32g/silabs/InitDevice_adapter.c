@@ -1,11 +1,12 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright 2026 Renvo contributors
+
 #include <SI_EFM8BB52_Register_Enums.h>
 #include <InitDevice.h>
 
 /*
- * Allowed compiler/board adapter: the upstream Hardware Configurator file is
- * replaced with a small equivalent setup so the official main and ISR remain
- * byte-for-byte source compatible with SDCC and finish quickly in functional
- * time. The selected Timer2/GPIO peripheral logic is not changed.
+ * Project-authored setup for the original Renvo register fixtures. The short
+ * Timer2 reload keeps the functional-time qualification bounded.
  */
 void enter_DefaultMode_from_RESET(void)
 {

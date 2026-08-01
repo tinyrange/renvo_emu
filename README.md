@@ -25,6 +25,13 @@ The six-MCU CoreMark qualification and host-calibrated results are in
 The generated six-target support, provenance and known-gap dashboard is
 [qualification/dashboard.html](qualification/dashboard.html).
 
+## License
+
+Renvo is available under either the Apache License 2.0 or the MIT License, at
+your option. See `LICENSE`, `LICENSE-APACHE`, and `LICENSE-MIT`. Inputs fetched
+by qualification scripts retain their own terms as described in
+`THIRD_PARTY_LICENSES.md`.
+
 The frozen seven-target expansion adds ATSAMD21E18, STM32L432KC,
 R7FA4M1AB3CFM, ATmega328PB, MSP430FR2433, PIC16F15376, and EFM8BB52F32G. Its
 exact functional boundary and comprehensive acceptance command are documented
@@ -116,11 +123,11 @@ List the source-linked portfolio manifests:
 cargo run -p renvo-cli -- targets
 ```
 
-Build the compiler image once, then compile firmware only through the isolated
-corpus runner:
+Bootstrap the local compiler images once, then compile firmware only through
+the isolated corpus runner:
 
 ```sh
-docker build --pull=false -t renvo/cross-gcc:local toolchains/cross-gcc
+scripts/bootstrap-toolchains.sh
 cargo run -p renvo-cli -- corpus build \
   --toolchain toolchains/riscv-gcc-rv32ec.toml \
   --source corpus/smoke/riscv \
@@ -130,9 +137,11 @@ cargo run -p renvo-cli -- corpus build \
   -- -O2 -Wl,-T,link.ld -o /workspace/out/smoke.elf start.S main.c
 ```
 
-The toolchain TOML must name the immutable image ID produced locally. Corpus
-containers run with no network, no capabilities, a read-only root filesystem,
-and explicit resource limits. Renvo currently executes compiler smoke ELFs for
+Toolchain TOMLs record a reviewed image ID and a locally buildable fallback
+tag. The runner resolves either one to an immutable ID before execution and
+records that ID in the build artifact. Corpus containers run with no network,
+no capabilities, a read-only root filesystem, and explicit resource limits.
+Renvo currently executes compiler smoke ELFs for
 CH32V003, CH32V006, ESP32-C6, RP2350 Hazard3, RP2040 Cortex-M0+, and RP2350
 Cortex-M33. These are direct-load functional baselines; the target manifests
 state the incomplete ISA, interrupt, boot, and peripheral surfaces explicitly.

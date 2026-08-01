@@ -7,10 +7,11 @@ source archive. The archive URL is:
 
 The required SHA-256 is
 `d5030437fb436bb1d93a8dbdbfb46baaa60613318f4fb3f5871d72815d1eed80`.
-The Dockerfile verifies that digest before extraction. The accepted image ID
-is pinned by `toolchains/sdcc-mcs51-efm8bb52.toml`; qualification refuses a
-tag substitution and compiles cases with `--network=none`, a read-only root,
-and deterministic locale/source-date settings through Renvo's corpus runner.
+The Dockerfile verifies that digest before extraction. The reviewed image ID
+is recorded by `toolchains/sdcc-mcs51-efm8bb52.toml`; a fresh checkout may use
+the named local fallback, which Renvo resolves to an immutable ID before use.
+Compilation runs with `--network=none`, a read-only root, and deterministic
+locale/source-date settings through Renvo's corpus runner.
 
 Build the image locally when the pinned image is unavailable:
 
@@ -19,7 +20,6 @@ docker build --pull=false --tag renvo/sdcc-mcs51:4.5.0 toolchains/sdcc-mcs51
 docker image inspect --format '{{.Id}}' renvo/sdcc-mcs51:4.5.0
 ```
 
-Update the toolchain specification only after the resulting compiler identity,
-image ID and complete EFM8 qualification have been reviewed. SDCC is GPL-2.0;
-the image is a reproducible build input rather than a repository-distributed
+No specification edit is required after a local build. SDCC is GPL-2.0; the
+image is a reproducible build input rather than a repository-distributed
 vendor binary.
