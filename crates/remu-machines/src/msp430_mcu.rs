@@ -11,8 +11,9 @@ use remu_core::{
 };
 use remu_cpu_msp430::{Msp430Cpu, Msp430Register};
 use remu_devices::{
-    GpioHandle, MSP430_PORT1_VECTOR, MSP430_TIMER_A0_VECTORS, MSP430_TIMER_A1_VECTORS,
-    MSP430_USCI_A0_VECTOR, Msp430Peripherals, Msp430PeripheralsHandle, SignalHub,
+    GpioHandle, MSP430_PORT1_VECTOR, MSP430_RTC_VECTOR, MSP430_TIMER_A0_VECTORS,
+    MSP430_TIMER_A1_VECTORS, MSP430_USCI_A0_VECTOR, Msp430Peripherals, Msp430PeripheralsHandle,
+    SignalHub,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::Logic;
@@ -326,7 +327,11 @@ impl Msp430McuMachine {
                 stats.events = stats.events.saturating_add(1);
             }
             let pending_vectors = self.peripherals.poll(self.now);
-            let mut interrupt_vectors = vec![MSP430_PORT1_VECTOR, MSP430_USCI_A0_VECTOR];
+            let mut interrupt_vectors = vec![
+                MSP430_PORT1_VECTOR,
+                MSP430_USCI_A0_VECTOR,
+                MSP430_RTC_VECTOR,
+            ];
             interrupt_vectors.extend(MSP430_TIMER_A0_VECTORS);
             interrupt_vectors.extend(MSP430_TIMER_A1_VECTORS);
             for vector in interrupt_vectors {

@@ -737,6 +737,7 @@ const MANIFESTS: &[TargetManifest] = &[
         baseline: &[
             "GPIO/low-power wake",
             "Timer_A",
+            "RTC counter",
             "eUSCI_A0 UART",
             "FRAM",
             "VCD",

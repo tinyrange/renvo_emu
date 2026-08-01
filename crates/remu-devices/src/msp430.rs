@@ -25,6 +25,11 @@ const PBIN: usize = 0x0220;
 const PBOUT: usize = 0x0222;
 const PBDIR: usize = 0x0224;
 
+const RTCCTL: usize = 0x0300;
+const RTCIV: usize = 0x0304;
+const RTCMOD: usize = 0x0308;
+const RTCCNT: usize = 0x030c;
+
 const TIMER_BASES: [usize; 4] = [0x0380, 0x03c0, 0x0400, 0x0440];
 const TIMER_CHANNELS: [usize; 4] = [3, 3, 2, 2];
 const TIMER_CTL_OFFSET: usize = 0x00;
@@ -50,6 +55,10 @@ const CCIE: u16 = 0x0010;
 const CCIFG: u16 = 0x0001;
 const TAIFG: u16 = 0x0001;
 const TAIE: u16 = 0x0002;
+const RTCIF: u16 = 0x0001;
+const RTCIE: u16 = 0x0002;
+const RTCSR: u16 = 1 << 6;
+const RTCSS_MASK: u16 = 0x7000;
 const UCRXIFG: u16 = 0x0001;
 const UCTXIFG: u16 = 0x0002;
 
@@ -57,6 +66,8 @@ const UCTXIFG: u16 = 0x0002;
 pub const MSP430_PORT1_VECTOR: u16 = 0xffdc;
 /// eUSCI_A0 receive/transmit vector address.
 pub const MSP430_USCI_A0_VECTOR: u16 = 0xffe4;
+/// RTC counter overflow interrupt vector address.
+pub const MSP430_RTC_VECTOR: u16 = 0xffe8;
 /// Timer0_A0 capture/compare vector address.
 pub const MSP430_TIMER0_A0_VECTOR: u16 = 0xfff8;
 /// Timer0_A1 capture/compare and overflow vector address.
@@ -101,6 +112,8 @@ struct Msp430State {
     previous_p1: u8,
     timer_epoch: [u64; 4],
     timer_a1_delivered: [bool; 4],
+    rtc_epoch: u64,
+    rtc_delivered: bool,
     watchdog_epoch: u64,
     watchdog_reset: bool,
     loopback_pending: Option<(u8, u64)>,
@@ -110,6 +123,7 @@ struct Msp430State {
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer_irq_signals: [SignalId; 4],
+    rtc_irq_signal: SignalId,
     port1_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -244,6 +258,12 @@ impl Msp430State {
         for signal in self.timer_irq_signals {
             self.set_signal(signal, 0, 1, at);
         }
+        self.rtc_epoch = at.ticks();
+        self.rtc_delivered = false;
+        self.set_word(RTCCTL, 0);
+        self.set_word(RTCMOD, u16::MAX);
+        self.set_word(RTCCNT, 0);
+        self.set_signal(self.rtc_irq_signal, 0, 1, at);
         self.set_signal(self.port1_irq_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
         let _ = self.refresh_ports(at);
@@ -332,6 +352,44 @@ fn crossed_up(previous: u64, elapsed: u64, compare: u64, period: u64) -> bool {
     first <= end
 }
 
+impl Msp430State {
+    fn poll_rtc(&mut self, now: SimTime, vectors: &mut Vec<u16>) {
+        let control = self.word(RTCCTL);
+        let elapsed = now.ticks().saturating_sub(self.rtc_epoch);
+        if control & RTCSS_MASK == 0 || elapsed == 0 {
+            self.rtc_epoch = now.ticks();
+            return;
+        }
+        let divider = match (control >> 8) & 7 {
+            0 => 1,
+            1 => 10,
+            2 => 100,
+            3 => 1000,
+            4 => 16,
+            5 => 64,
+            6 => 256,
+            _ => 1024,
+        };
+        let ticks = elapsed / divider;
+        self.rtc_epoch = now.ticks().saturating_sub(elapsed % divider);
+        if ticks == 0 {
+            return;
+        }
+        let modulo = u64::from(self.word(RTCMOD));
+        let top = modulo.saturating_add(1).max(1);
+        let total = u64::from(self.word(RTCCNT)).saturating_add(ticks);
+        if total >= top {
+            self.set_word(RTCCTL, control | RTCIF);
+        }
+        self.set_word(RTCCNT, (total % top) as u16);
+        if self.word(RTCCTL) & (RTCIE | RTCIF) == (RTCIE | RTCIF) && !self.rtc_delivered {
+            self.set_signal(self.rtc_irq_signal, 1, 1, now);
+            self.rtc_delivered = true;
+            vectors.push(MSP430_RTC_VECTOR);
+        }
+    }
+}
+
 /// Host-facing state for the MSP430FR2433 peripheral window.
 #[derive(Clone)]
 pub struct Msp430PeripheralsHandle(Arc<Mutex<Msp430State>>);
@@ -358,6 +416,7 @@ impl Msp430PeripheralsHandle {
         for signal in state.timer_irq_signals {
             state.set_signal(signal, 0, 1, now);
         }
+        state.set_signal(state.rtc_irq_signal, 0, 1, now);
 
         if state
             .loopback_pending
@@ -388,6 +447,8 @@ impl Msp430PeripheralsHandle {
         for timer in 0..TIMER_BASES.len() {
             state.poll_timer(timer, now, &mut vectors);
         }
+
+        state.poll_rtc(now, &mut vectors);
 
         if state.word(UCA0IE) & state.word(UCA0IFG) & (UCRXIFG | UCTXIFG) != 0 {
             vectors.push(MSP430_USCI_A0_VECTOR);
@@ -461,6 +522,11 @@ impl Msp430Peripherals {
                 Some("Timer_A3 CCR0/A1 interrupt request".to_owned()),
             )?,
         ];
+        let rtc_irq_signal = hub.declare(
+            "board.msp430fr2433.rtc.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("RTC counter overflow interrupt request".to_owned()),
+        )?;
         let port1_irq_signal = hub.declare(
             "board.msp430fr2433.interrupt.port1",
             SignalValue::from_u64(0, 1)?,
@@ -480,6 +546,8 @@ impl Msp430Peripherals {
             previous_p1: 0,
             timer_epoch: [0; 4],
             timer_a1_delivered: [false; 4],
+            rtc_epoch: 0,
+            rtc_delivered: false,
             watchdog_epoch: 0,
             watchdog_reset: false,
             loopback_pending: None,
@@ -489,6 +557,7 @@ impl Msp430Peripherals {
             uart_byte_signal,
             uart_strobe_signal,
             timer_irq_signals,
+            rtc_irq_signal,
             port1_irq_signal,
             watchdog_reset_signal,
         }));
@@ -606,6 +675,18 @@ impl Device for Msp430Peripherals {
                 state.set_word(timer_register(timer, TIMER_IV_OFFSET), vector);
             }
         }
+        if start == RTCIV && length >= 2 {
+            let vector = if state.word(RTCCTL) & RTCIF != 0 {
+                2
+            } else {
+                0
+            };
+            let value = state.word(RTCCTL) & !RTCIF;
+            state.set_word(RTCCTL, value);
+            state.rtc_delivered = false;
+            state.set_word(RTCIV, vector);
+            state.set_signal(state.rtc_irq_signal, 0, 1, at);
+        }
         if overlaps(start, length, UCA0RXBUF, 2) {
             let flags = state.word(UCA0IFG) & !UCRXIFG;
             state.set_word(UCA0IFG, flags);
@@ -665,6 +746,17 @@ impl Device for Msp430Peripherals {
                 || overlaps(start, length, timer_register(timer, TIMER_CCR0_OFFSET), 2)
             {
                 state.timer_epoch[timer] = at.ticks();
+            }
+        }
+        if overlaps(start, length, RTCCTL, 2) {
+            let control = state.word(RTCCTL);
+            if control & RTCSR != 0 {
+                state.set_word(RTCCTL, control & !RTCSR & !RTCIF);
+                state.set_word(RTCCNT, 0);
+                state.rtc_epoch = at.ticks();
+                state.rtc_delivered = false;
+            } else if control & RTCIF == 0 {
+                state.rtc_delivered = false;
             }
         }
         if overlaps(start, length, UCA0TXBUF, 2) && state.word(UCA0CTLW0) & UCSWRST == 0 {
@@ -910,5 +1002,41 @@ mod tests {
                 Ok(10)
             );
         }
+    }
+
+    #[test]
+    fn rtc_modulo_counter_sets_and_clears_overflow_interrupt() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        device
+            .write(RTCMOD as u64, AccessWidth::HalfWord, 3, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                RTCCTL as u64,
+                AccessWidth::HalfWord,
+                u64::from(RTCSS_MASK | RTCIE | RTCSR),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(3)).is_empty());
+        assert_eq!(
+            device.read(RTCCNT as u64, AccessWidth::HalfWord, SimTime::from_ticks(3)),
+            Ok(3)
+        );
+        assert!(
+            handle
+                .poll(SimTime::from_ticks(4))
+                .contains(&MSP430_RTC_VECTOR)
+        );
+        assert_eq!(
+            device.read(RTCIV as u64, AccessWidth::HalfWord, SimTime::from_ticks(4)),
+            Ok(2)
+        );
+        assert_eq!(
+            device.read(RTCCTL as u64, AccessWidth::HalfWord, SimTime::from_ticks(4)),
+            Ok((RTCSS_MASK | RTCIE).into())
+        );
     }
 }
