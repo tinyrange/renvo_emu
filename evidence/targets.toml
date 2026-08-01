@@ -1,0 +1,259 @@
+schema = "renvo.expansion-evidence.v1"
+captured = "2026-08-01"
+
+[[target]]
+id = "atsamd21e18"
+part = "ATSAMD21E18A-AU"
+cpu = "Arm Cortex-M0+ / Armv6-M"
+package = "TQFP-32"
+flash_bytes = 262144
+ram_bytes = 32768
+manuals = [
+  "Microchip SAM D21/DA1 Family Data Sheet, DS40001882",
+  "Armv6-M Architecture Reference Manual, DDI 0419",
+  "Arm AAPCS32, 2025Q1",
+]
+manual_urls = [
+  "https://www.microchip.com/en-us/product/ATSAMD21E18",
+  "https://developer.arm.com/documentation/ddi0419/latest",
+  "https://github.com/ARM-software/abi-aa/releases/tag/2025Q1",
+]
+device_pack = "Microchip.SAMD21_DFP.3.8.270.atpack"
+device_pack_url = "https://packs.download.microchip.com/Microchip.SAMD21_DFP.3.8.270.atpack"
+device_pack_sha256 = "8474d111df8bd2fbe688c509c6515810ec6df18269f5f03a49a66d3e7400bdc3"
+sample_url = "https://github.com/Microchip-MPLAB-Harmony/csp_apps_sam_d21_da1"
+sample_revision = "9331e79cf2937d2b3166813c6d2886b2481162e3"
+toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
+compiler_flags = ["-mcpu=cortex-m0plus", "-mthumb"]
+peripherals = ["PM", "SYSCTRL", "GCLK", "NVMCTRL", "PORT", "EIC", "TC3", "SERCOM0", "WDT"]
+image_formats = ["ELF32 little-endian Arm executable"]
+memory_map = ["flash 0x00000000..0x0003ffff", "SRAM 0x20000000..0x20007fff", "documented MMIO windows for the selected peripheral slice"]
+reset_assumptions = "Power-on reset reads MSP and Thumb reset PC from vectors 0 and 1 at flash address zero; modeled startup-ready flags are documented functional approximations"
+vectors = ["reset exception 1", "EIC external IRQ 4", "SERCOM0 external IRQ 9", "TC3 external IRQ 18"]
+selected_pins = ["PA03 external digital input/EIC stimulus", "PA07 GPIO output and Harmony LED oracle"]
+interrupt_routes = ["EIC EXTINT3 -> NVIC line 4", "TC3 MC0 -> NVIC line 18", "SERCOM0 -> NVIC line 9"]
+vcd_signals = ["board.atsamd21e18.porta", "board.atsamd21e18.tc3.irq", "board.atsamd21e18.sercom0", "board.atsamd21e18.interrupt.request"]
+fidelity_tier = "functional, deterministic, not cycle accurate"
+unsupported = ["analog peripherals", "USB", "DMA", "exact clock and synchronization timing"]
+vendor_sample_license = "Microchip Software License Agreement v2.001; device-use restriction applies"
+
+[[target]]
+id = "stm32l432kc"
+part = "STM32L432KCU6"
+cpu = "Arm Cortex-M4F / Armv7E-M / FPv4-SP-D16"
+package = "UFQFPN-32"
+flash_bytes = 262144
+ram_bytes = 65536
+manuals = [
+  "ST RM0394 reference manual",
+  "STM32L432xx data sheet",
+  "ST ES0318 errata",
+  "Armv7-M Architecture Reference Manual, DDI 0403",
+  "Arm AAPCS32, 2025Q1",
+]
+manual_urls = [
+  "https://www.st.com/resource/en/reference_manual/rm0394-stm32l41xxx42xxx43xxx44xxx45xxx46xxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf",
+  "https://www.st.com/en/microcontrollers-microprocessors/stm32l432kc.html",
+  "https://www.st.com/resource/en/errata_sheet/es0318-stm32l431xx432xx433xx442xx443xx-device-errata-stmicroelectronics.pdf",
+  "https://developer.arm.com/documentation/ddi0403/latest",
+  "https://github.com/ARM-software/abi-aa/releases/tag/2025Q1",
+]
+sample_url = "https://github.com/STMicroelectronics/STM32CubeL4"
+sample_revision = "a6fd67088a77dc546a00cef2aa67ac540abf9c9f"
+toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
+compiler_flags = ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16"]
+peripherals = ["RCC", "FLASH", "PWR", "GPIOA", "GPIOB", "GPIOC", "GPIOH", "SYSCFG", "EXTI", "TIM2", "USART2"]
+image_formats = ["ELF32 little-endian Arm executable"]
+memory_map = ["flash 0x08000000..0x0803ffff with boot alias at 0x00000000", "SRAM 0x20000000..0x2000ffff", "documented MMIO windows for the selected peripheral slice"]
+reset_assumptions = "Power-on reset reads MSP and Thumb reset PC through the flash alias; RCC/FLASH/PWR readiness is represented only where startup code polls it"
+vectors = ["reset exception 1", "TIM2 external IRQ 28", "USART2 external IRQ 38"]
+selected_pins = ["PA03 external digital input", "PA05 GPIO output", "PB03 STM32Cube GPIO oracle output"]
+interrupt_routes = ["TIM2 update -> NVIC line 28", "USART2 -> NVIC line 38", "SYSCFG/EXTI register surface retained for selected GPIO routing"]
+vcd_signals = ["board.stm32l432kc.gpioa", "board.stm32l432kc.gpiob", "board.stm32l432kc.tim2.irq", "board.stm32l432kc.usart2", "board.stm32l432kc.interrupt.request"]
+fidelity_tier = "functional Cortex-M4F and peripherals, deterministic, not cycle accurate"
+unsupported = ["analog peripherals", "USB", "DMA", "exact clock tree and low-power timing"]
+vendor_sample_license = "STM32CubeL4 GPIO example and HAL adapters: BSD-3-Clause"
+
+[[target]]
+id = "r7fa4m1ab3cfm"
+part = "R7FA4M1AB3CFM#AA0"
+cpu = "Arm Cortex-M4F / Armv7E-M / FPv4-SP-D16"
+package = "LQFP-64"
+flash_bytes = 262144
+ram_bytes = 32768
+data_flash_bytes = 8192
+manuals = [
+  "RA4M1 Group User's Manual: Hardware, R01UH0887EJ0110 Rev.1.10",
+  "RA4M1 Group Data Sheet, R01DS0355",
+  "Armv7-M Architecture Reference Manual, DDI 0403",
+  "Arm AAPCS32, 2025Q1",
+]
+manual_urls = [
+  "https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware",
+  "https://www.renesas.com/en/document/dst/ra4m1-group-datasheet",
+  "https://developer.arm.com/documentation/ddi0403/latest",
+  "https://github.com/ARM-software/abi-aa/releases/tag/2025Q1",
+]
+sample_url = "https://github.com/renesas/fsp"
+sample_revision = "a409855a274402f69360a725656944e17929d1d9"
+example_url = "https://github.com/renesas/ra-fsp-examples"
+example_revision = "01a411dfc2e9808f489070c780a554a5bead6714"
+arduino_url = "https://github.com/arduino/ArduinoCore-renesas"
+arduino_revision = "424e86eff92d37f72123c2b641dd8bbf06a38b47"
+arduino_examples_url = "https://github.com/arduino/arduino-examples"
+arduino_examples_revision = "ad14bc44cb95555e5df7c16e6605559cad860d29"
+toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
+compiler_flags = ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16"]
+peripherals = ["SYSTEM", "MSTP", "IOPORT", "ICU", "GPT0", "SCI9", "WDT"]
+image_formats = ["ELF32 little-endian Arm executable", "Intel HEX generated and inspected as a loader artifact"]
+memory_map = ["code flash 0x00000000..0x0003ffff", "SRAM 0x20000000..0x20007fff", "data flash 0x40100000..0x40101fff", "documented MMIO windows for the selected peripheral slice"]
+reset_assumptions = "Power-on reset reads MSP and Thumb reset PC from code-flash vectors; option-setting, write-protection and oscillator-ready values are the documented acceptance subset"
+vectors = ["reset exception 1", "ICU IELSR7 / NVIC external IRQ 7"]
+selected_pins = ["P103 external digital input", "P111 GPIO/UNO R4 Minima LED output", "SCI9 logical TX"]
+interrupt_routes = ["GPT0 overflow event 0x05d -> ICU IELSR7 -> NVIC line 7", "SCI9 TXI is routed through configured ICU event slots"]
+vcd_signals = ["board.r7fa4m1ab3cfm.port1", "board.r7fa4m1ab3cfm.gpt0.irq", "board.r7fa4m1ab3cfm.sci9", "board.r7fa4m1ab3cfm.icu.request"]
+fidelity_tier = "functional Cortex-M4F and peripherals, deterministic, not cycle accurate"
+unsupported = ["USB", "CAN", "analog and LCD peripherals", "exact clock timing", "UNO R4 WiFi bridge"]
+vendor_sample_license = "Renesas FSP examples: BSD-3-Clause; ArduinoCore-renesas: MIT; Arduino sketches: CC0-1.0"
+
+[[target]]
+id = "atmega328pb"
+part = "ATmega328PB-AU"
+cpu = "AVR enhanced 8-bit core"
+package = "TQFP-32"
+flash_bytes = 32768
+ram_bytes = 2048
+eeprom_bytes = 1024
+manuals = [
+  "ATmega328PB Data Sheet, DS40001906B",
+  "AVR Instruction Set Manual, DS40002198",
+  "AVR273 GCC calling convention application note",
+]
+manual_urls = [
+  "https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip-AVR-Microcontroller-ATmega328PB-Data-Sheet-DS40001906.pdf",
+  "https://onlinedocs.microchip.com/oxy/GUID-74578654-4F5F-4B29-9F3C-6C3B1F1DF670-en-US-2/index.html",
+  "https://onlinedocs.microchip.com/oxy/GUID-BD1C16C8-7FA3-4D73-A4BE-241EE05EF592-en-US-8/index.html",
+]
+device_pack = "Microchip.ATmega_DFP.3.6.299.atpack"
+device_pack_url = "https://packs.download.microchip.com/Microchip.ATmega_DFP.3.6.299.atpack"
+device_pack_sha256 = "9be3dea84cf018c52d5a7499d57f8b246d410d701f9703f028250d1d18db8123"
+sample_url = "https://github.com/avrdudes/avr-libc"
+sample_revision = "3b40a25de8948396d0055565b791d80fbd02cab7 (stdiodemo UART), with Microchip.ATmega_DFP.3.6.299 device support"
+toolchain = "Microchip AVR GNU Toolchain with ATmega DFP 3.6.299"
+compiler_flags = ["-mmcu=atmega328pb"]
+peripherals = ["CLKPR", "PRR", "PORTB", "PORTC", "PORTD", "EXTINT", "PCINT", "TIMER0", "TIMER1", "USART0", "EEPROM", "WDT"]
+image_formats = ["ELF32 little-endian AVR executable with Harvard program/data spaces"]
+memory_map = ["program flash word PC 0x0000..0x3fff (32 KiB bytes)", "register/I/O/data space 0x0000..0x08ff", "SRAM 0x0100..0x08ff", "EEPROM 0x000..0x3ff via controller"]
+reset_assumptions = "Power-on reset begins at program word zero with the ATmega328PB stack initialized by the pinned CRT"
+vectors = ["reset vector 0", "INT0 CPU line 0", "PCINT0 CPU line 2", "TIMER1_COMPA CPU line 10", "TIMER0_OVF CPU line 15", "USART0 CPU line 18"]
+selected_pins = ["PB1 external input/PCINT1", "PB0 GPIO output", "USART0 logical TX"]
+interrupt_routes = ["PB1 change -> PCINT0 group -> vector 3", "Timer0 overflow -> vector 16", "USART0 data-register-empty -> vector 19"]
+vcd_signals = ["board.atmega328pb.portb", "board.atmega328pb.timer0.overflow_irq", "board.atmega328pb.usart0", "board.atmega328pb.interrupt.pcint0"]
+fidelity_tier = "functional enhanced AVR8 and selected peripherals, deterministic timing"
+unsupported = ["analog comparator and ADC", "touch", "SPI", "TWI", "cycle-accurate prescalers and serial timing"]
+vendor_sample_license = "selected avr-libc stdiodemo uart.c: Beer-Ware License Revision 42; surrounding project files retain their individual notices"
+
+[[target]]
+id = "msp430fr2433"
+part = "MSP430FR2433IRGE"
+cpu = "MSP430 CPUXv2"
+package = "VQFN-24"
+fram_bytes = 16384
+ram_bytes = 4096
+manuals = [
+  "MSP430FR2433 Data Sheet, SLASE59F",
+  "MSP430FR4xx and MSP430FR2xx Family User's Guide, SLAU445",
+  "MSP430 Embedded Application Binary Interface, SLAU132",
+]
+manual_urls = [
+  "https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf",
+  "https://www.ti.com/lit/ug/slau445/slau445.pdf",
+  "https://www.ti.com/lit/an/slau132/slau132.pdf",
+]
+sample_url = "https://www.ti.com/tool/download/SLAC700"
+sample_revision = "SLAC700 01.00.00.0E (2020-07-01), archive SHA-256 9d8b339b98949afd26a31609d16baed06257eeb06126043ac0a3eda09397e12d"
+toolchain = "TI MSP430 GCC 9.3.1.11 plus MSP430 support files 1.212"
+compiler_flags = ["-mmcu=msp430fr2433", "-mhwmult=none"]
+peripherals = ["CS", "FRCTL", "PMM", "WDT_A", "GPIO", "TIMER_A", "EUSCI_A0"]
+image_formats = ["ELF32 little-endian MSP430 executable"]
+memory_map = ["FRAM 0x0000c000..0x0000ffff", "SRAM 0x00002000..0x00002fff", "unified 20-bit CPUXv2 address space", "selected peripheral MMIO below 0x2000"]
+reset_assumptions = "Power-on reset loads the 16-bit reset PC from 0xfffe, applies FRAM/PM5 reset state, and lets the pinned TI CRT initialize data and stack"
+vectors = ["PORT1 vector word at 0xffdc", "eUSCI_A0 vector word at 0xffe4", "Timer0_A0 vector word at 0xfff8", "reset vector word at 0xfffe"]
+selected_pins = ["P1.1 smoke external input", "P1.3 TI sample external input", "P1.0 GPIO output", "eUSCI_A0 logical TX/RX loopback"]
+interrupt_routes = ["Port 1 IFG/IE -> 0xffdc", "eUSCI_A0 IFG/IE -> 0xffe4", "Timer0_A CCR0 CCIFG/CCIE -> 0xfff8"]
+vcd_signals = ["board.msp430fr2433.port1", "board.msp430fr2433.timer_a0.ccr0_irq", "board.msp430fr2433.uart0", "board.msp430fr2433.interrupt.port1"]
+fidelity_tier = "functional CPUXv2/compiler subset and selected peripherals, deterministic timing"
+unsupported = ["ADC and capacitive touch", "BSL", "hardware multiplier in the compiler corpus", "exact clock and UART bit timing"]
+vendor_sample_license = "TI SLAC700 source retains the licence/copyright notices shipped in archive version 01.00.00.0E"
+
+[[target]]
+id = "pic16f15376"
+part = "PIC16F15376-I/PT"
+cpu = "PIC16 enhanced mid-range"
+package = "TQFP-44"
+program_words = 16384
+program_word_bits = 14
+ram_bytes = 2048
+manuals = [
+  "PIC16(L)F15356/75/76/85/86 Data Sheet, DS40001866",
+  "Enhanced Mid-Range 8-bit MCU Instruction Set, DS40001737",
+  "MPLAB XC8 C Compiler User's Guide for PIC MCU, DS50002737",
+]
+manual_urls = [
+  "https://www.microchip.com/en-us/product/PIC16F15376",
+  "https://onlinedocs.microchip.com/oxy/GUID-1B285B92-7853-41DB-A71E-1287988ABFBA-en-US-20/index.html",
+  "https://ww1.microchip.com/downloads/aemDocuments/documents/DEV/ProductDocuments/ReferenceManuals/MPLAB-XC8-C-Compiler-Users-Guide-for-PIC-DS50002737.pdf",
+]
+device_pack = "Microchip.PIC16F1xxxx_DFP.1.31.465.atpack"
+device_pack_url = "https://packs.download.microchip.com/Microchip.PIC16F1xxxx_DFP.1.31.465.atpack"
+device_pack_sha256 = "4ab50366f9ab7609c14c1b93e65cd9222d15d62d29fb2252e3ea0b9255dc125f"
+sample_url = "https://onlinedocs.microchip.com/oxy/GUID-76576783-C495-405D-B106-CD04836134D0-en-US-2/GUID-3AF5FBC3-2A7C-475B-81B2-26AC8E2E1384.html"
+sample_revision = "Microchip TB3285 / DS90003285A Timer0 8-bit periodic-interrupt bare-metal example"
+sample_adaptation = "Compiled for PIC16F15376 without peripheral-source changes; only the XC8 device selection differs from the PIC18F47Q10 publication target"
+toolchain = "MPLAB XC8 4.00 for PIC plus PIC16F1xxxx DFP 1.31.465"
+compiler_flags = ["-mcpu=16F15376"]
+peripherals = ["OSC", "PORT", "LAT", "TRIS", "ANSEL", "PPS", "PIR", "PIE", "TMR0", "TMR1", "EUSART", "WDT"]
+image_formats = ["Intel HEX reconstructed as 14-bit little-endian program words", "XC8 ELF retained for map/disassembly evidence"]
+memory_map = ["program memory 0x0000..0x3fff in 14-bit words", "banked data/SFR space 0x0000..0x1fff", "linear GPR alias 0x2000..0x29ef", "16-entry hardware return stack"]
+reset_assumptions = "Power-on reset starts at program word 0; XC8 startup establishes software data stack, initialized data and main; interrupt entry uses word address 0x0004"
+vectors = ["reset word address 0x0000", "combined interrupt word address 0x0004"]
+selected_pins = ["RA1 external digital input", "RA0 GPIO/timer ISR output", "RE0 Microchip Timer0 oracle output", "EUSART1 logical TX"]
+interrupt_routes = ["Timer0 PIR0/PIE0 plus PEIE/GIE -> vector 0x0004", "Timer1 PIR4/PIE4 -> vector 0x0004", "EUSART1 PIR3/PIE3 -> vector 0x0004"]
+vcd_signals = ["board.pic16f15376.porta", "board.pic16f15376.timer0.irq", "board.pic16f15376.eusart1", "board.pic16f15376.interrupt.request"]
+fidelity_tier = "functional enhanced mid-range PIC16 and selected peripherals, deterministic timing"
+unsupported = ["analog peripherals", "CLC/NCO/PWM", "serial receive bit timing", "exact oscillator and instruction-cycle timing"]
+vendor_sample_license = "Microchip TB3285 documentation/source terms; peripheral source attribution and unchanged adaptation are documented locally"
+
+[[target]]
+id = "efm8bb52f32g"
+part = "EFM8BB52F32G-C-QFN32"
+cpu = "pipelined MCS-51 compatible core"
+package = "QFN-32"
+flash_bytes = 32768
+ram_bytes = 2355
+manuals = [
+  "EFM8BB52 Data Sheet",
+  "EFM8BB52 Reference Manual",
+  "SDCC 4.5.0 User Guide, MCS-51 target",
+]
+manual_urls = [
+  "https://www.silabs.com/documents/public/data-sheets/efm8bb52-datasheet.pdf",
+  "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
+  "https://sdcc.sourceforge.net/doc/sdccman.pdf",
+]
+sample_url = "https://github.com/mathiasvr/silabs-8051-sdk"
+sample_revision = "eff6046fcb1705f00588bcd2d03cc8f0361bfc14 (mirror of Silicon Laboratories 8051 SDK 4.2.3, distributed through Simplicity Studio)"
+sample_adaptation = "Explorer Kit Blinky main/Timer2 ISR and Pro Kit UART ISR peripheral logic are unchanged; a tracked SDCC declaration header and documented startup adapter replace Simplicity Studio generated declarations/configuration"
+toolchain = "source-built SDCC 4.5.0 MCS-51"
+compiler_flags = ["-mmcs51", "--model-small"]
+peripherals = ["RSTSRC", "CLKSEL", "WDTCN", "PORT0", "PORT1", "PORT2", "PORT3", "XBR", "TIMER0", "TIMER2", "UART0", "IE", "IP"]
+image_formats = ["Intel HEX byte-addressed CODE image produced by SDCC"]
+memory_map = ["CODE flash 0x0000..0x7fff", "IDATA 0x00..0xff", "XDATA 0x0000..0x08ff", "paged SFR window 0x80..0xff with explicit bit-addressable access"]
+reset_assumptions = "Power-on reset starts at CODE 0x0000 with SP=0x07, register bank 0 and default SFR page; SDCC startup initializes memory before main"
+vectors = ["reset 0x0000", "Timer0 0x000b", "UART0 0x0023", "Timer2 0x002b", "low/high priority levels retained separately"]
+selected_pins = ["P0.1 external digital input", "P0.0 GPIO/timer ISR output", "P1.4 Silicon Labs Explorer Kit LED oracle", "UART0 logical TX"]
+interrupt_routes = ["TF0/ET0/EA -> Timer0 vector 0x000b", "RI/TI/ES0/EA -> UART0 vector 0x0023", "TF2H/ET2/EA -> Timer2 vector 0x002b", "IP selects low/high priority"]
+vcd_signals = ["board.efm8bb52f32g.port0", "board.efm8bb52f32g.timer0.irq", "board.efm8bb52f32g.timer2.irq", "board.efm8bb52f32g.uart0", "board.efm8bb52f32g.interrupt.request"]
+fidelity_tier = "functional EFM8-flavoured MCS-51 and selected peripherals, deterministic timing"
+unsupported = ["analog peripherals", "PCA", "SMBus", "SPI", "cycle-accurate pipelining and historical 8051 buses"]
+vendor_sample_license = "Silicon Laboratories 8051 SDK source licence retained in mirrored SDK files; local adapters are repository-licensed"

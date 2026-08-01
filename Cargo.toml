@@ -7,6 +7,10 @@ members = [
     "crates/renvo-corpus",
     "crates/renvo-casegen",
     "crates/renvo-cpu-arm",
+    "crates/renvo-cpu-avr",
+    "crates/renvo-cpu-mcs51",
+    "crates/renvo-cpu-msp430",
+    "crates/renvo-cpu-pic16",
     "crates/renvo-cpu-riscv",
     "crates/renvo-cpu-xtensa",
     "crates/renvo-devices",
@@ -35,6 +39,10 @@ renvo-bus = { path = "crates/renvo-bus" }
 renvo-core = { path = "crates/renvo-core" }
 renvo-corpus = { path = "crates/renvo-corpus" }
 renvo-cpu-arm = { path = "crates/renvo-cpu-arm" }
+renvo-cpu-avr = { path = "crates/renvo-cpu-avr" }
+renvo-cpu-mcs51 = { path = "crates/renvo-cpu-mcs51" }
+renvo-cpu-msp430 = { path = "crates/renvo-cpu-msp430" }
+renvo-cpu-pic16 = { path = "crates/renvo-cpu-pic16" }
 renvo-cpu-riscv = { path = "crates/renvo-cpu-riscv" }
 renvo-cpu-xtensa = { path = "crates/renvo-cpu-xtensa" }
 renvo-devices = { path = "crates/renvo-devices" }

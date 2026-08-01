@@ -25,6 +25,16 @@ The six-MCU CoreMark qualification and host-calibrated results are in
 The generated six-target support, provenance and known-gap dashboard is
 [qualification/dashboard.html](qualification/dashboard.html).
 
+The frozen seven-target expansion adds ATSAMD21E18, STM32L432KC,
+R7FA4M1AB3CFM, ATmega328PB, MSP430FR2433, PIC16F15376, and EFM8BB52F32G. Its
+exact functional boundary and comprehensive acceptance command are documented
+in [docs/EXPANSION.md](docs/EXPANSION.md). Run the complete expansion and
+original-six regression gate with:
+
+```sh
+scripts/qualify-expansion.sh
+```
+
 ## Official MicroPython qualification
 
 The current offline qualification boots unmodified official MicroPython

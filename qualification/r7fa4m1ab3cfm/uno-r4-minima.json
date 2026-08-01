@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "board": "Arduino UNO R4 Minima",
+  "mcu": "R7FA4M1AB3CFM#AA0",
+  "scope": "RA4M1 only; no ESP32-S3 bridge, USB, or Wi-Fi",
+  "selected_pins": {
+    "led_builtin": "P111",
+    "uart_tx": "SCI9 functional output"
+  }
+}

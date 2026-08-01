@@ -1,0 +1,15 @@
+name = "avr-gcc-7-atmega328pb-dfp-3.6.299"
+image = "sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c"
+program = "avr-gcc"
+args = [
+    "-B/opt/microchip/atmega-dfp/gcc/dev/atmega328pb/",
+    "-I/opt/microchip/atmega-dfp/include",
+    "-mmcu=atmega328pb",
+    "-ffreestanding",
+    "-fno-delete-null-pointer-checks",
+    "-Wl,--build-id=none",
+]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

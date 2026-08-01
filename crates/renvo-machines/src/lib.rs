@@ -7,11 +7,21 @@ use renvo_signals::{Logic, SignalChange, SignalError, SignalId};
 use serde::Serialize;
 
 mod arm;
+mod arm_mcu;
+mod avr_mcu;
+mod mcs51_mcu;
+mod msp430_mcu;
+mod pic16_mcu;
 mod riscv;
 mod target;
 mod xtensa;
 
 pub use arm::{ArmMachine, ArmMachineError};
+pub use arm_mcu::ArmMcuMachine;
+pub use avr_mcu::{AvrMachineError, AvrMcuMachine};
+pub use mcs51_mcu::{Mcs51MachineError, Mcs51McuMachine};
+pub use msp430_mcu::{Msp430MachineError, Msp430McuMachine};
+pub use pic16_mcu::{Pic16MachineError, Pic16McuMachine};
 pub use riscv::{
     MachineError, RiscVMachine, RunResult, TEST_EXIT, TEST_GPIO, TEST_TIMER, TEST_UART,
 };

@@ -42,16 +42,20 @@ def escape_list(values: list[str]) -> str:
 
 def main() -> None:
     renvo = ROOT / "target" / "debug" / "renvo"
-    manifests = json.loads(
+    all_manifests = json.loads(
         subprocess.check_output([str(renvo), "targets", "--json"], cwd=ROOT)
     )
-    if len(manifests) != 6:
-        raise SystemExit("dashboard requires exactly six target manifests")
 
     spec_path = QUALIFICATION / "dashboard-spec.json"
     spec = load(spec_path)
-    if set(spec["targets"]) != {manifest["id"] for manifest in manifests}:
-        raise SystemExit("dashboard spec and target manifests differ")
+    baseline_ids = set(spec["targets"])
+    manifests = [
+        manifest for manifest in all_manifests if manifest["id"] in baseline_ids
+    ]
+    if len(baseline_ids) != 6 or len(manifests) != 6:
+        raise SystemExit("dashboard requires all six original target manifests")
+    if baseline_ids != {manifest["id"] for manifest in manifests}:
+        raise SystemExit("dashboard spec and original target manifests differ")
 
     evidence_paths = [
         QUALIFICATION / "riscv-cpu.json",

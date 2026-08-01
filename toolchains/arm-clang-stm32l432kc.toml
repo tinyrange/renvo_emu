@@ -1,0 +1,21 @@
+name = "clang-18-stm32l432kc-hard-float"
+image = "sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac"
+program = "clang-18"
+args = [
+    "--target=arm-none-eabi",
+    "-mcpu=cortex-m4",
+    "-mthumb",
+    "-mfpu=fpv4-sp-d16",
+    "-mfloat-abi=hard",
+    "-DSTM32L432xx",
+    "-ffreestanding",
+    "-fno-builtin",
+    "-nostdlib",
+    "-fuse-ld=lld",
+    "-Wl,--build-id=none,--discard-all",
+    "-L/usr/lib/gcc/arm-none-eabi/13.2.1/thumb/v7e-m+fp/hard",
+]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

@@ -33,6 +33,28 @@ The build itself may use the package network. Every corpus compilation runs
 later with `--pull=never`, `--network=none`, a read-only root filesystem,
 dropped capabilities, and explicit CPU, memory, process, and wall-time limits.
 
+The seven-target expansion uses target-specific immutable specifications for
+ATSAMD21E18, STM32L432KC, R7FA4M1AB3CFM, ATmega328PB, MSP430FR2433,
+PIC16F15376, and EFM8BB52F32G. The three Arm targets have both GCC 13.2.Rel1
+and Clang/LLD 18 specifications. The AVR, MSP430, XC8, and SDCC Dockerfiles pin
+their compiler/device-pack archives and verify published or recorded SHA-256
+values where redistribution terms permit local image construction.
+
+Build the target-specific images locally when their pinned IDs are not already
+present:
+
+```sh
+docker build --pull=false -t renvo/avr-gcc:local toolchains/avr-gcc
+docker build --pull=false -t renvo/msp430-gcc:local toolchains/msp430-gcc
+docker build --pull=false -t renvo-xc8:4.00-pic16f1xxxx-1.31.465 toolchains/xc8
+docker build --pull=false -t renvo/sdcc-mcs51:4.5.0 toolchains/sdcc-mcs51
+```
+
+The XC8 recipe downloads Microchip's installer for a local qualification
+image. Do not publish or redistribute that image; review and accept the vendor
+licence yourself. Renvo records only the recipe, pinned installer/device-pack
+hashes, and immutable local image identity.
+
 `xtensa-esp-gcc/Dockerfile` installs Espressif's official Xtensa GCC archive.
 Both the release URL and SHA-256 published in Espressif's package index are
 pinned, and the archive checksum is verified before extraction.

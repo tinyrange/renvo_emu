@@ -1,7 +1,7 @@
 {
   "schema": "renvo.debug-observability-qualification.v1",
   "generated_by": "scripts/qualify-debug-observability.sh",
-  "source_sha256": "481c3a2079d9cf34a086914c16e14d8e530f9b8b910156c88df8b01642a5dbfd",
+  "source_sha256": "2fd1371c0c0d3d333da29adf42819af1f94c753b35bc2837673169fadf241b9a",
   "result": "pass",
   "families": [
     {

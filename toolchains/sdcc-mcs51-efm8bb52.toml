@@ -1,0 +1,12 @@
+name = "sdcc-4.5.0-mcs51-efm8bb52"
+image = "sha256:ba8ecc7e43912412757079d7366e5f27b78a272dc08d61a244b79508139dbf75"
+program = "sdcc"
+args = [
+    "-mmcs51",
+    "--model-small",
+    "--std-c11",
+]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

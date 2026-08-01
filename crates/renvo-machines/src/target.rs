@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::fmt;
 use std::str::FromStr;
 
-/// Stable identifier for one of the six initial microcontrollers.
+/// Stable identifier for one supported or explicitly planned microcontroller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TargetId {
@@ -19,6 +19,20 @@ pub enum TargetId {
     Esp32s3,
     /// Espressif ESP32-C6.
     Esp32c6,
+    /// Microchip ATSAMD21E18A.
+    Atsamd21e18,
+    /// STMicroelectronics STM32L432KC.
+    Stm32l432kc,
+    /// Renesas R7FA4M1AB3CFM (RA4M1).
+    R7fa4m1ab3cfm,
+    /// Microchip ATmega328PB.
+    Atmega328pb,
+    /// Texas Instruments MSP430FR2433.
+    Msp430fr2433,
+    /// Microchip PIC16F15376.
+    Pic16f15376,
+    /// Silicon Labs EFM8BB52F32G.
+    Efm8bb52f32g,
 }
 
 impl TargetId {
@@ -31,6 +45,13 @@ impl TargetId {
             Self::Rp2350 => "rp2350",
             Self::Esp32s3 => "esp32s3",
             Self::Esp32c6 => "esp32c6",
+            Self::Atsamd21e18 => "atsamd21e18",
+            Self::Stm32l432kc => "stm32l432kc",
+            Self::R7fa4m1ab3cfm => "r7fa4m1ab3cfm",
+            Self::Atmega328pb => "atmega328pb",
+            Self::Msp430fr2433 => "msp430fr2433",
+            Self::Pic16f15376 => "pic16f15376",
+            Self::Efm8bb52f32g => "efm8bb52f32g",
         }
     }
 }
@@ -52,6 +73,13 @@ impl FromStr for TargetId {
             "rp2350" | "rp2350a" => Ok(Self::Rp2350),
             "esp32s3" | "esp32-s3" => Ok(Self::Esp32s3),
             "esp32c6" | "esp32-c6" => Ok(Self::Esp32c6),
+            "atsamd21e18" | "samd21e18" => Ok(Self::Atsamd21e18),
+            "stm32l432kc" => Ok(Self::Stm32l432kc),
+            "r7fa4m1ab3cfm" | "ra4m1" | "uno-r4-minima" => Ok(Self::R7fa4m1ab3cfm),
+            "atmega328pb" => Ok(Self::Atmega328pb),
+            "msp430fr2433" => Ok(Self::Msp430fr2433),
+            "pic16f15376" => Ok(Self::Pic16f15376),
+            "efm8bb52f32g" | "efm8bb52f32g-qfn32" => Ok(Self::Efm8bb52f32g),
             _ => Err(format!("unknown target {value:?}")),
         }
     }
@@ -152,6 +180,31 @@ const CORTEX_M0P: CpuOption = CpuOption {
 const CORTEX_M33: CpuOption = CpuOption {
     name: "cortex-m33-armv8m",
     architecture: FirmwareArchitecture::Arm,
+    fidelity: Fidelity::Functional,
+};
+const CORTEX_M4F: CpuOption = CpuOption {
+    name: "cortex-m4f-armv7em",
+    architecture: FirmwareArchitecture::Arm,
+    fidelity: Fidelity::Functional,
+};
+const AVR8: CpuOption = CpuOption {
+    name: "avr8-enhanced",
+    architecture: FirmwareArchitecture::Avr8,
+    fidelity: Fidelity::Functional,
+};
+const MSP430X: CpuOption = CpuOption {
+    name: "msp430-cpuxv2",
+    architecture: FirmwareArchitecture::Msp430X,
+    fidelity: Fidelity::Functional,
+};
+const PIC16_ENHANCED: CpuOption = CpuOption {
+    name: "pic16-enhanced-midrange",
+    architecture: FirmwareArchitecture::Pic16Enhanced,
+    fidelity: Fidelity::Functional,
+};
+const MCS51: CpuOption = CpuOption {
+    name: "mcs51-efm8",
+    architecture: FirmwareArchitecture::Mcs51,
     fidelity: Fidelity::Functional,
 };
 const XTENSA_LX7: CpuOption = CpuOption {
@@ -391,9 +444,249 @@ const MANIFESTS: &[TargetManifest] = &[
             "LP core and wireless peripherals are deferred",
         ],
     },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Atsamd21e18,
+        name: "Microchip ATSAMD21E18A",
+        cpus: &[CORTEX_M0P],
+        memory: &[
+            MemoryRegion {
+                name: "flash",
+                start: 0x0000_0000,
+                size: 256 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "sram",
+                start: 0x2000_0000,
+                size: 32 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 26,
+        fidelity: Fidelity::Functional,
+        baseline: &[
+            "PORT/EIC GPIO",
+            "TC3 timer interrupt",
+            "SERCOM0 USART",
+            "VCD",
+        ],
+        sources: &[
+            "https://www.microchip.com/en-us/product/ATSAMD21E18",
+            "https://packs.download.microchip.com/Microchip.SAMD21_DFP.3.8.270.atpack",
+        ],
+        limitations: &["analog, USB, DMA, and exact clock timing are outside this tranche"],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Stm32l432kc,
+        name: "STMicroelectronics STM32L432KC",
+        cpus: &[CORTEX_M4F],
+        memory: &[
+            MemoryRegion {
+                name: "flash",
+                start: 0x0800_0000,
+                size: 256 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "sram",
+                start: 0x2000_0000,
+                size: 64 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 26,
+        fidelity: Fidelity::Functional,
+        baseline: &["GPIO/EXTI", "TIM2 interrupt", "USART2", "VCD"],
+        sources: &[
+            "https://www.st.com/en/microcontrollers-microprocessors/stm32l432kc.html",
+            "https://www.st.com/resource/en/reference_manual/rm0394-stm32l41xxx42xxx43xxx44xxx45xxx46xxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf",
+        ],
+        limitations: &["analog, USB, DMA, low-power fidelity, and exact clocks are deferred"],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::R7fa4m1ab3cfm,
+        name: "Renesas R7FA4M1AB3CFM#AA0",
+        cpus: &[CORTEX_M4F],
+        memory: &[
+            MemoryRegion {
+                name: "code-flash",
+                start: 0x0000_0000,
+                size: 256 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "sram",
+                start: 0x2000_0000,
+                size: 32 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "data-flash",
+                start: 0x4010_0000,
+                size: 8 * 1024,
+                kind: MemoryKind::Flash,
+                executable: false,
+            },
+        ],
+        gpio_count: 49,
+        fidelity: Fidelity::Functional,
+        baseline: &["IOPORT/ICU", "GPT0 interrupt", "SCI9 UART", "VCD"],
+        sources: &[
+            "https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware",
+            "https://github.com/arduino/ArduinoCore-renesas",
+        ],
+        limitations: &["USB, CAN, analog, LCD, and Wi-Fi-board bridge behavior are deferred"],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Atmega328pb,
+        name: "Microchip ATmega328PB",
+        cpus: &[AVR8],
+        memory: &[
+            MemoryRegion {
+                name: "program-flash",
+                start: 0,
+                size: 32 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "data-sram",
+                start: 0x0100,
+                size: 2 * 1024,
+                kind: MemoryKind::Ram,
+                executable: false,
+            },
+        ],
+        gpio_count: 27,
+        fidelity: Fidelity::Functional,
+        baseline: &["PORT/interrupt GPIO", "Timer0/1", "USART0", "EEPROM", "VCD"],
+        sources: &[
+            "https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip-AVR-Microcontroller-ATmega328PB-Data-Sheet-DS40001906.pdf",
+            "https://packs.download.microchip.com/Microchip.ATmega_DFP.3.6.299.atpack",
+        ],
+        limitations: &["analog, touch, SPI, and TWI are outside the acceptance slice"],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Msp430fr2433,
+        name: "Texas Instruments MSP430FR2433",
+        cpus: &[MSP430X],
+        memory: &[
+            MemoryRegion {
+                name: "fram",
+                start: 0x0000_c000,
+                size: 16 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "sram",
+                start: 0x0000_2000,
+                size: 4 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 19,
+        fidelity: Fidelity::Functional,
+        baseline: &[
+            "GPIO/low-power wake",
+            "Timer_A",
+            "eUSCI_A0 UART",
+            "FRAM",
+            "VCD",
+        ],
+        sources: &[
+            "https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf",
+            "https://www.ti.com/lit/ug/slau445/slau445.pdf",
+        ],
+        limitations: &["ADC, capacitive touch, BSL, and clock accuracy are deferred"],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Pic16f15376,
+        name: "Microchip PIC16F15376",
+        cpus: &[PIC16_ENHANCED],
+        memory: &[
+            MemoryRegion {
+                name: "program-words-14bit",
+                start: 0,
+                size: 16 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "data-ram",
+                start: 0,
+                size: 2 * 1024,
+                kind: MemoryKind::Ram,
+                executable: false,
+            },
+        ],
+        gpio_count: 36,
+        fidelity: Fidelity::Functional,
+        baseline: &[
+            "PORT/PPS GPIO",
+            "Timer0/1",
+            "EUSART",
+            "interrupt routing",
+            "VCD",
+        ],
+        sources: &[
+            "https://www.microchip.com/en-us/product/PIC16F15376",
+            "https://packs.download.microchip.com/Microchip.PIC16F1xxxx_DFP.1.31.465.atpack",
+        ],
+        limitations: &["analog, CLC, NCO, PWM, and exact oscillator timing are deferred"],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Efm8bb52f32g,
+        name: "Silicon Labs EFM8BB52F32G-QFN32",
+        cpus: &[MCS51],
+        memory: &[
+            MemoryRegion {
+                name: "code-flash",
+                start: 0,
+                size: 32 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "xram",
+                start: 0,
+                size: 2304,
+                kind: MemoryKind::Ram,
+                executable: false,
+            },
+        ],
+        gpio_count: 29,
+        fidelity: Fidelity::Functional,
+        baseline: &[
+            "crossbar GPIO",
+            "Timer0/2",
+            "UART0",
+            "interrupt priority",
+            "VCD",
+        ],
+        sources: &[
+            "https://www.silabs.com/documents/public/data-sheets/efm8bb52-datasheet.pdf",
+            "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
+        ],
+        limitations: &["analog, PCA, SMBus, SPI, and historical 8051 machine timing are deferred"],
+    },
 ];
 
-/// Returns all six manifests in stable portfolio order.
+/// Returns all manifests in stable portfolio order.
 pub const fn target_manifests() -> &'static [TargetManifest] {
     MANIFESTS
 }
@@ -411,8 +704,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn portfolio_has_six_unique_targets_with_primary_sources() {
-        assert_eq!(target_manifests().len(), 6);
+    fn portfolio_has_thirteen_unique_targets_with_primary_sources() {
+        assert_eq!(target_manifests().len(), 13);
         for (index, manifest) in target_manifests().iter().enumerate() {
             assert!(!manifest.sources.is_empty());
             assert!(
@@ -430,5 +723,9 @@ mod tests {
             "esp32c6"
         );
         assert_eq!("rp2350a".parse::<TargetId>().unwrap(), TargetId::Rp2350);
+        assert_eq!(
+            "uno-r4-minima".parse::<TargetId>().unwrap(),
+            TargetId::R7fa4m1ab3cfm
+        );
     }
 }

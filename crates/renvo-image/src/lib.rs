@@ -2,6 +2,7 @@
 
 mod esp;
 mod flash;
+mod ihex;
 mod manifest;
 mod uf2;
 
@@ -10,6 +11,10 @@ pub use esp::{
     EspPartition, EspPartitionTable,
 };
 pub use flash::{FlashError, FlashSnapshot, PersistentFlash};
+pub use ihex::{
+    IntelHexError, IntelHexImage, IntelHexRecord, IntelHexRecordType, IntelHexSegment,
+    ProgramWordEndianness, ProgramWordImage, ProgramWordSegment,
+};
 pub use manifest::{
     FirmwareArtifactFormat, FirmwareManifestError, OfficialFirmwareArtifact, OfficialFirmwareSuite,
     VerifiedFirmwareArtifact,
@@ -18,7 +23,7 @@ pub use uf2::{Uf2Block, Uf2Error, Uf2Image, Uf2Segment};
 
 use object::{
     Architecture as ObjectArchitecture, BinaryFormat, Endianness, Object, ObjectSegment,
-    ObjectSymbol, SegmentFlags, SymbolKind,
+    ObjectSymbol, SegmentFlags, SymbolKind, elf::PT_LOAD, read::elf::ProgramHeader,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -32,6 +37,14 @@ pub enum FirmwareArchitecture {
     Arm,
     /// 32-bit Xtensa.
     Xtensa,
+    /// 8-bit AVR enhanced RISC architecture.
+    Avr8,
+    /// MSP430 CPUX with a 20-bit architectural address space.
+    Msp430X,
+    /// Enhanced mid-range PIC16 architecture.
+    Pic16Enhanced,
+    /// MCS-51/8051 architecture.
+    Mcs51,
 }
 
 /// Loadable ELF segment including zero-initialized tail bytes.
@@ -39,6 +52,9 @@ pub enum FirmwareArchitecture {
 pub struct FirmwareSegment {
     /// Segment virtual address.
     pub address: u64,
+    /// Distinct ELF physical/load address, when it differs from the virtual address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load_address: Option<u64>,
     /// Complete memory image, padded to the ELF memory size.
     pub data: Vec<u8>,
     /// Segment permits instruction execution.
@@ -97,6 +113,8 @@ impl FirmwareImage {
             ObjectArchitecture::Riscv32 => FirmwareArchitecture::RiscV32,
             ObjectArchitecture::Arm => FirmwareArchitecture::Arm,
             ObjectArchitecture::Xtensa => FirmwareArchitecture::Xtensa,
+            ObjectArchitecture::Avr => FirmwareArchitecture::Avr8,
+            ObjectArchitecture::Msp430 => FirmwareArchitecture::Msp430X,
             architecture => {
                 return Err(ImageError::UnsupportedArchitecture(format!(
                     "{architecture:?}"
@@ -104,8 +122,23 @@ impl FirmwareImage {
             }
         };
 
+        let physical_addresses = match &file {
+            object::File::Elf32(elf) => elf
+                .elf_program_headers()
+                .iter()
+                .filter(|header| header.p_type(elf.endian()) == PT_LOAD)
+                .map(|header| u64::from(header.p_paddr(elf.endian())))
+                .collect::<Vec<_>>(),
+            object::File::Elf64(elf) => elf
+                .elf_program_headers()
+                .iter()
+                .filter(|header| header.p_type(elf.endian()) == PT_LOAD)
+                .map(|header| header.p_paddr(elf.endian()))
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
         let mut segments = Vec::new();
-        for segment in file.segments() {
+        for (index, segment) in file.segments().enumerate() {
             if segment.size() == 0 {
                 continue;
             }
@@ -135,6 +168,10 @@ impl FirmwareImage {
             };
             segments.push(FirmwareSegment {
                 address: segment.address(),
+                load_address: physical_addresses
+                    .get(index)
+                    .copied()
+                    .filter(|address| *address != segment.address()),
                 data,
                 executable,
                 writable,

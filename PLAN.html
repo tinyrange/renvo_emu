@@ -4,54 +4,48 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Renvo — Emulation Core Plan</title>
+  <title>Renvo — Seven-MCU Expansion Plan</title>
   <style>
     :root {
       --bg: #0a0d0c;
       --panel: #111614;
-      --panel-2: #151c19;
-      --line: #28322e;
+      --panel-2: #161d1a;
+      --line: #29332f;
       --line-soft: #202925;
       --text: #e8efeb;
       --muted: #9baaa3;
-      --faint: #6f7e77;
-      --accent: #73e2ae;
-      --accent-2: #f6c86b;
-      --accent-3: #7fb4ff;
-      --danger: #ff8a7a;
-      --radius: 14px;
-      --shadow: 0 18px 60px rgba(0, 0, 0, .28);
+      --faint: #718079;
+      --green: #73e2ae;
+      --amber: #f2c66d;
+      --blue: #83b7ff;
+      --purple: #c5a3ff;
+      --red: #ff8c7d;
       --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
       --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-
     body {
       margin: 0;
       color: var(--text);
       background:
-        radial-gradient(circle at 88% 4%, rgba(115, 226, 174, .07), transparent 28rem),
-        radial-gradient(circle at 4% 30%, rgba(127, 180, 255, .045), transparent 30rem),
+        radial-gradient(circle at 91% 3%, rgba(115, 226, 174, .075), transparent 28rem),
+        radial-gradient(circle at 7% 32%, rgba(131, 183, 255, .05), transparent 32rem),
         var(--bg);
-      font-family: var(--sans);
-      font-size: 15px;
-      line-height: 1.62;
+      font: 15px/1.62 var(--sans);
     }
 
-    a { color: inherit; }
+    a { color: var(--blue); text-underline-offset: 3px; }
     code, pre { font-family: var(--mono); }
-    code {
-      color: #b8f1d5;
-      font-size: .91em;
-    }
+    code { color: #b8f1d5; font-size: .91em; }
+    strong { color: #f3f7f5; }
 
     .shell {
       display: grid;
-      grid-template-columns: 250px minmax(0, 980px);
+      grid-template-columns: 244px minmax(0, 1000px);
       gap: 54px;
-      width: min(1320px, calc(100% - 48px));
+      width: min(1340px, calc(100% - 48px));
       margin: 0 auto;
     }
 
@@ -69,10 +63,10 @@
       display: flex;
       align-items: center;
       gap: 11px;
-      margin-bottom: 34px;
-      font-family: var(--mono);
-      letter-spacing: .08em;
-      font-weight: 700;
+      margin-bottom: 32px;
+      color: var(--text);
+      font: 700 12px/1 var(--mono);
+      letter-spacing: .09em;
       text-transform: uppercase;
     }
 
@@ -83,16 +77,11 @@
       height: 32px;
       border: 1px solid rgba(115, 226, 174, .45);
       border-radius: 8px;
-      color: var(--accent);
+      color: var(--green);
       background: rgba(115, 226, 174, .07);
-      box-shadow: inset 0 0 16px rgba(115, 226, 174, .06);
     }
 
-    nav {
-      display: grid;
-      gap: 3px;
-    }
-
+    nav { display: grid; gap: 3px; }
     nav a {
       padding: 7px 10px;
       border-left: 1px solid var(--line);
@@ -101,12 +90,9 @@
       font-size: 13px;
       transition: color .15s ease, border-color .15s ease, background .15s ease;
     }
-
-    nav a:hover,
-    nav a:focus-visible,
-    nav a.active {
+    nav a:hover, nav a:focus-visible, nav a.active {
       color: var(--text);
-      border-left-color: var(--accent);
+      border-left-color: var(--green);
       background: linear-gradient(90deg, rgba(115, 226, 174, .08), transparent);
       outline: none;
     }
@@ -120,90 +106,57 @@
       font-size: 11px;
       line-height: 1.5;
     }
-
-    .sidebar-note strong {
+    .sidebar-note b {
       display: block;
-      margin-bottom: 3px;
       color: var(--muted);
       font-family: var(--mono);
-      font-weight: 600;
     }
 
-    main {
-      min-width: 0;
-      padding: 70px 0 120px;
-    }
-
-    .eyebrow,
-    .section-index,
-    .label {
-      color: var(--accent);
-      font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 700;
+    main { min-width: 0; padding: 70px 0 120px; }
+    .hero { padding-bottom: 58px; border-bottom: 1px solid var(--line); }
+    .eyebrow, .label, .section-index {
+      color: var(--green);
+      font: 700 11px/1.3 var(--mono);
       letter-spacing: .13em;
       text-transform: uppercase;
     }
-
-    .hero {
-      position: relative;
-      padding-bottom: 58px;
-      border-bottom: 1px solid var(--line);
-    }
-
     .hero h1 {
-      max-width: 840px;
+      max-width: 870px;
       margin: 15px 0 22px;
-      font-size: clamp(48px, 7.5vw, 86px);
+      font-size: clamp(48px, 7.2vw, 84px);
       line-height: .98;
       letter-spacing: -.055em;
-      font-weight: 700;
     }
-
-    .hero h1 span { color: var(--accent); }
-
+    .hero h1 span { color: var(--green); }
     .lede {
-      max-width: 760px;
+      max-width: 800px;
       margin: 0;
       color: #bbc8c1;
       font-size: clamp(18px, 2vw, 22px);
       line-height: 1.48;
     }
-
-    .hero-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 9px;
-      margin-top: 30px;
-    }
-
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 29px; }
     .pill {
       display: inline-flex;
-      gap: 7px;
       align-items: center;
+      gap: 7px;
       padding: 7px 10px;
       border: 1px solid var(--line);
       border-radius: 999px;
       color: var(--muted);
       background: rgba(17, 22, 20, .7);
-      font-family: var(--mono);
-      font-size: 11px;
+      font: 11px/1.2 var(--mono);
     }
-
     .pill::before {
       content: "";
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 9px rgba(115, 226, 174, .7);
+      background: var(--green);
+      box-shadow: 0 0 9px rgba(115, 226, 174, .65);
     }
 
-    section {
-      padding: 70px 0 8px;
-      scroll-margin-top: 18px;
-    }
-
+    section { padding: 70px 0 8px; scroll-margin-top: 18px; }
     .section-head {
       display: grid;
       grid-template-columns: 64px minmax(0, 1fr);
@@ -211,1577 +164,782 @@
       align-items: baseline;
       margin-bottom: 28px;
     }
-
     .section-index { color: var(--faint); }
-
-    h2 {
-      margin: 0;
-      font-size: clamp(29px, 4vw, 42px);
-      line-height: 1.1;
-      letter-spacing: -.035em;
-    }
-
-    h3 {
-      margin: 0 0 10px;
-      font-size: 17px;
-      line-height: 1.35;
-      letter-spacing: -.015em;
-    }
-
+    h2 { margin: 0; font-size: clamp(29px, 4vw, 42px); line-height: 1.1; letter-spacing: -.035em; }
+    h3 { margin: 0 0 10px; font-size: 18px; line-height: 1.35; letter-spacing: -.015em; }
+    h4 { margin: 20px 0 7px; color: #d9e4de; font-size: 14px; }
     p { margin: 0 0 14px; }
     .muted { color: var(--muted); }
 
-    .summary {
-      display: grid;
-      grid-template-columns: 1.35fr .65fr;
-      gap: 16px;
-    }
-
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .card {
       border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: linear-gradient(145deg, rgba(21, 28, 25, .94), rgba(15, 20, 18, .94));
-      box-shadow: var(--shadow);
+      border-radius: 14px;
+      background: linear-gradient(145deg, rgba(22, 29, 26, .94), rgba(15, 20, 18, .94));
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .17);
     }
-
-    .card-pad { padding: 25px; }
-
-    .statement {
-      padding: 27px 29px;
-      border-left: 2px solid var(--accent);
-      font-size: 19px;
-      line-height: 1.55;
-    }
-
-    .decision-list {
-      display: grid;
-      gap: 0;
-    }
-
-    .decision {
-      display: grid;
-      grid-template-columns: 130px 1fr;
-      gap: 14px;
-      padding: 13px 0;
-      border-bottom: 1px solid var(--line-soft);
-    }
-
-    .decision:last-child { border-bottom: 0; }
-    .decision dt {
+    .pad { padding: 22px; }
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+    .target { position: relative; overflow: hidden; }
+    .target::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--green); }
+    .target.avr::before { background: var(--amber); }
+    .target.msp::before { background: var(--blue); }
+    .target.pic::before { background: var(--purple); }
+    .target.mcs::before { background: var(--red); }
+    .target-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .order {
       color: var(--faint);
-      font-family: var(--mono);
-      font-size: 11px;
+      font: 700 11px/1 var(--mono);
+      letter-spacing: .1em;
       text-transform: uppercase;
     }
-    .decision dd { margin: 0; color: #cbd5d0; }
+    .chip { color: var(--green); font: 700 12px/1.2 var(--mono); }
+    .avr .chip { color: var(--amber); }
+    .msp .chip { color: var(--blue); }
+    .pic .chip { color: var(--purple); }
+    .mcs .chip { color: var(--red); }
+
+    ul, ol { margin: 10px 0 16px; padding-left: 21px; }
+    li { margin: 6px 0; }
+    .compact li { margin: 3px 0; }
+    .checks { list-style: none; padding: 0; }
+    .checks li { position: relative; padding-left: 25px; }
+    .checks li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 800; }
+    .no-list { list-style: none; padding: 0; }
+    .no-list li { position: relative; padding-left: 24px; }
+    .no-list li::before { content: "—"; position: absolute; left: 0; color: var(--red); }
 
     .callout {
-      padding: 20px 22px;
-      border: 1px solid rgba(246, 200, 107, .27);
+      padding: 19px 21px;
+      border: 1px solid rgba(115, 226, 174, .26);
+      border-left: 3px solid var(--green);
       border-radius: 12px;
-      color: #d8d0bd;
-      background: rgba(246, 200, 107, .045);
+      background: rgba(115, 226, 174, .045);
     }
+    .callout.amber { border-color: rgba(242, 198, 109, .23); border-left-color: var(--amber); background: rgba(242, 198, 109, .045); }
+    .callout p:last-child { margin-bottom: 0; }
 
-    .callout .label { color: var(--accent-2); }
-
-    .grid-2,
-    .grid-3 {
-      display: grid;
-      gap: 16px;
-    }
-
-    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-
-    .mini-card {
-      padding: 20px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(17, 22, 20, .75);
-    }
-
-    .mini-card p:last-child { margin-bottom: 0; }
-    .mini-card .label { display: block; margin-bottom: 10px; }
-
-    ul, ol {
-      margin: 9px 0 0;
-      padding-left: 20px;
-    }
-
-    li { margin: 5px 0; color: #c6d0cb; }
-    li::marker { color: var(--accent); }
-
-    .architecture {
-      overflow: hidden;
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: var(--panel);
-    }
-
-    .arch-row {
-      display: grid;
-      grid-template-columns: 180px 1fr;
-      min-height: 88px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .arch-row:last-child { border-bottom: 0; }
-
-    .arch-name {
-      display: flex;
-      align-items: center;
-      padding: 20px;
-      color: var(--accent);
-      background: rgba(115, 226, 174, .035);
-      border-right: 1px solid var(--line);
-      font-family: var(--mono);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    .arch-body {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 22px;
-      align-items: center;
-      padding: 18px 22px;
-    }
-
-    .arch-body strong {
-      display: block;
-      margin-bottom: 3px;
-      font-size: 14px;
-    }
-
-    .arch-body span {
-      display: block;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    pre {
-      overflow-x: auto;
-      margin: 18px 0 0;
-      padding: 21px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      color: #c9d9d1;
-      background: #0b0f0d;
-      font-size: 12px;
-      line-height: 1.65;
-      tab-size: 2;
-    }
-
-    .comment { color: #627169; }
-    .kw { color: var(--accent-3); }
-    .type { color: var(--accent-2); }
-    .string { color: var(--accent); }
-
-    .flow {
-      display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-      gap: 8px;
-      align-items: stretch;
-      margin-top: 18px;
-    }
-
-    .flow-step {
-      position: relative;
-      display: flex;
-      min-height: 108px;
-      flex-direction: column;
-      justify-content: space-between;
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--panel);
-    }
-
-    .flow-step:not(:last-child)::after {
-      content: "→";
-      position: absolute;
-      z-index: 2;
-      top: 38%;
-      right: -13px;
-      color: var(--accent);
-      font-family: var(--mono);
-    }
-
-    .flow-step b {
-      font-size: 13px;
-      line-height: 1.3;
-    }
-
-    .flow-step span {
-      color: var(--faint);
-      font-family: var(--mono);
-      font-size: 9px;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-    }
-
-    .table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    th, td {
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--line-soft);
-      text-align: left;
-      vertical-align: top;
-    }
-
-    th {
-      color: var(--muted);
-      background: var(--panel-2);
-      font-family: var(--mono);
-      font-size: 10px;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 13px; }
+    table { width: 100%; border-collapse: collapse; background: rgba(17, 22, 20, .72); }
+    th, td { padding: 13px 15px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; }
+    th { color: var(--muted); background: rgba(24, 31, 28, .85); font: 700 11px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
     tr:last-child td { border-bottom: 0; }
-    td:first-child { color: var(--text); font-weight: 600; }
+    td:first-child { color: #e0e9e4; font-weight: 650; }
 
-    .status {
-      white-space: nowrap;
-      color: var(--accent);
-      font-family: var(--mono);
-      font-size: 10px;
-      text-transform: uppercase;
-    }
-
-    .roadmap {
-      position: relative;
-      display: grid;
-      gap: 15px;
-    }
-
-    .roadmap::before {
-      content: "";
-      position: absolute;
-      top: 34px;
-      bottom: 34px;
-      left: 38px;
-      width: 1px;
-      background: var(--line);
-    }
-
+    .timeline { display: grid; gap: 12px; }
     .phase {
-      position: relative;
       display: grid;
-      grid-template-columns: 76px 1fr;
-      overflow: hidden;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 20px;
+      padding: 19px 21px;
       border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: rgba(17, 22, 20, .82);
+      border-radius: 13px;
+      background: rgba(17, 22, 20, .72);
     }
+    .phase-id { color: var(--green); font: 700 12px/1.4 var(--mono); }
+    .phase h3 { margin-bottom: 5px; }
+    .phase p { color: var(--muted); margin: 0; }
 
-    .phase-number {
-      z-index: 1;
-      display: grid;
-      place-items: start center;
-      padding-top: 24px;
-      color: var(--accent);
-      background: rgba(115, 226, 174, .025);
-      font-family: var(--mono);
-      font-size: 13px;
-      font-weight: 700;
+    .codebox {
+      margin: 14px 0;
+      padding: 17px 19px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      color: #cce9db;
+      background: #0c100e;
+      font-size: 12px;
+      line-height: 1.62;
+      white-space: pre;
     }
-
-    .phase-number span {
-      display: grid;
-      place-items: center;
-      width: 29px;
-      height: 29px;
-      border: 1px solid rgba(115, 226, 174, .45);
-      border-radius: 50%;
-      background: var(--bg);
-    }
-
-    .phase-content { padding: 22px 24px 24px; }
-
-    .phase-title {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      justify-content: space-between;
-      align-items: baseline;
-      margin-bottom: 9px;
-    }
-
-    .phase-title h3 { margin: 0; font-size: 19px; }
-    .effort {
-      color: var(--faint);
-      font-family: var(--mono);
-      font-size: 10px;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-    }
-
-    .phase-columns {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 28px;
-      margin-top: 14px;
-    }
-
-    .phase-columns h4 {
-      margin: 0 0 6px;
-      color: var(--muted);
-      font-family: var(--mono);
-      font-size: 10px;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-
-    .phase-columns ul { font-size: 13px; }
 
     .gate {
-      padding: 11px 13px;
-      border-left: 2px solid var(--accent-2);
-      color: #cec7b7;
-      background: rgba(246, 200, 107, .04);
-      font-size: 12px;
-    }
-
-    .crate-tree {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
+      grid-template-columns: 80px minmax(0, 1fr);
+      gap: 18px;
+      padding: 18px 0;
+      border-top: 1px solid var(--line-soft);
     }
-
-    .crate {
-      padding: 15px 17px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--panel);
-    }
-
-    .crate b {
-      display: block;
-      margin-bottom: 4px;
-      color: var(--accent);
-      font-family: var(--mono);
-      font-size: 12px;
-    }
-
-    .crate span { color: var(--muted); font-size: 12px; }
-
-    .issue-list {
-      counter-reset: issues;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .issue-list li {
-      counter-increment: issues;
-      position: relative;
-      min-height: 82px;
-      margin: 0;
-      padding: 16px 16px 16px 52px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--panel);
-      font-size: 13px;
-    }
-
-    .issue-list li::before {
-      content: counter(issues, decimal-leading-zero);
-      position: absolute;
-      top: 17px;
-      left: 16px;
-      color: var(--accent);
-      font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    .issue-list b { display: block; margin-bottom: 3px; }
-    .issue-list span { color: var(--muted); }
-
-    .checks {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 9px 20px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .checks li {
-      position: relative;
-      margin: 0;
-      padding: 10px 0 10px 29px;
-      border-bottom: 1px solid var(--line-soft);
-    }
-
-    .checks li::before {
-      content: "✓";
-      position: absolute;
-      left: 0;
-      color: var(--accent);
-      font-family: var(--mono);
-    }
+    .gate:first-child { border-top: 0; padding-top: 0; }
+    .gate:last-child { padding-bottom: 0; }
+    .gate-num { color: var(--green); font: 700 12px/1.4 var(--mono); }
+    .gate h3 { margin-bottom: 4px; }
+    .gate p { color: var(--muted); margin: 0; }
 
     footer {
       display: flex;
       justify-content: space-between;
       gap: 20px;
-      margin-top: 82px;
+      margin-top: 74px;
       padding-top: 24px;
       border-top: 1px solid var(--line);
       color: var(--faint);
-      font-family: var(--mono);
-      font-size: 10px;
-      text-transform: uppercase;
+      font: 11px/1.4 var(--mono);
     }
-
     .print-button {
-      padding: 7px 10px;
       border: 1px solid var(--line);
-      border-radius: 7px;
+      border-radius: 8px;
+      padding: 7px 10px;
       color: var(--muted);
       background: var(--panel);
-      font: inherit;
       cursor: pointer;
     }
 
-    .print-button:hover { color: var(--text); border-color: var(--accent); }
-
-    @media (max-width: 980px) {
-      .shell {
-        display: block;
-        width: min(100% - 32px, 840px);
-      }
-      .sidebar {
-        position: static;
-        height: auto;
-        padding: 20px 0 0;
-      }
-      .brand { margin-bottom: 12px; }
+    @media (max-width: 900px) {
+      .shell { display: block; width: min(100% - 32px, 760px); }
+      .sidebar { position: static; height: auto; padding-bottom: 8px; }
       nav, .sidebar-note { display: none; }
-      main { padding-top: 48px; }
-      .flow { grid-template-columns: repeat(3, 1fr); }
-      .flow-step:nth-child(3)::after { display: none; }
+      main { padding-top: 32px; }
+      .grid, .grid.three { grid-template-columns: 1fr; }
     }
-
-    @media (max-width: 680px) {
-      .summary, .grid-2, .grid-3, .phase-columns, .crate-tree,
-      .issue-list, .checks { grid-template-columns: 1fr; }
-      .section-head { grid-template-columns: 38px 1fr; gap: 10px; }
-      .arch-row { grid-template-columns: 1fr; }
-      .arch-name { border-right: 0; border-bottom: 1px solid var(--line); }
-      .arch-body { grid-template-columns: 1fr; gap: 12px; }
-      .flow { grid-template-columns: 1fr 1fr; }
-      .flow-step:nth-child(2n)::after { display: none; }
-      .flow-step:nth-child(3)::after { display: block; }
-      .decision { grid-template-columns: 105px 1fr; }
-      footer { flex-direction: column; }
+    @media (max-width: 560px) {
+      .section-head { grid-template-columns: 1fr; gap: 7px; }
+      .phase, .gate { grid-template-columns: 1fr; gap: 6px; }
+      .hero h1 { font-size: 45px; }
+      th, td { padding: 11px; }
     }
-
     @media print {
-      :root { color-scheme: light; }
-      body { color: #17201c; background: white; font-size: 11px; }
+      body { background: #fff; color: #111; }
       .shell { display: block; width: 100%; }
       .sidebar { display: none; }
       main { padding: 0; }
-      .hero { padding-top: 10px; }
-      .hero h1 { font-size: 48px; color: #102019; }
-      .hero h1 span, .label, .eyebrow, .section-index, code { color: #08734a; }
-      .lede, .muted, li, .decision dd, .arch-body span, .crate span { color: #42534b; }
-      .card, .mini-card, .architecture, .phase, .crate, .flow-step, .issue-list li,
-      .table-wrap, pre { box-shadow: none; background: white; border-color: #ccd5d0; }
-      .arch-name, th { background: #f1f6f3; color: #08734a; }
-      section { padding-top: 38px; break-inside: avoid; }
-      .phase { break-inside: avoid; }
+      .card, .phase, .table-wrap, .callout { box-shadow: none; break-inside: avoid; }
       .print-button { display: none; }
+      a { color: inherit; }
     }
   </style>
 </head>
 <body>
   <div class="shell">
     <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">R</div>
-        <span>Renvo / Plan</span>
-      </div>
+      <div class="brand"><span class="brand-mark">R</span> Renvo</div>
       <nav aria-label="Plan sections">
-        <a href="#brief">01 — Project brief</a>
-        <a href="#boundaries">02 — Scope boundaries</a>
-        <a href="#targets">03 — Six target chips</a>
-        <a href="#architecture">04 — Architecture</a>
-        <a href="#time-signals">05 — Time &amp; signals</a>
-        <a href="#distillation">06 — Test distillation</a>
-        <a href="#roadmap">07 — Roadmap</a>
-        <a href="#crates">08 — Rust workspace</a>
-        <a href="#quality">09 — Quality strategy</a>
-        <a href="#risks">10 — Risks</a>
-        <a href="#first-issues">11 — First issues</a>
-        <a href="#done">12 — Baseline definition</a>
+        <a href="#intent">Intent</a>
+        <a href="#scope">Scope boundary</a>
+        <a href="#refactoring">Refactoring first</a>
+        <a href="#targets">Target baselines</a>
+        <a href="#architecture">Core changes</a>
+        <a href="#toolchains">Toolchains</a>
+        <a href="#sequence">Sequence</a>
+        <a href="#testing">Qualification</a>
+        <a href="#deliverables">Deliverables</a>
+        <a href="#risks">Risks</a>
+        <a href="#acceptance">Final acceptance</a>
+        <a href="#references">References</a>
       </nav>
       <div class="sidebar-note">
-        <strong>Planning principle</strong>
-        Build one useful vertical slice, then widen support only when a real target proves the abstractions.
+        <b>Scope lock</b>
+        Seven chips. Four new CPU families. One useful peripheral slice per chip. No unrelated targets.
       </div>
     </aside>
 
     <main>
       <header class="hero">
-        <div class="eyebrow">Implementation plan · v0.2 · six-chip baseline</div>
-        <h1>A deterministic core for <span>embedded systems.</span></h1>
+        <div class="eyebrow">Follow-on implementation plan · 1 August 2026</div>
+        <h1>Seven more MCUs.<br><span>Seven distinct machines.</span></h1>
         <p class="lede">
-          A Rust-based, interpreter-first microcontroller emulation framework for six initial
-          microcontrollers, built to distil compiler and firmware samples into small,
-          reproducible tests—with functional peripherals, external stimulus, and VCD output.
+          Extend Renvo with ATSAMD21E18, STM32L432KC, R7FA4M1AB3CFM, ATmega328PB,
+          MSP430FR2433, PIC16F15376 and EFM8BB52F32G.
+          The outcome is a deterministic compiler and firmware baseline for each part—not a claim
+          of complete peripheral or cycle-accurate emulation.
         </p>
         <div class="hero-meta">
-          <span class="pill">Rust workspace</span>
-          <span class="pill">6 initial MCUs</span>
-          <span class="pill">RISC-V + Arm + Xtensa</span>
-          <span class="pill">Deterministic</span>
+          <span class="pill">Interpreter only</span>
           <span class="pill">Functional timing</span>
-          <span class="pill">VCD tracing</span>
+          <span class="pill">Docker toolchains</span>
+          <span class="pill">GPIO VCD</span>
+          <span class="pill">Seven-chip gate</span>
         </div>
       </header>
 
-      <section id="brief">
-        <div class="section-head">
-          <span class="section-index">01</span>
-          <h2>Project brief</h2>
-        </div>
-
-        <div class="summary">
-          <div class="card statement">
-            <strong>Renvo is a deterministic, scriptable embedded-system simulation platform.</strong>
-            Its first job is to run compiler-produced bare-metal programs predictably across
-            CH32V006, CH32V003, RP2040, RP2350, ESP32-S3, and ESP32-C6; compare their observable
-            behaviour; and reduce failures to durable regression tests. The first baseline is
-            useful firmware execution, not exhaustive peripheral or radio emulation.
-          </div>
-          <div class="card card-pad">
-            <span class="label">First killer use case</span>
-            <h3>Compiler corpus distillation</h3>
+      <section id="intent">
+        <div class="section-head"><span class="section-index">01</span><h2>Intent</h2></div>
+        <div class="grid">
+          <div class="card pad">
+            <span class="label">Objective</span>
+            <h3 style="margin-top: 8px;">Prove Renvo beyond its original CPU families</h3>
             <p class="muted">
-              Compile existing samples across toolchains and flags, execute them under controlled
-              conditions, detect divergence, and preserve minimal reproducers.
+              Add three new Arm machines plus AVR8, MSP430X CPUXv2, enhanced mid-range PIC16
+              and MCS-51 interpreters. Begin by splitting the current oversized implementation
+              files without changing behaviour, then run compiler-produced firmware through reset,
+              interrupts and a useful peripheral slice while retaining deterministic results,
+              external stimulus and VCD.
+            </p>
+          </div>
+          <div class="card pad">
+            <span class="label">Definition of useful</span>
+            <h3 style="margin-top: 8px;">Enough hardware for real small programs</h3>
+            <p class="muted">
+              Each target must support C startup, native ABI code, GPIO, a timer interrupt, UART,
+              and at least one vendor example. Unsupported registers must be reported honestly;
+              they must not silently behave like successful hardware accesses.
             </p>
           </div>
         </div>
-
-        <dl class="decision-list card card-pad" style="margin-top: 16px;">
-          <div class="decision">
-            <dt>Execution</dt>
-            <dd>Interpreted only. No JIT in the initial design.</dd>
-          </div>
-          <div class="decision">
-            <dt>Fidelity</dt>
-            <dd>Architecturally correct CPU behaviour and functionally useful peripherals; approximate, deterministic timing.</dd>
-          </div>
-          <div class="decision">
-            <dt>Initial ISA</dt>
-            <dd>QingKe RV32E, standard/extended RV32IMAC, Armv6-M, Armv8-M, and Xtensa LX7 profiles required by the six chips.</dd>
-          </div>
-          <div class="decision">
-            <dt>Initial machine</dt>
-            <dd>Six named chip models, each satisfying the same baseline contract; synthetic machines remain internal CPU test harnesses.</dd>
-          </div>
-          <div class="decision">
-            <dt>Observability</dt>
-            <dd>Structured events internally; VCD is the first trace exporter, not a dependency of device models.</dd>
-          </div>
-          <div class="decision">
-            <dt>Boot strategy</dt>
-            <dd>Direct ELF loading first for compiler tests, then vendor-image boot compatibility where it is needed by SDK samples.</dd>
-          </div>
-          <div class="decision">
-            <dt>Target gate</dt>
-            <dd>A chip counts as baseline-supported only when it boots representative compiled samples and passes the shared acceptance suite.</dd>
-          </div>
-        </dl>
+        <div class="callout" style="margin-top: 16px;">
+          <span class="label">Ordering principle</span>
+          <p style="margin-top: 7px;">
+            Deliver one independently passing vertical slice before starting the next architecture:
+            <strong>ATSAMD21E18 → STM32L432KC → R7FA4M1AB3CFM → ATmega328PB → MSP430FR2433 → PIC16F15376 → EFM8BB52F32G</strong>.
+          </p>
+        </div>
       </section>
 
-      <section id="boundaries">
-        <div class="section-head">
-          <span class="section-index">02</span>
-          <h2>Scope boundaries</h2>
-        </div>
-
-        <div class="grid-2">
-          <article class="mini-card">
-            <span class="label">Build now</span>
-            <h3>A useful vertical slice</h3>
-            <ul>
-              <li>The CPU profiles required by all six named microcontrollers</li>
-              <li>ELF loading, symbols, chip memory maps, flash windows, and MMIO</li>
-              <li>Deterministic scheduler and explicit stop conditions</li>
-              <li>Reset/clock controls, GPIO, timers, UART, interrupts, and external pin stimulus</li>
-              <li>Typed signal events and standards-compliant VCD export</li>
-              <li>CLI-driven test cases and compiler build matrices</li>
-              <li>Run artifacts suitable for comparison and reduction</li>
+      <section id="scope">
+        <div class="section-head"><span class="section-index">02</span><h2>Scope boundary</h2></div>
+        <div class="grid">
+          <div class="card pad">
+            <h3>In scope</h3>
+            <ul class="checks compact">
+              <li>Seven exact chip identities and documented memory maps.</li>
+              <li>Compiler-emitted CPU instructions required by the qualification corpus.</li>
+              <li>Architectural reset, traps, interrupts and low-power wait/wake used by tests.</li>
+              <li>Flash/program memory, SRAM/data memory and required nonvolatile state.</li>
+              <li>Clock-control register behaviour sufficient for selected firmware.</li>
+              <li>GPIO, external pin stimulus, one timer and one UART per target.</li>
+              <li>Streaming VCD and the existing structured run-result contract.</li>
+              <li>Offline, digest-pinned Docker compilation after image construction.</li>
+              <li>ELF and Intel HEX loading where the vendor toolchain requires them.</li>
+              <li>Behaviour-preserving decomposition of current oversized Rust source files.</li>
             </ul>
-          </article>
-          <article class="mini-card">
-            <span class="label" style="color: var(--faint);">Deliberately later</span>
-            <h3>Preserve room; do not implement yet</h3>
-            <ul>
-              <li>Cycle-accurate pipelines, caches, or bus contention</li>
-              <li>JIT or dynamic binary translation</li>
-              <li>Analog simulation, RF, or transistor-level behaviour</li>
-              <li>Wireless PHY/MAC stacks, comprehensive USB, or every vendor peripheral</li>
-              <li>GUI-first workflows or a custom IDE</li>
-              <li>Full-system Linux, MMUs, or application processors</li>
-              <li>Precise video/audio and complete retro machines</li>
+          </div>
+          <div class="card pad">
+            <h3>Explicitly out of scope</h3>
+            <ul class="no-list compact">
+              <li>Cycle-, pipeline-, flash-wait-state- or power-accurate simulation.</li>
+              <li>JIT compilation or native-code translation.</li>
+              <li>Every peripheral, pin package or derivative in each MCU family.</li>
+              <li>USB, CAN, advanced analog fidelity, radio, motor-control and display stacks.</li>
+              <li>Full debug-probe emulation or production-programmer protocols.</li>
+              <li>Electrical voltage/current modelling beyond resolved digital logic.</li>
+              <li>Undocumented silicon quirks unless a selected test demonstrably needs one.</li>
+              <li>Additional MCUs discovered while implementing these seven.</li>
+              <li>The UNO R4 WiFi ESP32-S3 coprocessor, radio stack and RA↔ESP bridge protocol.</li>
+              <li>Hardware-in-the-loop as a completion requirement; it remains optional validation.</li>
             </ul>
-          </article>
+          </div>
         </div>
+      </section>
 
-        <div class="callout" style="margin-top: 16px;">
-          <span class="label">Meaning of “wide range”</span>
-          <p style="margin: 7px 0 0;">
-            The first release deliberately covers six chips, but each has an explicit baseline
-            rather than a claim of full-silicon compatibility. The framework is successful when
-            shared CPU, bus, signal, and device behaviour supports those models without six
-            monolithic implementations.
+      <section id="refactoring">
+        <div class="section-head"><span class="section-index">03</span><h2>Refactoring comes first</h2></div>
+        <div class="callout">
+          <span class="label">Phase-zero rule</span>
+          <p style="margin-top: 7px;">
+            No new MCU implementation begins until the current hotspots are split into cohesive
+            modules and the existing qualification results remain unchanged. This is structural
+            work, not permission to redesign working behaviour or expand abstractions speculatively.
           </p>
+        </div>
+
+        <h3 style="margin-top: 28px;">Measured hotspots and intended boundaries</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Current file</th><th>Current size</th><th>Initial module split</th></tr></thead>
+            <tbody>
+              <tr><td><code>renvo-devices/src/lib.rs</code></td><td>5,864 lines</td><td><code>signals</code>, <code>functional</code>, <code>arm</code>, <code>rp</code>, <code>wch</code> and <code>esp</code>, with vendor submodules split by peripheral.</td></tr>
+              <tr><td><code>renvo-machines/src/riscv.rs</code></td><td>4,833 lines</td><td>Shared RISC-V runner plus separate WCH, ESP32-C6, host-service and qualification-support modules.</td></tr>
+              <tr><td><code>renvo-cpu-arm/src/lib.rs</code></td><td>3,312 lines</td><td><code>profile</code>, <code>register</code>, <code>decode</code>, <code>execute</code>, <code>exception</code>, <code>state</code> and tests.</td></tr>
+              <tr><td><code>renvo-cpu-riscv/src/lib.rs</code></td><td>2,495 lines</td><td><code>profile</code>, <code>register</code>, <code>decode</code>, execution groups, CSR/trap handling and tests.</td></tr>
+              <tr><td><code>renvo-machines/src/xtensa.rs</code></td><td>2,428 lines</td><td>Machine assembly, ESP image/boot support, host services, MMIO orchestration and run-result glue.</td></tr>
+              <tr><td><code>renvo-cpu-xtensa/src/lib.rs</code></td><td>2,088 lines</td><td>Profile/register state, decode, execution groups, window/exception handling and tests.</td></tr>
+              <tr><td><code>renvo-cli/src/main.rs</code></td><td>1,947 lines</td><td>Thin entry point plus <code>commands/run</code>, <code>firmware</code>, <code>corpus</code>, <code>gdb</code>, argument parsing and artifact output.</td></tr>
+              <tr><td><code>renvo-machines/src/arm.rs</code></td><td>1,885 lines</td><td>Shared Arm runner, RP2040, RP2350, USB host support and target-specific boot paths.</td></tr>
+              <tr><td><code>renvo-casegen/src/main.rs</code></td><td>1,696 lines</td><td>Thin entry point plus case families, generation primitives, manifests and output formatting.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid" style="margin-top: 16px;">
+          <div class="card pad">
+            <h3>Module policy</h3>
+            <ul class="checks compact">
+              <li><code>lib.rs</code> and <code>main.rs</code> primarily declare modules, re-export APIs and perform top-level wiring.</li>
+              <li>Prefer cohesive production modules around 300–800 lines.</li>
+              <li>Review any production module approaching 1,000 lines.</li>
+              <li>No production Rust source file may exceed 1,500 lines when phase zero closes.</li>
+              <li>Keep architecture-neutral contracts free of vendor-specific conditionals.</li>
+              <li>Preserve named register enums and stable public re-exports.</li>
+            </ul>
+          </div>
+          <div class="card pad">
+            <h3>Behaviour-preservation gate</h3>
+            <ul class="checks compact">
+              <li>No CLI syntax, public Rust API or serialized artifact-schema change.</li>
+              <li>Existing unit, integration, corpus, firmware and documentation gates pass.</li>
+              <li>Golden run results, bus logs, VCD traces and event digests remain identical.</li>
+              <li>Moves are performed crate by crate in reviewable patches.</li>
+              <li>Compatibility re-exports protect downstream crates during decomposition.</li>
+              <li>New abstractions require an immediate current use; file movement alone is sufficient.</li>
+            </ul>
+          </div>
         </div>
       </section>
 
       <section id="targets">
-        <div class="section-head">
-          <span class="section-index">03</span>
-          <h2>Six initial target chips</h2>
-        </div>
-
-        <p class="muted" style="max-width: 780px;">
-          “Baseline support” is the same promise on every target: load a normal compiler-produced
-          ELF, establish a documented reset or direct-load state, execute the application CPU,
-          handle traps and interrupts, expose GPIO in VCD, provide a working timer and UART, and
-          terminate deterministically. Extra peripherals are selected for SDK usefulness.
-        </p>
-
-        <div class="table-wrap" style="margin-top: 18px;">
-          <table>
-            <thead>
-              <tr>
-                <th>Target</th>
-                <th>CPU and memory facts</th>
-                <th>Baseline model</th>
-                <th>First firmware proof</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>CH32V006</td>
-                <td>48 MHz QingKe RISC-V2C; RV32E-class compressed ISA with WCH extensions; 8 KB SRAM and approximately 64 KB flash.</td>
-                <td>PFIC/interrupt nesting, SysTick, RCC/FLASH, AFIO/EXTI, GPIO, one timer, USART, direct ELF and flash reset.</td>
-                <td>WCH EVT GPIO, timer-interrupt, and USART examples plus GCC-built ABI cases.</td>
-              </tr>
-              <tr>
-                <td>CH32V003</td>
-                <td>48 MHz QingKe RISC-V2A; RV32EC plus WCH XW extensions; 2 KB SRAM and 16 KB flash.</td>
-                <td>PFIC/two-level interrupts, SysTick, RCC/FLASH, AFIO/EXTI, GPIO, one timer, USART, direct ELF and flash reset.</td>
-                <td>WCH EVT GPIO, timer-interrupt, and USART examples plus GCC-built RV32E ABI cases.</td>
-              </tr>
-              <tr>
-                <td>RP2040</td>
-                <td>Dual Arm Cortex-M0+ (Armv6-M) up to 133 MHz; 264 KB banked SRAM; external QSPI flash through XIP.</td>
-                <td>Core 0 first, NVIC/SysTick, boot/XIP mapping, resets/clocks, SIO, IO_BANK/PADS, TIMER, UART, one PIO block.</td>
-                <td>Pico SDK hello-UART, GPIO IRQ/blink, repeating timer, and one simple PIO example.</td>
-              </tr>
-              <tr>
-                <td>RP2350A</td>
-                <td>Two selectable Cortex-M33 or Hazard3 cores up to 150 MHz; 520 KB SRAM; external flash through QMI/XIP.</td>
-                <td>Cortex-M33 non-secure baseline first, then Hazard3; core 0 first; NVIC/SysTick, SIO, GPIO, timer, UART, and PIO.</td>
-                <td>Pico SDK Arm hello/GPIO/timer/PIO, followed by the equivalent Hazard3 RISC-V build.</td>
-              </tr>
-              <tr>
-                <td>ESP32-S3</td>
-                <td>Dual Xtensa LX7 up to 240 MHz; 384 KB ROM, 512 KB SRAM, 16 KB RTC SRAM; cached external flash.</td>
-                <td>Windowed Xtensa ABI, CPU0/unicore first, memory/cache windows, system/reset/clock, interrupt matrix, GPIO matrix, UART, SYSTIMER/TIMG.</td>
-                <td>Bare-metal Xtensa cases, then ESP-IDF unicore hello_world, GPIO, and timer samples.</td>
-              </tr>
-              <tr>
-                <td>ESP32-C6</td>
-                <td>RV32IMAC HP core up to 160 MHz plus RV32IMAC LP core; 320 KB ROM, 512 KB HP SRAM, 16 KB LP SRAM; cached external flash.</td>
-                <td>HP core first, CSRs/PMP basics, cache windows, system/reset/clock, interrupt and GPIO matrices, UART, SYSTIMER/TIMG.</td>
-                <td>Bare-metal RV32 cases, then ESP-IDF hello_world, GPIO, and timer samples; LP core remains parked.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="grid-3" style="margin-top: 16px;">
-          <article class="mini-card">
-            <span class="label">Tier 0 · compiler</span>
-            <h3>Architectural runner</h3>
-            <p class="muted">
-              Direct ELF load, executable memory, ABI startup, traps, deterministic exit,
-              semihost/test output, registers, memory assertions, and instruction coverage.
-            </p>
+        <div class="section-head"><span class="section-index">04</span><h2>Target baselines</h2></div>
+        <div class="grid">
+          <article class="card pad target">
+            <div class="target-top"><span class="chip">ATSAMD21E18</span><span class="order">01 · Arm</span></div>
+            <p class="muted">Cortex-M0+, up to 48 MHz, 256 KiB Flash and 32 KiB SRAM; the E18A device/package definition is the initial manifest.</p>
+            <h4>CPU and system</h4>
+            <ul class="compact">
+              <li>Reuse and extend the existing named <code>CortexM0Plus</code> profile.</li>
+              <li>Vector-table reset, NVIC, SysTick, faults and exception return.</li>
+              <li>Flash aliasing, SRAM map, synchronization flags and documented reset state.</li>
+              <li>Arm EABI qualification with the existing GCC and Clang lanes.</li>
+            </ul>
+            <h4>Peripheral slice</h4>
+            <p class="muted">PM, SYSCTRL, GCLK, NVMCTRL startup surface, PORT, EIC, TC3, SERCOM0 USART and watchdog. Pin multiplexing is modelled for the selected E-package pins.</p>
+            <h4>Proof firmware</h4>
+            <p class="muted">Freestanding corpus plus selected Microchip SAM D21 GCC/Harmony GPIO, SysTick or TC, EIC and SERCOM USART examples configured for the E18 device.</p>
           </article>
-          <article class="mini-card">
-            <span class="label">Tier 1 · useful MCU</span>
-            <h3>Firmware baseline</h3>
-            <p class="muted">
-              Reset/clock register compatibility, interrupts, GPIO and pin mux, timer, UART,
-              external stimulus, VCD, and a small set of unmodified vendor SDK examples.
-            </p>
+
+          <article class="card pad target">
+            <div class="target-top"><span class="chip">STM32L432KC</span><span class="order">02 · Arm</span></div>
+            <p class="muted">Cortex-M4F, up to 80 MHz, 256 KiB Flash and 64 KiB SRAM.</p>
+            <h4>CPU and system</h4>
+            <ul class="compact">
+              <li>Named <code>CortexM4F</code> profile; do not alias Cortex-M33.</li>
+              <li>Compiler-used Thumb-2, DSP and FPv4-SP-D16 instructions.</li>
+              <li>Vector-table reset, NVIC, SysTick, faults and exception return.</li>
+              <li>Soft, softfp and hard-float ABI qualification.</li>
+            </ul>
+            <h4>Peripheral slice</h4>
+            <p class="muted">RCC, FLASH/PWR startup registers, GPIO A/B/C/H, SYSCFG/EXTI, TIM2 and USART2.</p>
+            <h4>Proof firmware</h4>
+            <p class="muted">Freestanding corpus plus selected STM32CubeL4 LL/HAL GPIO, timer-interrupt and UART examples.</p>
           </article>
-          <article class="mini-card">
-            <span class="label">Tier 2 · selective depth</span>
-            <h3>Identity peripherals</h3>
-            <p class="muted">
-              PIO/SIO for Raspberry Pi, GPIO matrices for Espressif, and WCH PFIC/AFIO behaviour.
-              SPI/I²C/DMA are added when a selected corpus example requires them.
-            </p>
+
+          <article class="card pad target">
+            <div class="target-top"><span class="chip">R7FA4M1AB3CFM</span><span class="order">03 · Arm</span></div>
+            <p class="muted">Renesas RA4M1 Cortex-M4F at up to 48 MHz, with 256 KiB code Flash, 32 KiB SRAM and 8 KiB data Flash; the exact <code>#AA0</code> device used by UNO R4 is the initial manifest.</p>
+            <h4>CPU and system</h4>
+            <ul class="compact">
+              <li>Reuse the named <code>CortexM4F</code> profile established by STM32L432KC.</li>
+              <li>Armv7E-M Thumb-2/DSP, FPv4-SP-D16, NVIC, SysTick and exception return.</li>
+              <li>Renesas option-setting memory, reset state, write protection and flash/SRAM maps.</li>
+              <li>ICU event-to-NVIC routing represented explicitly rather than as STM32-style EXTI.</li>
+            </ul>
+            <h4>Peripheral slice</h4>
+            <p class="muted">SYSTEM clock/oscillator control, module-stop registers, IOPORT, ICU, GPT0, SCI9 UART and watchdog, including the pin configuration used by the UNO R4 variant.</p>
+            <h4>Proof firmware</h4>
+            <p class="muted">Freestanding GCC/Clang corpus, selected Renesas FSP GPIO/GPT/SCI examples, and pinned ArduinoCore-renesas Blink plus HardwareSerial sketches without USB or Wi-Fi as an oracle.</p>
+          </article>
+
+          <article class="card pad target avr">
+            <div class="target-top"><span class="chip">ATmega328PB</span><span class="order">04 · AVR8</span></div>
+            <p class="muted">8-bit AVR, 32 KiB Flash, 2 KiB SRAM, 1 KiB EEPROM and 32 working registers.</p>
+            <h4>CPU and system</h4>
+            <ul class="compact">
+              <li>AVR instruction decoder, SREG flags and word-addressed program counter.</li>
+              <li>Harvard program/data/I/O spaces and program-memory reads.</li>
+              <li>Stack, reset/interrupt vectors, sleep and watchdog reset path.</li>
+              <li>PB identity retained; no ATmega328P register-map shortcut.</li>
+            </ul>
+            <h4>Peripheral slice</h4>
+            <p class="muted">Clock prescaler/power reduction, PORT B/C/D, external and pin-change interrupts, Timer0/1, USART0, EEPROM and watchdog.</p>
+            <h4>Proof firmware</h4>
+            <p class="muted">AVR-GCC corpus and selected Microchip device-pack or avr-libc examples, including interrupt-driven UART or timer code.</p>
+          </article>
+
+          <article class="card pad target msp">
+            <div class="target-top"><span class="chip">MSP430FR2433</span><span class="order">05 · MSP430X</span></div>
+            <p class="muted">16-bit CPUXv2, 20-bit address space, FRAM program storage and 4 KiB SRAM.</p>
+            <h4>CPU and system</h4>
+            <ul class="compact">
+              <li>Classic and extended MSP430X encodings and addressing modes.</li>
+              <li>Twenty-bit registers/addresses, constant generator and status flags.</li>
+              <li>Reset vector, interrupt entry/return and low-power-mode wake.</li>
+              <li>Unified memory semantics with persistent FRAM snapshots.</li>
+            </ul>
+            <h4>Peripheral slice</h4>
+            <p class="muted">Clock System, FRAM controller, PMM startup surface, WDT_A, GPIO, Timer_A and eUSCI_A0 UART.</p>
+            <h4>Proof firmware</h4>
+            <p class="muted">MSP430-GCC corpus plus selected TI register-level examples for GPIO, Timer_A and eUSCI.</p>
+          </article>
+
+          <article class="card pad target pic">
+            <div class="target-top"><span class="chip">PIC16F15376</span><span class="order">06 · PIC16</span></div>
+            <p class="muted">Enhanced mid-range 8-bit core, 16K × 14-bit program words, 2 KiB RAM and a 16-level hardware stack.</p>
+            <h4>CPU and system</h4>
+            <ul class="compact">
+              <li>All 49 enhanced mid-range instructions and skip timing/order.</li>
+              <li>WREG, STATUS, BSR, FSR/INDF, banked data and common RAM.</li>
+              <li>Word-addressed program memory, reset/interrupt vectors and return stack.</li>
+              <li>XC8 startup conventions and Intel HEX program-word reconstruction.</li>
+            </ul>
+            <h4>Peripheral slice</h4>
+            <p class="muted">Oscillator control, PORT/LAT/TRIS/ANSEL, PPS, PIR/PIE interrupt routing, Timer0/1, EUSART and watchdog.</p>
+            <h4>Proof firmware</h4>
+            <p class="muted">XC8 corpus plus selected Microchip register-level or MCC-generated GPIO, timer and EUSART examples.</p>
+          </article>
+
+          <article class="card pad target mcs">
+            <div class="target-top"><span class="chip">EFM8BB52F32G-QFN32</span><span class="order">07 · MCS-51</span></div>
+            <p class="muted">Modern pipelined 8051-compatible core at up to 50 MHz, with 32 KiB Flash, 2.30 KiB RAM and 29 GPIOs.</p>
+            <h4>CPU and system</h4>
+            <ul class="compact">
+              <li>Complete base MCS-51 instruction semantics with EFM8 interrupt behaviour.</li>
+              <li>Named accumulator, B, PSW, SP, DPTR, PC and register-bank identities.</li>
+              <li>Separate CODE, IDATA, XDATA, SFR and bit-addressable spaces.</li>
+              <li>SDCC calling conventions and supported 8051 C memory models.</li>
+            </ul>
+            <h4>Peripheral slice</h4>
+            <p class="muted">Reset/clock control, watchdog, Ports 0–3, priority crossbar, Timer 0/2, UART0 and interrupt enable/priority routing.</p>
+            <h4>Proof firmware</h4>
+            <p class="muted">SDCC compiler corpus plus a selected Silicon Labs GPIO, timer and UART example, adapting only compiler declarations or board pin bindings when necessary.</p>
           </article>
         </div>
-
-        <div class="table-wrap" style="margin-top: 16px;">
-          <table>
-            <thead>
-              <tr>
-                <th>Target</th>
-                <th>Required peripheral slice</th>
-                <th>Corpus-driven next</th>
-                <th>Deferred from baseline</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>CH32V006</td>
-                <td>PFIC, SysTick, RCC, FLASH control, AFIO/EXTI, GPIO, TIM1 or TIM2, USART1.</td>
-                <td>SPI, I²C, DMA, second USART, watchdog reset.</td>
-                <td>ADC analogue accuracy, TouchKey, OPA/PGA/CMP, debug wire protocol.</td>
-              </tr>
-              <tr>
-                <td>CH32V003</td>
-                <td>PFIC, SysTick, RCC, FLASH control, AFIO/EXTI, GPIO, TIM1 or TIM2, USART1.</td>
-                <td>SPI, I²C, single-channel DMA, watchdog reset.</td>
-                <td>10-bit ADC analogue accuracy, OPA, and single-wire debug protocol.</td>
-              </tr>
-              <tr>
-                <td>RP2040</td>
-                <td>PPB/NVIC/SysTick, clocks/resets, XIP façade, SIO, IO_BANK0, PADS, TIMER, UART0, PIO0.</td>
-                <td>Core 1/FIFO, DMA, PWM, SPI, I²C, watchdog, fuller PIO timing.</td>
-                <td>USB host/device, ADC analogue accuracy, full QSPI command timing.</td>
-              </tr>
-              <tr>
-                <td>RP2350A</td>
-                <td>Arm PPB/NVIC/SysTick, clocks/resets, QMI/XIP façade, SIO, IO_BANK0, PADS, TIMER, UART0, PIO0.</td>
-                <td>Hazard3 chip mode, core 1, DMA, PWM, SPI, I²C, watchdog.</td>
-                <td>TrustZone/security enforcement, OTP provisioning, HSTX, USB, PSRAM timing.</td>
-              </tr>
-              <tr>
-                <td>ESP32-S3</td>
-                <td>System/reset/clock, interrupt matrix, cache/flash façade, GPIO matrix/IO MUX, UART0, SYSTIMER, TIMG0.</td>
-                <td>CPU1, GDMA, SPI, I²C, LEDC, watchdogs, USB Serial/JTAG façade.</td>
-                <td>Wi-Fi/BLE, ULP processors, full USB OTG, cryptographic timing, analogue accuracy.</td>
-              </tr>
-              <tr>
-                <td>ESP32-C6</td>
-                <td>System/reset/clock, interrupt matrix, cache/flash façade, GPIO matrix/IO MUX, UART0, SYSTIMER, TIMG0.</td>
-                <td>GDMA, SPI, I²C, LEDC, watchdogs, USB Serial/JTAG façade.</td>
-                <td>Wi-Fi/BLE/802.15.4, LP core execution, ETM depth, security engines, analogue accuracy.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="callout" style="margin-top: 16px;">
-          <span class="label">Scope note: radios and secondary cores</span>
-          <p style="margin: 7px 0 0;">
-            Wi-Fi, Bluetooth LE, and 802.15.4 are outside the first baseline. ESP32-S3 starts in
-            ESP-IDF unicore mode; ESP32-C6’s LP core and the second RP core are parked with their
-            documented wake/launch registers modelled. Multicore scheduling comes after every
-            primary core passes Tier 1.
-          </p>
-        </div>
-
-        <div class="callout" style="margin-top: 16px;">
-          <span class="label">WCH reuse opportunity</span>
-          <p style="margin: 7px 0 0;">
-            CH32V003 and CH32V006 share the QingKe V2/RV32E lineage and several familiar WCH
-            peripheral concepts, making them a useful early test of CPU profiles and reusable
-            device logic. Their V2A/V2C core revisions, memory capacities, interrupt details, and
-            peripheral registers must still be verified independently rather than aliased wholesale.
-          </p>
-        </div>
-
-        <div class="mini-card" style="margin-top: 16px;">
-          <span class="label">Research basis · vendor primary sources</span>
-          <div class="grid-2" style="margin-top: 12px;">
-            <div>
-              <h3>WCH and Raspberry Pi</h3>
-              <ul>
-                <li><a href="https://www.wch-ic.com/products/CH32V006.html">CH32V006 product page and feature summary</a></li>
-                <li><a href="https://www.wch-ic.com/downloads/CH32V006DS0_PDF.html">CH32V006 datasheet</a></li>
-                <li><a href="https://www.wch-ic.com/downloads/CH32V00XRM_PDF.html">CH32V00x reference manual</a></li>
-                <li><a href="https://www.wch-ic.com/products/CH32V003.html">CH32V003 product page and feature summary</a></li>
-                <li><a href="https://www.wch-ic.com/downloads/CH32V003DS0_PDF.html">CH32V003 datasheet</a></li>
-                <li><a href="https://www.wch-ic.com/downloads/CH32V003RM_PDF.html">CH32V003 reference manual</a></li>
-                <li><a href="https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html">QingKe V2 processor manual</a></li>
-                <li><a href="https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf">RP2040 datasheet</a></li>
-                <li><a href="https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf">RP2350 datasheet</a></li>
-              </ul>
-            </div>
-            <div>
-              <h3>Espressif</h3>
-              <ul>
-                <li><a href="https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf">ESP32-S3 datasheet</a></li>
-                <li><a href="https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf">ESP32-S3 technical reference manual</a></li>
-                <li><a href="https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/index.html">ESP32-S3 ESP-IDF guide</a></li>
-                <li><a href="https://www.espressif.com/sites/default/files/documentation/esp32-c6_datasheet_en.pdf">ESP32-C6 datasheet</a></li>
-                <li><a href="https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf">ESP32-C6 technical reference manual</a></li>
-                <li><a href="https://docs.espressif.com/projects/esp-idf/en/latest/esp32c6/index.html">ESP32-C6 ESP-IDF guide</a></li>
-              </ul>
-            </div>
-          </div>
-          <p class="muted" style="margin: 14px 0 0;">
-            Source versions and hashes should be pinned into each machine manifest when
-            implementation begins. All six targets now have an authoritative vendor datasheet
-            or product/reference manual and an identifiable SDK or example corpus.
+        <div class="callout amber" style="margin-top: 16px;">
+          <span class="label" style="color: var(--amber);">Retro-computing seam</span>
+          <p style="margin-top: 7px;">
+            The MCS-51 interpreter is architecture-only; EFM8 clocks, crossbar and peripherals stay
+            in the machine layer. This deliberately leaves the CPU reusable for older 8051-family
+            systems later, while bank switching, precise historical timing and complete retro
+            machines remain outside this tranche.
           </p>
         </div>
       </section>
 
       <section id="architecture">
-        <div class="section-head">
-          <span class="section-index">04</span>
-          <h2>Architecture</h2>
-        </div>
-
-        <div class="architecture">
-          <div class="arch-row">
-            <div class="arch-name">User surface</div>
-            <div class="arch-body">
-              <div>
-                <strong>CLI &amp; Starlark</strong>
-                <span>Build matrices, machine selection, stimuli, assertions, limits</span>
-              </div>
-              <div>
-                <strong>Debugger adapters</strong>
-                <span>GDB remote protocol and richer internal inspection later</span>
-              </div>
-            </div>
-          </div>
-          <div class="arch-row">
-            <div class="arch-name">Machine layer</div>
-            <div class="arch-body">
-              <div>
-                <strong>Chip definitions</strong>
-                <span>CPU, address map, IRQ routing, reset state, peripheral instances</span>
-              </div>
-              <div>
-                <strong>Boards &amp; circuits</strong>
-                <span>Chip plus LEDs, buttons, sensors, connectors, and resolved nets</span>
-              </div>
-            </div>
-          </div>
-          <div class="arch-row">
-            <div class="arch-name">Components</div>
-            <div class="arch-body">
-              <div>
-                <strong>CPU implementations</strong>
-                <span>QingKe/RISC-V profiles, Arm M-profile, Xtensa LX7, traps, bus accesses</span>
-              </div>
-              <div>
-                <strong>Reusable devices</strong>
-                <span>Memory, GPIO, timer, UART, interrupt controller, protocol endpoints</span>
-              </div>
-            </div>
-          </div>
-          <div class="arch-row">
-            <div class="arch-name">Simulation core</div>
-            <div class="arch-body">
-              <div>
-                <strong>Time &amp; scheduling</strong>
-                <span>Monotonic time, stable event ordering, run loop, stopping reasons</span>
-              </div>
-              <div>
-                <strong>Signals &amp; tracing</strong>
-                <span>Ports, resolved nets, typed changes, trace sinks, VCD export</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="grid-2" style="margin-top: 16px;">
-          <article class="mini-card">
-            <span class="label">Composition hierarchy</span>
-            <pre style="margin-top: 10px;">Architecture  Armv6-M
-  └─ Processor  Cortex-M0+ profile
-      └─ Chip   RP2040
-          └─ Board  Pico + LED + button
-              └─ Circuit  Board + connected devices</pre>
-          </article>
-          <article class="mini-card">
-            <span class="label">Ownership rule</span>
-            <p>
-              CPU crates know about architectural state, interrupt inputs, and a bus contract. Device crates know
-              about registers, scheduled events, and signal ports. Neither knows about Starlark,
-              VCD text, the CLI, or a particular board.
-            </p>
-            <p class="muted">
-              Device-specific glue owns reset values, IRQ assignments, clock hookups, and address
-              maps. This is where unavoidable vendor variation belongs.
-            </p>
-          </article>
-        </div>
-
-        <pre aria-label="Proposed core Rust interfaces"><span class="kw">pub trait</span> <span class="type">Cpu</span> {
-    <span class="kw">fn</span> reset(&amp;<span class="kw">mut self</span>, kind: <span class="type">ResetKind</span>);
-    <span class="kw">fn</span> step(&amp;<span class="kw">mut self</span>, bus: &amp;<span class="kw">mut dyn</span> <span class="type">Bus</span>, now: <span class="type">SimTime</span>)
-        -&gt; <span class="type">Result</span>&lt;<span class="type">StepOutcome</span>, <span class="type">CpuFault</span>&gt;;
-    <span class="kw">fn</span> inspect(&amp;<span class="kw">self</span>) -&gt; &amp;<span class="kw">dyn</span> <span class="type">CpuInspection</span>;
-}
-
-<span class="kw">pub struct</span> <span class="type">StepOutcome</span> {
-    <span class="kw">pub</span> elapsed: <span class="type">SimDuration</span>,
-    <span class="kw">pub</span> reason: <span class="type">StepReason</span>,
-}
-
-<span class="kw">pub trait</span> <span class="type">TraceSink</span> {
-    <span class="kw">fn</span> declare(&amp;<span class="kw">mut self</span>, signal: &amp;<span class="type">SignalDescriptor</span>);
-    <span class="kw">fn</span> change(&amp;<span class="kw">mut self</span>, at: <span class="type">SimTime</span>, event: &amp;<span class="type">SignalChange</span>);
-}</pre>
-      </section>
-
-      <section id="time-signals">
-        <div class="section-head">
-          <span class="section-index">05</span>
-          <h2>Time, pins, and waveforms</h2>
-        </div>
-
-        <div class="grid-3">
-          <article class="mini-card">
-            <span class="label">Time model</span>
-            <h3>Approximate, never ambiguous</h3>
-            <p class="muted">
-              Every CPU step advances monotonic simulation time. Initial instructions may use a
-              simple fixed or table-driven cost; devices schedule events on the same timeline.
-            </p>
-          </article>
-          <article class="mini-card">
-            <span class="label">Ordering</span>
-            <h3>Stable tie-breaking</h3>
-            <p class="muted">
-              Events at the same timestamp are ordered by deterministic sequence number. Runs with
-              the same machine, firmware, inputs, seed, and limits must produce identical results.
-            </p>
-          </article>
-          <article class="mini-card">
-            <span class="label">Fidelity metadata</span>
-            <h3>Say what is approximate</h3>
-            <p class="muted">
-              Each machine and device declares its fidelity: architectural, functional, or
-              educational. VCD metadata records the machine, time model, and emulator version.
-            </p>
-          </article>
-        </div>
-
-        <div class="grid-2" style="margin-top: 16px;">
-          <article class="mini-card">
-            <span class="label">Digital signal model</span>
-            <ul>
-              <li>Four-state values: <code>0</code>, <code>1</code>, <code>Z</code>, and <code>X</code></li>
-              <li>Ports have direction, width, drive mode, and optional pull state</li>
-              <li>Nets resolve multiple drivers and report contention</li>
-              <li>External stimuli use the same scheduled event path as devices</li>
-              <li>Edges can trigger assertions, interrupts, protocol models, and stop conditions</li>
-            </ul>
-          </article>
-          <article class="mini-card">
-            <span class="label">VCD contract</span>
-            <ul>
-              <li>VCD generation subscribes to structured signal-change events</li>
-              <li>Names are hierarchical: <code>board.mcu.gpioa.pin5</code></li>
-              <li>Only value changes are emitted; identical writes are suppressed</li>
-              <li>Timescale is explicit and configurable per machine</li>
-              <li>Register and instruction traces remain separate from pin waveforms</li>
-            </ul>
-          </article>
-        </div>
-
-        <div class="callout" style="margin-top: 16px;">
-          <span class="label">Important contract</span>
-          <p style="margin: 7px 0 0;">
-            “Not cycle accurate” means timing may not match silicon. It does not mean events can
-            occur without an order, a duration, or a documented relationship to simulation time.
-          </p>
-        </div>
-      </section>
-
-      <section id="distillation">
-        <div class="section-head">
-          <span class="section-index">06</span>
-          <h2>Compiler and sample distillation</h2>
-        </div>
-
-        <p class="muted" style="max-width: 760px;">
-          Treat the corpus as a repeatable pipeline, not a directory of binaries. Every result
-          must retain enough provenance to rebuild it, compare it, and reduce it.
-        </p>
-
-        <div class="flow" aria-label="Distillation pipeline">
-          <div class="flow-step"><b>Ingest</b><span>Samples + metadata</span></div>
-          <div class="flow-step"><b>Build matrix</b><span>Tools × flags × targets</span></div>
-          <div class="flow-step"><b>Execute</b><span>Controlled machine state</span></div>
-          <div class="flow-step"><b>Compare</b><span>Oracles + trace digests</span></div>
-          <div class="flow-step"><b>Reduce</b><span>Source, flags, inputs</span></div>
-          <div class="flow-step"><b>Preserve</b><span>Minimal regression</span></div>
-        </div>
-
-        <div class="grid-2" style="margin-top: 16px;">
-          <article class="mini-card">
-            <span class="label">Case manifest records</span>
-            <ul>
-              <li>Source origin, revision, and applicable licence</li>
-              <li>Compiler identity, full version, target, flags, linker script</li>
-              <li>Runtime libraries and hashes of all build inputs</li>
-              <li>Machine definition, initial memory, stimuli, and random seed</li>
-              <li>Stop conditions, expected outputs, and comparison policy</li>
-              <li>Emulator version and run artifact schema version</li>
-            </ul>
-          </article>
-          <article class="mini-card">
-            <span class="label">Observable results</span>
-            <ul>
-              <li>Termination reason, exit convention, and architectural fault</li>
-              <li>Selected register values and named memory regions</li>
-              <li>UART/semihosting output and peripheral assertions</li>
-              <li>GPIO edges, VCD, and contention diagnostics</li>
-              <li>Instruction count, virtual time, and coverage bitmap</li>
-              <li>Canonical event digest for quick equivalence checks</li>
-            </ul>
-          </article>
-        </div>
-
-        <div class="table-wrap" style="margin-top: 16px;">
-          <table>
-            <thead>
-              <tr>
-                <th>Comparison mode</th>
-                <th>Use</th>
-                <th>Caution</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Known answer</td>
-                <td>Compare a run with explicit expected memory, output, signals, or faults.</td>
-                <td>Best oracle; requires trustworthy expectations.</td>
-              </tr>
-              <tr>
-                <td>Cross-compiler</td>
-                <td>Compile defined programs with GCC, LLVM, Rust, Zig, or vendor tools and compare outcomes.</td>
-                <td>Only valid for defined source behaviour and equivalent runtime assumptions.</td>
-              </tr>
-              <tr>
-                <td>Reference engine</td>
-                <td>Compare final state or bounded step traces with another ISA implementation.</td>
-                <td>Normalize implementation-specific timing and environment details.</td>
-              </tr>
-              <tr>
-                <td>Metamorphic</td>
-                <td>Apply semantics-preserving source, input, or build transformations.</td>
-                <td>Transformations themselves need independent validation.</td>
-              </tr>
-              <tr>
-                <td>Hardware capture</td>
-                <td>Replay stimuli and compare coarse outputs against a physical board.</td>
-                <td>Use tolerances; functional timing is not silicon timing.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="callout" style="margin-top: 16px;">
-          <span class="label">Reduction order</span>
-          <p style="margin: 7px 0 0;">
-            First remove build variants and machine inputs, then reduce source, and finally reduce
-            the linked binary or execution prefix. A candidate is accepted only when it preserves
-            the same divergence signature across repeated deterministic runs.
-          </p>
-        </div>
-
-        <pre aria-label="Example Starlark test"><span class="comment"># tests/compiler/crc.star</span>
-case = compiler_test(
-    source = <span class="string">"samples/crc.c"</span>,
-    compilers = [
-        gcc(opt = <span class="string">"0"</span>),
-        gcc(opt = <span class="string">"2"</span>),
-        clang(opt = <span class="string">"2"</span>),
-    ],
-)
-
-results = run_all(
-    case,
-    machines = [<span class="string">"ch32v003"</span>, <span class="string">"ch32v006"</span>, <span class="string">"esp32c6"</span>, <span class="string">"rp2350-hazard3"</span>],
-    until = any_of(exit(), fault(), timeout(instructions = 100_000)),
-)
-
-assert_equivalent(
-    results,
-    compare = [<span class="string">"exit_code"</span>, <span class="string">"memory:result"</span>, <span class="string">"exceptions"</span>],
-)</pre>
-      </section>
-
-      <section id="roadmap">
-        <div class="section-head">
-          <span class="section-index">07</span>
-          <h2>Milestone roadmap</h2>
-        </div>
-
-        <div class="roadmap">
-          <article class="phase">
-            <div class="phase-number"><span>0</span></div>
-            <div class="phase-content">
-              <div class="phase-title">
-                <h3>Kernel contracts and target manifests</h3>
-                <span class="effort">Small</span>
-              </div>
-              <p class="muted">Establish the invariants that later targets must not bypass.</p>
-              <div class="phase-columns">
-                <div>
-                  <h4>Deliver</h4>
-                  <ul>
-                    <li>Cargo workspace, error model, logging, and artifact layout</li>
-                    <li><code>SimTime</code>, scheduler, event ordering, and run limits</li>
-                    <li>Bus, memory region, CPU, device, and tracing contracts</li>
-                    <li>Architecture decision records for determinism, multicore, boot modes, and fidelity</li>
-                    <li>Versioned, source-linked target manifests for all six confirmed microcontrollers</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4>Exit gate</h4>
-                  <div class="gate">
-                    A fake multicore CPU and timer produce an identical event digest across
-                    repeated runs, hosts, and insertion-order stress tests; all six chips have
-                    sourced CPU, memory-map, boot, and initial peripheral manifests.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <article class="phase">
-            <div class="phase-number"><span>1</span></div>
-            <div class="phase-content">
-              <div class="phase-title">
-                <h3>RISC-V family: WCH, ESP32-C6, and Hazard3</h3>
-                <span class="effort">Very large</span>
-              </div>
-              <p class="muted">Build one profile-driven RISC-V engine without pretending the three implementations are identical.</p>
-              <div class="phase-columns">
-                <div>
-                  <h4>Deliver</h4>
-                  <ul>
-                    <li>RV32I/E base, M, A, C, Zicsr/Zifencei, and needed Hazard3 bit-manipulation profiles</li>
-                    <li>QingKe V2 compressed/custom instructions, PFIC trap entry, and WCH CSR behaviour</li>
-                    <li>ESP32-C6 machine/user mode, interrupt entry, and basic PMP-visible behaviour</li>
-                    <li>ELF32 loading, symbols, per-chip RAM/flash maps, and test exit convention</li>
-                    <li>Instruction, virtual-time, fault, breakpoint, and watchpoint stops</li>
-                    <li>CLI run command with stable JSON result output</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4>Exit gate</h4>
-                  <div class="gate">
-                    CH32V003, CH32V006, and ESP32-C6 bare-metal C/Rust programs pass ISA, ABI,
-                    trap, and deterministic-run tests; the RP2350 Hazard3 profile passes its
-                    documented compiler <code>-march</code> cases in a CPU harness.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <article class="phase">
-            <div class="phase-number"><span>2</span></div>
-            <div class="phase-content">
-              <div class="phase-title">
-                <h3>Arm M-profile: RP2040 and RP2350</h3>
-                <span class="effort">Very large</span>
-              </div>
-              <p class="muted">Implement the two Arm generations needed by Raspberry Pi silicon.</p>
-              <div class="phase-columns">
-                <div>
-                  <h4>Deliver</h4>
-                  <ul>
-                    <li>Armv6-M Thumb execution, exceptions, NVIC, and SysTick for Cortex-M0+</li>
-                    <li>Armv8-M Mainline, DSP/FPU instructions needed by code generation, exceptions, and NVIC for Cortex-M33</li>
-                    <li>RP2040 and RP2350 memory aliases, XIP windows, vector reset, and direct ELF profiles</li>
-                    <li>Non-secure RP2350 baseline with secure/TrustZone features explicitly unsupported at first</li>
-                    <li>Core 1 launch/park state represented without concurrent execution</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4>Exit gate</h4>
-                  <div class="gate">
-                    Freestanding C and Rust binaries for RP2040 and RP2350 pass compiler, exception,
-                    memory-map, and ABI suites; RP2350 also runs the same computation in Hazard3 mode.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <article class="phase">
-            <div class="phase-number"><span>3</span></div>
-            <div class="phase-content">
-              <div class="phase-title">
-                <h3>Xtensa LX7 family: ESP32-S3</h3>
-                <span class="effort">Very large</span>
-              </div>
-              <p class="muted">Add the architecture that cannot share a decoder or exception model with the other five targets.</p>
-              <div class="phase-columns">
-                <div>
-                  <h4>Deliver</h4>
-                  <ul>
-                    <li>16/24-bit Xtensa decode, core integer ISA, branches, loops, exceptions, and interrupt levels</li>
-                    <li>Windowed register file and windowed ABI behaviour used by ESP-IDF toolchains</li>
-                    <li>Multiply/divide, required atomics, single-precision FPU, and compiler-emitted extensions</li>
-                    <li>ESP32-S3 IRAM/DRAM/IROM/DROM views and direct ELF loading</li>
-                    <li>CPU0 execution with CPU1 represented as reset/parked</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4>Exit gate</h4>
-                  <div class="gate">
-                    Xtensa GCC-built freestanding programs at multiple optimisation levels pass
-                    ABI, register-window, exception, and deterministic-run tests on the ESP32-S3 map.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <article class="phase">
-            <div class="phase-number"><span>4</span></div>
-            <div class="phase-content">
-              <div class="phase-title">
-                <h3>Six-chip peripheral and VCD baseline</h3>
-                <span class="effort">Very large</span>
-              </div>
-              <p class="muted">Turn CPU runners into recognisable, useful microcontrollers with a deliberately bounded register surface.</p>
-              <div class="phase-columns">
-                <div>
-                  <h4>Deliver</h4>
-                  <ul>
-                    <li>Common four-state signals, resolved nets, external stimulus, and streaming VCD</li>
-                    <li>WCH PFIC/RCC/AFIO/GPIO/timer/USART implementation</li>
-                    <li>RP SIO, resets/clocks, XIP/QMI façade, GPIO/pads, timer/UART, and one PIO block</li>
-                    <li>ESP system/reset/clock, flash/cache façade, interrupt/GPIO matrices, UART, and timers</li>
-                    <li>Direct ELF mode plus vendor-image/ROM façades needed by chosen SDK samples</li>
-                    <li>Per-chip register coverage and known-deviation manifests generated from tests</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4>Exit gate</h4>
-                  <div class="gate">
-                    Every chip runs GPIO, timer-interrupt, and UART proofs and emits stable VCD.
-                    The two WCH models share tested components without conflating V2A/V2C or
-                    device-specific registers.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <article class="phase">
-            <div class="phase-number"><span>5</span></div>
-            <div class="phase-content">
-              <div class="phase-title">
-                <h3>Corpus distillation and selective depth</h3>
-                <span class="effort">Large, then ongoing</span>
-              </div>
-              <p class="muted">Make the six-chip baseline productive for real compiler and SDK regression work.</p>
-              <div class="phase-columns">
-                <div>
-                  <h4>Deliver</h4>
-                  <ul>
-                    <li>Toolchain build matrices, run artifacts, comparators, and Starlark assertions</li>
-                    <li>Source/flag/input reduction with reproducibility and provenance checks</li>
-                    <li>Seed corpora from WCH EVT, Pico SDK, ESP-IDF, GCC/LLVM/Rust, and focused generated cases</li>
-                    <li>GDB remote debugging, coverage, diagnostics, and deterministic replay</li>
-                    <li>Core 1 scheduling where SDK corpus requires it; ESP32-C6 LP core later</li>
-                    <li>SPI, I²C, DMA, USB, or additional PIO depth only when selected corpus cases demand it</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4>Exit gate</h4>
-                  <div class="gate">
-                    A seeded discrepancy is detected, reduced, and preserved on each CPU family;
-                    the six-target dashboard reports support tier, passing corpus, register
-                    coverage, and known gaps without overstating fidelity.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section id="crates">
-        <div class="section-head">
-          <span class="section-index">08</span>
-          <h2>Rust workspace shape</h2>
-        </div>
-
-        <p class="muted">
-          Begin with clear crate boundaries but avoid splitting every peripheral into its own
-          package. Extract further only when reuse or compile-time isolation justifies it.
-        </p>
-
-        <div class="crate-tree">
-          <div class="crate"><b>renvo-core</b><span>Time, scheduler, events, run loop, stop reasons, deterministic IDs.</span></div>
-          <div class="crate"><b>renvo-bus</b><span>Address spaces, memory regions, access faults, watchpoints, MMIO routing.</span></div>
-          <div class="crate"><b>renvo-signals</b><span>Ports, drivers, nets, resolution, stimuli, signal events.</span></div>
-          <div class="crate"><b>renvo-trace</b><span>Trace subscriptions, VCD writer, canonical event digests.</span></div>
-          <div class="crate"><b>renvo-cpu-riscv</b><span>RV32I/E profiles, M/A/C/bit-manipulation extensions, QingKe and Hazard3 behaviour.</span></div>
-          <div class="crate"><b>renvo-cpu-arm</b><span>Armv6-M and Armv8-M execution, M-profile exceptions, NVIC, SysTick, DSP/FPU subsets.</span></div>
-          <div class="crate"><b>renvo-cpu-xtensa</b><span>Xtensa LX7 decode, windowed registers/ABI, exceptions, interrupt levels, FPU.</span></div>
-          <div class="crate"><b>renvo-devices</b><span>Memory, timer, UART, GPIO, interrupt controller, board components.</span></div>
-          <div class="crate"><b>renvo-machines</b><span>Six chip models, Pico boards, device metadata, boot modes, and reset wiring.</span></div>
-          <div class="crate"><b>renvo-image</b><span>ELF parsing, symbols, sections, firmware loading and image diagnostics.</span></div>
-          <div class="crate"><b>renvo-corpus</b><span>Case manifests, build matrices, comparators, reducers, artifacts.</span></div>
-          <div class="crate"><b>renvo-starlark</b><span>Scripting bindings built on stable core APIs; never required by the kernel.</span></div>
-          <div class="crate"><b>renvo-gdb</b><span>Optional remote debugger adapter after the corpus workflow is stable.</span></div>
-          <div class="crate"><b>renvo-cli</b><span>Headless runner, diagnostics, JSON output, trace controls, corpus commands.</span></div>
-        </div>
-      </section>
-
-      <section id="quality">
-        <div class="section-head">
-          <span class="section-index">09</span>
-          <h2>Correctness and quality strategy</h2>
-        </div>
-
+        <div class="section-head"><span class="section-index">05</span><h2>Core and crate changes</h2></div>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>Layer</th>
-                <th>Test approach</th>
-                <th>Required evidence</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Area</th><th>Required change</th><th>Constraint</th></tr></thead>
             <tbody>
               <tr>
-                <td>Instruction semantics</td>
-                <td>Table tests, generated operands, official/established ISA suites, differential state comparison.</td>
-                <td>Opcode, operands, initial state, final state, trap details.</td>
+                <td>CPU families</td>
+                <td>Add <code>renvo-cpu-avr</code>, <code>renvo-cpu-msp430</code>, <code>renvo-cpu-pic16</code> and <code>renvo-cpu-mcs51</code>; extend <code>renvo-cpu-arm</code> with a real Cortex-M4F profile.</td>
+                <td>CPU crates remain independent of CLI, VCD, Starlark and vendor peripheral models.</td>
               </tr>
               <tr>
-                <td>Bus and memory</td>
-                <td>Width/alignment/endian/property tests, overlapping-region rejection, fault injection.</td>
-                <td>Access log and exact fault classification.</td>
+                <td>Architecture identity</td>
+                <td>Add explicit <code>Avr8</code>, <code>Msp430X</code>, <code>Pic16Enhanced</code> and <code>Mcs51</code> variants to CPU, image and artifact metadata.</td>
+                <td>No generic “8-bit” identity and no architecture inferred from filename.</td>
               </tr>
               <tr>
-                <td>Scheduler</td>
-                <td>Same-time event permutations, cancellation, overflow boundaries, deterministic replay.</td>
-                <td>Canonical ordered event digest.</td>
+                <td>Registers</td>
+                <td>Define a named register enum for every CPU family and provide stable name/GDB mappings.</td>
+                <td>Integer register IDs must not appear in public CPU or debugger APIs.</td>
               </tr>
               <tr>
-                <td>Peripherals</td>
-                <td>Register-level unit tests plus small firmware integration fixtures.</td>
-                <td>Register trace, IRQ edges, and signal changes.</td>
+                <td>Address spaces</td>
+                <td>Represent instruction fetch, data and I/O/program-word access without assuming one byte-addressed unified space.</td>
+                <td>Preserve the simple existing bus API for existing machines; use architecture adapters where practical.</td>
               </tr>
               <tr>
-                <td>VCD</td>
-                <td>Semantic waveform assertions and parser round-trips rather than text-only snapshots.</td>
-                <td>Signal declarations, timestamps, and edge sequence.</td>
+                <td>Firmware images</td>
+                <td>Extend ELF architecture support and add strict Intel HEX parsing with address, checksum, overlap and program-word handling.</td>
+                <td>Loaded bytes/words and entry/reset vectors must be visible in provenance artifacts.</td>
               </tr>
               <tr>
-                <td>Machine models</td>
-                <td>Reset-state checks, address-map validation, SDK examples, explicit fidelity manifests.</td>
-                <td>Supported-register map and known deviations.</td>
+                <td>Time</td>
+                <td>Return functional per-instruction durations and deterministic event ordering, including multi-cycle branches/skips.</td>
+                <td>Durations are ordering units, not a promise of clock accuracy.</td>
               </tr>
               <tr>
-                <td>Corpus</td>
-                <td>Rebuild reproducibility, flaky-case quarantine, reducer self-tests, licence/provenance checks.</td>
-                <td>Manifest, hashes, logs, outputs, and minimal reproducer.</td>
+                <td>Machines</td>
+                <td>Add exact target manifests, memory maps, interrupt assignments, reset state, pins and fidelity metadata.</td>
+                <td>Vendor glue stays in machine definitions; shared peripherals are reused only when behaviour matches.</td>
+              </tr>
+              <tr>
+                <td>Debugging</td>
+                <td>Snapshots, symbolic faults, breakpoints and watchpoints work for non-32-bit registers and word-addressed PCs.</td>
+                <td>GDB register layouts are architecture-specific and derived from named enums.</td>
               </tr>
             </tbody>
           </table>
         </div>
+        <pre class="codebox" aria-label="Proposed workspace additions">crates/
+  renvo-cpu-arm/       # add CortexM4F profile
+  renvo-cpu-avr/       # ATmega AVR interpreter
+  renvo-cpu-msp430/    # MSP430X CPUXv2 interpreter
+  renvo-cpu-pic16/     # enhanced mid-range PIC16 interpreter
+  renvo-cpu-mcs51/     # reusable 8051/MCS-51 interpreter
+  renvo-machines/      # seven target definitions and vendor glue
+  renvo-image/         # new ELF identities and Intel HEX
+toolchains/
+  avr-gcc/
+  msp430-gcc/
+  xc8/
+  sdcc-mcs51/
+qualification/
+  atsamd21e18/  stm32l432kc/  r7fa4m1ab3cfm/  atmega328pb/  msp430fr2433/
+  pic16f15376/  efm8bb52/</pre>
+      </section>
 
-        <div class="grid-3" style="margin-top: 16px;">
-          <article class="mini-card">
-            <span class="label">CI fast lane</span>
-            <p class="muted">Format, lint, unit tests, a small ISA shard, synthetic firmware smoke tests, determinism checks.</p>
-          </article>
-          <article class="mini-card">
-            <span class="label">CI deep lane</span>
-            <p class="muted">Full ISA corpus, fuzz/property tests, cross-engine comparison, toolchain matrix, VCD parsing.</p>
-          </article>
-          <article class="mini-card">
-            <span class="label">Release gate</span>
-            <p class="muted">Rebuild seed corpus, publish fidelity manifests, run artifact compatibility tests, archive results.</p>
-          </article>
+      <section id="toolchains">
+        <div class="section-head"><span class="section-index">06</span><h2>Containerized toolchains</h2></div>
+        <p class="muted">
+          Renvo continues to invoke no host firmware compiler. Image construction may download a
+          vendor archive and device pack; case compilation is offline with a read-only root,
+          <code>--network=none</code>, <code>--pull=never</code>, resource limits and an immutable image ID.
+        </p>
+        <div class="table-wrap" style="margin-top: 18px;">
+          <table>
+            <thead><tr><th>Target</th><th>Primary lane</th><th>Secondary lane</th><th>Artifacts</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>ATSAMD21E18</td>
+                <td>Existing Arm GNU toolchain, <code>-mcpu=cortex-m0plus -mthumb</code>, with the pinned SAM D21 device pack and CMSIS headers.</td>
+                <td>Existing Clang/LLD Arm lane where runtime support is available.</td>
+                <td>ELF, map, disassembly and binary.</td>
+              </tr>
+              <tr>
+                <td>STM32L432KC</td>
+                <td>Existing Arm GNU toolchain, <code>-mcpu=cortex-m4 -mthumb</code>, pinned by image digest.</td>
+                <td>Existing Clang/LLD Arm lane where runtime support is available.</td>
+                <td>ELF, map, disassembly and binary.</td>
+              </tr>
+              <tr>
+                <td>R7FA4M1AB3CFM</td>
+                <td>Existing Arm GNU toolchain, exact Renesas FSP device/BSP data, <code>-mcpu=cortex-m4 -mthumb</code>, and pinned ArduinoCore-renesas sources.</td>
+                <td>Existing Clang/LLD Arm lane; Arduino CLI metadata is retained as an independent recipe oracle.</td>
+                <td>ELF, Intel HEX, map, disassembly and board-variant manifest.</td>
+              </tr>
+              <tr>
+                <td>ATmega328PB</td>
+                <td>Microchip AVR GNU Toolchain with the exact ATmega device-family pack.</td>
+                <td>XC8-for-AVR only after the GNU baseline passes; it cannot delay completion.</td>
+                <td>ELF, Intel HEX, map and disassembly.</td>
+              </tr>
+              <tr>
+                <td>MSP430FR2433</td>
+                <td>TI-supported MSP430 GCC plus matching headers/support files.</td>
+                <td>No required secondary compiler in this tranche.</td>
+                <td>ELF, TI-TXT/Intel HEX when emitted, map and disassembly.</td>
+              </tr>
+              <tr>
+                <td>PIC16F15376</td>
+                <td>Current Linux MPLAB XC8 with the exact device support data.</td>
+                <td>No SDCC requirement; investigate separately only after acceptance.</td>
+                <td>Intel HEX, ELF/debug artifact if emitted, map and listing.</td>
+              </tr>
+              <tr>
+                <td>EFM8BB52F32G</td>
+                <td>Source-built, version-pinned SDCC MCS-51 toolchain with Silicon Labs register definitions supplied by the case.</td>
+                <td>Silicon Labs/Keil artifacts may be used for differential evidence but cannot delay the open toolchain baseline.</td>
+                <td>Intel HEX/IHX, map, assembly and listing.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout amber" style="margin-top: 16px;">
+          <span class="label" style="color: var(--amber);">Provenance rule</span>
+          <p style="margin-top: 7px;">
+            Each image records vendor URL, version, archive SHA-256, device-pack version, Dockerfile
+            hash and final image ID. Vendor terms are reviewed before publishing an image; where
+            redistribution is not permitted, the repository supplies a reproducible local build recipe.
+          </p>
+        </div>
+      </section>
+
+      <section id="sequence">
+        <div class="section-head"><span class="section-index">07</span><h2>Implementation sequence</h2></div>
+        <div class="timeline">
+          <div class="phase"><div class="phase-id">PHASE 0</div><div><h3>Behaviour-preserving decomposition</h3><p>Split the measured source hotspots into cohesive modules, retain compatibility re-exports, enforce the 1,500-line ceiling and prove that existing run results, traces, artifacts and gates are unchanged.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 1</div><div><h3>Evidence and executable specifications</h3><p>Pin vendor manuals, errata, linker maps, ABI documentation, compiler versions and sample revisions. Add a manifest for every target before adding target code.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 2</div><div><h3>Shared image and architecture plumbing</h3><p>Add typed architecture identities, strict Intel HEX support, non-32-bit snapshots, named register enums and address-space tests without regressing the original six targets.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 3</div><div><h3>ATSAMD21E18 vertical slice</h3><p>Reuse the Cortex-M0+ interpreter, implement the SAM D21 clocks, synchronized registers, PORT/EIC, TC and SERCOM slice, then pass freestanding GCC/Clang cases and selected official examples.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 4</div><div><h3>STM32L432KC vertical slice</h3><p>Implement Cortex-M4F compiler coverage, system exceptions and the selected L4 peripherals. Pass freestanding GCC/Clang cases and selected STM32CubeL4 examples before moving on.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 5</div><div><h3>R7FA4M1AB3CFM vertical slice</h3><p>Reuse Cortex-M4F, implement RA4M1 option/reset/clock, ICU, IOPORT, GPT and SCI behaviour, then qualify FSP examples and pinned ArduinoCore-renesas sketches for the UNO R4 device.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 6</div><div><h3>ATmega328PB vertical slice</h3><p>Implement AVR execution and Harvard memory, then GPIO, timer, USART, EEPROM and interrupts. Validate native 16-bit-int C behaviour and PB-specific register definitions.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 7</div><div><h3>MSP430FR2433 vertical slice</h3><p>Implement CPUXv2, extended addressing and unified FRAM, followed by clocks, WDT_A, GPIO, Timer_A and eUSCI. Include low-power wake and persistent FRAM tests.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 8</div><div><h3>PIC16F15376 vertical slice</h3><p>Implement enhanced mid-range execution, banked data and word-addressed images, then PPS, GPIO, timers, EUSART and interrupt routing. Qualify XC8 startup and generated code.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 9</div><div><h3>EFM8BB52F32G vertical slice</h3><p>Implement the reusable MCS-51 interpreter and split memory spaces, then add EFM8 clock/reset, GPIO crossbar, timers, UART and interrupts. Qualify SDCC memory models and selected Silicon Labs examples.</p></div></div>
+          <div class="phase"><div class="phase-id">PHASE 10</div><div><h3>Cross-target hardening</h3><p>Run the complete seven-chip matrix, reduce divergences, verify VCD determinism, publish coverage/fidelity reports and keep the fast pull-request gate below 60 seconds.</p></div></div>
+        </div>
+      </section>
+
+      <section id="testing">
+        <div class="section-head"><span class="section-index">08</span><h2>Qualification strategy</h2></div>
+        <div class="grid three">
+          <div class="card pad">
+            <span class="label">ISA</span>
+            <h3 style="margin-top: 8px;">Decode and semantics</h3>
+            <p class="muted">Table-driven instruction vectors, flags, addressing, stack, reset, interrupt entry/return, illegal encodings and boundary addresses.</p>
+          </div>
+          <div class="card pad">
+            <span class="label">Compiler</span>
+            <h3 style="margin-top: 8px;">Real generated code</h3>
+            <p class="muted">Startup, ABI calls, recursion, switch lowering, shifts, multiply/divide helpers, aggregates, volatile MMIO and optimization-sensitive control flow.</p>
+          </div>
+          <div class="card pad">
+            <span class="label">Machine</span>
+            <h3 style="margin-top: 8px;">Observable firmware</h3>
+            <p class="muted">Timer IRQ drives a pin, external edge changes state, UART reports results, VCD records transitions and repeated runs produce identical digests.</p>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 28px;">C corpus lanes</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Lane</th><th>Purpose</th><th>Oracle</th></tr></thead>
+            <tbody>
+              <tr><td>Portable fixed-width</td><td>Run the same defined-behaviour cases using <code>uint8_t</code>, <code>uint16_t</code>, <code>uint32_t</code> and explicit serialization.</td><td>Host-calibrated expected bytes independent of target <code>int</code> width.</td></tr>
+              <tr><td>Native ABI</td><td>Exercise each compiler’s real <code>char</code>, <code>int</code>, pointer, enum, struct and calling conventions.</td><td>Per-toolchain expectations derived from standards, ABI documents and inspected output.</td></tr>
+              <tr><td>MMIO and interrupts</td><td>Exercise volatile accesses, read/modify/write, ISR prologues, nested calls and sleep/wake.</td><td>Expected memory, UART, interrupt counts and ordered signal edges.</td></tr>
+              <tr><td>Vendor sample</td><td>Compile a selected official example with unchanged peripheral source logic.</td><td>Documented UART/GPIO/timer outcome and trace assertions.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" style="margin-top: 14px;">
+          Standard optimization flags are used where the compiler supports them; XC8 equivalents
+          are recorded rather than pretending every vendor compiler accepts GCC’s flag vocabulary.
+        </p>
+
+        <h3 style="margin-top: 28px;">CI split</h3>
+        <div class="grid">
+          <div class="card pad"><h3>Fast gate · required</h3><p class="muted">Under 60 seconds on the calibrated host: Rust tests, loader tests, focused ISA vectors, one compiler smoke case and one peripheral/VCD scenario per new target.</p></div>
+          <div class="card pad"><h3>Full matrix · scheduled</h3><p class="muted">All corpus cases, compiler/optimization lanes, vendor samples, determinism repetitions, artifact inspection and coverage reports. Failures are reduced and promoted into the fast gate.</p></div>
+        </div>
+        <div class="callout" style="margin-top: 16px;">
+          <span class="label">Available-board correlation</span>
+          <p style="margin-top: 7px;">
+            Because development boards are available, selected qualification firmware should also
+            run on the corresponding physical board. Record the exact board revision, MCU marking,
+            tool used to flash it, UART output and captured pin timing, then compare logical edge
+            order with Renvo. Hardware correlation strengthens the evidence but does not turn this
+            tranche into a cycle-accuracy project or block completion when board automation is absent.
+          </p>
+        </div>
+      </section>
+
+      <section id="deliverables">
+        <div class="section-head"><span class="section-index">09</span><h2>Deliverables</h2></div>
+        <div class="card pad">
+          <ol>
+            <li><strong>Refactored current crates</strong> with cohesive modules, thin entry files, compatibility re-exports and unchanged qualification artifacts.</li>
+            <li><strong>Seven target manifests</strong> with exact memory maps, CPU profile, vectors, pins, interrupt lines, reset assumptions, evidence links and fidelity tier.</li>
+            <li><strong>Seven runnable machine targets</strong> exposed consistently through the CLI and library APIs.</li>
+            <li><strong>Four new CPU crates and one new Arm profile</strong> with named register enums, snapshots, structured faults and unit vectors.</li>
+            <li><strong>Firmware loaders</strong> for the ELF identities and Intel HEX/program-word layouts required by the selected toolchains.</li>
+            <li><strong>Seven pinned toolchain specifications</strong> using the shared Arm recipes or target-specific recipes, all offline during case compilation.</li>
+            <li><strong>Peripheral models</strong> sufficient for each target’s reset, GPIO, external input, timer interrupt and UART scenario.</li>
+            <li><strong>Qualification suites</strong> covering ISA, compiler output, machine behaviour, VCD and deterministic replay.</li>
+            <li><strong>Selected vendor samples</strong> with source revision, licence, build recipe, expected outcome and any non-peripheral harness adaptation documented.</li>
+            <li><strong>Documentation</strong> showing implemented register coverage, unsupported behaviour, compiler versions, run commands and known deviations per chip.</li>
+          </ol>
         </div>
       </section>
 
       <section id="risks">
-        <div class="section-head">
-          <span class="section-index">10</span>
-          <h2>Primary risks and controls</h2>
-        </div>
-
+        <div class="section-head"><span class="section-index">10</span><h2>Risks and controls</h2></div>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>Risk</th>
-                <th>Control</th>
-                <th>Signal to watch</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Risk</th><th>Control</th><th>Stop signal</th></tr></thead>
             <tbody>
-              <tr>
-                <td>Target sprawl</td>
-                <td>Freeze the first portfolio at the six named chips; enforce Tier 0/Tier 1 acceptance before deeper peripherals.</td>
-                <td>A single SDK sample drives a large peripheral detour before the shared baseline passes.</td>
-              </tr>
-              <tr>
-                <td>WCH near-match assumptions</td>
-                <td>Profile QingKe V2A and V2C separately and verify each reused peripheral register against its own reference manual.</td>
-                <td>CH32V003 firmware passes only because CH32V006 reset values or interrupt behaviour were copied across.</td>
-              </tr>
-              <tr>
-                <td>Four CPU families at once</td>
-                <td>Use separate CPU crates and conformance suites with a narrow shared step/bus/interrupt contract.</td>
-                <td>Architecture-specific state leaks into the scheduler or generic bus API.</td>
-              </tr>
-              <tr>
-                <td>Multicore nondeterminism</td>
-                <td>Start with secondary cores parked, then use deterministic round-robin quanta and explicit same-time ordering.</td>
-                <td>Test results depend on host threads, wall time, or hash-map iteration.</td>
-              </tr>
-              <tr>
-                <td>SDK dependence on mask ROM</td>
-                <td>Keep direct ELF mode independent; implement sourced boot ROM code where available and narrow, versioned ROM-call façades elsewhere.</td>
-                <td>A vendor SDK update calls an unmodelled ROM address or depends on undocumented boot state.</td>
-              </tr>
-              <tr>
-                <td>Xtensa conformance gaps</td>
-                <td>Define the implemented LX7/compiler subset from emitted binaries, official Espressif material, toolchain tests, and differential execution.</td>
-                <td>Valid ESP-IDF output reaches instructions whose semantics have no independent test oracle.</td>
-              </tr>
-              <tr>
-                <td>False compiler bugs</td>
-                <td>Reject undefined source behaviour; compare runtime/ABI assumptions; confirm with an independent oracle.</td>
-                <td>Divergence disappears with sanitisation or a reduced optimisation level.</td>
-              </tr>
-              <tr>
-                <td>Peripheral abstraction leakage</td>
-                <td>Keep vendor glue in chip definitions; reuse behaviour only when register semantics actually agree.</td>
-                <td>Generic device traits accumulate vendor-named methods.</td>
-              </tr>
-              <tr>
-                <td>Fake timing becomes an API promise</td>
-                <td>Record fidelity, keep <code>SimDuration</code> extensible, and separate event order from wall-clock claims.</td>
-                <td>Tests rely on undocumented instruction timing constants.</td>
-              </tr>
-              <tr>
-                <td>Trace volume dominates execution</td>
-                <td>Filtered subscriptions, streaming sinks, event digests, bounded buffers, optional detailed traces.</td>
-                <td>Default runs allocate per instruction or retain unbounded history.</td>
-              </tr>
-              <tr>
-                <td>Corpus cannot be redistributed</td>
-                <td>Track origin/licence at ingestion; support recipes and patches when source cannot be vendored.</td>
-                <td>A test has no source revision or clear redistribution status.</td>
-              </tr>
-              <tr>
-                <td>Scripting controls the kernel design</td>
-                <td>Expose stable Rust APIs first; Starlark wraps machine/test operations and never owns simulation state.</td>
-                <td>Core types contain interpreter values or callbacks.</td>
-              </tr>
+              <tr><td>Refactoring changes working behaviour</td><td>Move one crate at a time, preserve public re-exports, and compare complete golden artifacts and event digests before and after.</td><td>A supposedly structural patch changes a CLI result, serialized schema, bus log or trace digest.</td></tr>
+              <tr><td>STM32 appears reusable but exposes missing M4F behaviour</td><td>Create a distinct profile, qualify Thumb-2/DSP/FPU output, and never route it through the M33 identity.</td><td>Firmware passes only with soft-float or disabled optimization despite using a hardware-FPU ABI.</td></tr>
+              <tr><td>AVR Harvard details leak into the generic bus</td><td>Use an architecture adapter and explicit access spaces; keep program-word semantics covered by CPU tests.</td><td>Existing machines need vendor-specific conditions in the core bus.</td></tr>
+              <tr><td>MSP430 is accidentally reduced to 16-bit addressing</td><td>Use 20-bit register/address test vectors from the start and load code/data above 64 KiB in architecture tests.</td><td>Address truncation is hidden by the FR2433’s small physical memory map.</td></tr>
+              <tr><td>PIC banked memory produces plausible but wrong execution</td><td>Test every addressing path, BSR/FSR/INDF, common RAM, skips, calls and interrupt context independently.</td><td>Only hand-written trivial assembly passes while XC8 startup fails opaquely.</td></tr>
+              <tr><td>HEX interpretation corrupts program words</td><td>Preserve raw records, validate checksums/overlaps and compare reconstructed images with vendor listings.</td><td>Loader silently pads, truncates or byte-swaps non-byte-wide instructions.</td></tr>
+              <tr><td>Peripheral expansion overwhelms CPU work</td><td>Implement only the named slice; unsupported blocks fault or report their fidelity explicitly.</td><td>A new peripheral is proposed without being required by an acceptance scenario.</td></tr>
+              <tr><td>Toolchains cannot be redistributed</td><td>Publish checksummed local-build recipes and metadata rather than binaries when vendor terms require it.</td><td>A Docker image contains an archive with unclear redistribution permission.</td></tr>
+              <tr><td>Corpus assumes 32-bit C types</td><td>Separate portable fixed-width and target-native ABI lanes with explicit expectations.</td><td>A target is called wrong solely because its conforming <code>int</code> width differs.</td></tr>
+              <tr><td>MCS-51 memory spaces collapse into ordinary RAM</td><td>Make CODE, IDATA, XDATA, SFR and bit accesses explicit in CPU tests and debug snapshots.</td><td>SDCC cases pass only in one memory model or pointers lose their address-space meaning.</td></tr>
+              <tr><td>UNO R4 board scope hides a second computer</td><td>Model only the exact RA4M1 and its selected pins; use the Minima path or isolate WiFi-board sketches from its ESP32-S3 bridge.</td><td>RA4M1 acceptance starts depending on Wi-Fi, the LED matrix bridge, ESP firmware or USB bootloader emulation.</td></tr>
+              <tr><td>Retro ambitions leak into the EFM8 milestone</td><td>Keep the CPU reusable and timing extensible, but implement only the modern EFM8 machine and named peripheral slice here.</td><td>Work begins on historical boards, video, audio or cycle-perfect external buses before the seven-chip gate.</td></tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <section id="first-issues">
-        <div class="section-head">
-          <span class="section-index">11</span>
-          <h2>First implementation issues</h2>
+      <section id="acceptance">
+        <div class="section-head"><span class="section-index">11</span><h2>Final acceptance</h2></div>
+        <div class="card pad">
+          <div class="gate"><div class="gate-num">GATE 01</div><div><h3>Structural baseline</h3><p>The named current hotspots are decomposed, no production Rust file exceeds 1,500 lines, thin entry modules and compatibility re-exports are in place, and existing golden results, traces and artifact schemas are unchanged.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 02</div><div><h3>Build provenance</h3><p>Every target’s required firmware is compiled in a pinned Docker toolchain with networking disabled, and the result records source, flags, compiler identity and artifact hashes.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 03</div><div><h3>CPU and ABI</h3><p>Each target passes its instruction vectors and compiler corpus at the documented optimization levels, including startup, calls, stack, arithmetic helpers, native type widths and interrupt prologues.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 04</div><div><h3>Machine behaviour</h3><p>Each exact chip boots from its documented reset state, initializes memory, configures clocks sufficiently, services a timer interrupt, reads externally stimulated GPIO and transmits through its selected UART.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 05</div><div><h3>Waveform observability</h3><p>Each chip produces a valid VCD containing stable hierarchical GPIO, UART and selected timer/interrupt signals. Assertions verify edge order and repeated runs yield identical event digests.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 06</div><div><h3>Vendor evidence</h3><p>At least one selected official vendor example per chip runs with its peripheral source logic unchanged. The RA4M1 additionally runs pinned ArduinoCore-renesas Blink and HardwareSerial sketches. Linker/startup adaptation and a host-side test harness are allowed only when documented.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 07</div><div><h3>Regression and honesty</h3><p>The original six targets still pass their required gate. New register coverage, fidelity and unsupported behaviour are published, and no unimplemented block is represented as hardware-accurate.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 08</div><div><h3>Portfolio completion</h3><p>All seven expansion targets pass independently in one comprehensive command. Seven names backed by shared stubs do not count; every target must demonstrate its own CPU profile, image format, memory map, interrupt routing and peripheral trace.</p></div></div>
         </div>
-
-        <ol class="issue-list">
-          <li><b>Workspace and policy</b><span>Create crates, CI, formatting, error conventions, MSRV policy, and ADR template.</span></li>
-          <li><b>Simulation time</b><span>Implement checked time arithmetic, stable event queue, cancellation, and run budgets.</span></li>
-          <li><b>Address space</b><span>Add RAM/ROM/MMIO regions, access sizes, endianness, faults, and watchpoints.</span></li>
-          <li><b>Target evidence manifests</b><span>Record source manuals, memory maps, CPU profile, boot assumptions, and support tier for every target.</span></li>
-          <li><b>ELF runner</b><span>Load ELF32, establish target-specific direct-load state, expose symbols, and produce JSON results.</span></li>
-          <li><b>Profiled RISC-V decoder</b><span>Implement RV32I/E with selectable M/A/C/CSR/bit-manipulation and illegal-instruction diagnostics.</span></li>
-          <li><b>WCH CPU proofs</b><span>Add QingKe V2A/V2C behaviour and pass CH32V003/006 GCC ABI, trap, CSR, and custom-instruction cases.</span></li>
-          <li><b>ESP32-C6 CPU proof</b><span>Add HP-core RV32IMAC privilege/interrupt behaviour and pass direct-ELF compiler cases.</span></li>
-          <li><b>Armv6-M proof</b><span>Implement Thumb, exceptions, NVIC, and SysTick; pass RP2040 freestanding cases.</span></li>
-          <li><b>Armv8-M proof</b><span>Implement Cortex-M33 compiler baseline, exceptions, DSP/FPU subset, and RP2350 direct ELF.</span></li>
-          <li><b>Xtensa LX7 proof</b><span>Implement the windowed ABI, compiler-emitted ISA, exceptions, and ESP32-S3 memory views.</span></li>
-          <li><b>Signals and VCD</b><span>Add four-state nets, scheduled stimulus, typed events, and a streaming VCD writer.</span></li>
-          <li><b>Per-chip vertical slices</b><span>Add reset/clock, interrupts, GPIO, timer, and UART, then prove each with firmware and VCD.</span></li>
-          <li><b>Case manifest</b><span>Define reproducible compiler inputs, run configuration, oracles, hashes, and artifact schema.</span></li>
-          <li><b>Matrix runner</b><span>Build and run multiple compilers/flags, compare outcomes, and save divergences.</span></li>
-        </ol>
-      </section>
-
-      <section id="done">
-        <div class="section-head">
-          <span class="section-index">12</span>
-          <h2>Six-chip baseline definition</h2>
-        </div>
-
-        <div class="card card-pad">
-          <ul class="checks">
-            <li>Runs compiler-produced ELFs for every documented target CPU profile.</li>
-            <li>Implements target memory maps, reset state, architectural traps, and interrupt entry.</li>
-            <li>Provides deterministic flash/RAM/MMIO, timer, GPIO, UART, and interrupt routing per chip.</li>
-            <li>Accepts scheduled external pin inputs and resolves digital nets.</li>
-            <li>Emits valid VCD with stable hierarchical signal names.</li>
-            <li>Stops on exit, fault, breakpoint, signal edge, virtual time, or instruction budget.</li>
-            <li>Produces a stable machine-readable run result and canonical event digest.</li>
-            <li>Runs selected WCH EVT, Pico SDK, and ESP-IDF samples without source patches to peripheral code.</li>
-            <li>Builds freestanding cases across applicable GCC, LLVM/Clang, and Rust toolchains and optimisation levels.</li>
-            <li>Compares selected output state and flags behavioural divergence.</li>
-            <li>Reduces a seeded divergence on RISC-V, Arm, and Xtensa and saves reproducible regressions.</li>
-            <li>Publishes per-chip register coverage, fidelity, unsupported behaviour, provenance, and licences.</li>
-            <li>Demonstrates identical results across repeated runs and supported host platforms.</li>
-            <li>Leaves CPU, devices, tracing, scripting, and CLI concerns in separate crate boundaries.</li>
-          </ul>
-        </div>
-
         <div class="callout" style="margin-top: 16px;">
-          <span class="label">Portfolio completion rule</span>
-          <p style="margin: 7px 0 0;">
-            All six targets are confirmed and can proceed from public vendor documentation.
-            Portfolio completion still means six independently passing Tier 1 baselines—not one
-            generic RISC-V model, one generic Arm model, or borrowed register maps presented under
-            several chip names.
+          <span class="label">Completion command</span>
+          <p style="margin-top: 7px;">
+            The final repository documents one stable command that builds or verifies toolchain
+            images, runs the complete qualification matrix and emits a machine-readable summary.
+            The exact command may evolve during implementation; its seven-target semantics may not.
           </p>
         </div>
       </section>
 
+      <section id="references">
+        <div class="section-head"><span class="section-index">12</span><h2>Primary references</h2></div>
+        <div class="grid">
+          <div class="card pad">
+            <h3>Microchip SAM D21</h3>
+            <ul class="compact">
+              <li><a href="https://www.microchip.com/en-us/product/ATSAMD21E18">ATSAMD21E18 product and datasheet</a></li>
+              <li><a href="https://onlinedocs.microchip.com/oxy/GUID-22527069-B4D6-49B9-BACC-3AF1C52EB48C-en-US-21/index.html">SAM D21/DA1 family documentation</a></li>
+              <li><a href="https://developerhelp.microchip.com/xwiki/bin/view/products/mcu-mpu/32bit-mcu/sam/samd21-mcu-overview/samd21-code-examples-listing/">SAM D21 official code examples</a></li>
+            </ul>
+          </div>
+          <div class="card pad">
+            <h3>STMicroelectronics</h3>
+            <ul class="compact">
+              <li><a href="https://www.st.com/en/microcontrollers-microprocessors/stm32l432kc.html">STM32L432KC product and datasheet</a></li>
+              <li><a href="https://www.st.com/en/microcontrollers-microprocessors/stm32l4-series/documentation.html">STM32L4 manuals and errata</a></li>
+              <li><a href="https://www.st.com/en/embedded-software/stm32cubel4">STM32CubeL4 package</a></li>
+            </ul>
+          </div>
+          <div class="card pad">
+            <h3>Renesas RA4M1 / Arduino R4</h3>
+            <ul class="compact">
+              <li><a href="https://www.renesas.com/en/products/ra4m1">RA4M1 product, datasheet and hardware manual</a></li>
+              <li><a href="https://github.com/renesas/fsp">Renesas Flexible Software Package</a></li>
+              <li><a href="https://github.com/arduino/ArduinoCore-renesas">Official ArduinoCore-renesas sources</a></li>
+              <li><a href="https://docs.arduino.cc/resources/datasheets/ABX00080-datasheet.pdf">UNO R4 Minima datasheet</a></li>
+              <li><a href="https://docs.arduino.cc/resources/datasheets/ABX00087-datasheet.pdf">UNO R4 WiFi datasheet</a></li>
+            </ul>
+          </div>
+          <div class="card pad">
+            <h3>Microchip AVR</h3>
+            <ul class="compact">
+              <li><a href="https://www.microchip.com/en-us/product/atmega328pb">ATmega328PB product and datasheet</a></li>
+              <li><a href="https://www.microchip.com/en-us/development-tool/AVR-GCC">Microchip AVR GNU Toolchain</a></li>
+            </ul>
+          </div>
+          <div class="card pad">
+            <h3>Texas Instruments</h3>
+            <ul class="compact">
+              <li><a href="https://www.ti.com/product/MSP430FR2433">MSP430FR2433 product and datasheet</a></li>
+              <li><a href="https://www.ti.com/lit/ug/slau445i/slau445i.pdf">MSP430FR4xx/FR2xx family user guide</a></li>
+              <li><a href="https://www.ti.com/tool/MSP430-GCC-OPENSOURCE">TI-supported MSP430 GCC</a></li>
+            </ul>
+          </div>
+          <div class="card pad">
+            <h3>Microchip PIC</h3>
+            <ul class="compact">
+              <li><a href="https://www.microchip.com/en-us/product/PIC16F15376">PIC16F15376 product and datasheet</a></li>
+              <li><a href="https://developerhelp.microchip.com/xwiki/bin/view/products/mcu-mpu/8bit-pic/enhanced-family/">Enhanced mid-range architecture</a></li>
+              <li><a href="https://www.microchip.com/en-us/tools-resources/develop/mplab-xc-compilers/xc8">MPLAB XC8 compiler</a></li>
+            </ul>
+          </div>
+          <div class="card pad">
+            <h3>Silicon Labs MCS-51</h3>
+            <ul class="compact">
+              <li><a href="https://www.silabs.com/mcu/8-bit-microcontrollers/efm8-bb5/device.efm8bb52f32g-qfn32">EFM8BB52F32G-QFN32 product and datasheet</a></li>
+              <li><a href="https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf">EFM8BB52 reference manual</a></li>
+              <li><a href="https://www.silabs.com/development-tools/mcu/8-bit/bb52-ek2701a-efm8bb52-explorer-kit">EFM8BB52 Explorer Kit</a></li>
+              <li><a href="https://sdcc.sourceforge.net/">SDCC MCS-51 compiler suite</a></li>
+            </ul>
+          </div>
+        </div>
+        <p class="muted" style="margin-top: 16px;">
+          Implementation manifests pin exact document revisions and errata. These discovery links
+          do not replace revisioned evidence stored with each target.
+        </p>
+      </section>
+
       <footer>
-        <span>Renvo emulation core · living implementation plan</span>
+        <span>Renvo · bounded seven-MCU expansion plan</span>
         <button class="print-button" type="button" onclick="window.print()">Print / save PDF</button>
       </footer>
     </main>
@@ -1792,7 +950,6 @@ assert_equivalent(
     const sections = links
       .map((link) => document.querySelector(link.getAttribute("href")))
       .filter(Boolean);
-
     if ("IntersectionObserver" in window) {
       const observer = new IntersectionObserver((entries) => {
         const visible = entries

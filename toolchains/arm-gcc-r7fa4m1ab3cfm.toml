@@ -1,0 +1,15 @@
+name = "gcc-13-r7fa4m1ab3cfm"
+image = "sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736"
+program = "arm-none-eabi-gcc"
+args = [
+    "-mcpu=cortex-m4",
+    "-mthumb",
+    "-DR7FA4M1AB3CFM",
+    "-ffreestanding",
+    "-nostdlib",
+    "-Wl,--build-id=none,--discard-all",
+]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

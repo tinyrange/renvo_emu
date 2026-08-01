@@ -11,6 +11,14 @@ pub enum Architecture {
     ArmM,
     /// Xtensa LX7 profile.
     XtensaLx7,
+    /// AVR enhanced 8-bit architecture.
+    Avr8,
+    /// MSP430 CPUX with 20-bit addressing.
+    Msp430X,
+    /// Enhanced mid-range PIC16 architecture.
+    Pic16Enhanced,
+    /// MCS-51/8051 architecture.
+    Mcs51,
     /// Test-only architecture.
     Synthetic,
 }

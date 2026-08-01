@@ -1,0 +1,19 @@
+name = "clang-18-atsamd21e18"
+image = "sha256:e31d07e59ec7eb7f05396e787db55127783b8a21bc2e907ebcaef6534d343dac"
+program = "clang-18"
+args = [
+    "--target=arm-none-eabi",
+    "-mcpu=cortex-m0plus",
+    "-mthumb",
+    "-D__SAMD21E18A__",
+    "-ffreestanding",
+    "-fno-builtin",
+    "-nostdlib",
+    "-fuse-ld=lld",
+    "-Wl,--build-id=none,--discard-all",
+    "-L/usr/lib/gcc/arm-none-eabi/13.2.1/thumb/v6-m/nofp",
+]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

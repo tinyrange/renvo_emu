@@ -1307,6 +1307,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "renvo-cpu-avr"
+version = "0.1.0"
+dependencies = [
+ "renvo-core",
+ "serde",
+]
+
+[[package]]
+name = "renvo-cpu-mcs51"
+version = "0.1.0"
+dependencies = [
+ "renvo-bus",
+ "renvo-core",
+ "serde",
+]
+
+[[package]]
+name = "renvo-cpu-msp430"
+version = "0.1.0"
+dependencies = [
+ "renvo-bus",
+ "renvo-core",
+ "serde",
+]
+
+[[package]]
+name = "renvo-cpu-pic16"
+version = "0.1.0"
+dependencies = [
+ "renvo-bus",
+ "renvo-core",
+ "serde",
+]
+
+[[package]]
 name = "renvo-cpu-riscv"
 version = "0.1.0"
 dependencies = [
@@ -1368,6 +1403,10 @@ dependencies = [
  "renvo-bus",
  "renvo-core",
  "renvo-cpu-arm",
+ "renvo-cpu-avr",
+ "renvo-cpu-mcs51",
+ "renvo-cpu-msp430",
+ "renvo-cpu-pic16",
  "renvo-cpu-riscv",
  "renvo-cpu-xtensa",
  "renvo-devices",
