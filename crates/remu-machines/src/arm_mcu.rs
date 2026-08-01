@@ -29,7 +29,7 @@ const TEST_EXIT_SIZE: usize = 4;
 
 enum VendorUart {
     Samd21(Samd21UsartHandle),
-    Stm32(Stm32UsartHandle),
+    Stm32(Vec<(Stm32UsartHandle, u16)>),
     Ra4m1(RaSciHandle),
 }
 
@@ -37,7 +37,10 @@ impl VendorUart {
     fn bytes(&self) -> Vec<u8> {
         match self {
             Self::Samd21(handle) => handle.bytes(),
-            Self::Stm32(handle) => handle.bytes(),
+            Self::Stm32(handles) => handles
+                .iter()
+                .flat_map(|(handle, _)| handle.bytes())
+                .collect(),
             Self::Ra4m1(handle) => handle.bytes(),
         }
     }
@@ -45,7 +48,7 @@ impl VendorUart {
     fn interrupt_pending(&self) -> bool {
         match self {
             Self::Samd21(handle) => handle.interrupt_pending(),
-            Self::Stm32(handle) => handle.interrupt_pending(),
+            Self::Stm32(handles) => handles.iter().any(|(handle, _)| handle.interrupt_pending()),
             Self::Ra4m1(handle) => handle.txi_pending(),
         }
     }
@@ -281,16 +284,20 @@ impl ArmMcuMachine {
                     signals.clone(),
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
-                let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (usart1_device, usart1) = Stm32Usart::new("stm32l432kc.usart1");
+                let (usart2_device, usart2) = Stm32Usart::new("stm32l432kc.usart2");
+                let (lpuart1_device, lpuart1) = Stm32Usart::new("stm32l432kc.lpuart1");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
+                    usart1_device,
                     usart2_device,
+                    lpuart1_device,
                 )?;
                 (
                     gpio,
-                    VendorUart::Stm32(uart),
+                    VendorUart::Stm32(vec![(usart1, 37), (usart2, 38), (lpuart1, 70)]),
                     VendorTimer::Stm32(timer),
                     None,
                     None,
@@ -409,7 +416,9 @@ impl ArmMcuMachine {
         bus: &mut AddressSpace,
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
+        usart1: Stm32Usart,
         usart2: Stm32Usart,
+        lpuart1: Stm32Usart,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -473,7 +482,9 @@ impl ArmMcuMachine {
             )),
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
+        bus.map_device("stm32l432kc.usart1", 0x4001_3800, 0x400, Box::new(usart1))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device("stm32l432kc.lpuart1", 0x4000_8000, 0x400, Box::new(lpuart1))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -786,18 +797,27 @@ impl ArmMcuMachine {
                 }
             }
             match self.target {
-                TargetId::Atsamd21e18 | TargetId::Stm32l432kc => {
-                    let uart_line = if self.target == TargetId::Atsamd21e18 {
-                        9
-                    } else {
-                        38
-                    };
+                TargetId::Atsamd21e18 => {
+                    let uart_line = 9;
                     let uart_pending = self.uart.interrupt_pending();
                     interrupt_requested |= uart_pending;
                     self.cpu.set_interrupt(
                         uart_line,
                         uart_pending && self.ppb.interrupt_enabled(uart_line),
                     )?;
+                }
+                TargetId::Stm32l432kc => {
+                    let VendorUart::Stm32(handles) = &self.uart else {
+                        unreachable!("STM32 target always has STM32 USART handles")
+                    };
+                    for (handle, uart_line) in handles {
+                        let uart_pending = handle.interrupt_pending();
+                        interrupt_requested |= uart_pending;
+                        self.cpu.set_interrupt(
+                            *uart_line,
+                            uart_pending && self.ppb.interrupt_enabled(*uart_line),
+                        )?;
+                    }
                 }
                 TargetId::R7fa4m1ab3cfm if self.uart.interrupt_pending() => {
                     interrupt_requested = true;
@@ -957,6 +977,43 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_maps_usart1_and_lpuart1_native_windows() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine
+            .bus
+            .write(
+                0x4001_3828,
+                AccessWidth::Word,
+                u64::from(b'1'),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                0x4000_8028,
+                AccessWidth::Word,
+                u64::from(b'L'),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(machine.uart.bytes(), b"1L");
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4001_381c,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap()
+                & (1 << 7),
+            1 << 7
+        );
     }
 
     #[test]
