@@ -644,6 +644,11 @@ the target manifests and `PLAN.html`, principally:
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
 
+The ATmega328PB model includes both native USART0 and USART1 transmit data
+registers (`UDR0` at `0xc6` and `UDR1` at `0xce`), with ready status and
+separate trace signals. Receive, baud-rate timing, and modem-control fidelity
+remain outside this functional CI slice.
+
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
 bus logs, verifies the portfolio, and regenerates all six manifests. The

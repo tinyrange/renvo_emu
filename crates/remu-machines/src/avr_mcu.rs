@@ -352,7 +352,11 @@ impl AvrMcuMachine {
             cpu: self.cpu.snapshot(),
             secondary_cpu: None,
             exit_code: Some(self.cpu.register(AvrRegister::R24) as u32),
-            uart: self.io.uart_bytes(),
+            uart: {
+                let mut bytes = self.io.uart_bytes();
+                bytes.extend(self.io.uart1_bytes());
+                bytes
+            },
             usb: Vec::new(),
             trace_digest: control.digest.finish(),
         })
