@@ -15,13 +15,13 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_AGT0_INT, RA4M1_EVENT_AGT1_INT,
     RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle, RaGpt, RaGptHandle, RaIcu,
-    RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Ac, Samd21AcHandle,
-    Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac, Samd21DmacHandle,
-    Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port,
-    Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle, Samd21Tcc,
-    Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle,
-    SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
-    UartHandle,
+    RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RaSpi, RegisterBank, Samd21Ac,
+    Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
+    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
+    Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
+    Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
+    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -413,6 +413,8 @@ impl ArmMcuMachine {
                 let pfs = RaPfs::new("r7fa4m1ab3cfm.pfs", &ports);
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
+                let (spi0_device, _) = RaSpi::new("r7fa4m1ab3cfm.spi0");
+                let (spi1_device, _) = RaSpi::new("r7fa4m1ab3cfm.spi1");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
                 let (agt0_device, agt0) = RaAgt::new("r7fa4m1ab3cfm.agt0");
                 let (agt1_device, agt1) = RaAgt::new("r7fa4m1ab3cfm.agt1");
@@ -425,6 +427,8 @@ impl ArmMcuMachine {
                     sci9_device,
                     agt0_device,
                     agt1_device,
+                    spi0_device,
+                    spi1_device,
                 )?;
                 (
                     handles.remove(1),
@@ -663,6 +667,8 @@ impl ArmMcuMachine {
         sci9: RaSci,
         agt0: RaAgt,
         agt1: RaAgt,
+        spi0: RaSpi,
+        spi1: RaSpi,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -686,6 +692,8 @@ impl ArmMcuMachine {
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.agt0", 0x4008_4000, 0x100, Box::new(agt0))?;
         bus.map_device("r7fa4m1ab3cfm.agt1", 0x4008_4100, 0x100, Box::new(agt1))?;
+        bus.map_device("r7fa4m1ab3cfm.spi0", 0x4007_2000, 0x20, Box::new(spi0))?;
+        bus.map_device("r7fa4m1ab3cfm.spi1", 0x4007_2100, 0x20, Box::new(spi1))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
