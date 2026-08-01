@@ -8,8 +8,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
-| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
+| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, AFIO/EXTI, PFIC and table-mode interrupt proofs |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/AFIO/EXTI/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
@@ -44,6 +44,17 @@ See `scripts/qualify-micropython.sh` and
 
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+
+## WCH AFIO/EXTI slice
+
+CH32V003 and CH32V006 expose the native AFIO window at `0x40010000` and EXTI
+at `0x40010400`. The functional slice retains AFIO `PCFR1`, routes EXTI0-7
+through `EXTICR`, detects configured rising/falling edges, supports software
+triggers and write-one-to-clear flags, and delivers the EXTI7_0 request through
+PFIC line 20. External GPIO stimuli are sampled on the deterministic timeline.
+
+Alternate-function electrical muxing, event-only wake semantics, analog/PVD
+sources, and undocumented remap side effects remain outside this slice.
 
 ## Implemented CPU surface
 
