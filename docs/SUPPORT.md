@@ -31,6 +31,13 @@ the ESPI0 interrupt participates in the low/high priority interrupt inputs.
 FIFO operation, crossbar pin assignment, and exact serial clock timing remain
 outside this functional model.
 
+PIC16F15376 additionally has a functional ADC slice: channel values can be
+driven by the host, `ADCON0` starts a deterministic one-tick conversion,
+`ADRESL`/`ADRESH` expose right- or left-justified 10-bit results, and `ADIF`
+through `PIE1` participates in the existing peripheral interrupt path. Voltage
+references, acquisition timing, analog pin electrical behavior, and threshold
+processing remain outside this model.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
