@@ -43,7 +43,8 @@ See `scripts/qualify-micropython.sh` and
 `qualification/acceptance-report.html`.
 
 This milestone does not yet cover the complete upstream MicroPython suite,
-PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+PWM/ADC/serial buses, full watchdog compatibility, or virtual ESP radio
+connectivity.
 
 ## Implemented CPU surface
 
@@ -89,6 +90,22 @@ a hardware timing claim.
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
+
+## RP2040 watchdog slice
+
+The RP2040 model includes the named WATCHDOG register map (`CTRL`, `LOAD`,
+`REASON`, all eight `SCRATCH` registers, and `TICK`) and a scheduler handle
+that advances the tick divider on the abstract timeline. `LOAD` follows the
+RP2040-E1 divide-by-two counter behavior, timer and software triggers latch
+the documented `REASON` bits, and the Arm run loop reports a deterministic
+`RP2040 watchdog reset` fault at the reset boundary. Scratch registers survive
+software/watchdog reset semantics and clear on power-on reset.
+
+This is functional rather than clock-accurate: debug/JTAG pause inputs,
+`RESETS.WDSEL` fan-out, physical reset sequencing, and a complete CPU reboot
+cycle remain outside the slice. The register and machine tests cover reload,
+tick enable, countdown, force/timer reasons, scratch persistence, and the
+run-loop stop condition.
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
