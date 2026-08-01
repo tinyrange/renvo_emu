@@ -166,6 +166,32 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_rmt_native_map_exposes_ws2812_style_symbols() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    // Channel 0: high for two RMT ticks, then low for three.
+    let symbol = 2 | (1 << 15) | (3 << 16);
+    machine
+        .bus
+        .write(0x6000_6010, AccessWidth::Word, 1 << 8, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_6000, AccessWidth::Word, symbol, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_6010, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+
+    let rmt = machine.esp_rmt.as_ref().unwrap();
+    assert_eq!(rmt.output(0).unwrap(), Logic::One);
+    rmt.poll(SimTime::from_ticks(2)).unwrap();
+    assert_eq!(rmt.output(0).unwrap(), Logic::Zero);
+    rmt.poll(SimTime::from_ticks(5)).unwrap();
+    assert_eq!(rmt.output(0).unwrap(), Logic::Z);
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]

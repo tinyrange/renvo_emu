@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspGpio, EspRmt, EspRmtHandle, EspSpiMem, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks,
+    Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -198,6 +198,7 @@ pub struct RiscVMachine {
     esp_flash_guard: u32,
     esp_flash: Vec<u8>,
     esp_timer_groups: Vec<EspTimerGroupHandle>,
+    esp_rmt: Option<EspRmtHandle>,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
@@ -241,9 +242,11 @@ impl RiscVMachine {
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
+        let mut esp_rmt = None;
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
+        let signals = SignalHub::new();
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
             // Functional core-1 return point: the physical ROM parks a hart
@@ -479,7 +482,6 @@ impl RiscVMachine {
             usb_host = Some(Rp2040UsbHost::new());
         }
 
-        let signals = SignalHub::new();
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
             format!("{target}.compiler-gpio"),
@@ -645,7 +647,6 @@ impl RiscVMachine {
                 for (name, base) in [
                     ("esp32c6.i2c0", 0x6000_4000),
                     ("esp32c6.uhci0", 0x6000_5000),
-                    ("esp32c6.rmt", 0x6000_6000),
                     ("esp32c6.ledc", 0x6000_7000),
                     ("esp32c6.systimer", 0x6000_a000),
                     ("esp32c6.twai0", 0x6000_b000),
@@ -692,6 +693,10 @@ impl RiscVMachine {
                         Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                     )?;
                 }
+                let (rmt, handle) =
+                    EspRmt::new("esp32c6.rmt", "board.esp32c6.rmt", signals.clone())?;
+                bus.map_device("esp32c6.rmt", 0x6000_6000, 0x1000, Box::new(rmt))?;
+                esp_rmt = Some(handle);
                 let (usb_serial_jtag, handle) = EspUsbSerialJtag::new("esp32c6.usb-serial-jtag");
                 bus.map_device(
                     "esp32c6.usb-serial-jtag",
@@ -797,6 +802,7 @@ impl RiscVMachine {
             esp_flash_guard: 0,
             esp_flash: Vec::new(),
             esp_timer_groups,
+            esp_rmt,
             flash_storage,
             chip_timers,
             pio,
@@ -836,17 +842,14 @@ impl RiscVMachine {
     pub fn set_access_recording(&mut self, enabled: bool) {
         self.bus.set_access_recording(enabled);
     }
-
     /// Installs or removes a streaming completed-access observer.
     pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
         self.bus.set_access_observer(observer);
     }
-
     /// Returns completed bus operations when recording is enabled.
     pub fn access_log(&self) -> &[remu_bus::BusAccessRecord] {
         self.bus.access_log()
     }
-
     /// Stops before executing an instruction at `address`.
     pub fn add_breakpoint(&mut self, address: u64) {
         self.breakpoints.insert(address);
@@ -856,7 +859,6 @@ impl RiscVMachine {
     pub fn remove_breakpoint(&mut self, address: u64) {
         self.breakpoints.remove(&address);
     }
-
     /// Returns the current CPU0 snapshot for debugger adapters.
     pub fn debug_snapshot(&self) -> CpuSnapshot {
         self.cpu.snapshot()
@@ -1320,6 +1322,9 @@ impl RiscVMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| MachineError::TimeOverflow)?;
             stats.time = self.now;
+            if let Some(rmt) = &self.esp_rmt {
+                stats.events = stats.events.saturating_add(u64::from(rmt.poll(self.now)?));
+            }
 
             let mut signal_stop = None;
             for change in self.signals.drain_changes() {
