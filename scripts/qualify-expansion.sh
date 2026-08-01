@@ -42,9 +42,10 @@ done
 (MSP430FR2433_ARTIFACT_ROOT="$artifact_root/msp430fr2433" scripts/qualify-msp430fr2433.sh >"$log_root/msp430fr2433.log" 2>&1) & p5=$!
 (PIC16F15376_ARTIFACT_ROOT="$artifact_root/pic16f15376" scripts/qualify-pic16f15376.sh >"$log_root/pic16f15376.log" 2>&1) & p6=$!
 (EFM8BB52F32G_ARTIFACT_ROOT="$artifact_root/efm8bb52f32g" scripts/qualify-efm8bb52f32g.sh >"$log_root/efm8bb52f32g.log" 2>&1) & p7=$!
+(scripts/qualify-native-images.sh >"$log_root/native-images.log" 2>&1) & p8=$!
 
 failed=0
-for job in "$p0" "$p1" "$p2" "$p3" "$p4" "$p5" "$p6" "$p7"
+for job in "$p0" "$p1" "$p2" "$p3" "$p4" "$p5" "$p6" "$p7" "$p8"
 do
     wait "$job" || failed=1
 done
@@ -65,6 +66,7 @@ scripts/summarize-expansion.py \
     --elapsed-seconds "$elapsed" \
     --original-six-log "$log_root/original-six.log" \
     --tests-log "$log_root/workspace-tests.log" \
+    --native-images qualification/native-images.json \
     --output "$artifact_root/summary.json"
 
 test "$elapsed" -lt 60

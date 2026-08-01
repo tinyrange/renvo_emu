@@ -293,6 +293,18 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
             bytes
         };
         let image = EspFlashImage::parse(&flash)?;
+        let expected_chip_id = match target {
+            TargetId::Esp32c6 => 13,
+            TargetId::Esp32s3 => 9,
+            _ => unreachable!(),
+        };
+        if image.application.header.chip_id != expected_chip_id {
+            return Err(format!(
+                "ESP application chip ID {} does not match target {target}; expected {expected_chip_id}",
+                image.application.header.chip_id
+            )
+            .into());
+        }
         let flash_state = if let Some(path) = &arguments.flash_state
             && path.exists()
         {

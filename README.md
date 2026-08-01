@@ -185,6 +185,14 @@ cargo run -p renvo-cli -- firmware boot \
   --result build/native-run.json
 ```
 
+`scripts/qualify-native-images.sh` compiles probes in the pinned Docker
+toolchains, converts them to each target's deployable format, and compares the
+native boot path with direct execution. It covers 13 MCUs and 14 target modes
+(both RP2350 architectures), including identical stop results and VCD traces,
+plus wrong-family, wrong-chip, and malformed-format rejection cases. Its
+checked evidence is `qualification/native-images.json`; the comprehensive
+under-one-minute expansion gate runs it in parallel with the other suites.
+
 After both Dockerfiles have been built and their immutable IDs match the
 toolchain TOMLs, `scripts/docker-smoke.sh` compiles and runs the complete
 six-chip portfolio. RP2350 is exercised in both Cortex-M33 and Hazard3 modes.

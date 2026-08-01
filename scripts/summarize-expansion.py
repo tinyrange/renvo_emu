@@ -225,6 +225,7 @@ def main() -> None:
     parser.add_argument("--elapsed-seconds", type=int, required=True)
     parser.add_argument("--original-six-log", type=Path, required=True)
     parser.add_argument("--tests-log", type=Path, required=True)
+    parser.add_argument("--native-images", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -311,6 +312,15 @@ def main() -> None:
             }
         )
 
+    native_images = load_json(args.native_images)
+    if (
+        native_images.get("schema") != "renvo.native-image-equivalence.v1"
+        or native_images.get("result") != "pass"
+        or native_images.get("case_count") != 14
+        or native_images.get("physical_target_count") != 13
+    ):
+        raise ValueError("native-image equivalence evidence is incomplete")
+
     output = {
         "schema": "renvo.expansion-qualification.v1",
         "result": "pass",
@@ -323,6 +333,12 @@ def main() -> None:
         "original_six_regression": {
             "status": "pass",
             "log_sha256": sha256(args.original_six_log),
+        },
+        "native_image_equivalence": {
+            "status": "pass",
+            "artifact": str(args.native_images),
+            "sha256": sha256(args.native_images),
+            "target_modes": native_images["case_count"],
         },
         "targets": target_summaries,
     }

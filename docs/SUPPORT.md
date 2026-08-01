@@ -243,6 +243,13 @@ MCUs consume Intel HEX or addressless raw binaries rooted at their documented
 primary flash base. Native loading uses vector/reset semantics where the
 architecture defines them instead of inventing an ELF entry point.
 
+Native/direct equivalence is continuously checked by
+`scripts/qualify-native-images.sh`. All compiler inputs are built in immutable,
+network-disabled Docker toolchains. The gate compares stop reason, exit code,
+UART/USB output, trace digest, and byte-identical VCD for all 14 target modes.
+PIC16 and EFM8 use their direct Intel HEX boundary because their toolchains do
+not emit a runnable ELF; every other mode compares native boot with ELF.
+
 The human-readable portfolio view is
 [`qualification/dashboard.html`](../qualification/dashboard.html), with the
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
