@@ -13,7 +13,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
-| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
+| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, I2S sample stream, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
 
@@ -232,6 +232,13 @@ separate boot-layout gate. It checks the chip and entry metadata, descriptor
 and text segment ordering, 64 KiB mapping congruence, and correspondence with
 the executable ELF. The default application partition offset is `0x10000` and
 can be changed with `--esp-app-offset`.
+
+ESP32-C6 I2S0 exposes its native interrupt, RX/TX configuration, clock-divider,
+slot/TDM, timing, single-data, state, EOF and version registers. A documented
+offset-`0x00` functional FIFO aperture lets firmware tests and host fixtures
+exchange 32-bit samples and emits deterministic TX/RX VCD values. Native GDMA
+descriptors, DMA ownership, audio clock edges, PDM conversion, and full
+interrupt routing remain unsupported.
 
 ESP32-C6 application RAM powers on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only the file-backed portion of writable load

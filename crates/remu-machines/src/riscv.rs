@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspGpio, EspI2s, EspSpiMem, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks,
+    Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -642,6 +642,8 @@ impl RiscVMachine {
                     0x1000,
                     Box::new(EspSpiMem::new("esp32c6.spimem1")),
                 )?;
+                let (i2s, _) = EspI2s::new("esp32c6.i2s", "board.esp32c6.i2s", signals.clone())?;
+                bus.map_device("esp32c6.i2s", 0x6000_c000, 0x1000, Box::new(i2s))?;
                 for (name, base) in [
                     ("esp32c6.i2c0", 0x6000_4000),
                     ("esp32c6.uhci0", 0x6000_5000),
@@ -649,7 +651,6 @@ impl RiscVMachine {
                     ("esp32c6.ledc", 0x6000_7000),
                     ("esp32c6.systimer", 0x6000_a000),
                     ("esp32c6.twai0", 0x6000_b000),
-                    ("esp32c6.i2s", 0x6000_c000),
                     ("esp32c6.twai1", 0x6000_d000),
                     ("esp32c6.interrupt-matrix", 0x6001_0000),
                     ("esp32c6.atomic", 0x6001_1000),

@@ -524,3 +524,29 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+#[test]
+fn esp_i2s_host_and_firmware_sample_streams_are_observable() {
+    let hub = SignalHub::new();
+    let (mut i2s, handle) = EspI2s::new("i2s", "board.esp32c6.i2s", hub.clone()).unwrap();
+    i2s.write(0x14, AccessWidth::Word, 0x03, SimTime::ZERO)
+        .unwrap();
+    i2s.write(0, AccessWidth::Word, 0x1020_3040, SimTime::from_ticks(1))
+        .unwrap();
+    assert_eq!(handle.take_tx_words(), vec![0x1020_3040]);
+    handle.queue_rx_word(0xaabb_ccdd);
+    assert_eq!(
+        i2s.read(0, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap(),
+        0xaabb_ccdd
+    );
+    assert_eq!(
+        i2s.read(0x10, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap(),
+        0x02
+    );
+    assert!(
+        hub.with_registry(|registry| registry.find("board.esp32c6.i2s.tx"))
+            .is_some()
+    );
+}
