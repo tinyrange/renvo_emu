@@ -166,6 +166,41 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_etm_native_window_exposes_version_and_channel_registers() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_3000 + 0x1ac,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        35_664_018
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_3000 + 0x1a4,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32c6.etm.event"))
+            .is_some()
+    );
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]

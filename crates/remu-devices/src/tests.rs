@@ -524,3 +524,24 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+#[test]
+fn esp_etm_routes_enabled_event_channels_to_tasks() {
+    let hub = SignalHub::new();
+    let (mut etm, handle) = EspEtm::new("etm", "board.esp32c6.etm", hub.clone()).unwrap();
+    etm.write(0x04, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    etm.write(0x18, AccessWidth::Word, 17, SimTime::ZERO)
+        .unwrap();
+    etm.write(0x1c, AccessWidth::Word, 29, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        handle.trigger(17, SimTime::from_ticks(4)).unwrap(),
+        vec![29]
+    );
+    assert_eq!(handle.take_tasks(), vec![29]);
+    assert!(
+        hub.with_registry(|registry| registry.find("board.esp32c6.etm.task"))
+            .is_some()
+    );
+}
