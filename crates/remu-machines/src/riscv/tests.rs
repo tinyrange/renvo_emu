@@ -166,6 +166,50 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_ledc_native_map_exposes_pwm_channel() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    // Timer 0: eight-count abstract period with a unit divider.
+    machine
+        .bus
+        .write(
+            0x6000_70a0,
+            AccessWidth::Word,
+            3 | (256 << 5),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_7008, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_7000, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_700c, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6000_7010,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        4
+    );
+    let ledc = machine.esp_ledc.as_ref().unwrap();
+    assert_eq!(ledc.output(0).unwrap(), Logic::One);
+    ledc.poll(SimTime::from_ticks(4)).unwrap();
+    assert_eq!(ledc.output(0).unwrap(), Logic::Zero);
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]
