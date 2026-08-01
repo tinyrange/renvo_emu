@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Build release assets and runtime image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      IMAGE: ghcr.io/tinyrange/renvo_emu
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install arm64 linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gcc-aarch64-linux-gnu
+
+      - name: Build CLI for both release architectures
+        run: |
+          set -eu
+          rustup target add aarch64-unknown-linux-gnu
+          cargo build --release --locked -p remu-cli
+          mkdir -p dist/amd64 dist/arm64
+          cp target/release/remu dist/amd64/remu
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+            cargo build --release --locked -p remu-cli \
+              --target aarch64-unknown-linux-gnu
+          cp target/aarch64-unknown-linux-gnu/release/remu dist/arm64/remu
+          sha256sum dist/*/remu > dist/remu-${GITHUB_REF_NAME}-sha256sums.txt
+
+      - name: Create quick-start source archive
+        run: tar -C examples -czf dist/remu-quickstart-${GITHUB_REF_NAME}.tar.gz quickstart
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Build and publish runtime images
+        run: |
+          set -eu
+          docker buildx create --name remu-release --use
+          for arch in amd64 arm64; do
+            platform="linux/${arch}"
+            docker buildx build \
+              --platform "$platform" \
+              --build-arg REMU_SOURCE_COMMIT="$GITHUB_SHA" \
+              --build-arg REMU_VERSION="$GITHUB_REF_NAME" \
+              --tag "$IMAGE:${GITHUB_REF_NAME}-${arch}" \
+              --tag "$IMAGE:sha-${GITHUB_SHA}-${arch}" \
+              --file runtime/Dockerfile \
+              --push "dist/${arch}"
+          done
+          docker buildx imagetools create \
+            --tag "$IMAGE:${GITHUB_REF_NAME}" \
+            "$IMAGE:${GITHUB_REF_NAME}-amd64" \
+            "$IMAGE:${GITHUB_REF_NAME}-arm64"
+          docker buildx imagetools create \
+            --tag "$IMAGE:latest" \
+            "$IMAGE:${GITHUB_REF_NAME}-amd64" \
+            "$IMAGE:${GITHUB_REF_NAME}-arm64"
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Renvo Emulator $GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/remu-${GITHUB_REF_NAME}-sha256sums.txt \
+            dist/remu-quickstart-${GITHUB_REF_NAME}.tar.gz \
+            dist/amd64/remu#remu-${GITHUB_REF_NAME}-linux-amd64 \
+            dist/arm64/remu#remu-${GITHUB_REF_NAME}-linux-arm64
