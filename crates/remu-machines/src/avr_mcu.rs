@@ -216,6 +216,11 @@ impl AvrMcuMachine {
         self.gpio[0].output()
     }
 
+    /// Drives one deterministic 10-bit ADC channel sample.
+    pub fn set_adc_input(&self, channel: u8, value: u16) {
+        self.io.set_adc_input(channel, value);
+    }
+
     /// Reads guest-visible AVR data-space bytes.
     pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         (0..length)
@@ -405,5 +410,30 @@ mod tests {
         assert_eq!(result.reason, StopReason::Halted);
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(machine.gpio_output(), 1);
+    }
+
+    #[test]
+    fn atmega_exposes_scripted_adc_samples_through_native_registers() {
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.set_adc_input(2, 0x0155);
+        machine
+            .bus
+            .write(0x7c, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x7a, AccessWidth::Byte, 0x80, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x7a, AccessWidth::Byte, 0xc0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(0x78, AccessWidth::Byte, AccessKind::Read, SimTime::ZERO)
+                .unwrap(),
+            0x55
+        );
     }
 }
