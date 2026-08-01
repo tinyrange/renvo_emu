@@ -941,7 +941,13 @@ impl XtensaCpu {
         {
             let call_increment =
                 usize::try_from(((instruction & 0xff) - 0xc0) >> 4).unwrap_or_default() * 4;
-            let target = self.registers[source];
+            let target = if call_increment == 0 {
+                // CALLX0 discards the low two address bits just like the
+                // architectural indirect-call target path.
+                self.registers[source] & !3
+            } else {
+                self.registers[source]
+            };
             if call_increment == 0 {
                 self.registers[0] = next;
                 self.pc = target;

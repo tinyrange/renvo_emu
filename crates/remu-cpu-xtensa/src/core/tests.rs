@@ -287,6 +287,20 @@ fn call8_window_maps_arguments_and_return_value_back_to_caller() {
 }
 
 #[test]
+fn callx0_aligns_an_indirect_target_to_a_word_boundary() {
+    let mut bus = AddressSpace::default();
+    let mut cpu = XtensaCpu::new();
+    cpu.registers[8] = 0x1235;
+
+    // callx0 a8
+    cpu.execute_wide(0x0000_08c0, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(cpu.pc, 0x1234);
+    assert_eq!(cpu.registers[0], 3);
+}
+
+#[test]
 fn ssa8b_prepares_a_byte_position_for_sll() {
     let mut bus = AddressSpace::default();
     let mut cpu = XtensaCpu::new();
