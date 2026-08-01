@@ -1413,6 +1413,7 @@ dependencies = [
  "remu-core",
  "remu-signals",
  "serde",
+ "sha2",
  "thiserror",
 ]
 
