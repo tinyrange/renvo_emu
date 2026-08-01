@@ -38,6 +38,12 @@ through `PIE1` participates in the existing peripheral interrupt path. Voltage
 references, acquisition timing, analog pin electrical behavior, and threshold
 processing remain outside this model.
 
+RA4M1 AGT0 (`0x40084000`) and AGT1 (`0x40084100`) expose their native
+counter/compare/control register windows. A deterministic down-counter emits
+AGT0/AGT1 ELC underflow events that can be routed through the existing ICU
+IELSR model. Pulse-output pins, event-counter input capture, standby clock
+selection, and exact low-power clock behavior remain outside this slice.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`

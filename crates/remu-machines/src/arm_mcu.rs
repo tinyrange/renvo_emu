@@ -13,14 +13,15 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Ac,
-    Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
-    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
-    Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
-    Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, TimerHandle, UartHandle,
+    FunctionalUart, GpioHandle, RA4M1_EVENT_AGT0_INT, RA4M1_EVENT_AGT1_INT,
+    RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle, RaGpt, RaGptHandle, RaIcu,
+    RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Ac, Samd21AcHandle,
+    Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac, Samd21DmacHandle,
+    Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port,
+    Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle, Samd21Tcc,
+    Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle,
+    SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -92,6 +93,7 @@ pub struct ArmMcuMachine {
     ac: Option<Samd21AcHandle>,
     dac: Option<Samd21DacHandle>,
     ra_icu: Option<RaIcuHandle>,
+    ra_agt: Vec<(u16, RaAgtHandle)>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
@@ -257,6 +259,7 @@ impl ArmMcuMachine {
             ac,
             dac,
             ra_icu,
+            ra_agt,
             watchdog,
         ) = match target {
             TargetId::Atsamd21e18 => {
@@ -343,6 +346,7 @@ impl ArmMcuMachine {
                     Some(ac),
                     Some(dac),
                     None,
+                    Vec::new(),
                     Some(watchdog),
                 )
             }
@@ -390,6 +394,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    Vec::new(),
                     None,
                 )
             }
@@ -409,7 +414,18 @@ impl ArmMcuMachine {
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
-                Self::map_ra4m1(&mut bus, ports, pfs, icu_device, gpt0_device, sci9_device)?;
+                let (agt0_device, agt0) = RaAgt::new("r7fa4m1ab3cfm.agt0");
+                let (agt1_device, agt1) = RaAgt::new("r7fa4m1ab3cfm.agt1");
+                Self::map_ra4m1(
+                    &mut bus,
+                    ports,
+                    pfs,
+                    icu_device,
+                    gpt0_device,
+                    sci9_device,
+                    agt0_device,
+                    agt1_device,
+                )?;
                 (
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
@@ -425,6 +441,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     Some(icu),
+                    vec![(RA4M1_EVENT_AGT0_INT, agt0), (RA4M1_EVENT_AGT1_INT, agt1)],
                     None,
                 )
             }
@@ -452,6 +469,7 @@ impl ArmMcuMachine {
             ac,
             dac,
             ra_icu,
+            ra_agt,
             watchdog,
             compiler_timer,
             exit,
@@ -643,6 +661,8 @@ impl ArmMcuMachine {
         icu: RaIcu,
         gpt0: RaGpt,
         sci9: RaSci,
+        agt0: RaAgt,
+        agt1: RaAgt,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -664,6 +684,8 @@ impl ArmMcuMachine {
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
         bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
+        bus.map_device("r7fa4m1ab3cfm.agt0", 0x4008_4000, 0x100, Box::new(agt0))?;
+        bus.map_device("r7fa4m1ab3cfm.agt1", 0x4008_4100, 0x100, Box::new(agt1))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
@@ -1012,6 +1034,17 @@ impl ArmMcuMachine {
                     for line in icu.route_event(RA4M1_EVENT_GPT0_OVERFLOW) {
                         self.cpu
                             .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+            }
+            if let Some(icu) = &self.ra_icu {
+                for (event, agt) in &self.ra_agt {
+                    if agt.poll(self.now) {
+                        interrupt_requested = true;
+                        for line in icu.route_event(*event) {
+                            self.cpu
+                                .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                        }
                     }
                 }
             }
@@ -1368,6 +1401,26 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
+        machine
+            .bus
+            .write(0x4008_4002, AccessWidth::HalfWord, 3, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4008_4008, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4008_4008,
+                    AccessWidth::Byte,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            1
+        );
     }
 }
 
