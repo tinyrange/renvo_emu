@@ -33,6 +33,13 @@ const UCA0TXBUF: usize = 0x050e;
 const UCA0IE: usize = 0x051a;
 const UCA0IFG: usize = 0x051c;
 const UCA0IV: usize = 0x051e;
+const UCA1CTLW0: usize = 0x0520;
+const UCA1STATW: usize = 0x052a;
+const UCA1RXBUF: usize = 0x052c;
+const UCA1TXBUF: usize = 0x052e;
+const UCA1IE: usize = 0x053a;
+const UCA1IFG: usize = 0x053c;
+const UCA1IV: usize = 0x053e;
 
 const LOCKLPM5: u16 = 0x0001;
 const WDTHOLD: u16 = 0x0080;
@@ -48,6 +55,8 @@ const UCTXIFG: u16 = 0x0002;
 pub const MSP430_PORT1_VECTOR: u16 = 0xffdc;
 /// eUSCI_A0 receive/transmit vector address.
 pub const MSP430_USCI_A0_VECTOR: u16 = 0xffe4;
+/// eUSCI_A1 receive/transmit vector address.
+pub const MSP430_USCI_A1_VECTOR: u16 = 0xffe2;
 /// Timer0_A0 capture/compare vector address.
 pub const MSP430_TIMER0_A0_VECTOR: u16 = 0xfff8;
 
@@ -57,14 +66,19 @@ struct Msp430State {
     port_signals: [Vec<SignalId>; 3],
     hub: SignalHub,
     uart: Vec<u8>,
+    uart1: Vec<u8>,
     previous_p1: u8,
     timer_epoch: u64,
     watchdog_epoch: u64,
     watchdog_reset: bool,
     loopback_pending: Option<(u8, u64)>,
+    loopback1_pending: Option<(u8, u64)>,
     uart_strobe: bool,
+    uart1_strobe: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
+    uart1_byte_signal: SignalId,
+    uart1_strobe_signal: SignalId,
     timer_irq_signal: SignalId,
     port1_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
@@ -156,11 +170,16 @@ impl Msp430State {
         self.set_word(WDTCTL, 0x6900);
         self.set_word(UCA0CTLW0, UCSWRST);
         self.set_word(UCA0IFG, UCTXIFG);
+        self.set_word(UCA1CTLW0, UCSWRST);
+        self.set_word(UCA1IFG, UCTXIFG);
         self.previous_p1 = 0;
         self.timer_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.loopback_pending = None;
+        self.loopback1_pending = None;
+        self.uart_strobe = false;
+        self.uart1_strobe = false;
         self.set_signal(self.timer_irq_signal, 0, 1, at);
         self.set_signal(self.port1_irq_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
@@ -179,6 +198,15 @@ impl Msp430PeripheralsHandle {
             .lock()
             .expect("MSP430 peripheral lock poisoned")
             .uart
+            .clone()
+    }
+
+    /// Captured eUSCI_A1 transmit bytes.
+    pub fn uart1_bytes(&self) -> Vec<u8> {
+        self.0
+            .lock()
+            .expect("MSP430 peripheral lock poisoned")
+            .uart1
             .clone()
     }
 
@@ -204,6 +232,18 @@ impl Msp430PeripheralsHandle {
             state.set_word(UCA0RXBUF, u16::from(byte));
             let flags = state.word(UCA0IFG) | UCRXIFG;
             state.set_word(UCA0IFG, flags);
+        }
+        if state
+            .loopback1_pending
+            .is_some_and(|(_, due)| now.ticks() >= due)
+        {
+            let (byte, _) = state
+                .loopback1_pending
+                .take()
+                .expect("pending eUSCI_A1 loopback was just checked");
+            state.set_word(UCA1RXBUF, u16::from(byte));
+            let flags = state.word(UCA1IFG) | UCRXIFG;
+            state.set_word(UCA1IFG, flags);
         }
 
         let p1 = state.registers[PAIN];
@@ -239,6 +279,9 @@ impl Msp430PeripheralsHandle {
 
         if state.word(UCA0IE) & state.word(UCA0IFG) & (UCRXIFG | UCTXIFG) != 0 {
             vectors.push(MSP430_USCI_A0_VECTOR);
+        }
+        if state.word(UCA1IE) & state.word(UCA1IFG) & (UCRXIFG | UCTXIFG) != 0 {
+            vectors.push(MSP430_USCI_A1_VECTOR);
         }
 
         let watchdog = state.word(WDTCTL);
@@ -287,6 +330,16 @@ impl Msp430Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("eUSCI_A0 transmit event".to_owned()),
         )?;
+        let uart1_byte_signal = hub.declare(
+            "board.msp430fr2433.uart1.tx_byte",
+            SignalValue::from_u64(0, 8)?,
+            Some("eUSCI_A1 transmitted byte".to_owned()),
+        )?;
+        let uart1_strobe_signal = hub.declare(
+            "board.msp430fr2433.uart1.tx_strobe",
+            SignalValue::from_u64(0, 1)?,
+            Some("eUSCI_A1 transmit event".to_owned()),
+        )?;
         let timer_irq_signal = hub.declare(
             "board.msp430fr2433.timer_a0.ccr0_irq",
             SignalValue::from_u64(0, 1)?,
@@ -308,14 +361,19 @@ impl Msp430Peripherals {
             port_signals: [p1_signals, p2_signals, p3_signals],
             hub,
             uart: Vec::new(),
+            uart1: Vec::new(),
             previous_p1: 0,
             timer_epoch: 0,
             watchdog_epoch: 0,
             watchdog_reset: false,
             loopback_pending: None,
+            loopback1_pending: None,
             uart_strobe: false,
+            uart1_strobe: false,
             uart_byte_signal,
             uart_strobe_signal,
+            uart1_byte_signal,
+            uart1_strobe_signal,
             timer_irq_signal,
             port1_irq_signal,
             watchdog_reset_signal,
@@ -398,9 +456,24 @@ impl Device for Msp430Peripherals {
             };
             state.set_word(UCA0IV, vector);
         }
+        if start == UCA1IV && length >= 2 {
+            let flags = state.word(UCA1IFG);
+            let vector = if flags & UCRXIFG != 0 {
+                2
+            } else if flags & UCTXIFG != 0 {
+                4
+            } else {
+                0
+            };
+            state.set_word(UCA1IV, vector);
+        }
         if overlaps(start, length, UCA0RXBUF, 2) {
             let flags = state.word(UCA0IFG) & !UCRXIFG;
             state.set_word(UCA0IFG, flags);
+        }
+        if overlaps(start, length, UCA1RXBUF, 2) {
+            let flags = state.word(UCA1IFG) & !UCRXIFG;
+            state.set_word(UCA1IFG, flags);
         }
         let mut value = 0_u64;
         for index in 0..length {
@@ -467,9 +540,30 @@ impl Device for Msp430Peripherals {
                 at,
             );
         }
+        if overlaps(start, length, UCA1TXBUF, 2) && state.word(UCA1CTLW0) & UCSWRST == 0 {
+            let byte = state.registers[UCA1TXBUF];
+            state.uart1.push(byte);
+            let flags = state.word(UCA1IFG) | UCTXIFG;
+            if state.registers[UCA1STATW] & UCLISTEN != 0 {
+                state.loopback1_pending = Some((byte, at.ticks().saturating_add(8)));
+            }
+            state.set_word(UCA1IFG, flags);
+            state.set_signal(state.uart1_byte_signal, u64::from(byte), 8, at);
+            state.uart1_strobe = !state.uart1_strobe;
+            state.set_signal(
+                state.uart1_strobe_signal,
+                u64::from(state.uart1_strobe),
+                1,
+                at,
+            );
+        }
         if overlaps(start, length, UCA0RXBUF, 2) {
             let flags = state.word(UCA0IFG) & !UCRXIFG;
             state.set_word(UCA0IFG, flags);
+        }
+        if overlaps(start, length, UCA1RXBUF, 2) {
+            let flags = state.word(UCA1IFG) & !UCRXIFG;
+            state.set_word(UCA1IFG, flags);
         }
         if overlaps(start, length, PM5CTL0, 2)
             || overlaps(start, length, PAOUT, 4)
@@ -528,6 +622,43 @@ mod tests {
             )
             .unwrap();
         assert_eq!(handle.uart_bytes(), b"R");
+    }
+
+    #[test]
+    fn eusci_a1_uart_transmit_and_loopback_are_observable() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        device
+            .write(UCA1CTLW0 as u64, AccessWidth::HalfWord, 0, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                UCA1STATW as u64,
+                AccessWidth::Byte,
+                UCLISTEN.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                UCA1TXBUF as u64,
+                AccessWidth::HalfWord,
+                b'A'.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(handle.uart1_bytes(), b"A");
+        assert!(handle.poll(SimTime::from_ticks(7)).is_empty());
+        assert!(handle.poll(SimTime::from_ticks(8)).is_empty());
+        assert_eq!(
+            device.read(
+                UCA1RXBUF as u64,
+                AccessWidth::HalfWord,
+                SimTime::from_ticks(8)
+            ),
+            Ok(u64::from(b'A'))
+        );
     }
 
     #[test]
