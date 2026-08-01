@@ -13,7 +13,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
-| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
+| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, TWAI0/1 frame loopback, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
 
@@ -232,6 +232,13 @@ separate boot-layout gate. It checks the chip and entry metadata, descriptor
 and text segment ordering, 64 KiB mapping congruence, and correspondence with
 the executable ELF. The default application partition offset is `0x10000` and
 can be changed with `--esp-app-offset`.
+
+ESP32-C6 includes a functional native TWAI0/TWAI1 register slice. Firmware can
+write the thirteen data registers and request transmission, while the host can
+queue receive frames or request self-reception. The model exposes last-byte
+TX/RX signals for VCD and deterministic interrupt/status bits; arbitration,
+physical bus timing, error confinement, and interrupt-matrix routing remain
+unsupported.
 
 ESP32-C6 application RAM powers on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only the file-backed portion of writable load

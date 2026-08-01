@@ -524,3 +524,73 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+#[test]
+fn esp_twai_transmits_and_self_receives_data_register_frames() {
+    let hub = SignalHub::new();
+    let (mut twai, handle) = EspTwai::new("twai0", "board.esp32c6.twai0", hub.clone()).unwrap();
+    for index in 0..13_u64 {
+        twai.write(
+            0x40 + index * 4,
+            AccessWidth::Word,
+            index + 0x20,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    }
+    twai.write(0x04, AccessWidth::Word, 0x11, SimTime::from_ticks(1))
+        .unwrap();
+
+    assert_eq!(
+        handle.take_tx_frames(),
+        vec![(0x20_u8..=0x2c).collect::<Vec<_>>()]
+    );
+    assert!(handle.rx_available());
+    assert_ne!(
+        twai.read(0x08, AccessWidth::Word, SimTime::from_ticks(1))
+            .unwrap()
+            & 0x09,
+        0
+    );
+    assert_eq!(
+        twai.read(0x40, AccessWidth::Word, SimTime::from_ticks(1))
+            .unwrap(),
+        0x20
+    );
+    twai.write(0x04, AccessWidth::Word, 1 << 2, SimTime::from_ticks(2))
+        .unwrap();
+    assert!(!handle.rx_available());
+    assert!(
+        hub.with_registry(|registry| registry.find("board.esp32c6.twai0.tx"))
+            .is_some()
+    );
+}
+
+#[test]
+fn esp_twai_host_receive_sets_interrupt_and_release_consumes_frame() {
+    let hub = SignalHub::new();
+    let (mut twai, handle) = EspTwai::new("twai1", "board.esp32c6.twai1", hub).unwrap();
+    twai.write(0x10, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    handle.queue_rx(&[0xaa, 0xbb, 0xcc]);
+    assert_eq!(
+        twai.read(0x40, AccessWidth::Word, SimTime::from_ticks(3))
+            .unwrap(),
+        0xaa
+    );
+    assert_eq!(
+        twai.read(0x0c, AccessWidth::Word, SimTime::from_ticks(3))
+            .unwrap()
+            & 1,
+        1
+    );
+    assert_eq!(
+        twai.read(0x10, AccessWidth::Word, SimTime::from_ticks(3))
+            .unwrap()
+            & 1,
+        1
+    );
+    twai.write(0x04, AccessWidth::Word, 1 << 2, SimTime::from_ticks(4))
+        .unwrap();
+    assert!(!handle.rx_available());
+}

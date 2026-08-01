@@ -14,7 +14,7 @@ use remu_core::{
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
     EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    EspTwai, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
@@ -642,15 +642,20 @@ impl RiscVMachine {
                     0x1000,
                     Box::new(EspSpiMem::new("esp32c6.spimem1")),
                 )?;
+                for (name, base, signal_prefix) in [
+                    ("esp32c6.twai0", 0x6000_b000, "board.esp32c6.twai0"),
+                    ("esp32c6.twai1", 0x6000_d000, "board.esp32c6.twai1"),
+                ] {
+                    let (device, _) = EspTwai::new(name, signal_prefix, signals.clone())?;
+                    bus.map_device(name, base, 0x1000, Box::new(device))?;
+                }
                 for (name, base) in [
                     ("esp32c6.i2c0", 0x6000_4000),
                     ("esp32c6.uhci0", 0x6000_5000),
                     ("esp32c6.rmt", 0x6000_6000),
                     ("esp32c6.ledc", 0x6000_7000),
                     ("esp32c6.systimer", 0x6000_a000),
-                    ("esp32c6.twai0", 0x6000_b000),
                     ("esp32c6.i2s", 0x6000_c000),
-                    ("esp32c6.twai1", 0x6000_d000),
                     ("esp32c6.interrupt-matrix", 0x6001_0000),
                     ("esp32c6.atomic", 0x6001_1000),
                     ("esp32c6.pcnt", 0x6001_2000),
