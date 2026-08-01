@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspGpio, EspMcpwm, EspSpiMem, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks,
+    Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -655,7 +655,6 @@ impl RiscVMachine {
                     ("esp32c6.atomic", 0x6001_1000),
                     ("esp32c6.pcnt", 0x6001_2000),
                     ("esp32c6.etm", 0x6001_3000),
-                    ("esp32c6.mcpwm", 0x6001_4000),
                     ("esp32c6.parlio", 0x6001_5000),
                     ("esp32c6.hinf", 0x6001_6000),
                     ("esp32c6.slc", 0x6001_7000),
@@ -700,6 +699,12 @@ impl RiscVMachine {
                     Box::new(usb_serial_jtag),
                 )?;
                 esp_usb_serial_jtag = Some(handle);
+                bus.map_device(
+                    "esp32c6.mcpwm",
+                    0x6001_4000,
+                    0x1000,
+                    Box::new(EspMcpwm::new("esp32c6.mcpwm", signals.clone())?),
+                )?;
                 let mut saradc_reset = vec![0; 0x1000 / 4];
                 saradc_reset[0x2c / 4] = 2048;
                 saradc_reset[0x44 / 4] = (1 << 31) | (1 << 30);

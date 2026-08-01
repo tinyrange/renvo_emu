@@ -135,6 +135,35 @@ fn esp32c6_direct_elf_leaves_the_bss_tail_poisoned() {
 }
 
 #[test]
+fn esp32c6_mcpwm_native_map_exposes_version_and_timer_defaults() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_412c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        35_656_256
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_4004,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        255 << 8
+    );
+}
+
+#[test]
 fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine.cpu.set_pc(0x4000_03d8).unwrap();
