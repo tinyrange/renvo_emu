@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const DATA_BYTES: usize = 0x2000;
@@ -13,6 +14,13 @@ const RC1REG: usize = 0x119;
 const TX1REG: usize = 0x11a;
 const RC1STA: usize = 0x11d;
 const TX1STA: usize = 0x11e;
+const SSP1BUF: usize = 0x18c;
+const SSP1ADD: usize = 0x18d;
+const SSP1MSK: usize = 0x18e;
+const SSP1STAT: usize = 0x18f;
+const SSP1CON1: usize = 0x190;
+const SSP1CON2: usize = 0x191;
+const SSP1CON3: usize = 0x192;
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
@@ -39,8 +47,13 @@ const TMR0IF: u8 = 1 << 5;
 const TMR1IF: u8 = 1;
 const TX1IF: u8 = 1 << 4;
 const RC1IF: u8 = 1 << 5;
+const SSP1IF: u8 = 1;
+const SSP1IE: u8 = 1;
 const TXEN: u8 = 1 << 5;
 const SPEN: u8 = 1 << 7;
+const SSP1STAT_BF: u8 = 1;
+const SSP1CON1_WCOL: u8 = 1 << 7;
+const SSP1CON1_SSPEN: u8 = 1 << 5;
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -48,12 +61,17 @@ struct Pic16State {
     port_signals: [Vec<SignalId>; 5],
     hub: SignalHub,
     uart: Vec<u8>,
+    spi: Vec<u8>,
+    spi_incoming: VecDeque<u8>,
     timer0_epoch: u64,
     timer1_epoch: u64,
     watchdog_epoch: u64,
     watchdog_reset: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
+    spi_byte_signal: SignalId,
+    spi_strobe_signal: SignalId,
+    spi_irq_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
     interrupt_signal: SignalId,
@@ -110,16 +128,25 @@ impl Pic16State {
             self.registers[TRIS_BASE + port] = PORT_MASKS[port];
             self.registers[ANSEL[port]] = PORT_MASKS[port];
         }
+        self.registers[SSP1ADD] = 0;
+        self.registers[SSP1MSK] = 0xff;
+        self.registers[SSP1CON2] = 0;
+        self.registers[SSP1CON3] = 0;
         self.registers[PIR3] = TX1IF;
         self.registers[TX1STA] = 1 << 1; // TRMT
         self.registers[OSCSTAT] = 1 << 6; // internal HF oscillator ready
         self.registers[PPSLOCK] = 1;
         self.uart.clear();
+        self.spi.clear();
+        self.spi_incoming.clear();
         self.timer0_epoch = at.ticks();
         self.timer1_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.set_signal(self.uart_strobe_signal, 0, 1, at);
+        self.set_signal(self.spi_byte_signal, 0, 8, at);
+        self.set_signal(self.spi_strobe_signal, 0, 1, at);
+        self.set_signal(self.spi_irq_signal, 0, 1, at);
         self.set_signal(self.timer0_irq_signal, 0, 1, at);
         self.set_signal(self.timer1_irq_signal, 0, 1, at);
         self.set_signal(self.interrupt_signal, 0, 1, at);
@@ -133,8 +160,24 @@ impl Pic16State {
         let peripheral = self.registers[INTCON] & INTCON_PEIE != 0
             && ((self.registers[PIR0] & self.registers[PIE0] & TMR0IF != 0)
                 || (self.registers[PIR4] & self.registers[PIE4] & TMR1IF != 0)
-                || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0));
+                || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0)
+                || (self.registers[PIR3] & SSP1IF != 0 && self.registers[PIE3] & SSP1IE != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
+    }
+
+    fn update_interrupt_signals(&self, at: SimTime) {
+        self.set_signal(
+            self.spi_irq_signal,
+            u64::from(self.registers[PIR3] & SSP1IF != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.interrupt_signal,
+            u64::from(self.interrupt_pending()),
+            1,
+            at,
+        );
     }
 }
 
@@ -150,6 +193,22 @@ impl Pic16PeripheralsHandle {
             .expect("PIC16 peripheral lock poisoned")
             .uart
             .clone()
+    }
+
+    /// Captured MSSP1 MOSI bytes from functional SPI master transfers.
+    pub fn spi_bytes(&self) -> Vec<u8> {
+        self.0
+            .lock()
+            .expect("PIC16 peripheral lock poisoned")
+            .spi
+            .clone()
+    }
+
+    /// Queues one MISO byte for the next completed MSSP1 transfer.
+    pub fn inject_spi_rx(&self, value: u8, at: SimTime) {
+        let mut state = self.0.lock().expect("PIC16 peripheral lock poisoned");
+        state.spi_incoming.push_back(value);
+        state.update_interrupt_signals(at);
     }
 
     /// Advances functional timers and returns the combined interrupt request.
@@ -191,7 +250,7 @@ impl Pic16PeripheralsHandle {
             }
         }
         let pending = state.interrupt_pending();
-        state.set_signal(state.interrupt_signal, u64::from(pending), 1, now);
+        state.update_interrupt_signals(now);
         pending
     }
 
@@ -242,6 +301,21 @@ impl Pic16Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("toggles for each EUSART1 byte".to_owned()),
         )?;
+        let spi_byte_signal = hub.declare(
+            "board.pic16f15376.mssp1.tx_byte",
+            SignalValue::from_u64(0, 8)?,
+            Some("last byte written to MSSP1 SSPBUF".to_owned()),
+        )?;
+        let spi_strobe_signal = hub.declare(
+            "board.pic16f15376.mssp1.tx_strobe",
+            SignalValue::from_u64(0, 1)?,
+            Some("toggles for each functional MSSP1 transfer".to_owned()),
+        )?;
+        let spi_irq_signal = hub.declare(
+            "board.pic16f15376.mssp1.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("MSSP1 transfer-complete interrupt flag".to_owned()),
+        )?;
         let timer0_irq_signal = hub.declare(
             "board.pic16f15376.timer0.irq",
             SignalValue::from_u64(0, 1)?,
@@ -268,12 +342,17 @@ impl Pic16Peripherals {
             port_signals: [signals_a, signals_b, signals_c, signals_d, signals_e],
             hub,
             uart: Vec::new(),
+            spi: Vec::new(),
+            spi_incoming: VecDeque::new(),
             timer0_epoch: 0,
             timer1_epoch: 0,
             watchdog_epoch: 0,
             watchdog_reset: false,
             uart_byte_signal,
             uart_strobe_signal,
+            spi_byte_signal,
+            spi_strobe_signal,
+            spi_irq_signal,
             timer0_irq_signal,
             timer1_irq_signal,
             interrupt_signal,
@@ -341,6 +420,10 @@ impl Device for Pic16Peripherals {
                 state.registers[PIR3] &= !RC1IF;
                 state.registers[address]
             }
+            SSP1BUF => {
+                state.registers[SSP1STAT] &= !SSP1STAT_BF;
+                state.registers[address]
+            }
             _ => *state.registers.get(address).ok_or_else(|| {
                 DeviceError::new(format!("PIC16 read outside data space: {raw:#x}"))
             })?,
@@ -398,6 +481,31 @@ impl Device for Pic16Peripherals {
                     state.set_signal(state.uart_strobe_signal, previous ^ 1, 1, at);
                 }
             }
+            SSP1BUF => {
+                let enabled = state.registers[SSP1CON1] & SSP1CON1_SSPEN != 0;
+                let master_mode = state.registers[SSP1CON1] & 0x0f <= 0x03;
+                if enabled && master_mode {
+                    if state.registers[SSP1STAT] & SSP1STAT_BF != 0 {
+                        state.registers[SSP1CON1] |= SSP1CON1_WCOL;
+                    } else {
+                        let received = state.spi_incoming.pop_front().unwrap_or(value);
+                        state.registers[address] = received;
+                        state.registers[SSP1STAT] |= SSP1STAT_BF;
+                        state.registers[PIR3] |= SSP1IF;
+                        state.spi.push(value);
+                        state.set_signal(state.spi_byte_signal, u64::from(value), 8, at);
+                        let previous = state.hub.with_registry(|registry| {
+                            registry
+                                .value(state.spi_strobe_signal)
+                                .and_then(|signal| signal.bit(0))
+                                .map_or(0, |logic| u64::from(logic == Logic::One))
+                        });
+                        state.set_signal(state.spi_strobe_signal, previous ^ 1, 1, at);
+                    }
+                } else {
+                    state.registers[address] = value;
+                }
+            }
             PIR0 => {
                 state.registers[address] = value;
                 state.set_signal(
@@ -415,6 +523,11 @@ impl Device for Pic16Peripherals {
                     1,
                     at,
                 );
+            }
+            SSP1STAT => {
+                // SMP and CKE are writable; BF and the transfer-status bits are
+                // maintained by the functional transfer model.
+                state.registers[address] = value & 0xc0;
             }
             T0CON0 => {
                 if state.registers[address] & 0x80 == 0 && value & 0x80 != 0 {
@@ -443,6 +556,7 @@ impl Device for Pic16Peripherals {
                     .any(|base| (*base..*base + 8).contains(&address));
             }
         }
+        state.update_interrupt_signals(at);
         Ok(())
     }
 
@@ -502,5 +616,77 @@ mod tests {
             .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn mssp1_spi_master_transfer_exposes_loopback_and_interrupt_state() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+
+        device
+            .write(
+                SSP1CON1 as u64,
+                AccessWidth::Byte,
+                SSP1CON1_SSPEN.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(PIE3 as u64, AccessWidth::Byte, SSP1IE.into(), SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                INTCON as u64,
+                AccessWidth::Byte,
+                (INTCON_GIE | INTCON_PEIE).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+
+        handle.inject_spi_rx(0xa5, SimTime::ZERO);
+        device
+            .write(SSP1BUF as u64, AccessWidth::Byte, 0x3c, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.spi_bytes(), vec![0x3c]);
+        assert_eq!(
+            device
+                .read(SSP1BUF as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xa5
+        );
+        assert_eq!(
+            device
+                .read(SSP1STAT as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & u64::from(SSP1STAT_BF),
+            0
+        );
+        assert!(handle.poll(SimTime::from_ticks(1)));
+
+        handle.inject_spi_rx(0x5a, SimTime::from_ticks(1));
+        device
+            .write(
+                SSP1BUF as u64,
+                AccessWidth::Byte,
+                0xc3,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        device
+            .write(
+                SSP1BUF as u64,
+                AccessWidth::Byte,
+                0xff,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(SSP1CON1 as u64, AccessWidth::Byte, SimTime::from_ticks(1))
+                .unwrap()
+                & u64::from(SSP1CON1_WCOL),
+            u64::from(SSP1CON1_WCOL)
+        );
+        assert_eq!(handle.spi_bytes(), vec![0x3c, 0xc3]);
     }
 }

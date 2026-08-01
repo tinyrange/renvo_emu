@@ -728,6 +728,25 @@ remain deterministic and are suitable for compiler and firmware regression
 cases. The register placement and vector mapping follow the official
 [ATmega328PB data sheet](https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip%20AVR%20microcontroller%20ATmega328PB%20Data%20Sheet%2040001906B.pdf).
 
+## PIC16F15376 MSSP1 SPI slice
+
+The PIC16F15376 model implements a deterministic MSSP1 SPI master slice using
+the native `SSP1BUF` (`0x018c`), `SSP1STAT` (`0x018f`), `SSP1CON1`
+(`0x0190`), `SSP1CON2` (`0x0191`), `SSP1CON3` (`0x0192`), `SSP1ADD`
+(`0x018d`) and `SSP1MSK` (`0x018e`) addresses. With `SSPEN` set and an SPI
+master mode selected, writing `SSP1BUF` captures MOSI, completes one abstract
+full-duplex byte, places a queued host MISO byte (or a loopback copy) in the
+receive buffer, sets `BF`, and raises `PIR3.SSP1IF`. Reading `SSP1BUF` clears
+`BF`; an unread receive byte reports `WCOL` on a subsequent write. The model
+exposes captured bytes, host injection, a transfer strobe, and the raw MSSP1
+interrupt flag as deterministic host-facing signals.
+
+This slice is based on Microchip's
+[PIC16(L)F15356/75/76/85/86 data sheet](https://ww1.microchip.com/downloads/en/DeviceDoc/PIC16-L-F15356-75-76-85-86-Microcontroller-Data-Sheet-40001866D.pdf),
+including the MSSP register map and `PIR3/PIE3` bit assignments. It does not
+claim pin-level clock timing, I²C operation, slave-mode handshaking, or analog
+signal behavior.
+
 ## Research sources
 
 Machine facts and register choices are based on the vendor sources linked from
