@@ -90,6 +90,23 @@ Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
 
+## MSP430FR2433 RTC counter slice
+
+The MSP430FR2433 counter-only RTC is mapped at its native `0x0300` window:
+`RTCCTL` (`0x00`), `RTCIV` (`0x04`), `RTCMOD` (`0x08`), and `RTCCNT`
+(`0x0c`). Selecting a documented `RTCSS` source starts deterministic abstract
+time; `RTCPS` selects the TI predivider set (1, 10, 100, 1000, 16, 64, 256,
+or 1024). Reaching the modulo value sets `RTCIF`, and `RTCIE` routes the
+overflow to vector `0xffe8`. Reading `RTCIV` returns the overflow code and
+clears the flag. `RTCSR` resets the count and restarts the modulo epoch.
+
+The observable request is `board.msp430fr2433.rtc.irq`. This model intentionally
+does not claim calendar, alarm, crystal, low-power electrical, or exact clock
+fidelity; the part's documented RTC is a counter, and the emulator expresses
+it on the same deterministic abstract timeline as the other peripherals. The
+register map and behavior are based on TI's [MSP430FR2433 datasheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf)
+and [MSP430FR2xx/4xx Family User's Guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
+
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
 decimal or `0x`-prefixed hexadecimal. A breakpoint stops before executing the

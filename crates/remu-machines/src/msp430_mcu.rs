@@ -11,8 +11,8 @@ use remu_core::{
 };
 use remu_cpu_msp430::{Msp430Cpu, Msp430Register};
 use remu_devices::{
-    GpioHandle, MSP430_PORT1_VECTOR, MSP430_TIMER0_A0_VECTOR, MSP430_USCI_A0_VECTOR,
-    Msp430Peripherals, Msp430PeripheralsHandle, SignalHub,
+    GpioHandle, MSP430_PORT1_VECTOR, MSP430_RTC_VECTOR, MSP430_TIMER0_A0_VECTOR,
+    MSP430_USCI_A0_VECTOR, Msp430Peripherals, Msp430PeripheralsHandle, SignalHub,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::Logic;
@@ -330,6 +330,7 @@ impl Msp430McuMachine {
                 MSP430_PORT1_VECTOR,
                 MSP430_USCI_A0_VECTOR,
                 MSP430_TIMER0_A0_VECTOR,
+                MSP430_RTC_VECTOR,
             ] {
                 self.cpu
                     .set_interrupt(vector, pending_vectors.contains(&vector))?;
