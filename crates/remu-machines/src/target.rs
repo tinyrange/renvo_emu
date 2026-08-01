@@ -610,7 +610,9 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf",
             "https://www.ti.com/lit/ug/slau445/slau445.pdf",
         ],
-        limitations: &["ADC, capacitive touch, BSL, and clock accuracy are deferred"],
+        limitations: &[
+            "Timer_A capture pin routing, ADC, capacitive touch, BSL, and exact clock/prescaler accuracy are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,

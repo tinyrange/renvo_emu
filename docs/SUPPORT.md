@@ -90,6 +90,30 @@ Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
 
+## MSP430FR2433 Timer_A slice
+
+The MSP430FR2433 model maps all four native Timer_A blocks from TI's
+peripheral map:
+
+| Block | Base | Channels | CCR0 vector | CCR1/CCR2/TAIFG vector | VCD signal |
+|---|---:|---:|---:|---:|---|
+| TA0_A3 | `0x0380` | CCR0..CCR2 | `0xfff8` | `0xfff6` | `board.msp430fr2433.timer_a0.ccr0_irq` |
+| TA1_A3 | `0x03c0` | CCR0..CCR2 | `0xfff4` | `0xfff2` | `board.msp430fr2433.timer_a1.irq` |
+| TA2_A2 | `0x0400` | CCR0..CCR1 | `0xfff0` | `0xffee` | `board.msp430fr2433.timer_a2.irq` |
+| TA3_A2 | `0x0440` | CCR0..CCR1 | `0xffec` | `0xffea` | `board.msp430fr2433.timer_a3.irq` |
+
+Each block implements the native `TAxCTL`, `TAxCCTLn`, `TAxR`, `TAxCCRn`, and
+`TAxIV` offsets. Up, continuous, and deterministic functional up/down modes
+advance on abstract simulation ticks. Compare flags route CCR0 through the
+dedicated vector; CCR1/CCR2 and overflow are arbitrated through `TAxIV` using
+the documented priority values. Reading `TAxIV` clears the highest reported
+flag, which makes ordinary MSP430 interrupt handlers usable in bounded tests.
+
+Capture pin routing, output-unit pin multiplexing, exact clock/prescaler
+fidelity, and cycle-level timer behavior remain deferred. The addresses and
+vector assignments come from TI's [MSP430FR2433 datasheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf)
+and [MSP430FR2xx/4xx Family User's Guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
+
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
 decimal or `0x`-prefixed hexadecimal. A breakpoint stops before executing the
