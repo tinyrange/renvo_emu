@@ -728,6 +728,9 @@ impl RiscVMachine {
                 let (uart0, handle) = FunctionalUart::new_lenient("esp32c6.uart0", 0x00, 0x1c, 0);
                 bus.map_device("esp32c6.uart0", 0x6000_0000, 0x1000, Box::new(uart0))?;
                 chip_uarts.push(handle);
+                let (uart1, handle) = FunctionalUart::new_lenient("esp32c6.uart1", 0x00, 0x1c, 0);
+                bus.map_device("esp32c6.uart1", 0x6000_1000, 0x1000, Box::new(uart1))?;
+                chip_uarts.push(handle);
             }
             TargetId::Rp2350 => {
                 let (device, handle, multicore) = RpSioGpio::new_rp2350_with_multicore(

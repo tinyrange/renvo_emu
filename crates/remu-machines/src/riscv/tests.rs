@@ -135,6 +135,28 @@ fn esp32c6_direct_elf_leaves_the_bss_tail_poisoned() {
 }
 
 #[test]
+fn esp32c6_uart1_has_functional_transmit_fifo_and_status() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(0x6000_1000, AccessWidth::Word, 0x5a, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.chip_uarts[1].bytes(), [0x5a]);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6000_101c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
 fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine.cpu.set_pc(0x4000_03d8).unwrap();
