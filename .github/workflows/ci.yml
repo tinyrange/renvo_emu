@@ -39,3 +39,36 @@ jobs:
 
       - name: Check package manifests
         run: cargo package --workspace --locked --allow-dirty --no-verify --list >/dev/null
+
+  machine-smoke:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: RISC-V machine smoke
+            filter: riscv::tests
+          - name: Arm machine smoke
+            filter: arm::tests
+          - name: Xtensa machine smoke
+            filter: xtensa::tests
+          - name: AVR machine smoke
+            filter: avr_mcu::tests
+          - name: MSP430 machine smoke
+            filter: msp430_mcu::tests
+          - name: PIC16 machine smoke
+            filter: pic16_mcu::tests
+          - name: MCS-51 machine smoke
+            filter: mcs51_mcu::tests
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Run representative machine tests
+        run: cargo test -p remu-machines '${{ matrix.filter }}' -- --nocapture
