@@ -25,7 +25,7 @@ use remu_devices::{
     RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2cHandle, RpIoBankHandle,
     RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
     RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
-    WchPficHandle, WchTimer, WchTimerHandle, WchUsart, new_rp2350_hstx,
+    WchTimer, WchUsart, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -64,6 +64,7 @@ mod rp_io;
 use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
 mod runtime;
 mod watchdog;
+mod wch_exti;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -287,8 +288,7 @@ pub struct RiscVMachine {
     i2c: Vec<RpI2cHandle>,
     spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
-    wch_timer: Option<WchTimerHandle>,
-    wch_pfic: Option<WchPficHandle>,
+    wch: Option<wch_exti::WchHandles>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
@@ -349,8 +349,7 @@ impl RiscVMachine {
             .then(|| BleController::new(BdAddress([1, 0xc6, 0, 0, 0, 0x02]), 0x32c6_5eed));
         let radio_legality =
             (target == TargetId::Esp32c6).then(|| RadioLegalityValidator::new(RadioChip::Esp32C6));
-        let mut wch_timer = None;
-        let mut wch_pfic = None;
+        let mut wch = None;
         let mut chip_adc = None;
         let mut chip_pwm = None;
         let mut sio = None;
@@ -673,6 +672,7 @@ impl RiscVMachine {
                     ],
                 );
                 bus.map_device(format!("{target}.rcc"), 0x4002_1000, 0x400, Box::new(rcc))?;
+                let exti = wch_exti::map_wch_exti(&mut bus, target)?;
                 let (wch_uart, handle) = WchUsart::new(format!("{target}.usart1"));
                 bus.map_device(
                     format!("{target}.usart1"),
@@ -683,7 +683,7 @@ impl RiscVMachine {
                 chip_uarts.push(handle);
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
-                wch_timer = Some(handle);
+                let timer = handle;
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
@@ -691,7 +691,11 @@ impl RiscVMachine {
                     0x1000,
                     Box::new(pfic),
                 )?;
-                wch_pfic = Some(handle);
+                wch = Some(wch_exti::WchHandles {
+                    timer,
+                    pfic: handle,
+                    exti,
+                });
             }
             TargetId::Esp32c6 => {
                 let (plic_machine, plic_user, plic_handle) =
@@ -891,8 +895,7 @@ impl RiscVMachine {
             i2c,
             spi,
             pio,
-            wch_timer,
-            wch_pfic,
+            wch,
             usb,
             usb_dpram,
             usb_host,
