@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
-    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
-    Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    AdcHandle, ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalAdc,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll,
+    Rp2040RegisterBank, Rp2040Resets, Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam,
+    Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub,
+    TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -44,6 +45,7 @@ pub struct ArmMachine {
     sio: RpSioHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
+    chip_adc: AdcHandle,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -118,6 +120,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let chip_adc;
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -305,7 +308,6 @@ impl ArmMachine {
                 ("rp2040.spi1", 0x4004_0000),
                 ("rp2040.i2c0", 0x4004_4000),
                 ("rp2040.i2c1", 0x4004_8000),
-                ("rp2040.adc", 0x4004_c000),
                 ("rp2040.pwm", 0x4005_0000),
                 ("rp2040.dma", 0x5000_0000),
                 ("rp2040.pio1", 0x5030_0000),
@@ -418,7 +420,6 @@ impl ArmMachine {
                 ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
-                ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
                 ("rp2350.pio1", 0x5030_0000),
@@ -571,6 +572,19 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
+        let adc_base = match target {
+            TargetId::Rp2040 => 0x4004_c000,
+            TargetId::Rp2350 => 0x400a_0000,
+            _ => unreachable!(),
+        };
+        let (adc_device, adc_handle) = FunctionalAdc::new(format!("{target}.adc"));
+        bus.map_device(
+            format!("{target}.adc"),
+            adc_base,
+            0x1000,
+            Box::new(adc_device),
+        )?;
+        chip_adc = adc_handle;
         let (pio0, handle) = RpPio::new(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
@@ -596,6 +610,7 @@ impl ArmMachine {
             sio,
             uart,
             chip_uart,
+            chip_adc,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1142,6 +1157,16 @@ impl ArmMachine {
         Ok(())
     }
 
+    /// Sets a deterministic sample for one RP ADC channel.
+    pub fn set_adc_sample(&self, channel: usize, value: u16) -> bool {
+        self.chip_adc.set_sample(channel, value)
+    }
+
+    /// Returns RP ADC conversion results in execution order.
+    pub fn adc_conversions(&self) -> Vec<u16> {
+        self.chip_adc.conversions()
+    }
+
     /// Removes configured user breakpoints and data watchpoints.
     pub fn clear_debug_stops(&mut self) {
         self.breakpoints.clear();
@@ -1462,12 +1487,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
