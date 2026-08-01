@@ -1,4 +1,22 @@
 use super::*;
+use remu_image::FirmwareSegment;
+
+fn image_with_segment(address: u64, data: Vec<u8>) -> FirmwareImage {
+    FirmwareImage {
+        architecture: FirmwareArchitecture::Xtensa,
+        entry: 0x4037_0000,
+        segments: vec![FirmwareSegment {
+            address,
+            load_address: None,
+            initialized_size: data.len(),
+            data,
+            executable: false,
+            writable: true,
+            alignment: 4,
+        }],
+        symbols: Vec::new(),
+    }
+}
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -7,6 +25,35 @@ fn direct_load_starts_with_appcpu_reset_and_parked() {
     assert_eq!(machine.cpu1.snapshot().pc, 0);
     assert!(!machine.cpu1.snapshot().waiting);
     assert!(!machine.cpu1.snapshot().halted);
+}
+
+#[test]
+fn esp32s3_dram_starts_at_the_documented_soc_boundary() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let invalid = image_with_segment(0x3fc8_0000, vec![0; 4]);
+    let error = machine.load_firmware(&invalid).unwrap_err();
+    assert!(matches!(
+        error,
+        XtensaMachineError::Load {
+            address: 0x3fc8_0000,
+            ..
+        }
+    ));
+
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let valid = image_with_segment(0x3fc8_8000, vec![0xa5; 4]);
+    machine.load_firmware(&valid).unwrap();
+}
+
+#[test]
+fn esp32s3_dram_upper_boundary_is_exclusive() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let last_word = image_with_segment(0x3fcf_fffc, vec![0xa5; 4]);
+    machine.load_firmware(&last_word).unwrap();
+
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let outside = image_with_segment(0x3fd0_0000, vec![0; 1]);
+    assert!(machine.load_firmware(&outside).is_err());
 }
 
 #[test]
