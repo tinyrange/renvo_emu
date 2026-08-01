@@ -594,6 +594,23 @@ by an executable 512-byte stack-reserve assertion. It passes the distinct
 upstream 1,200-byte profile-generation workload for behavioral coverage.
 See [COREMARK.md](COREMARK.md) for scores and methodology.
 
+## ATmega328PB Timer/Counter2 slice
+
+The ATmega328PB model now exposes the Timer/Counter2 control, counter,
+compare-A, interrupt-mask, and interrupt-flag registers. A deterministic
+abstract-tick model supports normal overflow and CTC compare-A progression,
+sets the corresponding `TIFR2` flag, resets `TCNT2`, and delivers the
+enabled `TIMER2_COMPA` or `TIMER2_OVF` request on the AVR interrupt lines.
+`TIFR2` uses the device's write-one-to-clear behavior, so firmware can
+acknowledge a request through the native register interface.
+
+This is a functional baseline rather than a clock-accurate timer: the
+prescaler selection, asynchronous Timer2 clock, compare-B waveform output,
+PWM modes, and Timer2 sleep behavior are not modeled yet. Register accesses
+remain deterministic and are suitable for compiler and firmware regression
+cases. The register placement and vector mapping follow the official
+[ATmega328PB data sheet](https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip%20AVR%20microcontroller%20ATmega328PB%20Data%20Sheet%2040001906B.pdf).
+
 ## Research sources
 
 Machine facts and register choices are based on the vendor sources linked from
