@@ -32,6 +32,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 mod bootrom_support;
+mod crypto;
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
 mod heap;
@@ -664,7 +665,6 @@ impl RiscVMachine {
                     ("esp32c6.gdma", 0x6008_0000),
                     ("esp32c6.spi2", 0x6008_1000),
                     ("esp32c6.aes", 0x6008_8000),
-                    ("esp32c6.sha", 0x6008_9000),
                     ("esp32c6.rsa", 0x6008_a000),
                     ("esp32c6.ecc", 0x6008_b000),
                     ("esp32c6.ds", 0x6008_c000),
@@ -692,6 +692,7 @@ impl RiscVMachine {
                         Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                     )?;
                 }
+                crypto::map_esp32c6_sha(&mut bus)?;
                 let (usb_serial_jtag, handle) = EspUsbSerialJtag::new("esp32c6.usb-serial-jtag");
                 bus.map_device(
                     "esp32c6.usb-serial-jtag",

@@ -237,3 +237,20 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn esp32c6_maps_sha_accelerator_registers() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6008_9000 + 0x2c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        538_972_713
+    );
+}
