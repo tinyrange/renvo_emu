@@ -470,14 +470,18 @@ const MANIFESTS: &[TargetManifest] = &[
         baseline: &[
             "PORT/EIC GPIO",
             "TC3 timer interrupt",
+            "TCC0/TCC1/TCC2 PWM",
             "SERCOM0 USART",
             "VCD",
         ],
         sources: &[
             "https://www.microchip.com/en-us/product/ATSAMD21E18",
+            "https://ww1.microchip.com/downloads/aemDocuments/documents/MCU32/ProductDocuments/DataSheets/SAM-D21DA1-Family-Data-Sheet-DS40001882H.pdf",
             "https://packs.download.microchip.com/Microchip.SAMD21_DFP.3.8.270.atpack",
         ],
-        limitations: &["analog, USB, DMA, and exact clock timing are outside this tranche"],
+        limitations: &[
+            "TCC capture, pin multiplexing, DMA, analog, USB, and exact clock/synchronization timing are outside this tranche",
+        ],
     },
     TargetManifest {
         schema: 1,
