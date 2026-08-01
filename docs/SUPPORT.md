@@ -219,6 +219,11 @@ manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
+The RP2040 model uses the functional PIO engine for both PIO0 and PIO1;
+PIO1 is mapped at its native `0x50300000` base and contributes the same
+instruction-memory, state-machine, `JMP`, and `SET`/VCD behavior. FIFO, `WAIT`,
+side-set, and protocol timing remain outside this deterministic subset.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification

@@ -308,7 +308,6 @@ impl ArmMachine {
                 ("rp2040.adc", 0x4004_c000),
                 ("rp2040.pwm", 0x4005_0000),
                 ("rp2040.dma", 0x5000_0000),
-                ("rp2040.pio1", 0x5030_0000),
             ] {
                 bus.map_device(
                     name,
@@ -317,6 +316,14 @@ impl ArmMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
+            let (pio1_device, pio1_handle) = RpPio::new(
+                "rp2040.pio1",
+                u16::from(manifest.gpio_count.min(32)),
+                "board.rp2040.pio1.gpio",
+                signals.clone(),
+            )?;
+            bus.map_device("rp2040.pio1", 0x5030_0000, 0x4000, Box::new(pio1_device))?;
+            pio.push(pio1_handle);
             let mut qspi_pad_reset = vec![0x56; 8];
             qspi_pad_reset[0] = 0;
             bus.map_device(
@@ -1462,12 +1469,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
