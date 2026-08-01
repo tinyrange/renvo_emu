@@ -740,6 +740,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "RTC counter",
             "eUSCI_A0 UART",
             "eUSCI_A1 UART",
+            "eUSCI_B0 SPI",
             "FRAM",
             "VCD",
         ],
@@ -748,7 +749,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.ti.com/lit/ug/slau445/slau445.pdf",
         ],
         limitations: &[
-            "Timer_A capture pin routing, ADC, capacitive touch, BSL, eUSCI_A1 IrDA/pin routing, and exact clock/prescaler accuracy are deferred",
+            "Timer_A capture pin routing, ADC, capacitive touch, BSL, eUSCI_A1 IrDA/pin routing, eUSCI_B0 I2C, and exact clock/prescaler accuracy are deferred",
         ],
     },
     TargetManifest {

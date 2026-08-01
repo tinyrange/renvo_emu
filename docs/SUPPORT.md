@@ -384,6 +384,20 @@ Register addresses and reset semantics are based on the [MSP430FR2433 data
 sheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf) and the [MSP430FR2xx/
 FR4xx user's guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
 
+## MSP430FR2433 eUSCI_B0 SPI slice
+
+The native eUSCI_B0 window starts at `0x0540`, with control, receive/transmit,
+interrupt-enable, interrupt-flag, and interrupt-vector registers through
+`0x056e`. In synchronous master mode, writing `UCB0TXBUF` completes a
+deterministic full-duplex transfer, records MOSI, and places an injected MISO
+byte (or an echo when none is injected) in `UCB0RXBUF`. Enabled flags deliver
+the eUSCI_B0 vector at `0xffe0`.
+
+Signals expose SPI transmit, receive, and transfer-strobe values under
+`board.msp430fr2433.spi0`. I2C protocol state, pin multiplexing, chip-select
+wiring, and exact serial timing remain deferred. Addresses and reset semantics
+follow the TI MSP430FR2433 data sheet and family user's guide linked above.
+
 ESP32-S3 DRAM and IRAM power on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only each segment's file-backed bytes, so
 the synthesized `.bss` tail remains poisoned until firmware clears it. This
