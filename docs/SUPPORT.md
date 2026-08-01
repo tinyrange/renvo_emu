@@ -45,6 +45,13 @@ See `scripts/qualify-micropython.sh` and
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
+The ATSAMD21E18 model also includes a native RTC COUNT32/COMP0 slice at
+`0x40001400`. It implements deterministic abstract-time counting, prescaler
+configuration, compare/clear-on-match behavior, interrupt enable/flag
+registers, and machine interrupt line 3. COUNT16, clock/calendar alarms,
+frequency correction, event routing, and low-power clock-source fidelity remain
+outside this slice.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed

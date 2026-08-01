@@ -359,6 +359,139 @@ impl Device for Samd21Tc {
 }
 
 #[derive(Default)]
+struct RtcState {
+    control: u32,
+    interrupt_enable: u8,
+    interrupt_flags: u8,
+    count_base: u32,
+    compare0: u32,
+    epoch: u64,
+}
+
+impl RtcState {
+    fn count(&self, now: SimTime) -> u32 {
+        if self.control & 2 == 0 {
+            return self.count_base;
+        }
+        let prescaler = ((self.control >> 8) & 0xf).min(10);
+        let elapsed = now.ticks().saturating_sub(self.epoch) >> prescaler;
+        self.count_base.wrapping_add(elapsed as u32)
+    }
+
+    fn advance(&mut self, now: SimTime) {
+        let count = self.count(now);
+        if self.control & 2 != 0 && count >= self.compare0 && self.compare0 != 0 {
+            self.interrupt_flags |= 1 << 4;
+            if self.control & (1 << 4) != 0 {
+                self.count_base = 0;
+                self.epoch = now.ticks();
+            } else {
+                self.count_base = count;
+                self.epoch = now.ticks();
+            }
+        } else if self.control & 2 != 0 && count < self.count_base {
+            self.interrupt_flags |= 1;
+            self.count_base = count;
+            self.epoch = now.ticks();
+        }
+    }
+}
+
+/// Machine-facing handle for the SAM D21 RTC COUNT32/COMP0 interrupt slice.
+#[derive(Clone)]
+pub struct Samd21RtcHandle(Arc<Mutex<RtcState>>);
+
+impl Samd21RtcHandle {
+    /// Advances the abstract RTC clock and returns an enabled interrupt level.
+    pub fn poll(&self, now: SimTime) -> bool {
+        let mut state = self.0.lock().expect("RTC lock poisoned");
+        state.advance(now);
+        state.interrupt_flags & state.interrupt_enable != 0
+    }
+}
+
+/// Functional SAM D21 RTC COUNT32 register slice.
+pub struct Samd21Rtc {
+    name: String,
+    state: Arc<Mutex<RtcState>>,
+}
+
+impl Samd21Rtc {
+    /// Constructs the RTC and its interrupt handle.
+    pub fn new(name: impl Into<String>) -> (Self, Samd21RtcHandle) {
+        let state = Arc::new(Mutex::new(RtcState::default()));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+            },
+            Samd21RtcHandle(state),
+        )
+    }
+}
+
+impl Device for Samd21Rtc {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
+        let mut state = self.state.lock().expect("RTC lock poisoned");
+        state.advance(at);
+        let value = match offset {
+            0x00 => state.control,
+            0x06 | 0x07 => u32::from(state.interrupt_enable),
+            0x08 => u32::from(state.interrupt_flags),
+            0x0a => 0,
+            0x10..=0x13 => state.count(at) >> ((offset - 0x10) * 8),
+            0x18..=0x1b => state.compare0 >> ((offset - 0x18) * 8),
+            _ => 0,
+        };
+        let mask = if width.bytes() == 4 {
+            u64::from(u32::MAX)
+        } else {
+            (1_u64 << (u32::from(width.bytes()) * 8)) - 1
+        };
+        Ok(u64::from(value) & mask)
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        _width: AccessWidth,
+        value: u64,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let mut state = self.state.lock().expect("RTC lock poisoned");
+        state.advance(at);
+        match offset {
+            0x00 => {
+                if value & 1 != 0 {
+                    *state = RtcState::default();
+                } else {
+                    state.control = value as u32;
+                    state.epoch = at.ticks();
+                }
+            }
+            0x06 => state.interrupt_enable &= !(value as u8),
+            0x07 => state.interrupt_enable |= value as u8,
+            0x08 => state.interrupt_flags &= !(value as u8),
+            0x10 => {
+                state.count_base = value as u32;
+                state.epoch = at.ticks();
+            }
+            0x18 => state.compare0 = value as u32,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        *self.state.lock().expect("RTC lock poisoned") = RtcState::default();
+    }
+}
+
+#[derive(Default)]
 struct UsartState {
     enabled: bool,
     interrupt_enable: u8,
@@ -743,5 +876,26 @@ mod tests {
             .unwrap();
         assert!(!handle.take_reset(SimTime::from_ticks(14)));
         assert!(handle.take_reset(SimTime::from_ticks(15)));
+    }
+
+    #[test]
+    fn rtc_count32_compare_sets_and_clears_cmp0() {
+        let (mut rtc, handle) = Samd21Rtc::new("rtc");
+        rtc.write(0x18, AccessWidth::Word, 4, SimTime::ZERO)
+            .unwrap();
+        rtc.write(0x07, AccessWidth::Byte, 1 << 4, SimTime::ZERO)
+            .unwrap();
+        rtc.write(0x00, AccessWidth::Word, 2 | (1 << 4), SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(3)));
+        assert!(handle.poll(SimTime::from_ticks(4)));
+        assert_eq!(
+            rtc.read(0x08, AccessWidth::Byte, SimTime::from_ticks(4))
+                .unwrap(),
+            1 << 4
+        );
+        rtc.write(0x08, AccessWidth::Byte, 1 << 4, SimTime::from_ticks(4))
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(4)));
     }
 }

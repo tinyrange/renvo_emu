@@ -15,9 +15,9 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc,
+    Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub,
+    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -78,6 +78,7 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    rtc: Option<Samd21RtcHandle>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -230,7 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, rtc, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -241,12 +242,14 @@ impl ArmMcuMachine {
                 let (tc3_device, timer) = Samd21Tc::new("atsamd21e18.tc3");
                 let (eic_device, eic) = Samd21Eic::new("atsamd21e18.eic");
                 let (watchdog_device, watchdog) = Samd21Wdt::new("atsamd21e18.wdt");
+                let (rtc_device, rtc) = Samd21Rtc::new("atsamd21e18.rtc");
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
                 Self::map_samd21(
                     &mut bus,
                     port_device,
                     eic_device,
                     watchdog_device,
+                    rtc_device,
                     tc3_device,
                     sercom0_device,
                 )?;
@@ -254,6 +257,7 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    Some(rtc),
                     Some(eic),
                     None,
                     Some(watchdog),
@@ -295,6 +299,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -319,6 +324,7 @@ impl ArmMcuMachine {
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -336,6 +342,7 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            rtc,
             eic,
             ra_icu,
             watchdog,
@@ -360,6 +367,7 @@ impl ArmMcuMachine {
         port: Samd21Port,
         eic: Samd21Eic,
         watchdog: Samd21Wdt,
+        rtc: Samd21Rtc,
         tc3: Samd21Tc,
         sercom0: Samd21Usart,
     ) -> Result<(), remu_bus::MapError> {
@@ -387,6 +395,7 @@ impl ArmMcuMachine {
             Box::new(Samd21RegisterBlock::new("atsamd21e18.gclk", 0x100, [])),
         )?;
         bus.map_device("atsamd21e18.wdt", 0x4000_1000, 0x100, Box::new(watchdog))?;
+        bus.map_device("atsamd21e18.rtc", 0x4000_1400, 0x100, Box::new(rtc))?;
         bus.map_device("atsamd21e18.eic", 0x4000_1800, 0x100, Box::new(eic))?;
         bus.map_device("atsamd21e18.sercom0", 0x4200_0800, 0x40, Box::new(sercom0))?;
         bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
@@ -761,7 +770,8 @@ impl ArmMcuMachine {
 
             let (timer_line, timer_pending) = self.timer.poll(self.now);
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending;
+            let rtc_pending = self.rtc.as_ref().is_some_and(|rtc| rtc.poll(self.now));
+            let mut interrupt_requested = timer_pending || rtc_pending;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -784,6 +794,10 @@ impl ArmMcuMachine {
                             .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
                     }
                 }
+            }
+            if self.target == TargetId::Atsamd21e18 {
+                self.cpu
+                    .set_interrupt(3, rtc_pending && self.ppb.interrupt_enabled(3))?;
             }
             match self.target {
                 TargetId::Atsamd21e18 | TargetId::Stm32l432kc => {
@@ -942,6 +956,36 @@ mod tests {
         assert_eq!(machine.gpio_output(), 1 << 7);
         assert_eq!(result.reason, StopReason::InstructionLimit);
         assert_ne!(result.trace_digest, "");
+    }
+
+    #[test]
+    fn samd21_maps_rtc_count32_block() {
+        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
+        machine
+            .bus
+            .write(0x4000_1418, AccessWidth::Word, 10, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4000_1407, AccessWidth::Byte, 1 << 4, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4000_1400, AccessWidth::Word, 2 | (1 << 4), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4000_1400,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap()
+                & 2,
+            2
+        );
     }
 
     #[test]
