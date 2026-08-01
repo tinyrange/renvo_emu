@@ -366,6 +366,24 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+## MSP430FR2433 eUSCI_A1 slice
+
+The MSP430FR2433 model exposes the native eUSCI_A1 register window beginning at
+`0x0520`: `UCA1CTLW0` (`0x0520`), `UCA1STATW` (`0x052a`), `UCA1RXBUF`
+(`0x052c`), `UCA1TXBUF` (`0x052e`), `UCA1IE` (`0x053a`), `UCA1IFG`
+(`0x053c`), and `UCA1IV` (`0x053e`). Clearing reset and writing `UCA1TXBUF`
+captures a deterministic transmit transcript. Setting `UCLISTEN` in `UCA1STATW`
+routes the byte back to `UCA1RXBUF` after the functional serial delay, and
+`UCA1IE`/`UCA1IFG` deliver the eUSCI_A1 interrupt vector at `0xffe2`.
+
+The model emits `board.msp430fr2433.uart1.tx_byte` and
+`board.msp430fr2433.uart1.tx_strobe` for VCD and signal assertions. This is a
+functional UART/loopback slice rather than a complete serial peripheral:
+eUSCI_A1 IrDA, pin-multiplexing, SPI mode, and exact bit timing remain deferred.
+Register addresses and reset semantics are based on the [MSP430FR2433 data
+sheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf) and the [MSP430FR2xx/
+FR4xx user's guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
+
 ESP32-S3 DRAM and IRAM power on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only each segment's file-backed bytes, so
 the synthesized `.bss` tail remains poisoned until firmware clears it. This
