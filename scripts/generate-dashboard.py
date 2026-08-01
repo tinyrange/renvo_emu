@@ -88,12 +88,17 @@ def main() -> None:
         ]
         if not target_vendor or any(item["result"] != "pass" for item in target_vendor):
             raise SystemExit(f"vendor sample evidence is incomplete: {target_id}")
+        support_tiers = manifest.get("support_tiers", [])
+        if not support_tiers or any(
+            not tier.get("name") or not tier.get("evidence") for tier in support_tiers
+        ):
+            raise SystemExit(f"support tier metadata is incomplete: {target_id}")
         entry_spec = spec["targets"][target_id]
         targets.append(
             {
                 "id": target_id,
                 "name": manifest["name"],
-                "support_tier": entry_spec["support_tier"],
+                "support_tiers": support_tiers,
                 "fidelity": manifest["fidelity"],
                 "cpu_profiles": manifest["cpus"],
                 "passing_corpus": entry_spec["passing_corpus"],
@@ -111,7 +116,7 @@ def main() -> None:
         )
 
     dashboard = {
-        "schema": "remu.support-dashboard.v1",
+        "schema": "remu.support-dashboard.v2",
         "portfolio": "six-chip baseline",
         "result": "pass",
         "scope_note": (
@@ -148,11 +153,15 @@ def main() -> None:
     for target in targets:
         profiles = ", ".join(profile["name"] for profile in target["cpu_profiles"])
         coverage = target["register_coverage"]
+        tiers = "".join(
+            f"<li><code>{html.escape(tier['name'])}</code> · {html.escape(', '.join(tier['evidence']))}</li>"
+            for tier in target["support_tiers"]
+        )
         rows.append(
             f"""
             <article class="target">
               <header><div><code>{html.escape(target['id'])}</code><h2>{html.escape(target['name'])}</h2></div><span>PROVEN</span></header>
-              <p class="tier">{html.escape(target['support_tier'])}</p>
+              <p class="tier">Support tiers</p><ul>{tiers}</ul>
               <dl><dt>CPU profiles</dt><dd>{html.escape(profiles)}</dd>
                 <dt>Register evidence</dt><dd>{coverage['covered_register_count']} registers across {len(coverage['required_covered_regions'])} required regions · <a href="register-coverage/{html.escape(target['id'])}.json">manifest</a></dd></dl>
               <div class="columns"><section><h3>Passing corpus</h3><ul>{escape_list(target['passing_corpus'])}</ul></section>
