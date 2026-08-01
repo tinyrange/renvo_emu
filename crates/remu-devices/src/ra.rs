@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// RA4M1 ELC event number for GPT0 counter overflow.
@@ -455,6 +456,157 @@ impl Device for RaSci {
     }
 }
 
+#[derive(Default)]
+struct SpiState {
+    control: u8,
+    status: u8,
+    command: u8,
+    data: u32,
+    tx: Vec<u32>,
+    rx: VecDeque<u32>,
+}
+
+/// Host-facing RA4M1 RSPI transfer state.
+#[derive(Clone)]
+pub struct RaSpiHandle(Arc<Mutex<SpiState>>);
+
+impl RaSpiHandle {
+    /// Queues one word returned by the next enabled transfer.
+    pub fn queue_rx(&self, value: u32) {
+        self.0
+            .lock()
+            .expect("RA SPI lock poisoned")
+            .rx
+            .push_back(value);
+    }
+
+    /// Consumes words written through SPDR.
+    pub fn take_tx(&self) -> Vec<u32> {
+        std::mem::take(&mut self.0.lock().expect("RA SPI lock poisoned").tx)
+    }
+}
+
+/// Functional RA4M1 RSPI0/RSPI1 master transfer slice.
+pub struct RaSpi {
+    name: String,
+    state: Arc<Mutex<SpiState>>,
+    registers: [u8; 0x11],
+}
+
+impl RaSpi {
+    /// Creates an RSPI instance and its host transfer handle.
+    pub fn new(name: impl Into<String>) -> (Self, RaSpiHandle) {
+        let state = Arc::new(Mutex::new(SpiState {
+            status: 1 << 7,
+            command: 7,
+            ..SpiState::default()
+        }));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+                registers: [0; 0x11],
+            },
+            RaSpiHandle(state),
+        )
+    }
+
+    fn data_value(state: &SpiState, width: AccessWidth) -> Result<u64, DeviceError> {
+        match width {
+            AccessWidth::Byte => Ok(u64::from(state.data & 0xff)),
+            AccessWidth::HalfWord => Ok(u64::from(state.data & 0xffff)),
+            AccessWidth::Word => Ok(u64::from(state.data)),
+            AccessWidth::DoubleWord => Err(DeviceError::new("RA SPI data is at most 32 bits")),
+        }
+    }
+}
+
+impl Device for RaSpi {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        let mut state = self.state.lock().expect("RA SPI lock poisoned");
+        if offset == 0x04 {
+            let value = Self::data_value(&state, width)?;
+            state.status &= !(1 << 6);
+            return Ok(value);
+        }
+        if width != AccessWidth::Byte {
+            return Err(DeviceError::new(
+                "RA SPI control registers require byte accesses",
+            ));
+        }
+        let value = match offset {
+            0x00 => state.control,
+            0x03 => state.status,
+            0x10 => state.command,
+            _ => self.registers.get(offset as usize).copied().unwrap_or(0),
+        };
+        Ok(u64::from(value))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let mut state = self.state.lock().expect("RA SPI lock poisoned");
+        if offset == 0x04 {
+            let value = match width {
+                AccessWidth::Byte => value & 0xff,
+                AccessWidth::HalfWord => value & 0xffff,
+                AccessWidth::Word => value & u64::from(u32::MAX),
+                AccessWidth::DoubleWord => {
+                    return Err(DeviceError::new("RA SPI data is at most 32 bits"));
+                }
+            } as u32;
+            state.data = value;
+            if state.control & (1 << 6) != 0 {
+                state.tx.push(value);
+                state.data = state.rx.pop_front().unwrap_or(0);
+                state.status |= (1 << 7) | (1 << 6);
+            }
+            return Ok(());
+        }
+        if width != AccessWidth::Byte {
+            return Err(DeviceError::new(
+                "RA SPI control registers require byte accesses",
+            ));
+        }
+        let value = value as u8;
+        match offset {
+            0x00 => {
+                state.control = value;
+                if value & (1 << 6) != 0 {
+                    state.status |= 1 << 7;
+                }
+            }
+            0x03 => state.status &= !value,
+            0x10 => state.command = value,
+            _ => {
+                if let Some(register) = self.registers.get_mut(offset as usize) {
+                    *register = value;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        let mut state = self.state.lock().expect("RA SPI lock poisoned");
+        *state = SpiState {
+            status: 1 << 7,
+            command: 7,
+            ..SpiState::default()
+        };
+        self.registers.fill(0);
+    }
+}
+
 struct IcuState {
     ielsr: [u32; 96],
 }
@@ -590,5 +742,25 @@ mod tests {
         sci.write(3, AccessWidth::Byte, b'R'.into(), SimTime::ZERO)
             .unwrap();
         assert_eq!(sci_handle.bytes(), b"R");
+    }
+
+    #[test]
+    fn spi_transfer_sets_status_and_exposes_host_bytes() {
+        let (mut spi, handle) = RaSpi::new("spi0");
+        spi.write(0, AccessWidth::Byte, 1 << 6, SimTime::ZERO)
+            .unwrap();
+        handle.queue_rx(0xa5);
+        spi.write(4, AccessWidth::Byte, 0x5a, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.take_tx(), vec![0x5a]);
+        assert_eq!(
+            spi.read(3, AccessWidth::Byte, SimTime::ZERO).unwrap() & 0xc0,
+            0xc0
+        );
+        assert_eq!(spi.read(4, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0xa5);
+        assert_eq!(
+            spi.read(3, AccessWidth::Byte, SimTime::ZERO).unwrap() & 0x40,
+            0
+        );
     }
 }

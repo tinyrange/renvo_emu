@@ -260,6 +260,12 @@ same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
 
+The RA4M1 slice includes both native RSPI0 and RSPI1 register windows. Their
+functional master path supports control/status, byte/halfword/word data
+transfers, deterministic host-provided receive words, and captured transmit
+words. Pin mux timing, DMA, slave mode, and transfer-complete interrupt routing
+remain outside this slice.
+
 The EFM8BB52F32G slice also models the native CRC0 data path: CCITT-16 stream
 updates through `CRC0IN`, pointer-selected result reads/writes through
 `CRC0DAT`, CRC seed initialization, and byte bit reversal through `CRC0FLIP`.
