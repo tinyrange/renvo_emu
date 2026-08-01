@@ -237,3 +237,32 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn esp32c6_gdma_native_window_exposes_version_and_fifo_signals() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6008_0000 + 0x68,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        35_660_368
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32c6.gdma.in"))
+            .is_some()
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32c6.gdma.out"))
+            .is_some()
+    );
+}

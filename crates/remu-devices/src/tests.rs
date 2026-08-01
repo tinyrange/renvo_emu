@@ -524,3 +524,39 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+#[test]
+fn esp_gdma_channel_zero_moves_fixture_words_and_latches_interrupts() {
+    let hub = SignalHub::new();
+    let (mut gdma, handle) = EspGdma::new("gdma", "board.esp32c6.gdma", hub).unwrap();
+    handle.queue_input_words(&[0xabc, 0x123]);
+    assert_eq!(
+        gdma.read(0x78, AccessWidth::Word, SimTime::ZERO).unwrap() & 0xfc,
+        2 << 2
+    );
+    assert_eq!(
+        gdma.read(0x7c, AccessWidth::Word, SimTime::from_ticks(1))
+            .unwrap(),
+        0xabc
+    );
+    gdma.write(
+        0xdc,
+        AccessWidth::Word,
+        (1 << 9) | 0x55,
+        SimTime::from_ticks(2),
+    )
+    .unwrap();
+    assert_eq!(handle.take_output_words(), vec![0x55]);
+    gdma.write(0x38, AccessWidth::Word, 0x03, SimTime::ZERO)
+        .unwrap();
+    assert_ne!(
+        gdma.read(0x34, AccessWidth::Word, SimTime::ZERO).unwrap() & 0x03,
+        0
+    );
+    gdma.write(0x3c, AccessWidth::Word, 0x03, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        gdma.read(0x34, AccessWidth::Word, SimTime::ZERO).unwrap() & 0x03,
+        0
+    );
+}
