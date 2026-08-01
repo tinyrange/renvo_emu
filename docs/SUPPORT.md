@@ -196,6 +196,22 @@ by an executable 512-byte stack-reserve assertion. It passes the distinct
 upstream 1,200-byte profile-generation workload for behavioral coverage.
 See [COREMARK.md](COREMARK.md) for scores and methodology.
 
+## EFM8BB52 SPI0 slice
+
+The EFM8BB52 model exposes the native `SPI0CFG`, `SPI0CKR`, `SPI0DAT`, and
+`SPI0CN0` SFRs. Enabling SPI0 and writing `SPI0DAT` produces a deterministic
+full-duplex transfer: MOSI bytes are captured for traces/tests, the next
+host-injected MISO byte is returned (with loopback as the default), `SPIF`
+and FIFO-status bits are updated, and the enabled completion request is
+delivered through the extended MCS-51 interrupt slot. Firmware can clear
+`SPIF` through the normal control-register write path.
+
+This is a functional byte-transfer model, not a pin-level or clock-accurate
+SPI implementation; FIFO thresholds, NSS electrical behavior, collision
+timing, and alternate crossbar routing remain outside the slice. Register
+addresses and status semantics follow Silicon Labs'
+[EFM8BB52 reference manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
+
 ## Research sources
 
 Machine facts and register choices are based on the vendor sources linked from
