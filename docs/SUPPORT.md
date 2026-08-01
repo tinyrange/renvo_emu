@@ -219,6 +219,10 @@ manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
+The RP2040 model exposes UART1 at its native `0x40038000` base with the same
+functional transmit/receive FIFO and status behavior as UART0. Baud-rate timing,
+DMA pacing, and modem-control pins remain outside this deterministic CI slice.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification

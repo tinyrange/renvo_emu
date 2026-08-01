@@ -44,6 +44,7 @@ pub struct ArmMachine {
     sio: RpSioHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
+    chip_uart1: Option<UartHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -118,6 +119,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut chip_uart1 = None;
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -300,7 +302,6 @@ impl ArmMachine {
                 Box::new(Rp2040RegisterBank::new("rp2040.io-qspi", vec![0; 64])),
             )?;
             for (name, base) in [
-                ("rp2040.uart1", 0x4003_8000),
                 ("rp2040.spi0", 0x4003_c000),
                 ("rp2040.spi1", 0x4004_0000),
                 ("rp2040.i2c0", 0x4004_4000),
@@ -317,6 +318,10 @@ impl ArmMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
+            let (uart1_device, uart1_handle) =
+                FunctionalUart::new_lenient("rp2040.uart1", 0x00, 0x18, 0x0090);
+            bus.map_device("rp2040.uart1", 0x4003_8000, 0x1000, Box::new(uart1_device))?;
+            chip_uart1 = Some(uart1_handle);
             let mut qspi_pad_reset = vec![0x56; 8];
             qspi_pad_reset[0] = 0;
             bus.map_device(
@@ -596,6 +601,7 @@ impl ArmMachine {
             sio,
             uart,
             chip_uart,
+            chip_uart1,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1450,6 +1456,9 @@ impl ArmMachine {
             uart: {
                 let mut bytes = self.uart.bytes();
                 bytes.extend(self.chip_uart.bytes());
+                if let Some(uart1) = &self.chip_uart1 {
+                    bytes.extend(uart1.bytes());
+                }
                 bytes
             },
             usb: self
@@ -1467,7 +1476,17 @@ mod tests {
 
     #[test]
     fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
+        let mut rp2040 = ArmMachine::new(TargetId::Rp2040).unwrap();
         ArmMachine::new(TargetId::Rp2350).unwrap();
+        rp2040
+            .bus
+            .write(
+                0x4003_8000,
+                AccessWidth::Word,
+                u64::from(b'Z'),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(rp2040.chip_uart1.as_ref().unwrap().bytes(), b"Z");
     }
 }
