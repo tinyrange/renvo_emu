@@ -200,6 +200,11 @@ impl Mcs51McuMachine {
         Ok(())
     }
 
+    /// Supplies the next byte returned by the EFM8 SPI0 master.
+    pub fn inject_spi_rx(&self, value: u8) {
+        self.peripherals.inject_spi_rx(value);
+    }
+
     /// Current Port 0 output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio[0].output()
@@ -467,5 +472,20 @@ mod tests {
             .unwrap();
         assert_eq!(second.stats.events, 1);
         assert_eq!(machine.gpio[0].resolved(0).unwrap(), Logic::One);
+    }
+
+    #[test]
+    fn machine_exposes_native_spi0_sfr_transfer() {
+        let image = IntelHexImage::parse(b":0100000000FF\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+        machine.inject_spi_rx(0x5a);
+        machine
+            .debug_write_memory(0x1_00f8, &[1])
+            .expect("SPI0CN0 write should map");
+        machine
+            .debug_write_memory(0x1_00f9, &[0xa6])
+            .expect("SPI0DAT write should map");
+        assert_eq!(machine.debug_read_memory(0x1_00f9, 1).unwrap(), [0x5a]);
     }
 }

@@ -24,6 +24,13 @@ outside this slice. Addresses and vector routing follow Microchip's
 [ATmega328PB data sheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/40001906C.pdf)
 and [interrupt table](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-F3266720-5DBF-4EA7-876C-81574D15CD24.html).
 
+EFM8BB52F32G also models the native SPI0 SFR transaction slice
+(`SPI0CFG`/`SPI0CKR`/`SPI0CN0`/`SPI0DAT`): master writes are captured,
+host-injected MISO bytes are returned, `SPIF`/`TXBMT` status is exposed, and
+the ESPI0 interrupt participates in the low/high priority interrupt inputs.
+FIFO operation, crossbar pin assignment, and exact serial clock timing remain
+outside this functional model.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
