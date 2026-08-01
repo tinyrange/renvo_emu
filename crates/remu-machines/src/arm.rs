@@ -16,9 +16,9 @@ use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
-    Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Rtc, Rp2040RtcHandle, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -55,6 +55,7 @@ pub struct ArmMachine {
     native_bootrom: bool,
     ppb: ArmPpbHandle,
     chip_timers: Vec<Rp2040TimerHandle>,
+    rtc: Option<Rp2040RtcHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -118,6 +119,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut rtc = None;
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -343,12 +345,9 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Watchdog::new("rp2040.watchdog")),
             )?;
-            bus.map_device(
-                "rp2040.rtc",
-                0x4005_c000,
-                0x4000,
-                Box::new(Rp2040Rtc::new("rp2040.rtc")),
-            )?;
+            let (rtc_device, rtc_handle) = Rp2040Rtc::new_with_handle("rp2040.rtc");
+            bus.map_device("rp2040.rtc", 0x4005_c000, 0x4000, Box::new(rtc_device))?;
+            rtc = Some(rtc_handle);
             let mut rosc_reset = vec![0; 16];
             rosc_reset[0x18 / 4] = 0x8000_1000;
             rosc_reset[0x1c / 4] = 1;
@@ -607,6 +606,7 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            rtc,
             pio,
             usb,
             usb_dpram,
@@ -1206,6 +1206,7 @@ impl ArmMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
+        let mut rtc_was_pending = false;
         let reason = loop {
             self.sio.select_core(0);
             while stimuli
@@ -1253,6 +1254,11 @@ impl ArmMachine {
                     stats.events = stats.events.saturating_add(1);
                 }
             }
+            let rtc_pending = self.rtc.as_ref().is_some_and(|rtc| rtc.pending(self.now));
+            if rtc_pending && !rtc_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            rtc_was_pending = rtc_pending;
             self.cpu
                 .set_interrupt(0, timer_pending || chip_timer_pending & 1 != 0)?;
             for line in 1..self.chip_timers.len() * 4 {
@@ -1261,6 +1267,7 @@ impl ArmMachine {
                     chip_timer_pending & (1 << line) != 0,
                 )?;
             }
+            self.cpu.set_interrupt(25, rtc_pending)?;
             if let Some(usb) = &self.usb {
                 if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
                     stats.events = stats.events.saturating_add(host.poll(self.now, usb, dpram));
@@ -1462,12 +1469,5 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+#[path = "arm_tests.rs"]
+mod tests;
