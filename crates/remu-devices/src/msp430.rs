@@ -21,10 +21,13 @@ const PBIN: usize = 0x0220;
 const PBOUT: usize = 0x0222;
 const PBDIR: usize = 0x0224;
 
-const TA0CTL: usize = 0x0380;
-const TA0CCTL0: usize = 0x0382;
-const TA0R: usize = 0x0390;
-const TA0CCR0: usize = 0x0392;
+const TIMER_BASES: [usize; 4] = [0x0380, 0x03c0, 0x0400, 0x0440];
+const TIMER_CHANNELS: [usize; 4] = [3, 3, 2, 2];
+const TIMER_CTL_OFFSET: usize = 0x00;
+const TIMER_CCTL0_OFFSET: usize = 0x02;
+const TIMER_COUNTER_OFFSET: usize = 0x10;
+const TIMER_CCR0_OFFSET: usize = 0x12;
+const TIMER_IV_OFFSET: usize = 0x2e;
 
 const UCA0CTLW0: usize = 0x0500;
 const UCA0STATW: usize = 0x050a;
@@ -41,6 +44,8 @@ const UCSWRST: u16 = 0x0001;
 const UCLISTEN: u8 = 0x80;
 const CCIE: u16 = 0x0010;
 const CCIFG: u16 = 0x0001;
+const TAIFG: u16 = 0x0001;
+const TAIE: u16 = 0x0002;
 const UCRXIFG: u16 = 0x0001;
 const UCTXIFG: u16 = 0x0002;
 
@@ -50,6 +55,38 @@ pub const MSP430_PORT1_VECTOR: u16 = 0xffdc;
 pub const MSP430_USCI_A0_VECTOR: u16 = 0xffe4;
 /// Timer0_A0 capture/compare vector address.
 pub const MSP430_TIMER0_A0_VECTOR: u16 = 0xfff8;
+/// Timer0_A1 capture/compare and overflow vector address.
+pub const MSP430_TIMER0_A1_VECTOR: u16 = 0xfff6;
+/// Timer1_A0 capture/compare vector address.
+pub const MSP430_TIMER1_A0_VECTOR: u16 = 0xfff4;
+/// Timer1_A1 capture/compare and overflow vector address.
+pub const MSP430_TIMER1_A1_VECTOR: u16 = 0xfff2;
+/// Timer2_A0 capture/compare vector address.
+pub const MSP430_TIMER2_A0_VECTOR: u16 = 0xfff0;
+/// Timer2_A1 capture/compare and overflow vector address.
+pub const MSP430_TIMER2_A1_VECTOR: u16 = 0xffee;
+/// Timer3_A0 capture/compare vector address.
+pub const MSP430_TIMER3_A0_VECTOR: u16 = 0xffec;
+/// Timer3_A1 capture/compare and overflow vector address.
+pub const MSP430_TIMER3_A1_VECTOR: u16 = 0xffea;
+/// Timer_A CCR0 interrupt vectors in TA0..TA3 order.
+pub const MSP430_TIMER_A0_VECTORS: [u16; 4] = [
+    MSP430_TIMER0_A0_VECTOR,
+    MSP430_TIMER1_A0_VECTOR,
+    MSP430_TIMER2_A0_VECTOR,
+    MSP430_TIMER3_A0_VECTOR,
+];
+/// Timer_A CCR1/CCR2/overflow interrupt vectors in TA0..TA3 order.
+pub const MSP430_TIMER_A1_VECTORS: [u16; 4] = [
+    MSP430_TIMER0_A1_VECTOR,
+    MSP430_TIMER1_A1_VECTOR,
+    MSP430_TIMER2_A1_VECTOR,
+    MSP430_TIMER3_A1_VECTOR,
+];
+
+fn timer_register(timer: usize, offset: usize) -> usize {
+    TIMER_BASES[timer] + offset
+}
 
 struct Msp430State {
     registers: [u8; REGISTER_BYTES],
@@ -58,14 +95,15 @@ struct Msp430State {
     hub: SignalHub,
     uart: Vec<u8>,
     previous_p1: u8,
-    timer_epoch: u64,
+    timer_epoch: [u64; 4],
+    timer_a1_delivered: [bool; 4],
     watchdog_epoch: u64,
     watchdog_reset: bool,
     loopback_pending: Option<(u8, u64)>,
     uart_strobe: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
-    timer_irq_signal: SignalId,
+    timer_irq_signals: [SignalId; 4],
     port1_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -157,15 +195,100 @@ impl Msp430State {
         self.set_word(UCA0CTLW0, UCSWRST);
         self.set_word(UCA0IFG, UCTXIFG);
         self.previous_p1 = 0;
-        self.timer_epoch = at.ticks();
+        self.timer_epoch = [at.ticks(); 4];
+        self.timer_a1_delivered = [false; 4];
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.loopback_pending = None;
-        self.set_signal(self.timer_irq_signal, 0, 1, at);
+        for signal in self.timer_irq_signals {
+            self.set_signal(signal, 0, 1, at);
+        }
         self.set_signal(self.port1_irq_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
         let _ = self.refresh_ports(at);
     }
+
+    fn poll_timer(&mut self, timer: usize, now: SimTime, vectors: &mut Vec<u16>) {
+        let control_address = timer_register(timer, TIMER_CTL_OFFSET);
+        let counter_address = timer_register(timer, TIMER_COUNTER_OFFSET);
+        let control = self.word(control_address);
+        let mode = (control >> 4) & 0x3;
+        let elapsed = now.ticks().saturating_sub(self.timer_epoch[timer]);
+        self.timer_epoch[timer] = now.ticks();
+        if mode == 0 || elapsed == 0 {
+            return;
+        }
+
+        let ccr0 = u64::from(self.word(timer_register(timer, TIMER_CCR0_OFFSET)));
+        let top = match mode {
+            1 | 3 => ccr0.saturating_add(1).max(1),
+            _ => 1 << 16,
+        };
+        let previous = u64::from(self.word(counter_address));
+        let total = previous.saturating_add(elapsed);
+        let (next, wrapped) = match mode {
+            1 | 2 => (total % top, total >= top),
+            // The exact up/down phase is not cycle-accurate here, but the
+            // counter and compare edges remain deterministic and observable.
+            3 => {
+                let cycle = top.saturating_mul(2).max(2);
+                let phase = total % cycle;
+                let count = if phase <= top { phase } else { cycle - phase };
+                (count, total >= cycle)
+            }
+            _ => (previous, false),
+        };
+        self.set_word(counter_address, next as u16);
+        if wrapped {
+            self.set_word(control_address, control | TAIFG);
+        }
+
+        for channel in 0..TIMER_CHANNELS[timer] {
+            let cctl_address = timer_register(timer, TIMER_CCTL0_OFFSET + channel * 2);
+            let ccr_address = timer_register(timer, TIMER_CCR0_OFFSET + channel * 2);
+            let compare = u64::from(self.word(ccr_address));
+            if compare == 0 {
+                continue;
+            }
+            let hit = match mode {
+                1 | 2 => compare < top && crossed_up(previous, elapsed, compare, top),
+                3 => next == compare && next != previous,
+                _ => false,
+            };
+            if hit {
+                self.set_word(cctl_address, self.word(cctl_address) | CCIFG);
+            }
+        }
+
+        let cctl0 = timer_register(timer, TIMER_CCTL0_OFFSET);
+        if self.word(cctl0) & (CCIE | CCIFG) == (CCIE | CCIFG) {
+            self.set_signal(self.timer_irq_signals[timer], 1, 1, now);
+            self.set_word(cctl0, self.word(cctl0) & !CCIFG);
+            vectors.push(MSP430_TIMER_A0_VECTORS[timer]);
+        }
+
+        let combined_pending = (1..TIMER_CHANNELS[timer]).any(|channel| {
+            self.word(timer_register(timer, TIMER_CCTL0_OFFSET + channel * 2)) & CCIFG != 0
+        }) || self.word(control_address) & (TAIE | TAIFG) == (TAIE | TAIFG);
+        if combined_pending && !self.timer_a1_delivered[timer] {
+            self.set_signal(self.timer_irq_signals[timer], 1, 1, now);
+            self.timer_a1_delivered[timer] = true;
+            vectors.push(MSP430_TIMER_A1_VECTORS[timer]);
+        }
+    }
+}
+
+fn crossed_up(previous: u64, elapsed: u64, compare: u64, period: u64) -> bool {
+    if elapsed == 0 || period == 0 {
+        return false;
+    }
+    let end = previous.saturating_add(elapsed);
+    let first = if previous < compare {
+        compare
+    } else {
+        compare.saturating_add(period)
+    };
+    first <= end
 }
 
 /// Host-facing state for the MSP430FR2433 peripheral window.
@@ -191,7 +314,9 @@ impl Msp430PeripheralsHandle {
         // Interrupt request signals describe the instantaneous request. Clear
         // last poll's assertion before evaluating the current register state.
         state.set_signal(state.port1_irq_signal, 0, 1, now);
-        state.set_signal(state.timer_irq_signal, 0, 1, now);
+        for signal in state.timer_irq_signals {
+            state.set_signal(signal, 0, 1, now);
+        }
 
         if state
             .loopback_pending
@@ -219,22 +344,8 @@ impl Msp430PeripheralsHandle {
             vectors.push(MSP430_PORT1_VECTOR);
         }
 
-        let timer_control = state.word(TA0CTL);
-        if timer_control & 0x0030 != 0 {
-            let period = u64::from(state.word(TA0CCR0)).saturating_add(1).max(1);
-            let elapsed = now.ticks().saturating_sub(state.timer_epoch);
-            state.set_word(TA0R, (elapsed % period) as u16);
-            if elapsed >= period {
-                state.timer_epoch = now.ticks();
-                let control = state.word(TA0CCTL0) | CCIFG;
-                state.set_word(TA0CCTL0, control);
-            }
-        }
-        if state.word(TA0CCTL0) & (CCIE | CCIFG) == (CCIE | CCIFG) {
-            state.set_signal(state.timer_irq_signal, 1, 1, now);
-            let control = state.word(TA0CCTL0) & !CCIFG;
-            state.set_word(TA0CCTL0, control);
-            vectors.push(MSP430_TIMER0_A0_VECTOR);
+        for timer in 0..TIMER_BASES.len() {
+            state.poll_timer(timer, now, &mut vectors);
         }
 
         if state.word(UCA0IE) & state.word(UCA0IFG) & (UCRXIFG | UCTXIFG) != 0 {
@@ -287,11 +398,28 @@ impl Msp430Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("eUSCI_A0 transmit event".to_owned()),
         )?;
-        let timer_irq_signal = hub.declare(
-            "board.msp430fr2433.timer_a0.ccr0_irq",
-            SignalValue::from_u64(0, 1)?,
-            Some("Timer_A0 CCR0 interrupt request".to_owned()),
-        )?;
+        let timer_irq_signals = [
+            hub.declare(
+                "board.msp430fr2433.timer_a0.ccr0_irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("Timer_A0 CCR0/A1 interrupt request".to_owned()),
+            )?,
+            hub.declare(
+                "board.msp430fr2433.timer_a1.irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("Timer_A1 CCR0/A1 interrupt request".to_owned()),
+            )?,
+            hub.declare(
+                "board.msp430fr2433.timer_a2.irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("Timer_A2 CCR0/A1 interrupt request".to_owned()),
+            )?,
+            hub.declare(
+                "board.msp430fr2433.timer_a3.irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("Timer_A3 CCR0/A1 interrupt request".to_owned()),
+            )?,
+        ];
         let port1_irq_signal = hub.declare(
             "board.msp430fr2433.interrupt.port1",
             SignalValue::from_u64(0, 1)?,
@@ -309,14 +437,15 @@ impl Msp430Peripherals {
             hub,
             uart: Vec::new(),
             previous_p1: 0,
-            timer_epoch: 0,
+            timer_epoch: [0; 4],
+            timer_a1_delivered: [false; 4],
             watchdog_epoch: 0,
             watchdog_reset: false,
             loopback_pending: None,
             uart_strobe: false,
             uart_byte_signal,
             uart_strobe_signal,
-            timer_irq_signal,
+            timer_irq_signals,
             port1_irq_signal,
             watchdog_reset_signal,
         }));
@@ -398,6 +527,30 @@ impl Device for Msp430Peripherals {
             };
             state.set_word(UCA0IV, vector);
         }
+        for timer in 0..TIMER_BASES.len() {
+            if start == timer_register(timer, TIMER_IV_OFFSET) && length >= 2 {
+                let mut vector = 0_u16;
+                for channel in 1..TIMER_CHANNELS[timer] {
+                    let cctl = timer_register(timer, TIMER_CCTL0_OFFSET + channel * 2);
+                    if state.word(cctl) & CCIFG != 0 {
+                        vector = u16::try_from(channel * 2).expect("Timer_A IV value fits");
+                        let value = state.word(cctl) & !CCIFG;
+                        state.set_word(cctl, value);
+                        break;
+                    }
+                }
+                if vector == 0 {
+                    let ctl = timer_register(timer, TIMER_CTL_OFFSET);
+                    if state.word(ctl) & TAIFG != 0 {
+                        vector = 10;
+                        let value = state.word(ctl) & !TAIFG;
+                        state.set_word(ctl, value);
+                    }
+                }
+                state.timer_a1_delivered[timer] = false;
+                state.set_word(timer_register(timer, TIMER_IV_OFFSET), vector);
+            }
+        }
         if overlaps(start, length, UCA0RXBUF, 2) {
             let flags = state.word(UCA0IFG) & !UCRXIFG;
             state.set_word(UCA0IFG, flags);
@@ -441,8 +594,12 @@ impl Device for Msp430Peripherals {
                 state.watchdog_epoch = at.ticks();
             }
         }
-        if overlaps(start, length, TA0CTL, 2) || overlaps(start, length, TA0CCR0, 2) {
-            state.timer_epoch = at.ticks();
+        for timer in 0..TIMER_BASES.len() {
+            if overlaps(start, length, timer_register(timer, TIMER_CTL_OFFSET), 2)
+                || overlaps(start, length, timer_register(timer, TIMER_CCR0_OFFSET), 2)
+            {
+                state.timer_epoch[timer] = at.ticks();
+            }
         }
         if overlaps(start, length, UCA0TXBUF, 2) && state.word(UCA0CTLW0) & UCSWRST == 0 {
             let byte = state.registers[UCA0TXBUF];
@@ -564,5 +721,82 @@ mod tests {
             device.read(UCA0IFG as u64, AccessWidth::HalfWord, SimTime::ZERO),
             Ok(UCTXIFG.into())
         );
+    }
+
+    #[test]
+    fn timer_a_instances_route_compare_and_overflow_vectors() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        for timer in 0..TIMER_BASES.len() {
+            device
+                .write(
+                    timer_register(timer, TIMER_CTL_OFFSET) as u64,
+                    AccessWidth::HalfWord,
+                    u64::from(0x12_u16),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            device
+                .write(
+                    timer_register(timer, TIMER_CCR0_OFFSET) as u64,
+                    AccessWidth::HalfWord,
+                    3,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            device
+                .write(
+                    timer_register(timer, TIMER_CCTL0_OFFSET + 2) as u64,
+                    AccessWidth::HalfWord,
+                    u64::from(CCIE),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            device
+                .write(
+                    timer_register(timer, TIMER_CCR0_OFFSET + 2) as u64,
+                    AccessWidth::HalfWord,
+                    2,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
+
+        let vectors = handle.poll(SimTime::from_ticks(2));
+        for vector in MSP430_TIMER_A1_VECTORS {
+            assert!(
+                vectors.contains(&vector),
+                "missing Timer_A vector {vector:#x}"
+            );
+        }
+        for timer in 0..TIMER_BASES.len() {
+            assert_eq!(
+                device.read(
+                    timer_register(timer, TIMER_IV_OFFSET) as u64,
+                    AccessWidth::HalfWord,
+                    SimTime::from_ticks(2),
+                ),
+                Ok(2)
+            );
+        }
+
+        let vectors = handle.poll(SimTime::from_ticks(4));
+        for vector in MSP430_TIMER_A1_VECTORS {
+            assert!(
+                vectors.contains(&vector),
+                "missing overflow vector {vector:#x}"
+            );
+        }
+        for timer in 0..TIMER_BASES.len() {
+            assert_eq!(
+                device.read(
+                    timer_register(timer, TIMER_IV_OFFSET) as u64,
+                    AccessWidth::HalfWord,
+                    SimTime::from_ticks(4),
+                ),
+                Ok(10)
+            );
+        }
     }
 }

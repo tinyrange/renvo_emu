@@ -15,11 +15,12 @@ halts with R12 equal to zero.
 
 Implemented functionally: the CPUXv2 integer/interruption subset emitted by the
 pinned toolchain, the 20-bit unified address space, reset vectors, FRAM and
-SRAM, PM5 GPIO lock behavior, Ports 1–3, Port 1 edge interrupts, Timer0_A CCR0,
-eUSCI_A0 UART transmit/receive loopback, WDT_A reset and persistent FRAM.
-Clock-tree, timer prescaling and UART bit timing are deterministic
-approximations. Analog peripherals and unlisted serial modes are outside this
-acceptance slice.
+SRAM, PM5 GPIO lock behavior, Ports 1–3, Port 1 edge interrupts, all four
+Timer_A blocks (TA0/TA1 with CCR0..CCR2 and TA2/TA3 with CCR0..CCR1), TAxIV
+arbitration, eUSCI_A0 UART transmit/receive loopback, WDT_A reset and persistent
+FRAM. Timer compare/overflow flags and CCR0/A1 vectors are deterministic;
+capture pin routing, exact timer prescalers/clock tree, analog peripherals and
+unlisted serial modes remain outside this acceptance slice.
 
 Run from the repository root:
 
