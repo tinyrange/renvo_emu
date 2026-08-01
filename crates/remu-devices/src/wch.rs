@@ -230,6 +230,220 @@ impl Device for WchTimer {
     }
 }
 
+const WCH_EXTI_MASK: u32 = 0x03ff;
+
+/// Scheduler-facing handle for WCH AFIO-selected external GPIO edges.
+#[derive(Clone)]
+pub struct WchExtiHandle {
+    state: Rc<RefCell<WchExtiState>>,
+}
+
+impl WchExtiHandle {
+    /// Samples the mapped GPIO ports and returns the masked EXTI request.
+    pub fn pending(&self, inputs: [u32; 3]) -> bool {
+        let mut state = self.state.borrow_mut();
+        for line in 0..8 {
+            let port = match (state.exticr >> (line * 2)) & 3 {
+                2 => 1,
+                3 => 2,
+                _ => 0,
+            };
+            let current = inputs[port] & (1 << line) != 0;
+            let previous = state.previous[line];
+            if (current && !previous && state.rising & (1 << line) != 0)
+                || (!current && previous && state.falling & (1 << line) != 0)
+            {
+                state.flags |= 1 << line;
+            }
+            state.previous[line] = current;
+        }
+        state.flags & state.interrupt_enable & WCH_EXTI_MASK != 0
+    }
+}
+
+#[derive(Clone)]
+struct WchExtiState {
+    exticr: u32,
+    interrupt_enable: u32,
+    event_enable: u32,
+    rising: u32,
+    falling: u32,
+    software: u32,
+    flags: u32,
+    previous: [bool; 8],
+}
+
+impl Default for WchExtiState {
+    fn default() -> Self {
+        Self {
+            exticr: 0,
+            interrupt_enable: 0,
+            event_enable: 0,
+            rising: 0,
+            falling: 0,
+            software: 0,
+            flags: 0,
+            previous: [false; 8],
+        }
+    }
+}
+
+/// Functional WCH AFIO remap and external-interrupt routing block.
+pub struct WchAfio {
+    name: String,
+    state: Rc<RefCell<WchExtiState>>,
+    pcfr1: u32,
+}
+
+impl WchAfio {
+    fn new(name: impl Into<String>, state: Rc<RefCell<WchExtiState>>) -> Self {
+        Self {
+            name: name.into(),
+            state,
+            pcfr1: 0,
+        }
+    }
+}
+
+impl Device for WchAfio {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        if width != AccessWidth::Word || offset & 3 != 0 {
+            return Err(DeviceError::new("WCH AFIO requires aligned word access"));
+        }
+        let value = match offset {
+            0x04 => self.pcfr1,
+            0x08 => self.state.borrow().exticr,
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled WCH AFIO read at {offset:#x}"
+                )));
+            }
+        };
+        Ok(u64::from(value))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if width != AccessWidth::Word || offset & 3 != 0 {
+            return Err(DeviceError::new("WCH AFIO requires aligned word access"));
+        }
+        let value = u32::try_from(value & u64::from(u32::MAX)).expect("AFIO value fits");
+        match offset {
+            0x04 => self.pcfr1 = value,
+            0x08 => self.state.borrow_mut().exticr = value & 0xffff,
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled WCH AFIO write at {offset:#x}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        self.pcfr1 = 0;
+        self.state.borrow_mut().exticr = 0;
+    }
+}
+
+/// Functional WCH EXTI edge detector for GPIO lines 0 through 7.
+pub struct WchExti {
+    name: String,
+    state: Rc<RefCell<WchExtiState>>,
+}
+
+impl WchExti {
+    /// Creates EXTI, its scheduler handle, and the coupled AFIO block.
+    pub fn new(
+        name: impl Into<String>,
+        afio_name: impl Into<String>,
+    ) -> (Self, WchExtiHandle, WchAfio) {
+        let state = Rc::new(RefCell::new(WchExtiState::default()));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+            },
+            WchExtiHandle {
+                state: state.clone(),
+            },
+            WchAfio::new(afio_name, state),
+        )
+    }
+}
+
+impl Device for WchExti {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        if width != AccessWidth::Word || offset & 3 != 0 {
+            return Err(DeviceError::new("WCH EXTI requires aligned word access"));
+        }
+        let state = self.state.borrow();
+        let value = match offset {
+            0x00 => state.interrupt_enable,
+            0x04 => state.event_enable,
+            0x08 => state.rising,
+            0x0c => state.falling,
+            0x10 => state.software,
+            0x14 => state.flags,
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled WCH EXTI read at {offset:#x}"
+                )));
+            }
+        };
+        Ok(u64::from(value))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if width != AccessWidth::Word || offset & 3 != 0 {
+            return Err(DeviceError::new("WCH EXTI requires aligned word access"));
+        }
+        let value =
+            u32::try_from(value & u64::from(u32::MAX)).expect("EXTI value fits") & WCH_EXTI_MASK;
+        let mut state = self.state.borrow_mut();
+        match offset {
+            0x00 => state.interrupt_enable = value,
+            0x04 => state.event_enable = value,
+            0x08 => state.rising = value,
+            0x0c => state.falling = value,
+            0x10 => {
+                state.software = value;
+                state.flags |= value;
+            }
+            0x14 => state.flags &= !value,
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled WCH EXTI write at {offset:#x}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        *self.state.borrow_mut() = WchExtiState::default();
+    }
+}
+
 /// Shared PFIC state used by the machine scheduler to raise a `QingKe` input.
 #[derive(Clone)]
 pub struct WchPficHandle {

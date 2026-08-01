@@ -296,6 +296,29 @@ fn wch_pfic_gates_pending_source_with_vendor_enable_register() {
 }
 
 #[test]
+fn wch_exti_routes_afio_selected_edges_and_clears_flags() {
+    let (mut exti, handle, mut afio) = WchExti::new("exti", "afio");
+    afio.write(0x08, AccessWidth::Word, 2 << (2 * 2), SimTime::ZERO)
+        .unwrap();
+    exti.write(0x00, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+        .unwrap();
+    exti.write(0x08, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.pending([0, 0, 0]));
+    assert!(handle.pending([0, 1 << 2, 0]));
+    assert_eq!(
+        exti.read(0x14, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 2
+    );
+    exti.write(0x14, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        exti.read(0x14, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+}
+
+#[test]
 fn esp_usb_serial_jtag_moves_deterministic_host_packets() {
     let (mut usb, handle) = EspUsbSerialJtag::new("usb-serial-jtag");
     handle.queue_input(b"x\x04");
