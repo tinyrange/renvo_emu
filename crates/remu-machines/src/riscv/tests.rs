@@ -237,3 +237,33 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn esp32c6_maps_native_sdio_identity_and_fifo_blocks() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_6000,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x0092_6666
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_7000 + 0x24,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & (1 << 1),
+        1 << 1
+    );
+}

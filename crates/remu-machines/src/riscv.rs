@@ -38,6 +38,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
+mod sdio;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -657,8 +658,6 @@ impl RiscVMachine {
                     ("esp32c6.etm", 0x6001_3000),
                     ("esp32c6.mcpwm", 0x6001_4000),
                     ("esp32c6.parlio", 0x6001_5000),
-                    ("esp32c6.hinf", 0x6001_6000),
-                    ("esp32c6.slc", 0x6001_7000),
                     ("esp32c6.slchost", 0x6001_8000),
                     ("esp32c6.pvt-monitor", 0x6001_9000),
                     ("esp32c6.gdma", 0x6008_0000),
@@ -692,6 +691,7 @@ impl RiscVMachine {
                         Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                     )?;
                 }
+                sdio::map_esp32c6_sdio(&mut bus)?;
                 let (usb_serial_jtag, handle) = EspUsbSerialJtag::new("esp32c6.usb-serial-jtag");
                 bus.map_device(
                     "esp32c6.usb-serial-jtag",

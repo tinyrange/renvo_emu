@@ -26,6 +26,24 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+### ESP32-C6 SDIO slave functional slice
+
+The ESP32-C6 model maps the native SDIO host-interface (HINF) block at
+`0x60016000` and the SLC link/FIFO block at `0x60017000`. The functional slice
+contains the Espressif reset identities and configuration defaults, CIS words,
+card/IO-ready controls, timing-update writes, SLC0/SLC1 interrupt raw/status/
+enable/clear registers, FIFO status, deterministic RX/TX FIFO exchange,
+link-control/address registers, token counters, and date/ID registers. The
+host-facing handle makes queued words and interrupt delivery testable without
+introducing wall-clock timing.
+
+This is intentionally not a DMA or bus-protocol implementation: descriptor
+ownership, SLC host-memory transfers, SDIO electrical signalling, CRC/tuning,
+and the complete ESP-IDF SDIO-slave driver remain unsupported. Firmware that
+depends on those paths should be classified as outside the current functional
+baseline. The deterministic register and FIFO tests are included in the
+ESP32-C6 machine gate and are suitable for compiler and peripheral smoke tests.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
