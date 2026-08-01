@@ -219,6 +219,11 @@ manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
+RP2350 PIO1 and PIO2 now use the functional PIO engine at `0x50300000` and
+`0x50400000` in both Arm and Hazard3 modes, matching PIO0's
+instruction-memory, state-machine, `JMP`, and `SET`/VCD subset. FIFO, `WAIT`,
+HSTX interaction, side-set, and protocol timing remain outside this slice.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification

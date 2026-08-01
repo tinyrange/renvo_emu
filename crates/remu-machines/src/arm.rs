@@ -421,8 +421,6 @@ impl ArmMachine {
                 ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio1", 0x5030_0000),
-                ("rp2350.pio2", 0x5040_0000),
             ] {
                 bus.map_device(
                     name,
@@ -584,6 +582,19 @@ impl ArmMachine {
             Box::new(pio0),
         )?;
         pio.push(handle);
+        if target == TargetId::Rp2350 {
+            for (index, base) in [(1, 0x5030_0000), (2, 0x5040_0000)] {
+                let name = format!("rp2350.pio{index}");
+                let (device, handle) = RpPio::new(
+                    &name,
+                    u16::from(manifest.gpio_count.min(32)),
+                    &format!("board.{name}.gpio"),
+                    signals.clone(),
+                )?;
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                pio.push(handle);
+            }
+        }
         Ok(Self {
             target,
             cpu: ArmCpu::new(profile),
@@ -1462,12 +1473,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;

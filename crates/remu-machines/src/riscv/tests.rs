@@ -237,3 +237,26 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn rp2350_hazard3_maps_all_pio_blocks() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    for base in [0x5020_0000, 0x5030_0000, 0x5040_0000] {
+        machine
+            .bus
+            .write(base + 0x48, AccessWidth::Word, 0xe001, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    base + 0x48,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            0xe001
+        );
+    }
+}
