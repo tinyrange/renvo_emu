@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpDma, RpDmaHandle, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -42,6 +42,7 @@ pub struct ArmMachine {
     gpio: GpioHandle,
     chip_gpio: GpioHandle,
     sio: RpSioHandle,
+    dma: RpDmaHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
     timer: TimerHandle,
@@ -241,6 +242,13 @@ impl ArmMachine {
             0x200,
             Box::new(sio_device),
         )?;
+        let (dma_device, dma) = RpDma::new(format!("{target}.dma"));
+        bus.map_device(
+            format!("{target}.dma"),
+            0x5000_0000,
+            0x1000,
+            Box::new(dma_device),
+        )?;
         if target == TargetId::Rp2040 {
             let mut sysinfo_reset = vec![0; 8];
             // Production RP2040 B2: revision 2, RP2 part 2, Raspberry Pi
@@ -307,7 +315,6 @@ impl ArmMachine {
                 ("rp2040.i2c1", 0x4004_8000),
                 ("rp2040.adc", 0x4004_c000),
                 ("rp2040.pwm", 0x4005_0000),
-                ("rp2040.dma", 0x5000_0000),
                 ("rp2040.pio1", 0x5030_0000),
             ] {
                 bus.map_device(
@@ -420,7 +427,6 @@ impl ArmMachine {
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
-                ("rp2350.dma", 0x5000_0000),
                 ("rp2350.pio1", 0x5030_0000),
                 ("rp2350.pio2", 0x5040_0000),
             ] {
@@ -594,6 +600,7 @@ impl ArmMachine {
             gpio,
             chip_gpio,
             sio,
+            dma,
             uart,
             chip_uart,
             timer,
@@ -1229,6 +1236,9 @@ impl ArmMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
+            stats.events = stats
+                .events
+                .saturating_add(self.dma.service(&mut self.bus, self.now)? as u64);
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }
@@ -1462,12 +1472,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
