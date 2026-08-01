@@ -298,7 +298,7 @@
       "known_gaps": [
         "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
         "windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy",
-        "exact SMP timing, wireless, ULP, and full USB are deferred",
+        "exact SMP timing, wireless, ULP, full USB, and PSRAM initialization timing are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
