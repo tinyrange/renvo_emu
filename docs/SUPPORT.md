@@ -771,6 +771,12 @@ MCUs consume Intel HEX or addressless raw binaries rooted at their documented
 primary flash base. Native loading uses vector/reset semantics where the
 architecture defines them instead of inventing an ELF entry point.
 
+The EFM8BB52F32G functional slice now includes Timer1 in addition to Timer0
+and Timer2: mode-1/2 counter progression, overflow flagging, VCD visibility,
+and a dedicated low/high interrupt line pair mapped to the native `0x001b`
+vector. Timer1 mode 3, exact oscillator-divider timing, and the remaining
+EFM8 timer blocks remain outside this slice.
+
 Native/direct equivalence is continuously checked by
 `scripts/qualify-native-images.sh`. All compiler inputs are built in immutable,
 network-disabled Docker toolchains. The gate compares stop reason, exit code,
