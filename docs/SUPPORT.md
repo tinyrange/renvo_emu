@@ -45,6 +45,16 @@ See `scripts/qualify-micropython.sh` and
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
+## ESP32-C6 SPI2 slice
+
+The ESP32-C6 model maps the native general-purpose SPI2 window at
+`0x60081000`. Its functional master subset implements the command/user/data
+registers, MOSI/MISO bit lengths, synchronous transfer completion, interrupt
+raw status, and deterministic host RX injection. When no host byte is queued,
+MISO echoes the transmitted byte, which keeps compiler and firmware tests
+reproducible without inventing external bus state. DMA, slave mode, command
+address phases, timing, and the interrupt matrix remain outside this slice.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed

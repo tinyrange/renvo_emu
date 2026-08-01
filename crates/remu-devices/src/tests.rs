@@ -208,6 +208,35 @@ fn esp32s3_timer_group_exposes_second_timer_interrupt() {
 }
 
 #[test]
+fn esp_spi_master_transfers_native_data_window_with_injected_miso() {
+    let (mut spi, handle) = EspSpi::new("spi2");
+    handle.queue_rx(&[0xa5, 0x5a]);
+    spi.write(
+        0x1c,
+        AccessWidth::Word,
+        (1 << 27) | (1 << 28),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(0x28, AccessWidth::Word, 15, SimTime::ZERO)
+        .unwrap();
+    spi.write(0x2c, AccessWidth::Word, 15, SimTime::ZERO)
+        .unwrap();
+    spi.write(0x80, AccessWidth::Word, 0x2211, SimTime::ZERO)
+        .unwrap();
+    spi.write(0x00, AccessWidth::Word, 1 << 24, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(handle.take_tx(), vec![0x11, 0x22]);
+    assert_eq!(
+        spi.read(0x80, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x5aa5
+    );
+    assert_eq!(spi.read(0x54, AccessWidth::Word, SimTime::ZERO).unwrap(), 1);
+    assert_eq!(spi.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+}
+
+#[test]
 fn uart_captures_low_byte() {
     let (mut uart, handle) = FunctionalUart::new("uart", 0, 4, 1);
     uart.write(0, AccessWidth::Word, b'A'.into(), SimTime::ZERO)
