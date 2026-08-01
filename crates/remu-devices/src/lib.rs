@@ -23,6 +23,8 @@ mod spi;
 pub use spi::*;
 mod wch;
 pub use wch::*;
+mod stm32_iwdg;
+pub use stm32_iwdg::*;
 mod esp_usb_serial_jtag;
 pub use esp_usb_serial_jtag::*;
 mod gpio;
