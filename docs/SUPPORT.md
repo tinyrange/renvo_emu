@@ -304,6 +304,19 @@ defines these register contracts. Bit-cell NRZI/bit stuffing, analogue PHY
 signalling, exact packet timing, isochronous edge cases, and a complete
 class/protocol catalogue remain outside this functional slice.
 
+## ATmega328PB external-interrupt slice
+
+The ATmega328PB model covers all three pin-change interrupt groups through
+`PCICR`, `PCIFR`, `PCMSK0..2`, and the package Port B/C/D inputs. It also models
+INT1 edge/level sensing through `EICRA`, `EIMSK`, and `EIFR`, with distinct AVR
+interrupt lines and VCD request signals. Flags remain latched until the
+documented write-one-to-clear operation.
+
+This is a deterministic digital-input model; asynchronous electrical timing,
+sleep wake-up latency, and peripheral alternate-function pin muxing are not
+claimed. Register behavior follows the
+[ATmega328PB datasheet](https://ww1.microchip.com/downloads/en/devicedoc/40001906a.pdf).
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
