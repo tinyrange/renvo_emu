@@ -799,6 +799,12 @@ intentionally outside this functional CI slice. The register contract is based
 on the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
 and [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf).
 
+The WCH CH32V003/CH32V006 models also map the advanced TIM1 register block at
+`0x40012c00`, using the same deterministic counter, update-event,
+capture/compare-latch, and PWM-control register subset as TIM2.
+Exact center-aligned waveform timing, break/dead-time outputs, and DMA request
+sequencing remain outside this slice.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification

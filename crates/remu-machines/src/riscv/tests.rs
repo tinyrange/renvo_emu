@@ -1043,3 +1043,50 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn wch_tim1_registers_and_update_interrupt_are_mapped() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    let base = 0x4001_2c00;
+    machine
+        .bus
+        .write(base + 0x28, AccessWidth::HalfWord, 0, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x2c, AccessWidth::HalfWord, 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x0c, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x2c,
+                AccessWidth::HalfWord,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x10,
+                AccessWidth::HalfWord,
+                AccessKind::Read,
+                SimTime::from_ticks(3),
+            )
+            .unwrap()
+            & 1,
+        1
+    );
+}
