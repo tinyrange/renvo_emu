@@ -45,6 +45,17 @@ See `scripts/qualify-micropython.sh` and
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
+## ATSAMD21 TC4/TC5 slice
+
+The ATSAMD21E18 model exposes the native TC4 and TC5 COUNT16 instances at
+`0x4200_3000` and `0x4200_3400`. They use the same deterministic functional
+counter/match behavior as TC3, including compare-match interrupt latching,
+write-one-to-clear flags, and delivery on NVIC lines 19 and 20. This is an
+abstract-time model for firmware tests; generic-clock synchronization,
+capture/gate/event behavior, waveform generation, and exact prescaler timing
+remain outside the slice. The addresses and IRQ assignments follow the
+[SAM D21/DA1 datasheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU32/ProductDocuments/DataSheets/SAM-D21DA1-Family-Data-Sheet-DS40001882G.pdf).
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed

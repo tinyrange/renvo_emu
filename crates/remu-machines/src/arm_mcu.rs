@@ -78,6 +78,7 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    auxiliary_timers: Vec<(u16, Samd21TcHandle)>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -230,6 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
+        let mut auxiliary_timers = Vec::new();
         let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
@@ -239,6 +241,8 @@ impl ArmMcuMachine {
                     signals.clone(),
                 )?;
                 let (tc3_device, timer) = Samd21Tc::new("atsamd21e18.tc3");
+                let (tc4_device, tc4) = Samd21Tc::new("atsamd21e18.tc4");
+                let (tc5_device, tc5) = Samd21Tc::new("atsamd21e18.tc5");
                 let (eic_device, eic) = Samd21Eic::new("atsamd21e18.eic");
                 let (watchdog_device, watchdog) = Samd21Wdt::new("atsamd21e18.wdt");
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
@@ -248,8 +252,11 @@ impl ArmMcuMachine {
                     eic_device,
                     watchdog_device,
                     tc3_device,
+                    tc4_device,
+                    tc5_device,
                     sercom0_device,
                 )?;
+                auxiliary_timers = vec![(19, tc4), (20, tc5)];
                 (
                     gpio,
                     VendorUart::Samd21(uart),
@@ -336,6 +343,7 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            auxiliary_timers,
             eic,
             ra_icu,
             watchdog,
@@ -361,6 +369,8 @@ impl ArmMcuMachine {
         eic: Samd21Eic,
         watchdog: Samd21Wdt,
         tc3: Samd21Tc,
+        tc4: Samd21Tc,
+        tc5: Samd21Tc,
         sercom0: Samd21Usart,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
@@ -390,6 +400,8 @@ impl ArmMcuMachine {
         bus.map_device("atsamd21e18.eic", 0x4000_1800, 0x100, Box::new(eic))?;
         bus.map_device("atsamd21e18.sercom0", 0x4200_0800, 0x40, Box::new(sercom0))?;
         bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
+        bus.map_device("atsamd21e18.tc4", 0x4200_3000, 0x40, Box::new(tc4))?;
+        bus.map_device("atsamd21e18.tc5", 0x4200_3400, 0x40, Box::new(tc5))?;
         // NVMCTRL.INTFLAG.READY is set after reset.
         bus.map_device(
             "atsamd21e18.nvmctrl",
@@ -785,6 +797,12 @@ impl ArmMcuMachine {
                     }
                 }
             }
+            for (line, timer) in &self.auxiliary_timers {
+                let pending = timer.poll(self.now);
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
             match self.target {
                 TargetId::Atsamd21e18 | TargetId::Stm32l432kc => {
                     let uart_line = if self.target == TargetId::Atsamd21e18 {
@@ -942,6 +960,37 @@ mod tests {
         assert_eq!(machine.gpio_output(), 1 << 7);
         assert_eq!(result.reason, StopReason::InstructionLimit);
         assert_ne!(result.trace_digest, "");
+    }
+
+    #[test]
+    fn samd21_tc4_and_tc5_are_mapped_and_route_their_irqs() {
+        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
+        for (base, timer) in [(0x4200_3000_u64, 0), (0x4200_3400_u64, 1)] {
+            machine
+                .bus
+                .write(base + 0x18, AccessWidth::HalfWord, 3, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base + 0x0d, AccessWidth::Byte, 0x10, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base, AccessWidth::HalfWord, 2, SimTime::ZERO)
+                .unwrap();
+            assert!(
+                !machine.auxiliary_timers[timer]
+                    .1
+                    .poll(SimTime::from_ticks(2))
+            );
+            assert!(
+                machine.auxiliary_timers[timer]
+                    .1
+                    .poll(SimTime::from_ticks(3))
+            );
+        }
+        assert_eq!(machine.auxiliary_timers[0].0, 19);
+        assert_eq!(machine.auxiliary_timers[1].0, 20);
     }
 
     #[test]
