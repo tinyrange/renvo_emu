@@ -25,7 +25,7 @@ use remu_devices::{
     RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2cHandle, RpIoBankHandle,
     RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
     RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
-    WchTimer, WchUsart, new_rp2350_hstx,
+    WchSpi, WchTimer, WchUsart, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -681,6 +681,8 @@ impl RiscVMachine {
                     Box::new(wch_uart),
                 )?;
                 chip_uarts.push(handle);
+                let (spi, spi_handle) = WchSpi::new(format!("{target}.spi1"), signals.clone())?;
+                bus.map_device(format!("{target}.spi1"), 0x4001_3000, 0x400, Box::new(spi))?;
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 let timer = handle;
@@ -695,6 +697,7 @@ impl RiscVMachine {
                     timer,
                     pfic: handle,
                     exti,
+                    spi: spi_handle,
                 });
             }
             TargetId::Esp32c6 => {

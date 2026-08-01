@@ -1003,6 +1003,40 @@ fn wch_exti_uses_afio_mapping_and_external_gpio_stimulus() {
 }
 
 #[test]
+fn wch_spi1_native_registers_are_mapped_for_both_targets() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        machine.inject_wch_spi_rx(0xa5);
+        machine
+            .bus
+            .write(0x4001_3000, AccessWidth::Word, 0x44, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4001_3004, AccessWidth::Word, 0xc0, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4001_300c, AccessWidth::Word, 0x3c, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.wch_spi_tx_bytes(), [0x3c], "{target}");
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4001_300c,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xa5,
+            "{target}"
+        );
+    }
+}
+
+#[test]
 fn unsupported_targets_fail_explicitly() {
     assert!(matches!(
         RiscVMachine::new(TargetId::Rp2040),

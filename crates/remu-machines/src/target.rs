@@ -238,6 +238,16 @@ const COMMON_BASELINE: &[&str] = &[
     "VCD output",
 ];
 
+const WCH_BASELINE: &[&str] = &[
+    "direct ELF loading",
+    "deterministic interpreted execution",
+    "compiler-test exit convention",
+    "functional GPIO, timer, and UART facades",
+    "native SPI1 transfer",
+    "external digital pin stimulus",
+    "VCD output",
+];
+
 const BASELINE_RISCV_COMPILER_TIER: SupportTier = SupportTier {
     name: "compiler-execution",
     evidence: &["riscv-cpu.json", "rust-abi.json"],
@@ -328,7 +338,7 @@ const MANIFESTS: &[TargetManifest] = &[
         gpio_count: 18,
         fidelity: Fidelity::Functional,
         support_tiers: BASELINE_RISCV_SUPPORT_TIERS,
-        baseline: COMMON_BASELINE,
+        baseline: WCH_BASELINE,
         sources: &[
             "https://www.wch-ic.com/downloads/CH32V003DS0_PDF.html",
             "https://www.wch-ic.com/downloads/CH32V003RM_PDF.html",
@@ -363,7 +373,7 @@ const MANIFESTS: &[TargetManifest] = &[
         gpio_count: 24,
         fidelity: Fidelity::Functional,
         support_tiers: BASELINE_RISCV_SUPPORT_TIERS,
-        baseline: COMMON_BASELINE,
+        baseline: WCH_BASELINE,
         sources: &[
             "https://www.wch-ic.com/downloads/CH32V006DS0_PDF.html",
             "https://www.wch-ic.com/downloads/CH32V00XRM_PDF.html",
