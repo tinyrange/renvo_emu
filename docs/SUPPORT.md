@@ -212,6 +212,14 @@ the target manifests and `PLAN.html`, principally:
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
 
+## STM32L432KC SPI1/SPI3 slice
+
+The STM32L432KC map includes native SPI1 at `0x4001_3000` and SPI3 at
+`0x4000_3c00`. The functional slice covers CR1/CR2/SR/DR, enabled master-mode
+full-duplex transfers, deterministic injected-or-echoed MISO, TXE/RXNE status,
+and the SPI1 (35) and SPI3 (51) interrupt lines. Alternate-function pin routing,
+chip-select policy, DMA, CRC, I2S, and exact clock/baud timing remain deferred.
+
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
 bus logs, verifies the portfolio, and regenerates all six manifests. The
