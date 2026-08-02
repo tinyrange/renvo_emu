@@ -219,6 +219,12 @@ manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
+The CH32V003 and CH32V006 maps now include deterministic independent- and
+window-watchdog register slices. Key sequencing, reload/window configuration,
+early-warning status, and abstract countdown/reset events are modeled for
+firmware tests. The model does not claim the silicon LSI/APB frequencies or
+cycle-accurate timeout values.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification

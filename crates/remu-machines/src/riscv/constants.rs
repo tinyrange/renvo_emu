@@ -1,0 +1,15 @@
+pub(super) const TIMER_INTERRUPT: u16 = 7;
+pub(super) const ESP_ROM_FLASH_START_STUB: u32 = 0x4004_fe00;
+pub(super) const ESP_ROM_FLASH_END_STUB: u32 = 0x4004_fe04;
+pub(super) const ESP_ROM_FLASH_CHIP_CHECK_STUB: u32 = 0x4004_fe08;
+pub(super) const ESP_ROM_FLASH_DETECT_SIZE_STUB: u32 = 0x4004_fe0c;
+pub(super) const ESP_ROM_FLASH_OK_STUB: u32 = 0x4004_fe10;
+pub(super) const ESP_ROM_COEX_VERSION: u32 = 0x4004_fdc0;
+pub(super) const ESP_ROM_DEFAULT_FLASH: u32 = 0x4087_fa00;
+pub(super) const ESP_ROM_FLASH_DRIVER: u32 = 0x4087_f900;
+pub(super) const ESP_ROM_FLASH_HOST: u32 = 0x4087_f700;
+pub(super) const ESP_FUNCTIONAL_MMAP_BASE: u32 = 0x4280_0000;
+pub(super) const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
+pub(super) const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
+pub(super) const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
+pub(super) const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;

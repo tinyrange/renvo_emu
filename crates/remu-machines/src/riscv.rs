@@ -19,7 +19,7 @@ use remu_devices::{
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
     RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    WchTimerHandle, WchUsart, WchWatchdog, WchWatchdogEvent, WchWatchdogHandle,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -32,12 +32,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 mod bootrom_support;
+mod constants;
+use constants::*;
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
+mod watchdogs;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -49,21 +52,6 @@ pub const TEST_TIMER: u64 = 0xffff_0200;
 pub const TEST_EXIT: u64 = 0xffff_fff0;
 pub(crate) const TEST_DEVICE_SIZE: usize = 0x100;
 pub(crate) const TEST_EXIT_SIZE: usize = 0x10;
-const TIMER_INTERRUPT: u16 = 7;
-const ESP_ROM_FLASH_START_STUB: u32 = 0x4004_fe00;
-const ESP_ROM_FLASH_END_STUB: u32 = 0x4004_fe04;
-const ESP_ROM_FLASH_CHIP_CHECK_STUB: u32 = 0x4004_fe08;
-const ESP_ROM_FLASH_DETECT_SIZE_STUB: u32 = 0x4004_fe0c;
-const ESP_ROM_FLASH_OK_STUB: u32 = 0x4004_fe10;
-const ESP_ROM_COEX_VERSION: u32 = 0x4004_fdc0;
-const ESP_ROM_DEFAULT_FLASH: u32 = 0x4087_fa00;
-const ESP_ROM_FLASH_DRIVER: u32 = 0x4087_f900;
-const ESP_ROM_FLASH_HOST: u32 = 0x4087_f700;
-const ESP_FUNCTIONAL_MMAP_BASE: u32 = 0x4280_0000;
-const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
-const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
-const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
-const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;
 
 #[derive(Clone, Debug, Default)]
 struct EspFunctionalSha256 {
@@ -203,6 +191,7 @@ pub struct RiscVMachine {
     pio: Vec<RpPioHandle>,
     wch_timer: Option<WchTimerHandle>,
     wch_pfic: Option<WchPficHandle>,
+    wch_watchdogs: Vec<WchWatchdogHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
@@ -243,6 +232,7 @@ impl RiscVMachine {
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
         let mut wch_pfic = None;
+        let mut wch_watchdogs = Vec::new();
         let mut sio = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
@@ -563,6 +553,11 @@ impl RiscVMachine {
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 wch_timer = Some(handle);
+                let (iwdg, iwdg_handle) = WchWatchdog::new_iwdg(format!("{target}.iwdg"));
+                bus.map_device(format!("{target}.iwdg"), 0x4000_3000, 0x400, Box::new(iwdg))?;
+                let (wwdg, wwdg_handle) = WchWatchdog::new_wwdg(format!("{target}.wwdg"));
+                bus.map_device(format!("{target}.wwdg"), 0x4000_2c00, 0x400, Box::new(wwdg))?;
+                wch_watchdogs.extend([iwdg_handle, wwdg_handle]);
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
@@ -802,6 +797,7 @@ impl RiscVMachine {
             pio,
             wch_timer,
             wch_pfic,
+            wch_watchdogs,
             usb,
             usb_dpram,
             usb_host,
@@ -1034,6 +1030,13 @@ impl RiscVMachine {
             }
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
+            }
+
+            if self.poll_wch_watchdogs()? {
+                self.bus.reset_devices(ResetKind::Watchdog);
+                self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
+                stats.events = stats.events.saturating_add(1);
+                continue;
             }
 
             let timer_pending = self.timer.poll(self.now);
