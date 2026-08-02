@@ -26,6 +26,13 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The STM32L432KC model maps TIM15 at `0x40014000`. Its functional slice covers
+counter/update and channel-one compare/PWM registers, deterministic prescaled
+up-counting, UIF/CC1IF latching and clearing, the native
+`TIM1_BRK_TIM15` interrupt line (NVIC 24), and a VCD-visible channel-one
+output. Break/dead-time, repetition, DMA, and physical APB timing are not
+claimed.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
