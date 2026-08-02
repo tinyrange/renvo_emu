@@ -9,9 +9,11 @@ uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
 state, PORT A, EIC, TC3, SERCOM0 USART, SPI host, I²C host and watchdog. SERCOM
 transfers use deterministic register-level loopback/injected responses; pin
-electrical timing and complete client/slave behavior are not modeled. Clock
-synchronization and timing are deterministic approximations; analog, USB and
-DMA are unsupported.
+electrical timing and complete client/slave behavior are not modeled. The
+register implementation follows the vendor mode encodings, per-mode masks,
+enable-protection, raw interrupt aliases, I²C bus-state/command semantics, and
+SPI receiver-enable behavior. Clock synchronization and timing are deterministic
+approximations; analog, USB and DMA are unsupported.
 VCD exposes PORT, timer, UART and interrupt hierarchy and the gate compares two
 runs byte-for-byte.
 

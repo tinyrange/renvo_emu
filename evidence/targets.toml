@@ -25,7 +25,7 @@ sample_url = "https://github.com/Microchip-MPLAB-Harmony/csp_apps_sam_d21_da1"
 sample_revision = "9331e79cf2937d2b3166813c6d2886b2481162e3"
 toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
 compiler_flags = ["-mcpu=cortex-m0plus", "-mthumb"]
-peripherals = ["PM", "SYSCTRL", "GCLK", "NVMCTRL", "PORT", "EIC", "TC3", "SERCOM0", "WDT"]
+peripherals = ["PM", "SYSCTRL", "GCLK", "NVMCTRL", "PORT", "EIC", "TC3", "SERCOM0 USART/SPI/I2C", "WDT"]
 image_formats = ["ELF32 little-endian Arm executable"]
 memory_map = ["flash 0x00000000..0x0003ffff", "SRAM 0x20000000..0x20007fff", "documented MMIO windows for the selected peripheral slice"]
 reset_assumptions = "Power-on reset reads MSP and Thumb reset PC from vectors 0 and 1 at flash address zero; modeled startup-ready flags are documented functional approximations"
