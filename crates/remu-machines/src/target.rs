@@ -502,12 +502,20 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 26,
         fidelity: Fidelity::Functional,
-        baseline: &["GPIO/EXTI", "TIM2 interrupt", "USART2", "VCD"],
+        baseline: &[
+            "GPIO/EXTI",
+            "TIM2 interrupt",
+            "USART2",
+            "SWPMI1 loopback and host frames",
+            "VCD",
+        ],
         sources: &[
             "https://www.st.com/en/microcontrollers-microprocessors/stm32l432kc.html",
             "https://www.st.com/resource/en/reference_manual/rm0394-stm32l41xxx42xxx43xxx44xxx45xxx46xxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf",
         ],
-        limitations: &["analog, USB, DMA, low-power fidelity, and exact clocks are deferred"],
+        limitations: &[
+            "analog, USB, DMA, SWPMI protocol timing, low-power fidelity, and exact clocks are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,
