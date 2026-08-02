@@ -13,6 +13,20 @@ The initial reusable models are:
 - SGP30 at I2C address `0x58`, including identity, feature, IAQ init/measure,
   baseline, self-test, raw measurement, humidity and Sensirion CRC-8 behavior.
 
+Machine-facing UART connectors can use `BoardUartEndpoint` with a target's
+`UartHandle`. The endpoint queues host RX bytes, polls newly transmitted guest
+bytes, and exposes byte/strobe signals for VCD and protocol assertions:
+
+```rust,no_run
+let mut uart = BoardUartEndpoint::new("teaching", &console, uart_handle, hub)?;
+uart.host_write(b"ping\\n", SimTime::from_ticks(10))?;
+let tx = uart.poll_tx(SimTime::from_ticks(20))?;
+```
+
+This endpoint is deliberately transport-oriented. It does not invent baud
+rate timing or a UART electrical model; the target's existing functional UART
+device remains responsible for register semantics.
+
 The M5Stack NanoC6 definition is
 [`boards/m5stack_nanoc6.star`](../boards/m5stack_nanoc6.star). It contains the
 published board topology: button GPIO9, blue LED GPIO7, WS2812 GPIO20 with
@@ -51,11 +65,12 @@ traversal and cyclic imports are rejected. The script's final expression must
 be a board instance.
 
 The current board runner is a protocol/component qualification layer. It does
-not yet route ESP32-C6 firmware MMIO activity into the assembled board, so its
-results prove topology, device protocols, deterministic external behavior and
-waveforms—not execution of a firmware driver against the SGP30. That coupling
-can be added at the machine pin/bus boundary without moving CPU or scheduler
-state into Starlark.
+not yet route firmware MMIO activity into the assembled board, so its results
+prove topology, device protocols, deterministic external behavior and
+waveforms—not execution of a firmware driver against the SGP30. The typed UART
+endpoint above is the first host transport bridge; machine-specific UART
+accessors and complete connector-to-machine assembly can be added at the
+machine pin/bus boundary without moving CPU or scheduler state into Starlark.
 
 Run the deterministic qualification, including byte-identical JSON and VCD
 replay, with:
