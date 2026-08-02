@@ -67,11 +67,14 @@
         "rp2350-riscv",
         "rp2350-riscv-uart",
         "rp2350-riscv-native-timer",
-        "rp2350-riscv-pio"
+        "rp2350-riscv-pio",
+        "rp2350-arm-io",
+        "rp2350-riscv-io"
       ],
       "required_covered_regions": [
         "rp2350.pio0",
         "rp2350.sio",
+        "rp2350.io-bank0",
         "rp2350.timer0",
         "rp2350.uart0"
       ],
@@ -81,7 +84,8 @@
         "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
         "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
-        "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
+        "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature.",
+        "IO_BANK0 covers functional per-pin STATUS/CTRL overrides, replicated narrow writes, atomic aliases, and PROC0/PROC1 raw/enable/force/status interrupt registers for the active first 32 GPIOs; GPIO32-47 retain register-only coverage, while pad electrical muxing, secure bank routing, and dormant-wake behavior remain deferred."
       ]
     },
     "esp32s3": {
