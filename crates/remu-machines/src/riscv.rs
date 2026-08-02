@@ -19,7 +19,7 @@ use remu_devices::{
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
     RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    WchTimerHandle, WchTouchKey, WchTouchKeyHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -30,7 +30,6 @@ use serde::Serialize;
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
-
 mod bootrom_support;
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
@@ -38,7 +37,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
-
+mod wch_touch;
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
 /// Synthetic, stable UART facade used by compiler cases.
@@ -50,6 +49,7 @@ pub const TEST_EXIT: u64 = 0xffff_fff0;
 pub(crate) const TEST_DEVICE_SIZE: usize = 0x100;
 pub(crate) const TEST_EXIT_SIZE: usize = 0x10;
 const TIMER_INTERRUPT: u16 = 7;
+const WCH_ADC_INTERRUPT: u16 = 15;
 const ESP_ROM_FLASH_START_STUB: u32 = 0x4004_fe00;
 const ESP_ROM_FLASH_END_STUB: u32 = 0x4004_fe04;
 const ESP_ROM_FLASH_CHIP_CHECK_STUB: u32 = 0x4004_fe08;
@@ -64,13 +64,11 @@ const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
 const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
 const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
 const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;
-
 #[derive(Clone, Debug, Default)]
 struct EspFunctionalSha256 {
     sha224: bool,
     input: Vec<u8>,
 }
-
 /// Failure while constructing, loading, or running a machine.
 #[derive(Debug, Error)]
 pub enum MachineError {
@@ -138,7 +136,6 @@ pub enum MachineError {
     #[error("ESP32-C6 application image is not boot-compatible: {0}")]
     Esp32c6BootLayout(String),
 }
-
 /// Stable machine-readable outcome of one invocation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RunResult {
@@ -202,6 +199,7 @@ pub struct RiscVMachine {
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
     wch_timer: Option<WchTimerHandle>,
+    wch_touch_key: Option<WchTouchKeyHandle>,
     wch_pfic: Option<WchPficHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -242,6 +240,7 @@ impl RiscVMachine {
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
+        let mut wch_touch_key = None;
         let mut wch_pfic = None;
         let mut sio = None;
         if target == TargetId::Rp2350 {
@@ -563,6 +562,9 @@ impl RiscVMachine {
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 wch_timer = Some(handle);
+                if target == TargetId::Ch32v006 {
+                    wch_touch_key = Some(wch_touch::map(&mut bus, target)?);
+                }
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
@@ -801,6 +803,7 @@ impl RiscVMachine {
             chip_timers,
             pio,
             wch_timer,
+            wch_touch_key,
             wch_pfic,
             usb,
             usb_dpram,
@@ -990,6 +993,7 @@ impl RiscVMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
+        let mut wch_touch_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
@@ -1053,6 +1057,7 @@ impl RiscVMachine {
                 wch_timer_was_pending = deliver;
                 self.cpu
                     .set_qingke_external_interrupt(TIM2_INTERRUPT, deliver)?;
+                self.poll_wch_touch_key(&mut stats, &mut wch_touch_was_pending)?;
             }
             if self.target == TargetId::Rp2350 {
                 let chip_timer_pending =

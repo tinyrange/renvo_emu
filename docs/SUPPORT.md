@@ -8,8 +8,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
-| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
+| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs; no native TKEY block |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC plus ADC/TKEY single-channel conversion slice |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
@@ -25,6 +25,27 @@ All targets also expose a stable compiler-test block:
 This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
+
+## WCH touch-key fidelity
+
+The CH32V006 model maps the documented ADC/TKEY extension at `0x40012400`.
+Firmware can enable `ADC_CTLR1.TKENABLE`, select `ADC_RSQR3.SQ1`, configure
+the single-channel `ADC_RSQR1` sequence, configure `TKEY_CHG`, write
+`TKEY_DISCHG`, wait for `ADC_STATR.EOC`, and read `TKEY_DR`. The register model
+honors the documented ADC masks, write-only TKEY/ADC aliases, read-clear EOC,
+single-conversion mode restrictions, and `ADC_CTLR2.ALIGN` result alignment.
+The emulator supplies deterministic host-controlled 12-bit channel samples and
+routes the enabled conversion-complete source through PFIC interrupt 15.
+
+The register contract is based on the [official CH32V00X reference manual]
+(https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF),
+including its TKEY register aliases at offsets `0x3c` and `0x4c`. It does not
+simulate electrode capacitance, analogue charge curves, DMA, scan or injection
+groups, or silicon clock timing.
+
+The CH32V003 has no native TKEY peripheral in the official WCH selection table;
+its ADC-aided capacitive-touch technique is therefore not claimed as native
+TKEY support here.
 
 ## Official MicroPython milestone
 

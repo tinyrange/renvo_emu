@@ -259,7 +259,8 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         limitations: &[
             "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
-            "analog and debug-wire behavior is outside the baseline",
+            "CH32V003 has no native TKEY block; ADC-aided capacitive touch is outside the baseline",
+            "analog and debug-wire behavior is otherwise outside the baseline",
         ],
     },
     TargetManifest {
@@ -285,7 +286,15 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 24,
         fidelity: Fidelity::Functional,
-        baseline: COMMON_BASELINE,
+        baseline: &[
+            COMMON_BASELINE[0],
+            COMMON_BASELINE[1],
+            COMMON_BASELINE[2],
+            COMMON_BASELINE[3],
+            COMMON_BASELINE[4],
+            COMMON_BASELINE[5],
+            "native ADC/TKEY single-channel conversion sequence",
+        ],
         sources: &[
             "https://www.wch-ic.com/downloads/CH32V006DS0_PDF.html",
             "https://www.wch-ic.com/downloads/CH32V00XRM_PDF.html",
@@ -293,7 +302,8 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         limitations: &[
             "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
-            "analog and touch peripherals are outside the baseline",
+            "TKEY uses deterministic host-provided samples rather than analogue capacitance physics",
+            "ADC DMA, scan/injection groups, watchdogs and exact HBCLK timing remain outside the baseline",
         ],
     },
     TargetManifest {
