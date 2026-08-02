@@ -1242,3 +1242,63 @@ fn wch_independent_watchdog_timeout_resets_the_riscv_machine() {
         "watchdog reset was not dispatched"
     );
 }
+
+#[test]
+fn wch_flash_controller_programs_and_erases_the_mapped_alias() {
+    const KEY1: u64 = 0x4567_0123;
+    const KEY2: u64 = 0xcdef_89ab;
+    const PG: u64 = 1;
+    const PER_AND_STRT: u64 = (1 << 1) | (1 << 6);
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        machine.load_bytes(0x400, &[0xff, 0xff]).unwrap();
+        machine
+            .bus
+            .write(0x4002_2004, AccessWidth::Word, KEY1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2004, AccessWidth::Word, KEY2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2010, AccessWidth::Word, PG, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x400, AccessWidth::HalfWord, 0x1234, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x0800_0400,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x1234
+        );
+        machine
+            .bus
+            .write(0x4002_2014, AccessWidth::Word, 0x400, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2010, AccessWidth::Word, PER_AND_STRT, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x400,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xffff
+        );
+    }
+}

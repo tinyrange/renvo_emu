@@ -42,6 +42,15 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+### WCH flash slice
+
+The CH32V003/CH32V006 flash slice is mapped as executable device-backed memory
+at the manifest flash address plus the vendor `0x0800_0000` alias. The native
+controller at `0x4002_2000` implements the key sequence, lock state, programming
+with NOR one-to-zero behavior, page erase, mass erase, `BSY`/`EOP` status, and
+firmware-loader initialization. It is intentionally functional: option bytes,
+write-protection regions, and flash operation timing are not modeled.
+
 ### RP2350 TRNG subset
 
 Both RP2350 CPU modes map the official TRNG block at `0x400f0000`. Firmware
