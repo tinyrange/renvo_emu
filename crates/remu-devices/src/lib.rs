@@ -53,6 +53,8 @@ mod rp_accessctrl;
 pub use rp_accessctrl::*;
 mod rp_ticks;
 pub use rp_ticks::*;
+mod rp_powman;
+pub use rp_powman::*;
 mod esp;
 pub use esp::*;
 mod esp_spi;

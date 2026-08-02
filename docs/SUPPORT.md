@@ -76,6 +76,14 @@ nine-bit cycles-per-tick divider, a simulation-time-derived countdown, and RP
 atomic aliases. Clock-source frequency changes and interrupt generation are
 outside this slice.
 
+### RP2350 POWMAN subset
+
+POWMAN at `0x40100000` models reset/configuration state, power-sequencer
+requests, GPIO wake descriptors, watchdog reset selection, scratch and boot
+words, interrupt state, and its 64-bit always-on timer/alarm. Scratch and boot
+words survive modeled watchdog reset. Analog regulator behavior and exact
+low-power clock timing are not claimed.
+
 ### RP2040 power and oscillator subset
 
 The RP2040 map includes deterministic functional models for the official

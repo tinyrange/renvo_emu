@@ -19,11 +19,11 @@ use remu_devices::{
     PwmHandle, Rp2040Clocks, Rp2040IoBank, Rp2040IoBankHandle, Rp2040Pll, Rp2040Psm,
     Rp2040RegisterBank, Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040Ssi, Rp2040Timer,
     Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp, Rp2350Sha256,
-    Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance,
-    RpAdc, RpAdcHandle, RpAdcVariant, RpI2c, RpI2cEvent, RpI2cHandle, RpIoBank, RpIoBankHandle,
-    RpPio, RpPioHandle, RpPioVersion, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout,
-    SignalHub, SpiHandle, TimerHandle, UartHandle, new_rp2350_hstx,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp, Rp2350Powman,
+    Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle,
+    Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2c, RpI2cEvent, RpI2cHandle,
+    RpIoBank, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart, RpSioGpio,
+    RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle, UartHandle, new_rp2350_hstx,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -540,10 +540,7 @@ impl ArmMachine {
                 "rp2350.powman",
                 0x4010_0000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2350.powman",
-                    vec![0; 0x1000 / 4],
-                )),
+                Box::new(Rp2350Powman::new("rp2350.powman")),
             )?;
             let (device, handle) = Rp2350Trng::new("rp2350.trng");
             bus.map_device("rp2350.trng", 0x400f_0000, 0x4000, Box::new(device))?;
