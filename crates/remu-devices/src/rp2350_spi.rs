@@ -8,30 +8,49 @@ const CR0_DSS_MASK: u32 = 0x0f;
 const IMSC_MASK: u32 = 0x0f;
 
 /// PrimeCell SSP registers used by the RP2350 SPI controllers.
-#[derive(Clone, Copy)]
-enum Rp2350SpiRegister {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rp2350SpiRegister {
+    /// Control register 0.
     Cr0 = 0x000,
+    /// Control register 1.
     Cr1 = 0x004,
+    /// Data register.
     Dr = 0x008,
+    /// Status register.
     Sr = 0x00c,
+    /// Clock prescale register.
     Cpsr = 0x010,
+    /// Interrupt mask set/clear register.
     Imsc = 0x014,
+    /// Raw interrupt status register.
     Ris = 0x018,
+    /// Masked interrupt status register.
     Mis = 0x01c,
+    /// Interrupt clear register.
     Ic = 0x020,
+    /// DMA control register.
     Dmacr = 0x024,
+    /// Peripheral identification byte 0.
     PeriphId0 = 0xfe0,
+    /// Peripheral identification byte 1.
     PeriphId1 = 0xfe4,
+    /// Peripheral identification byte 2.
     PeriphId2 = 0xfe8,
+    /// Peripheral identification byte 3.
     PeriphId3 = 0xfec,
+    /// PrimeCell identification byte 0.
     CellId0 = 0xff0,
+    /// PrimeCell identification byte 1.
     CellId1 = 0xff4,
+    /// PrimeCell identification byte 2.
     CellId2 = 0xff8,
+    /// PrimeCell identification byte 3.
     CellId3 = 0xffc,
 }
 
 impl Rp2350SpiRegister {
-    fn from_offset(offset: u64) -> Option<Self> {
+    /// Converts a controller-relative byte offset into a typed register ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
         Some(match offset {
             0x000 => Self::Cr0,
             0x004 => Self::Cr1,
@@ -55,7 +74,8 @@ impl Rp2350SpiRegister {
         })
     }
 
-    const fn offset(self) -> u64 {
+    /// Returns the controller-relative byte offset for this register.
+    pub const fn offset(self) -> u64 {
         self as u64
     }
 }
