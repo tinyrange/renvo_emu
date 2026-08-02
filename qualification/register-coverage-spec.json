@@ -64,22 +64,27 @@
         "rp2350-arm-uart",
         "rp2350-arm-native-timer",
         "rp2350-arm-pio",
+        "rp2350-arm-spi",
         "rp2350-riscv",
         "rp2350-riscv-uart",
         "rp2350-riscv-native-timer",
-        "rp2350-riscv-pio"
+        "rp2350-riscv-pio",
+        "rp2350-riscv-spi"
       ],
       "required_covered_regions": [
         "rp2350.pio0",
         "rp2350.sio",
         "rp2350.timer0",
-        "rp2350.uart0"
+        "rp2350.uart0",
+        "rp2350.spi0",
+        "rp2350.spi1"
       ],
       "additional_evidence": ["scripts/qualify-micropython.sh", "scripts/qualify-coremark.sh"],
       "known_deviations": [
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
+        "SPI0 and SPI1 implement the PrimeCell SSP FIFO, status, interrupt and deterministic host-transfer slice; serial clock waveforms, DMA and exact slave timing are absent.",
         "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
       ]

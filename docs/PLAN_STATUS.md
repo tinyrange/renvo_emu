@@ -174,6 +174,18 @@ programs native TIMER alarm, interrupt-enable, and status registers. Each
 profile enters `WFI`, takes its NVIC or Hazard3-routed interrupt, clears the
 alarm, and exits with code 0 after exactly one recorded event.
 
+## RP2350 SPI closure
+
+RP2350 Arm and Hazard3 firmware now exercise both documented PrimeCell SSP instances at
+`0x4008_0000` and `0x4008_8000`. The model preserves the eight-word FIFO
+status contract, 4--16-bit data-size selection, enable and loopback controls,
+raw/masked FIFO interrupts, interrupt clears, and PrimeCell identification
+registers. Transfers complete in one abstract operation and are observable
+through deterministic host input/output handles; serial clock waveforms, DMA,
+and exact slave timing remain explicit deviations. The `rp2350-arm-spi` and
+`rp2350-riscv-spi` Docker fixtures cover both instances and contribute
+`rp2350.spi0` and `rp2350.spi1` to register-coverage evidence.
+
 ## Earlier UART closure
 
 Docker-built firmware now writes the chip UART0/FIFO addresses on RP2040,

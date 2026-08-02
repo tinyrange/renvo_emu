@@ -9,7 +9,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
+    "sha256": "a92bcf1971c989a2a4c77f2db4074d34f859e4b12fe3717754ad7025fc533d58"
   },
   "proofs": [
     {
@@ -81,6 +81,23 @@
       }
     },
     {
+      "id": "rp2350-arm-spi",
+      "result": ".remu/portfolio-smoke/rp2350-arm-spi-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-arm-spi-bus.json",
+      "result_sha256": "2dbc26673a9154f74a992b5df368909559d111afbd0f46157cd47ef5e81d2379",
+      "bus_log_sha256": "109886d8d2d5cd5cc7becbe99cc47d5b535ebf082a131306623ad392fd14d338",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "stats": {
+          "instructions": 48,
+          "time": 48,
+          "events": 0
+        }
+      }
+    },
+    {
       "id": "rp2350-riscv",
       "result": ".remu/portfolio-smoke/rp2350-riscv-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-bus.json",
@@ -147,15 +164,34 @@
           "events": 87
         }
       }
+    },
+    {
+      "id": "rp2350-riscv-spi",
+      "result": ".remu/portfolio-smoke/rp2350-riscv-spi-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-riscv-spi-bus.json",
+      "result_sha256": "7b76a9d43c4a3a0aa8d8b3cb1f3f0c52ec460b4727d3fd49cae906724b74a1a4",
+      "bus_log_sha256": "b3c1f03ff0d36b9521f668319444b04db1f08f2e6db2f8bd73d90f4d5c004a2e",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "stats": {
+          "instructions": 56,
+          "time": 56,
+          "events": 0
+        }
+      }
     }
   ],
   "required_covered_regions": [
     "rp2350.pio0",
     "rp2350.sio",
     "rp2350.timer0",
-    "rp2350.uart0"
+    "rp2350.uart0",
+    "rp2350.spi0",
+    "rp2350.spi1"
   ],
-  "covered_register_count": 13,
+  "covered_register_count": 25,
   "covered_registers": [
     {
       "region": "rp2350.pio0",
@@ -235,6 +271,140 @@
       "access_count": 1
     },
     {
+      "region": "rp2350.spi0",
+      "address": 1074266112,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266116,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266120,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266124,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266132,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266140,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298880,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298884,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298888,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298892,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298900,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298908,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
       "region": "rp2350.timer0",
       "address": 1074462736,
       "operations": [
@@ -309,6 +479,7 @@
     "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
     "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
     "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
+    "SPI0 and SPI1 implement the PrimeCell SSP FIFO, status, interrupt and deterministic host-transfer slice; serial clock waveforms, DMA and exact slave timing are absent.",
     "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
     "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
   ]

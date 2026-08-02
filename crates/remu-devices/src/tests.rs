@@ -379,6 +379,108 @@ fn rp2350_sio_uses_interleaved_low_and_high_gpio_registers() {
 }
 
 #[test]
+fn rp2350_spi_models_primecell_fifo_loopback_and_interrupts() {
+    let (mut spi, handle) = Rp2350Spi::new("spi0");
+    assert_eq!(
+        Rp2350SpiRegister::from_offset(0x00c),
+        Some(Rp2350SpiRegister::Sr)
+    );
+    assert_eq!(Rp2350SpiRegister::Cr0.offset(), 0x000);
+    assert_eq!(Rp2350SpiRegister::from_offset(0x028), None);
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Sr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x03
+    );
+    spi.write(
+        Rp2350SpiRegister::Cr0.offset(),
+        AccessWidth::Word,
+        0x07,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2350SpiRegister::Cr1.offset(),
+        AccessWidth::Word,
+        0x03,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2350SpiRegister::Imsc.offset(),
+        AccessWidth::Word,
+        1 << 3,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2350SpiRegister::Dr.offset(),
+        AccessWidth::Word,
+        0x5a,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(handle.take_output(), vec![0x5a]);
+    assert!(handle.interrupt_pending());
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Dr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x5a
+    );
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Sr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x03
+    );
+
+    spi.write(
+        Rp2350SpiRegister::Cr1.offset(),
+        AccessWidth::Word,
+        0x02,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    handle.queue_input(&[0xa5]);
+    spi.write(
+        Rp2350SpiRegister::Dr.offset(),
+        AccessWidth::Word,
+        0x11,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Dr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0xa5
+    );
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Mis.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x08
+    );
+}
+
+#[test]
 fn rp_sio_echoes_bootrom_launch_and_routes_live_fifo_words() {
     let hub = SignalHub::new();
     let (mut sio, _, multicore) =
