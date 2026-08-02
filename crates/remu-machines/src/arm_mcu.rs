@@ -117,6 +117,7 @@ pub struct ArmMcuMachine {
     interrupt_signal: SignalId,
     traced_uart_len: usize,
     uart_strobe: bool,
+    elc_strobe: bool,
     now: SimTime,
     default_stack: u32,
     breakpoints: BTreeSet<u64>,
@@ -442,6 +443,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -591,6 +593,7 @@ impl ArmMcuMachine {
             interrupt_signal,
             traced_uart_len: 0,
             uart_strobe: false,
+            elc_strobe: false,
             now: SimTime::ZERO,
             default_stack: default_stack.expect("Arm target manifest has RAM"),
             breakpoints: BTreeSet::new(),
@@ -1383,6 +1386,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::RA4M1_EVENT_ELC_SOFTWARE0;
     use remu_image::FirmwareSegment;
 
     #[test]
