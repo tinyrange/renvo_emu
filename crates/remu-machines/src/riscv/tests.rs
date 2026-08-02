@@ -166,6 +166,83 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_i2c_mmio_executes_the_default_sgp30_driver_sequence() {
+    const BASE: u64 = 0x6000_4000;
+    const DATA: u64 = 0x1c;
+    const CTR: u64 = 0x04;
+    const COMMAND0: u64 = 0x58;
+    const RESTART: u32 = 6;
+    const WRITE: u32 = 1;
+    const READ: u32 = 3;
+    const STOP: u32 = 2;
+    const END: u32 = 4;
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let init_at = SimTime::ZERO;
+    let measure_at = SimTime::from_ticks(remu_devices::Sgp30::WARMUP_TICKS);
+
+    let write_word = |machine: &mut RiscVMachine, offset: u64, value: u32, at: SimTime| {
+        machine
+            .bus
+            .write(BASE + offset, AccessWidth::Word, u64::from(value), at)
+            .unwrap();
+    };
+    let command = |bytes: u32, opcode: u32| bytes | (opcode << 11);
+
+    for byte in [0xb0, 0x20, 0x03] {
+        write_word(&mut machine, DATA, byte, init_at);
+    }
+    for (index, value) in [
+        command(0, RESTART),
+        command(3, WRITE),
+        command(0, STOP),
+        command(0, END),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        write_word(&mut machine, COMMAND0 + index as u64 * 4, value, init_at);
+    }
+    write_word(&mut machine, CTR, 0x30, init_at);
+
+    for byte in [0xb0, 0x20, 0x08, 0xb1] {
+        write_word(&mut machine, DATA, byte, measure_at);
+    }
+    for (index, value) in [
+        command(0, RESTART),
+        command(3, WRITE),
+        command(0, RESTART),
+        command(1, WRITE),
+        command(6, READ),
+        command(0, STOP),
+        command(0, END),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        write_word(&mut machine, COMMAND0 + index as u64 * 4, value, measure_at);
+    }
+    write_word(&mut machine, CTR, 0x30, measure_at);
+
+    let measurement = (0..6)
+        .map(|_| {
+            machine
+                .bus
+                .read(BASE + DATA, AccessWidth::Word, AccessKind::Read, measure_at)
+                .unwrap() as u8
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(measurement.len(), 6);
+    assert_eq!(measurement[0..2], [0x01, 0xa4]);
+    assert_eq!(
+        machine.signals.with_registry(|registry| {
+            registry.find("board.esp32c6.i2c0.sda").is_some()
+                && registry.find("board.esp32c6.i2c0.scl").is_some()
+        }),
+        true
+    );
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]
