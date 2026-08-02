@@ -941,7 +941,11 @@ impl XtensaCpu {
         {
             let call_increment =
                 usize::try_from(((instruction & 0xff) - 0xc0) >> 4).unwrap_or_default() * 4;
-            let target = self.registers[source];
+            // Indirect Xtensa calls enter on a four-byte instruction
+            // boundary. The hardware discards the register's low two bits;
+            // retaining them would let functional execution fetch an
+            // impossible halfword/byte-aligned target.
+            let target = self.registers[source] & !3;
             if call_increment == 0 {
                 self.registers[0] = next;
                 self.pc = target;
