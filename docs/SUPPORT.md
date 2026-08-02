@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and CPU0/CPU1 interrupt-matrix routing |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -85,6 +85,13 @@ model is not tied to target clock frequency. Baseline PIO executes one
 instruction per abstract tick and intentionally ignores divider and delay
 timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
+
+The ESP32-S3 interrupt-matrix slice maps the native CPU0 route window at
+`0x600c2000..0x600c21fc` and CPU1 window at `0x600c2800..0x600c29fc`.
+Five-bit source-to-interrupt routing is shared directly with the deterministic
+Xtensa scheduler, including native `0x1f` disabled encoding. Priority,
+interrupt nesting, NMI behavior, and cycle-accurate SMP arbitration remain
+outside the functional model.
 
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
@@ -207,6 +214,7 @@ the target manifests and `PLAN.html`, principally:
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif’s official [ESP32-S3 CPU0 interrupt-matrix register definitions](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s3/register/soc/interrupt_core0_reg.h) and [CPU1 definitions](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s3/register/soc/interrupt_core1_reg.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either

@@ -794,16 +794,8 @@ impl XtensaMachine {
                 if std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some() {
                     eprintln!("interrupt route cpu={cpu} source={source} line={interrupt}");
                 }
-                if let Some(route) = usize::try_from(cpu)
-                    .ok()
-                    .and_then(|cpu| self.interrupt_routes.get_mut(cpu))
-                    .and_then(|routes| {
-                        usize::try_from(source)
-                            .ok()
-                            .and_then(|source| routes.get_mut(source))
-                    })
-                {
-                    *route = u8::try_from(interrupt).unwrap_or(u8::MAX);
+                if let (Ok(core), Ok(source)) = (usize::try_from(cpu), usize::try_from(source)) {
+                    self.interrupt_matrix.set_route(core, source, interrupt);
                 }
                 self.complete_functional_rom_call(0)?;
             }
