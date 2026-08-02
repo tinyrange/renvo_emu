@@ -39,6 +39,8 @@ mod esp_usb_otg_register;
 pub use esp_usb_otg_register::*;
 mod rp_adc;
 pub use rp_adc::*;
+mod rp_power;
+pub use rp_power::*;
 mod esp;
 pub use esp::*;
 mod esp_spi;
