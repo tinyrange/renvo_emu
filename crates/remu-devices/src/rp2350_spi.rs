@@ -183,8 +183,14 @@ impl Rp2350SpiState {
 /// The model preserves the documented eight-word FIFOs, control/status registers and interrupt
 /// conditions. Transfers complete immediately in abstract time: writes are captured by the host
 /// handle and each frame receives either queued host data, loopback data, or zero when no external
-/// response is supplied. Bit-level clock waveforms and DMA handshakes are intentionally outside
-/// this functional slice.
+/// response is supplied. Register access follows the RP2350 APB interconnect contract: byte and
+/// halfword writes are replicated over the peripheral bus, reads select the addressed lane, and
+/// the RP atomic XOR/SET/CLEAR aliases are accepted for ordinary writable registers. Bit-level
+/// clock waveforms and DMA handshakes are intentionally outside this functional slice.
+///
+/// Register offsets and reset values are audited against the [RP2350 datasheet, section 12.3
+/// SPI](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf) and Raspberry Pi's
+/// generated [`spi.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2350/hardware_regs/include/hardware/regs/spi.h).
 pub struct Rp2350Spi {
     name: String,
     state: Arc<Mutex<Rp2350SpiState>>,
@@ -244,16 +250,58 @@ impl Rp2350SpiHandle {
     }
 }
 
+fn atomic_update(current: u32, alias: u64, value: u32) -> u32 {
+    match alias {
+        0 => value,
+        1 => current ^ value,
+        2 => current | value,
+        3 => current & !value,
+        _ => unreachable!("RP2350 SPI atomic alias is two bits"),
+    }
+}
+
+fn replicated_write(value: u64, width: AccessWidth) -> Result<u32, DeviceError> {
+    match width {
+        AccessWidth::Byte => {
+            let value = u32::try_from(value & 0xff).expect("SPI byte value fits");
+            Ok(value | (value << 8) | (value << 16) | (value << 24))
+        }
+        AccessWidth::HalfWord => {
+            let value = u32::try_from(value & 0xffff).expect("SPI halfword value fits");
+            Ok(value | (value << 16))
+        }
+        AccessWidth::Word => u32::try_from(value & u64::from(u32::MAX))
+            .map_err(|_| DeviceError::new("RP2350 SPI value overflow")),
+        AccessWidth::DoubleWord => Err(DeviceError::new(
+            "RP2350 SPI does not support 64-bit access",
+        )),
+    }
+}
+
+fn read_lane(value: u32, offset: u64, width: AccessWidth) -> Result<u64, DeviceError> {
+    match width {
+        AccessWidth::Byte => Ok(u64::from((value >> ((offset & 3) * 8)) & 0xff)),
+        AccessWidth::HalfWord => Ok(u64::from((value >> ((offset & 2) * 8)) & 0xffff)),
+        AccessWidth::Word => Ok(u64::from(value)),
+        AccessWidth::DoubleWord => Err(DeviceError::new(
+            "RP2350 SPI does not support 64-bit access",
+        )),
+    }
+}
+
 impl Device for Rp2350Spi {
     fn name(&self) -> &str {
         &self.name
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || !width.is_aligned(offset) {
-            return Err(DeviceError::new("RP2350 SPI requires aligned word access"));
+        if width == AccessWidth::DoubleWord {
+            return Err(DeviceError::new(
+                "RP2350 SPI does not support 64-bit access",
+            ));
         }
-        let register = Rp2350SpiRegister::from_offset(offset & 0x0fff)
+        let register_offset = (offset & 0x0fff) & !3;
+        let register = Rp2350SpiRegister::from_offset(register_offset)
             .ok_or_else(|| DeviceError::new(format!("{} read at {offset:#x}", self.name)))?;
         let mut state = self.state.lock().expect("RP2350 SPI lock poisoned");
         let value = match register {
@@ -269,7 +317,7 @@ impl Device for Rp2350Spi {
             Rp2350SpiRegister::Ic => 0,
             _ => state.registers[register.offset() as usize / 4],
         };
-        Ok(u64::from(value))
+        read_lane(value, offset, width)
     }
 
     fn write(
@@ -279,16 +327,19 @@ impl Device for Rp2350Spi {
         value: u64,
         _at: SimTime,
     ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || !width.is_aligned(offset) {
-            return Err(DeviceError::new("RP2350 SPI requires aligned word access"));
-        }
-        let register = Rp2350SpiRegister::from_offset(offset & 0x0fff)
+        let register_offset = (offset & 0x0fff) & !3;
+        let alias = (offset >> 12) & 3;
+        let register = Rp2350SpiRegister::from_offset(register_offset)
             .ok_or_else(|| DeviceError::new(format!("{} write at {offset:#x}", self.name)))?;
-        let value =
-            u32::try_from(value).map_err(|_| DeviceError::new("RP2350 SPI value overflow"))?;
+        let value = replicated_write(value, width)?;
         let mut state = self.state.lock().expect("RP2350 SPI lock poisoned");
         match register {
             Rp2350SpiRegister::Dr => {
+                if alias != 0 {
+                    return Err(DeviceError::new(
+                        "RP2350 SPI atomic aliases are not valid for the FIFO data register",
+                    ));
+                }
                 if state.tx_fifo.len() >= FIFO_DEPTH {
                     return Err(DeviceError::new("RP2350 SPI transmit FIFO is full"));
                 }
@@ -297,11 +348,13 @@ impl Device for Rp2350Spi {
                 state.process_tx();
             }
             Rp2350SpiRegister::Cr0 => {
-                state.registers[register.offset() as usize / 4] = value & 0x0000_ffff;
+                let current = state.registers[register.offset() as usize / 4];
+                state.registers[register.offset() as usize / 4] =
+                    atomic_update(current, alias, value) & 0x0000_ffff;
             }
             Rp2350SpiRegister::Cr1 => {
                 let old = state.registers[register.offset() as usize / 4];
-                let mut next = value & 0x0f;
+                let mut next = atomic_update(old, alias, value) & 0x0f;
                 if old & CR1_SSE != 0 {
                     next = (next & !CR1_MS) | (old & CR1_MS);
                 }
@@ -309,12 +362,21 @@ impl Device for Rp2350Spi {
                 state.process_tx();
             }
             Rp2350SpiRegister::Cpsr => {
-                state.registers[register.offset() as usize / 4] = value & 0xfe;
+                let current = state.registers[register.offset() as usize / 4];
+                // CPSDVSR is specified as an even divisor from 2 through 254. Preserve the
+                // reset value of zero, round odd writes down, and clamp oversized writes to
+                // the highest legal divisor rather than exposing an impossible clock setting.
+                let requested = atomic_update(current, alias, value) & 0xff;
+                state.registers[register.offset() as usize / 4] = requested.min(0xfe) & !1;
             }
             Rp2350SpiRegister::Imsc => {
-                state.registers[register.offset() as usize / 4] = value & IMSC_MASK;
+                let current = state.registers[register.offset() as usize / 4];
+                state.registers[register.offset() as usize / 4] =
+                    atomic_update(current, alias, value) & IMSC_MASK;
             }
             Rp2350SpiRegister::Ic => {
+                // SSPICR is write-clear. Atomic aliases land on the same write-clear
+                // destination, so the asserted clear bits retain their peripheral meaning.
                 if value & (1 << 1) != 0 {
                     state.receive_timeout = false;
                 }
@@ -323,7 +385,9 @@ impl Device for Rp2350Spi {
                 }
             }
             Rp2350SpiRegister::Dmacr => {
-                state.registers[register.offset() as usize / 4] = value & 3;
+                let current = state.registers[register.offset() as usize / 4];
+                state.registers[register.offset() as usize / 4] =
+                    atomic_update(current, alias, value) & 3;
             }
             Rp2350SpiRegister::Sr
             | Rp2350SpiRegister::Ris
