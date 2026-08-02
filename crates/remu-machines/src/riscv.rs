@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    Esp32c6I2c, EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks,
+    Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -480,6 +480,10 @@ impl RiscVMachine {
         }
 
         let signals = SignalHub::new();
+        if target == TargetId::Esp32c6 {
+            let i2c = Esp32c6I2c::new("esp32c6.i2c0", signals.clone())?;
+            bus.map_device("esp32c6.i2c0", 0x6000_4000, 0x1000, Box::new(i2c))?;
+        }
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
             format!("{target}.compiler-gpio"),
@@ -643,7 +647,6 @@ impl RiscVMachine {
                     Box::new(EspSpiMem::new("esp32c6.spimem1")),
                 )?;
                 for (name, base) in [
-                    ("esp32c6.i2c0", 0x6000_4000),
                     ("esp32c6.uhci0", 0x6000_5000),
                     ("esp32c6.rmt", 0x6000_6000),
                     ("esp32c6.ledc", 0x6000_7000),

@@ -237,9 +237,10 @@ push buttons, LEDs, WS2812 RGB LEDs, and an SGP30 sensor; a test can attach the
 sensor with `board.connect("grove", sensor)`.
 
 The current board/component scenario validates topology and digital protocol
-models independently. Live ESP32-C6 firmware MMIO is not yet routed into the
-assembled board graph, so this is not yet an end-to-end firmware-driver model.
-See [board simulation](docs/BOARD_SIMULATION.md) for the exact boundary.
+models independently. The standalone ESP32-C6 machine now has a functional I2C0
+MMIO slice with a default SGP30 transaction model, but firmware traffic is not
+yet routed through the Starlark-assembled board graph. See
+[board simulation](docs/BOARD_SIMULATION.md) for the exact boundary.
 
 ## Architecture
 
