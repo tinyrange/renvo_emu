@@ -15,7 +15,7 @@ uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
 state, PORT A, EIC, TC3, SERCOM0 USART, SPI host, I²C host, EVSYS, USB, I2S,
-ADC, AC, and watchdog, plus the DMAC common/channel registers. The DMAC model follows the
+ADC, AC, DAC, and watchdog, plus the DMAC common/channel registers. The DMAC model follows the
 vendor masks and direct/W1C access semantics, including the reserved gap
 between DBGCTRL and SWTRIGCTRL. It executes one valid
 software-triggered descriptor for memory-to-memory byte/halfword/word
@@ -43,8 +43,17 @@ edge/EOC flags, window state, and VCD-visible digital comparator outputs. It
 follows vendor masks, raw interrupt alias semantics, CTRLA low-power bits, and
 SWAP behavior. Comparator filtering, startup behavior, and exact window
 electrical behavior remain unsupported.
-VCD exposes PORT, timer, UART, comparator, and interrupt hierarchy, and the gate
-compares two runs byte-for-byte.
+The DAC follows the native `CTRLA`, `CTRLB`, `EVCTRL`, interrupt, `DATA`, and
+`DATABUF` offsets, including 10-bit right/left adjustment, buffered start,
+EMPTY/UNDERRUN flags, and IRQ 25. Its VCD `output_code` is a deterministic
+10-bit digital observation rather than an analog voltage. Analog settling and
+reference voltage are unsupported.
+VCD exposes PORT, timer, UART, comparator, DAC, and interrupt hierarchy, and the gate compares
+two runs byte-for-byte.
+
+The DAC register map and bit definitions are sourced from Microchip
+DS40001882E, section 35:
+<https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf>.
 
 The vendor lane builds the pinned Microchip Harmony
 `port_led_on_off_polling` main source unchanged. Tracked startup, declarations

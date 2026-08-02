@@ -72,6 +72,9 @@ typedef unsigned int u32;
 #define AC_STATUSA REG8(0x42004408u)
 #define AC_STATUSB REG8(0x42004409u)
 #define AC_COMPCTRL0 REG32(0x42004410u)
+#define DAC_CTRLA REG8(0x42004800u)
+#define DAC_CTRLB REG8(0x42004801u)
+#define DAC_DATA REG16(0x42004808u)
 #define NVIC_ISER0 REG32(0xe000e100u)
 
 static volatile u32 timer_interrupts;
@@ -157,7 +160,8 @@ int main(void)
                        record.wide != 0x89abcdefu) << 9);
     failures |= (u32)(((int)state != 300) << 10);
 
-    PM_APBCMASK |= (1u << 2) | (1u << 11) | (1u << 16) | (1u << 17) | (1u << 20);
+    PM_APBCMASK |=
+        (1u << 2) | (1u << 11) | (1u << 16) | (1u << 17) | (1u << 18) | (1u << 20);
     GCLK_CLKCTRL = (u16)((0x14u << 8) | 0u | (1u << 14));
 
     EVSYS_CTRL = 1u << 4;
@@ -276,6 +280,10 @@ int main(void)
     AC_CTRLB = 1u;
     failures |= (u32)((AC_STATUSB & 1u) == 0u) << 28;
     failures |= (u32)((AC_STATUSA & 1u) != 0u) << 29;
+
+    DAC_CTRLB = 1u;
+    DAC_CTRLA = 1u << 1;
+    DAC_DATA = 0x2a5u;
 
     TC3_CC0 = 8u;
     TC3_INTENSET = 1u << 4;
