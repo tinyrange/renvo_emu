@@ -52,6 +52,8 @@ grep -q '^\$scope module sercom0 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^0' "$artifact_root/run-a/gpio.vcd"
 grep -q '^1' "$artifact_root/run-a/gpio.vcd"
+jq -e '[.[] | select(.region == "atsamd21e18.dmac")] | length >= 9' \
+    "$artifact_root/run-a/bus.json" >/dev/null
 
 for optimization in O0 Os; do
     mkdir -p "$artifact_root/build-$optimization" "$artifact_root/run-$optimization"

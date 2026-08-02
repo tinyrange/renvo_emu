@@ -32,6 +32,8 @@ mod functional;
 pub use functional::*;
 mod samd;
 pub use samd::*;
+mod samd_dmac;
+pub use samd_dmac::*;
 mod stm32;
 pub use stm32::*;
 mod ra;
