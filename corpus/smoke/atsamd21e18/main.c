@@ -23,7 +23,9 @@ typedef unsigned int u32;
 #define EIC_CONFIG0 REG32(0x40001818u)
 #define SERCOM0_CTRLA REG32(0x42000800u)
 #define SERCOM0_CTRLB REG32(0x42000804u)
+#define SERCOM0_STATUS REG16(0x4200081au)
 #define SERCOM0_INTFLAG REG8(0x42000818u)
+#define SERCOM0_ADDR REG32(0x42000824u)
 #define SERCOM0_DATA REG16(0x42000828u)
 #define NVIC_ISER0 REG32(0xe000e100u)
 
@@ -113,6 +115,27 @@ int main(void)
     SERCOM0_CTRLB = 1u << 17;
     SERCOM0_CTRLA |= 1u << 1;
     uart_write("SAMD21\n");
+
+    /* Exercise the native SERCOM0 SPI and I2C host register paths before returning to USART. */
+    SERCOM0_CTRLA = 3u << 2;
+    SERCOM0_CTRLB = 1u << 17;
+    SERCOM0_CTRLA |= 1u << 1;
+    SERCOM0_DATA = 0x3cu;
+    while ((SERCOM0_INTFLAG & (1u << 2)) == 0u) {
+    }
+    failures |= (u32)((SERCOM0_DATA != 0x3cu) << 11);
+
+    SERCOM0_CTRLA = 5u << 2;
+    SERCOM0_CTRLB = 1u << 8;
+    SERCOM0_CTRLA |= 1u << 1;
+    SERCOM0_ADDR = 0xa0u;
+    failures |= (u32)((SERCOM0_INTFLAG & 1u) == 0u) << 12;
+    SERCOM0_DATA = 0x10u;
+    SERCOM0_CTRLB = 2u << 16;
+    failures |= (u32)((SERCOM0_STATUS & (3u << 4)) != (1u << 4)) << 13;
+
+    SERCOM0_CTRLA = 1u << 2;
+    SERCOM0_CTRLA |= 1u << 1;
 
     TC3_CC0 = 8u;
     TC3_INTENSET = 1u << 4;

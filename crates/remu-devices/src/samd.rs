@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 fn width_bytes(width: AccessWidth) -> usize {
@@ -43,6 +44,14 @@ fn write_le(
         *byte = (value >> (shift * 8)) as u8;
     }
     Ok(())
+}
+
+fn narrow_u32(value: u32, width: AccessWidth) -> u64 {
+    match width {
+        AccessWidth::Byte => u64::from(value & 0xff),
+        AccessWidth::HalfWord => u64::from(value & 0xffff),
+        AccessWidth::Word | AccessWidth::DoubleWord => u64::from(value),
+    }
 }
 
 /// Byte-addressable SAM D21 startup register block with deterministic reset bytes.
@@ -358,11 +367,264 @@ impl Device for Samd21Tc {
     }
 }
 
+/// Operating mode selected by the SERCOM `CTRLA.MODE` field.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Samd21SercomMode {
+    /// USART mode with an external or internal clock (MODE 0 or 1).
+    #[default]
+    Usart,
+    /// SPI host/master mode (MODE 3).
+    SpiMaster,
+    /// SPI client/slave mode (MODE 2).
+    SpiSlave,
+    /// I²C host/master mode (MODE 5).
+    I2cMaster,
+    /// I²C client/slave mode (MODE 4).
+    I2cSlave,
+    /// A reserved or unsupported SERCOM mode value.
+    Other(u8),
+}
+
+impl Samd21SercomMode {
+    fn from_ctrla(value: u32) -> Self {
+        match ((value >> 2) & 0x7) as u8 {
+            0 | 1 => Self::Usart,
+            2 => Self::SpiSlave,
+            3 => Self::SpiMaster,
+            4 => Self::I2cSlave,
+            5 => Self::I2cMaster,
+            mode => Self::Other(mode),
+        }
+    }
+
+    fn ctrla_mask(self) -> u32 {
+        match self {
+            Self::Usart => 0x7ff3_e19f,
+            Self::SpiMaster | Self::SpiSlave => 0x7f33_019f,
+            Self::I2cMaster => 0x7bf1_009f,
+            Self::I2cSlave => 0x4bb1_009f,
+            Self::Other(_) => 0x0000_001f,
+        }
+    }
+
+    fn ctrlb_mask(self) -> u32 {
+        match self {
+            Self::Usart => 0x0003_2747,
+            Self::SpiMaster | Self::SpiSlave => 0x0002_e247,
+            Self::I2cMaster => 0x0007_0300,
+            Self::I2cSlave => 0x0007_c700,
+            Self::Other(_) => 0,
+        }
+    }
+
+    fn baud_mask(self) -> u32 {
+        match self {
+            Self::Usart => 0x0000_ffff,
+            Self::SpiMaster | Self::SpiSlave => 0x0000_00ff,
+            Self::I2cMaster => u32::MAX,
+            Self::I2cSlave | Self::Other(_) => 0,
+        }
+    }
+
+    fn command_mask(self) -> u32 {
+        if matches!(self, Self::I2cMaster | Self::I2cSlave) {
+            0x0003_0000
+        } else {
+            0
+        }
+    }
+
+    fn interrupt_mask(self) -> u8 {
+        match self {
+            Self::Usart => 0xbf,
+            Self::SpiMaster | Self::SpiSlave => 0x8f,
+            Self::I2cMaster => 0x83,
+            Self::I2cSlave => 0x87,
+            Self::Other(_) => 0,
+        }
+    }
+
+    fn status_mask(self) -> u16 {
+        match self {
+            Self::Usart => 0x003f,
+            Self::SpiMaster | Self::SpiSlave => 0x0004,
+            Self::I2cMaster => 0x07f7,
+            Self::I2cSlave => 0x06df,
+            Self::Other(_) => 0,
+        }
+    }
+
+    fn addr_mask(self) -> u32 {
+        match self {
+            Self::SpiMaster | Self::SpiSlave => 0x00ff_00ff,
+            Self::I2cMaster => 0x00ff_e7ff,
+            Self::I2cSlave => 0x07fe_87ff,
+            _ => 0,
+        }
+    }
+}
+
+/// Native ATSAMD21 SERCOM register identifiers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Samd21SercomRegister {
+    /// Control A.
+    Ctrla,
+    /// Control B.
+    Ctrlb,
+    /// Baud rate.
+    Baud,
+    /// USART receive pulse length.
+    RxPulse,
+    /// Interrupt enable clear alias.
+    Intenclr,
+    /// Interrupt enable set alias.
+    Intenset,
+    /// Interrupt flag status and clear.
+    Intflag,
+    /// Status.
+    Status,
+    /// Synchronization busy.
+    Syncbusy,
+    /// Address.
+    Addr,
+    /// Data.
+    Data,
+    /// Debug control.
+    Dbgctrl,
+}
+
+impl Samd21SercomRegister {
+    /// Converts a native SERCOM register offset to its named ID.
+    pub const fn from_offset(offset: usize) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Ctrla),
+            0x04 => Some(Self::Ctrlb),
+            0x0c => Some(Self::Baud),
+            0x0e => Some(Self::RxPulse),
+            0x14 => Some(Self::Intenclr),
+            0x16 => Some(Self::Intenset),
+            0x18 => Some(Self::Intflag),
+            0x1a => Some(Self::Status),
+            0x1c => Some(Self::Syncbusy),
+            0x24 => Some(Self::Addr),
+            0x28 => Some(Self::Data),
+            0x30 => Some(Self::Dbgctrl),
+            _ => None,
+        }
+    }
+
+    /// Returns the native byte offset of this register.
+    pub const fn offset(self) -> usize {
+        match self {
+            Self::Ctrla => 0x00,
+            Self::Ctrlb => 0x04,
+            Self::Baud => 0x0c,
+            Self::RxPulse => 0x0e,
+            Self::Intenclr => 0x14,
+            Self::Intenset => 0x16,
+            Self::Intflag => 0x18,
+            Self::Status => 0x1a,
+            Self::Syncbusy => 0x1c,
+            Self::Addr => 0x24,
+            Self::Data => 0x28,
+            Self::Dbgctrl => 0x30,
+        }
+    }
+}
+
+const SERCOM_CTRLA_SWRST: u32 = 1;
+const SERCOM_CTRLA_ENABLE: u32 = 1 << 1;
+const SERCOM_CTRLB_ACKACT: u32 = 1 << 18;
+const SERCOM_SPI_CTRLB_RXEN: u32 = 1 << 17;
+const SERCOM_I2C_INTFLAG_MB: u8 = 1;
+const SERCOM_I2C_INTFLAG_SB: u8 = 1 << 1;
+const SERCOM_SPI_INTFLAG_DRE: u8 = 1;
+const SERCOM_SPI_INTFLAG_TXC: u8 = 1 << 1;
+const SERCOM_SPI_INTFLAG_RXC: u8 = 1 << 2;
+const SERCOM_I2C_STATUS_BUSERR: u16 = 1;
+const SERCOM_I2C_STATUS_ARBLOST: u16 = 1 << 1;
+const SERCOM_I2C_STATUS_BUSSTATE_MASK: u16 = 0x30;
+const SERCOM_I2C_STATUS_CLKHOLD: u16 = 1 << 7;
+const SERCOM_I2C_BUSSTATE_UNKNOWN: u8 = 0;
+const SERCOM_I2C_BUSSTATE_IDLE: u8 = 1;
+const SERCOM_I2C_BUSSTATE_OWNER: u8 = 2;
+
 #[derive(Default)]
 struct UsartState {
     enabled: bool,
     interrupt_enable: u8,
+    interrupt_flags: u8,
     bytes: Vec<u8>,
+    mode: Samd21SercomMode,
+    spi_rx: VecDeque<u8>,
+    spi_injected: VecDeque<u8>,
+    spi_tx: Vec<u8>,
+    i2c_rx: VecDeque<u8>,
+    i2c_tx: Vec<u8>,
+    i2c_address: Option<u16>,
+    ctrla: u32,
+    ctrlb: u32,
+    baud: u32,
+    rx_pulse: u8,
+    status: u16,
+    addr: u32,
+    dbgctrl: u8,
+}
+
+impl UsartState {
+    fn flags(&self) -> u8 {
+        let mut flags = self.interrupt_flags & self.mode.interrupt_mask();
+        match self.mode {
+            // The original USART acceptance slice exposes DRE continuously so existing
+            // firmware can use its bounded polling loop without a clock model.
+            Samd21SercomMode::Usart => flags |= 1,
+            Samd21SercomMode::SpiMaster => {
+                if self.enabled {
+                    flags |= SERCOM_SPI_INTFLAG_DRE;
+                }
+                if self.ctrlb & SERCOM_SPI_CTRLB_RXEN != 0 && !self.spi_rx.is_empty() {
+                    flags |= SERCOM_SPI_INTFLAG_RXC;
+                }
+            }
+            Samd21SercomMode::SpiSlave
+            | Samd21SercomMode::I2cMaster
+            | Samd21SercomMode::I2cSlave => {}
+            Samd21SercomMode::Other(_) => {}
+        }
+        flags & self.mode.interrupt_mask()
+    }
+
+    fn status_value(&self) -> u16 {
+        self.status & self.mode.status_mask()
+    }
+
+    fn apply_ctrla(&mut self, value: u32) {
+        let mode = Samd21SercomMode::from_ctrla(value);
+        self.mode = mode;
+        self.ctrla = value & mode.ctrla_mask() & !SERCOM_CTRLA_SWRST;
+        self.enabled = self.ctrla & SERCOM_CTRLA_ENABLE != 0;
+        self.ctrlb &= mode.ctrlb_mask() & !mode.command_mask();
+        self.baud &= mode.baud_mask();
+        self.addr &= mode.addr_mask();
+        self.interrupt_enable &= mode.interrupt_mask();
+        self.interrupt_flags = 0;
+        self.spi_rx.clear();
+        self.spi_injected.clear();
+        self.i2c_rx.clear();
+        self.i2c_address = None;
+        self.status = if matches!(mode, Samd21SercomMode::I2cMaster) && self.enabled {
+            SERCOM_I2C_BUSSTATE_UNKNOWN as u16
+        } else {
+            0
+        };
+    }
+
+    fn reset_protocol(&mut self) -> u8 {
+        let dbgctrl = self.dbgctrl;
+        *self = Self::default();
+        self.dbgctrl = dbgctrl;
+        dbgctrl
+    }
 }
 
 /// Machine-facing SAM D21 SERCOM USART output and interrupt state.
@@ -370,36 +632,293 @@ struct UsartState {
 pub struct Samd21UsartHandle(Arc<Mutex<UsartState>>);
 
 impl Samd21UsartHandle {
-    /// Bytes transmitted through the DATA register.
+    /// Bytes transmitted through the USART DATA register.
     pub fn bytes(&self) -> Vec<u8> {
         self.0.lock().expect("USART lock poisoned").bytes.clone()
     }
 
-    /// Whether the data-register-empty interrupt is enabled.
+    /// Returns the currently selected SERCOM protocol mode.
+    pub fn mode(&self) -> Samd21SercomMode {
+        self.0.lock().expect("USART lock poisoned").mode
+    }
+
+    /// Returns bytes transmitted in SPI mode.
+    pub fn spi_bytes(&self) -> Vec<u8> {
+        self.0.lock().expect("USART lock poisoned").spi_tx.clone()
+    }
+
+    /// Queues deterministic bytes for the next SPI master receive operations.
+    pub fn queue_spi_rx(&self, bytes: impl IntoIterator<Item = u8>) {
+        self.0
+            .lock()
+            .expect("USART lock poisoned")
+            .spi_injected
+            .extend(bytes);
+    }
+
+    /// Returns bytes transmitted in I²C host mode.
+    pub fn i2c_bytes(&self) -> Vec<u8> {
+        self.0.lock().expect("USART lock poisoned").i2c_tx.clone()
+    }
+
+    /// Queues deterministic bytes for the next I²C master read operations.
+    pub fn queue_i2c_rx(&self, bytes: impl IntoIterator<Item = u8>) {
+        self.0
+            .lock()
+            .expect("USART lock poisoned")
+            .i2c_rx
+            .extend(bytes);
+    }
+
+    /// Returns the most recently addressed I²C host address, including its R/W bit.
+    pub fn i2c_address(&self) -> Option<u16> {
+        self.0.lock().expect("USART lock poisoned").i2c_address
+    }
+
+    /// Whether an enabled SERCOM interrupt is pending.
     pub fn interrupt_pending(&self) -> bool {
-        self.0.lock().expect("USART lock poisoned").interrupt_enable & 1 != 0
+        let state = self.0.lock().expect("USART lock poisoned");
+        state.interrupt_enable & state.flags() != 0
     }
 }
 
-/// Functional SAM D21 SERCOM USART startup/transmit slice.
+/// Functional SAM D21 SERCOM register slice.
 pub struct Samd21Usart {
     name: String,
     state: Arc<Mutex<UsartState>>,
-    registers: [u8; 0x30],
+    registers: [u8; 0x34],
 }
 
 impl Samd21Usart {
-    /// Constructs SERCOM USART and its observation handle.
+    /// Constructs SERCOM and its observation handle.
     pub fn new(name: impl Into<String>) -> (Self, Samd21UsartHandle) {
         let state = Arc::new(Mutex::new(UsartState::default()));
         (
             Self {
                 name: name.into(),
                 state: state.clone(),
-                registers: [0; 0x30],
+                registers: [0; 0x34],
             },
             Samd21UsartHandle(state),
         )
+    }
+
+    fn raw_register(&self, register: Samd21SercomRegister) -> u32 {
+        let state = self.state.lock().expect("USART lock poisoned");
+        match register {
+            Samd21SercomRegister::Ctrla => state.ctrla,
+            Samd21SercomRegister::Ctrlb => state.ctrlb,
+            Samd21SercomRegister::Baud => state.baud,
+            Samd21SercomRegister::RxPulse => u32::from(state.rx_pulse),
+            Samd21SercomRegister::Intenclr | Samd21SercomRegister::Intenset => {
+                u32::from(state.interrupt_enable)
+            }
+            Samd21SercomRegister::Intflag => u32::from(state.flags()),
+            Samd21SercomRegister::Status => u32::from(state.status_value()),
+            Samd21SercomRegister::Syncbusy => 0,
+            Samd21SercomRegister::Addr => state.addr,
+            Samd21SercomRegister::Data => 0,
+            Samd21SercomRegister::Dbgctrl => u32::from(state.dbgctrl),
+        }
+    }
+
+    fn store_register(&mut self, register: Samd21SercomRegister, value: u32) {
+        let offset = register.offset();
+        let bytes = value.to_le_bytes();
+        let end = (offset + 4).min(self.registers.len());
+        self.registers[offset..end].copy_from_slice(&bytes[..end - offset]);
+    }
+
+    fn merged_value(
+        &self,
+        register: Samd21SercomRegister,
+        width: AccessWidth,
+        value: u64,
+    ) -> Result<u32, DeviceError> {
+        let mut bytes = self.raw_register(register).to_le_bytes();
+        write_le(&mut bytes, 0, width, value)?;
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn write_data(&mut self, value: u8) {
+        let mut state = self.state.lock().expect("USART lock poisoned");
+        match state.mode {
+            Samd21SercomMode::Usart | Samd21SercomMode::Other(_) => state.bytes.push(value),
+            Samd21SercomMode::SpiMaster => {
+                state.spi_tx.push(value);
+                state.interrupt_flags &= !SERCOM_SPI_INTFLAG_TXC;
+                state.interrupt_flags |= SERCOM_SPI_INTFLAG_TXC;
+                if state.ctrlb & SERCOM_SPI_CTRLB_RXEN != 0 {
+                    let response = state.spi_injected.pop_front().unwrap_or(value);
+                    state.spi_rx.push_back(response);
+                }
+            }
+            // No pin-level SPI client clock is available yet; retain the transmit byte but do
+            // not fabricate a receive completion for client mode.
+            Samd21SercomMode::SpiSlave => state.spi_tx.push(value),
+            Samd21SercomMode::I2cMaster => {
+                if state.enabled && state.addr & 1 == 0 {
+                    state.i2c_tx.push(value);
+                    state.interrupt_flags &= !SERCOM_I2C_INTFLAG_MB;
+                    state.status &= !SERCOM_I2C_STATUS_CLKHOLD;
+                    state.interrupt_flags |= SERCOM_I2C_INTFLAG_MB;
+                    state.status |= SERCOM_I2C_STATUS_CLKHOLD;
+                }
+            }
+            Samd21SercomMode::I2cSlave => {}
+        }
+    }
+
+    fn read_data(&mut self) -> u8 {
+        let mut state = self.state.lock().expect("USART lock poisoned");
+        match state.mode {
+            Samd21SercomMode::SpiMaster => {
+                let value = state.spi_rx.pop_front().unwrap_or(0);
+                if state.spi_rx.is_empty() {
+                    state.interrupt_flags &= !SERCOM_SPI_INTFLAG_RXC;
+                }
+                value
+            }
+            Samd21SercomMode::I2cMaster => {
+                let value = state.i2c_rx.pop_front().unwrap_or(0);
+                state.interrupt_flags &= !SERCOM_I2C_INTFLAG_SB;
+                state.status &= !SERCOM_I2C_STATUS_CLKHOLD;
+                value
+            }
+            _ => 0,
+        }
+    }
+
+    fn issue_i2c_command(&mut self, command: u32) {
+        let mut state = self.state.lock().expect("USART lock poisoned");
+        if !matches!(
+            state.mode,
+            Samd21SercomMode::I2cMaster | Samd21SercomMode::I2cSlave
+        ) {
+            return;
+        }
+        match command & 0x3 {
+            1 => {
+                if state.mode == Samd21SercomMode::I2cMaster {
+                    state.status = (state.status & !SERCOM_I2C_STATUS_BUSSTATE_MASK)
+                        | (u16::from(SERCOM_I2C_BUSSTATE_OWNER) << 4);
+                }
+                state.interrupt_flags &= !(SERCOM_I2C_INTFLAG_MB | SERCOM_I2C_INTFLAG_SB);
+                state.status &= !SERCOM_I2C_STATUS_CLKHOLD;
+            }
+            2 => {
+                state.status = (state.status & !SERCOM_I2C_STATUS_BUSSTATE_MASK)
+                    | (u16::from(SERCOM_I2C_BUSSTATE_IDLE) << 4);
+                state.interrupt_flags &= !(SERCOM_I2C_INTFLAG_MB | SERCOM_I2C_INTFLAG_SB);
+                state.status &= !SERCOM_I2C_STATUS_CLKHOLD;
+            }
+            3 => {
+                state.interrupt_flags &= !(SERCOM_I2C_INTFLAG_MB | SERCOM_I2C_INTFLAG_SB);
+                state.status &= !SERCOM_I2C_STATUS_CLKHOLD;
+            }
+            _ => {}
+        }
+    }
+
+    fn write_ctrla(&mut self, width: AccessWidth, value: u64) -> Result<(), DeviceError> {
+        let raw = self.merged_value(Samd21SercomRegister::Ctrla, width, value)?;
+        let mut state = self.state.lock().expect("USART lock poisoned");
+        if raw & SERCOM_CTRLA_SWRST != 0 {
+            let dbgctrl = state.reset_protocol();
+            drop(state);
+            self.registers = [0; 0x34];
+            self.state.lock().expect("USART lock poisoned").dbgctrl = dbgctrl;
+            self.store_register(Samd21SercomRegister::Dbgctrl, u32::from(dbgctrl));
+            return Ok(());
+        }
+        if state.enabled && raw & SERCOM_CTRLA_ENABLE != 0 {
+            // CTRLA is enable-protected except ENABLE and SWRST.
+            return Ok(());
+        }
+        state.apply_ctrla(raw);
+        let ctrla = state.ctrla;
+        drop(state);
+        self.store_register(Samd21SercomRegister::Ctrla, ctrla);
+        Ok(())
+    }
+
+    fn write_ctrlb(&mut self, width: AccessWidth, value: u64) -> Result<(), DeviceError> {
+        let raw = self.merged_value(Samd21SercomRegister::Ctrlb, width, value)?;
+        let (mode, enabled, current) = {
+            let state = self.state.lock().expect("USART lock poisoned");
+            (state.mode, state.enabled, state.ctrlb)
+        };
+        let mask = mode.ctrlb_mask();
+        let command = (raw & mode.command_mask()) >> 16;
+        let mut state = self.state.lock().expect("USART lock poisoned");
+        if enabled {
+            // While enabled, only I²C ACKACT/CMD are writable.
+            if matches!(
+                mode,
+                Samd21SercomMode::I2cMaster | Samd21SercomMode::I2cSlave
+            ) {
+                state.ctrlb = (current & !SERCOM_CTRLB_ACKACT)
+                    | (raw & SERCOM_CTRLB_ACKACT)
+                    | (current & mask & !mode.command_mask());
+            }
+        } else {
+            state.ctrlb = raw & mask & !mode.command_mask();
+        }
+        drop(state);
+        if command != 0 {
+            self.issue_i2c_command(command);
+        }
+        let ctrlb = self.raw_register(Samd21SercomRegister::Ctrlb);
+        self.store_register(Samd21SercomRegister::Ctrlb, ctrlb);
+        Ok(())
+    }
+
+    fn write_addr(&mut self, width: AccessWidth, value: u64) -> Result<(), DeviceError> {
+        let raw = self.merged_value(Samd21SercomRegister::Addr, width, value)?;
+        let mut state = self.state.lock().expect("USART lock poisoned");
+        let mode = state.mode;
+        let addr = raw & mode.addr_mask();
+        state.addr = addr;
+        if matches!(mode, Samd21SercomMode::I2cMaster) && state.enabled {
+            state.i2c_address = Some((addr & 0x7ff) as u16);
+            state.status &= !(SERCOM_I2C_STATUS_BUSERR | SERCOM_I2C_STATUS_ARBLOST);
+            state.interrupt_flags &= !(SERCOM_I2C_INTFLAG_MB | SERCOM_I2C_INTFLAG_SB);
+            state.status = (state.status & !SERCOM_I2C_STATUS_BUSSTATE_MASK)
+                | (u16::from(SERCOM_I2C_BUSSTATE_OWNER) << 4);
+            if addr & 1 != 0 {
+                if state.i2c_rx.is_empty() {
+                    state.i2c_rx.push_back(0);
+                }
+                state.interrupt_flags |= SERCOM_I2C_INTFLAG_SB;
+            } else {
+                state.interrupt_flags |= SERCOM_I2C_INTFLAG_MB;
+            }
+            state.status |= SERCOM_I2C_STATUS_CLKHOLD;
+        }
+        drop(state);
+        self.store_register(Samd21SercomRegister::Addr, addr);
+        Ok(())
+    }
+
+    fn write_status(&mut self, value: u64) {
+        let mut state = self.state.lock().expect("USART lock poisoned");
+        let raw = value as u16;
+        if state.mode == Samd21SercomMode::I2cMaster {
+            if raw & SERCOM_I2C_STATUS_BUSSTATE_MASK == 0x10
+                && state.status & SERCOM_I2C_STATUS_BUSSTATE_MASK == 0
+            {
+                state.status = (state.status & !SERCOM_I2C_STATUS_BUSSTATE_MASK) | 0x10;
+            }
+            state.status &= !(raw
+                & (SERCOM_I2C_STATUS_BUSERR
+                    | SERCOM_I2C_STATUS_ARBLOST
+                    | (1 << 6)
+                    | (1 << 8)
+                    | (1 << 9)
+                    | (1 << 10)));
+        } else if state.mode == Samd21SercomMode::I2cSlave {
+            state.status &= !(raw & state.mode.status_mask());
+        }
     }
 }
 
@@ -409,13 +928,16 @@ impl Device for Samd21Usart {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if offset == 0x18 {
-            return Ok(1);
+        let Some(register) = Samd21SercomRegister::from_offset(
+            usize::try_from(offset)
+                .map_err(|_| DeviceError::new("SERCOM register offset overflow"))?,
+        ) else {
+            return read_le(&self.registers, offset, width);
+        };
+        if register == Samd21SercomRegister::Data {
+            return Ok(u64::from(self.read_data()));
         }
-        if offset == 0x1c {
-            return Ok(0);
-        }
-        read_le(&self.registers, offset, width)
+        Ok(narrow_u32(self.raw_register(register), width))
     }
 
     fn write(
@@ -425,34 +947,62 @@ impl Device for Samd21Usart {
         value: u64,
         _at: SimTime,
     ) -> Result<(), DeviceError> {
-        match offset {
-            0x00 => self.state.lock().expect("USART lock poisoned").enabled = value & 2 != 0,
-            0x14 => {
-                self.state
-                    .lock()
-                    .expect("USART lock poisoned")
-                    .interrupt_enable &= !(value as u8)
+        let Some(register) = Samd21SercomRegister::from_offset(
+            usize::try_from(offset)
+                .map_err(|_| DeviceError::new("SERCOM register offset overflow"))?,
+        ) else {
+            return write_le(&mut self.registers, offset, width, value);
+        };
+        match register {
+            Samd21SercomRegister::Ctrla => self.write_ctrla(width, value)?,
+            Samd21SercomRegister::Ctrlb => self.write_ctrlb(width, value)?,
+            Samd21SercomRegister::Baud => {
+                let raw = self.merged_value(register, width, value)?;
+                let mut state = self.state.lock().expect("USART lock poisoned");
+                if !state.enabled {
+                    state.baud = raw & state.mode.baud_mask();
+                }
+                let baud = state.baud;
+                drop(state);
+                self.store_register(register, baud);
             }
-            0x16 => {
-                self.state
-                    .lock()
-                    .expect("USART lock poisoned")
-                    .interrupt_enable |= value as u8
+            Samd21SercomRegister::RxPulse => {
+                let mut state = self.state.lock().expect("USART lock poisoned");
+                state.rx_pulse = value as u8;
+                let rx_pulse = state.rx_pulse;
+                drop(state);
+                self.store_register(register, u32::from(rx_pulse));
             }
-            0x28 => self
-                .state
-                .lock()
-                .expect("USART lock poisoned")
-                .bytes
-                .push(value as u8),
-            _ => write_le(&mut self.registers, offset, width, value)?,
+            Samd21SercomRegister::Intenclr => {
+                let mut state = self.state.lock().expect("USART lock poisoned");
+                state.interrupt_enable &= !(value as u8 & state.mode.interrupt_mask());
+            }
+            Samd21SercomRegister::Intenset => {
+                let mut state = self.state.lock().expect("USART lock poisoned");
+                state.interrupt_enable |= value as u8 & state.mode.interrupt_mask();
+            }
+            Samd21SercomRegister::Intflag => {
+                let mut state = self.state.lock().expect("USART lock poisoned");
+                state.interrupt_flags &= !(value as u8 & state.mode.interrupt_mask());
+            }
+            Samd21SercomRegister::Status => self.write_status(value),
+            Samd21SercomRegister::Syncbusy => {}
+            Samd21SercomRegister::Addr => self.write_addr(width, value)?,
+            Samd21SercomRegister::Data => self.write_data(value as u8),
+            Samd21SercomRegister::Dbgctrl => {
+                let mut state = self.state.lock().expect("USART lock poisoned");
+                state.dbgctrl = value as u8 & 1;
+                let dbgctrl = state.dbgctrl;
+                drop(state);
+                self.store_register(register, u32::from(dbgctrl));
+            }
         }
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
         *self.state.lock().expect("USART lock poisoned") = UsartState::default();
-        self.registers = [0; 0x30];
+        self.registers = [0; 0x34];
     }
 }
 
@@ -712,6 +1262,197 @@ mod tests {
             .write(0x28, AccessWidth::HalfWord, u64::from(b'A'), SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.bytes(), b"A");
+    }
+
+    #[test]
+    fn sercom_named_registers_and_vendor_mode_masks_match_cmsis() {
+        assert_eq!(
+            Samd21SercomRegister::from_offset(0x00),
+            Some(Samd21SercomRegister::Ctrla)
+        );
+        assert_eq!(
+            Samd21SercomRegister::from_offset(0x28),
+            Some(Samd21SercomRegister::Data)
+        );
+        assert_eq!(Samd21SercomRegister::from_offset(0x20), None);
+        assert_eq!(Samd21SercomRegister::Dbgctrl.offset(), 0x30);
+
+        let (mut sercom, handle) = Samd21Usart::new("sercom0");
+        let spi_ctrla = (0x7f33_019e_u32 & !0x1e) | (3 << 2);
+        sercom
+            .write(0x00, AccessWidth::Word, u64::from(spi_ctrla), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.mode(), Samd21SercomMode::SpiMaster);
+        assert_eq!(
+            sercom.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(spi_ctrla)
+        );
+        sercom
+            .write(0x04, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            sercom.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x0002_e247
+        );
+
+        sercom
+            .write(0x00, AccessWidth::Word, (5_u64 << 2) | 2, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.mode(), Samd21SercomMode::I2cMaster);
+        sercom
+            .write(0x16, AccessWidth::Byte, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            sercom.read(0x16, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x83
+        );
+        assert_eq!(
+            sercom.read(0x00, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x16
+        );
+    }
+
+    #[test]
+    fn sercom_mode_values_follow_samd21_shared_mode_encoding() {
+        let (mut sercom, handle) = Samd21Usart::new("sercom0");
+        for (mode, expected) in [
+            (0, Samd21SercomMode::Usart),
+            (1, Samd21SercomMode::Usart),
+            (2, Samd21SercomMode::SpiSlave),
+            (3, Samd21SercomMode::SpiMaster),
+            (4, Samd21SercomMode::I2cSlave),
+            (5, Samd21SercomMode::I2cMaster),
+            (6, Samd21SercomMode::Other(6)),
+        ] {
+            sercom
+                .write(0x00, AccessWidth::Word, mode << 2, SimTime::ZERO)
+                .unwrap();
+            assert_eq!(handle.mode(), expected);
+        }
+    }
+
+    #[test]
+    fn sercom_spi_master_exposes_loopback_and_injected_receive_data() {
+        let (mut sercom, handle) = Samd21Usart::new("sercom0");
+        let ctrla = 3_u64 << 2;
+        sercom
+            .write(0x00, AccessWidth::Word, ctrla, SimTime::ZERO)
+            .unwrap();
+        sercom
+            .write(0x04, AccessWidth::Word, 1 << 17, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            sercom.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            1 << 17
+        );
+        sercom
+            .write(0x00, AccessWidth::Word, ctrla | 2, SimTime::ZERO)
+            .unwrap();
+        sercom
+            .write(0x16, AccessWidth::Byte, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        handle.queue_spi_rx([0xa5]);
+        sercom
+            .write(0x28, AccessWidth::Byte, 0x3c, SimTime::ZERO)
+            .unwrap();
+
+        assert_eq!(handle.mode(), Samd21SercomMode::SpiMaster);
+        assert_eq!(handle.spi_bytes(), [0x3c]);
+        assert_eq!(
+            sercom.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            1 << 17
+        );
+        assert_eq!(
+            sercom.read(0x16, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            4
+        );
+        assert_eq!(
+            sercom.read(0x18, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            7
+        );
+        assert!(handle.interrupt_pending());
+        assert_eq!(
+            sercom.read(0x18, AccessWidth::Byte, SimTime::ZERO).unwrap() & 0x04,
+            0x04
+        );
+        assert_eq!(
+            sercom.read(0x28, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xa5
+        );
+        assert_eq!(
+            sercom.read(0x18, AccessWidth::Byte, SimTime::ZERO).unwrap() & 0x04,
+            0
+        );
+
+        // With no external response queued, the functional SPI path is deterministic loopback.
+        sercom
+            .write(0x28, AccessWidth::Byte, 0x12, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            sercom.read(0x28, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x12
+        );
+    }
+
+    #[test]
+    fn sercom_i2c_master_models_address_data_read_and_stop_flags() {
+        let (mut sercom, handle) = Samd21Usart::new("sercom0");
+        let ctrla = 5_u64 << 2;
+        sercom
+            .write(0x00, AccessWidth::Word, ctrla, SimTime::ZERO)
+            .unwrap();
+        sercom
+            .write(0x16, AccessWidth::Byte, 0x03, SimTime::ZERO)
+            .unwrap();
+        sercom
+            .write(0x00, AccessWidth::Word, ctrla | 2, SimTime::ZERO)
+            .unwrap();
+        sercom
+            .write(0x24, AccessWidth::Byte, 0xa0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.mode(), Samd21SercomMode::I2cMaster);
+        assert_eq!(handle.i2c_address(), Some(0xa0));
+        assert_eq!(
+            sercom.read(0x18, AccessWidth::Byte, SimTime::ZERO).unwrap() & 1,
+            1
+        );
+        sercom
+            .write(0x28, AccessWidth::Byte, 0x10, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.i2c_bytes(), [0x10]);
+
+        handle.queue_i2c_rx([0x42]);
+        sercom
+            .write(0x24, AccessWidth::Byte, 0xa1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            sercom.read(0x1a, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            (2 << 4) | (1 << 7)
+        );
+        assert_eq!(
+            sercom.read(0x18, AccessWidth::Byte, SimTime::ZERO).unwrap() & 2,
+            2
+        );
+        assert_eq!(
+            sercom.read(0x28, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x42
+        );
+        assert_eq!(
+            sercom.read(0x18, AccessWidth::Byte, SimTime::ZERO).unwrap() & 2,
+            0
+        );
+
+        sercom
+            .write(0x04, AccessWidth::Word, 2 << 16, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            sercom.read(0x1a, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            1 << 4
+        );
+        assert_eq!(
+            sercom.read(0x18, AccessWidth::Byte, SimTime::ZERO).unwrap() & 3,
+            0
+        );
     }
 
     #[test]

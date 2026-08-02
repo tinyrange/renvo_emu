@@ -25,7 +25,7 @@ sample_url = "https://github.com/Microchip-MPLAB-Harmony/csp_apps_sam_d21_da1"
 sample_revision = "9331e79cf2937d2b3166813c6d2886b2481162e3"
 toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
 compiler_flags = ["-mcpu=cortex-m0plus", "-mthumb"]
-peripherals = ["PM", "SYSCTRL", "GCLK", "NVMCTRL", "PORT", "EIC", "TC3", "SERCOM0", "WDT"]
+peripherals = ["PM", "SYSCTRL", "GCLK", "NVMCTRL", "PORT", "EIC", "TC3", "SERCOM0 USART/SPI/I2C", "WDT"]
 image_formats = ["ELF32 little-endian Arm executable"]
 memory_map = ["flash 0x00000000..0x0003ffff", "SRAM 0x20000000..0x20007fff", "documented MMIO windows for the selected peripheral slice"]
 reset_assumptions = "Power-on reset reads MSP and Thumb reset PC from vectors 0 and 1 at flash address zero; modeled startup-ready flags are documented functional approximations"
@@ -34,7 +34,7 @@ selected_pins = ["PA03 external digital input/EIC stimulus", "PA07 GPIO output a
 interrupt_routes = ["EIC EXTINT3 -> NVIC line 4", "TC3 MC0 -> NVIC line 18", "SERCOM0 -> NVIC line 9"]
 vcd_signals = ["board.atsamd21e18.porta", "board.atsamd21e18.tc3.irq", "board.atsamd21e18.sercom0", "board.atsamd21e18.interrupt.request"]
 fidelity_tier = "functional, deterministic, not cycle accurate"
-unsupported = ["analog peripherals", "USB", "DMA", "exact clock and synchronization timing"]
+unsupported = ["analog peripherals", "USB", "DMA", "exact clock and synchronization timing", "SERCOM pin-level timing and complete slave behavior"]
 vendor_sample_license = "Microchip Software License Agreement v2.001; device-use restriction applies"
 
 [[target]]
