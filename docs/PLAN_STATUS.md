@@ -49,8 +49,10 @@ functional slice. The model exposes the global interrupt hierarchy, reset and
 enumeration status, setup-packet receive status/FIFO ordering, endpoint
 completion and FIFO enable/disable behavior, and the existing host-side
 control/bulk exchange path. `crates/remu-devices/src/tests.rs` checks the
-register protocol directly and `corpus/smoke/xtensa-usb` exercises it through
-the native `0x6008_0000` MMIO window in the pinned Xtensa container.
+register protocol directly, including native word-access masks, W1C interrupt
+fields, endpoint active/NAK status, and the documented seven-bit transfer-size
+fields. `corpus/smoke/xtensa-usb` exercises it through the native
+`0x6008_0000` MMIO window in the pinned Xtensa container.
 
 This closes the bounded USB-OTG item in the restored plan without changing its
 functional, non-cycle-accurate scope. PHY edge timing, DMA scatter/gather,

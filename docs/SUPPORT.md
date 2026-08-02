@@ -48,11 +48,15 @@ PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 The ESP32-S3 USB-OTG model now has a bounded DWC2 functional slice: device
 reset and enumeration status, setup-packet receive status/FIFO ordering,
 endpoint completion and FIFO enable/disable semantics, plus deterministic
-host control/bulk exchanges. It intentionally does not claim PHY edge timing,
-DMA scatter/gather, host-channel scheduling, or complete USB class coverage.
-The evidence is the `esp32s3-usb` Docker fixture and the focused
-`remu-devices` protocol test; these are protocol-level checks rather than a
-claim that arbitrary USB firmware is supported.
+host control/bulk exchanges. The register surface follows Espressif's native
+word-access contract, masks read-only/reserved fields, preserves endpoint
+active/NAK status, implements write-one-to-clear interrupt fields, and uses
+the documented seven-bit transfer-size and packet-count fields. It
+intentionally does not claim PHY edge timing, DMA scatter/gather,
+host-channel scheduling, or complete USB class coverage. The evidence is the
+`esp32s3-usb` Docker fixture and focused `remu-devices` protocol tests; these
+are protocol-level checks rather than a claim that arbitrary USB firmware is
+supported.
 
 ## Implemented CPU surface
 

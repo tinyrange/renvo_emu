@@ -468,6 +468,188 @@ fn esp_usb_otg_models_dwc2_reset_fifo_and_endpoint_protocol() {
 }
 
 #[test]
+fn esp_usb_otg_matches_esp32s3_register_masks_and_command_fields() {
+    let (mut usb, handle) = EspUsbOtg::new("usb-otg");
+
+    // Fixed identification and core-owned reset fields are visible immediately after reset.
+    assert_eq!(
+        usb.read(
+            EspUsbOtgRegister::GsnpsId.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x4f54_400a
+    );
+    assert_eq!(
+        usb.read(
+            EspUsbOtgRegister::DiepCtl(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 15),
+        1 << 15
+    );
+    assert_eq!(
+        usb.read(
+            EspUsbOtgRegister::DoepCtl(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 15),
+        1 << 15
+    );
+
+    // Transfer-size fields are seven bits on the ESP32-S3. Packet count and setup count occupy
+    // their documented high fields; reserved bits must not leak back through reads.
+    usb.write(
+        EspUsbOtgRegister::DiepTsiz(0).offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            EspUsbOtgRegister::DiepTsiz(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x0018_007f
+    );
+    usb.write(
+        EspUsbOtgRegister::DoepTsiz(0).offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            EspUsbOtgRegister::DoepTsiz(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x6008_007f
+    );
+
+    // DCTL set/clear NAK commands are write-only strobes. The status bit is retained, while
+    // the command bits themselves do not appear in a subsequent read.
+    usb.write(
+        EspUsbOtgRegister::Dctl.offset(),
+        AccessWidth::Word,
+        1 << 7,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    let dctl = usb
+        .read(
+            EspUsbOtgRegister::Dctl.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_ne!(dctl & (1 << 2), 0);
+    assert_eq!(dctl & (1 << 7), 0);
+    usb.write(
+        EspUsbOtgRegister::Dctl.offset(),
+        AccessWidth::Word,
+        1 << 8,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            EspUsbOtgRegister::Dctl.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 2),
+        0
+    );
+
+    // Endpoint SNAK/CNAK and W1C interrupt fields retain their hardware-owned semantics.
+    usb.write(
+        EspUsbOtgRegister::DiepCtl(0).offset(),
+        AccessWidth::Word,
+        1 << 27,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_ne!(
+        usb.read(
+            EspUsbOtgRegister::DiepCtl(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 17),
+        0
+    );
+    usb.write(
+        EspUsbOtgRegister::DiepCtl(0).offset(),
+        AccessWidth::Word,
+        1 << 26,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            EspUsbOtgRegister::DiepCtl(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 17),
+        0
+    );
+
+    handle.inject_bus_reset();
+    assert!(
+        usb.read(
+            EspUsbOtgRegister::GintSts.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & ((1 << 12) | (1 << 13))
+            != 0
+    );
+    usb.write(
+        EspUsbOtgRegister::GintSts.offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            EspUsbOtgRegister::GintSts.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & ((1 << 12) | (1 << 13)),
+        0
+    );
+
+    assert!(
+        usb.write(
+            EspUsbOtgRegister::GsnpsId.offset(),
+            AccessWidth::Word,
+            0,
+            SimTime::ZERO,
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn esp_usb_otg_register_ids_round_trip_and_bound_dynamic_windows() {
     let static_registers = [
         EspUsbOtgRegister::GotgInt,

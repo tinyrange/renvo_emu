@@ -12,7 +12,7 @@
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "071e1e85f85fbdbe3961489ff512072fcdcae4d7c9e37f9ef5951259311065cb"
+      "sha256": "81a9be0c23a90bd74af82b686ecc73c978ef38a8125ba4b7f66ac3dc373d8d7f"
     },
     {
       "path": "qualification/xtensa-cpu.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "ace1a3b1572035cf05421d845afd205e6dcef5ddbf5cea9ae46030feeacf23d7"
+      "sha256": "cc37f4cebd37f3c00b448b61e181bf3ccff1b84563231480deb128b772068ee8"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "c1ccc2aac1f00dbc0c1bb250e93ce1920ebe4ad3c456ac14718fcb4852c3334e",
+        "manifest_sha256": "8889bbcab456c8b7172cd4c8510416e52852b4947f0f86041efb8f74dd442c08",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -168,7 +168,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "ed1edd3deb91ab07d8bd1ea057699058e9e98580e77aadc0835d294c79d6c97c",
+        "manifest_sha256": "2da0c0cb7719ba340efa7e7bfee84180068d300bb7713875fdbe8371252efbc8",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -215,7 +215,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "6645d53a094b4d6b25a53b2c0f863be1fe39680830b72fcae45451f1ae52dc14",
+        "manifest_sha256": "377e4a13db9d40ed0cfb5079c334b275535c45828e9cc9a38c0a886cd920e6c1",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -266,7 +266,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "4e232d4e0f0faca722a8966e817f113b088a3c91d4fee9bbc19e309c8c8c128f",
+        "manifest_sha256": "077667b480063c6ba1d0410e885e3f7ae67ee89ada44c4a459be5d342cbb4ff9",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -304,7 +304,7 @@
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
         "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
-        "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
+        "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Radio, analogue and security peripherals are outside the six-chip baseline."
       ],
       "name": "Espressif ESP32-S3",
@@ -317,7 +317,7 @@
       "register_coverage": {
         "covered_register_count": 12,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "146bb943a4a588da222a9bb7b5488f6fc0ac2532b4d0d1b2e6578db7ad632075",
+        "manifest_sha256": "cac6f8de2e057df7821e377f29b9d9f2c509550af4811b7373b509d486d9678b",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0",
@@ -363,7 +363,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "137c3e0227048537b1cefd4faab9d72d6a5acb1d9b3f5a69a943cf8592259a4c",
+        "manifest_sha256": "520f01d0df351291c09556f28dcbe9f63e3935928e348c06a965a798cccb70ba",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

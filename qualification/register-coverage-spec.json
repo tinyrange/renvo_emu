@@ -98,7 +98,7 @@
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
         "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
-        "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
+        "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Radio, analogue and security peripherals are outside the six-chip baseline."
       ]
     },
