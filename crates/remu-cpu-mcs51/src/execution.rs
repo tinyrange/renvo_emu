@@ -197,6 +197,7 @@ impl Mcs51Cpu {
             0x32 => {
                 self.pop_pc();
                 self.active_priority = self.priority_stack.pop().unwrap_or(None);
+                self.sfr_page = self.sfr_page_stack.pop().unwrap_or(0);
             }
             0x33 => {
                 let carry = self.carry();

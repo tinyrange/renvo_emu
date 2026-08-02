@@ -125,6 +125,14 @@ mkdir -p "$uart_build"
     --artifact "$artifact_root/register-uart-build.json" \
     -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$uart_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-uart1-build.json" \
+    -- -I. -c remu_uart1_irq.c -o /workspace/out/uart1.rel
+test -s "$uart_build/uart1.rel"
 
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"

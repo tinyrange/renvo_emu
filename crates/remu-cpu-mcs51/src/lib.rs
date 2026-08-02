@@ -130,9 +130,13 @@ pub struct Mcs51Cpu {
     sp: u8,
     pc: u16,
     sfr_page: u8,
-    interrupts: [bool; 6],
+    // Four modeled interrupt sources (timer0, UART0, timer2, and UART1) with
+    // independent low- and high-priority inputs.  UART1 uses the new slots 6
+    // and 7 so the existing timer/UART0/timer2 line identities remain stable.
+    interrupts: [bool; 8],
     active_priority: Option<bool>,
     priority_stack: Vec<Option<bool>>,
+    sfr_page_stack: Vec<u8>,
     waiting: bool,
     halted: bool,
 }
@@ -156,9 +160,10 @@ impl Mcs51Cpu {
             sp: 7,
             pc: 0,
             sfr_page: 0,
-            interrupts: [false; 6],
+            interrupts: [false; 8],
             active_priority: None,
             priority_stack: Vec::new(),
+            sfr_page_stack: Vec::new(),
             waiting: false,
             halted: false,
         }
@@ -458,9 +463,10 @@ impl Mcs51Cpu {
         self.sp = 7;
         self.pc = 0;
         self.sfr_page = 0;
-        self.interrupts = [false; 6];
+        self.interrupts = [false; 8];
         self.active_priority = None;
         self.priority_stack.clear();
+        self.sfr_page_stack.clear();
         self.waiting = false;
         self.halted = false;
     }
@@ -473,8 +479,8 @@ impl Mcs51Cpu {
             if !high && self.active_priority.is_some() {
                 continue;
             }
-            let base = if high { 3 } else { 0 };
-            if let Some(line) = (base..base + 3).find(|line| self.interrupts[*line]) {
+            let candidates = if high { [3, 4, 5, 7] } else { [0, 1, 2, 6] };
+            if let Some(line) = candidates.into_iter().find(|line| self.interrupts[*line]) {
                 return Some((line, high));
             }
         }
@@ -482,11 +488,22 @@ impl Mcs51Cpu {
     }
 
     fn enter_interrupt(&mut self, line: usize, high: bool) {
-        const VECTORS: [u16; 3] = [0x000b, 0x0023, 0x002b];
+        let vector = match line {
+            0 | 3 => 0x000b,
+            1 | 4 => 0x0023,
+            2 | 5 => 0x002b,
+            6 | 7 => 0x007b,
+            _ => unreachable!("validated MCS-51 interrupt line"),
+        };
         self.push_pc();
         self.priority_stack.push(self.active_priority);
+        self.sfr_page_stack.push(self.sfr_page);
         self.active_priority = Some(high);
-        self.pc = VECTORS[line % 3];
+        if matches!(line, 6 | 7) {
+            // Silicon Labs automatically selects the UART1 SFR page on entry.
+            self.sfr_page = 0x20;
+        }
+        self.pc = vector;
         self.waiting = false;
     }
 }
@@ -524,7 +541,7 @@ impl Cpu for Mcs51Cpu {
             CpuFault::new(
                 CpuFaultKind::Architecture,
                 u64::from(self.pc),
-                format!("MCS-51 interrupt line {line} is outside 0..5"),
+                format!("MCS-51 interrupt line {line} is outside 0..7"),
             )
         })?;
         *slot = asserted;

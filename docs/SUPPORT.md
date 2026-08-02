@@ -77,6 +77,15 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52 MCS-51 model includes the crossbar GPIO/timer baseline, UART0, and
+the paged UART1 register path. UART1 uses the documented SFR page `0x20`,
+supports deterministic baud-generator enable, transmit capture, bounded host
+receive injection, SCON1 status flags, FIFO-count/status aliases, and the
+native interrupt vector at `0x007b`. FIFO threshold timing, LIN, CTS/RTS,
+parity framing, and exact historical 8051 timing remain outside this slice.
+The register and vector choices follow Silicon Labs'
+[EFM8BB52 reference manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
