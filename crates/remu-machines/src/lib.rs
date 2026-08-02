@@ -15,6 +15,7 @@ mod msp430_mcu;
 mod pic16_mcu;
 mod riscv;
 mod target;
+mod uart;
 mod xtensa;
 
 pub use arm::{ArmMachine, ArmMachineError};
@@ -31,6 +32,7 @@ pub use target::{
     CpuOption, Fidelity, MemoryKind, MemoryRegion, TargetId, TargetManifest, target_manifest,
     target_manifests,
 };
+pub use uart::{UartEndpoint, UartEndpointId, UartEndpointProvider};
 pub use xtensa::{XtensaMachine, XtensaMachineError};
 
 /// Deterministic raw-REPL marker emitted by the CLI's final framing chunk.
