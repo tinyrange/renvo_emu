@@ -24,8 +24,8 @@ use remu_devices::{
     Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
     RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2cHandle, RpIoBankHandle,
     RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
-    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchAdc, WchGpio,
-    WchPfic, WchSpi, WchTimer, WchUsart, WchWatchdog, new_rp2350_hstx,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchAdc, WchDma,
+    WchGpio, WchPfic, WchSpi, WchTimer, WchUsart, WchWatchdog, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -67,6 +67,7 @@ mod runtime;
 mod watchdog;
 mod watchdogs;
 mod wch_adc;
+mod wch_dma;
 mod wch_exti;
 mod wch_flash;
 
@@ -709,6 +710,8 @@ impl RiscVMachine {
                     0x2000,
                     Box::new(pfic),
                 )?;
+                let (dma, dma_handle) = WchDma::new(format!("{target}.dma"));
+                bus.map_device(format!("{target}.dma"), 0x4002_0000, 0x100, Box::new(dma))?;
                 wch = Some(wch_exti::WchHandles {
                     timer,
                     timer1,
@@ -717,6 +720,7 @@ impl RiscVMachine {
                     spi: spi_handle,
                     watchdogs: [iwdg_handle, wwdg_handle],
                     adc: adc_handle,
+                    dma: dma_handle,
                 });
             }
             TargetId::Esp32c6 => {

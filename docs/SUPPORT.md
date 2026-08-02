@@ -42,6 +42,13 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The WCH DMA1 block at `0x4002_0000` exposes all seven channel register sets,
+transfer-count/address configuration, byte/halfword/word widths, direction and
+address-increment flags, circular mode, transfer/half/error flags, and PFIC
+lines 22–28. The scheduler services one transfer unit per abstract tick
+through the guest bus. Peripheral request mux details and exact arbitration or
+bus timing are intentionally omitted.
+
 ### WCH flash slice
 
 The WCH CH32V003/CH32V006 flash slice is mapped as executable device-backed

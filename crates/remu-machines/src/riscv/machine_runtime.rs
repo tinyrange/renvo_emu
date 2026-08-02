@@ -217,6 +217,7 @@ impl RiscVMachine {
             }
             self.poll_wch_systick()?;
             self.poll_wch_adc()?;
+            self.poll_wch_dma(&mut stats.events)?;
             if timer_was_pending || self.timer.active() {
                 let timer_pending = self.timer.poll(self.now);
                 if timer_pending && !timer_was_pending {
