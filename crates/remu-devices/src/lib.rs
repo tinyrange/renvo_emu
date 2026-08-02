@@ -34,6 +34,8 @@ mod samd;
 pub use samd::*;
 mod stm32;
 pub use stm32::*;
+mod stm32_lptim;
+pub use stm32_lptim::*;
 mod ra;
 pub use ra::*;
 mod avr;
