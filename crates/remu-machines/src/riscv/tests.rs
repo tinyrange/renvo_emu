@@ -199,6 +199,40 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 }
 
 #[test]
+fn wch_power_is_mapped_for_both_qingke_targets() {
+    const PWR: u64 = 0x4000_7000;
+    const PVDE: u64 = 1 << 4;
+    const PDDS: u64 = 1 << 1;
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        let power = machine.wch_power().expect("WCH target exposes PWR");
+        machine
+            .bus
+            .write(PWR, AccessWidth::Word, PVDE, SimTime::ZERO)
+            .unwrap();
+        power.set_supply_low(true);
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    PWR + 0x04,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            1 << 2,
+            "{target} PVD status"
+        );
+        machine
+            .bus
+            .write(PWR, AccessWidth::Word, PVDE | PDDS, SimTime::ZERO)
+            .unwrap();
+        assert!(power.standby_requested(), "{target} standby request");
+    }
+}
+
+#[test]
 fn gpio_facade_streams_valid_vcd() {
     // lui x1,0xffff0; addi x2,x0,1; sw x2,0(x1); sw x2,4(x1); ebreak
     let program = [
