@@ -471,13 +471,18 @@ const MANIFESTS: &[TargetManifest] = &[
             "PORT/EIC GPIO",
             "TC3 timer interrupt",
             "SERCOM0 USART",
+            "ADC software-triggered conversion",
             "VCD",
         ],
         sources: &[
             "https://www.microchip.com/en-us/product/ATSAMD21E18",
             "https://packs.download.microchip.com/Microchip.SAMD21_DFP.3.8.270.atpack",
+            "https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf",
         ],
-        limitations: &["analog, USB, DMA, and exact clock timing are outside this tranche"],
+        limitations: &[
+            "ADC input values are deterministic host samples rather than analog voltages",
+            "ADC averaging, event/DMA coupling, USB, and exact conversion clocks are outside this tranche",
+        ],
     },
     TargetManifest {
         schema: 1,

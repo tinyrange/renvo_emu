@@ -7,10 +7,15 @@ and SERCOM0 UART output. It boots from the vector table at flash address zero,
 uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
-state, PORT A, EIC, TC3, SERCOM0 USART and watchdog. Clock synchronization and
-timing are deterministic approximations; analog, USB and DMA are unsupported.
-VCD exposes PORT, timer, UART and interrupt hierarchy and the gate compares two
-runs byte-for-byte.
+state, PORT A, EIC, TC3, SERCOM0 USART, ADC and watchdog. The ADC exposes the
+native control/reference/input/sequence register surface and a deterministic
+host-supplied sample for software-triggered conversion (including bounded
+positive-input scan advancement); its result-ready,
+overrun, and window flags can interrupt the Cortex-M0+ at line 23. Clock
+synchronization and timing are deterministic approximations. Analog voltage,
+ADC averaging and event/DMA coupling, USB, and exact conversion clocks are
+unsupported. VCD exposes PORT, timer, UART and interrupt hierarchy and the gate
+compares two runs byte-for-byte.
 
 The vendor lane builds the pinned Microchip Harmony
 `port_led_on_off_polling` main source unchanged. Tracked startup, declarations
