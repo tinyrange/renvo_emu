@@ -194,3 +194,8 @@ and CH32V006. `scripts/docker-smoke.sh` checks the exit code and single event.
 The preceding USART1 closure remains covered by the same gate: native
 `STATR`, `DATAR`, `BRR`, `CTLR1/2/3`, and `GPR` accesses produce the exact
 `REMU-WCH\n` transcript on both WCH targets.
+
+CH32V006 now also maps the reference-manual USART2 instance at `0x40004400`.
+The bounded transmit proof enables the documented APB2 clock bit, writes the
+native `BRR` and `CTLR1` registers, and verifies an exact `REMU-WCH2\n`
+transcript. CH32V003 remains limited to its single USART1 instance.
