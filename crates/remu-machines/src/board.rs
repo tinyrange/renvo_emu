@@ -11,6 +11,10 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
+#[path = "board_i2c.rs"]
+mod i2c;
+pub use i2c::*;
+
 /// Protocol inferred for a named physical connector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -378,6 +382,14 @@ pub enum BoardError {
     /// Signal registration or update failed.
     #[error(transparent)]
     Signal(#[from] SignalError),
+    /// A board component is not an I2C device supported by the endpoint.
+    #[error("I2C endpoint does not support {kind} component {component:?}")]
+    I2cComponent {
+        /// Component name.
+        component: String,
+        /// Component kind.
+        kind: &'static str,
+    },
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
