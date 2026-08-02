@@ -241,16 +241,17 @@ COREMARK_OFFLINE=1 scripts/qualify-coremark.sh
 scripts/qualify-host-determinism.sh
 ```
 
-The default GitHub Actions workflow runs formatting, Clippy, all workspace
+The pull-request GitHub Actions workflow runs formatting, Clippy, all workspace
 tests, source-layout checks, package-manifest validation, and a bounded,
 lockfile-pinned machine smoke matrix covering RISC-V, Arm, Xtensa, AVR, MSP430,
 PIC16, and MCS-51. Each architecture lane enables Rust backtraces and runs all
-matching tests before reporting failure, so a broken target leaves actionable
-diagnostics in the pull-request log.
-The larger Docker, native-image, MicroPython, CoreMark, and host-determinism
-gates remain explicit qualification commands with checked artifacts in the
-repository; moving those reproducible subsets into scheduled public CI is
-follow-up work.
+matching tests before reporting failure. The scheduled
+qualification workflow additionally runs the open-toolchain portfolio smoke,
+immutable vendor samples, stop conditions, official four-board MicroPython and
+MQuickJS acceptance, and CoreMark. Each scheduled lane uploads its JSON, VCD,
+transcript, and log evidence. Proprietary XC8 qualification and cross-host
+arm64 determinism remain separate lanes because they require explicit toolchain
+terms or host support.
 
 Read [CoreMark methodology and results](docs/COREMARK.md), the
 [1,000-case corpus notes](corpus/edge_cases/README.md), and the
