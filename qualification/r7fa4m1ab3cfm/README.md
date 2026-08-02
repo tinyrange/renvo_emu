@@ -4,13 +4,15 @@ The target is the exact `R7FA4M1AB3CFM#AA0` Cortex-M4F used by the UNO R4
 Minima path: 256 KiB code flash, 32 KiB SRAM and 8 KiB data flash. The pinned
 Arm GNU 13.2.Rel1 and Clang/LLD 18 smokes use the hard-float ABI and exercise vector reset,
 compiler-generated Thumb-2/DSP/FPU code, option/startup state, external GPIO,
-explicit ICU routing, GPT0 interrupt entry and SCI9 UART (`RA4M1\n`).
+explicit ICU routing, GPT0/GPT5-7 interrupt entries and SCI9 UART (`RA4M1\n`).
 
 Implemented functionally are SYSTEM clock/oscillator and module-stop state,
-IOPORT, ICU, GPT0, SCI9 and watchdog. USB, CAN, analog/LCD blocks, exact clock
-timing and the UNO R4 Wi-Fi-board bridge are unsupported. VCD records the
-selected port, GPT, SCI and ICU/interrupt signals and deterministic runs are
-compared byte-for-byte.
+IOPORT, ICU, GPT0/GPT5-7 counter-overflow slices, SCI9 and watchdog. GPT5-7 use
+their documented `0x40078500`-`0x40078700` register windows and ELC overflow
+events `0x085`, `0x08d`, and `0x095`; PWM, capture, and exact clock timing are
+not modeled. USB, CAN, analog/LCD blocks and the UNO R4 Wi-Fi-board bridge are
+unsupported. VCD records the selected port, GPT, SCI and ICU/interrupt signals
+and deterministic runs are compared byte-for-byte.
 
 The vendor lanes build pinned Renesas FSP GPT/SCI peripheral sources unchanged
 with documented BSP/startup adapters. They also compile and run pinned Arduino
