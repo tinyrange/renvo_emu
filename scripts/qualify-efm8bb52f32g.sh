@@ -68,6 +68,8 @@ grep -q '^\$scope module timer3 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer4 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer5 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module adc0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module comparator0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module comparator1 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module uart0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module pca0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-speed/signals.vcd"
@@ -157,6 +159,17 @@ mkdir -p "$adc_build"
     --artifact "$artifact_root/register-adc-build.json" \
     -- -I. -c remu_adc_irq.c -o /workspace/out/adc.rel
 test -s "$adc_build/adc.rel"
+
+comparator_build="$artifact_root/register-comparator-build"
+mkdir -p "$comparator_build"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$comparator_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-comparator-build.json" \
+    -- -I. -c remu_comparator.c -o /workspace/out/comparator.rel
+test -s "$comparator_build/comparator.rel"
 
 pca_build="$artifact_root/register-pca-build"
 mkdir -p "$pca_build"

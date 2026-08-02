@@ -158,6 +158,25 @@ impl Efm8PeripheralsHandle {
         Ok(())
     }
 
+    /// Supplies deterministic scalar codes to one comparator's inputs.
+    pub fn set_comparator_inputs(
+        &self,
+        comparator: u8,
+        positive: u16,
+        negative: u16,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let comparator = usize::from(comparator);
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        let inputs = state.comparator_inputs.get_mut(comparator).ok_or_else(|| {
+            DeviceError::new(format!("EFM8 comparator {comparator} is outside 0..1"))
+        })?;
+        *inputs = [positive, negative];
+        state.refresh_comparators(at);
+        state.update_interrupt_signals(at);
+        Ok(())
+    }
+
     /// Supplies the next byte returned by a functional SPI0 master transfer.
     pub fn inject_spi_rx(&self, value: u8) {
         self.0
@@ -185,7 +204,7 @@ impl Efm8PeripheralsHandle {
     }
 
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 24] {
+    pub fn poll(&self, now: SimTime) -> [bool; 28] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);

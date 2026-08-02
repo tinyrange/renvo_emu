@@ -72,6 +72,15 @@ __sfr __at (0x85) DAC0H;
 __sfr __at (0x8a) DAC0ALT;
 __sfr __at (0x91) DAC0CF0;
 __sfr __at (0x92) DAC0CF1;
+/* Comparators are selected with SFRPAGE=0x30. */
+__sfr __at (0x99) CMP0CN1;
+__sfr __at (0x9b) CMP0CN0;
+__sfr __at (0x9d) CMP0MD;
+__sfr __at (0x9f) CMP0MX;
+__sfr __at (0xaa) CMP1MX;
+__sfr __at (0xab) CMP1MD;
+__sfr __at (0xac) CMP1CN1;
+__sfr __at (0xbf) CMP1CN0;
 __sfr __at (0xf3) EIE2;
 __sfr __at (0xbb) EIP1;
 __sfr __at (0xee) EIP1H;

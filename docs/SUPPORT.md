@@ -409,6 +409,12 @@ state and digital output code are observable through VCD and signal-stop
 workflows. Timer/CLU triggers, warm-up timing, and reference/gain voltage
 physics remain outside this model.
 
+CMP0 and CMP1 compare deterministic host-controlled positive/negative codes,
+honor output inversion, latch rising/falling flags, route their enable and
+priority bits to vectors `0x0063` and `0x006b`, and expose both outputs in VCD.
+Voltage, hysteresis, response-time, reference-DAC, and synchronization physics
+are intentionally not claimed.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

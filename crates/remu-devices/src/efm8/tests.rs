@@ -379,6 +379,87 @@ fn dac_paged_registers_format_code_and_track_enable_state() {
 }
 
 #[test]
+fn comparators_latch_edges_and_raise_documented_interrupts() {
+    let hub = super::SignalHub::new();
+    let trace_hub = hub.clone();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(
+            Efm8SmbusRegister::Eie1.offset() as u64,
+            AccessWidth::Byte,
+            0x60,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+        .unwrap();
+    for mode in [super::CMP0MD, super::CMP1MD] {
+        device
+            .write(mode as u64, AccessWidth::Byte, 0x30, SimTime::ZERO)
+            .unwrap();
+    }
+    handle
+        .set_comparator_inputs(0, 100, 20, SimTime::from_ticks(1))
+        .unwrap();
+    handle
+        .set_comparator_inputs(1, 20, 10, SimTime::from_ticks(1))
+        .unwrap();
+    for control in [super::CMP0CN0, super::CMP1CN0] {
+        device
+            .write(
+                control as u64,
+                AccessWidth::Byte,
+                0x80,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(control as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & 0x70,
+            0x60
+        );
+    }
+    let levels = handle.poll(SimTime::from_ticks(2));
+    assert!(levels[24]);
+    assert!(levels[26]);
+
+    for (name, expected) in [
+        ("board.efm8bb52f32g.comparator0.output", Logic::One),
+        ("board.efm8bb52f32g.comparator1.output", Logic::One),
+    ] {
+        let id = trace_hub
+            .with_registry(|registry| registry.find(name))
+            .unwrap();
+        assert_eq!(
+            trace_hub.with_registry(|registry| registry.value(id).unwrap().bit(0)),
+            Some(expected)
+        );
+    }
+
+    device
+        .write(
+            super::CMP0CN0 as u64,
+            AccessWidth::Byte,
+            0x80,
+            SimTime::from_ticks(3),
+        )
+        .unwrap();
+    handle
+        .set_comparator_inputs(0, 1, 2, SimTime::from_ticks(4))
+        .unwrap();
+    assert_ne!(
+        device
+            .read(super::CMP0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap()
+            & 0x10,
+        0
+    );
+}
+
+#[test]
 fn spi0_master_transfer_exposes_injected_miso_and_interrupt() {
     let hub = super::SignalHub::new();
     let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();

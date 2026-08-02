@@ -1,8 +1,11 @@
 use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 mod adc;
+mod comparator;
 mod dac;
 mod registers;
+mod timers;
 use adc::*;
+use comparator::*;
 use dac::*;
 pub use registers::{Efm8PcaRegister, Efm8SmbusRegister};
 use remu_bus::{Device, DeviceError};
@@ -10,6 +13,7 @@ use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use timers::*;
 
 const SFR_BYTES: usize = 0x1_0000;
 const PAGE3: usize = 0x20;
@@ -53,24 +57,6 @@ const TMR2RLL: usize = 0xca;
 const TMR2RLH: usize = 0xcb;
 const TMR2L: usize = 0xce;
 const TMR2H: usize = 0xcf;
-const TMR3CN0: usize = 0x91;
-const TMR3RLL: usize = 0x92;
-const TMR3RLH: usize = 0x93;
-const TMR3L: usize = 0x94;
-const TMR3H: usize = 0x95;
-const TMR3CN1: usize = (0x10 << 8) | 0xfe;
-const TMR4RLL: usize = (0x10 << 8) | 0xa2;
-const TMR4RLH: usize = (0x10 << 8) | 0xa3;
-const TMR4L: usize = (0x10 << 8) | 0xa4;
-const TMR4H: usize = (0x10 << 8) | 0xa5;
-const TMR4CN0: usize = (0x10 << 8) | 0x98;
-const TMR4CN1: usize = (0x10 << 8) | 0xff;
-const TMR5RLL: usize = (0x10 << 8) | 0xd2;
-const TMR5RLH: usize = (0x10 << 8) | 0xd3;
-const TMR5L: usize = (0x10 << 8) | 0xd4;
-const TMR5H: usize = (0x10 << 8) | 0xd5;
-const TMR5CN0: usize = (0x10 << 8) | 0xc0;
-const TMR5CN1: usize = (0x10 << 8) | 0xf1;
 const CRC0IN: usize = (PAGE3 << 8) | 0xca;
 const CRC0DAT: usize = (PAGE3 << 8) | 0xcb;
 const CRC0CN0: usize = (PAGE3 << 8) | 0xce;
@@ -128,24 +114,6 @@ const TCON_TR1: u8 = 0x40;
 const TCON_TF1: u8 = 0x80;
 const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
-const TMR3_TR3: u8 = 0x04;
-const TMR3_TF3L: u8 = 0x40;
-const TMR3_TF3H: u8 = 0x80;
-const TMR3_TF3LEN: u8 = 0x20;
-const TMR3_TF3CEN: u8 = 0x10;
-const TMR4_TR4: u8 = 0x04;
-const TMR4_TF4L: u8 = 0x40;
-const TMR4_TF4H: u8 = 0x80;
-const TMR4_TF4LEN: u8 = 0x20;
-const TMR4_TF4CEN: u8 = 0x10;
-const TMR5_TR5: u8 = 0x04;
-const TMR5_TF5L: u8 = 0x40;
-const TMR5_TF5H: u8 = 0x80;
-const TMR5_TF5LEN: u8 = 0x20;
-const TMR5_TF5CEN: u8 = 0x10;
-const EIE1_ET3: u8 = 0x80;
-const EIE2_ET4: u8 = 0x04;
-const EIE2_ET5: u8 = 0x08;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const SCON1_RI: u8 = 0x01;
@@ -235,6 +203,7 @@ struct Efm8State {
     watchdog_reset: bool,
     dac_output: u16,
     dac_update_inhibited: bool,
+    comparator_inputs: [[u16; 2]; 2],
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
     uart_byte_signal: SignalId,
@@ -258,6 +227,7 @@ struct Efm8State {
     watchdog_reset_signal: SignalId,
     dac_output_signal: SignalId,
     dac_enabled_signal: SignalId,
+    comparator_output_signals: [SignalId; 2],
     pca_epoch: u64,
     pca_outputs: [Logic; 3],
     pca_inputs: [Logic; 3],
@@ -394,6 +364,11 @@ impl Efm8State {
         self.watchdog_reset = false;
         self.dac_output = 0;
         self.dac_update_inhibited = false;
+        self.comparator_inputs = [[0; 2]; 2];
+        self.registers[CMP0MD] = 0x02;
+        self.registers[CMP1MD] = 0x02;
+        self.registers[CMP0MX] = 0xff;
+        self.registers[CMP1MX] = 0xff;
         self.spi_tx.clear();
         self.spi_rx.clear();
         self.registers[SPI0CN0] = SPI0_TXNF;
@@ -415,6 +390,8 @@ impl Efm8State {
             self.interrupt_signal,
             self.watchdog_reset_signal,
             self.dac_enabled_signal,
+            self.comparator_output_signals[0],
+            self.comparator_output_signals[1],
             self.pca_output_signals[0],
             self.pca_output_signals[1],
             self.pca_output_signals[2],
@@ -438,6 +415,12 @@ impl Efm8State {
         let page = raw >> 8;
         let address = raw & 0xff;
         if matches!(raw, DAC0L | DAC0H | DAC0ALT | DAC0CF0 | DAC0CF1) {
+            return raw;
+        }
+        if matches!(
+            raw,
+            CMP0CN0 | CMP0CN1 | CMP0MD | CMP0MX | CMP1CN0 | CMP1CN1 | CMP1MD | CMP1MX
+        ) {
             return raw;
         }
         if page == 0x10 {
@@ -534,10 +517,10 @@ impl Efm8State {
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 24] {
+    fn interrupt_levels(&self) -> [bool; 28] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 24];
+            return [false; 28];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
@@ -560,7 +543,7 @@ impl Efm8State {
         ];
         const LOW_LINES: [usize; 6] = [0, 1, 2, 6, 8, 10];
         const HIGH_LINES: [usize; 6] = [3, 4, 5, 7, 9, 11];
-        let mut levels = [false; 24];
+        let mut levels = [false; 28];
         for source in 0..active.len() {
             if active[source] {
                 levels[if priorities[source] {
@@ -618,6 +601,14 @@ impl Efm8State {
         }
         if adc_complete {
             levels[22 + usize::from(adc_complete_high)] = true;
+        }
+        for comparator in 0..2 {
+            if self.comparator_interrupt_active(comparator) {
+                let priority_bit = if comparator == 0 { 0x20 } else { 0x40 };
+                let high = self.registers[EIP1] & priority_bit != 0
+                    || self.registers[EIP1H] & priority_bit != 0;
+                levels[24 + comparator * 2 + usize::from(high)] = true;
+            }
         }
         levels
     }
@@ -974,6 +965,16 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("ADC0 window-comparison flag".to_owned()),
         )?;
+        let comparator0_output_signal = hub.declare(
+            "board.efm8bb52f32g.comparator0.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("CMP0 digital comparison output".to_owned()),
+        )?;
+        let comparator1_output_signal = hub.declare(
+            "board.efm8bb52f32g.comparator1.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("CMP1 digital comparison output".to_owned()),
+        )?;
         let dac_output_signal = hub.declare(
             "board.efm8bb52f32g.dac0.output",
             SignalValue::from_u64(0, 10)?,
@@ -1042,6 +1043,7 @@ impl Efm8Peripherals {
             watchdog_reset: false,
             dac_output: 0,
             dac_update_inhibited: false,
+            comparator_inputs: [[0; 2]; 2],
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
             uart_byte_signal,
@@ -1065,6 +1067,7 @@ impl Efm8Peripherals {
             watchdog_reset_signal,
             dac_output_signal,
             dac_enabled_signal,
+            comparator_output_signals: [comparator0_output_signal, comparator1_output_signal],
             pca_epoch: 0,
             pca_outputs: [Logic::Zero; 3],
             pca_inputs: [Logic::Zero; 3],
@@ -1205,6 +1208,14 @@ impl Device for Efm8Peripherals {
             return Err(DeviceError::new(format!(
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
+        }
+        if matches!(
+            address,
+            CMP0CN0 | CMP0CN1 | CMP0MD | CMP0MX | CMP1CN0 | CMP1CN1 | CMP1MD | CMP1MX
+        ) {
+            state.write_comparator_register(address, value, at);
+            state.update_interrupt_signals(at);
+            return Ok(());
         }
         let previous = state.registers[address];
         let pca_register = matches!(
