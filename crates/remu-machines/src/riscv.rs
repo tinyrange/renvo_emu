@@ -17,9 +17,9 @@ use remu_devices::{
     EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -337,6 +337,12 @@ impl RiscVMachine {
                 0x4001_0000,
                 0x4000,
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
+            )?;
+            bus.map_device(
+                "rp2350.accessctrl",
+                0x4006_0000,
+                0x4000,
+                Box::new(Rp2350AccessCtrl::new("rp2350.accessctrl")),
             )?;
             bus.map_device(
                 "rp2350.xosc",
@@ -1460,7 +1466,6 @@ impl RiscVMachine {
                 }
             }
         };
-
         if let Some(sink) = trace {
             sink.finish()?;
         }
