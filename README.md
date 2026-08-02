@@ -134,6 +134,13 @@ peripheral may have address space reserved for startup compatibility, but it
 has no supported behavioral model until deterministic tests and documentation
 say otherwise.
 
+The ESP32-S3 functional slice includes native-address SPI2 and SPI3 user
+transactions: firmware can fill the W0-W15 FIFO, start a bounded transfer, and
+observe deterministic MOSI, MISO, SCLK, CS0, and transfer-complete signals. The
+current model intentionally leaves DMA, clock-divider fidelity, additional
+chip-select electrical behavior, and full LCD-device semantics for later
+peripheral slices.
+
 ## Qualification and provenance
 
 The checked qualification suite covers more than workspace unit tests:
