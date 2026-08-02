@@ -472,6 +472,54 @@ fn rp2040_usb_exposes_vbus_and_atomic_aliases() {
 }
 
 #[test]
+fn rp2040_usb_protocol_events_are_write_clear_and_interrupt_mapped() {
+    let (mut usb, handle) = Rp2040UsbController::new_with_handle("usb");
+
+    handle.inject_bus_reset();
+    let raw = usb.read(0x8c, AccessWidth::Word, SimTime::ZERO).unwrap();
+    assert_ne!(raw & (1 << 12), 0);
+    assert_ne!(raw & (1 << 13), 0);
+    assert_ne!(raw & (1 << 11), 0);
+
+    usb.write(0x50, AccessWidth::Word, (1 << 19) | (1 << 16), SimTime::ZERO)
+        .unwrap();
+    let raw = usb.read(0x8c, AccessWidth::Word, SimTime::ZERO).unwrap();
+    assert_eq!(raw & ((1 << 12) | (1 << 13)), 0);
+    assert_ne!(raw & (1 << 11), 0);
+
+    usb.write(
+        0x90,
+        AccessWidth::Word,
+        (1 << 4) | (1 << 16),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    handle.inject_setup();
+    assert_ne!(
+        usb.read(0x98, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 16),
+        0
+    );
+    usb.write(0x3050, AccessWidth::Word, 1 << 17, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usb.read(0x8c, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 16),
+        0
+    );
+
+    handle.complete_buffer(2, true);
+    assert_ne!(
+        usb.read(0x8c, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 4),
+        0
+    );
+    usb.write(0x58, AccessWidth::Word, 1 << 4, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usb.read(0x8c, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 4),
+        0
+    );
+}
+
+#[test]
 fn rp_sio_spinlocks_claim_on_read_and_release_on_write() {
     let hub = SignalHub::new();
     let (mut sio, _) = RpSioGpio::new("sio", 4, "board.rp.gpio", hub).unwrap();
