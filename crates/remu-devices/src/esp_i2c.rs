@@ -22,6 +22,32 @@ pub struct Esp32c6I2c {
     hub: SignalHub,
 }
 
+/// Command opcodes encoded in the ESP32-C6 I2C command registers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+enum CommandOpcode {
+    Restart = 0,
+    Write = 1,
+    Read = 2,
+    Stop = 3,
+    End = 4,
+}
+
+impl TryFrom<u32> for CommandOpcode {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Restart),
+            1 => Ok(Self::Write),
+            2 => Ok(Self::Read),
+            3 => Ok(Self::Stop),
+            4 => Ok(Self::End),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Esp32c6I2c {
     /// Register offset for the low SCL period.
     pub const SCL_LOW_PERIOD: u64 = 0x00;
@@ -214,10 +240,10 @@ impl Esp32c6I2c {
         for (index, command) in self.commands.iter_mut().enumerate() {
             let word = *command;
             let byte_count = usize::from((word & 0xff) as u8);
-            let opcode = (word >> 11) & 0x7;
+            let opcode = CommandOpcode::try_from((word >> 11) & 0x7);
             match opcode {
-                6 => awaiting_address = true,
-                1 => {
+                Ok(CommandOpcode::Restart) => awaiting_address = true,
+                Ok(CommandOpcode::Write) => {
                     let end = tx_index.saturating_add(byte_count);
                     if end > tx.len() {
                         self.response_nack = true;
@@ -243,17 +269,13 @@ impl Esp32c6I2c {
                         write_payload.extend_from_slice(bytes);
                     }
                 }
-                3 => read_len = read_len.saturating_add(byte_count),
-                2 | 4 => {
+                Ok(CommandOpcode::Read) => read_len = read_len.saturating_add(byte_count),
+                Ok(CommandOpcode::Stop) => complete = true,
+                Ok(CommandOpcode::End) => {
                     complete = true;
-                    if opcode == 2 {
-                        awaiting_address = true;
-                    }
-                    if opcode == 4 {
-                        break;
-                    }
+                    break;
                 }
-                _ => {
+                Err(()) => {
                     self.response_nack = true;
                     break;
                 }
@@ -293,15 +315,19 @@ impl Esp32c6I2c {
                 self.int_raw |= Self::INT_RXFIFO_WM;
             }
         }
-        self.emit_waveform(&tx, at);
+        self.emit_waveform(&tx, at)?;
         Ok(())
     }
 
-    fn emit_waveform(&self, bytes: &[u8], at: SimTime) {
+    fn emit_waveform(&self, bytes: &[u8], at: SimTime) -> Result<(), DeviceError> {
         let high = SignalValue::repeat(Logic::One, 1).expect("one-bit signal");
         let low = SignalValue::repeat(Logic::Zero, 1).expect("one-bit signal");
-        let _ = self.hub.set(self.sda, high.clone(), at);
-        let _ = self.hub.set(self.scl, high.clone(), at);
+        self.hub
+            .set(self.sda, high.clone(), at)
+            .map_err(|error| DeviceError::new(error.to_string()))?;
+        self.hub
+            .set(self.scl, high.clone(), at)
+            .map_err(|error| DeviceError::new(error.to_string()))?;
         for byte in bytes {
             for bit in (0..8).rev() {
                 let value = if byte & (1 << bit) == 0 {
@@ -309,12 +335,21 @@ impl Esp32c6I2c {
                 } else {
                     high.clone()
                 };
-                let _ = self.hub.set(self.sda, value, at);
-                let _ = self.hub.set(self.scl, low.clone(), at);
-                let _ = self.hub.set(self.scl, high.clone(), at);
+                self.hub
+                    .set(self.sda, value, at)
+                    .map_err(|error| DeviceError::new(error.to_string()))?;
+                self.hub
+                    .set(self.scl, low.clone(), at)
+                    .map_err(|error| DeviceError::new(error.to_string()))?;
+                self.hub
+                    .set(self.scl, high.clone(), at)
+                    .map_err(|error| DeviceError::new(error.to_string()))?;
             }
         }
-        let _ = self.hub.set(self.sda, high, at);
+        self.hub
+            .set(self.sda, high, at)
+            .map_err(|error| DeviceError::new(error.to_string()))?;
+        Ok(())
     }
 
     /// Returns the deterministic sensor state for host-side qualification.
@@ -370,14 +405,8 @@ impl Device for Esp32c6I2c {
 mod tests {
     use super::*;
 
-    const RESTART: u32 = 6;
-    const WRITE: u32 = 1;
-    const READ: u32 = 3;
-    const STOP: u32 = 2;
-    const END: u32 = 4;
-
-    const fn command(bytes: u32, opcode: u32) -> u32 {
-        bytes | (opcode << 11)
+    const fn command(bytes: u32, opcode: CommandOpcode) -> u32 {
+        bytes | ((opcode as u32) << 11)
     }
 
     fn write_word(device: &mut Esp32c6I2c, offset: u64, value: u32, at: SimTime) {
@@ -398,10 +427,10 @@ mod tests {
             write_word(&mut device, Esp32c6I2c::DATA, byte, now);
         }
         for (index, value) in [
-            command(0, RESTART),
-            command(3, WRITE),
-            command(0, STOP),
-            command(0, END),
+            command(0, CommandOpcode::Restart),
+            command(3, CommandOpcode::Write),
+            command(0, CommandOpcode::Stop),
+            command(0, CommandOpcode::End),
         ]
         .into_iter()
         .enumerate()
@@ -424,13 +453,13 @@ mod tests {
             write_word(&mut device, Esp32c6I2c::DATA, byte, now);
         }
         for (index, value) in [
-            command(0, RESTART),
-            command(3, WRITE),
-            command(0, RESTART),
-            command(1, WRITE),
-            command(6, READ),
-            command(0, STOP),
-            command(0, END),
+            command(0, CommandOpcode::Restart),
+            command(3, CommandOpcode::Write),
+            command(0, CommandOpcode::Restart),
+            command(1, CommandOpcode::Write),
+            command(6, CommandOpcode::Read),
+            command(0, CommandOpcode::Stop),
+            command(0, CommandOpcode::End),
         ]
         .into_iter()
         .enumerate()
@@ -456,9 +485,13 @@ mod tests {
         let mut device = Esp32c6I2c::new("esp32c6.i2c0", SignalHub::new()).unwrap();
         let now = SimTime::ZERO;
         write_word(&mut device, Esp32c6I2c::DATA, 0x80, now);
-        for (index, value) in [command(0, RESTART), command(1, WRITE), command(0, STOP)]
-            .into_iter()
-            .enumerate()
+        for (index, value) in [
+            command(0, CommandOpcode::Restart),
+            command(1, CommandOpcode::Write),
+            command(0, CommandOpcode::Stop),
+        ]
+        .into_iter()
+        .enumerate()
         {
             write_word(
                 &mut device,
