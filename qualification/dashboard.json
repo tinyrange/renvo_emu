@@ -8,15 +8,15 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "93719a6e0e0c501f770ae8016f9c0f5409d190fe240c04ab9888ea81779d87cc"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "ac67d493dec128f6fb4a94777ea73b6bf04d4ee2a9b0060c784fad955ffb56a2"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "3fbe96f10f70322cb0861881c316d573448614f96cb9b25f3c24eb817a249874"
     },
     {
       "path": "qualification/reduction.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "03926bc8342c32e3c05fea0e21265d4cb967ec91a082fb9fe4ad63c67891f679"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "dff87cdf11a4ca63ec36435415dca6780fe2092c7acc71a7653d973f19189492",
+        "manifest_sha256": "2f47faa409326007d0e38a547f6b9053ae4069521a8e9a87145b298ab2ab0a24",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -168,7 +168,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "f9183872e0295be232156081ca16457b0c7d655fa1a1280ac0885f92b29a85ca",
+        "manifest_sha256": "2e03e22cf1a05d808990b90f614215e284ddf94179fd276162b4f218d3a7e440",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -198,10 +198,11 @@
       "id": "rp2040",
       "known_gaps": [
         "the initial Thumb interpreter covers the compiler baseline, not the complete ISA",
-        "NVIC priority/preemption, USB device fidelity, and exact XIP timing are deferred",
+        "NVIC priority/preemption, USB PHY/protocol completeness, and exact XIP timing are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.",
         "UART0 is a transmit-focused PL011 slice without physical baud timing.",
+        "USB covers deterministic VBUS, bus-reset, setup/buffer status and write-clear interrupt semantics; PHY signaling, packet timing, DMA and complete protocol classes are absent.",
         "TIMER alarm routing is functional and deterministic, not clock accurate.",
         "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
       ],
@@ -213,14 +214,15 @@
         "Unmodified Pico SDK blink_simple"
       ],
       "register_coverage": {
-        "covered_register_count": 13,
+        "covered_register_count": 18,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487",
+        "manifest_sha256": "cd82830cda737ede4a17c0b6188dacb92a8b438026b5b2df0f416316f4cd2162",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
           "rp2040.timer",
-          "rp2040.uart0"
+          "rp2040.uart0",
+          "rp2040.usbctrl"
         ],
         "status": "passing"
       },
@@ -266,7 +268,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95",
+        "manifest_sha256": "33bfc7b10a051db3c7b348de902ec0c2f69b013a78ba3fb55cf2e8edfe9d242e",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -315,7 +317,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4",
+        "manifest_sha256": "de5ee9fc617fe5c8432ea15bbc87fbe21054a0d4fcc123abfdf0bb8d292d3aa0",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"
@@ -360,7 +362,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf",
+        "manifest_sha256": "3f8a5c86cfe27caf4ced74365a780ec83cf56aa6c7ff64530ed58c78519fd2f2",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

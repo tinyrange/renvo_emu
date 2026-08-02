@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
+    "sha256": "3d50bb54a6fa4f2bd59037ae259fc53f35c5350fd364d423fb692dcd618b20ea"
   },
   "proofs": [
     {
@@ -42,6 +42,23 @@
           "instructions": 76,
           "time": 76,
           "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2040-usb",
+      "result": ".remu/portfolio-smoke/rp2040-usb-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-usb-bus.json",
+      "result_sha256": "7192071af1f950552449dc08a3e66bc27c8d472deecfe5c6b9acf3dd02b47f97",
+      "bus_log_sha256": "e72561a633d28dd237a71408231945300c4580bcec862100bae781eb72c8060c",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
+        "stats": {
+          "instructions": 33,
+          "time": 33,
+          "events": 1
         }
       }
     },
@@ -84,9 +101,10 @@
     "rp2040.pio0",
     "rp2040.sio",
     "rp2040.timer",
-    "rp2040.uart0"
+    "rp2040.uart0",
+    "rp2040.usbctrl"
   ],
-  "covered_register_count": 13,
+  "covered_register_count": 18,
   "covered_registers": [
     {
       "region": "rp2040.pio0",
@@ -230,6 +248,61 @@
         "Word"
       ],
       "access_count": 8
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291456,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291468,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291472,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291508,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291532,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     }
   ],
   "additional_evidence": [
@@ -240,6 +313,7 @@
     "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
     "SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.",
     "UART0 is a transmit-focused PL011 slice without physical baud timing.",
+    "USB covers deterministic VBUS, bus-reset, setup/buffer status and write-clear interrupt semantics; PHY signaling, packet timing, DMA and complete protocol classes are absent.",
     "TIMER alarm routing is functional and deterministic, not clock accurate.",
     "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
   ]

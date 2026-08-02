@@ -460,15 +460,256 @@ fn deterministic_rng_changes_words_and_restarts_from_its_seed() {
 fn rp2040_usb_exposes_vbus_and_atomic_aliases() {
     let mut usb = Rp2040UsbController::new("usb");
     assert_eq!(
-        usb.read(0x50, AccessWidth::Word, SimTime::ZERO).unwrap() & 1,
+        usb.read(
+            Rp2040UsbRegister::SieStatus.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & 1,
         1
     );
-    usb.write(0x204c, AccessWidth::Word, 0x10, SimTime::ZERO)
-        .unwrap();
+    usb.write(
+        Rp2040UsbRegister::SieCtrl.offset() + 0x2000,
+        AccessWidth::Word,
+        1 << 16,
+        SimTime::ZERO,
+    )
+    .unwrap();
     assert_eq!(
-        usb.read(0x4c, AccessWidth::Word, SimTime::ZERO).unwrap(),
-        0x10
+        usb.read(
+            Rp2040UsbRegister::SieCtrl.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1 << 16
     );
+}
+
+#[test]
+fn rp2040_usb_protocol_events_are_write_clear_and_interrupt_mapped() {
+    let (mut usb, handle) = Rp2040UsbController::new_with_handle("usb");
+
+    assert_eq!(
+        Rp2040UsbRegister::from_offset(0x50),
+        Some(Rp2040UsbRegister::SieStatus)
+    );
+    assert_eq!(Rp2040UsbRegister::Intr.offset(), 0x8c);
+    assert_eq!(Rp2040UsbRegister::from_offset(0x88), None);
+
+    handle.inject_bus_reset();
+    let raw = usb
+        .read(
+            Rp2040UsbRegister::Intr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_ne!(raw & (1 << 12), 0);
+    assert_ne!(raw & (1 << 13), 0);
+    assert_ne!(raw & (1 << 11), 0);
+
+    usb.write(
+        Rp2040UsbRegister::SieStatus.offset(),
+        AccessWidth::Word,
+        (1 << 19) | (1 << 16),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    let raw = usb
+        .read(
+            Rp2040UsbRegister::Intr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(raw & ((1 << 12) | (1 << 13)), 0);
+    assert_ne!(raw & (1 << 11), 0);
+
+    usb.write(
+        Rp2040UsbRegister::Inte.offset(),
+        AccessWidth::Word,
+        (1 << 4) | (1 << 16),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    handle.inject_setup();
+    assert_ne!(
+        usb.read(
+            Rp2040UsbRegister::Ints.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 16),
+        0
+    );
+    usb.write(
+        Rp2040UsbRegister::SieStatus.offset() + 0x3000,
+        AccessWidth::Word,
+        1 << 17,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::Intr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 16),
+        0
+    );
+
+    handle.complete_buffer(2, true);
+    assert_ne!(
+        usb.read(
+            Rp2040UsbRegister::Intr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 4),
+        0
+    );
+    usb.write(
+        Rp2040UsbRegister::BuffStatus.offset(),
+        AccessWidth::Word,
+        1 << 4,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::Intr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 4),
+        0
+    );
+}
+
+#[test]
+fn rp2040_usb_register_masks_reset_values_and_narrow_io_match_the_datasheet() {
+    let mut usb = Rp2040UsbController::new("usb");
+
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::NakPoll.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x0010_0010
+    );
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::UsbPhyTrim.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x1f1f
+    );
+
+    usb.write(
+        Rp2040UsbRegister::MainCtrl.offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::MainCtrl.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x8000_0003
+    );
+
+    usb.write(
+        Rp2040UsbRegister::SieCtrl.offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::SieCtrl.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xff07_bf5f & !0x3011
+    );
+
+    usb.write(
+        Rp2040UsbRegister::UsbMuxing.offset() + 1,
+        AccessWidth::Byte,
+        0xa5,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::UsbMuxing.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x5
+    );
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::UsbPhyTrim.offset() + 1,
+            AccessWidth::Byte,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x1f
+    );
+
+    usb.write(
+        Rp2040UsbRegister::UsbPhyDirect.offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::UsbPhyDirect.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xff77
+    );
+
+    usb.write(
+        Rp2040UsbRegister::Intr.offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::Intr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1 << 11
+    );
+    assert!(usb.read(0x88, AccessWidth::Word, SimTime::ZERO).is_err());
 }
 
 #[test]
