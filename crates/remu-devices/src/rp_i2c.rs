@@ -1,5 +1,105 @@
 use super::*;
 
+const IC_INTR_MASKED_BITS: u32 = (1 << 15) - 1;
+
+/// RP2350 DW_apb_i2c register identifiers shared by I2C0 and I2C1.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum RpI2cRegister {
+    /// I²C control register.
+    Control = 0x00,
+    /// Target address register.
+    TargetAddress = 0x04,
+    /// Slave address register.
+    SlaveAddress = 0x08,
+    /// Combined transmit/receive command register.
+    DataCommand = 0x10,
+    /// Masked interrupt status register.
+    InterruptStatus = 0x2c,
+    /// Interrupt mask register; one bits mask their corresponding source.
+    InterruptMask = 0x30,
+    /// Raw interrupt status register.
+    RawInterruptStatus = 0x34,
+    /// Receive FIFO threshold register.
+    ReceiveThreshold = 0x38,
+    /// Transmit FIFO threshold register.
+    TransmitThreshold = 0x3c,
+    /// Read-clear aggregate interrupt register.
+    ClearInterrupt = 0x40,
+    /// Read-clear receive-underflow register.
+    ClearReceiveUnderflow = 0x44,
+    /// Read-clear receive-overflow register.
+    ClearReceiveOverflow = 0x48,
+    /// Read-clear transmit-overflow register.
+    ClearTransmitOverflow = 0x4c,
+    /// Read-clear read-request register.
+    ClearReadRequest = 0x50,
+    /// Read-clear transmit-abort register.
+    ClearTransmitAbort = 0x54,
+    /// Read-clear receive-done register.
+    ClearReceiveDone = 0x58,
+    /// Read-clear activity register.
+    ClearActivity = 0x5c,
+    /// Read-clear stop-detect register.
+    ClearStopDetected = 0x60,
+    /// Read-clear start-detect register.
+    ClearStartDetected = 0x64,
+    /// Read-clear general-call register.
+    ClearGeneralCall = 0x68,
+    /// Enable and abort control register.
+    Enable = 0x6c,
+    /// Read-only controller status register.
+    Status = 0x70,
+    /// Transmit FIFO level register.
+    TransmitFifoLevel = 0x74,
+    /// Receive FIFO level register.
+    ReceiveFifoLevel = 0x78,
+    /// Read-only enable status register.
+    EnableStatus = 0x9c,
+    /// Read-clear restart-detect register.
+    ClearRestartDetected = 0xa8,
+}
+
+impl RpI2cRegister {
+    /// Converts a native register offset to a typed identifier.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x00 => Self::Control,
+            0x04 => Self::TargetAddress,
+            0x08 => Self::SlaveAddress,
+            0x10 => Self::DataCommand,
+            0x2c => Self::InterruptStatus,
+            0x30 => Self::InterruptMask,
+            0x34 => Self::RawInterruptStatus,
+            0x38 => Self::ReceiveThreshold,
+            0x3c => Self::TransmitThreshold,
+            0x40 => Self::ClearInterrupt,
+            0x44 => Self::ClearReceiveUnderflow,
+            0x48 => Self::ClearReceiveOverflow,
+            0x4c => Self::ClearTransmitOverflow,
+            0x50 => Self::ClearReadRequest,
+            0x54 => Self::ClearTransmitAbort,
+            0x58 => Self::ClearReceiveDone,
+            0x5c => Self::ClearActivity,
+            0x60 => Self::ClearStopDetected,
+            0x64 => Self::ClearStartDetected,
+            0x68 => Self::ClearGeneralCall,
+            0x6c => Self::Enable,
+            0x70 => Self::Status,
+            0x74 => Self::TransmitFifoLevel,
+            0x78 => Self::ReceiveFifoLevel,
+            0x9c => Self::EnableStatus,
+            0xa8 => Self::ClearRestartDetected,
+            _ => return None,
+        })
+    }
+
+    /// Returns the native byte offset represented by this identifier.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+}
+
 /// deterministic while making the byte stream visible to VCD consumers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RpI2cEvent {
@@ -49,7 +149,7 @@ impl RpI2cState {
             con: 0x65,
             tar: 0x55,
             sar: 0,
-            intr_mask: 0,
+            intr_mask: IC_INTR_MASKED_BITS,
             rx_tl: 0,
             tx_tl: 0,
             enable: false,
@@ -68,7 +168,7 @@ impl RpI2cState {
         self.con = 0x65;
         self.tar = 0x55;
         self.sar = 0;
-        self.intr_mask = 0;
+        self.intr_mask = IC_INTR_MASKED_BITS;
         self.rx_tl = 0;
         self.tx_tl = 0;
         self.enable = false;
@@ -81,7 +181,7 @@ impl RpI2cState {
     }
 
     fn pending(&self) -> bool {
-        self.raw_intr & self.intr_mask != 0
+        self.raw_intr & !self.intr_mask != 0
     }
 }
 
@@ -133,32 +233,6 @@ pub struct RpI2c {
 }
 
 impl RpI2c {
-    const IC_CON: u64 = 0x00;
-    const IC_TAR: u64 = 0x04;
-    const IC_SAR: u64 = 0x08;
-    const IC_DATA_CMD: u64 = 0x10;
-    const IC_INTR_STAT: u64 = 0x2c;
-    const IC_INTR_MASK: u64 = 0x30;
-    const IC_RAW_INTR_STAT: u64 = 0x34;
-    const IC_RX_TL: u64 = 0x38;
-    const IC_TX_TL: u64 = 0x3c;
-    const IC_CLR_INTR: u64 = 0x40;
-    const IC_CLR_RX_UNDER: u64 = 0x44;
-    const IC_CLR_RX_OVER: u64 = 0x48;
-    const IC_CLR_TX_OVER: u64 = 0x4c;
-    const IC_CLR_RD_REQ: u64 = 0x50;
-    const IC_CLR_TX_ABRT: u64 = 0x54;
-    const IC_CLR_RX_DONE: u64 = 0x58;
-    const IC_CLR_ACTIVITY: u64 = 0x5c;
-    const IC_CLR_STOP_DET: u64 = 0x60;
-    const IC_CLR_START_DET: u64 = 0x64;
-    const IC_CLR_GEN_CALL: u64 = 0x68;
-    const IC_ENABLE: u64 = 0x6c;
-    const IC_STATUS: u64 = 0x70;
-    const IC_TXFLR: u64 = 0x74;
-    const IC_RXFLR: u64 = 0x78;
-    const IC_ENABLE_STATUS: u64 = 0x9c;
-    const IC_CLR_RESTART_DET: u64 = 0xa8;
     const IC_DATA_CMD_READ: u32 = 1 << 8;
     const IC_DATA_CMD_STOP: u32 = 1 << 9;
     const IC_DATA_CMD_RESTART: u32 = 1 << 10;
@@ -175,8 +249,6 @@ impl RpI2c {
     const IC_INTR_START_DET: u32 = 1 << 10;
     const IC_INTR_GEN_CALL: u32 = 1 << 11;
     const IC_INTR_RESTART_DET: u32 = 1 << 12;
-    const IC_INTR_MASKED_BITS: u32 = (1 << 15) - 1;
-
     /// Creates a reset controller and scheduler-facing handle.
     pub fn new(
         name: impl Into<String>,
@@ -289,13 +361,13 @@ impl Device for RpI2c {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("RP2350 I²C requires aligned word access"));
         }
-        let register = offset & 0x0fff;
+        let register = RpI2cRegister::from_offset(offset & 0x0fff);
         let mut state = self.state.borrow_mut();
         let value = match register {
-            Self::IC_CON => state.con,
-            Self::IC_TAR => state.tar,
-            Self::IC_SAR => state.sar,
-            Self::IC_DATA_CMD => {
+            Some(RpI2cRegister::Control) => state.con,
+            Some(RpI2cRegister::TargetAddress) => state.tar,
+            Some(RpI2cRegister::SlaveAddress) => state.sar,
+            Some(RpI2cRegister::DataCommand) => {
                 let value = state.rx_fifo.pop_front().map_or_else(
                     || {
                         state.raw_intr |= Self::IC_INTR_RX_UNDER;
@@ -308,76 +380,78 @@ impl Device for RpI2c {
                 }
                 value
             }
-            Self::IC_INTR_STAT => state.raw_intr & state.intr_mask,
-            Self::IC_INTR_MASK => state.intr_mask,
-            Self::IC_RAW_INTR_STAT => state.raw_intr,
-            Self::IC_RX_TL => state.rx_tl,
-            Self::IC_TX_TL => state.tx_tl,
-            Self::IC_CLR_INTR => {
+            Some(RpI2cRegister::InterruptStatus) => state.raw_intr & !state.intr_mask,
+            Some(RpI2cRegister::InterruptMask) => state.intr_mask,
+            Some(RpI2cRegister::RawInterruptStatus) => state.raw_intr,
+            Some(RpI2cRegister::ReceiveThreshold) => state.rx_tl,
+            Some(RpI2cRegister::TransmitThreshold) => state.tx_tl,
+            Some(RpI2cRegister::ClearInterrupt) => {
                 let value = state.raw_intr;
                 state.raw_intr = 0;
                 value
             }
-            Self::IC_CLR_RX_UNDER => {
+            Some(RpI2cRegister::ClearReceiveUnderflow) => {
                 let value = state.raw_intr & Self::IC_INTR_RX_UNDER;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_RX_UNDER);
                 value
             }
-            Self::IC_CLR_RX_OVER => {
+            Some(RpI2cRegister::ClearReceiveOverflow) => {
                 let value = state.raw_intr & Self::IC_INTR_RX_OVER;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_RX_OVER);
                 value
             }
-            Self::IC_CLR_TX_OVER => {
+            Some(RpI2cRegister::ClearTransmitOverflow) => {
                 let value = state.raw_intr & Self::IC_INTR_TX_OVER;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_TX_OVER);
                 value
             }
-            Self::IC_CLR_RD_REQ => {
+            Some(RpI2cRegister::ClearReadRequest) => {
                 let value = state.raw_intr & Self::IC_INTR_RD_REQ;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_RD_REQ);
                 value
             }
-            Self::IC_CLR_TX_ABRT => {
+            Some(RpI2cRegister::ClearTransmitAbort) => {
                 let value = state.raw_intr & Self::IC_INTR_TX_ABRT;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_TX_ABRT);
                 value
             }
-            Self::IC_CLR_RX_DONE => {
+            Some(RpI2cRegister::ClearReceiveDone) => {
                 let value = state.raw_intr & Self::IC_INTR_RX_DONE;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_RX_DONE);
                 value
             }
-            Self::IC_CLR_ACTIVITY => {
+            Some(RpI2cRegister::ClearActivity) => {
                 let value = state.raw_intr & Self::IC_INTR_ACTIVITY;
-                Self::clear_interrupt(&mut state, Self::IC_INTR_ACTIVITY);
+                if !state.active {
+                    Self::clear_interrupt(&mut state, Self::IC_INTR_ACTIVITY);
+                }
                 value
             }
-            Self::IC_CLR_STOP_DET => {
+            Some(RpI2cRegister::ClearStopDetected) => {
                 let value = state.raw_intr & Self::IC_INTR_STOP_DET;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_STOP_DET);
                 value
             }
-            Self::IC_CLR_START_DET => {
+            Some(RpI2cRegister::ClearStartDetected) => {
                 let value = state.raw_intr & Self::IC_INTR_START_DET;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_START_DET);
                 value
             }
-            Self::IC_CLR_GEN_CALL => {
+            Some(RpI2cRegister::ClearGeneralCall) => {
                 let value = state.raw_intr & Self::IC_INTR_GEN_CALL;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_GEN_CALL);
                 value
             }
-            Self::IC_ENABLE => u32::from(state.enable),
-            Self::IC_STATUS => {
+            Some(RpI2cRegister::Enable) => u32::from(state.enable),
+            Some(RpI2cRegister::Status) => {
                 let mut status = 0;
                 if state.active {
                     status |= 1 << 0;
                 }
-                if state.enable {
-                    status |= 1 << 1;
-                }
-                status |= 1 << 2;
+                // The model has no transmit FIFO backlog, so TFNF/TFE are
+                // asserted both while enabled and in the documented reset/
+                // disabled state.
+                status |= (1 << 1) | (1 << 2);
                 if !state.rx_fifo.is_empty() {
                     status |= 1 << 3;
                 }
@@ -389,15 +463,17 @@ impl Device for RpI2c {
                 }
                 status
             }
-            Self::IC_TXFLR => 0,
-            Self::IC_RXFLR => u32::try_from(state.rx_fifo.len()).expect("I²C FIFO length fits"),
-            Self::IC_ENABLE_STATUS => u32::from(state.enable),
-            Self::IC_CLR_RESTART_DET => {
+            Some(RpI2cRegister::TransmitFifoLevel) => 0,
+            Some(RpI2cRegister::ReceiveFifoLevel) => {
+                u32::try_from(state.rx_fifo.len()).expect("I²C FIFO length fits")
+            }
+            Some(RpI2cRegister::EnableStatus) => u32::from(state.enable),
+            Some(RpI2cRegister::ClearRestartDetected) => {
                 let value = state.raw_intr & Self::IC_INTR_RESTART_DET;
                 Self::clear_interrupt(&mut state, Self::IC_INTR_RESTART_DET);
                 value
             }
-            _ => 0,
+            None => 0,
         };
         Ok(u64::from(value))
     }
@@ -412,19 +488,21 @@ impl Device for RpI2c {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("RP2350 I²C requires aligned word access"));
         }
-        let register = offset & 0x0fff;
+        let register = RpI2cRegister::from_offset(offset & 0x0fff);
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("I²C register fits u32");
         let mut state = self.state.borrow_mut();
         match register {
-            Self::IC_CON if !state.enable => state.con = value & 0x7f,
-            Self::IC_TAR => state.tar = value & 0x03ff,
-            Self::IC_SAR => state.sar = value & 0x03ff,
-            Self::IC_DATA_CMD if state.enable => self.complete_command(&mut state, value, at)?,
-            Self::IC_INTR_MASK => state.intr_mask = value & Self::IC_INTR_MASKED_BITS,
-            Self::IC_RX_TL => state.rx_tl = value & 0xff,
-            Self::IC_TX_TL => state.tx_tl = value & 0xff,
-            Self::IC_CLR_INTR => Self::clear_interrupt(&mut state, value),
-            Self::IC_ENABLE => {
+            Some(RpI2cRegister::Control) if !state.enable => state.con = value & 0x7f,
+            Some(RpI2cRegister::TargetAddress) => state.tar = value & 0x03ff,
+            Some(RpI2cRegister::SlaveAddress) => state.sar = value & 0x03ff,
+            Some(RpI2cRegister::DataCommand) if state.enable => {
+                self.complete_command(&mut state, value, at)?
+            }
+            Some(RpI2cRegister::InterruptMask) => state.intr_mask = value & IC_INTR_MASKED_BITS,
+            Some(RpI2cRegister::ReceiveThreshold) => state.rx_tl = value & 0xff,
+            Some(RpI2cRegister::TransmitThreshold) => state.tx_tl = value & 0xff,
+            Some(RpI2cRegister::ClearInterrupt) => Self::clear_interrupt(&mut state, value),
+            Some(RpI2cRegister::Enable) => {
                 let enabled = value & 1 != 0;
                 if !enabled {
                     state.active = false;
