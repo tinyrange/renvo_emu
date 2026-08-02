@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and AES-128/AES-256 block accelerator |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -98,6 +98,13 @@ overlaps the named byte, and records the access address and kind in JSON.
 Signal stops use stable hierarchical paths and preserve the triggering change
 in VCD/digest output. `scripts/qualify-stop-conditions.sh` checks every stop
 class on RISC-V, Arm, and Xtensa.
+
+The ESP32-S3 AES accelerator is mapped at `0x6003_a000` using the native
+`hwcrypto_reg.h` offsets. The functional slice supports AES-128 and AES-256
+single-block encryption/decryption through the text-in/text-out window,
+completion busy/interrupt state, and the VCD path
+`board.esp32s3.aes.text_out`. DMA cipher modes, GCM/CTR/CBC/CFB/OFB
+chaining, eFuse-backed keys, and cycle timing remain unsupported.
 
 The supported host matrix is Linux/amd64 and Linux/arm64. A pinned Rust
 container runs the fake dual-core/timer scheduler test on both architectures;
@@ -206,7 +213,8 @@ the target manifests and `PLAN.html`, principally:
   [OpenWCH CH32V003 EVT sources](https://github.com/openwch/ch32v003)
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
-- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals,
+  plus the official [ESP32-S3 hardware-crypto register header](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/include/soc/hwcrypto_reg.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either
