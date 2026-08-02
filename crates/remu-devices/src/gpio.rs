@@ -3,6 +3,8 @@ use super::*;
 pub(crate) struct GpioState {
     pub(crate) direction: u32,
     pub(crate) output: u32,
+    pub(crate) direction_hi: u32,
+    pub(crate) output_hi: u32,
     pub(crate) nets: Vec<DigitalNet>,
 }
 
@@ -102,6 +104,8 @@ impl FunctionalGpio {
         let state = Arc::new(Mutex::new(GpioState {
             direction: 0,
             output: 0,
+            direction_hi: 0,
+            output_hi: 0,
             nets: (0..pins).map(|_| DigitalNet::new()).collect(),
         }));
         let handle = GpioHandle {
@@ -146,9 +150,24 @@ pub(crate) fn refresh_gpio(
 ) -> Result<(), DeviceError> {
     let mut state = shared.lock().expect("GPIO lock poisoned");
     for pin in 0..pins {
-        let logic = if state.direction & (1_u32 << pin) == 0 {
+        let bit = if pin < 32 {
+            1_u32 << pin
+        } else {
+            1_u32 << (pin - 32)
+        };
+        let direction = if pin < 32 {
+            state.direction & bit
+        } else {
+            state.direction_hi & bit
+        };
+        let output = if pin < 32 {
+            state.output & bit
+        } else {
+            state.output_hi & bit
+        };
+        let logic = if direction == 0 {
             Logic::Z
-        } else if state.output & (1_u32 << pin) == 0 {
+        } else if output == 0 {
             Logic::Zero
         } else {
             Logic::One
@@ -171,7 +190,7 @@ pub(crate) fn vendor_gpio(
     path: &str,
     hub: &SignalHub,
 ) -> Result<VendorGpioParts, SignalError> {
-    if pins == 0 || pins > 32 {
+    if pins == 0 || pins > 64 {
         return Err(SignalError::WidthMismatch {
             expected: 32,
             actual: u16::from(pins),
@@ -188,6 +207,8 @@ pub(crate) fn vendor_gpio(
     let state = Arc::new(Mutex::new(GpioState {
         direction: 0,
         output: 0,
+        direction_hi: 0,
+        output_hi: 0,
         nets: (0..pins).map(|_| DigitalNet::new()).collect(),
     }));
     let handle = GpioHandle {

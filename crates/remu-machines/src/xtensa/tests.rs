@@ -29,3 +29,58 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_gpio_bank_one_exposes_pin38_and_native_aliases() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6000_4000;
+    assert_eq!(machine.chip_gpio.pin_count(), 49);
+
+    // GPIO38 is bit 6 in the native OUT1/ENABLE1/IN1 bank.
+    machine
+        .bus
+        .write(base + 0x14, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x30, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x10,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        1 << 6
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x2c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        1 << 6
+    );
+
+    machine.set_pin(38, Logic::One).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x40,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        1 << 6
+    );
+}
