@@ -14,11 +14,11 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspRtcControlHandle,
+    EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup,
+    EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -376,6 +376,7 @@ pub struct XtensaMachine {
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
     usb_host: EspDwc2Host,
+    rtc_control: EspRtcControlHandle,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
@@ -548,11 +549,14 @@ impl XtensaMachine {
             0x1000,
             Box::new(EspSpiMem::new("esp32s3.spi0")),
         )?;
+        let signals = SignalHub::new();
+        let (rtc_control_device, rtc_control) =
+            EspRtcControl::new_with_signals("esp32s3.rtc-control", signals.clone())?;
         bus.map_device(
             "esp32s3.rtc-control",
             0x6000_8000,
             0x1000,
-            Box::new(EspRtcControl::new("esp32s3.rtc-control")),
+            Box::new(rtc_control_device),
         )?;
         let mut timer_groups = Vec::new();
         for (name, base) in [
@@ -594,7 +598,6 @@ impl XtensaMachine {
             0x1000,
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
-        let signals = SignalHub::new();
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -713,6 +716,7 @@ impl XtensaMachine {
             usb_serial_jtag,
             usb_otg,
             usb_host: EspDwc2Host::new(),
+            rtc_control,
             system,
             systimer,
             timer_groups,
@@ -990,6 +994,11 @@ impl XtensaMachine {
         self.usb_host.queue_input(bytes);
     }
 
+    /// Returns the host-side ESP32-S3 RTC/ULP wakeup endpoint.
+    pub fn rtc_control(&self) -> EspRtcControlHandle {
+        self.rtc_control.clone()
+    }
+
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
     pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
         self.stop_on_usb_input_complete = enabled;
@@ -1062,6 +1071,7 @@ impl XtensaMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut usb_was_pending = false;
+        let mut rtc_was_pending = false;
         let mut crosscore_was_pending = [false; 2];
         let mut systimer_was_pending = [false; 3];
         let mut timer_group_was_pending = [[false; 2]; 2];
@@ -1162,6 +1172,21 @@ impl XtensaMachine {
                         self.cpu.set_interrupt(u16::from(interrupt), usb_pending)?;
                     } else if self.appcpu_boot_address.is_some() {
                         self.cpu1.set_interrupt(u16::from(interrupt), usb_pending)?;
+                    }
+                }
+            }
+            let rtc_pending = self.rtc_control.ulp_pending(self.now);
+            if rtc_pending && !rtc_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            rtc_was_pending = rtc_pending;
+            for core in 0..2_u32 {
+                let interrupt = self.interrupt_routes[core as usize][39];
+                if interrupt != u8::MAX && interrupt != 6 {
+                    if core == 0 {
+                        self.cpu.set_interrupt(u16::from(interrupt), rtc_pending)?;
+                    } else if self.appcpu_boot_address.is_some() {
+                        self.cpu1.set_interrupt(u16::from(interrupt), rtc_pending)?;
                     }
                 }
             }
