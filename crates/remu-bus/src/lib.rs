@@ -142,6 +142,18 @@ pub trait Device {
         at: SimTime,
     ) -> Result<(), DeviceError>;
 
+    /// Initializes device-backed storage from a firmware image.
+    ///
+    /// Address-space firmware loading bypasses runtime permissions for mapped
+    /// memory. Devices that expose persistent storage, such as on-chip flash,
+    /// can override this hook to provide the same image-loading semantics.
+    /// Ordinary MMIO devices retain the default error.
+    fn load(&mut self, _offset: u64, _data: &[u8]) -> Result<(), DeviceError> {
+        Err(DeviceError::new(
+            "firmware loader cannot initialize an MMIO device",
+        ))
+    }
+
     /// Applies a device reset.
     fn reset(&mut self, _kind: ResetKind) {}
 }
@@ -482,11 +494,28 @@ impl AddressSpace {
         size: usize,
         device: Box<dyn Device>,
     ) -> Result<(), MapError> {
+        self.map_device_with_permissions(name, start, size, Permissions::RW, device)
+    }
+
+    /// Maps an MMIO device with explicit access permissions.
+    ///
+    /// Most peripherals are read/write data devices and should use
+    /// [`AddressSpace::map_device`]. Persistent executable devices such as
+    /// flash can opt into `RX` or `RWX` while retaining their device-backed
+    /// behaviour.
+    pub fn map_device_with_permissions(
+        &mut self,
+        name: impl Into<String>,
+        start: u64,
+        size: usize,
+        permissions: Permissions,
+        device: Box<dyn Device>,
+    ) -> Result<(), MapError> {
         self.insert_region(
             name.into(),
             start,
             size,
-            Permissions::RW,
+            permissions,
             Backing::Device(device),
         )
     }
@@ -578,14 +607,17 @@ impl AddressSpace {
                         .expect("mapped region offset fits usize");
                     storage.bytes.borrow_mut()[*storage_offset + offset] = byte;
                 }
-                Backing::Device(_) => {
-                    return Err(BusFault::new(
-                        BusFaultKind::Permission,
-                        AccessKind::Write,
-                        current,
-                        AccessWidth::Byte,
-                        "firmware loader cannot initialize an MMIO device",
-                    ));
+                Backing::Device(device) => {
+                    let relative = current - region.start;
+                    device.load(relative, &[byte]).map_err(|error| {
+                        BusFault::new(
+                            BusFaultKind::Permission,
+                            AccessKind::Write,
+                            current,
+                            AccessWidth::Byte,
+                            format!("{}: {error}", device.name()),
+                        )
+                    })?;
                 }
             }
         }

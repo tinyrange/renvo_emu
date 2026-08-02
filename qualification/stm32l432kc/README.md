@@ -8,8 +8,14 @@ external GPIO and USART2 output (`STM32L432\n`) in the documented 256 KiB flash
 and 64 KiB SRAM map.
 
 The functional register surface is RCC, FLASH/PWR startup state, GPIO A/B/C/H,
-SYSCFG/EXTI, TIM2 and USART2. Analog, USB, DMA, exact clocks and low-power
-timing are unsupported. VCD records GPIO, timer, UART and interrupt signals.
+SYSCFG/EXTI, TIM2 and USART2. FLASH includes the L4 KEYR/CR/SR programming
+path: firmware can unlock the controller, program aligned 64-bit double words
+(including the paired 32-bit sequence emitted by STM32Cube), erase a selected
+2 KiB page or mass-erase bank 1, and observe EOP/error flags. Image loading
+still bypasses runtime programming rules, while operation timing, ECC
+correction, option-byte reload and write-protection enforcement remain
+functional approximations. Analog, USB, DMA, exact clocks and low-power timing
+are unsupported. VCD records GPIO, timer, UART and interrupt signals.
 
 The official lane copies STM32CubeL4's pinned NUCLEO-L432KC
 `GPIO_IOToggle/Src/main.c` unchanged and supplies only documented startup/HAL
