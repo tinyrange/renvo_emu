@@ -5,6 +5,7 @@ use remu_core::{RunStats, SimTime};
 use remu_cpu_riscv::RiscVCpu;
 use remu_devices::{
     GpioHandle, WchExti, WchExtiHandle, WchPficHandle, WchSpiHandle, WchTimerHandle,
+    WchWatchdogHandle,
 };
 use remu_signals::Logic;
 
@@ -19,6 +20,7 @@ pub(super) struct WchHandles {
     pub(super) pfic: WchPficHandle,
     pub(super) exti: WchExtiHandle,
     pub(super) spi: WchSpiHandle,
+    pub(super) watchdogs: [WchWatchdogHandle; 2],
 }
 
 impl super::RiscVMachine {

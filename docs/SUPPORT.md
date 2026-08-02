@@ -806,6 +806,12 @@ sources are routed to their native PFIC lines (35 and 38 respectively).
 Exact center-aligned waveform timing, break/dead-time outputs, and DMA request
 sequencing remain outside this slice.
 
+The CH32V003 and CH32V006 maps also include deterministic independent- and
+window-watchdog register slices. Key sequencing, reload/window configuration,
+early-warning status, and abstract countdown/reset events are modeled for
+firmware tests. The model does not claim the silicon LSI/APB frequencies or
+cycle-accurate timeout values.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification

@@ -209,6 +209,12 @@ impl RiscVMachine {
                         .is_some_and(|usb| usb.poll(self.now)),
                 ));
             }
+            if self.poll_wch_watchdogs()? {
+                self.bus.reset_devices(ResetKind::Watchdog);
+                self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
+                stats.events = stats.events.saturating_add(1);
+                continue;
+            }
             if timer_was_pending || self.timer.active() {
                 let timer_pending = self.timer.poll(self.now);
                 if timer_pending && !timer_was_pending {
