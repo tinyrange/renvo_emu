@@ -176,8 +176,11 @@ scripts/qualify-host-determinism.sh
 ```
 
 The default GitHub Actions workflow runs formatting, Clippy, all workspace
-tests, source-layout checks, package-manifest validation, and a bounded machine
-smoke matrix covering RISC-V, Arm, Xtensa, AVR, MSP430, PIC16, and MCS-51.
+tests, source-layout checks, package-manifest validation, and a bounded,
+lockfile-pinned machine smoke matrix covering RISC-V, Arm, Xtensa, AVR, MSP430,
+PIC16, and MCS-51. Each architecture lane enables Rust backtraces and runs all
+matching tests before reporting failure, so a broken target leaves actionable
+diagnostics in the pull-request log.
 The larger Docker, native-image, MicroPython, CoreMark, and host-determinism
 gates remain explicit qualification commands with checked artifacts in the
 repository; moving those reproducible subsets into scheduled public CI is

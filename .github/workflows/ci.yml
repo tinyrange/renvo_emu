@@ -71,4 +71,7 @@ jobs:
         run: rustup show active-toolchain
 
       - name: Run representative machine tests
-        run: cargo test -p remu-machines '${{ matrix.filter }}' -- --nocapture
+        env:
+          CARGO_TERM_COLOR: always
+          RUST_BACKTRACE: "1"
+        run: cargo test -p remu-machines --locked --no-fail-fast '${{ matrix.filter }}' -- --nocapture
