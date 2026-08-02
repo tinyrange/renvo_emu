@@ -23,7 +23,8 @@ use remu_devices::{
     Stm32AdvancedTimerHandle, Stm32Can, Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Exti,
     Stm32ExtiHandle, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc,
     Stm32RtcHandle, Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
+    Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle, Stm32Wwdg, Stm32WwdgHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -121,6 +122,7 @@ pub struct ArmMcuMachine {
     stm32_rng: Option<Stm32RngHandle>,
     stm32_tim1: Option<Stm32AdvancedTimerHandle>,
     stm32_exti: Option<Stm32ExtiHandle>,
+    stm32_wwdg: Option<Stm32WwdgHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -277,6 +279,7 @@ impl ArmMcuMachine {
         let mut stm32_rng = None;
         let mut stm32_tim1 = None;
         let mut stm32_exti = None;
+        let mut stm32_wwdg = None;
         let (
             gpio,
             uart,
@@ -429,6 +432,8 @@ impl ArmMcuMachine {
                 let (exti_device, exti) =
                     Stm32Exti::new("board.stm32l432kc.exti", signals.clone())?;
                 stm32_exti = Some(exti);
+                let (wwdg_device, wwdg) = Stm32Wwdg::new("stm32l432kc.wwdg", signals.clone())?;
+                stm32_wwdg = Some(wwdg);
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -448,6 +453,7 @@ impl ArmMcuMachine {
                     rng_device,
                     dac1_device,
                     exti_device,
+                    wwdg_device,
                 )?;
                 (
                     gpio,
@@ -537,6 +543,7 @@ impl ArmMcuMachine {
             stm32_rng,
             stm32_tim1,
             stm32_exti,
+            stm32_wwdg,
             compiler_timer,
             exit,
             ppb,
@@ -662,6 +669,7 @@ impl ArmMcuMachine {
         rng: Stm32Rng,
         dac1: Stm32Dac,
         exti: Stm32Exti,
+        wwdg: Stm32Wwdg,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -712,6 +720,7 @@ impl ArmMcuMachine {
             )),
         )?;
         bus.map_device("stm32l432kc.exti", 0x4001_0400, 0x400, Box::new(exti))?;
+        bus.map_device("stm32l432kc.wwdg", 0x4000_2c00, 0x400, Box::new(wwdg))?;
         bus.map_device("stm32l432kc.tim1", 0x4001_2c00, 0x400, Box::new(tim1))?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart1", 0x4001_3800, 0x400, Box::new(usart1))?;
@@ -1061,13 +1070,27 @@ impl ArmMcuMachine {
                 continue;
             }
 
+            let wwdg_early = if let Some(wwdg) = &self.stm32_wwdg {
+                let (early, reset) = wwdg.poll(self.now);
+                if reset {
+                    self.bus.reset_devices(ResetKind::Watchdog);
+                    if let Err(error) = self.cpu.reset(ResetKind::Watchdog, &mut self.bus) {
+                        break StopReason::Fault(error.to_string());
+                    }
+                    stats.events = stats.events.saturating_add(1);
+                    continue;
+                }
+                early
+            } else {
+                false
+            };
             let (timer_line, timer_pending) = self.timer.poll(self.now);
             let advanced_timer_pending = self
                 .stm32_tim1
                 .as_ref()
                 .is_some_and(|timer| timer.poll(self.now));
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending || advanced_timer_pending;
+            let mut interrupt_requested = timer_pending || advanced_timer_pending || wwdg_early;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -1224,7 +1247,10 @@ impl ArmMcuMachine {
                 SignalValue::from_u64(u64::from(interrupt_requested), 1)?,
                 self.now,
             )?;
-            self.cpu.set_interrupt(0, compiler_pending)?;
+            self.cpu.set_interrupt(
+                0,
+                compiler_pending || (wwdg_early && self.ppb.interrupt_enabled(0)),
+            )?;
             if self.ppb.take_systick_pending(self.now) {
                 self.cpu.set_systick_interrupt(true);
             }
@@ -1962,6 +1988,29 @@ mod tests {
             ),
             Ok(1 << 3)
         );
+    }
+
+    #[test]
+    fn stm32l432_native_wwdg_window_exposes_early_wakeup_and_reset() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        let base = 0x4000_2c00;
+        machine
+            .bus
+            .write(base + 4, AccessWidth::Word, 1 << 9 | 0x60, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base, AccessWidth::Word, 1 << 7 | 0x45, SimTime::ZERO)
+            .unwrap();
+        let wwdg = machine.stm32_wwdg.as_ref().expect("STM32 owns WWDG");
+        assert_eq!(wwdg.poll(SimTime::from_ticks(16 * 5)), (true, false));
+        assert_eq!(
+            machine
+                .bus
+                .read(base + 8, AccessWidth::Word, AccessKind::Read, SimTime::ZERO),
+            Ok(1)
+        );
+        assert_eq!(wwdg.poll(SimTime::from_ticks(16 * 6)), (true, true));
     }
 
     #[test]

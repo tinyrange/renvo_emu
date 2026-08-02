@@ -158,6 +158,13 @@ and a VCD-visible aggregate interrupt signal. SYSCFG port selection, event-only
 routing, and internal wake sources remain outside this slice; alternate-function
 pin routing is tracked separately.
 
+The STM32L432KC model additionally maps the native window watchdog (WWDG) at
+`0x40002c00`. Its functional slice supports CR/CFR/SR, deterministic
+prescaled down-counting, refresh-window validation, the early-wakeup interrupt,
+reset requests, and VCD-visible IRQ/reset signals. It uses an abstract
+simulation divisor rather than physical PCLK1 frequency; IWDG remains a
+separate model.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
