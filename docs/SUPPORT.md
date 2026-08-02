@@ -775,6 +775,13 @@ the target manifests and `PLAN.html`, principally:
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
 
+The WCH ADC1 map is a deterministic 10-bit regular-conversion slice at the
+native `0x4001_2400` base. Firmware can configure the regular sequence, power
+the ADC, trigger a conversion, read/clear EOC through `DR`, and receive the
+modeled IRQ 29 path; host tests provide channel samples through the device
+handle. Analog settling, sample-clock timing, injected conversions, and
+touch-key behavior remain outside this slice.
+
 The ATmega328PB model includes both native USART0 and USART1 transmit data
 registers (`UDR0` at `0xc6` and `UDR1` at `0xce`), with native USART1
 enable/ready/complete status and separate trace signals. Receive, baud-rate

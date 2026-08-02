@@ -24,8 +24,8 @@ use remu_devices::{
     Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
     RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2cHandle, RpIoBankHandle,
     RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
-    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
-    WchSpi, WchTimer, WchUsart, WchWatchdog, new_rp2350_hstx,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchAdc, WchGpio,
+    WchPfic, WchSpi, WchTimer, WchUsart, WchWatchdog, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -66,6 +66,7 @@ use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
 mod runtime;
 mod watchdog;
 mod watchdogs;
+mod wch_adc;
 mod wch_exti;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
@@ -694,6 +695,8 @@ impl RiscVMachine {
                 bus.map_device(format!("{target}.iwdg"), 0x4000_3000, 0x400, Box::new(iwdg))?;
                 let (wwdg, wwdg_handle) = WchWatchdog::new_wwdg(format!("{target}.wwdg"));
                 bus.map_device(format!("{target}.wwdg"), 0x4000_2c00, 0x400, Box::new(wwdg))?;
+                let (adc, adc_handle) = WchAdc::new(format!("{target}.adc"));
+                bus.map_device(format!("{target}.adc"), 0x4001_2400, 0x400, Box::new(adc))?;
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
@@ -708,6 +711,7 @@ impl RiscVMachine {
                     exti,
                     spi: spi_handle,
                     watchdogs: [iwdg_handle, wwdg_handle],
+                    adc: adc_handle,
                 });
             }
             TargetId::Esp32c6 => {

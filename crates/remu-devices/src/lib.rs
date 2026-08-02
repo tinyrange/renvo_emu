@@ -23,6 +23,8 @@ mod spi;
 pub use spi::*;
 mod wch;
 pub use wch::*;
+mod wch_adc;
+pub use wch_adc::*;
 mod wch_watchdog;
 pub use wch_watchdog::*;
 mod esp_usb_serial_jtag;

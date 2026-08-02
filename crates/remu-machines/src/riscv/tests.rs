@@ -1184,6 +1184,26 @@ fn wch_watchdog_blocks_are_mapped_for_both_qingke_targets() {
 }
 
 #[test]
+fn wch_adc_block_is_mapped_for_both_qingke_targets() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4001_2400,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0,
+            "{target} ADC status resets clear"
+        );
+    }
+}
+
+#[test]
 fn wch_independent_watchdog_timeout_resets_the_riscv_machine() {
     let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
     // `jal x0, 0`: keep the CPU runnable while the abstract IWDG expires.
