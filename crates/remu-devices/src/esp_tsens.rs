@@ -1,23 +1,162 @@
 use super::*;
 
 const REGISTER_BYTES: usize = 0x200;
-const SAR_READER1_STATUS: usize = 0x04;
-const SAR_MEAS1_CTRL2: usize = 0x0c;
-const SAR_READER2_STATUS: usize = 0x28;
-const SAR_MEAS2_CTRL2: usize = 0x30;
-const TSENS_CTRL: usize = 0x50;
-const TSENS_CTRL2: usize = 0x54;
-const INT_RAW: usize = 0xe8;
-const INT_ENA: usize = 0xec;
-const INT_ST: usize = 0xf0;
-const INT_CLR: usize = 0xf4;
-const DATE: usize = 0x1fc;
 
 const TSENS_RAW_MASK: u32 = 0xff;
 const TSENS_READY: u32 = 1 << 8;
-const TSENS_INT: u32 = 1 << 5;
+const TSENS_INVERT: u32 = 1 << 13;
+const TSENS_INT_ENABLE: u32 = 1 << 12;
 const TSENS_POWER_UP: u32 = 1 << 22;
 const TSENS_POWER_UP_FORCE: u32 = 1 << 23;
+const TSENS_INTERRUPT: u32 = 1 << 5;
+const SAR_MEAS_START_FORCE: u32 = 1 << 18;
+const SAR_MEAS_START: u32 = 1 << 17;
+const SAR_MEAS_DONE: u32 = 1 << 16;
+
+/// Native register identifiers for the ESP32-S3 SENS aperture.
+///
+/// The enum intentionally contains the functional subset implemented by the
+/// emulator.  It keeps callers and tests from depending on ad-hoc integer
+/// offsets, while unsupported SENS registers fail explicitly instead of
+/// silently behaving like RAM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u16)]
+pub enum Esp32S3TsensRegister {
+    /// SAR ADC1 reader configuration (`SENS_SAR_READER1_CTRL_REG`).
+    SarReader1Ctrl = 0x00,
+    /// SAR ADC1 reader status (`SENS_SAR_READER1_STATUS_REG`).
+    SarReader1Status = 0x04,
+    /// SAR ADC1 measurement controller 1 (`SENS_SAR_MEAS1_CTRL1_REG`).
+    SarMeas1Ctrl1 = 0x08,
+    /// SAR ADC1 measurement controller 2 (`SENS_SAR_MEAS1_CTRL2_REG`).
+    SarMeas1Ctrl2 = 0x0c,
+    /// SAR ADC2 reader configuration (`SENS_SAR_READER2_CTRL_REG`).
+    SarReader2Ctrl = 0x24,
+    /// SAR ADC2 reader status (`SENS_SAR_READER2_STATUS_REG`).
+    SarReader2Status = 0x28,
+    /// SAR ADC2 measurement controller 1 (`SENS_SAR_MEAS2_CTRL1_REG`).
+    SarMeas2Ctrl1 = 0x2c,
+    /// SAR ADC2 measurement controller 2 (`SENS_SAR_MEAS2_CTRL2_REG`).
+    SarMeas2Ctrl2 = 0x30,
+    /// Temperature-sensor control and raw output (`SENS_SAR_TSENS_CTRL_REG`).
+    TsensCtrl = 0x50,
+    /// Temperature-sensor power/control 2 (`SENS_SAR_TSENS_CTRL2_REG`).
+    TsensCtrl2 = 0x54,
+    /// SAR co-processor interrupt raw status (`SENS_SAR_COCPU_INT_RAW_REG`).
+    SarCocpuIntRaw = 0xe8,
+    /// SAR co-processor interrupt enables (`SENS_SAR_COCPU_INT_ENA_REG`).
+    SarCocpuIntEna = 0xec,
+    /// SAR co-processor interrupt status (`SENS_SAR_COCPU_INT_ST_REG`).
+    SarCocpuIntStatus = 0xf0,
+    /// SAR co-processor interrupt clear (`SENS_SAR_COCPU_INT_CLR_REG`).
+    SarCocpuIntClear = 0xf4,
+    /// SAR/TSENS peripheral clock gate (`SENS_SAR_PERI_CLK_GATE_CONF_REG`).
+    SarPeriClockGate = 0x104,
+    /// SAR/TSENS peripheral reset (`SENS_SAR_PERI_RESET_CONF_REG`).
+    SarPeriReset = 0x108,
+    /// SENS block date register (`SENS_SARDATE_REG`).
+    SarDate = 0x1fc,
+}
+
+impl Esp32S3TsensRegister {
+    /// Returns the offset used by the native ESP32-S3 register map.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x00 => Self::SarReader1Ctrl,
+            0x04 => Self::SarReader1Status,
+            0x08 => Self::SarMeas1Ctrl1,
+            0x0c => Self::SarMeas1Ctrl2,
+            0x24 => Self::SarReader2Ctrl,
+            0x28 => Self::SarReader2Status,
+            0x2c => Self::SarMeas2Ctrl1,
+            0x30 => Self::SarMeas2Ctrl2,
+            0x50 => Self::TsensCtrl,
+            0x54 => Self::TsensCtrl2,
+            0xe8 => Self::SarCocpuIntRaw,
+            0xec => Self::SarCocpuIntEna,
+            0xf0 => Self::SarCocpuIntStatus,
+            0xf4 => Self::SarCocpuIntClear,
+            0x104 => Self::SarPeriClockGate,
+            0x108 => Self::SarPeriReset,
+            0x1fc => Self::SarDate,
+            _ => return None,
+        })
+    }
+
+    fn read_mask(self) -> u32 {
+        match self {
+            Self::SarReader1Ctrl => (1 << 29) | (1 << 28) | (0xff << 19) | (1 << 18) | 0xff,
+            Self::SarReader1Status => u32::MAX,
+            Self::SarMeas1Ctrl1 => 0xff00_0000,
+            Self::SarMeas1Ctrl2 => u32::MAX,
+            Self::SarReader2Ctrl => {
+                (1 << 30) | (1 << 29) | (0xff << 19) | (1 << 18) | (3 << 16) | 0xff
+            }
+            Self::SarReader2Status => u32::MAX,
+            Self::SarMeas2Ctrl1 => u32::MAX,
+            Self::SarMeas2Ctrl2 => u32::MAX,
+            Self::TsensCtrl => 0x01ff_f1ff,
+            Self::TsensCtrl2 => 0x0000_7fff,
+            Self::SarCocpuIntRaw | Self::SarCocpuIntStatus => 0x0000_0fff,
+            Self::SarCocpuIntEna => 0x0000_0fff,
+            Self::SarCocpuIntClear => 0,
+            Self::SarPeriClockGate => (1 << 31) | (1 << 30) | (1 << 29) | (1 << 27),
+            Self::SarPeriReset => (1 << 30) | (1 << 29) | (1 << 27) | (1 << 25),
+            Self::SarDate => 0x0fff_ffff,
+        }
+    }
+
+    fn write_mask(self) -> u32 {
+        match self {
+            Self::SarReader1Ctrl => Self::SarReader1Ctrl.read_mask(),
+            Self::SarReader1Status => 0,
+            Self::SarMeas1Ctrl1 => 0xff00_0000,
+            Self::SarMeas1Ctrl2 => {
+                (1 << 31) | (0xfff << 19) | SAR_MEAS_START_FORCE | SAR_MEAS_START
+            }
+            Self::SarReader2Ctrl => Self::SarReader2Ctrl.read_mask(),
+            Self::SarReader2Status => 0,
+            Self::SarMeas2Ctrl1 => 0xffff_fff8,
+            Self::SarMeas2Ctrl2 => {
+                (1 << 31) | (0xfff << 19) | SAR_MEAS_START_FORCE | SAR_MEAS_START
+            }
+            Self::TsensCtrl => 0x01ff_f000,
+            Self::TsensCtrl2 => 0x0000_7fff,
+            Self::SarCocpuIntRaw | Self::SarCocpuIntStatus => 0,
+            Self::SarCocpuIntEna => 0x0000_0fff,
+            Self::SarCocpuIntClear => 0x0000_0fff,
+            Self::SarPeriClockGate => Self::SarPeriClockGate.read_mask(),
+            Self::SarPeriReset => Self::SarPeriReset.read_mask(),
+            Self::SarDate => 0x0fff_ffff,
+        }
+    }
+
+    fn reset_value(self) -> u32 {
+        match self {
+            Self::SarReader1Ctrl => (1 << 29) | (1 << 18) | 2,
+            Self::SarReader1Status
+            | Self::SarMeas1Ctrl1
+            | Self::SarMeas1Ctrl2
+            | Self::SarReader2Status
+            | Self::SarMeas2Ctrl2
+            | Self::SarCocpuIntRaw
+            | Self::SarCocpuIntEna
+            | Self::SarCocpuIntStatus
+            | Self::SarCocpuIntClear
+            | Self::SarPeriClockGate
+            | Self::SarPeriReset => 0,
+            Self::SarReader2Ctrl => (1 << 30) | (1 << 18) | (1 << 16) | 2,
+            Self::SarMeas2Ctrl1 => (7 << 24) | (2 << 16) | (2 << 8),
+            Self::TsensCtrl => (6 << 14) | TSENS_INT_ENABLE,
+            Self::TsensCtrl2 => (1 << 14) | 2,
+            Self::SarDate => 0x0210_1180,
+        }
+    }
+}
 
 /// Host-side raw-code input and observation handle for the ESP32-S3 TSENS.
 #[derive(Clone)]
@@ -32,7 +171,7 @@ impl Esp32S3TsensHandle {
         self.state.borrow_mut().raw = value;
     }
 
-    /// Returns the raw code currently exposed by the functional sensor.
+    /// Returns the raw code supplied by the host-side sensor fixture.
     pub fn raw(&self) -> u8 {
         self.state.borrow().raw
     }
@@ -46,23 +185,25 @@ struct Esp32S3TsensState {
 }
 
 impl Esp32S3TsensState {
-    fn register(&self, offset: usize) -> u32 {
-        self.registers[offset / 4]
+    fn register(&self, register: Esp32S3TsensRegister) -> u32 {
+        self.registers[register as usize / 4]
     }
 
-    fn set_register(&mut self, offset: usize, value: u32) {
-        self.registers[offset / 4] = value;
+    fn set_register(&mut self, register: Esp32S3TsensRegister, value: u32) {
+        self.registers[register as usize / 4] = value & register.read_mask();
     }
 
     fn refresh_interrupt_status(&mut self) {
-        self.registers[INT_ST / 4] = self.register(INT_RAW) & self.register(INT_ENA);
+        let raw = self.register(Esp32S3TsensRegister::SarCocpuIntRaw);
+        let enabled = self.register(Esp32S3TsensRegister::SarCocpuIntEna);
+        self.set_register(Esp32S3TsensRegister::SarCocpuIntStatus, raw & enabled);
     }
 
-    fn publish(&self, at: SimTime) -> Result<(), DeviceError> {
+    fn publish(&self, value: u8, at: SimTime) -> Result<(), DeviceError> {
         self.hub
             .set(
                 self.signal,
-                SignalValue::from_u64(u64::from(self.raw), 8)
+                SignalValue::from_u64(u64::from(value), 8)
                     .expect("fixed ESP32-S3 TSENS signal width is valid"),
                 at,
             )
@@ -70,23 +211,67 @@ impl Esp32S3TsensState {
     }
 
     fn complete_measurement(&mut self, at: SimTime) -> Result<(), DeviceError> {
-        let value = (self.register(TSENS_CTRL) & !((TSENS_RAW_MASK) | TSENS_READY))
-            | u32::from(self.raw)
-            | TSENS_READY;
-        self.set_register(TSENS_CTRL, value);
-        self.registers[INT_RAW / 4] |= TSENS_INT;
+        let control = self.register(Esp32S3TsensRegister::TsensCtrl);
+        let output = if control & TSENS_INVERT != 0 {
+            !self.raw
+        } else {
+            self.raw
+        };
+        self.set_register(
+            Esp32S3TsensRegister::TsensCtrl,
+            (control
+                & Esp32S3TsensRegister::TsensCtrl.read_mask()
+                & !TSENS_RAW_MASK
+                & !TSENS_READY)
+                | u32::from(output)
+                | TSENS_READY,
+        );
+        if control & TSENS_INT_ENABLE != 0 {
+            let raw = self.register(Esp32S3TsensRegister::SarCocpuIntRaw) | TSENS_INTERRUPT;
+            self.set_register(Esp32S3TsensRegister::SarCocpuIntRaw, raw);
+        }
         self.refresh_interrupt_status();
-        self.publish(at)
+        self.publish(output, at)
+    }
+
+    fn complete_sar_measurement(&mut self, register: Esp32S3TsensRegister, value: u32) {
+        let start = SAR_MEAS_START_FORCE | SAR_MEAS_START;
+        let done = SAR_MEAS_DONE;
+        let writable = register.write_mask();
+        let mut next = (value & writable) | (self.register(register) & !writable);
+        if value & start != 0 {
+            // START_* are software strobes.  The functional model completes
+            // immediately and exposes the native read-only DONE latch.
+            next &= !start;
+            next |= done;
+        }
+        self.set_register(register, next);
     }
 
     fn reset(&mut self) {
         self.registers.fill(0);
         self.raw = 128;
-        // SENS_TSENS_CTRL reset fields from the ESP32-S3 register header:
-        // an enabled interrupt, nominal divider six, and powered-down sensor.
-        self.registers[TSENS_CTRL / 4] = (6 << 14) | (1 << 12);
-        self.registers[TSENS_CTRL2 / 4] = (1 << 14) | 2;
-        self.registers[DATE / 4] = 0x0210_1180;
+        for register in [
+            Esp32S3TsensRegister::SarReader1Ctrl,
+            Esp32S3TsensRegister::SarReader1Status,
+            Esp32S3TsensRegister::SarMeas1Ctrl1,
+            Esp32S3TsensRegister::SarMeas1Ctrl2,
+            Esp32S3TsensRegister::SarReader2Ctrl,
+            Esp32S3TsensRegister::SarReader2Status,
+            Esp32S3TsensRegister::SarMeas2Ctrl1,
+            Esp32S3TsensRegister::SarMeas2Ctrl2,
+            Esp32S3TsensRegister::TsensCtrl,
+            Esp32S3TsensRegister::TsensCtrl2,
+            Esp32S3TsensRegister::SarCocpuIntRaw,
+            Esp32S3TsensRegister::SarCocpuIntEna,
+            Esp32S3TsensRegister::SarCocpuIntStatus,
+            Esp32S3TsensRegister::SarCocpuIntClear,
+            Esp32S3TsensRegister::SarPeriClockGate,
+            Esp32S3TsensRegister::SarPeriReset,
+            Esp32S3TsensRegister::SarDate,
+        ] {
+            self.set_register(register, register.reset_value());
+        }
     }
 }
 
@@ -129,6 +314,13 @@ impl Esp32S3Tsens {
             Esp32S3TsensHandle { state },
         ))
     }
+
+    fn unsupported(&self, operation: &str, offset: u64) -> DeviceError {
+        DeviceError::new(format!(
+            "{} {operation} at unsupported ESP32-S3 SENS offset {offset:#x}",
+            self.name
+        ))
+    }
 }
 
 impl Device for Esp32S3Tsens {
@@ -137,19 +329,16 @@ impl Device for Esp32S3Tsens {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
+        if width != AccessWidth::Word || !width.is_aligned(offset) {
             return Err(DeviceError::new(
                 "ESP32-S3 SENS requires aligned word access",
             ));
         }
-        let offset = usize::try_from(offset).expect("SENS offset fits usize");
-        if offset >= REGISTER_BYTES {
-            return Err(DeviceError::new(format!(
-                "{} read at {offset:#x}",
-                self.name
-            )));
-        }
-        Ok(u64::from(self.state.borrow().register(offset)))
+        let register = Esp32S3TsensRegister::from_offset(offset)
+            .ok_or_else(|| self.unsupported("read", offset))?;
+        Ok(u64::from(
+            self.state.borrow().register(register) & register.read_mask(),
+        ))
     }
 
     fn write(
@@ -159,55 +348,44 @@ impl Device for Esp32S3Tsens {
         value: u64,
         at: SimTime,
     ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
+        if width != AccessWidth::Word || !width.is_aligned(offset) {
             return Err(DeviceError::new(
                 "ESP32-S3 SENS requires aligned word access",
             ));
         }
-        let offset = usize::try_from(offset).expect("SENS offset fits usize");
-        if offset >= REGISTER_BYTES {
-            return Err(DeviceError::new(format!(
-                "{} write at {offset:#x}",
-                self.name
-            )));
-        }
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits u32");
+        let register = Esp32S3TsensRegister::from_offset(offset)
+            .ok_or_else(|| self.unsupported("write", offset))?;
+        let value = u32::try_from(value)
+            .map_err(|_| DeviceError::new("ESP32-S3 SENS word write exceeds 32 bits"))?;
         let mut state = self.state.borrow_mut();
-        match offset {
-            TSENS_CTRL => {
-                state.set_register(TSENS_CTRL, value & !TSENS_READY);
-                if value & (TSENS_POWER_UP | TSENS_POWER_UP_FORCE) != 0 {
+        match register {
+            Esp32S3TsensRegister::TsensCtrl => {
+                let requested = value & register.write_mask();
+                state.set_register(register, requested);
+                if requested & (TSENS_POWER_UP | TSENS_POWER_UP_FORCE) != 0 {
                     state.complete_measurement(at)?;
-                } else {
-                    let control = state.register(TSENS_CTRL) & !TSENS_READY;
-                    state.set_register(TSENS_CTRL, control);
                 }
             }
-            INT_RAW | INT_ST => {}
-            INT_ENA => {
-                state.set_register(INT_ENA, value & TSENS_INT);
-                state.refresh_interrupt_status();
-            }
-            INT_CLR => {
-                state.registers[INT_RAW / 4] &= !(value & TSENS_INT);
-                state.set_register(INT_CLR, 0);
-                state.refresh_interrupt_status();
-            }
-            SAR_READER1_STATUS | SAR_READER2_STATUS => {}
-            SAR_MEAS1_CTRL2 | SAR_MEAS2_CTRL2 => {
-                let done = if offset == SAR_MEAS1_CTRL2 {
-                    1 << 16
-                } else {
-                    1 << 16
-                };
-                let start = 1 << 17;
-                state.set_register(offset, value & !start);
-                if value & start != 0 {
-                    state.set_register(offset, (value & !start) | done);
+            Esp32S3TsensRegister::SarCocpuIntRaw
+            | Esp32S3TsensRegister::SarCocpuIntStatus
+            | Esp32S3TsensRegister::SarReader1Status
+            | Esp32S3TsensRegister::SarReader2Status
+            | Esp32S3TsensRegister::SarCocpuIntClear => {
+                if register == Esp32S3TsensRegister::SarCocpuIntClear {
+                    let raw = state.register(Esp32S3TsensRegister::SarCocpuIntRaw)
+                        & !(value & register.write_mask());
+                    state.set_register(Esp32S3TsensRegister::SarCocpuIntRaw, raw);
+                    state.refresh_interrupt_status();
                 }
             }
-            DATE => state.set_register(DATE, value),
-            _ => state.set_register(offset, value),
+            Esp32S3TsensRegister::SarCocpuIntEna => {
+                state.set_register(register, value & register.write_mask());
+                state.refresh_interrupt_status();
+            }
+            Esp32S3TsensRegister::SarMeas1Ctrl2 | Esp32S3TsensRegister::SarMeas2Ctrl2 => {
+                state.complete_sar_measurement(register, value);
+            }
+            _ => state.set_register(register, value & register.write_mask()),
         }
         Ok(())
     }
@@ -221,75 +399,107 @@ impl Device for Esp32S3Tsens {
 mod tests {
     use super::*;
 
+    fn read(device: &mut Esp32S3Tsens, register: Esp32S3TsensRegister) -> u64 {
+        device
+            .read(register.offset(), AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+    }
+
+    fn write(
+        device: &mut Esp32S3Tsens,
+        register: Esp32S3TsensRegister,
+        value: u64,
+    ) -> Result<(), DeviceError> {
+        device.write(register.offset(), AccessWidth::Word, value, SimTime::ZERO)
+    }
+
     #[test]
-    fn power_up_exposes_raw_code_ready_and_interrupt() {
+    fn register_enum_matches_native_offsets_and_rejects_unmodeled_accesses() {
+        assert_eq!(Esp32S3TsensRegister::TsensCtrl.offset(), 0x50);
+        assert_eq!(Esp32S3TsensRegister::SarDate.offset(), 0x1fc);
         let hub = SignalHub::new();
-        let (mut tsens, handle) = Esp32S3Tsens::new("tsens", hub.clone()).unwrap();
-        handle.set_raw(173);
-        tsens
-            .write(
-                INT_ENA as u64,
-                AccessWidth::Word,
-                TSENS_INT as u64,
-                SimTime::ZERO,
-            )
-            .unwrap();
-        tsens
-            .write(
-                TSENS_CTRL as u64,
-                AccessWidth::Word,
-                TSENS_POWER_UP as u64,
-                SimTime::from_ticks(3),
-            )
-            .unwrap();
-        let control = tsens
-            .read(TSENS_CTRL as u64, AccessWidth::Word, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(control & u64::from(TSENS_RAW_MASK), 173);
-        assert_ne!(control & u64::from(TSENS_READY), 0);
-        assert_eq!(
-            tsens
-                .read(INT_ST as u64, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            u64::from(TSENS_INT)
-        );
+        let (mut tsens, _) = Esp32S3Tsens::new("tsens", hub).unwrap();
+        assert!(tsens.read(0x100, AccessWidth::Word, SimTime::ZERO).is_err());
         assert!(
-            hub.with_registry(|registry| registry.find("board.esp32s3.tsens.temperature"))
-                .is_some()
-        );
-        tsens
-            .write(
-                INT_CLR as u64,
-                AccessWidth::Word,
-                TSENS_INT as u64,
-                SimTime::ZERO,
-            )
-            .unwrap();
-        assert_eq!(
             tsens
-                .read(INT_ST as u64, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0
+                .write(0x100, AccessWidth::Word, 0, SimTime::ZERO)
+                .is_err()
         );
     }
 
     #[test]
-    fn sar_reader_start_sets_the_documented_done_latch() {
+    fn reset_values_follow_native_header_for_modeled_controls() {
         let hub = SignalHub::new();
         let (mut tsens, _) = Esp32S3Tsens::new("tsens", hub).unwrap();
-        tsens
-            .write(
-                SAR_MEAS1_CTRL2 as u64,
-                AccessWidth::Word,
-                1 << 17,
-                SimTime::ZERO,
-            )
-            .unwrap();
         assert_eq!(
-            tsens
-                .read(SAR_MEAS1_CTRL2 as u64, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            1 << 16
+            read(&mut tsens, Esp32S3TsensRegister::TsensCtrl),
+            u64::from((6 << 14) | TSENS_INT_ENABLE)
+        );
+        assert_eq!(
+            read(&mut tsens, Esp32S3TsensRegister::TsensCtrl2),
+            u64::from((1u32 << 14) | 2)
+        );
+        assert_eq!(read(&mut tsens, Esp32S3TsensRegister::SarDate), 0x0210_1180);
+    }
+
+    #[test]
+    fn power_up_applies_inversion_ready_and_native_interrupt_routing() {
+        let hub = SignalHub::new();
+        let (mut tsens, handle) = Esp32S3Tsens::new("tsens", hub.clone()).unwrap();
+        handle.set_raw(173);
+        write(
+            &mut tsens,
+            Esp32S3TsensRegister::SarCocpuIntEna,
+            u64::from(TSENS_INTERRUPT),
+        )
+        .unwrap();
+        write(
+            &mut tsens,
+            Esp32S3TsensRegister::TsensCtrl,
+            u64::from(TSENS_POWER_UP | TSENS_INT_ENABLE | TSENS_INVERT),
+        )
+        .unwrap();
+        let control = read(&mut tsens, Esp32S3TsensRegister::TsensCtrl);
+        assert_eq!(control & u64::from(TSENS_RAW_MASK), u64::from(!173u8));
+        assert_ne!(control & u64::from(TSENS_READY), 0);
+        assert_eq!(
+            read(&mut tsens, Esp32S3TsensRegister::SarCocpuIntStatus),
+            u64::from(TSENS_INTERRUPT)
+        );
+        write(
+            &mut tsens,
+            Esp32S3TsensRegister::SarCocpuIntClear,
+            u64::from(TSENS_INTERRUPT),
+        )
+        .unwrap();
+        assert_eq!(read(&mut tsens, Esp32S3TsensRegister::SarCocpuIntStatus), 0);
+        assert!(
+            hub.with_registry(|registry| registry.find("board.esp32s3.tsens.temperature"))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn sar_reader_start_strobes_done_without_writing_ro_bits() {
+        let hub = SignalHub::new();
+        let (mut tsens, _) = Esp32S3Tsens::new("tsens", hub).unwrap();
+        write(
+            &mut tsens,
+            Esp32S3TsensRegister::SarMeas1Ctrl2,
+            u64::from(SAR_MEAS_START),
+        )
+        .unwrap();
+        assert_eq!(
+            read(&mut tsens, Esp32S3TsensRegister::SarMeas1Ctrl2),
+            u64::from(SAR_MEAS_DONE)
+        );
+        assert!(
+            write(
+                &mut tsens,
+                Esp32S3TsensRegister::SarMeas1Ctrl2,
+                u64::from(u32::MAX) << 32,
+            )
+            .is_err()
         );
     }
 }

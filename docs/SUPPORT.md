@@ -93,8 +93,10 @@ The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
 The ESP32-S3 SENS block is mapped at `0x6000_8800` using Espressif's native
 `sens_reg.h` layout. The functional TSENS slice supports deterministic host raw
 code injection, power-up completion, the eight-bit output and ready flag,
-TSENS completion interrupt enable/status/clear, and the two SAR reader start
-done latches used by low-level startup code. VCD exposes
+the native `TSENS_IN_INV` transformation, TSENS completion interrupt
+enable/status/clear routing through the SAR co-processor interrupt registers,
+native reset values for the modeled controls, and the two SAR reader start/done
+latches used by low-level startup code. VCD exposes
 `board.esp32s3.tsens.temperature`. It deliberately does not claim calibrated
 degrees Celsius, eFuse coefficient application, electrical sensor behavior, or
 cycle-accurate conversion timing.

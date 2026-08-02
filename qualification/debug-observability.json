@@ -1,7 +1,7 @@
 {
   "schema": "remu.debug-observability-qualification.v1",
   "generated_by": "scripts/qualify-debug-observability.sh",
-  "source_sha256": "18fc8d4a9879ff5ef5179b13fe7f51af60c2116d5ac13fb9ad3580714df17161",
+  "source_sha256": "14146b897867116aad3e4f2f909c5df8b22c5b33166af2c1bbd5fb472f4bda13",
   "result": "pass",
   "families": [
     {
@@ -96,7 +96,7 @@
         "result": "pass",
         "byte_identical": true,
         "path": ".remu/qualification/debug-observability/xtensa/run.json",
-        "sha256": "16468c702352c8eeed0f172b4d3db30a0e51e96305c06ef09d22484dafca7586"
+        "sha256": "bdceb2375ea25cb5219fa8e0d9019b84e5b5ecc18eeb50e07eed06ab92e82607"
       },
       "coverage": {
         "path": ".remu/qualification/debug-observability/xtensa/coverage.json",

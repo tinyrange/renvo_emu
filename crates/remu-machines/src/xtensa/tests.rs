@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3TsensRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -37,21 +38,26 @@ fn esp32s3_tsens_native_window_reports_ready_raw_code_and_interrupt() {
     machine.tsens().set_raw(173);
     machine
         .bus
-        .write(base + 0xec, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .write(
+            base + Esp32S3TsensRegister::SarCocpuIntEna.offset(),
+            AccessWidth::Word,
+            1 << 5,
+            SimTime::ZERO,
+        )
         .unwrap();
     machine
         .bus
         .write(
-            base + 0x50,
+            base + Esp32S3TsensRegister::TsensCtrl.offset(),
             AccessWidth::Word,
-            1 << 22,
+            (1 << 22) | (1 << 12),
             SimTime::from_ticks(3),
         )
         .unwrap();
     let control = machine
         .bus
         .read(
-            base + 0x50,
+            base + Esp32S3TsensRegister::TsensCtrl.offset(),
             AccessWidth::Word,
             AccessKind::Read,
             SimTime::ZERO,
@@ -63,7 +69,7 @@ fn esp32s3_tsens_native_window_reports_ready_raw_code_and_interrupt() {
         machine
             .bus
             .read(
-                base + 0xf0,
+                base + Esp32S3TsensRegister::SarCocpuIntStatus.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -73,13 +79,18 @@ fn esp32s3_tsens_native_window_reports_ready_raw_code_and_interrupt() {
     );
     machine
         .bus
-        .write(base + 0xf4, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .write(
+            base + Esp32S3TsensRegister::SarCocpuIntClear.offset(),
+            AccessWidth::Word,
+            1 << 5,
+            SimTime::ZERO,
+        )
         .unwrap();
     assert_eq!(
         machine
             .bus
             .read(
-                base + 0xf0,
+                base + Esp32S3TsensRegister::SarCocpuIntStatus.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
