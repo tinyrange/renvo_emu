@@ -26,6 +26,12 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The STM32L432KC model maps the TIM7 basic timer at `0x40001400`. Its
+functional slice covers CR1/CR2, DIER/SR, EGR, CNT, PSC and ARR, deterministic
+prescaled up-counting, update-event latching/clearing, one-pulse mode, and the
+native `TIM7` interrupt line (NVIC 55). It is an abstract functional clock
+model and does not claim DMA or physical APB timing.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
