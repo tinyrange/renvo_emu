@@ -25,6 +25,15 @@ jobs:
       - name: Install Rust toolchain
         run: rustup show active-toolchain
 
+      - name: Restore Cargo build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: qualification-public-smoke-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+
       - name: Build pinned public toolchain images
         run: scripts/bootstrap-toolchains.sh
 
@@ -62,11 +71,23 @@ jobs:
       - name: Install Rust toolchain
         run: rustup show active-toolchain
 
-      - name: Fetch and verify pinned official firmware
-        run: scripts/fetch-micropython.sh
+      - name: Restore MicroPython firmware and Cargo caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .remu/firmware/micropython-v1.28.0
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: qualification-micropython-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'firmware/micropython-v1.28.0.toml') }}
 
       - name: Build release interpreter
         run: cargo build --release -p remu-cli --locked
+
+      - name: Fetch and verify pinned official firmware
+        env:
+          REMU_BIN: target/release/remu
+        run: scripts/fetch-micropython.sh
 
       - name: Run the four-board acceptance gate
         env:
@@ -96,6 +117,16 @@ jobs:
       - name: Install Rust toolchain
         run: rustup show active-toolchain
 
+      - name: Restore CoreMark source and Cargo caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .remu/reference/coremark-1f483d5b8316753a742cbf5590caf5bd0a4e4777
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: qualification-coremark-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/qualify-coremark.sh') }}
+
       - name: Build pinned public toolchain images
         run: scripts/bootstrap-toolchains.sh
 
@@ -112,4 +143,3 @@ jobs:
           name: coremark-qualification
           path: .remu/qualification/coremark/
           if-no-files-found: warn
-

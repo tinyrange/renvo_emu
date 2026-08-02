@@ -249,9 +249,11 @@ matching tests before reporting failure. The scheduled
 qualification workflow additionally runs the open-toolchain portfolio smoke,
 immutable vendor samples, stop conditions, official four-board MicroPython and
 MQuickJS acceptance, and CoreMark. Each scheduled lane uploads its JSON, VCD,
-transcript, and log evidence. Proprietary XC8 qualification and cross-host
-arm64 determinism remain separate lanes because they require explicit toolchain
-terms or host support.
+transcript, and log evidence. The MicroPython firmware and pinned CoreMark
+checkout use checksum-keyed Actions caches; restored firmware is verified before
+the downloader container or network is needed. Proprietary XC8 qualification
+and cross-host arm64 determinism remain separate lanes because they require
+explicit toolchain terms or host support.
 
 Read [CoreMark methodology and results](docs/COREMARK.md), the
 [1,000-case corpus notes](corpus/edge_cases/README.md), and the

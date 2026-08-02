@@ -6,8 +6,27 @@ manifest=${REMU_FIRMWARE_MANIFEST:-"$project_dir/firmware/micropython-v1.28.0.to
 cache=${REMU_FIRMWARE_CACHE:-"$project_dir/.remu/firmware/micropython-v1.28.0"}
 report=${REMU_FIRMWARE_REPORT:-"$cache/verified.json"}
 image=remu/firmware-fetch:local
+remu=${REMU_BIN:-"$project_dir/target/debug/remu"}
 
 mkdir -p "$cache"
+
+if [ ! -x "$remu" ]
+then
+    cargo=${CARGO:-cargo}
+    "$cargo" build --quiet -p remu-cli
+fi
+
+# A restored Actions cache should not need Docker or network access. Verify the
+# complete cache first, then only construct the downloader image when a file is
+# absent or has the wrong digest.
+if "$remu" firmware verify \
+    --manifest "$manifest" \
+    --cache "$cache" \
+    --artifact "$report" >/dev/null 2>&1
+then
+    echo "Using verified MicroPython firmware cache: $cache"
+    exit 0
+fi
 
 if ! docker image inspect "$image" >/dev/null 2>&1
 then
@@ -17,9 +36,10 @@ fi
 
 awk -F '"' '
     /^url = / { url = $2 }
-    /^filename = / { print url "\t" $2 }
+    /^filename = / { filename = $2 }
+    /^sha256 = / { print url "\t" filename "\t" $2 }
 ' "$manifest" |
-while IFS='	' read -r url filename
+while IFS='	' read -r url filename expected_sha
 do
     case "$filename" in
         ""|.*|*/*|*..*)
@@ -27,7 +47,15 @@ do
             exit 1
             ;;
     esac
+    if [ -f "$cache/$filename" ] &&
+        [ "$(sha256sum "$cache/$filename" | cut -d ' ' -f 1)" = "$expected_sha" ]
+    then
+        echo "Using cached firmware: $filename"
+        continue
+    fi
+
     part="$filename.part"
+    rm -f "$cache/$part"
     docker run --rm \
         --network=bridge \
         --read-only \
@@ -42,12 +70,17 @@ do
         "$image" \
         --fail --location --retry 3 --silent --show-error \
         --output "/cache/$part" "$url"
+    actual_sha=$(sha256sum "$cache/$part" | cut -d ' ' -f 1)
+    if [ "$actual_sha" != "$expected_sha" ]
+    then
+        echo "firmware digest mismatch for $filename: $actual_sha (expected $expected_sha)" >&2
+        rm -f "$cache/$part"
+        exit 1
+    fi
     mv "$cache/$part" "$cache/$filename"
 done
 
-cargo=${CARGO:-cargo}
-"$cargo" build --quiet -p remu-cli
-"$project_dir/target/debug/remu" firmware verify \
+"$remu" firmware verify \
     --manifest "$manifest" \
     --cache "$cache" \
     --artifact "$report"
