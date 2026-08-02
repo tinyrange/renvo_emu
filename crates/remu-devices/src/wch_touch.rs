@@ -12,6 +12,19 @@ const STRT: u32 = 1 << 4;
 const ADON: u32 = 1;
 const EOCIE: u32 = 1 << 5;
 const TKENABLE: u32 = 1 << 24;
+const SCAN: u32 = 1 << 8;
+const CONT: u32 = 1 << 1;
+const ALIGN: u32 = 1 << 11;
+const SWSTART: u32 = 1 << 22;
+const JSWSTART: u32 = 1 << 21;
+const RULE_LENGTH_SHIFT: u32 = 20;
+const CONTROL1_MASK: u32 = 0x07c0_ffff;
+const CONTROL2_MASK: u32 = 0x007e_f933;
+const SAMPLE_TIME2_MASK: u32 = 0x3fff_ffff;
+const RULE_SEQUENCE1_MASK: u32 = 0x00ff_ffff;
+const RULE_SEQUENCE3_MASK: u32 = 0x3fff_ffff;
+const CONTROL3_CONFIG_MASK: u32 = 0x00ff_007f;
+const CONTROL3_RESULT_MASK: u32 = 0x0000_0700;
 
 /// Native CH32V006 ADC/TKEY register identifiers.
 ///
@@ -26,13 +39,17 @@ pub enum WchTouchKeyRegister {
     Control1 = 0x04,
     /// ADC control register 2 (`ADC_CTLR2`).
     Control2 = 0x08,
-    /// ADC injection-data alias used for TKEY charge time reads.
-    InjectionData1 = 0x10,
+    /// ADC sample-time configuration register 2 (`ADC_SAMPTR2`).
+    SampleTime2 = 0x10,
+    /// ADC rule-sequence register 1 (`ADC_RSQR1`).
+    RuleSequence1 = 0x2c,
     /// ADC regular-sequence register 3 (`ADC_RSQR3`).
     RuleSequence3 = 0x34,
-    /// TKEY charge-time write register (`TKEY_CHG`).
+    /// TKEY charge-time write / ADC injection-data read alias (`TKEY_CHG` /
+    /// `ADC_IDATAR1`).
     TouchCharge = 0x3c,
-    /// TKEY start/discharge write and converted-data read alias.
+    /// TKEY start/discharge write / ADC rule-data read alias (`TKEY_DISCHG` /
+    /// `ADC_RDATAR`).
     TouchDischargeData = 0x4c,
     /// ADC control register 3 (`ADC_CTLR3`).
     Control3 = 0x50,
@@ -45,7 +62,8 @@ impl WchTouchKeyRegister {
             0x00 => Self::Status,
             0x04 => Self::Control1,
             0x08 => Self::Control2,
-            0x10 => Self::InjectionData1,
+            0x10 => Self::SampleTime2,
+            0x2c => Self::RuleSequence1,
             0x34 => Self::RuleSequence3,
             0x3c => Self::TouchCharge,
             0x4c => Self::TouchDischargeData,
@@ -98,6 +116,8 @@ struct WchTouchKeyState {
     statr: u32,
     ctlr1: u32,
     ctlr2: u32,
+    samptr2: u32,
+    rsqr1: u32,
     rsqr3: u32,
     ctlr3: u32,
     tk_charge: u16,
@@ -112,6 +132,8 @@ impl WchTouchKeyState {
             statr: 0,
             ctlr1: 0,
             ctlr2: 0,
+            samptr2: 0,
+            rsqr1: 0,
             rsqr3: 0,
             ctlr3: 1,
             tk_charge: 0,
@@ -129,13 +151,23 @@ impl WchTouchKeyState {
             return;
         }
         let channel = usize::try_from(self.rsqr3 & 0x1f).expect("touch channel fits usize");
-        self.rdatar = self.samples.get(channel).copied().unwrap_or_default();
+        let sample = self.samples.get(channel).copied().unwrap_or_default();
+        self.rdatar = if self.ctlr2 & ALIGN != 0 {
+            sample << 4
+        } else {
+            sample
+        };
         self.statr = (self.statr & !STRT) | EOC;
         self.conversion_due = None;
     }
 
     fn start(&mut self, now: SimTime, discharge: u16) {
-        if self.ctlr1 & TKENABLE == 0 || self.ctlr2 & ADON == 0 {
+        if self.ctlr1 & TKENABLE == 0
+            || self.ctlr2 & ADON == 0
+            || self.ctlr1 & SCAN != 0
+            || self.ctlr2 & CONT != 0
+            || (self.rsqr1 >> RULE_LENGTH_SHIFT) & 0x0f != 0
+        {
             return;
         }
         let channel = self.rsqr3 & 0x1f;
@@ -143,6 +175,10 @@ impl WchTouchKeyState {
             return;
         }
         self.statr = (self.statr & !EOC) | STRT;
+        // These software-trigger bits are hardware-cleared when a
+        // conversion starts. TKEY uses its dedicated write-only start alias,
+        // but retaining the same invariant keeps the shared ADC state sane.
+        self.ctlr2 &= !(SWSTART | JSWSTART);
         // The model deliberately uses abstract ticks rather than HBCLK. The
         // charge, discharge, and ADC conversion terms preserve deterministic
         // ordering while leaving exact clock fidelity as a documented gap.
@@ -205,7 +241,8 @@ impl Device for WchTouchKey {
             WchTouchKeyRegister::Status => state.statr,
             WchTouchKeyRegister::Control1 => state.ctlr1,
             WchTouchKeyRegister::Control2 => state.ctlr2,
-            WchTouchKeyRegister::InjectionData1 => 0,
+            WchTouchKeyRegister::SampleTime2 => state.samptr2,
+            WchTouchKeyRegister::RuleSequence1 => state.rsqr1,
             WchTouchKeyRegister::RuleSequence3 => state.rsqr3,
             // A read of the aliased injection-data address is not the charge
             // configuration register; it exposes the retained data register.
@@ -238,16 +275,16 @@ impl Device for WchTouchKey {
         state.update(at);
         match register {
             WchTouchKeyRegister::Status => state.statr &= (value & STATUS_MASK) | !STATUS_MASK,
-            WchTouchKeyRegister::Control1 => state.ctlr1 = value,
-            WchTouchKeyRegister::Control2 => state.ctlr2 = value,
-            WchTouchKeyRegister::RuleSequence3 => state.rsqr3 = value & 0x3fff_ffff,
+            WchTouchKeyRegister::Control1 => state.ctlr1 = value & CONTROL1_MASK,
+            WchTouchKeyRegister::Control2 => state.ctlr2 = value & CONTROL2_MASK,
+            WchTouchKeyRegister::SampleTime2 => state.samptr2 = value & SAMPLE_TIME2_MASK,
+            WchTouchKeyRegister::RuleSequence1 => state.rsqr1 = value & RULE_SEQUENCE1_MASK,
+            WchTouchKeyRegister::RuleSequence3 => state.rsqr3 = value & RULE_SEQUENCE3_MASK,
             WchTouchKeyRegister::TouchCharge => state.tk_charge = (value & 0x07ff) as u16,
             WchTouchKeyRegister::TouchDischargeData => state.start(at, (value & 0x07ff) as u16),
-            WchTouchKeyRegister::Control3 => state.ctlr3 = value,
-            WchTouchKeyRegister::InjectionData1 => {
-                return Err(DeviceError::new(
-                    "unmodeled WCH ADC/TKEY injection-data write",
-                ));
+            WchTouchKeyRegister::Control3 => {
+                let result = state.ctlr3 & CONTROL3_RESULT_MASK & (value & CONTROL3_RESULT_MASK);
+                state.ctlr3 = (value & CONTROL3_CONFIG_MASK) | result;
             }
         }
         Ok(())

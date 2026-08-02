@@ -194,3 +194,17 @@ and CH32V006. `scripts/docker-smoke.sh` checks the exit code and single event.
 The preceding USART1 closure remains covered by the same gate: native
 `STATR`, `DATAR`, `BRR`, `CTLR1/2/3`, and `GPR` accesses produce the exact
 `REMU-WCH\n` transcript on both WCH targets.
+
+## CH32V006 ADC/TKEY contract audit
+
+The CH32V006 ADC/TKEY slice now follows the [official CH32V00X reference
+manual](https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF)'s
+register layout and alias behavior. Typed register identifiers cover
+the status/control registers, sample and rule sequence fields, and the
+write-only `TKEY_CHG`/`TKEY_DISCHG` aliases for ADC injection and rule data.
+Reserved bits are masked, ADC alignment is honored, EOC is read-clear, and
+TKEY starts only in the documented single-channel, single-conversion mode.
+Docker-built native-address firmware still proves deterministic host-supplied
+channel data and PFIC interrupt delivery. Electrode capacitance, DMA,
+multi-channel scan/injection behavior, and exact HBCLK timing remain explicit
+functional-model gaps.

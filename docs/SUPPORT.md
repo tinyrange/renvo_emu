@@ -30,11 +30,18 @@ conventions without pretending that vendor peripherals are interchangeable.
 
 The CH32V006 model maps the documented ADC/TKEY extension at `0x40012400`.
 Firmware can enable `ADC_CTLR1.TKENABLE`, select `ADC_RSQR3.SQ1`, configure
-`TKEY_CHG`, write `TKEY_DISCHG`, wait for `ADC_STATR.EOC`, and read `TKEY_DR`.
+the single-channel `ADC_RSQR1` sequence, configure `TKEY_CHG`, write
+`TKEY_DISCHG`, wait for `ADC_STATR.EOC`, and read `TKEY_DR`. The register model
+honors the documented ADC masks, write-only TKEY/ADC aliases, read-clear EOC,
+single-conversion mode restrictions, and `ADC_CTLR2.ALIGN` result alignment.
 The emulator supplies deterministic host-controlled 12-bit channel samples and
-routes the enabled conversion-complete source through PFIC interrupt 15. It
-does not simulate electrode capacitance, analogue charge curves, DMA, scan or
-injection groups, or silicon clock timing.
+routes the enabled conversion-complete source through PFIC interrupt 15.
+
+The register contract is based on the [official CH32V00X reference manual]
+(https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF),
+including its TKEY register aliases at offsets `0x3c` and `0x4c`. It does not
+simulate electrode capacitance, analogue charge curves, DMA, scan or injection
+groups, or silicon clock timing.
 
 The CH32V003 has no native TKEY peripheral in the official WCH selection table;
 its ADC-aided capacitive-touch technique is therefore not claimed as native
