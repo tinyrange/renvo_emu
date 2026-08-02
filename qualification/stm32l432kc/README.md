@@ -8,8 +8,11 @@ external GPIO and USART2 output (`STM32L432\n`) in the documented 256 KiB flash
 and 64 KiB SRAM map.
 
 The functional register surface is RCC, FLASH/PWR startup state, GPIO A/B/C/H,
-SYSCFG/EXTI, TIM2 and USART2. Analog, USB, DMA, exact clocks and low-power
-timing are unsupported. VCD records GPIO, timer, UART and interrupt signals.
+SYSCFG/EXTI, TIM2, USART2, COMP1/COMP2, and OPAMP1. Host tests can drive
+deterministic comparator inputs and observe output-change IRQ 64; OPAMP1 exposes
+functional follower/PGA output state with trim registers. Analog transfer
+characteristics, calibration, USB, DMA, exact clocks and low-power timing are
+unsupported. VCD records GPIO, timer, UART and interrupt signals.
 
 The official lane copies STM32CubeL4's pinned NUCLEO-L432KC
 `GPIO_IOToggle/Src/main.c` unchanged and supplies only documented startup/HAL
