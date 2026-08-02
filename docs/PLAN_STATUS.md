@@ -182,6 +182,16 @@ WCH USART proof, all seven target/CPU combinations produce an exact checked
 transcript through native-address MMIO. RP firmware also polls the PL011 flag
 register rather than relying on the compiler UART facade.
 
+The RP2040 and RP2350 UART1 mappings now use a named PL011 register slice
+instead of the permissive byte facade. `DR`, `RSR/ECR`, `FR`, baud divisors,
+`LCR_H`, `CR`, FIFO levels, interrupt masks/status/clear, and `DMACR` retain
+their documented offsets, reset values, read-only fields, and write masks.
+`DR` transmits immediately only when `UARTEN` and `TXE` are set; the model does
+not claim receive data, baud timing, FIFO occupancy, modem signals, DMA, or a
+generated UART interrupt source yet. The contract is based on the official
+[RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf),
+whose PL011 block is shared by the RP2350 UART instances.
+
 ## Earlier WCH closure
 
 The WCH slice now includes deterministic TIM2 update timing, PFIC enable and

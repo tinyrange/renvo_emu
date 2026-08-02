@@ -15,6 +15,10 @@ fn raspberry_pi_uart1_has_functional_transmit_registers() {
         let mut machine = ArmMachine::new(target).unwrap();
         machine
             .bus
+            .write(address + 0x30, AccessWidth::Word, 0x301, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
             .write(address, AccessWidth::Word, 0x5a, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.chip_uart1.bytes(), [0x5a]);
