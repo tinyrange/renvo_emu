@@ -229,6 +229,8 @@ mod stm32_can;
 pub use stm32_can::*;
 mod stm32_dac;
 pub use stm32_dac::*;
+mod stm32_exti;
+pub use stm32_exti::*;
 mod ra;
 pub use ra::*;
 mod avr;

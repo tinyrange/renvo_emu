@@ -20,10 +20,10 @@ use remu_devices::{
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
     Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32AdvancedTimer,
-    Stm32AdvancedTimerHandle, Stm32Can, Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Gpio, Stm32I2c,
-    Stm32I2cHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc, Stm32RtcHandle, Stm32Spi, Stm32SpiHandle,
-    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle,
-    TimerHandle, UartHandle,
+    Stm32AdvancedTimerHandle, Stm32Can, Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Exti,
+    Stm32ExtiHandle, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc,
+    Stm32RtcHandle, Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -120,6 +120,7 @@ pub struct ArmMcuMachine {
     stm32_rtc: Option<Stm32RtcHandle>,
     stm32_rng: Option<Stm32RngHandle>,
     stm32_tim1: Option<Stm32AdvancedTimerHandle>,
+    stm32_exti: Option<Stm32ExtiHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -275,6 +276,7 @@ impl ArmMcuMachine {
         let mut stm32_rtc = None;
         let mut stm32_rng = None;
         let mut stm32_tim1 = None;
+        let mut stm32_exti = None;
         let (
             gpio,
             uart,
@@ -424,6 +426,9 @@ impl ArmMcuMachine {
                 let (rng_device, rng) = Stm32Rng::new("stm32l432kc.rng");
                 stm32_rng = Some(rng);
                 let dac1_device = Stm32Dac::new("board.stm32l432kc.dac1", signals.clone())?;
+                let (exti_device, exti) =
+                    Stm32Exti::new("board.stm32l432kc.exti", signals.clone())?;
+                stm32_exti = Some(exti);
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -442,6 +447,7 @@ impl ArmMcuMachine {
                     rtc_device,
                     rng_device,
                     dac1_device,
+                    exti_device,
                 )?;
                 (
                     gpio,
@@ -530,6 +536,7 @@ impl ArmMcuMachine {
             stm32_rtc,
             stm32_rng,
             stm32_tim1,
+            stm32_exti,
             compiler_timer,
             exit,
             ppb,
@@ -654,6 +661,7 @@ impl ArmMcuMachine {
         rtc: Stm32Rtc,
         rng: Stm32Rng,
         dac1: Stm32Dac,
+        exti: Stm32Exti,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -703,20 +711,7 @@ impl ArmMcuMachine {
                 ],
             )),
         )?;
-        bus.map_device(
-            "stm32l432kc.exti",
-            0x4001_0400,
-            0x400,
-            Box::new(RegisterBank::new(
-                "stm32l432kc.exti",
-                [
-                    (0x00, 0, u32::MAX),
-                    (0x08, 0, u32::MAX),
-                    (0x0c, 0, u32::MAX),
-                    (0x14, 0, u32::MAX),
-                ],
-            )),
-        )?;
+        bus.map_device("stm32l432kc.exti", 0x4001_0400, 0x400, Box::new(exti))?;
         bus.map_device("stm32l432kc.tim1", 0x4001_2c00, 0x400, Box::new(tim1))?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart1", 0x4001_3800, 0x400, Box::new(usart1))?;
@@ -1082,6 +1077,24 @@ impl ArmMcuMachine {
                 interrupt_requested |= eic_pending;
                 self.cpu
                     .set_interrupt(4, eic_pending && self.ppb.interrupt_enabled(4))?;
+            }
+            if let Some(exti) = &self.stm32_exti {
+                let exti_pending = exti.poll(package_inputs, self.now);
+                interrupt_requested |= exti_pending != 0;
+                for line in 0..5_u32 {
+                    let irq = 6 + line as u16;
+                    let pending = exti_pending & (1 << line) != 0;
+                    self.cpu
+                        .set_interrupt(irq, pending && self.ppb.interrupt_enabled(irq))?;
+                }
+                self.cpu.set_interrupt(
+                    23,
+                    exti_pending & 0x03e0 != 0 && self.ppb.interrupt_enabled(23),
+                )?;
+                self.cpu.set_interrupt(
+                    40,
+                    exti_pending & 0xfc00 != 0 && self.ppb.interrupt_enabled(40),
+                )?;
             }
             for (line, sercom) in &self.samd_sercom_irqs {
                 let pending = sercom.interrupt_pending();
@@ -1921,6 +1934,33 @@ mod tests {
                 SimTime::ZERO
             ),
             Ok(1)
+        );
+    }
+
+    #[test]
+    fn stm32l432_native_exti_window_latches_gpioa_edges() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        let base = 0x4001_0400;
+        machine
+            .bus
+            .write(base, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x08, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+            .unwrap();
+        let exti = machine.stm32_exti.as_ref().expect("STM32 machine has EXTI");
+        assert_eq!(exti.poll(0, SimTime::ZERO), 0);
+        machine.set_pin(3, Logic::One).unwrap();
+        assert_eq!(exti.poll(1 << 3, SimTime::from_ticks(1)), 1 << 3);
+        assert_eq!(
+            machine.bus.read(
+                base + 0x14,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(1 << 3)
         );
     }
 

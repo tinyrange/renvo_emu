@@ -151,6 +151,13 @@ enable, and update generation, with each channel exposed to VCD. It does not
 claim cycle-accurate dead-time, break/capture behavior, DMA, or alternate-
 function pin routing.
 
+The STM32L432KC model additionally maps the native EXTI block at `0x40010400`.
+Its GPIO-edge slice supports IMR/RTSR/FTSR/SWIER/PR configuration, deterministic
+rising and falling edge latching for GPIO lines 0-15, grouped NVIC requests,
+and a VCD-visible aggregate interrupt signal. SYSCFG port selection, event-only
+routing, and internal wake sources remain outside this slice; alternate-function
+pin routing is tracked separately.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
