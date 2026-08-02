@@ -14,11 +14,11 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Dmac,
-    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
-    Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle,
-    Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Adc,
+    Samd21AdcHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys,
+    Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle,
+    Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub,
+    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -82,6 +82,7 @@ pub struct ArmMcuMachine {
     eic: Option<Samd21EicHandle>,
     dmac: Option<Samd21DmacHandle>,
     i2s: Option<Samd21I2sHandle>,
+    adc: Option<Samd21AdcHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
@@ -233,7 +234,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, dmac, i2s, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, dmac, i2s, adc, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -243,6 +244,7 @@ impl ArmMcuMachine {
                 )?;
                 let (tc3_device, timer) = Samd21Tc::new("atsamd21e18.tc3");
                 let (eic_device, eic) = Samd21Eic::new("atsamd21e18.eic");
+                let (adc_device, adc) = Samd21Adc::new("atsamd21e18.adc");
                 let (watchdog_device, watchdog) = Samd21Wdt::new("atsamd21e18.wdt");
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
                 let (evsys_device, _evsys) = Samd21Evsys::new("atsamd21e18.evsys");
@@ -260,6 +262,7 @@ impl ArmMcuMachine {
                     usb_device,
                     dmac_device,
                     i2s_device,
+                    adc_device,
                 )?;
                 (
                     gpio,
@@ -268,6 +271,7 @@ impl ArmMcuMachine {
                     Some(eic),
                     Some(dmac),
                     Some(i2s),
+                    Some(adc),
                     None,
                     Some(watchdog),
                 )
@@ -310,6 +314,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -336,6 +341,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -356,6 +362,7 @@ impl ArmMcuMachine {
             eic,
             dmac,
             i2s,
+            adc,
             ra_icu,
             watchdog,
             compiler_timer,
@@ -385,6 +392,7 @@ impl ArmMcuMachine {
         usb: Samd21UsbDevice,
         dmac: Samd21Dmac,
         i2s: Samd21I2s,
+        adc: Samd21Adc,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "atsamd21e18.pm",
@@ -417,6 +425,7 @@ impl ArmMcuMachine {
         bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
         bus.map_device("atsamd21e18.dmac", 0x4100_4800, 0x100, Box::new(dmac))?;
         bus.map_device("atsamd21e18.i2s", 0x4200_5000, 0x100, Box::new(i2s))?;
+        bus.map_device("atsamd21e18.adc", 0x4200_4000, 0x100, Box::new(adc))?;
         // NVMCTRL.INTFLAG.READY is set after reset.
         bus.map_device(
             "atsamd21e18.nvmctrl",
@@ -676,6 +685,19 @@ impl ArmMcuMachine {
         Ok(())
     }
 
+    /// Supplies one deterministic host-side sample to the ATSAMD21 ADC.
+    ///
+    /// The ADC conversion still starts only when guest firmware writes
+    /// `SWTRIG.START`; this method models the external analog source without
+    /// introducing host-dependent voltages or timing.
+    pub fn set_adc_sample(&self, channel: u8, value: u16) -> Result<(), ArmMachineError> {
+        let Some(adc) = &self.adc else {
+            return Err(ArmMachineError::UnsupportedTarget(self.target));
+        };
+        adc.inject_sample(channel, value)?;
+        Ok(())
+    }
+
     /// Current vendor GPIO output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio.output()
@@ -810,6 +832,12 @@ impl ArmMcuMachine {
                 interrupt_requested |= i2s_pending;
                 self.cpu
                     .set_interrupt(27, i2s_pending && self.ppb.interrupt_enabled(27))?;
+            }
+            if let Some(adc) = &self.adc {
+                let adc_pending = adc.interrupt_pending();
+                interrupt_requested |= adc_pending;
+                self.cpu
+                    .set_interrupt(23, adc_pending && self.ppb.interrupt_enabled(23))?;
             }
             if let Some(timer_line) = timer_line {
                 self.cpu.set_interrupt(
@@ -993,8 +1021,6 @@ mod tests {
         let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
         let sercom0 = 0x4200_0800;
 
-        // SERCOM0 SPI host mode: MODE=0x3 and ENABLE=1. The functional model provides
-        // deterministic loopback so a compiler-facing transfer can observe a response.
         machine
             .bus
             .write(sercom0, AccessWidth::Word, 3_u64 << 2, SimTime::ZERO)
@@ -1024,7 +1050,6 @@ mod tests {
             0x5a
         );
 
-        // Reconfigure the same native window for I²C host mode and issue a write address.
         machine
             .bus
             .write(sercom0, AccessWidth::Word, 5_u64 << 2, SimTime::ZERO)
@@ -1049,6 +1074,36 @@ mod tests {
                 .unwrap()
                 & 1,
             1
+        );
+    }
+
+    #[test]
+    fn samd21_adc_latches_a_host_sample_through_native_registers() {
+        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
+        machine.set_adc_sample(3, 0x0abc).unwrap();
+        machine
+            .bus
+            .write(0x4200_4000, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4200_4010, AccessWidth::Word, 3, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4200_400c, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4200_401a,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0abc
         );
     }
 

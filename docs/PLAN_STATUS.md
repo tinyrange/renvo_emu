@@ -91,6 +91,27 @@ USB packet encoding/decoding, descriptor/DMA transfers through system RAM,
 physical DP/DM signaling, and NVIC routing for host stimuli remain explicitly
 deferred.
 
+## ATSAMD21 ADC functional slice
+
+The ATSAMD21E18 model now maps the ADC at `0x4200_4000` and routes its
+result-ready, overrun, and window-monitor interrupt sources to Cortex-M0+
+external line 23. The public `Samd21AdcRegister` enum names every native
+register in the data-sheet summary. Firmware can configure `CTRLA`, `REFCTRL`,
+`AVGCTRL`, `SAMPCTRL`, `CTRLB`, `WINCTRL`, `INPUTCTRL` positive-input scan,
+event and interrupt registers, thresholds, correction/calibration storage, and
+debug control.
+
+Writing `SWTRIG.START` performs one deterministic functional conversion using
+the sample supplied by `Samd21AdcHandle::inject_sample`; `RESULT` read-clear,
+W1C interrupt flags, unread-result overrun, resolution/left-adjust selection,
+and window modes are covered by unit tests and the Docker smoke. This is a
+firmware-facing digital model, not an analog simulator: electrical voltages,
+reference impedance, averaging/scan timing, Event System and DMAC coupling,
+and exact conversion clocks remain deferred. The register map and interrupt
+assignment are sourced from Microchip SAM D21/DA1 Family Data Sheet
+[DS40001882E](https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf),
+section 33.
+
 ## Phase 5 closure
 
 ## ATSAMD21 DMAC expansion slice

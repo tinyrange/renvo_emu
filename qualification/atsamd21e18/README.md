@@ -15,7 +15,7 @@ uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
 state, PORT A, EIC, TC3, SERCOM0 USART, SPI host, I²C host, EVSYS, USB, I2S,
-and watchdog, plus the DMAC common/channel registers. The DMAC model follows the
+ADC, and watchdog, plus the DMAC common/channel registers. The DMAC model follows the
 vendor masks and direct/W1C access semantics, including the reserved gap
 between DBGCTRL and SWTRIGCTRL. It executes one valid
 software-triggered descriptor for memory-to-memory byte/halfword/word
@@ -29,9 +29,12 @@ electrical timing and complete client/slave behavior are not modeled. The
 register implementation follows the vendor mode encodings, per-mode masks,
 enable-protection, raw interrupt aliases, I²C bus-state/command semantics, and
 SPI receiver-enable behavior. Clock synchronization and timing are deterministic
-approximations. Full USB packet protocol and USB descriptor DMA, linked DMAC
+approximations. The ADC exposes its native control/reference/input/sequence
+surface and deterministic host samples for software-triggered conversion,
+including bounded positive-input scan advancement; result-ready, overrun, and
+window flags route to IRQ 23. Full USB packet protocol and USB descriptor DMA, linked DMAC
 descriptors, peripheral/event trigger routing, CRC execution, analog behavior,
-I2S serial timing/framing/pin waveforms/DMAC coupling, and live peripheral
+ADC averaging/event-DMA coupling, I2S serial timing/framing/pin waveforms/DMAC coupling, and live peripheral
 event-generator/user routing are unsupported.
 VCD exposes PORT, timer, UART and interrupt hierarchy and the gate compares two
 runs byte-for-byte.
