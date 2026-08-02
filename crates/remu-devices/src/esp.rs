@@ -770,6 +770,12 @@ struct EspUsbOtgState {
     reset_injected: bool,
 }
 
+const DWC2_EPENA: u32 = 1 << 31;
+const DWC2_EPDIS: u32 = 1 << 30;
+const DWC2_GINT_RXFLVL: u32 = 1 << 4;
+const DWC2_GINT_IEPINT: u32 = 1 << 18;
+const DWC2_GINT_OEPINT: u32 = 1 << 19;
+
 /// Host-side control surface for an ESP32-S3 DWC2 device controller.
 #[derive(Clone)]
 pub struct EspUsbOtgHandle {
@@ -824,12 +830,14 @@ impl EspUsbOtgState {
         let fifo_empty_mask = self.registers[0x834 / 4];
         for endpoint in 0..16 {
             let mut input = self.registers[(0x908 + endpoint * 0x20) / 4];
-            if fifo_empty_mask & (1 << endpoint) != 0 {
+            let fifo_empty = fifo_empty_mask & (1 << endpoint) != 0
+                && self.registers[(0x900 + endpoint * 0x20) / 4] & DWC2_EPENA != 0;
+            if fifo_empty {
                 input |= 1 << 7;
             }
             // TXFE has its own DIEPEMPMSK hierarchy and does not pass
             // through the common DIEPMSK register.
-            if input & diepmsk != 0 || fifo_empty_mask & (1 << endpoint) != 0 {
+            if input & diepmsk != 0 || fifo_empty {
                 daint |= 1 << endpoint;
             }
             let output = self.registers[(0xb08 + endpoint * 0x20) / 4];
@@ -843,14 +851,14 @@ impl EspUsbOtgState {
     fn interrupt_status(&self) -> u32 {
         let mut status = self.registers[0x14 / 4];
         if !self.rx_status.is_empty() {
-            status |= 1 << 4;
+            status |= DWC2_GINT_RXFLVL;
         }
         let endpoints = self.endpoint_interrupts() & self.registers[0x81c / 4];
         if endpoints & 0x0000_ffff != 0 {
-            status |= 1 << 18;
+            status |= DWC2_GINT_IEPINT;
         }
         if endpoints & 0xffff_0000 != 0 {
-            status |= 1 << 19;
+            status |= DWC2_GINT_OEPINT;
         }
         status
     }
@@ -892,6 +900,20 @@ impl EspUsbOtgHandle {
     /// Injects full-speed bus reset and enumeration-complete conditions once.
     pub fn inject_bus_reset(&self) {
         let mut state = self.state.lock().expect("ESP USB OTG state lock poisoned");
+        // A USB reset returns the device address and endpoint enable state to their
+        // post-reset values while retaining the software interrupt masks.
+        state.registers[0x800 / 4] &= !(0x7f << 4);
+        state.registers[0x804 / 4] &= !(DWC2_EPENA | DWC2_EPDIS);
+        for endpoint in 0..16 {
+            state.registers[(0x900 + endpoint * 0x20) / 4] &= !(DWC2_EPENA | DWC2_EPDIS);
+            state.registers[(0xb00 + endpoint * 0x20) / 4] &= !(DWC2_EPENA | DWC2_EPDIS);
+            state.registers[(0x908 + endpoint * 0x20) / 4] = 0;
+            state.registers[(0xb08 + endpoint * 0x20) / 4] = 0;
+            state.in_transfer_size[endpoint] = 0;
+            state.tx_fifo[endpoint].clear();
+        }
+        state.rx_status.clear();
+        state.rx_fifo.clear();
         state.registers[0x14 / 4] |= (1 << 12) | (1 << 13);
         state.reset_injected = true;
     }
@@ -949,7 +971,7 @@ impl EspUsbOtgHandle {
         let endpoint = usize::from(endpoint);
         let control = state.registers[(0x900 + endpoint * 0x20) / 4];
         let remaining = state.registers[(0x910 + endpoint * 0x20) / 4] & 0x7ffff;
-        control & (1 << 31) != 0
+        control & DWC2_EPENA != 0
             && remaining == 0
             && state.tx_fifo[endpoint].len() >= state.in_transfer_size[endpoint]
     }
@@ -960,7 +982,7 @@ impl EspUsbOtgHandle {
         let endpoint = usize::from(endpoint);
         let control_index = (0x900 + endpoint * 0x20) / 4;
         let size_index = (0x910 + endpoint * 0x20) / 4;
-        if state.registers[control_index] & (1 << 31) == 0
+        if state.registers[control_index] & DWC2_EPENA == 0
             || state.registers[size_index] & 0x7ffff != 0
             || state.tx_fifo[endpoint].len() < state.in_transfer_size[endpoint]
         {
@@ -968,7 +990,7 @@ impl EspUsbOtgHandle {
         }
         let length = state.in_transfer_size[endpoint];
         let packet = state.tx_fifo[endpoint].drain(..length).collect();
-        state.registers[control_index] &= !(1 << 31);
+        state.registers[control_index] &= !DWC2_EPENA;
         state.registers[(0x908 + endpoint * 0x20) / 4] |= 1;
         Some(packet)
     }
@@ -976,7 +998,7 @@ impl EspUsbOtgHandle {
     /// Returns whether an OUT endpoint is armed to receive host data.
     pub fn output_ready(&self, endpoint: u8) -> bool {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        state.registers[(0xb00 + usize::from(endpoint) * 0x20) / 4] & (1 << 31) != 0
+        state.registers[(0xb00 + usize::from(endpoint) * 0x20) / 4] & DWC2_EPENA != 0
     }
 
     /// Returns the number of bytes currently scheduled on an OUT endpoint.
@@ -1030,7 +1052,9 @@ impl Device for EspUsbOtg {
                 let endpoint =
                     usize::try_from((offset - 0x908) / 0x20).expect("endpoint number fits usize");
                 let mut value = state.registers[offset as usize / 4];
-                if state.registers[0x834 / 4] & (1 << endpoint) != 0 {
+                if state.registers[0x834 / 4] & (1 << endpoint) != 0
+                    && state.registers[(0x900 + endpoint * 0x20) / 4] & DWC2_EPENA != 0
+                {
                     value |= 1 << 7;
                 }
                 value
@@ -1117,11 +1141,11 @@ impl Device for EspUsbOtg {
             let endpoint =
                 usize::try_from((offset - 0x900) / 0x20).expect("endpoint number fits usize");
             *register = value as u32;
-            if value & (1 << 30) != 0 {
-                *register &= !(1 << 31);
+            if value as u32 & DWC2_EPDIS != 0 {
+                *register &= !DWC2_EPENA;
                 state.registers[(0x908 + endpoint * 0x20) / 4] |= 1 << 1;
             }
-            if value & (1 << 31) != 0 {
+            if value as u32 & DWC2_EPENA != 0 {
                 let size =
                     usize::try_from(state.registers[(0x910 + endpoint * 0x20) / 4] & 0x7ffff)
                         .expect("DWC2 transfer size fits usize");
@@ -1132,8 +1156,8 @@ impl Device for EspUsbOtg {
             let endpoint =
                 usize::try_from((offset - 0xb00) / 0x20).expect("endpoint number fits usize");
             *register = value as u32;
-            if value & (1 << 30) != 0 {
-                *register &= !(1 << 31);
+            if value as u32 & DWC2_EPDIS != 0 {
+                *register &= !DWC2_EPENA;
                 state.registers[(0xb08 + endpoint * 0x20) / 4] |= 1 << 1;
             }
         } else {

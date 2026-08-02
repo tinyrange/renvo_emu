@@ -337,6 +337,72 @@ fn esp_usb_serial_jtag_moves_deterministic_host_packets() {
 }
 
 #[test]
+fn esp_usb_otg_models_dwc2_reset_fifo_and_endpoint_protocol() {
+    let (mut usb, handle) = EspUsbOtg::new("usb-otg");
+    usb.write(0x08, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    usb.write(
+        0x18,
+        AccessWidth::Word,
+        (1 << 4) | (1 << 12) | (1 << 13) | (1 << 18) | (1 << 19),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    usb.write(0x814, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+        .unwrap();
+    usb.write(0x81c, AccessWidth::Word, 1 | (1 << 16), SimTime::ZERO)
+        .unwrap();
+    handle.inject_bus_reset();
+    assert!(handle.interrupt_pending());
+    usb.write(
+        0x14,
+        AccessWidth::Word,
+        (1 << 12) | (1 << 13),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert!(!handle.interrupt_pending());
+
+    handle.inject_setup([0x80, 6, 0, 1, 0, 0, 18, 0]);
+    assert_eq!(
+        usb.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x000c_0080
+    );
+    assert_eq!(
+        usb.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x000c_0080
+    );
+    assert_eq!(
+        usb.read(0x1000, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x0100_0680
+    );
+    assert_eq!(
+        usb.read(0x1000, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x0012_0000
+    );
+    assert_eq!(
+        usb.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        4 << 17
+    );
+    assert!(handle.interrupt_pending());
+    usb.write(0xb08, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+        .unwrap();
+
+    usb.write(0x910, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    usb.write(0x834, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.interrupt_pending());
+    usb.write(0x900, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.interrupt_pending());
+    usb.write(0x1000, AccessWidth::Word, 0x4433_2211, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.input_ready(0));
+    assert_eq!(handle.take_input(0).unwrap(), 0x4433_2211_u32.to_le_bytes());
+}
+
+#[test]
 fn vendor_gpio_set_clear_registers_drive_signals() {
     let hub = SignalHub::new();
     let (mut sio, handle) = RpSioGpio::new("sio", 4, "board.rp.gpio", hub.clone()).unwrap();
