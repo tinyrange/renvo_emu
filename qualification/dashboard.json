@@ -12,7 +12,7 @@
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "a2ef695410f0cb6d069c06592bcc147150b3f0e02d1c1a796ebabf09c8096b38"
+      "sha256": "25f6948978e996e4f2eb43b085ac55d10b826dd004e1817cc5d52b38645e3bc4"
     },
     {
       "path": "qualification/xtensa-cpu.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "93b3d26a11a9a3e4dad6c79b92f09f7caa12e8ce22ab83691d4eec3db8d6aeba"
+      "sha256": "676599a985d4aa47fd908e8ae449de47a44b17fec6768f8136501a89628a1aed"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "97399d7882fea0c2ac597059d4f8cea093c4c0c52158deb401e0f66db3d6d49e",
+        "manifest_sha256": "d8451d3e25d5f3a4965a465c29c3cf83f79eb3c53909d89a0e9f0b91b60769b1",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -168,7 +168,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "2a7d6e2c20a76f2bea38ce26581edf1e3802afa3eccba5307f08a80f7ceacc50",
+        "manifest_sha256": "c4765481722e1296ca28330df9d06b86420d2edd279f4a4593650f747811e305",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -215,7 +215,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "481575579285d68e87eaf01f2d5308cead131d2c2ae435ff595125fa77e47116",
+        "manifest_sha256": "9ce46887db282a94fa7aebdc1626790e3825ef6bd7797137713ad95bd0c4a33c",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -256,7 +256,7 @@
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
         "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature.",
-        "IO_BANK0 covers functional per-pin STATUS/CTRL overrides and PROC0/PROC1 raw/enable/force/status interrupt registers for the active first 32 GPIOs; pad electrical muxing, secure bank routing, and GPIO32-47 electrical connections remain deferred."
+        "IO_BANK0 covers functional per-pin STATUS/CTRL overrides, replicated narrow writes, atomic aliases, and PROC0/PROC1 raw/enable/force/status interrupt registers for the active first 32 GPIOs; GPIO32-47 retain register-only coverage, while pad electrical muxing, secure bank routing, and dormant-wake behavior remain deferred."
       ],
       "name": "Raspberry Pi RP2350A",
       "passing_corpus": [
@@ -268,7 +268,7 @@
       "register_coverage": {
         "covered_register_count": 21,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "ed0984389e559406e70b916ef54fbb0c63c60a5f812b7a437028ae670c30ac5e",
+        "manifest_sha256": "f1611cd151bf2bc2a810cfc7ea25212cd2dea4dd70684417822ad98a24934c1d",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -318,7 +318,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "0162440b241cac0bd95097451c428003bb41e4a1d8a7b681d73d199f3ad7d53d",
+        "manifest_sha256": "dcb03a6662369a4781e26559e32b19ea0aea1549da46cf8e8ea3881b1172325a",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"
@@ -363,7 +363,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "dbdfd4a8ec754eb11ca83350801a6372f0268348834d473443de7b5e44c2880f",
+        "manifest_sha256": "732ca880825ee0662b0dfb380f23a4f467f485e5e7327f0d666697ddcffab5fc",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

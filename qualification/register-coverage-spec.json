@@ -85,7 +85,7 @@
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
         "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature.",
-        "IO_BANK0 covers functional per-pin STATUS/CTRL overrides and PROC0/PROC1 raw/enable/force/status interrupt registers for the active first 32 GPIOs; pad electrical muxing, secure bank routing, and GPIO32-47 electrical connections remain deferred."
+        "IO_BANK0 covers functional per-pin STATUS/CTRL overrides, replicated narrow writes, atomic aliases, and PROC0/PROC1 raw/enable/force/status interrupt registers for the active first 32 GPIOs; GPIO32-47 retain register-only coverage, while pad electrical muxing, secure bank routing, and dormant-wake behavior remain deferred."
       ]
     },
     "esp32s3": {

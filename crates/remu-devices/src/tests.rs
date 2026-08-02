@@ -522,6 +522,123 @@ fn rp2350_io_bank_models_overrides_and_proc0_edge_events() {
 }
 
 #[test]
+fn rp2350_io_bank_matches_narrow_access_and_register_reset_contract() {
+    let hub = SignalHub::new();
+    let (sio, gpio) = RpSioGpio::new_rp2350("sio", 4, "board.rp2350.io.contract", hub).unwrap();
+    let (mut io_bank, _) = RpIoBank::new("io-bank0", gpio, 48);
+
+    // The active machine exposes GPIO0..31 electrical nets, while the
+    // RP2350 register block still has the documented GPIO32..47 surface.
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::GpioControl(47).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x1f
+    );
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::GpioStatus(47).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::RawInterrupt(4).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+
+    // IO writes replicate narrow values across the destination register and
+    // ignore the low address lane bits, as the RP2350 APB bridge specifies.
+    let enable = RpIoBankRegister::Proc0Enable(0).offset();
+    io_bank
+        .write(enable + 1, AccessWidth::Byte, 0xa5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(enable, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        0xa5a5_a5a5
+    );
+    assert_eq!(
+        io_bank
+            .read(enable + 2, AccessWidth::HalfWord, SimTime::ZERO)
+            .unwrap(),
+        0xa5a5
+    );
+
+    // Atomic aliases apply to the native enable registers.
+    io_bank
+        .write(enable, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    io_bank
+        .write(enable + 0x2000, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(enable, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        3
+    );
+    io_bank
+        .write(enable + 0x3000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(enable, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        2
+    );
+
+    // The force register contributes directly to INTS and IRQSUMMARY.
+    let force = RpIoBankRegister::Proc0Force(0).offset();
+    io_bank
+        .write(force, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::Proc0Status(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & (1 << 3),
+        1 << 3
+    );
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::IrqSummary {
+                    kind: RpIoBankSummary::Proc0Secure,
+                    bank: 0,
+                }
+                .offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & 1,
+        1
+    );
+
+    // Keep the SIO device alive for the shared GPIO state used above.
+    drop(sio);
+}
+
+#[test]
 fn rp_sio_echoes_bootrom_launch_and_routes_live_fifo_words() {
     let hub = SignalHub::new();
     let (mut sio, _, multicore) =

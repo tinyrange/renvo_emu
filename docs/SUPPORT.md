@@ -90,9 +90,11 @@ RP2350's IO_BANK0 model covers the SDK-facing per-pin STATUS and CTRL
 registers, input/output/enable overrides, packed raw edge/level events, and
 PROC0/PROC1 enable, force, and status registers. The machine routes PROC0
 pending state to the documented IO IRQ line in both Cortex-M33 and Hazard3
-modes. This is a functional first-32-GPIO slice: pad electrical muxing,
-secure/non-secure bank routing, and the GPIO32-47 electrical connections are
-not yet modeled.
+modes. It honors the RP2350 atomic register aliases and replicated byte/
+halfword writes. This is a functional first-32-GPIO electrical slice:
+GPIO32-47 retain their documented register surface but do not have connected
+nets. Pad electrical muxing, secure/non-secure bank routing, and dormant-wake
+behavior are not yet modeled.
 
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
