@@ -10,6 +10,98 @@ const INT_ENA: u64 = 0x48;
 const INT_CLR: u64 = 0x4c;
 const CONTROL: u64 = 0x60;
 const DATE: u64 = 0xfc;
+const CONF0_MASK: u32 = u32::MAX;
+const CONF1_MASK: u32 = u32::MAX;
+const CONF2_MASK: u32 = u32::MAX;
+const COUNT_MASK: u32 = 0x0000_ffff;
+const STATUS_MASK: u32 = 0x0000_007f;
+const INTERRUPT_MASK: u32 = 0x0000_000f;
+const CONTROL_MASK: u32 = 0x0001_00ff;
+const CONTROL_RESET: u32 = 0x0000_0055;
+const DATE_RESET: u32 = 0x1907_2601;
+
+/// Named ESP32-S3 PCNT register IDs covered by the functional model.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Esp32s3PcntRegister {
+    /// Unit configuration register zero.
+    UnitConf0(usize),
+    /// Unit threshold configuration register.
+    UnitConf1(usize),
+    /// Unit limit configuration register.
+    UnitConf2(usize),
+    /// Unit signed pulse-count readback register.
+    UnitCount(usize),
+    /// Unit threshold-status readback register.
+    UnitStatus(usize),
+    /// Raw threshold-event interrupt status.
+    IntRaw,
+    /// Masked threshold-event interrupt status.
+    IntSt,
+    /// Threshold-event interrupt enables.
+    IntEna,
+    /// Write-one-to-clear threshold-event interrupts.
+    IntClr,
+    /// Counter reset, pause and register-clock controls.
+    Control,
+    /// Version/date register.
+    Date,
+}
+
+impl Esp32s3PcntRegister {
+    /// Returns the native byte offset of this register ID.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::UnitConf0(unit) => (unit as u64) * UNIT_STRIDE,
+            Self::UnitConf1(unit) => (unit as u64) * UNIT_STRIDE + 0x04,
+            Self::UnitConf2(unit) => (unit as u64) * UNIT_STRIDE + 0x08,
+            Self::UnitCount(unit) => COUNT_BASE + (unit as u64) * 4,
+            Self::UnitStatus(unit) => STATUS_BASE + (unit as u64) * 4,
+            Self::IntRaw => INT_RAW,
+            Self::IntSt => INT_ST,
+            Self::IntEna => INT_ENA,
+            Self::IntClr => INT_CLR,
+            Self::Control => CONTROL,
+            Self::Date => DATE,
+        }
+    }
+
+    /// Converts a modeled native offset into a named register ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        if offset < COUNT_BASE {
+            let unit = offset / UNIT_STRIDE;
+            let register = offset % UNIT_STRIDE;
+            if unit < UNITS as u64 {
+                return Some(match register {
+                    0x00 => Self::UnitConf0(unit as usize),
+                    0x04 => Self::UnitConf1(unit as usize),
+                    0x08 => Self::UnitConf2(unit as usize),
+                    _ => return None,
+                });
+            }
+        }
+        if offset >= COUNT_BASE && offset < STATUS_BASE {
+            let unit = (offset - COUNT_BASE) / 4;
+            if unit < UNITS as u64 {
+                return Some(Self::UnitCount(unit as usize));
+            }
+        }
+        if offset >= STATUS_BASE && offset < CONTROL {
+            let unit = (offset - STATUS_BASE) / 4;
+            if unit < UNITS as u64 {
+                return Some(Self::UnitStatus(unit as usize));
+            }
+        }
+        Some(match offset {
+            INT_RAW => Self::IntRaw,
+            INT_ST => Self::IntSt,
+            INT_ENA => Self::IntEna,
+            INT_CLR => Self::IntClr,
+            CONTROL => Self::Control,
+            DATE => Self::Date,
+            _ => return None,
+        })
+    }
+}
 
 /// Edge polarity accepted by the host-facing pulse-counter handle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,6 +173,7 @@ struct PcntState {
     int_raw: u32,
     int_ena: u32,
     control: u32,
+    date: u32,
     counts: [u16; UNITS],
 }
 
@@ -90,7 +183,8 @@ impl PcntState {
             units: [PcntUnit::reset(); UNITS],
             int_raw: 0,
             int_ena: 0,
-            control: 0,
+            control: CONTROL_RESET,
+            date: DATE_RESET,
             counts: [0; UNITS],
         }
     }
@@ -201,28 +295,27 @@ impl Esp32S3Pcnt {
 
     fn read_register(&self, offset: u64) -> Result<u32, DeviceError> {
         let state = self.state.borrow();
-        if let Some((unit, register)) = unit_register(offset) {
-            let unit_state = state.units[unit];
-            return Ok(match register {
-                0 => unit_state.conf0,
-                4 => unit_state.conf1,
-                8 => unit_state.conf2,
-                _ => unreachable!(),
-            });
-        }
-        if let Some(unit) = count_register(offset) {
-            return Ok(u32::from(state.counts[unit]));
-        }
-        if let Some(unit) = status_register(offset) {
-            return Ok(state.units[unit].status);
-        }
-        match offset {
-            INT_RAW => Ok(state.int_raw),
-            INT_ST => Ok(state.int_raw & state.int_ena),
-            INT_ENA => Ok(state.int_ena),
-            CONTROL => Ok(state.control),
-            DATE => Ok(0x1907_2601),
-            _ => Err(DeviceError::new(format!(
+        match Esp32s3PcntRegister::from_offset(offset) {
+            Some(Esp32s3PcntRegister::UnitConf0(unit)) => Ok(state.units[unit].conf0),
+            Some(Esp32s3PcntRegister::UnitConf1(unit)) => Ok(state.units[unit].conf1),
+            Some(Esp32s3PcntRegister::UnitConf2(unit)) => Ok(state.units[unit].conf2),
+            Some(Esp32s3PcntRegister::UnitCount(unit)) => {
+                Ok(u32::from(state.counts[unit]) & COUNT_MASK)
+            }
+            Some(Esp32s3PcntRegister::UnitStatus(unit)) => {
+                Ok(state.units[unit].status & STATUS_MASK)
+            }
+            Some(Esp32s3PcntRegister::IntRaw) => Ok(state.int_raw & INTERRUPT_MASK),
+            Some(Esp32s3PcntRegister::IntSt) => {
+                Ok((state.int_raw & state.int_ena) & INTERRUPT_MASK)
+            }
+            Some(Esp32s3PcntRegister::IntEna) => Ok(state.int_ena & INTERRUPT_MASK),
+            Some(Esp32s3PcntRegister::IntClr) => {
+                Err(DeviceError::new("ESP32-S3 PCNT INT_CLR is write-only"))
+            }
+            Some(Esp32s3PcntRegister::Control) => Ok(state.control & CONTROL_MASK),
+            Some(Esp32s3PcntRegister::Date) => Ok(state.date),
+            None => Err(DeviceError::new(format!(
                 "unmodeled ESP32-S3 PCNT read at offset {offset:#x}"
             ))),
         }
@@ -242,31 +335,6 @@ impl Esp32S3Pcnt {
         }
         Ok(())
     }
-}
-
-fn unit_register(offset: u64) -> Option<(usize, u64)> {
-    if offset >= COUNT_BASE {
-        return None;
-    }
-    let unit = usize::try_from(offset / UNIT_STRIDE).ok()?;
-    let register = offset % UNIT_STRIDE;
-    (unit < UNITS && register % 4 == 0).then_some((unit, register))
-}
-
-fn count_register(offset: u64) -> Option<usize> {
-    (COUNT_BASE..STATUS_BASE)
-        .contains(&offset)
-        .then(|| usize::try_from((offset - COUNT_BASE) / 4).ok())
-        .flatten()
-        .filter(|unit| *unit < UNITS)
-}
-
-fn status_register(offset: u64) -> Option<usize> {
-    (STATUS_BASE..CONTROL)
-        .contains(&offset)
-        .then(|| usize::try_from((offset - STATUS_BASE) / 4).ok())
-        .flatten()
-        .filter(|unit| *unit < UNITS)
 }
 
 impl Device for Esp32S3Pcnt {
@@ -295,47 +363,49 @@ impl Device for Esp32S3Pcnt {
                 "ESP32-S3 PCNT requires aligned word access",
             ));
         }
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("PCNT value fits u32");
+        let value = u32::try_from(value)
+            .map_err(|_| DeviceError::new("ESP32-S3 PCNT value exceeds u32"))?;
         let mut state = self.state.borrow_mut();
-        if let Some((unit, register)) = unit_register(offset) {
-            let unit_state = &mut state.units[unit];
-            match register {
-                0 => unit_state.conf0 = value,
-                4 => unit_state.conf1 = value,
-                8 => unit_state.conf2 = value,
-                _ => unreachable!(),
+        match Esp32s3PcntRegister::from_offset(offset) {
+            Some(Esp32s3PcntRegister::UnitConf0(unit)) => {
+                state.units[unit].conf0 = value & CONF0_MASK;
             }
-        } else if let Some(unit) = count_register(offset) {
-            return Err(DeviceError::new(format!(
-                "ESP32-S3 PCNT U{unit} count is read-only"
-            )));
-        } else if let Some(unit) = status_register(offset) {
-            return Err(DeviceError::new(format!(
-                "ESP32-S3 PCNT U{unit} status is read-only"
-            )));
-        } else {
-            match offset {
-                INT_ENA => state.int_ena = value & 0xf,
-                INT_CLR => state.int_raw &= !value,
-                CONTROL => {
-                    state.control = value & 0x0001_00ff;
-                    for unit in 0..UNITS {
-                        if value & (1 << (2 * unit)) != 0 {
-                            state.units[unit].count = 0;
-                            state.units[unit].status = 0;
-                        }
+            Some(Esp32s3PcntRegister::UnitConf1(unit)) => {
+                state.units[unit].conf1 = value & CONF1_MASK;
+            }
+            Some(Esp32s3PcntRegister::UnitConf2(unit)) => {
+                state.units[unit].conf2 = value & CONF2_MASK;
+            }
+            Some(Esp32s3PcntRegister::UnitCount(unit)) => {
+                return Err(DeviceError::new(format!(
+                    "ESP32-S3 PCNT U{unit} count is read-only"
+                )));
+            }
+            Some(Esp32s3PcntRegister::UnitStatus(unit)) => {
+                return Err(DeviceError::new(format!(
+                    "ESP32-S3 PCNT U{unit} status is read-only"
+                )));
+            }
+            Some(Esp32s3PcntRegister::IntEna) => state.int_ena = value & INTERRUPT_MASK,
+            Some(Esp32s3PcntRegister::IntClr) => state.int_raw &= !(value & INTERRUPT_MASK),
+            Some(Esp32s3PcntRegister::Control) => {
+                state.control = value & CONTROL_MASK;
+                for unit in 0..UNITS {
+                    if value & (1 << (2 * unit)) != 0 {
+                        state.units[unit].count = 0;
+                        state.units[unit].status = 0;
                     }
-                    state.sync_counts();
                 }
-                DATE => return Err(DeviceError::new("PCNT DATE is read-only")),
-                INT_RAW | INT_ST => {
-                    return Err(DeviceError::new("PCNT interrupt status is read-only"));
-                }
-                _ => {
-                    return Err(DeviceError::new(format!(
-                        "unmodeled ESP32-S3 PCNT write at offset {offset:#x}"
-                    )));
-                }
+                state.sync_counts();
+            }
+            Some(Esp32s3PcntRegister::Date) => state.date = value,
+            Some(Esp32s3PcntRegister::IntRaw | Esp32s3PcntRegister::IntSt) => {
+                return Err(DeviceError::new("PCNT interrupt status is read-only"));
+            }
+            None => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled ESP32-S3 PCNT write at offset {offset:#x}"
+                )));
             }
         }
         drop(state);
@@ -344,12 +414,126 @@ impl Device for Esp32S3Pcnt {
 
     fn reset(&mut self, _kind: ResetKind) {
         *self.state.borrow_mut() = PcntState::reset();
+        for signal in &self.count_signals {
+            self.hub
+                .set(
+                    *signal,
+                    SignalValue::from_u64(0, 16).expect("PCNT count signal is 16 bits"),
+                    SimTime::ZERO,
+                )
+                .expect("PCNT count signals remain declared");
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn register_ids_round_trip_native_offsets_and_reset_values() {
+        let expected = [
+            (Esp32s3PcntRegister::UnitConf0(0), 0x00),
+            (Esp32s3PcntRegister::UnitConf1(3), 0x28),
+            (Esp32s3PcntRegister::UnitConf2(3), 0x2c),
+            (Esp32s3PcntRegister::UnitCount(0), 0x30),
+            (Esp32s3PcntRegister::UnitCount(3), 0x3c),
+            (Esp32s3PcntRegister::UnitStatus(0), 0x50),
+            (Esp32s3PcntRegister::UnitStatus(3), 0x5c),
+            (Esp32s3PcntRegister::IntRaw, 0x40),
+            (Esp32s3PcntRegister::IntSt, 0x44),
+            (Esp32s3PcntRegister::IntEna, 0x48),
+            (Esp32s3PcntRegister::IntClr, 0x4c),
+            (Esp32s3PcntRegister::Control, 0x60),
+            (Esp32s3PcntRegister::Date, 0xfc),
+        ];
+        for (register, offset) in expected {
+            assert_eq!(register.offset(), offset);
+            assert_eq!(Esp32s3PcntRegister::from_offset(offset), Some(register));
+        }
+        assert_eq!(Esp32s3PcntRegister::from_offset(0x0a), None);
+        assert_eq!(Esp32s3PcntRegister::from_offset(0x64), None);
+
+        let hub = SignalHub::new();
+        let (mut pcnt, _) = Esp32S3Pcnt::new("pcnt", "board.esp32s3.pcnt", hub).unwrap();
+        assert_eq!(
+            pcnt.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x0000_3c10
+        );
+        assert_eq!(
+            pcnt.read(0x60, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(CONTROL_RESET)
+        );
+        assert_eq!(
+            pcnt.read(0xfc, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(DATE_RESET)
+        );
+    }
+
+    #[test]
+    fn register_masks_access_modes_and_date_write_follow_vendor_layout() {
+        let hub = SignalHub::new();
+        let (mut pcnt, handle) = Esp32S3Pcnt::new("pcnt", "board.esp32s3.pcnt", hub).unwrap();
+        pcnt.write(0x00, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+            .unwrap();
+        pcnt.write(0x04, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+            .unwrap();
+        pcnt.write(0x08, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            pcnt.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(u32::MAX)
+        );
+        assert_eq!(
+            pcnt.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(u32::MAX)
+        );
+        assert_eq!(
+            pcnt.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(u32::MAX)
+        );
+        pcnt.write(0x48, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            pcnt.read(0x48, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(INTERRUPT_MASK)
+        );
+        pcnt.write(0x60, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            pcnt.read(0x60, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(CONTROL_MASK)
+        );
+        pcnt.write(0xfc, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            pcnt.read(0xfc, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x1234_5678
+        );
+        assert!(
+            pcnt.write(0x30, AccessWidth::Word, 0, SimTime::ZERO)
+                .is_err()
+        );
+        assert!(
+            pcnt.write(0x50, AccessWidth::Word, 0, SimTime::ZERO)
+                .is_err()
+        );
+        assert!(pcnt.read(0x4c, AccessWidth::Word, SimTime::ZERO).is_err());
+        assert!(
+            pcnt.write(
+                0x00,
+                AccessWidth::Word,
+                u64::from(u32::MAX) + 1,
+                SimTime::ZERO
+            )
+            .is_err()
+        );
+        assert!(
+            !handle
+                .pulse(0, EspPcntEdge::Rising, SimTime::from_ticks(1))
+                .unwrap()
+        );
+    }
 
     #[test]
     fn configured_edges_update_signed_count_and_vcd() {

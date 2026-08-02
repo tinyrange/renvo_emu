@@ -96,7 +96,7 @@
       "family": "xtensa",
       "target": "esp32s3",
       "artifact": ".remu/qualification/reduction/xtensa.json",
-      "artifact_sha256": "d3193a4a0cbc4cdbe3b10bb5aa9fee2777414e9b23390d18d10c48e3ffc480bb",
+      "artifact_sha256": "356ca552195a0633e9f196cabdea873db8191ae98a88196f691c8e4872b982bb",
       "seeded_expected": 0,
       "original": {
         "source": [
