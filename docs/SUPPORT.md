@@ -138,6 +138,12 @@ bit-timing selection, one transmit mailbox, receive FIFO 0, standard/extended
 identifier fields, payload words, completion/error flags, and maskable status
 interrupts. It does not claim bit-level arbitration or a physical CAN bus.
 
+The STM32L432KC model additionally maps the native DAC1 controller at
+`0x40007400`. Its functional slice supports both 12-bit channels, right- and
+left-aligned plus 8-bit data writes, software-triggered transfers, and
+trace-visible digital output/enable signals. It does not claim analog voltage,
+calibration, sample-and-hold settling, or DMA behavior.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw

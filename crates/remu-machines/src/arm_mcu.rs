@@ -20,9 +20,9 @@ use remu_devices::{
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
     Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32Can, Stm32Crc, Stm32CrcHandle,
-    Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc, Stm32RtcHandle,
-    Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle,
-    Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
+    Stm32Dac, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc,
+    Stm32RtcHandle, Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -417,6 +417,7 @@ impl ArmMcuMachine {
                 stm32_rtc = Some(rtc);
                 let (rng_device, rng) = Stm32Rng::new("stm32l432kc.rng");
                 stm32_rng = Some(rng);
+                let dac1_device = Stm32Dac::new("board.stm32l432kc.dac1", signals.clone())?;
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
@@ -433,6 +434,7 @@ impl ArmMcuMachine {
                     crc_device,
                     rtc_device,
                     rng_device,
+                    dac1_device,
                 )?;
                 (
                     gpio,
@@ -642,6 +644,7 @@ impl ArmMcuMachine {
         crc: Stm32Crc,
         rtc: Stm32Rtc,
         rng: Stm32Rng,
+        dac1: Stm32Dac,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -719,6 +722,7 @@ impl ArmMcuMachine {
         bus.map_device("stm32l432kc.adc1", 0x5004_0000, 0x400, Box::new(adc))?;
         bus.map_device("stm32l432kc.crc", 0x4002_3000, 0x400, Box::new(crc))?;
         bus.map_device("stm32l432kc.rtc", 0x4000_2800, 0x400, Box::new(rtc))?;
+        bus.map_device("stm32l432kc.dac1", 0x4000_7400, 0x400, Box::new(dac1))?;
         bus.map_device(
             "stm32l432kc.can1",
             0x4000_6400,
@@ -1804,6 +1808,65 @@ mod tests {
                 SimTime::ZERO
             ),
             Ok(0x4433_2211)
+        );
+    }
+
+    #[test]
+    fn stm32l432_native_dac_window_latches_and_triggers_both_channels() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        let base = 0x4000_7400;
+        machine
+            .bus
+            .write(
+                base,
+                AccessWidth::Word,
+                1 | (1 << 2) | (1 << 16),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                base + 0x08,
+                AccessWidth::Word,
+                0xabc,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        assert_eq!(
+            machine.bus.read(
+                base + 0x2c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(0)
+        );
+        machine
+            .bus
+            .write(base + 0x04, AccessWidth::Word, 1, SimTime::from_ticks(2))
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x1c, AccessWidth::Word, 0x5a, SimTime::from_ticks(3))
+            .unwrap();
+        assert_eq!(
+            machine.bus.read(
+                base + 0x2c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(0xabc)
+        );
+        assert_eq!(
+            machine.bus.read(
+                base + 0x30,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(0x5a0)
         );
     }
 

@@ -225,6 +225,8 @@ mod stm32_rng;
 pub use stm32_rng::*;
 mod stm32_can;
 pub use stm32_can::*;
+mod stm32_dac;
+pub use stm32_dac::*;
 mod ra;
 pub use ra::*;
 mod avr;
