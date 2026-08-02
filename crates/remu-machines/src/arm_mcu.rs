@@ -13,11 +13,12 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_GPT3_OVERFLOW,
+    RA4M1_EVENT_SCI9_TXI, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci,
+    RaSciHandle, RegisterBank, Samd21Eic, Samd21EicHandle, Samd21Port, Samd21RegisterBlock,
+    Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle,
+    SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -78,6 +79,8 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    ra_gpt3: Option<RaGptHandle>,
+    ra_gpt3_irq_signal: Option<SignalId>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -183,6 +186,15 @@ impl ArmMcuMachine {
             SignalValue::from_u64(0, 1)?,
             Some("selected routed interrupt request".to_owned()),
         )?;
+        let ra_gpt3_irq_signal = (target == TargetId::R7fa4m1ab3cfm)
+            .then(|| {
+                signals.declare(
+                    "board.r7fa4m1ab3cfm.gpt3.irq",
+                    SignalValue::from_u64(0, 1).expect("one-bit signal is valid"),
+                    Some("functional GPT3 overflow request".to_owned()),
+                )
+            })
+            .transpose()?;
         let (compiler_gpio_device, compiler_gpio) = FunctionalGpio::new(
             format!("{target}.compiler-gpio"),
             manifest.gpio_count.min(32),
@@ -230,7 +242,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, ra_gpt3, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -254,6 +266,7 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    None,
                     Some(eic),
                     None,
                     Some(watchdog),
@@ -295,6 +308,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -311,13 +325,23 @@ impl ArmMcuMachine {
                 }
                 let pfs = RaPfs::new("r7fa4m1ab3cfm.pfs", &ports);
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
+                let (gpt3_device, gpt3) = RaGpt::new("r7fa4m1ab3cfm.gpt3");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
-                Self::map_ra4m1(&mut bus, ports, pfs, icu_device, gpt0_device, sci9_device)?;
+                Self::map_ra4m1(
+                    &mut bus,
+                    ports,
+                    pfs,
+                    icu_device,
+                    gpt0_device,
+                    gpt3_device,
+                    sci9_device,
+                )?;
                 (
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
+                    Some(gpt3),
                     None,
                     Some(icu),
                     None,
@@ -336,6 +360,8 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            ra_gpt3,
+            ra_gpt3_irq_signal,
             eic,
             ra_icu,
             watchdog,
@@ -488,6 +514,7 @@ impl ArmMcuMachine {
         pfs: RaPfs,
         icu: RaIcu,
         gpt0: RaGpt,
+        gpt3: RaGpt,
         sci9: RaSci,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
@@ -509,6 +536,7 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
         bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
+        bus.map_device("r7fa4m1ab3cfm.gpt3", 0x4007_8300, 0x100, Box::new(gpt3))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
@@ -785,6 +813,23 @@ impl ArmMcuMachine {
                     }
                 }
             }
+            if let (Some(gpt3), Some(icu), Some(signal)) =
+                (&self.ra_gpt3, &self.ra_icu, self.ra_gpt3_irq_signal)
+            {
+                let gpt3_pending = gpt3.poll(self.now);
+                interrupt_requested |= gpt3_pending;
+                if gpt3_pending {
+                    for line in icu.route_event(RA4M1_EVENT_GPT3_OVERFLOW) {
+                        self.cpu
+                            .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+                self.signals.set(
+                    signal,
+                    SignalValue::from_u64(u64::from(gpt3_pending), 1)?,
+                    self.now,
+                )?;
+            }
             match self.target {
                 TargetId::Atsamd21e18 | TargetId::Stm32l432kc => {
                     let uart_line = if self.target == TargetId::Atsamd21e18 {
@@ -981,5 +1026,38 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
+        machine
+            .bus
+            .write(
+                0x4000_6320,
+                AccessWidth::Word,
+                u64::from(RA4M1_EVENT_GPT3_OVERFLOW),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(0x4007_8364, AccessWidth::Word, 3, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4007_8338, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4007_832c, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4007_8364,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            3
+        );
     }
 }
