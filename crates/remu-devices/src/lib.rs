@@ -22,6 +22,8 @@ mod gpio;
 pub use gpio::*;
 mod rp;
 pub use rp::*;
+mod rp_ticks;
+pub use rp_ticks::*;
 mod esp;
 pub use esp::*;
 mod arm;

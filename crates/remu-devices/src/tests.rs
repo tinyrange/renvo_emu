@@ -108,6 +108,77 @@ fn rp2350_timer_uses_shifted_interrupt_registers() {
 }
 
 #[test]
+fn rp2350_ticks_expose_independent_running_and_countdown_state() {
+    let mut ticks = Rp2350Ticks::new("ticks");
+    assert_eq!(ticks.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+    assert_eq!(ticks.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+
+    ticks
+        .write(4, AccessWidth::Word, 4, SimTime::from_ticks(10))
+        .unwrap();
+    ticks
+        .write(0, AccessWidth::Word, 1, SimTime::from_ticks(10))
+        .unwrap();
+    assert_eq!(
+        ticks
+            .read(0, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        ticks
+            .read(4, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap(),
+        4
+    );
+    assert_eq!(
+        ticks
+            .read(8, AccessWidth::Word, SimTime::from_ticks(12))
+            .unwrap(),
+        2
+    );
+    assert_eq!(ticks.countdown(0, SimTime::from_ticks(14)), Some(4));
+
+    ticks
+        .write(0x3004, AccessWidth::Word, 1, SimTime::from_ticks(14))
+        .unwrap();
+    assert_eq!(
+        ticks
+            .read(4, AccessWidth::Word, SimTime::from_ticks(14))
+            .unwrap(),
+        4
+    );
+    ticks
+        .write(0x3000, AccessWidth::Word, 1, SimTime::from_ticks(15))
+        .unwrap();
+    assert_eq!(
+        ticks
+            .read(0, AccessWidth::Word, SimTime::from_ticks(15))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        ticks
+            .read(8, AccessWidth::Word, SimTime::from_ticks(15))
+            .unwrap(),
+        0
+    );
+
+    ticks
+        .write(0x40, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    ticks
+        .write(0x3c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(ticks.is_running(5, SimTime::ZERO), Some(true));
+    assert!(
+        ticks
+            .write(0x08, AccessWidth::Word, 1, SimTime::ZERO)
+            .is_err()
+    );
+}
+
+#[test]
 fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
     let hub = SignalHub::new();
     let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio0.gpio", hub.clone()).unwrap();
