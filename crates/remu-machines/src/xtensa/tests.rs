@@ -29,3 +29,82 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_i2c0_mmio_executes_sgp30_transaction() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let at = SimTime::from_ticks(remu_devices::Sgp30::WARMUP_TICKS);
+    const BASE: u64 = 0x6001_3000;
+    const DATA: u64 = 0x1c;
+    const CTR: u64 = 0x04;
+    const COMMAND0: u64 = 0x58;
+    const fn command(bytes: u64, opcode: u64) -> u64 {
+        bytes | (opcode << 11)
+    }
+    let write_word = |machine: &mut XtensaMachine, offset: u64, value: u64, at: SimTime| {
+        machine
+            .bus
+            .write(BASE + offset, remu_core::AccessWidth::Word, value, at)
+            .unwrap();
+    };
+    for byte in [0xb0, 0x20, 0x03] {
+        write_word(&mut machine, DATA, byte, SimTime::ZERO);
+    }
+    for (index, command) in [command(0, 6), command(3, 1), command(0, 2), command(0, 4)]
+        .into_iter()
+        .enumerate()
+    {
+        write_word(
+            &mut machine,
+            COMMAND0 + (index as u64 * 4),
+            command,
+            SimTime::ZERO,
+        );
+    }
+    write_word(&mut machine, CTR, 0x30, SimTime::ZERO);
+
+    for byte in [0xb0, 0x20, 0x08, 0xb1] {
+        write_word(&mut machine, DATA, byte, at);
+    }
+    for (index, command) in [
+        command(0, 6),
+        command(3, 1),
+        command(0, 6),
+        command(1, 1),
+        command(6, 3),
+        command(0, 2),
+        command(0, 4),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        write_word(&mut machine, COMMAND0 + (index as u64 * 4), command, at);
+    }
+    write_word(&mut machine, CTR, 0x30, at);
+    let measurement = (0..6)
+        .map(|_| {
+            machine
+                .bus
+                .read(
+                    BASE + DATA,
+                    remu_core::AccessWidth::Word,
+                    remu_core::AccessKind::Read,
+                    at,
+                )
+                .unwrap() as u8
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(measurement[0..2], [1, 164]);
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32s3.i2c0.sda"))
+            .is_some()
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32s3.i2c1.scl"))
+            .is_some()
+    );
+}

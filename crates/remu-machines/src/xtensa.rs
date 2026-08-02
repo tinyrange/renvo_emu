@@ -14,11 +14,11 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32s3I2c, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl,
+    EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup,
+    EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -401,6 +401,7 @@ impl XtensaMachine {
         }
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
+        let signals = SignalHub::new();
         let mut stack = None;
         for region in manifest.memory {
             match region.kind {
@@ -472,7 +473,6 @@ impl XtensaMachine {
             ("i2s0", 0x6000_f000),
             ("uart1", 0x6001_0000),
             ("bluetooth", 0x6001_1000),
-            ("i2c0", 0x6001_3000),
             ("uhci0", 0x6001_4000),
             ("slchost", 0x6001_5000),
             ("rmt", 0x6001_6000),
@@ -486,7 +486,6 @@ impl XtensaMachine {
             ("spi2", 0x6002_4000),
             ("spi3", 0x6002_5000),
             ("syscon", 0x6002_6000),
-            ("i2c1", 0x6002_7000),
             ("sdmmc", 0x6002_8000),
             ("peripheral-backup", 0x6002_a000),
             ("twai", 0x6002_b000),
@@ -516,6 +515,10 @@ impl XtensaMachine {
                     vec![0; 0x1000 / 4],
                 )),
             )?;
+        }
+        for (name, base) in [("i2c0", 0x6001_3000), ("i2c1", 0x6002_7000)] {
+            let device = Esp32s3I2c::new(format!("esp32s3.{name}"), signals.clone())?;
+            bus.map_device(format!("esp32s3.{name}"), base, 0x1000, Box::new(device))?;
         }
         bus.map_device(
             "esp32s3.rng",
@@ -594,7 +597,6 @@ impl XtensaMachine {
             0x1000,
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
-        let signals = SignalHub::new();
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
