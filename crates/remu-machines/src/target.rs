@@ -675,6 +675,8 @@ const MANIFESTS: &[TargetManifest] = &[
             "crossbar GPIO",
             "Timer0/2",
             "UART0",
+            "clock source/divider",
+            "power-mode controls",
             "interrupt priority",
             "VCD",
         ],
@@ -682,7 +684,9 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.silabs.com/documents/public/data-sheets/efm8bb52-datasheet.pdf",
             "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
         ],
-        limitations: &["analog, PCA, SMBus, SPI, and historical 8051 machine timing are deferred"],
+        limitations: &[
+            "analog, PCA, SMBus, SPI, oscillator settle behavior, and historical 8051 machine timing are deferred",
+        ],
     },
 ];
 

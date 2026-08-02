@@ -135,8 +135,14 @@ TARGETS = {
             "register-adapter-build.json",
             "register-link.json",
             "register-uart-build.json",
+            "register-clock-power-build.json",
+            "register-clock-power-adapter-build.json",
+            "register-clock-power-link.json",
         ],
-        "vendor_runs": ["register-fixture-run/result.json"],
+        "vendor_runs": [
+            "register-fixture-run/result.json",
+            "clock-power-run/result.json",
+        ],
         "edges": {
             "remu.board.efm8bb52f32g.port0.pin0": ["0", "1"],
             "remu.board.efm8bb52f32g.timer0.irq": ["0", "1"],
