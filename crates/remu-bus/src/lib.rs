@@ -788,14 +788,17 @@ impl AddressSpace {
                         .expect("mapped region offset fits usize");
                     storage.bytes.borrow_mut()[*storage_offset + offset] = byte;
                 }
-                Backing::Device(_) => {
-                    return Err(BusFault::new(
-                        BusFaultKind::Permission,
-                        AccessKind::Write,
-                        current,
-                        AccessWidth::Byte,
-                        "firmware loader cannot initialize an MMIO device",
-                    ));
+                Backing::Device(device) => {
+                    let relative = current - region.start;
+                    device.load(relative, &[byte]).map_err(|error| {
+                        BusFault::new(
+                            BusFaultKind::Permission,
+                            AccessKind::Write,
+                            current,
+                            AccessWidth::Byte,
+                            format!("{}: {error}", device.name()),
+                        )
+                    })?;
                 }
             }
         }

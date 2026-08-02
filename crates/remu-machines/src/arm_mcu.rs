@@ -170,6 +170,7 @@ impl ArmMcuMachine {
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
         let mut default_stack = None;
+        let mut stm32_flash_controller = None;
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
@@ -179,6 +180,30 @@ impl ArmMcuMachine {
                     default_stack = Some(u32::try_from(end).expect("Arm memory fits u32"));
                 }
                 MemoryKind::Flash | MemoryKind::Rom => {
+                    if target == TargetId::Stm32l432kc
+                        && region.kind == MemoryKind::Flash
+                        && region.start == u64::from(remu_devices::STM32_FLASH_BASE)
+                    {
+                        let (flash, controller) =
+                            Stm32FlashMemory::new(region.name, STM32_FLASH_SIZE);
+                        let alias = flash.alias("stm32l432kc.flash-alias");
+                        bus.map_device_with_permissions(
+                            region.name,
+                            region.start,
+                            region.size,
+                            Permissions::RWX,
+                            Box::new(flash),
+                        )?;
+                        bus.map_device_with_permissions(
+                            "stm32l432kc.flash-alias",
+                            0,
+                            region.size,
+                            Permissions::RX,
+                            Box::new(alias),
+                        )?;
+                        stm32_flash_controller = Some(controller);
+                        continue;
+                    }
                     let storage = if region.kind == MemoryKind::Flash {
                         SharedMemory::from_bytes(vec![0xff; region.size])
                     } else {
@@ -823,10 +848,7 @@ impl ArmMcuMachine {
             "stm32l432kc.flash-control",
             0x4002_2000,
             0x400,
-            Box::new(RegisterBank::new(
-                "stm32l432kc.flash-control",
-                [(0x00, 0x0000_0600, u32::MAX), (0x08, 0, u32::MAX)],
-            )),
+            Box::new(flash_controller),
         )?;
         bus.map_device(
             "stm32l432kc.syscfg",
