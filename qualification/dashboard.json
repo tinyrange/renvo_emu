@@ -24,7 +24,7 @@
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "86894bd5428e0c340b01324e6875626474f25c16112403d0658a57cf67ab51cd"
+      "sha256": "2a137bf56c63e0ba6e7527f4de724cac364c6e20d03ebbf710d8821791caea21"
     },
     {
       "path": "qualification/vendor-samples.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "34e90a1ff19da4e6dfaf8c1d0ec900aaef577524337881f7b8186be129ecf95b"
+      "sha256": "68eba7226a7e25bc59fced83dd1813e3c04f1f8eaffcd0bca8a4639b4d439d4f"
     },
     {
       "path": "qualification/host-determinism.json",
