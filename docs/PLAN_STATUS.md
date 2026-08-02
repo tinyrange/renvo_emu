@@ -73,6 +73,21 @@ checks the flag and readback before clearing it.
 Peripheral generator wiring, DMA/interrupt delivery into the rest of the
 machine, and cycle-accurate synchronization remain explicitly deferred.
 
+## ATSAMD21 USB device expansion slice
+
+The ATSAMD21E18 expansion qualification now maps the documented USB device
+block at `0x41005000`. The functional model exposes named common control,
+address, status, frame, interrupt, descriptor, and pad-calibration registers,
+plus the eight endpoint configuration/status/interrupt windows. It implements
+deterministic enable/detach/address behavior, endpoint status aliases,
+interrupt enable and W1C flags, endpoint interrupt summaries, software bus
+reset, SOF, and SETUP stimuli through a host-facing handle. The Docker fixture
+checks the device control and endpoint register paths at native addresses.
+
+USB packet encoding/decoding, descriptor/DMA transfers through system RAM,
+physical DP/DM signaling, and NVIC routing for host stimuli remain explicitly
+deferred.
+
 ## Phase 5 closure
 
 Phase 5 now meets its complete exit gate. `remu corpus reduce` detects the

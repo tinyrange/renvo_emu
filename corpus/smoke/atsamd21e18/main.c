@@ -14,6 +14,17 @@ typedef unsigned int u32;
 #define EVSYS_USER REG16(0x42000408u)
 #define EVSYS_INTENSET REG32(0x42000414u)
 #define EVSYS_INTFLAG REG32(0x42000418u)
+#define USB_CTRLA REG8(0x41005000u)
+#define USB_CTRLB REG16(0x41005008u)
+#define USB_DADD REG8(0x4100500au)
+#define USB_STATUS REG8(0x4100500cu)
+#define USB_INTENSET REG16(0x41005018u)
+#define USB_DESCADD REG32(0x41005024u)
+#define USB_EPCFG0 REG8(0x41005100u)
+#define USB_EPSTATUSCLR0 REG8(0x41005104u)
+#define USB_EPSTATUSSET0 REG8(0x41005105u)
+#define USB_EPSTATUS0 REG8(0x41005106u)
+#define USB_EPINTENSET0 REG8(0x41005109u)
 #define PORT_DIRSET REG32(0x41004408u)
 #define PORT_OUTSET REG32(0x41004418u)
 #define PORT_OUTCLR REG32(0x41004414u)
@@ -117,17 +128,38 @@ int main(void)
     EVSYS_CHANNEL_HALF = 2u | (1u << 8);
     if ((EVSYS_CHANNEL & ((0x7fu << 16) | (3u << 24) | (3u << 26) | 0xfu)) !=
         (2u | (0x36u << 16) | (1u << 26))) {
-        failures |= 1u << 11;
+        failures |= 1u << 14;
     }
     if ((EVSYS_USER & 0x1fu) != 0x13u || (EVSYS_USER & (0x1fu << 8)) != (3u << 8)) {
-        failures |= 1u << 12;
+        failures |= 1u << 15;
     }
     if ((EVSYS_INTFLAG & (1u << (8u + 2u))) == 0u) {
-        failures |= 1u << 13;
+        failures |= 1u << 16;
     }
     EVSYS_INTFLAG = 1u << (8u + 2u);
     if ((EVSYS_INTFLAG & (1u << (8u + 2u))) != 0u) {
-        failures |= 1u << 14;
+        failures |= 1u << 17;
+    }
+
+    USB_CTRLA = 1u << 1;
+    USB_CTRLB = 0u;
+    USB_DADD = 0x85u;
+    USB_DESCADD = 0x20000103u;
+    USB_EPCFG0 = 1u | (1u << 4);
+    USB_EPSTATUSSET0 = (1u << 6) | (1u << 4);
+    USB_EPINTENSET0 = 1u | (1u << 4);
+    USB_INTENSET = 1u << 3;
+    if (USB_CTRLA != (1u << 1) || USB_CTRLB != 0u || USB_DADD != 0x85u ||
+        USB_STATUS != 0x40u || USB_DESCADD != 0x20000100u) {
+        failures |= 1u << 18;
+    }
+    if (USB_EPCFG0 != (1u | (1u << 4)) || USB_EPSTATUS0 != ((1u << 6) | (1u << 4)) ||
+        USB_EPINTENSET0 != (1u | (1u << 4)) || (USB_INTENSET & (1u << 3)) == 0u) {
+        failures |= 1u << 19;
+    }
+    USB_EPSTATUSCLR0 = 1u << 6;
+    if (USB_EPSTATUS0 != (1u << 4)) {
+        failures |= 1u << 20;
     }
 
     PORT_DIRSET = 1u << 7;

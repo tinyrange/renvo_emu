@@ -571,6 +571,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "TC3 timer interrupt",
             "SERCOM0 USART/SPI/I2C host slice",
             "EVSYS channel/user mux and software event",
+            "USB device control and endpoint register slice",
             "VCD",
         ],
         sources: &[
@@ -581,7 +582,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/instance/sercom0.h",
         ],
         limitations: &[
-            "analog, USB, DMA, live peripheral event-generator/user routing, and exact clock timing are outside this tranche",
+            "full USB packet protocol, descriptor DMA, analog behavior, live peripheral event-generator/user routing, and exact clock timing are outside this tranche",
             "SERCOM transfers are functional and deterministic; pin-level bus timing and full slave behavior remain deferred",
         ],
     },

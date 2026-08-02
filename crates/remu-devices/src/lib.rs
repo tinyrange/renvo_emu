@@ -197,6 +197,8 @@ mod samd;
 pub use samd::*;
 mod samd_evsys;
 pub use samd_evsys::*;
+mod samd_usb;
+pub use samd_usb::*;
 mod stm32;
 pub use stm32::*;
 mod ra;
