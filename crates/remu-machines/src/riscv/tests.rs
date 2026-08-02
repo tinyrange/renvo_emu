@@ -166,6 +166,68 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_native_hmac_page_matches_sha256_vector() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let base = 0x6008_d000;
+    for (address, value) in [
+        (base + 0x40, 1_u64),
+        (base + 0x44, 8),
+        (base + 0x48, 0),
+        (base + 0x4c, 1),
+    ] {
+        machine
+            .bus
+            .write(address, AccessWidth::Word, value, SimTime::ZERO)
+            .unwrap();
+    }
+    let mut block = [0_u8; 64];
+    block[..5].copy_from_slice(b"hello");
+    block[5] = 0x80;
+    block[56..64].copy_from_slice(&(40_u64).to_be_bytes());
+    for (index, chunk) in block.chunks_exact(4).enumerate() {
+        machine
+            .bus
+            .write(
+                base + 0x80 + (index as u64) * 4,
+                AccessWidth::Word,
+                u64::from(u32::from_le_bytes(chunk.try_into().unwrap())),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(base + 0x50, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    let mut result = Vec::new();
+    for word in 0..8 {
+        result.extend_from_slice(
+            &u32::try_from(
+                machine
+                    .bus
+                    .read(
+                        base + 0xc0 + word * 4,
+                        AccessWidth::Word,
+                        AccessKind::Read,
+                        SimTime::ZERO,
+                    )
+                    .unwrap(),
+            )
+            .unwrap()
+            .to_le_bytes(),
+        );
+    }
+    assert_eq!(
+        result,
+        [
+            0x80, 0xb8, 0xdb, 0x3c, 0xef, 0x47, 0x4c, 0x5a, 0xb5, 0xa6, 0x9b, 0x0a, 0x2f, 0xd2,
+            0x82, 0x65, 0x59, 0xae, 0x25, 0xcd, 0x88, 0x83, 0xbd, 0x5e, 0xe8, 0x20, 0xf2, 0xe6,
+            0xae, 0x50, 0xc5, 0x99,
+        ]
+    );
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]
