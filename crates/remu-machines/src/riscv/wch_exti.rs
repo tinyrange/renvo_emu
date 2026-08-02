@@ -5,7 +5,7 @@ use remu_core::{RunStats, SimTime};
 use remu_cpu_riscv::RiscVCpu;
 use remu_devices::{
     GpioHandle, WchAdcHandle, WchDmaHandle, WchExti, WchExtiHandle, WchI2cHandle, WchPficHandle,
-    WchSpiHandle, WchTimerHandle, WchWatchdogHandle,
+    WchPowerHandle, WchSpiHandle, WchTimerHandle, WchWatchdogHandle,
 };
 use remu_signals::Logic;
 
@@ -26,6 +26,7 @@ pub(super) struct WchHandles {
     pub(super) adc: WchAdcHandle,
     pub(super) dma: WchDmaHandle,
     pub(super) i2c: WchI2cHandle,
+    pub(super) power: WchPowerHandle,
 }
 
 impl super::RiscVMachine {
@@ -46,6 +47,11 @@ impl super::RiscVMachine {
     /// Returns the host-facing WCH I2C1 handle for CH32V003/006 targets.
     pub fn wch_i2c(&self) -> Option<WchI2cHandle> {
         self.wch.as_ref().map(|wch| wch.i2c.clone())
+    }
+
+    /// Returns the host-facing WCH power-control handle for CH32V003/006.
+    pub fn wch_power(&self) -> Option<WchPowerHandle> {
+        self.wch.as_ref().map(|wch| wch.power.clone())
     }
 }
 

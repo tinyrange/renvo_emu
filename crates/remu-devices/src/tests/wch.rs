@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn wch_power_models_pvd_awu_and_standby_controls() {
+    let (mut power, handle) = WchPower::new("pwr");
+    let at = SimTime::ZERO;
+    const PVDE: u64 = 1 << 4;
+    const PDDS: u64 = 1 << 1;
+    const PVDO: u64 = 1 << 2;
+
+    power
+        .write(0x00, AccessWidth::Word, PVDE | (3 << 5), at)
+        .unwrap();
+    handle.set_supply_low(true);
+    assert_eq!(power.read(0x04, AccessWidth::Word, at).unwrap(), PVDO);
+    handle.set_supply_low(false);
+    assert_eq!(power.read(0x04, AccessWidth::Word, at).unwrap(), 0);
+
+    power.write(0x08, AccessWidth::Word, 0xffff, at).unwrap();
+    power.write(0x0c, AccessWidth::Word, 0xffff, at).unwrap();
+    power.write(0x10, AccessWidth::Word, 0xffff, at).unwrap();
+    assert_eq!(power.read(0x08, AccessWidth::Word, at).unwrap(), 1 << 1);
+    assert_eq!(power.read(0x0c, AccessWidth::Word, at).unwrap(), 0x3f);
+    assert_eq!(power.read(0x10, AccessWidth::Word, at).unwrap(), 0x0f);
+
+    power
+        .write(0x00, AccessWidth::Word, PVDE | PDDS, at)
+        .unwrap();
+    assert!(handle.standby_requested());
+    handle.clear_standby();
+    assert!(!handle.standby_requested());
+}
+
+#[test]
 fn wch_i2c_models_master_write_read_and_interrupts() {
     let (mut i2c, handle) = WchI2c::new("i2c1");
     let at = SimTime::ZERO;

@@ -8,8 +8,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
-| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, SPI1, TIM2, I2C1, AFIO/EXTI, PFIC and table-mode interrupt proofs |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/SPI1/TIM2/I2C1/AFIO/EXTI/PFIC slice with independently sized map |
+| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, SPI1, TIM2, I2C1, PWR, AFIO/EXTI, PFIC and table-mode interrupt proofs |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/SPI1/TIM2/I2C1/PWR/AFIO/EXTI/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1; USB; watchdog/RTC; and ROSC/PSM/VREG controls |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER0/1; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1/2; USB; and deterministic accelerator/control slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
@@ -66,6 +66,19 @@ queue deterministic read responses, selectively NACK addresses, and collect
 bytes transmitted by firmware. This is a functional transaction model: it
 does not claim electrical arbitration, clock stretching, analogue pull-up
 timing, DMA requests, slave-mode operation, or multi-master behaviour.
+
+### WCH power-control functional slice
+
+CH32V003 and CH32V006 map the vendor `PWR` block at `0x40007000`. The model
+covers the documented `CTLR`, `CSR`, `AWUCSR`, `AWUWR`, and `AWUPSC` registers:
+PVD enable/threshold configuration, the host-driven `PVDO` status flag,
+automatic-wakeup enable/window/prescaler fields, and the standby (`PDDS`)
+request used by firmware before `WFI`/`WFE`.
+
+`WchPowerHandle` lets a host set the deterministic supply-low condition and
+observe/clear the latched standby request. It does not claim analogue voltage
+curves, regulator current, backup-domain retention, or oscillator-level
+low-power timing; those remain outside the functional baseline.
 
 ### WCH flash slice
 
