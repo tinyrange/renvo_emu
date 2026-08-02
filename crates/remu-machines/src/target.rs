@@ -402,7 +402,7 @@ const MANIFESTS: &[TargetManifest] = &[
         sources: &["https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"],
         limitations: &[
             "the initial Thumb interpreter covers the compiler baseline, not the complete ISA",
-            "NVIC priority/preemption, USB device fidelity, and exact XIP timing are deferred",
+            "NVIC priority/preemption, USB PHY/protocol completeness, and exact XIP timing are deferred",
         ],
     },
     TargetManifest {

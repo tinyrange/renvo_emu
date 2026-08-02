@@ -84,6 +84,10 @@ build_case rp-arm toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp20
 run_case rp2040 rp2040 "$artifact_root/rp-arm/smoke.elf"
 run_case rp2350-arm rp2350 "$artifact_root/rp-arm/smoke.elf"
 
+build_case rp2040-usb toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-usb rp2040 \
+    -O2 start.S main.c
+run_case rp2040-usb rp2040 "$artifact_root/rp2040-usb/smoke.elf"
+
 build_case rp2040-uart toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp2040 \
     -O2 -DUART_BASE=0x40034000u start.S uart.c
 run_case rp2040-uart rp2040 "$artifact_root/rp2040-uart/smoke.elf"
@@ -244,6 +248,7 @@ jq -e '.uart | implode == "REMU-WCH\n"' "$artifact_root/ch32v003-uart-run.json" 
 jq -e '.uart | implode == "REMU-WCH\n"' "$artifact_root/ch32v006-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2040-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 0' "$artifact_root/rp2040-spi-run.json" >/dev/null
+jq -e '.exit_code == 0 and .stats.events >= 1' "$artifact_root/rp2040-usb-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-arm-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 0' "$artifact_root/rp2350-arm-spi-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-riscv-uart-run.json" >/dev/null

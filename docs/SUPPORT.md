@@ -258,6 +258,13 @@ clock-source switching, power/reset-domain details, and silicon-specific
 electrical behavior remain outside this functional slice. The register
 semantics are based on the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf).
 
+The RP2040 USB controller models deterministic VBUS detection, device connect,
+bus reset, setup reception, buffer completion, raw/masked interrupt mapping,
+and the RP2040 write-clear semantics for `SIE_STATUS` and `BUFF_STATUS`. The
+functional host exercises the native controller through reset, control, and
+bulk endpoint stages. USB PHY signaling, packet-level timing, DMA, and the
+complete class/protocol catalogue remain outside this functional slice.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed

@@ -425,11 +425,31 @@ pub struct Rp2040UsbHandle {
 }
 
 impl Rp2040UsbState {
+    const SIE_STATUS_READ_ONLY: u32 = (1 << 10) | (0b11 << 2) | 1;
+
     fn raw_interrupts(&self) -> u32 {
         let sie_status = self.registers[0x50 / 4];
         let mut interrupts = 0;
         if self.registers[0x58 / 4] != 0 {
             interrupts |= 1 << 4;
+        }
+        if sie_status & (1 << 31) != 0 {
+            interrupts |= 1 << 5;
+        }
+        if sie_status & (1 << 27) != 0 {
+            interrupts |= 1 << 6;
+        }
+        if sie_status & (1 << 26) != 0 {
+            interrupts |= 1 << 7;
+        }
+        if sie_status & (1 << 25) != 0 {
+            interrupts |= 1 << 8;
+        }
+        if sie_status & (1 << 24) != 0 {
+            interrupts |= 1 << 9;
+        }
+        if sie_status & (1 << 29) != 0 {
+            interrupts |= 1 << 10;
         }
         if sie_status & (1 << 19) != 0 {
             interrupts |= 1 << 12;
@@ -437,8 +457,20 @@ impl Rp2040UsbState {
         if sie_status & (1 << 0) != 0 {
             interrupts |= 1 << 11;
         }
+        if sie_status & (1 << 16) != 0 {
+            interrupts |= 1 << 13;
+        }
+        if sie_status & (1 << 4) != 0 {
+            interrupts |= 1 << 14;
+        }
+        if sie_status & (1 << 11) != 0 {
+            interrupts |= 1 << 15;
+        }
         if sie_status & (1 << 17) != 0 {
             interrupts |= 1 << 16;
+        }
+        if sie_status & (1 << 18) != 0 {
+            interrupts |= 1 << 3;
         }
         interrupts
     }
@@ -606,6 +638,22 @@ impl Rp2040UsbController {
         }
         Ok(())
     }
+
+    fn update_write_clear(
+        register: &mut u32,
+        alias: u64,
+        value: u32,
+        read_only: u32,
+    ) -> Result<(), DeviceError> {
+        let preserved = *register & read_only;
+        if alias == 0 || alias == 3 {
+            *register &= !value;
+        } else {
+            Self::update(register, alias, value)?;
+        }
+        *register = (*register & !read_only) | preserved;
+        Ok(())
+    }
 }
 
 impl Device for Rp2040UsbController {
@@ -650,14 +698,26 @@ impl Device for Rp2040UsbController {
         let register_offset = offset & 0x0fff;
         let index = usize::try_from(register_offset / 4).expect("small USB offset fits");
         let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
+        let value =
+            u32::try_from(value & u64::from(u32::MAX)).expect("masked USB register value fits");
         let register = state.registers.get_mut(index).ok_or_else(|| {
             DeviceError::new(format!(
                 "unmodeled RP2040 USB write at offset {register_offset:#x}"
             ))
         })?;
-        let value =
-            u32::try_from(value & u64::from(u32::MAX)).expect("masked USB register value fits");
-        Self::update(register, alias, value)?;
+        match register_offset {
+            // SIE_STATUS and BUFF_STATUS are write-clear event registers in the
+            // RP2040 USB block. The atomic clear alias is equivalent to a base
+            // write for these registers; status bits are never assigned raw.
+            0x50 => Self::update_write_clear(
+                register,
+                alias,
+                value,
+                Rp2040UsbState::SIE_STATUS_READ_ONLY,
+            )?,
+            0x58 => Self::update_write_clear(register, alias, value, 0)?,
+            _ => Self::update(register, alias, value)?,
+        }
         // VBUS_DETECTED is driven by the functional host and remains asserted.
         state.registers[0x50 / 4] |= 1;
         Ok(())
