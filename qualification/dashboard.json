@@ -8,15 +8,15 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "7abc3cabe5835b63e675df5a9cd630d0f978da18afa96cc0568a9af088a97e7a"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "3650118066a982ed41823dbb51867c3e3ca909e1847bd04cca9be7a702e8b7b3"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "62a2cf3470ec7791c55f9f545022cd782069d6888540842a1eb892531df19375"
     },
     {
       "path": "qualification/reduction.json",
@@ -24,7 +24,7 @@
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "f7dde1520d959d650c5a78a027f7388df279d2233e0d228a77f8982260e5fe97"
+      "sha256": "2ea5a5107e5f1768c7507403157b6e21b26b9a368ce955c97fb71505994868b1"
     },
     {
       "path": "qualification/vendor-samples.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "853bbeba92e59c15225b3132b428668d3746c90fe86c4c41c2cb72a85ec12f7c"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+      "sha256": "65eedc1611c3dc8e81b31e47c780752dd1ee13f229f7538303ab29d6dc2742df"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "dff87cdf11a4ca63ec36435415dca6780fe2092c7acc71a7653d973f19189492",
+        "manifest_sha256": "6000fe5b1dbb0d8bb74c0fff41798087465568486c51f02c6fc01c9f080838c5",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -152,11 +152,13 @@
       "known_gaps": [
         "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
         "analog and touch peripherals are outside the baseline",
+        "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, waveform pins, and exact clock timing are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
         "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
         "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
-        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
+        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.",
+        "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, waveform pins, and exact clock timing remain outside the slice."
       ],
       "name": "WCH CH32V006",
       "passing_corpus": [
@@ -166,14 +168,15 @@
         "Unmodified WCH EVT GPIO Toggle"
       ],
       "register_coverage": {
-        "covered_register_count": 13,
+        "covered_register_count": 19,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "f9183872e0295be232156081ca16457b0c7d655fa1a1280ac0885f92b29a85ca",
+        "manifest_sha256": "66c5b5f1ac7e2367d4dab6790ce75c01a66d4ccac3ca9b97a26bdd5718694723",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
           "ch32v006.rcc",
           "ch32v006.tim2",
+          "ch32v006.tim3",
           "ch32v006.usart1"
         ],
         "status": "passing"
@@ -215,7 +218,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487",
+        "manifest_sha256": "1203abb3a9266f7498569107dce3cc01dc5a5bf9bb3990220965887afff56317",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -266,7 +269,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95",
+        "manifest_sha256": "f58a982f15a5d49881e9c8f9d5a3af4af9c2f038775fc174a41efef0ad099a80",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -315,7 +318,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4",
+        "manifest_sha256": "2da7a728a2d75afea896ac00557a9244248412df70ab77ed2ac12f20967b6d9e",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"
@@ -360,7 +363,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf",
+        "manifest_sha256": "fdbe8f2e76a1a26990ce6c2f483c8a6c99ed9d5ddb70c38c7914b0607a984149",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

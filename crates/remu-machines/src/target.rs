@@ -294,6 +294,7 @@ const MANIFESTS: &[TargetManifest] = &[
         limitations: &[
             "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
             "analog and touch peripherals are outside the baseline",
+            "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, waveform pins, and exact clock timing are deferred",
         ],
     },
     TargetManifest {
