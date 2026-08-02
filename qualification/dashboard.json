@@ -8,15 +8,15 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "01d938cc1b6a569ed6b1f228f75eada67164fa925fb66c749e6483936033c004"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "48a772184d83b7333f7aea72833dc3102c3079f2b813edce8cdbbae79ef0038f"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "5a8599f22840779266fcbb20c86024ec93482b87393e4b281d2eb957a7434bb5"
     },
     {
       "path": "qualification/reduction.json",
@@ -24,7 +24,7 @@
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "f7dde1520d959d650c5a78a027f7388df279d2233e0d228a77f8982260e5fe97"
+      "sha256": "abf5097b2c82aa5fd3b011755d65d925c877e8bed34f0ca2ca226a7b5ab738ce"
     },
     {
       "path": "qualification/vendor-samples.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "df9da0452ec9f2a401b33db315612c5f3ee246b508ff2eed70781f828c98a19a"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+      "sha256": "71f9ce1f0b8ba38ddebb9771c4399c7220c0ce29f782da87b4e9b36949616c57"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -102,7 +102,8 @@
       "id": "ch32v003",
       "known_gaps": [
         "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
-        "analog and debug-wire behavior is outside the baseline",
+        "CH32V003 has no native TKEY block; ADC-aided capacitive touch is outside the baseline",
+        "analog and debug-wire behavior is otherwise outside the baseline",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
         "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
@@ -119,7 +120,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "dff87cdf11a4ca63ec36435415dca6780fe2092c7acc71a7653d973f19189492",
+        "manifest_sha256": "34cb6fddf6740250a8098356bec936d458e330a56ac7390048bf8a83306a5c3f",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -151,12 +152,14 @@
       "id": "ch32v006",
       "known_gaps": [
         "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
-        "analog and touch peripherals are outside the baseline",
+        "TKEY uses deterministic host-provided samples rather than analogue capacitance physics",
+        "ADC DMA, scan/injection groups, watchdogs and exact HBCLK timing remain outside the baseline",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
         "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
         "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
-        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
+        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.",
+        "TKEY accepts deterministic host samples; analogue capacitance, DMA, scan/injection groups and exact HBCLK timing are not modeled."
       ],
       "name": "WCH CH32V006",
       "passing_corpus": [
@@ -166,15 +169,16 @@
         "Unmodified WCH EVT GPIO Toggle"
       ],
       "register_coverage": {
-        "covered_register_count": 13,
+        "covered_register_count": 19,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "f9183872e0295be232156081ca16457b0c7d655fa1a1280ac0885f92b29a85ca",
+        "manifest_sha256": "d866cd23a7f11ad411da11c1c5737cdd0129473f251efe5f1d538e69848df195",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
           "ch32v006.rcc",
           "ch32v006.tim2",
-          "ch32v006.usart1"
+          "ch32v006.usart1",
+          "ch32v006.adc-tkey"
         ],
         "status": "passing"
       },
@@ -215,7 +219,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487",
+        "manifest_sha256": "d72a120adb8a3c7aaff048d543bc255fc6c5788ceb3ffd91798c6be6859e56ee",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -266,7 +270,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95",
+        "manifest_sha256": "c7a2037bfad735e516e8eebe326c8738f2925b2af9a4f22ca045e25a57f5d692",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -315,7 +319,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4",
+        "manifest_sha256": "7ff17957cd500070c1316844177b977d7a480ae1a198f92d8774ecbdc9c71c14",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"
@@ -360,7 +364,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf",
+        "manifest_sha256": "2f783a55ce410747c7e24e24acf183150325b8b22be39cdbf53a0441fd310841",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

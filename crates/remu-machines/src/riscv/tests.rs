@@ -199,6 +199,72 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 }
 
 #[test]
+fn ch32v006_touch_key_maps_the_adc_register_sequence() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v006).unwrap();
+    machine.set_touch_key(2, 0x0bcd).unwrap();
+    let base = 0x4001_2400;
+    machine
+        .bus
+        .write(base + 0x08, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            base + 0x04,
+            AccessWidth::Word,
+            (1 << 24) | (1 << 5),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x34, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x3c, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x4c, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(
+        machine
+            .bus
+            .read(base, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
+            .unwrap()
+            & 0x1f,
+        1 << 4
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x4c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::from_ticks(22),
+            )
+            .unwrap(),
+        0x0bcd
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::from_ticks(22),
+            )
+            .unwrap()
+            & 0x1f,
+        0
+    );
+}
+
+#[test]
 fn gpio_facade_streams_valid_vcd() {
     // lui x1,0xffff0; addi x2,x0,1; sw x2,0(x1); sw x2,4(x1); ebreak
     let program = [
