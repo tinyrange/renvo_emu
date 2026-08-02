@@ -11,23 +11,115 @@
 use super::*;
 
 const TX_CHANNELS: usize = 4;
-const DATA_BASE: u64 = 0x00;
-const CONF0_BASE: u64 = 0x20;
-const STATUS_BASE: u64 = 0x50;
-const INT_RAW: u64 = 0x70;
-const INT_ST: u64 = 0x74;
-const INT_ENA: u64 = 0x78;
-const INT_CLR: u64 = 0x7c;
-const SYS_CONF: u64 = 0xc0;
-const TX_SIM: u64 = 0xc4;
-const DATE: u64 = 0xcc;
+
+/// Named ESP32-S3 RMT register offsets covered by the functional model.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u64)]
+pub enum Esp32s3RmtRegister {
+    /// Channel 0 APB FIFO data register.
+    Ch0Data = 0x00,
+    /// Channel 1 APB FIFO data register.
+    Ch1Data = 0x04,
+    /// Channel 2 APB FIFO data register.
+    Ch2Data = 0x08,
+    /// Channel 3 APB FIFO data register.
+    Ch3Data = 0x0c,
+    /// Channel 0 configuration register.
+    Ch0Conf0 = 0x20,
+    /// Channel 1 configuration register.
+    Ch1Conf0 = 0x24,
+    /// Channel 2 configuration register.
+    Ch2Conf0 = 0x28,
+    /// Channel 3 configuration register.
+    Ch3Conf0 = 0x2c,
+    /// Channel 0 status register.
+    Ch0Status = 0x50,
+    /// Channel 1 status register.
+    Ch1Status = 0x54,
+    /// Channel 2 status register.
+    Ch2Status = 0x58,
+    /// Channel 3 status register.
+    Ch3Status = 0x5c,
+    /// Raw interrupt status.
+    IntRaw = 0x70,
+    /// Masked interrupt status.
+    IntSt = 0x74,
+    /// Interrupt enables.
+    IntEna = 0x78,
+    /// Write-one-to-clear interrupt bits.
+    IntClr = 0x7c,
+    /// APB and memory clock configuration.
+    SysConf = 0xc0,
+    /// Synchronous transmit trigger.
+    TxSim = 0xc4,
+    /// RMT version register.
+    Date = 0xcc,
+}
+
+impl Esp32s3RmtRegister {
+    /// Returns the native byte offset of this register.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Converts a modeled native byte offset into a named register.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x00 => Self::Ch0Data,
+            0x04 => Self::Ch1Data,
+            0x08 => Self::Ch2Data,
+            0x0c => Self::Ch3Data,
+            0x20 => Self::Ch0Conf0,
+            0x24 => Self::Ch1Conf0,
+            0x28 => Self::Ch2Conf0,
+            0x2c => Self::Ch3Conf0,
+            0x50 => Self::Ch0Status,
+            0x54 => Self::Ch1Status,
+            0x58 => Self::Ch2Status,
+            0x5c => Self::Ch3Status,
+            0x70 => Self::IntRaw,
+            0x74 => Self::IntSt,
+            0x78 => Self::IntEna,
+            0x7c => Self::IntClr,
+            0xc0 => Self::SysConf,
+            0xc4 => Self::TxSim,
+            0xcc => Self::Date,
+            _ => return None,
+        })
+    }
+}
+
+const DATA_BASE: u64 = Esp32s3RmtRegister::Ch0Data.offset();
+const CONF0_BASE: u64 = Esp32s3RmtRegister::Ch0Conf0.offset();
+const STATUS_BASE: u64 = Esp32s3RmtRegister::Ch0Status.offset();
+const INT_RAW: u64 = Esp32s3RmtRegister::IntRaw.offset();
+const INT_ST: u64 = Esp32s3RmtRegister::IntSt.offset();
+const INT_ENA: u64 = Esp32s3RmtRegister::IntEna.offset();
+const INT_CLR: u64 = Esp32s3RmtRegister::IntClr.offset();
+const SYS_CONF: u64 = Esp32s3RmtRegister::SysConf.offset();
+const TX_SIM: u64 = Esp32s3RmtRegister::TxSim.offset();
+const DATE: u64 = Esp32s3RmtRegister::Date.offset();
 const TX_START: u32 = 1 << 0;
 const MEM_RD_RST: u32 = 1 << 1;
 const APB_MEM_RST: u32 = 1 << 2;
 const TX_STOP: u32 = 1 << 7;
+const CARRIER_EFF_EN: u32 = 1 << 20;
+const CARRIER_EN: u32 = 1 << 21;
+const CARRIER_OUT_LV: u32 = 1 << 22;
+const CONF_UPDATE: u32 = 1 << 24;
 const IDLE_OUT_LV: u32 = 1 << 5;
 const IDLE_OUT_EN: u32 = 1 << 6;
-const DATE_RESET: u32 = 34_607_489;
+const CONF_MASK: u32 = 0x007f_ffff | (1 << 24);
+const CONF_STROBES: u32 = TX_START | MEM_RD_RST | APB_MEM_RST | TX_STOP | CONF_UPDATE;
+const INT_MASK: u32 = (1 << 30) - 1;
+const SYS_CONF_MASK: u32 =
+    (0xff << 4) | (0x3f << 12) | (0x3f << 18) | (0x3 << 24) | (1 << 26) | (1 << 31);
+const TX_SIM_MASK: u32 = 0x1f;
+const TX_SIM_EN: u32 = 1 << 4;
+const DATE_MASK: u32 = 0x0fff_ffff;
+const DATE_RESET: u32 = 0x0210_1181;
+const CONF_RESET: u32 = (2 << 8) | (1 << 16) | CARRIER_EFF_EN | CARRIER_EN | CARRIER_OUT_LV;
+const SYS_CONF_RESET: u32 = (1 << 4) | (1 << 24) | (1 << 26);
 const FIFO_LIMIT: usize = 256;
 
 /// A completed functional RMT transfer.
@@ -66,7 +158,7 @@ impl Esp32s3Rmt {
         let outputs = output_vec
             .try_into()
             .expect("RMT output declaration count is fixed");
-        Ok(Self {
+        let mut rmt = Self {
             name: name.into(),
             registers: [0; 0x100 / 4],
             status: [0; TX_CHANNELS],
@@ -76,12 +168,28 @@ impl Esp32s3Rmt {
             interrupt_enable: 0,
             signals,
             outputs,
-        })
+        };
+        rmt.reset_registers();
+        Ok(rmt)
     }
 
     /// Returns the completed-transfer evidence for one transmitter channel.
     pub fn transfer(&self, channel: usize) -> Option<&Esp32s3RmtTransfer> {
         self.transfers.get(channel)
+    }
+
+    fn reset_registers(&mut self) {
+        self.registers = [0; 0x100 / 4];
+        for channel in 0..TX_CHANNELS {
+            self.registers[(CONF0_BASE as usize / 4) + channel] = CONF_RESET;
+            self.status[channel] = 0;
+        }
+        self.registers[SYS_CONF as usize / 4] = SYS_CONF_RESET;
+        self.registers[TX_SIM as usize / 4] = 0;
+        self.registers[DATE as usize / 4] = DATE_RESET;
+        for channel in 0..TX_CHANNELS {
+            self.refresh_status(channel);
+        }
     }
 
     fn channel(offset: u64, base: u64, stride: u64) -> Option<usize> {
@@ -116,10 +224,13 @@ impl Esp32s3Rmt {
     }
 
     fn refresh_status(&mut self, channel: usize) {
-        let mut value = self.status[channel] & ((1 << 26) | (1 << 27));
+        // TX status exposes read-only memory addresses, FSM state, and the
+        // empty/write-error summary. The functional model uses the number of
+        // queued words as the deterministic APB write address and leaves the
+        // transmitter FSM in its idle state.
+        let mut value = self.status[channel] & (1 << 26);
         let count = u32::try_from(self.fifos[channel].len().min(0x3ff))
             .expect("bounded RMT FIFO count fits u32");
-        value |= count;
         value |= count << 11;
         if self.fifos[channel].is_empty() {
             value |= 1 << 25;
@@ -181,7 +292,7 @@ impl Esp32s3Rmt {
             INT_ST => Ok(self.interrupt_raw & self.interrupt_enable),
             INT_ENA => Ok(self.interrupt_enable),
             SYS_CONF | TX_SIM => Ok(self.registers[offset as usize / 4]),
-            DATE => Ok(DATE_RESET),
+            DATE => Ok(self.registers[DATE as usize / 4]),
             _ => Err(DeviceError::new(format!(
                 "unmodeled ESP32-S3 RMT read at offset {offset:#x}"
             ))),
@@ -195,7 +306,7 @@ impl Device for Esp32s3Rmt {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word {
+        if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("ESP32-S3 RMT requires word access"));
         }
         Ok(u64::from(self.read_register(offset)?))
@@ -208,10 +319,10 @@ impl Device for Esp32s3Rmt {
         value: u64,
         at: SimTime,
     ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word {
+        if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("ESP32-S3 RMT requires word access"));
         }
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("RMT value is 32-bit");
+        let value = u32::try_from(value).map_err(|_| DeviceError::new("RMT value exceeds u32"))?;
         let _ = Self::register_index(offset)?;
         if let Some(channel) = Self::channel(offset, DATA_BASE, 4) {
             if self.fifos[channel].len() >= FIFO_LIMIT {
@@ -224,8 +335,7 @@ impl Device for Esp32s3Rmt {
             return Ok(());
         }
         if let Some(channel) = Self::channel(offset, CONF0_BASE, 4) {
-            self.registers[(CONF0_BASE as usize / 4) + channel] =
-                value & !(TX_START | TX_STOP | MEM_RD_RST | APB_MEM_RST);
+            self.registers[(CONF0_BASE as usize / 4) + channel] = value & CONF_MASK & !CONF_STROBES;
             if value & (MEM_RD_RST | APB_MEM_RST) != 0 {
                 self.reset_channel(channel);
             }
@@ -238,15 +348,22 @@ impl Device for Esp32s3Rmt {
             return Ok(());
         }
         match offset {
-            INT_ENA => self.interrupt_enable = value,
-            INT_CLR => self.interrupt_raw &= !value,
-            INT_RAW => self.interrupt_raw &= !value,
+            INT_ENA => self.interrupt_enable = value & INT_MASK,
+            INT_CLR => self.interrupt_raw &= !(value & INT_MASK),
+            INT_RAW => self.interrupt_raw = value & INT_MASK,
             SYS_CONF | TX_SIM => {
-                self.registers[offset as usize / 4] = value;
+                let mask = if offset == SYS_CONF {
+                    SYS_CONF_MASK
+                } else {
+                    TX_SIM_MASK
+                };
+                self.registers[offset as usize / 4] = value & mask;
                 if offset == TX_SIM {
-                    for channel in 0..TX_CHANNELS {
-                        if value & (1 << channel) != 0 {
-                            self.execute_channel(channel, at)?;
+                    if value & TX_SIM_EN != 0 {
+                        for channel in 0..TX_CHANNELS {
+                            if value & (1 << channel) != 0 {
+                                self.execute_channel(channel, at)?;
+                            }
                         }
                     }
                 }
@@ -256,7 +373,7 @@ impl Device for Esp32s3Rmt {
                     "ESP32-S3 RMT status registers are read-only",
                 ));
             }
-            DATE => return Err(DeviceError::new("ESP32-S3 RMT DATE is read-only")),
+            DATE => self.registers[DATE as usize / 4] = value & DATE_MASK,
             _ => {
                 return Err(DeviceError::new(format!(
                     "unmodeled ESP32-S3 RMT write at offset {offset:#x}"
@@ -267,8 +384,7 @@ impl Device for Esp32s3Rmt {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.registers = [0; 0x100 / 4];
-        self.status = [0; TX_CHANNELS];
+        self.reset_registers();
         self.fifos.iter_mut().for_each(Vec::clear);
         self.transfers = std::array::from_fn(|_| Esp32s3RmtTransfer::default());
         self.interrupt_raw = 0;
@@ -355,6 +471,169 @@ mod tests {
         assert_eq!(
             rmt.read(INT_RAW, AccessWidth::Word, SimTime::ZERO).unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn register_ids_masks_reset_values_and_write_semantics_match_native_contract() {
+        for register in [
+            Esp32s3RmtRegister::Ch0Data,
+            Esp32s3RmtRegister::Ch1Data,
+            Esp32s3RmtRegister::Ch2Data,
+            Esp32s3RmtRegister::Ch3Data,
+            Esp32s3RmtRegister::Ch0Conf0,
+            Esp32s3RmtRegister::Ch1Conf0,
+            Esp32s3RmtRegister::Ch2Conf0,
+            Esp32s3RmtRegister::Ch3Conf0,
+            Esp32s3RmtRegister::Ch0Status,
+            Esp32s3RmtRegister::Ch1Status,
+            Esp32s3RmtRegister::Ch2Status,
+            Esp32s3RmtRegister::Ch3Status,
+            Esp32s3RmtRegister::IntRaw,
+            Esp32s3RmtRegister::IntSt,
+            Esp32s3RmtRegister::IntEna,
+            Esp32s3RmtRegister::IntClr,
+            Esp32s3RmtRegister::SysConf,
+            Esp32s3RmtRegister::TxSim,
+            Esp32s3RmtRegister::Date,
+        ] {
+            assert_eq!(
+                Esp32s3RmtRegister::from_offset(register.offset()),
+                Some(register)
+            );
+        }
+
+        let hub = SignalHub::new();
+        let mut rmt = Esp32s3Rmt::new("esp32s3.rmt", hub).unwrap();
+        assert_eq!(
+            rmt.read(
+                Esp32s3RmtRegister::Ch0Conf0.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(CONF_RESET)
+        );
+        assert_eq!(
+            rmt.read(
+                Esp32s3RmtRegister::Ch0Status.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(1_u32 << 25)
+        );
+        assert_eq!(
+            rmt.read(SYS_CONF, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(SYS_CONF_RESET)
+        );
+        assert_eq!(
+            rmt.read(DATE, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(DATE_RESET)
+        );
+
+        let config = u32::MAX & !CONF_STROBES;
+        rmt.write(
+            Esp32s3RmtRegister::Ch0Conf0.offset(),
+            AccessWidth::Word,
+            u64::from(config),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            rmt.read(
+                Esp32s3RmtRegister::Ch0Conf0.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(config & CONF_MASK)
+        );
+        rmt.write(
+            SYS_CONF,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            rmt.read(SYS_CONF, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(SYS_CONF_MASK)
+        );
+        rmt.write(
+            TX_SIM,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            rmt.read(TX_SIM, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(TX_SIM_MASK)
+        );
+
+        rmt.write(
+            INT_RAW,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            rmt.read(INT_RAW, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(INT_MASK)
+        );
+        rmt.write(
+            INT_ENA,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            rmt.read(INT_ST, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(INT_MASK)
+        );
+        rmt.write(INT_CLR, AccessWidth::Word, u64::from(1_u32), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            rmt.read(INT_RAW, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(INT_MASK & !1)
+        );
+
+        rmt.write(DATE, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            rmt.read(DATE, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(DATE_MASK)
+        );
+        assert!(
+            rmt.read(
+                Esp32s3RmtRegister::Ch0Data.offset() + 1,
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .is_err()
+        );
+        assert!(
+            rmt.write(
+                Esp32s3RmtRegister::Ch0Data.offset() + 1,
+                AccessWidth::Word,
+                0,
+                SimTime::ZERO,
+            )
+            .is_err()
+        );
+        assert!(
+            rmt.write(
+                Esp32s3RmtRegister::Ch0Status.offset(),
+                AccessWidth::Word,
+                0,
+                SimTime::ZERO
+            )
+            .is_err()
         );
     }
 }
