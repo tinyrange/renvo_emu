@@ -15,10 +15,11 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
-    Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040Psm, Rp2040RegisterBank,
+    Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset, Rp2040Watchdog, Rp2040Xosc,
+    Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout,
+    SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -265,13 +266,11 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Resets::new("rp2040.resets")),
             )?;
-            let mut psm_reset = vec![0; 4];
-            psm_reset[3] = 0x0001_ffff;
             bus.map_device(
                 "rp2040.psm",
                 0x4001_0000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2040.psm", psm_reset)),
+                Box::new(Rp2040Psm::new("rp2040.psm")),
             )?;
             bus.map_device(
                 "rp2040.xosc",
@@ -349,23 +348,17 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Rtc::new("rp2040.rtc")),
             )?;
-            let mut rosc_reset = vec![0; 16];
-            rosc_reset[0x18 / 4] = 0x8000_1000;
-            rosc_reset[0x1c / 4] = 1;
             bus.map_device(
                 "rp2040.rosc",
                 0x4006_0000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2040.rosc", rosc_reset)),
+                Box::new(Rp2040Rosc::new("rp2040.rosc")),
             )?;
             bus.map_device(
                 "rp2040.vreg-and-chip-reset",
                 0x4006_4000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2040.vreg-and-chip-reset",
-                    vec![0; 8],
-                )),
+                Box::new(Rp2040VregAndChipReset::new("rp2040.vreg-and-chip-reset")),
             )?;
             let (timer_device, timer_handle) =
                 Rp2040Timer::new("rp2040.timer", RpTimerLayout::Rp2040);
