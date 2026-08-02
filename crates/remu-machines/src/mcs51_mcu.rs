@@ -430,4 +430,39 @@ mod tests {
         assert_eq!(result.stats.events, 2);
         assert_eq!(machine.gpio[0].resolved(0).unwrap(), Logic::Zero);
     }
+
+    #[test]
+    fn future_stimulus_waits_across_resumed_runs_until_machine_time_reaches_it() {
+        let image = IntelHexImage::parse(b":04000000000000FC00\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+
+        let first = machine
+            .run(
+                RunLimits {
+                    instructions: Some(1),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(first.stats.events, 0);
+
+        let second = machine
+            .run_with_stimuli(
+                RunLimits {
+                    instructions: Some(1),
+                    deadline: None,
+                },
+                &[PinStimulus {
+                    at: SimTime::from_ticks(2),
+                    pin: 0,
+                    value: Logic::One,
+                }],
+                None,
+            )
+            .unwrap();
+        assert_eq!(second.stats.events, 1);
+        assert_eq!(machine.gpio[0].resolved(0).unwrap(), Logic::One);
+    }
 }
