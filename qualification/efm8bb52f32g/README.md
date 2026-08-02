@@ -8,12 +8,15 @@ The gate covers all legal base MCS-51 opcodes, SDCC startup/calling convention,
 native 16-bit `int` and three-byte generic pointers, recursion, generated
 arithmetic helpers, split memory spaces, interrupt prologues, paged SFRs,
 GPIO/crossbar, Timer0/2, UART0, deterministic replay, coverage and hierarchical
-VCD signals. The smoke builds baseline, size-optimized and speed-optimized
+VCD signals. The crossbar fixture checks UART0's fixed P0.4/P0.5 priority,
+P0SKIP handling, and first-free SPI0 allocation. The smoke builds baseline,
+size-optimized and speed-optimized
 lanes and emits `EFM8BB52:OK\nIRQ\n` after reading an externally stimulated
 P0.1 input.
 
 The exact functional register surface is RSTSRC, CLKSEL, WDTCN, Ports 0–3,
-port modes and crossbar, Timer0/2, UART0 and IE/IP routing. The machine boots
+port modes, XBR0/XBR1/XBR2 priority allocation and PnSKIP masks, Timer0/2,
+UART0 and IE/IP routing. The machine boots
 from CODE address zero with 32 KiB flash, 256-byte IDATA and 2304-byte XRAM;
 CODE, IDATA, XDATA, paged SFR and bit-addressable accesses remain distinct.
 Timing, analog peripherals, PCA, SMBus and SPI remain explicitly
