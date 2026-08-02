@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3RsaRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -13,22 +14,27 @@ fn direct_load_starts_with_appcpu_reset_and_parked() {
 fn esp32s3_rsa_native_windows_execute_modular_exponentiation() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let base = 0x6003_c000;
-    let write = |machine: &mut XtensaMachine, offset: u64, value: u64| {
+    let write = |machine: &mut XtensaMachine, register: Esp32S3RsaRegister, value: u64| {
         machine
             .bus
-            .write(base + offset, AccessWidth::Word, value, SimTime::ZERO)
+            .write(
+                base + register.offset(),
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
             .unwrap();
     };
-    write(&mut machine, 0x804, 0);
-    write(&mut machine, 0x000, 55);
-    write(&mut machine, 0x600, 7);
-    write(&mut machine, 0x400, 13);
-    write(&mut machine, 0x80c, 1);
+    write(&mut machine, Esp32S3RsaRegister::Length, 0);
+    write(&mut machine, Esp32S3RsaRegister::M(0), 55);
+    write(&mut machine, Esp32S3RsaRegister::X(0), 7);
+    write(&mut machine, Esp32S3RsaRegister::Y(0), 13);
+    write(&mut machine, Esp32S3RsaRegister::ModeExpStart, 1);
     assert_eq!(
         machine
             .bus
             .read(
-                base + 0x200,
+                base + Esp32S3RsaRegister::RbZ(0).offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -36,30 +42,18 @@ fn esp32s3_rsa_native_windows_execute_modular_exponentiation() {
             .unwrap(),
         2
     );
+    write(&mut machine, Esp32S3RsaRegister::ClearInterrupt, 1);
     assert_eq!(
         machine
             .bus
             .read(
-                base + 0x818,
+                base + Esp32S3RsaRegister::InterruptEna.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
             )
             .unwrap(),
         1
-    );
-    write(&mut machine, 0x81c, 1);
-    assert_eq!(
-        machine
-            .bus
-            .read(
-                base + 0x818,
-                AccessWidth::Word,
-                AccessKind::Read,
-                SimTime::ZERO
-            )
-            .unwrap(),
-        0
     );
 }
 

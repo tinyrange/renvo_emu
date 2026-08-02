@@ -87,11 +87,15 @@ timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
 
 The ESP32-S3 RSA slice retains the native 512-byte M, RB/Z, Y, and X operand
-windows plus length, clean, start, and interrupt registers. It performs
-modular exponentiation, modular multiplication, and multiplication with
+windows plus M-prime, length, clean/idle, operation-strobe, acceleration,
+interrupt-enable, clear, and date registers. `Esp32S3RsaRegister` applies the
+official 128-word window bounds, 7-bit length/12-bit search/one-bit control
+masks, reset values, write-only/read-only semantics, reserved-hole rejection,
+and strict aligned 32-bit access. It performs modular exponentiation, modular
+multiplication, and the native upper-Z-window multiplication layout with
 arbitrary-precision host integers at the configured limb length. It is
 functional and deterministic; hardware blinding, constant-time execution,
-accelerator timing, and secure-key integration are not modelled.
+accelerator timing, DMA, and secure-key integration are not modelled.
 
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
@@ -214,7 +218,7 @@ the target manifests and `PLAN.html`, principally:
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
-- Espressif’s official [ESP32-S3 hardware-crypto register definitions](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s3/include/soc/hwcrypto_reg.h)
+- Espressif’s official [ESP32-S3 hardware-crypto register definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/include/soc/hwcrypto_reg.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either

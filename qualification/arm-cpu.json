@@ -1,6 +1,6 @@
 {
   "schema": "remu.arm-cpu.v1",
-  "source_sha256": "55695e65017948b534a8edd4921e8fe5478e6077bd97f37a58106d82603b1428",
+  "source_sha256": "1987fd4d83fa525efcfad2363db6e1126a0facea6caa8ca9bc73931c47fe6012",
   "primary_sources": [
     "https://developer.arm.com/documentation/100235/0003/",
     "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf",
@@ -28,11 +28,11 @@
   },
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/arm-cpu-unit-tests.txt",
-    "sha256": "3d320be6fe6cfa4409caf1ca3ec8c5a6420653b8305c415b3c63dbe514cbfe86"
+    "sha256": "2319ad4f9452f6287a9a8f33a274367c779eeb2d81354ff82766a466b4cfde5f"
   },
   "cross_profile_computation": {
     "artifact": "qualification/rust-abi.json",
-    "sha256": "a82fa38919cb76ec0aa4e21a7743f8960f1839f52c5ad757b33ebe932d2828b2",
+    "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67",
     "assertion": "the same Rust ABI computation passes Cortex-M33 and Hazard3 at O0/O2/Os"
   },
   "proofs": [
