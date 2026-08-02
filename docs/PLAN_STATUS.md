@@ -44,6 +44,24 @@ Status meanings:
 
 ## Phase 5 closure
 
+## ATSAMD21 I2S expansion slice
+
+The ATSAMD21 model now maps the documented I2S block at `0x42005000` with
+named identifiers for CTRLA, both clock-unit controls, interrupt enable/flag
+registers, SYNCBUSY, both serializer controls, and both data holding
+registers. Enabling a configured transmitter exposes deterministic TX-ready
+state and captures `(serializer, sample)` words for host assertions. A host can
+inject receive samples; firmware reads clear RX-ready and a second unread
+sample latches the corresponding RX overrun flag. Interrupt enable set/clear,
+W1C flags, reset behavior, and the ATSAMD21 IRQ route are covered by unit and
+Docker smoke evidence.
+
+The official SAM D21/DA1 datasheet is the register and format reference:
+<https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf>.
+Serial bit timing, external pin waveform generation, TDM/PDM framing and data
+formatting, DMAC request coupling, and exact clock synchronization remain
+outside this functional tranche.
+
 Phase 5 now meets its complete exit gate. `remu corpus reduce` detects the
 seeded discrepancy and minimizes source fragments, compiler flags, and inputs
 on RISC-V, Arm, and Xtensa; all 45 predicate evaluations retain Docker build

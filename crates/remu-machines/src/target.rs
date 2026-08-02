@@ -471,13 +471,16 @@ const MANIFESTS: &[TargetManifest] = &[
             "PORT/EIC GPIO",
             "TC3 timer interrupt",
             "SERCOM0 USART",
+            "I2S clock/serializer/data slice",
             "VCD",
         ],
         sources: &[
             "https://www.microchip.com/en-us/product/ATSAMD21E18",
             "https://packs.download.microchip.com/Microchip.SAMD21_DFP.3.8.270.atpack",
         ],
-        limitations: &["analog, USB, DMA, and exact clock timing are outside this tranche"],
+        limitations: &[
+            "I2S serial bit timing, TDM/PDM framing, pin waveforms, DMA coupling, analog, USB, and exact clock timing are outside this tranche",
+        ],
     },
     TargetManifest {
         schema: 1,
