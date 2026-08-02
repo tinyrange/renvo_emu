@@ -51,6 +51,88 @@ mod tests {
     }
 
     #[test]
+    fn out_of_order_stimuli_are_applied_incrementally() {
+        let stimuli = [
+            PinStimulus {
+                at: SimTime::from_ticks(9),
+                pin: 9,
+                value: Logic::One,
+            },
+            PinStimulus {
+                at: SimTime::from_ticks(2),
+                pin: 2,
+                value: Logic::Zero,
+            },
+            PinStimulus {
+                at: SimTime::from_ticks(9),
+                pin: 8,
+                value: Logic::One,
+            },
+        ];
+        let mut control = RunControl::new(RunLimits::default(), &stimuli);
+        let mut stats = RunStats::default();
+        let mut applied = Vec::new();
+
+        control
+            .apply_stimuli(SimTime::from_ticks(2), &mut stats, |stimulus| {
+                applied.push(stimulus.pin);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(applied, [2]);
+        assert_eq!(stats.events, 1);
+
+        control
+            .apply_stimuli(SimTime::from_ticks(9), &mut stats, |stimulus| {
+                applied.push(stimulus.pin);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(applied, [2, 9, 8]);
+        assert_eq!(stats.events, 3);
+
+        control
+            .apply_stimuli(SimTime::from_ticks(9), &mut stats, |stimulus| {
+                applied.push(stimulus.pin);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(applied, [2, 9, 8]);
+        assert_eq!(stats.events, 3);
+    }
+
+    #[test]
+    fn failed_stimulus_can_be_retried_without_counting_it() {
+        let stimulus = PinStimulus {
+            at: SimTime::ZERO,
+            pin: 1,
+            value: Logic::One,
+        };
+        let mut control = RunControl::new(RunLimits::default(), &[stimulus]);
+        let mut stats = RunStats::default();
+        let mut attempts = 0;
+        assert_eq!(
+            control.apply_stimuli(SimTime::ZERO, &mut stats, |_| {
+                attempts += 1;
+                Err::<(), _>("pin rejected")
+            }),
+            Err("pin rejected")
+        );
+        assert_eq!(attempts, 1);
+        assert_eq!(stats.events, 0);
+
+        control
+            .apply_stimuli(SimTime::ZERO, &mut stats, |applied| {
+                attempts += 1;
+                assert_eq!(applied, stimulus);
+                Ok::<_, &str>(())
+            })
+            .unwrap();
+        assert_eq!(attempts, 2);
+        assert_eq!(stats.events, 1);
+    }
+
+    #[test]
     fn instruction_and_time_budgets_share_stop_semantics() {
         let control = RunControl::new(
             RunLimits {
