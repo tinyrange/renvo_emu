@@ -428,6 +428,16 @@ through EIE1/EIP1/EIP1H to vector `0x0043`. The event is a deterministic level
 while a masked input differs; wake-state flags and electrical synchronization
 are not modeled.
 
+The 32 KiB EFM8 code-flash model accepts firmware MOVX program and page-erase
+operations after the documented `FLKEY=0xa5`, `FLKEY=0xf1` sequence and
+`PSCTL.PSWE` enable. Programming has NOR semantics (bits only change from one
+to zero), while `PSCTL.PSEE` erases the addressed 2 KiB page. Each operation
+consumes the key sequence; missing or invalid authorization leaves flash
+unchanged and latches `PSCTL.PERRF`. Image loading remains a separate debugger
+operation and does not weaken the firmware-visible write controls. Programming
+voltage physics, timing, endurance, lock-byte policy, and hardware debug access
+are outside this deterministic functional model.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

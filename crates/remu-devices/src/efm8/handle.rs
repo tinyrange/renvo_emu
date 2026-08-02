@@ -47,6 +47,37 @@ impl Efm8PeripheralsHandle {
         self.0.lock().expect("EFM8 lock poisoned").uart1.clone()
     }
 
+    /// Copies an Intel HEX code segment into the functional flash image.
+    pub fn load_flash(&self, address: u32, bytes: &[u8]) -> Result<(), DeviceError> {
+        self.0.lock().expect("EFM8 lock poisoned").load_flash(
+            usize::try_from(address).map_err(|_| {
+                DeviceError::new("EFM8 flash image address does not fit host usize")
+            })?,
+            bytes,
+        )
+    }
+
+    /// Reads one byte from the functional flash image.
+    pub fn flash_read(&self, address: u16) -> Result<u8, DeviceError> {
+        self.0
+            .lock()
+            .expect("EFM8 lock poisoned")
+            .flash_read(usize::from(address))
+    }
+
+    /// Applies one firmware MOVX flash program or page-erase request.
+    pub fn flash_write(&self, address: u16, value: u8) -> Result<(), DeviceError> {
+        self.0
+            .lock()
+            .expect("EFM8 lock poisoned")
+            .flash_write(usize::from(address), value)
+    }
+
+    /// Reports whether PSWE currently redirects MOVX writes into flash.
+    pub fn flash_write_enabled(&self) -> bool {
+        self.0.lock().expect("EFM8 lock poisoned").registers[PSCTL] & PSCTL_PSWE != 0
+    }
+
     /// Returns whether a masked port differs from its configured match value.
     pub fn port_match_event(&self) -> bool {
         self.0

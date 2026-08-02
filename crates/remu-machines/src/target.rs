@@ -819,6 +819,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "CMP0/1 deterministic comparison",
             "CLU0-3 LUT and edge logic",
             "P0/1/2 port-match interrupt",
+            "keyed 32 KiB flash program/erase",
             "PCA0 PWM/capture/compare",
             "interrupt priority",
             "VCD",

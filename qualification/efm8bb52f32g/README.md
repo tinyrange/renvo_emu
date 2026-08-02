@@ -26,6 +26,9 @@ observability. It intentionally does not model arbitration or clock-level
 waveforms. The machine boots
 from CODE address zero with 32 KiB flash, 256-byte IDATA and 2304-byte XRAM;
 CODE, IDATA, XDATA, paged SFR and bit-addressable accesses remain distinct.
+The flash fixture proves the firmware-visible `FLKEY` authorization sequence,
+MOVX programming, and 2 KiB page erase rather than using a host-only mutation
+path.
 Timing, analog peripherals, SMBus arbitration/clock waveforms and SPI remain
 explicitly functional/deferred as stated by the target manifest. PCA timing is
 functional on the abstract simulation timeline, not a silicon-clock model.

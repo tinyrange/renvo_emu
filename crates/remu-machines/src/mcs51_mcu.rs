@@ -2,7 +2,9 @@ use crate::{
     PinStimulus, RunResult, SignalEdge, SignalStop, TargetId, matching_signal_stop,
     resolve_signal_stop,
 };
-use remu_bus::{AddressSpace, BusAccessRecord, Endianness, SharedBusAccessObserver};
+use remu_bus::{
+    AddressSpace, BusAccessRecord, Device, DeviceError, Endianness, SharedBusAccessObserver,
+};
 use remu_core::{
     AccessKind, AccessWidth, Bus, Cpu, EventQueue, ResetKind, RunLimits, RunStats, SimTime,
     StepReason, StopReason,
@@ -18,6 +20,79 @@ use thiserror::Error;
 const SFR_BUS_BASE: u64 = 0x1_0000;
 const SFR_BUS_BYTES: usize = 0x1_0000;
 const XRAM_BYTES: usize = 2304;
+
+/// EFM8 XDATA address space, including the XRAM window and keyed flash writes.
+///
+/// The real part presents XRAM at the low XDATA addresses and uses PSWE/PSEE to
+/// redirect MOVX stores into code flash. Keeping that routing in one device makes
+/// firmware-side flash programming observable instead of exposing a second,
+/// host-only flash API.
+struct Efm8XdataDevice {
+    xram: Box<[u8]>,
+    peripherals: Efm8PeripheralsHandle,
+}
+
+impl Efm8XdataDevice {
+    fn new(peripherals: Efm8PeripheralsHandle) -> Self {
+        Self {
+            xram: vec![0; XRAM_BYTES].into_boxed_slice(),
+            peripherals,
+        }
+    }
+}
+
+impl Device for Efm8XdataDevice {
+    fn name(&self) -> &str {
+        "efm8bb52f32g.xdata"
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        if width != AccessWidth::Byte {
+            return Err(DeviceError::new("EFM8 XDATA requires byte accesses"));
+        }
+        let address =
+            usize::try_from(offset).map_err(|_| DeviceError::new("EFM8 XDATA address overflow"))?;
+        if let Some(byte) = self.xram.get(address) {
+            return Ok(u64::from(*byte));
+        }
+        let address = u16::try_from(address)
+            .map_err(|_| DeviceError::new("EFM8 XDATA address exceeds 16 bits"))?;
+        Ok(u64::from(self.peripherals.flash_read(address)?))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if width != AccessWidth::Byte {
+            return Err(DeviceError::new("EFM8 XDATA requires byte accesses"));
+        }
+        let address =
+            usize::try_from(offset).map_err(|_| DeviceError::new("EFM8 XDATA address overflow"))?;
+        let byte = value.to_le_bytes()[0];
+        if self.peripherals.flash_write_enabled() {
+            return self.peripherals.flash_write(
+                u16::try_from(address)
+                    .map_err(|_| DeviceError::new("EFM8 XDATA address exceeds 16 bits"))?,
+                byte,
+            );
+        }
+        let destination = self
+            .xram
+            .get_mut(address)
+            .ok_or_else(|| DeviceError::new("EFM8 XDATA write outside 2304-byte XRAM"))?;
+        *destination = byte;
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        // XRAM is retained across architectural reset, matching the previous
+        // mapped-RAM behavior and the machine's reset contract.
+    }
+}
 
 /// EFM8BB52F32G machine construction, loading, and execution error.
 #[derive(Debug, Error)]
@@ -84,7 +159,12 @@ impl Mcs51McuMachine {
         let (device, peripherals, gpio) =
             Efm8Peripherals::new("efm8bb52f32g.sfr", signals.clone())?;
         let mut bus = AddressSpace::new(Endianness::Little);
-        bus.map_ram("efm8bb52f32g.xram", 0, XRAM_BYTES, false)?;
+        bus.map_device(
+            "efm8bb52f32g.xdata",
+            0,
+            0x1_0000,
+            Box::new(Efm8XdataDevice::new(peripherals.clone())),
+        )?;
         bus.map_device(
             "efm8bb52f32g.sfr",
             SFR_BUS_BASE,
@@ -116,6 +196,8 @@ impl Mcs51McuMachine {
                     bytes: segment.data.len(),
                 });
             }
+            self.peripherals
+                .load_flash(segment.address, &segment.data)?;
             self.cpu.load_code(segment.address as u16, &segment.data)?;
         }
         self.reset(ResetKind::PowerOn)

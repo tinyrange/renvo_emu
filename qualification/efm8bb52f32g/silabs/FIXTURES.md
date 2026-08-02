@@ -20,6 +20,8 @@ and interrupt-enable bits.
 register declarations in a runnable fixture.
 `remu_port_match.c` masks P0.0 against a high match value and exercises the
 documented Port Match interrupt with a host-provided low pin stimulus.
+`remu_flash.c` performs the documented two-write `FLKEY` authorization and
+uses firmware MOVX stores to erase and program code flash through `PSCTL`.
 The small declaration and startup adapters expose only the documented register
 surface needed by these fixtures.
 

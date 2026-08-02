@@ -329,6 +329,43 @@ jq -e '.target == "efm8bb52f32g" and
     "$dac_run/result.json" >/dev/null
 grep -q '^\$scope module dac0 \$end$' "$dac_run/signals.vcd"
 
+flash_build="$artifact_root/flash-build"
+flash_run="$artifact_root/flash-run"
+mkdir -p "$flash_build" "$flash_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$flash_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-flash-build.json" \
+    -- -I. -c remu_flash.c -o /workspace/out/flash.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$flash_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-flash-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$flash_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-flash-link.json" \
+    -- /workspace/out/flash.rel /workspace/out/adapter.rel -o /workspace/out/flash.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$flash_build/flash.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.port1.pin4=change \
+    --vcd "$flash_run/signals.vcd" \
+    --result "$flash_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.port1.pin4"} and
+       .exit_code == 0' \
+    "$flash_run/result.json" >/dev/null
+grep -q '^$scope module port1 $end$' "$flash_run/signals.vcd"
+
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \

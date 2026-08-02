@@ -1189,3 +1189,50 @@ fn smbus0_named_registers_and_status_bits_match_reference_surface() {
         Ok(0)
     );
 }
+
+#[test]
+fn flash_program_erase_and_key_protection_are_functional() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    handle.load_flash(0x1000, &[0xff]).unwrap();
+
+    for key in [0xa5, 0xf1] {
+        device
+            .write(super::FLKEY as u64, AccessWidth::Byte, key, SimTime::ZERO)
+            .unwrap();
+    }
+    device
+        .write(super::PSCTL as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+        .unwrap();
+    handle.flash_write(0x1000, 0x5a).unwrap();
+    assert_eq!(handle.flash_read(0x1000).unwrap(), 0x5a);
+
+    // Every operation requires a fresh key sequence. Invalid attempts retain
+    // flash and latch PERRF; programming also cannot change a zero bit to one.
+    handle.flash_write(0x1000, 0xff).unwrap();
+    assert_eq!(handle.flash_read(0x1000).unwrap(), 0x5a);
+    assert_ne!(
+        device
+            .read(super::PSCTL as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap()
+            & 0x08,
+        0
+    );
+
+    for key in [0xa5, 0xf1] {
+        device
+            .write(super::FLKEY as u64, AccessWidth::Byte, key, SimTime::ZERO)
+            .unwrap();
+    }
+    device
+        .write(super::PSCTL as u64, AccessWidth::Byte, 3, SimTime::ZERO)
+        .unwrap();
+    handle.flash_write(0x1000, 0).unwrap();
+    assert_eq!(handle.flash_read(0x1000).unwrap(), 0xff);
+    assert_eq!(
+        device
+            .read(super::PSCTL as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x43
+    );
+}

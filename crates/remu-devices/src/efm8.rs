@@ -3,6 +3,7 @@ mod adc;
 mod clu;
 mod comparator;
 mod dac;
+mod flash;
 mod interrupts;
 mod port_match;
 mod registers;
@@ -11,6 +12,7 @@ use adc::*;
 use clu::*;
 use comparator::*;
 use dac::*;
+use flash::*;
 use port_match::*;
 pub use registers::{Efm8PcaRegister, Efm8SmbusRegister};
 use remu_bus::{Device, DeviceError};
@@ -184,6 +186,7 @@ fn reverse_bits(value: u8) -> u8 {
 
 struct Efm8State {
     registers: Box<[u8]>,
+    flash: Box<[u8]>,
     ports: [Arc<Mutex<GpioState>>; 4],
     port_signals: [Vec<SignalId>; 4],
     hub: SignalHub,
@@ -213,6 +216,9 @@ struct Efm8State {
     clu_ff: [bool; 4],
     clu_lut_outputs: [bool; 4],
     port_match_event: bool,
+    flash_key_stage: u8,
+    flash_locked_out: bool,
+    flash_unlocked: bool,
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
     uart_byte_signal: SignalId,
@@ -342,6 +348,7 @@ impl Efm8State {
             self.registers[PORT_MDIN[port]] = PORT_MASKS[port];
         }
         self.registers[CLKSEL] = 0x80;
+        self.registers[PSCTL] = 0x40;
         self.registers[RSTSRC] = match kind {
             ResetKind::PowerOn => 0x02,
             ResetKind::External => 0x01,
@@ -380,6 +387,9 @@ impl Efm8State {
         self.clu_ff = [false; 4];
         self.clu_lut_outputs = [false; 4];
         self.port_match_event = false;
+        self.flash_key_stage = 0;
+        self.flash_locked_out = false;
+        self.flash_unlocked = false;
         self.registers[P0MAT] = 0xff;
         self.registers[P1MAT] = 0xff;
         self.registers[P2MAT] = 0xff;
@@ -528,6 +538,7 @@ impl Efm8State {
         match address {
             0x80
             | 0x88..=0x8e
+            | 0x8f
             | 0x90
             | 0x91..=0x95
             | SPI0CFG
@@ -925,6 +936,7 @@ impl Efm8Peripherals {
         )?;
         let state = Arc::new(Mutex::new(Efm8State {
             registers: vec![0; SFR_BYTES].into_boxed_slice(),
+            flash: vec![0xff; FLASH_BYTES].into_boxed_slice(),
             ports: [port0, port1, port2, port3],
             port_signals: [signals0, signals1, signals2, signals3],
             hub,
@@ -954,6 +966,9 @@ impl Efm8Peripherals {
             clu_ff: [false; 4],
             clu_lut_outputs: [false; 4],
             port_match_event: false,
+            flash_key_stage: 0,
+            flash_locked_out: false,
+            flash_unlocked: false,
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
             uart_byte_signal,
@@ -1259,6 +1274,11 @@ impl Device for Efm8Peripherals {
                     state.set_signal(state.uart1_strobe_signal, previous ^ 1, 1, at);
                     state.registers[SCON1] |= SCON1_TI;
                 }
+            } else if address == PSCTL {
+                state.registers[address] = 0x40 | (value & 0x0f);
+            } else if address == FLKEY {
+                state.registers[address] = 0;
+                state.flash_key_write(value);
             } else if matches!(address, DAC0L | DAC0H | DAC0ALT | DAC0CF0 | DAC0CF1) {
                 state.write_dac_register(address, value, at);
             } else if address == ADC0CN0 && value & ADC0_ADBUSY != 0 {
