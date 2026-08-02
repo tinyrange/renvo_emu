@@ -26,6 +26,13 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The STM32L432KC model maps the USB full-speed device core at `0x40006800` and
+the packet-memory area at `0x40006c00`. The functional slice covers the native
+core/endpoint registers, PMA descriptor and data access, deterministic host
+reset/OUT injection and IN extraction, `USB_IRQn` 67 routing, and VCD-visible
+request/reset/OUT activity. PHY/bit timing, enumeration policy, and complete
+USB protocol-class behavior are not claimed.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
