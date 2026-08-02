@@ -11,7 +11,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; PL011 UART1; native TIMER→NVIC; DW SSI SPI0/SPI1; native PIO0/1 register slices |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, PL011 UART1, TIMER, SPI0/SPI1 PrimeCell FIFOs, and native PIO0/1/2 register slices in both CPU modes |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, PL011 UART1, TIMER, SPI0/SPI1, I²C0/I²C1, and native PIO0/1/2 register slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
@@ -88,6 +88,12 @@ offsets and reset values are audited against the [RP2040 datasheet](https://data
 and Raspberry Pi's generated [`ssi.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2040/hardware_regs/include/hardware/regs/ssi.h).
 The `rp2040-spi` Docker fixture compiles and runs the same checks against both
 native controller instances.
+
+The RP2350 I²C slice exposes the documented DW_apb_i2c register/FIFO command
+path, deterministic host-provided read bytes, interrupt latches, and VCD byte
+and strobe signals. It is a functional host model; electrical SDA/SCL
+resolution, arbitration, slave mode, DMA, and exact bus timing remain outside
+the current support contract.
 
 The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
 connection control surface. They start connected for existing console fixtures;

@@ -229,6 +229,10 @@ impl RiscVMachine {
                     )?;
                 }
                 set_rp2350_spi_interrupts(&mut self.cpu, &self.spi)?;
+                for (index, handle) in self.i2c.iter().enumerate() {
+                    let line = 36_u16 + u16::try_from(index).expect("RP2350 I²C index fits u16");
+                    self.cpu.set_hazard3_external_interrupt(line, handle.pending())?;
+                }
                 if let Some(usb) = &self.usb {
                     if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
                         stats.events = stats.events.saturating_add(host.poll(self.now, usb, dpram));

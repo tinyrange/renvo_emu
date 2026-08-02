@@ -31,6 +31,8 @@ mod rp_pio;
 pub use rp_pio::*;
 mod rp;
 pub use rp::*;
+mod rp_i2c;
+pub use rp_i2c::*;
 mod esp_usb_otg_register;
 pub use esp_usb_otg_register::*;
 mod rp_adc;

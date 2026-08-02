@@ -21,7 +21,7 @@ use remu_devices::{
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle, Rp2350XipMaintenance, RpAdc,
     RpAdcHandle, RpAdcVariant, RpPio,
-    RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle,
+    RpI2cHandle, RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle,
     UartHandle,
     WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
@@ -55,8 +55,10 @@ mod radio;
 mod pwm;
 mod pio;
 mod rp2350_spi;
+mod rp_i2c;
 mod rp_bootrom;
 use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
+use rp_i2c::map_rp2350_i2c;
 mod runtime;
 mod watchdog;
 
@@ -274,6 +276,7 @@ pub struct RiscVMachine {
     radio_event_cursor: usize,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
+    i2c: Vec<RpI2cHandle>,
     spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
     wch_timer: Option<WchTimerHandle>,
@@ -308,8 +311,8 @@ impl RiscVMachine {
             }
         };
         let manifest = target_manifest(target);
-        let mut bus = AddressSpace::new(Endianness::Little);
-        let mut chip_timers = Vec::new();
+        let (mut bus, signals) = (AddressSpace::new(Endianness::Little), SignalHub::new());
+        let (mut chip_timers, mut i2c) = (Vec::new(), Vec::new());
         let mut spi = Vec::new();
         let mut pio = Vec::new();
         let mut usb = None;
@@ -541,6 +544,7 @@ impl RiscVMachine {
                 )?;
             }
             map_rp2350_spi(&mut bus, &mut spi)?;
+            map_rp2350_i2c(&mut bus, &signals, &mut i2c)?;
             let (adc, adc_handle) = RpAdc::new_for_variant("rp2350.adc", RpAdcVariant::FiveChannel);
             bus.map_device("rp2350.adc", 0x400a_0000, 0x1000, Box::new(adc))?;
             chip_adc = Some(adc_handle);
@@ -577,7 +581,6 @@ impl RiscVMachine {
             usb_host = Some(Rp2040UsbHost::new());
         }
 
-        let signals = SignalHub::new();
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
             format!("{target}.compiler-gpio"),
@@ -852,6 +855,7 @@ impl RiscVMachine {
             radio_event_cursor: 0,
             flash_storage,
             chip_timers,
+            i2c,
             spi,
             pio,
             wch_timer,
