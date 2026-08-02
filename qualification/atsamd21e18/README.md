@@ -14,8 +14,9 @@ positive-input scan advancement); its result-ready,
 overrun, and window flags can interrupt the Cortex-M0+ at line 23. Clock
 synchronization and timing are deterministic approximations. Analog voltage,
 ADC averaging and event/DMA coupling, USB, and exact conversion clocks are
-unsupported. VCD exposes PORT, timer, UART and interrupt hierarchy and the gate
-compares two runs byte-for-byte.
+unsupported. The model follows the vendor masks and raw write-one interrupt
+alias semantics; VCD exposes PORT, timer, UART and interrupt hierarchy and the
+gate compares two runs byte-for-byte.
 
 The vendor lane builds the pinned Microchip Harmony
 `port_led_on_off_polling` main source unchanged. Tracked startup, declarations

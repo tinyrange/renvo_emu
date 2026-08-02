@@ -39,6 +39,22 @@ fn write_le(
     Ok(())
 }
 
+const CTRLA_MASK: u8 = 0x07;
+const REFCTRL_MASK: u8 = 0x8f;
+const AVGCTRL_MASK: u8 = 0x7f;
+const SAMPCTRL_MASK: u8 = 0x3f;
+const CTRLB_MASK: u16 = 0x073f;
+const WINCTRL_MASK: u8 = 0x07;
+const SWTRIG_MASK: u8 = 0x03;
+const INPUTCTRL_MASK: u32 = 0x0fff_1f1f;
+const EVCTRL_MASK: u8 = 0x33;
+const INTERRUPT_MASK: u8 = 0x0f;
+const STATUS_MASK: u8 = 0x80;
+const GAINCORR_MASK: u16 = 0x0fff;
+const OFFSETCORR_MASK: u16 = 0x0fff;
+const CALIB_MASK: u16 = 0x07ff;
+const DBGCTRL_MASK: u8 = 0x01;
+
 /// Native ATSAMD21 ADC register identifiers.
 ///
 /// The offsets and widths follow the SAM D21/DA1 family data sheet, section
@@ -90,6 +106,33 @@ pub enum Samd21AdcRegister {
 }
 
 impl Samd21AdcRegister {
+    /// Converts a documented ADC register offset to its named ID.
+    pub const fn from_offset(offset: usize) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Ctrla),
+            0x01 => Some(Self::Refctrl),
+            0x02 => Some(Self::Avgctrl),
+            0x03 => Some(Self::Sampctrl),
+            0x04 => Some(Self::Ctrlb),
+            0x08 => Some(Self::Winctrl),
+            0x0c => Some(Self::Swtrig),
+            0x10 => Some(Self::Inputctrl),
+            0x14 => Some(Self::Evctrl),
+            0x16 => Some(Self::Intenclr),
+            0x17 => Some(Self::Intenset),
+            0x18 => Some(Self::Intflag),
+            0x19 => Some(Self::Status),
+            0x1a => Some(Self::Result),
+            0x1c => Some(Self::Winlt),
+            0x20 => Some(Self::Winut),
+            0x24 => Some(Self::Gaincorr),
+            0x26 => Some(Self::Offsetcorr),
+            0x28 => Some(Self::Calib),
+            0x2a => Some(Self::Dbgctrl),
+            _ => None,
+        }
+    }
+
     /// Returns the native byte offset of this register.
     pub const fn offset(self) -> usize {
         match self {
@@ -291,27 +334,27 @@ impl Samd21Adc {
     fn read_register(state: &AdcState, register: Samd21AdcRegister) -> u32 {
         let registers = &state.registers;
         let value = match register {
-            Samd21AdcRegister::Ctrla => u32::from(registers.ctrla & 0x06),
-            Samd21AdcRegister::Refctrl => u32::from(registers.refctrl & 0x8f),
-            Samd21AdcRegister::Avgctrl => u32::from(registers.avgctrl & 0x7f),
-            Samd21AdcRegister::Sampctrl => u32::from(registers.sampctrl & 0x3f),
-            Samd21AdcRegister::Ctrlb => u32::from(registers.ctrlb & 0x073f),
-            Samd21AdcRegister::Winctrl => u32::from(registers.winctrl & 0x07),
+            Samd21AdcRegister::Ctrla => u32::from(registers.ctrla & CTRLA_MASK & !1),
+            Samd21AdcRegister::Refctrl => u32::from(registers.refctrl & REFCTRL_MASK),
+            Samd21AdcRegister::Avgctrl => u32::from(registers.avgctrl & AVGCTRL_MASK),
+            Samd21AdcRegister::Sampctrl => u32::from(registers.sampctrl & SAMPCTRL_MASK),
+            Samd21AdcRegister::Ctrlb => u32::from(registers.ctrlb & CTRLB_MASK),
+            Samd21AdcRegister::Winctrl => u32::from(registers.winctrl & WINCTRL_MASK),
             Samd21AdcRegister::Swtrig => 0,
-            Samd21AdcRegister::Inputctrl => registers.inputctrl & 0x0fff_ffff,
-            Samd21AdcRegister::Evctrl => u32::from(registers.evctrl & 0x37),
+            Samd21AdcRegister::Inputctrl => registers.inputctrl & INPUTCTRL_MASK,
+            Samd21AdcRegister::Evctrl => u32::from(registers.evctrl & EVCTRL_MASK),
             Samd21AdcRegister::Intenclr | Samd21AdcRegister::Intenset => {
-                u32::from(registers.interrupt_enable & 0x0f)
+                u32::from(registers.interrupt_enable & INTERRUPT_MASK)
             }
-            Samd21AdcRegister::Intflag => u32::from(registers.interrupt_flags & 0x0f),
-            Samd21AdcRegister::Status => u32::from(registers.status & 0x80),
+            Samd21AdcRegister::Intflag => u32::from(registers.interrupt_flags & INTERRUPT_MASK),
+            Samd21AdcRegister::Status => u32::from(registers.status & STATUS_MASK),
             Samd21AdcRegister::Result => u32::from(registers.result),
             Samd21AdcRegister::Winlt => u32::from(registers.winlt),
             Samd21AdcRegister::Winut => u32::from(registers.winut),
-            Samd21AdcRegister::Gaincorr => u32::from(registers.gaincorr & 0x0fff),
-            Samd21AdcRegister::Offsetcorr => u32::from(registers.offsetcorr & 0x0fff),
-            Samd21AdcRegister::Calib => u32::from(registers.calib & 0x07ff),
-            Samd21AdcRegister::Dbgctrl => u32::from(registers.dbgctrl & 0x01),
+            Samd21AdcRegister::Gaincorr => u32::from(registers.gaincorr & GAINCORR_MASK),
+            Samd21AdcRegister::Offsetcorr => u32::from(registers.offsetcorr & OFFSETCORR_MASK),
+            Samd21AdcRegister::Calib => u32::from(registers.calib & CALIB_MASK),
+            Samd21AdcRegister::Dbgctrl => u32::from(registers.dbgctrl & DBGCTRL_MASK),
         };
         value
     }
@@ -371,7 +414,17 @@ impl Samd21Adc {
         width: AccessWidth,
         value: u64,
     ) -> Result<(), DeviceError> {
-        let mut raw = Self::read_register(state, register);
+        let mut raw = if matches!(
+            register,
+            Samd21AdcRegister::Swtrig
+                | Samd21AdcRegister::Intenclr
+                | Samd21AdcRegister::Intenset
+                | Samd21AdcRegister::Intflag
+        ) {
+            0
+        } else {
+            Self::read_register(state, register)
+        };
         let mut bytes = [0_u8; 4];
         bytes[..register.size()].copy_from_slice(&raw.to_le_bytes()[..register.size()]);
         write_le(&mut bytes, byte_offset, width, value)?;
@@ -386,16 +439,16 @@ impl Samd21Adc {
                     state.registers.dbgctrl = dbgctrl;
                     state.result_valid = false;
                 } else {
-                    state.registers.ctrla = write & 0x06;
+                    state.registers.ctrla = write & CTRLA_MASK & !1;
                 }
             }
-            Samd21AdcRegister::Refctrl => state.registers.refctrl = value as u8 & 0x8f,
-            Samd21AdcRegister::Avgctrl => state.registers.avgctrl = value as u8 & 0x7f,
-            Samd21AdcRegister::Sampctrl => state.registers.sampctrl = value as u8 & 0x3f,
-            Samd21AdcRegister::Ctrlb => state.registers.ctrlb = value as u16 & 0x073f,
-            Samd21AdcRegister::Winctrl => state.registers.winctrl = value as u8 & 0x07,
+            Samd21AdcRegister::Refctrl => state.registers.refctrl = value as u8 & REFCTRL_MASK,
+            Samd21AdcRegister::Avgctrl => state.registers.avgctrl = value as u8 & AVGCTRL_MASK,
+            Samd21AdcRegister::Sampctrl => state.registers.sampctrl = value as u8 & SAMPCTRL_MASK,
+            Samd21AdcRegister::Ctrlb => state.registers.ctrlb = value as u16 & CTRLB_MASK,
+            Samd21AdcRegister::Winctrl => state.registers.winctrl = value as u8 & WINCTRL_MASK,
             Samd21AdcRegister::Swtrig => {
-                let write = value as u8;
+                let write = value as u8 & SWTRIG_MASK;
                 if write & 1 != 0 {
                     state.result_valid = false;
                 }
@@ -403,16 +456,16 @@ impl Samd21Adc {
                     Self::complete_conversion(state);
                 }
             }
-            Samd21AdcRegister::Inputctrl => state.registers.inputctrl = value & 0x0fff_ffff,
-            Samd21AdcRegister::Evctrl => state.registers.evctrl = value as u8 & 0x37,
+            Samd21AdcRegister::Inputctrl => state.registers.inputctrl = value & INPUTCTRL_MASK,
+            Samd21AdcRegister::Evctrl => state.registers.evctrl = value as u8 & EVCTRL_MASK,
             Samd21AdcRegister::Intenclr => {
-                state.registers.interrupt_enable &= !(value as u8 & 0x0f);
+                state.registers.interrupt_enable &= !(value as u8 & INTERRUPT_MASK);
             }
             Samd21AdcRegister::Intenset => {
-                state.registers.interrupt_enable |= value as u8 & 0x0f;
+                state.registers.interrupt_enable |= value as u8 & INTERRUPT_MASK;
             }
             Samd21AdcRegister::Intflag => {
-                state.registers.interrupt_flags &= !(value as u8 & 0x0f);
+                state.registers.interrupt_flags &= !(value as u8 & INTERRUPT_MASK);
                 if value as u8 & INT_RES_RDY != 0 {
                     state.result_valid = false;
                 }
@@ -421,10 +474,12 @@ impl Samd21Adc {
             Samd21AdcRegister::Result => {}
             Samd21AdcRegister::Winlt => state.registers.winlt = value as u16,
             Samd21AdcRegister::Winut => state.registers.winut = value as u16,
-            Samd21AdcRegister::Gaincorr => state.registers.gaincorr = value as u16 & 0x0fff,
-            Samd21AdcRegister::Offsetcorr => state.registers.offsetcorr = value as u16 & 0x0fff,
-            Samd21AdcRegister::Calib => state.registers.calib = value as u16 & 0x07ff,
-            Samd21AdcRegister::Dbgctrl => state.registers.dbgctrl = value as u8 & 0x01,
+            Samd21AdcRegister::Gaincorr => state.registers.gaincorr = value as u16 & GAINCORR_MASK,
+            Samd21AdcRegister::Offsetcorr => {
+                state.registers.offsetcorr = value as u16 & OFFSETCORR_MASK
+            }
+            Samd21AdcRegister::Calib => state.registers.calib = value as u16 & CALIB_MASK,
+            Samd21AdcRegister::Dbgctrl => state.registers.dbgctrl = value as u8 & DBGCTRL_MASK,
         }
         Ok(())
     }
@@ -470,6 +525,54 @@ impl Device for Samd21Adc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_registers_and_vendor_masks_are_enforced() {
+        assert_eq!(
+            Samd21AdcRegister::from_offset(0x00),
+            Some(Samd21AdcRegister::Ctrla)
+        );
+        assert_eq!(Samd21AdcRegister::from_offset(0x05), None);
+        assert_eq!(Samd21AdcRegister::Result.offset(), 0x1a);
+
+        let (mut adc, _) = Samd21Adc::new("adc");
+        adc.write(0x00, AccessWidth::Byte, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(adc.read(0x00, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0);
+        adc.write(0x10, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            adc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(INPUTCTRL_MASK)
+        );
+        adc.write(0x14, AccessWidth::Byte, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            adc.read(0x14, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            u64::from(EVCTRL_MASK)
+        );
+    }
+
+    #[test]
+    fn interrupt_aliases_use_raw_write_one_payloads() {
+        let (mut adc, handle) = Samd21Adc::new("adc");
+        adc.write(0x17, AccessWidth::Byte, INT_RES_RDY as u64, SimTime::ZERO)
+            .unwrap();
+        handle.inject_sample(0, 0x0123).unwrap();
+        adc.write(0x00, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        adc.write(0x10, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        adc.write(0x0c, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.interrupt_flags(), INT_RES_RDY);
+        adc.write(0x18, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.interrupt_flags(), INT_RES_RDY);
+        adc.write(0x18, AccessWidth::Byte, INT_RES_RDY as u64, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.interrupt_flags(), 0);
+    }
 
     #[test]
     fn named_registers_match_samd21_offsets() {
