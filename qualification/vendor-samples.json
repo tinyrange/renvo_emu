@@ -93,7 +93,7 @@
       "build": ".remu/qualification/vendor-samples/esp32s3/build.json",
       "build_sha256": "cc30ec25dbe41ee19305f702f276d5c0f21cdbe2c553658ec889eb5469a9684a",
       "run": ".remu/qualification/vendor-samples/esp32s3/run.json",
-      "run_sha256": "24bb4abf3ac389aadc252aba905b9044848f2b1e50114998c2f7ad7778ccb6ca"
+      "run_sha256": "85e986f1b05e5c154c63efb2d797c3306b6063a6ce65d8055791051258808480"
     },
     {
       "target": "esp32c6",

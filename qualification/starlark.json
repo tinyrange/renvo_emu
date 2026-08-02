@@ -11,17 +11,17 @@
     {
       "name": "arm_cpu",
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "8b3ca4c6cfc92dcc645100fb8fe4b8b5163b71acc26c71febf50222eb7a42b85"
     },
     {
       "name": "xtensa_cpu",
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "920de56420152b7d08833041cea90805d2c3f559df0b4930d0e998a9adc2c051"
     },
     {
       "name": "reduction",
       "path": "qualification/reduction.json",
-      "sha256": "7664050616ab60b6a53b1a1049233e85b29902ad7448a10921480d750bf0cfa6"
+      "sha256": "796c59da31a968732f810e668591f2f062aa66985bbc6cbfabbb4279f47d204b"
     }
   ],
   "value": true,
