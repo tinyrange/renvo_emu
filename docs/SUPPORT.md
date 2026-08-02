@@ -77,6 +77,15 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52F32G model also exposes the DAC0 page-`0x30` register path. A
+software-triggered write sequence latches right- or left-justified 10-bit
+input data, honors the documented low-before-high update inhibit, reports the
+enabled state, and emits the digital output code as
+`board.efm8bb52f32g.dac0.output` for VCD and signal-stop workflows. Timer/CLU
+triggers, warm-up timing, reference/gain voltage behavior, alternate-mode
+electrical output, and the analog pin are intentionally deferred. Register
+choices are based on the [EFM8BB52 reference manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
