@@ -212,6 +212,13 @@ the target manifests and `PLAN.html`, principally:
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
 
+The WCH ADC1 map is a deterministic 10-bit regular-conversion slice at the
+native `0x4001_2400` base. Firmware can configure the regular sequence, power
+the ADC, trigger a conversion, read/clear EOC through `DR`, and receive the
+modeled IRQ 29 path; host tests provide channel samples through the device
+handle. Analog settling, sample-clock timing, injected conversions, and
+touch-key behavior remain outside this slice.
+
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
 bus logs, verifies the portfolio, and regenerates all six manifests. The

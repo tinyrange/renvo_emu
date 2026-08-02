@@ -18,8 +18,8 @@ use remu_devices::{
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchAdc, WchAdcHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -30,7 +30,6 @@ use serde::Serialize;
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
-
 mod bootrom_support;
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
@@ -38,7 +37,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
-
+mod wch_adc;
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
 /// Synthetic, stable UART facade used by compiler cases.
@@ -64,13 +63,11 @@ const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
 const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
 const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
 const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;
-
 #[derive(Clone, Debug, Default)]
 struct EspFunctionalSha256 {
     sha224: bool,
     input: Vec<u8>,
 }
-
 /// Failure while constructing, loading, or running a machine.
 #[derive(Debug, Error)]
 pub enum MachineError {
@@ -201,6 +198,7 @@ pub struct RiscVMachine {
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
+    wch_adc: Option<WchAdcHandle>,
     wch_timer: Option<WchTimerHandle>,
     wch_pfic: Option<WchPficHandle>,
     usb: Option<Rp2040UsbHandle>,
@@ -241,6 +239,7 @@ impl RiscVMachine {
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
+        let mut wch_adc = None;
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
@@ -563,6 +562,9 @@ impl RiscVMachine {
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 wch_timer = Some(handle);
+                let (adc, handle) = WchAdc::new(format!("{target}.adc"));
+                bus.map_device(format!("{target}.adc"), 0x4001_2400, 0x400, Box::new(adc))?;
+                wch_adc = Some(handle);
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
@@ -800,6 +802,7 @@ impl RiscVMachine {
             flash_storage,
             chip_timers,
             pio,
+            wch_adc,
             wch_timer,
             wch_pfic,
             usb,
@@ -1035,6 +1038,8 @@ impl RiscVMachine {
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }
+
+            self.poll_wch_adc()?;
 
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
