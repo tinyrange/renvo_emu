@@ -14,6 +14,7 @@ mod mcs51_mcu;
 mod msp430_mcu;
 mod pic16_mcu;
 mod riscv;
+mod run_control;
 mod target;
 mod xtensa;
 
