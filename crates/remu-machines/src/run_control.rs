@@ -21,7 +21,9 @@ pub(crate) struct RunControl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remu_signals::Logic;
+    use crate::SignalEdge;
+    use remu_devices::SignalHub;
+    use remu_signals::{Logic, SignalValue};
 
     #[test]
     fn equal_timestamp_stimuli_keep_insertion_order() {
@@ -74,6 +76,109 @@ mod tests {
             control.limit_reason(stats.time, &stats),
             Some(StopReason::InstructionLimit)
         );
+    }
+
+    #[test]
+    fn future_stimuli_wait_until_their_timestamp() {
+        let stimuli = [
+            PinStimulus {
+                at: SimTime::from_ticks(4),
+                pin: 4,
+                value: Logic::One,
+            },
+            PinStimulus {
+                at: SimTime::from_ticks(8),
+                pin: 8,
+                value: Logic::Zero,
+            },
+        ];
+        let mut control = RunControl::new(RunLimits::default(), &stimuli);
+        let mut stats = RunStats::default();
+        let mut applied = Vec::new();
+        control
+            .apply_stimuli(SimTime::from_ticks(4), &mut stats, |stimulus| {
+                applied.push(stimulus.pin);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(applied, [4]);
+        assert_eq!(stats.events, 1);
+        control
+            .apply_stimuli(SimTime::from_ticks(7), &mut stats, |stimulus| {
+                applied.push(stimulus.pin);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(applied, [4]);
+        control
+            .apply_stimuli(SimTime::from_ticks(8), &mut stats, |stimulus| {
+                applied.push(stimulus.pin);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(applied, [4, 8]);
+        assert_eq!(stats.events, 2);
+    }
+
+    #[test]
+    fn failed_stimulus_application_is_retryable_without_losing_the_event() {
+        let stimulus = [PinStimulus {
+            at: SimTime::ZERO,
+            pin: 3,
+            value: Logic::One,
+        }];
+        let mut control = RunControl::new(RunLimits::default(), &stimulus);
+        let mut stats = RunStats::default();
+        assert_eq!(
+            control.apply_stimuli(SimTime::ZERO, &mut stats, |_stimulus| {
+                Err::<(), _>("host input rejected")
+            }),
+            Err("host input rejected")
+        );
+        assert_eq!(stats.events, 0);
+        let mut applied = Vec::new();
+        control
+            .apply_stimuli(SimTime::ZERO, &mut stats, |stimulus| {
+                applied.push(stimulus.pin);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(applied, [3]);
+        assert_eq!(stats.events, 1);
+    }
+
+    #[test]
+    fn signal_recording_returns_the_first_matching_stop_and_drains_all_changes() {
+        let signals = SignalHub::new();
+        let signal = signals
+            .declare(
+                "board.led",
+                SignalValue::repeat(Logic::Zero, 1).unwrap(),
+                None,
+            )
+            .unwrap();
+        let mut control = RunControl::new(RunLimits::default(), &[]);
+        let mut trace: Option<&mut dyn TraceSink> = None;
+        control.begin_trace(&signals, &mut trace).unwrap();
+        signals
+            .set(
+                signal,
+                SignalValue::repeat(Logic::One, 1).unwrap(),
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        let stops = [SignalStop {
+            signal,
+            path: "board.led".to_owned(),
+            edge: SignalEdge::Rising,
+        }];
+        assert_eq!(
+            control
+                .record_signals(&signals, &stops, &mut trace)
+                .unwrap(),
+            Some("board.led".to_owned())
+        );
+        assert!(signals.drain_changes().is_empty());
     }
 }
 
