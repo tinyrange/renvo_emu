@@ -46,6 +46,7 @@ pub struct BoardI2cEndpoint {
     protocols: BTreeMap<String, ConnectorProtocol>,
     targets: BTreeMap<(String, u8), String>,
     devices: BTreeMap<String, Sgp30>,
+    available_at: SimTime,
 }
 
 impl BoardI2cEndpoint {
@@ -62,6 +63,12 @@ impl BoardI2cEndpoint {
             protocols.insert(connector.name.clone(), connector.protocol);
             if connector.protocol != ConnectorProtocol::I2c {
                 continue;
+            }
+            if connector.data_pin == connector.clock_pin {
+                return Err(BoardError::I2cPinAlias {
+                    connector: connector.name.clone(),
+                    pin: connector.data_pin,
+                });
             }
             let data_path = format!("{source_prefix}.pin{}", connector.data_pin);
             let clock_path = format!("{source_prefix}.pin{}", connector.clock_pin);
@@ -143,6 +150,7 @@ impl BoardI2cEndpoint {
             protocols,
             targets,
             devices,
+            available_at: SimTime::ZERO,
         })
     }
 
@@ -155,6 +163,12 @@ impl BoardI2cEndpoint {
         read_len: usize,
         at: SimTime,
     ) -> Result<BoardI2cTransfer, BoardError> {
+        if at < self.available_at {
+            return Err(BoardError::TimeRegression {
+                previous: self.available_at.ticks(),
+                next: at.ticks(),
+            });
+        }
         let protocol =
             self.protocols
                 .get(connector)
@@ -189,6 +203,7 @@ impl BoardI2cEndpoint {
             .expect("I2C target has a device model")
             .transact(write, read_len, at)?;
         let completed_at = emit_i2c(&self.hub, pins, address, write, &response, at)?;
+        self.available_at = completed_at;
         Ok(BoardI2cTransfer {
             connector: connector.to_owned(),
             address,
@@ -241,7 +256,6 @@ fn emit_i2c(
     read: &[u8],
     start: SimTime,
 ) -> Result<SimTime, BoardError> {
-    const HALF: u64 = 5_000;
     let mut now = start.ticks();
     set_line(
         hub,
@@ -250,7 +264,7 @@ fn emit_i2c(
         Logic::Zero,
         SimTime::from_ticks(now),
     )?;
-    now = now.saturating_add(HALF);
+    advance(&mut now)?;
     let mut bytes = vec![(address << 1, false)];
     bytes.extend(write.iter().copied().map(|byte| (byte, false)));
     if !read.is_empty() {
@@ -272,7 +286,7 @@ fn emit_i2c(
                 },
                 at,
             )?;
-            now = now.saturating_add(HALF);
+            advance(&mut now)?;
             set_line(
                 hub,
                 pins.clock,
@@ -280,7 +294,7 @@ fn emit_i2c(
                 Logic::One,
                 SimTime::from_ticks(now),
             )?;
-            now = now.saturating_add(HALF);
+            advance(&mut now)?;
         }
         set_line(
             hub,
@@ -296,7 +310,7 @@ fn emit_i2c(
             Logic::Zero,
             SimTime::from_ticks(now),
         )?;
-        now = now.saturating_add(HALF);
+        advance(&mut now)?;
         set_line(
             hub,
             pins.clock,
@@ -304,7 +318,7 @@ fn emit_i2c(
             Logic::One,
             SimTime::from_ticks(now),
         )?;
-        now = now.saturating_add(HALF);
+        advance(&mut now)?;
     }
     set_line(
         hub,
@@ -320,7 +334,7 @@ fn emit_i2c(
         Logic::Zero,
         SimTime::from_ticks(now),
     )?;
-    now = now.saturating_add(HALF);
+    advance(&mut now)?;
     set_line(
         hub,
         pins.data,
@@ -329,6 +343,11 @@ fn emit_i2c(
         SimTime::from_ticks(now),
     )?;
     Ok(SimTime::from_ticks(now))
+}
+
+fn advance(now: &mut u64) -> Result<(), BoardError> {
+    *now = now.checked_add(5_000).ok_or(BoardError::I2cTimeOverflow)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -378,6 +397,14 @@ mod tests {
             .unwrap();
         assert!(transfer.completed_at > SimTime::ZERO);
         assert!(endpoint.sgp30_snapshot("grove").unwrap().initialized);
+        let error = endpoint
+            .transfer("grove", SGP30_ADDRESS, &[0x20, 0x03], 0, SimTime::ZERO)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            BoardError::TimeRegression { previous, next }
+                if previous == transfer.completed_at.ticks() && next == 0
+        ));
         let measurement = endpoint
             .transfer(
                 "grove",
@@ -393,5 +420,84 @@ mod tests {
                 .is_some()
         );
         assert!(!hub.drain_changes().is_empty());
+    }
+
+    #[test]
+    fn rejects_an_i2c_connector_that_aliases_data_and_clock() {
+        let scenario = BoardScenario {
+            name: "invalid".to_owned(),
+            target: "esp32c6".to_owned(),
+            connectors: vec![super::super::BoardConnector {
+                name: "grove".to_owned(),
+                protocol: ConnectorProtocol::I2c,
+                data_pin: 2,
+                clock_pin: 2,
+                voltage_mv: 5_000,
+            }],
+            mounts: Vec::new(),
+            connections: Vec::new(),
+            actions: Vec::new(),
+            duration: 1,
+        };
+        let error =
+            match BoardI2cEndpoint::new(&scenario, SignalHub::new(), "board.esp32c6.chip_gpio") {
+                Err(error) => error,
+                Ok(_) => panic!("aliased I2C pins must fail validation"),
+            };
+        assert!(matches!(
+            error,
+            BoardError::I2cPinAlias { connector, pin }
+                if connector == "grove" && pin == 2
+        ));
+    }
+
+    #[test]
+    fn rejects_i2c_waveform_time_overflow() {
+        let hub = SignalHub::new();
+        hub.declare(
+            "board.esp32c6.chip_gpio.pin2",
+            SignalValue::repeat(Logic::Z, 1).unwrap(),
+            None,
+        )
+        .unwrap();
+        hub.declare(
+            "board.esp32c6.chip_gpio.pin1",
+            SignalValue::repeat(Logic::Z, 1).unwrap(),
+            None,
+        )
+        .unwrap();
+        let scenario = BoardScenario {
+            name: "nanoc6".to_owned(),
+            target: "esp32c6".to_owned(),
+            connectors: vec![super::super::BoardConnector {
+                name: "grove".to_owned(),
+                protocol: ConnectorProtocol::I2c,
+                data_pin: 2,
+                clock_pin: 1,
+                voltage_mv: 5_000,
+            }],
+            mounts: Vec::new(),
+            connections: vec![super::super::BoardConnection {
+                connector: "grove".to_owned(),
+                component: super::super::BoardComponent {
+                    name: "air".to_owned(),
+                    kind: BoardComponentKind::Sgp30 { eco2: 420, tvoc: 8 },
+                },
+            }],
+            actions: Vec::new(),
+            duration: 1,
+        };
+        let mut endpoint =
+            BoardI2cEndpoint::new(&scenario, hub, "board.esp32c6.chip_gpio").unwrap();
+        let error = endpoint
+            .transfer(
+                "grove",
+                SGP30_ADDRESS,
+                &[0x20, 0x03],
+                0,
+                SimTime::from_ticks(u64::MAX),
+            )
+            .unwrap_err();
+        assert!(matches!(error, BoardError::I2cTimeOverflow));
     }
 }
