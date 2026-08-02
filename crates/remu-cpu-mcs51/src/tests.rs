@@ -164,6 +164,28 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
 }
 
 #[test]
+fn comparator_interrupt_lines_enter_documented_vectors() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x63, &[0x32]).unwrap();
+    cpu.load_code(0x6b, &[0x32]).unwrap();
+
+    cpu.set_interrupt(6, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x63);
+    cpu.set_interrupt(6, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+
+    cpu.set_interrupt(7, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x6b);
+    cpu.set_interrupt(7, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+}
+
+#[test]
 fn every_base_opcode_except_reserved_a5_decodes() {
     for opcode in 0_u8..=u8::MAX {
         let mut cpu = Mcs51Cpu::new();

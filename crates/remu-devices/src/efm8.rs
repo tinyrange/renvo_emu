@@ -29,6 +29,17 @@ const TMR2RLL: usize = 0xca;
 const TMR2RLH: usize = 0xcb;
 const TMR2L: usize = 0xce;
 const TMR2H: usize = 0xcf;
+const CMP0CN0: usize = 0x9b;
+const CMP0CN1: usize = 0x99;
+const CMP0MD: usize = 0x9d;
+const CMP0MX: usize = 0x9f;
+const CMP1CN0: usize = 0xbf;
+const CMP1CN1: usize = 0xac;
+const CMP1MD: usize = 0xab;
+const CMP1MX: usize = 0xaa;
+const EIE1: usize = 0xe6;
+const EIP1: usize = (0x10 << 8) | 0xbb;
+const EIP1H: usize = (0x10 << 8) | 0xee;
 const XBR0: usize = 0xe1;
 const XBR2: usize = 0xe3;
 const RSTSRC: usize = 0xef;
@@ -51,6 +62,15 @@ const TCON_TR0: u8 = 0x10;
 const TCON_TF0: u8 = 0x20;
 const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
+const CMP_CPEN: u8 = 0x80;
+const CMP_CPOUT: u8 = 0x40;
+const CMP_CPRIF: u8 = 0x20;
+const CMP_CPFIF: u8 = 0x10;
+const CMP_CPINV: u8 = 0x40;
+const CMP_CPRIE: u8 = 0x20;
+const CMP_CPFIE: u8 = 0x10;
+const ECP0: u8 = 0x20;
+const ECP1: u8 = 0x40;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const XBR0_URT0E: u8 = 0x01;
@@ -68,10 +88,12 @@ struct Efm8State {
     watchdog_key: u8,
     watchdog_enabled: bool,
     watchdog_reset: bool,
+    comparator_inputs: [[u16; 2]; 2],
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
+    comparator_output_signals: [SignalId; 2],
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -138,6 +160,10 @@ impl Efm8State {
             ResetKind::Software => 0x10,
             ResetKind::Watchdog => 0x08,
         };
+        self.registers[CMP0MD] = 0x02;
+        self.registers[CMP1MD] = 0x02;
+        self.registers[CMP0MX] = 0xff;
+        self.registers[CMP1MX] = 0xff;
         self.uart.clear();
         self.timer0_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
@@ -145,10 +171,13 @@ impl Efm8State {
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
         self.watchdog_reset = false;
+        self.comparator_inputs = [[0; 2]; 2];
         for signal in [
             self.uart_strobe_signal,
             self.timer0_irq_signal,
             self.timer2_irq_signal,
+            self.comparator_output_signals[0],
+            self.comparator_output_signals[1],
             self.interrupt_signal,
             self.watchdog_reset_signal,
         ] {
@@ -159,9 +188,101 @@ impl Efm8State {
         }
     }
 
+    fn comparator_registers(comparator: usize) -> (usize, usize, usize, usize) {
+        match comparator {
+            0 => (CMP0CN0, CMP0CN1, CMP0MD, CMP0MX),
+            1 => (CMP1CN0, CMP1CN1, CMP1MD, CMP1MX),
+            _ => unreachable!("validated EFM8 comparator index"),
+        }
+    }
+
+    fn comparator_output(&self, comparator: usize) -> bool {
+        let (control, _, mode, _) = Self::comparator_registers(comparator);
+        if self.registers[control] & CMP_CPEN == 0 {
+            return false;
+        }
+        let positive = self.comparator_inputs[comparator][0];
+        let negative = self.comparator_inputs[comparator][1];
+        let mut output = positive > negative;
+        if self.registers[mode] & CMP_CPINV != 0 {
+            output = !output;
+        }
+        output
+    }
+
+    fn refresh_comparator(&mut self, comparator: usize, at: SimTime) {
+        let (control, _, _, _) = Self::comparator_registers(comparator);
+        let previous = self.registers[control] & CMP_CPOUT != 0;
+        let output = self.comparator_output(comparator);
+        if output != previous {
+            self.registers[control] &= !(CMP_CPOUT);
+            self.registers[control] |= u8::from(output) * CMP_CPOUT;
+            let edge = if output { CMP_CPRIF } else { CMP_CPFIF };
+            self.registers[control] |= edge;
+        }
+        self.set_signal(
+            self.comparator_output_signals[comparator],
+            u64::from(output),
+            1,
+            at,
+        );
+    }
+
+    fn refresh_comparators(&mut self, at: SimTime) {
+        self.refresh_comparator(0, at);
+        self.refresh_comparator(1, at);
+    }
+
+    fn write_comparator_register(&mut self, address: usize, value: u8, at: SimTime) {
+        let (comparator, control, control1, mode, mux) =
+            if [CMP0CN0, CMP0CN1, CMP0MD, CMP0MX].contains(&address) {
+                (0, CMP0CN0, CMP0CN1, CMP0MD, CMP0MX)
+            } else {
+                (1, CMP1CN0, CMP1CN1, CMP1MD, CMP1MX)
+            };
+        match address {
+            address if address == control => {
+                // CPOUT is read-only; the edge flags are software-latched.
+                self.registers[address] =
+                    (self.registers[address] & CMP_CPOUT) | (value & (CMP_CPEN | 0x3f));
+            }
+            address if address == control1 => {
+                self.registers[address] = value & 0xaf;
+            }
+            address if address == mode => {
+                // CPLOUT is retained as a functional status bit; bit 3 is
+                // reserved and always reads as zero.
+                self.registers[address] = (self.registers[address] & 0x80) | (value & 0x77);
+            }
+            address if address == mux => self.registers[address] = value,
+            _ => unreachable!("validated EFM8 comparator register"),
+        }
+        self.refresh_comparator(comparator, at);
+    }
+
+    fn comparator_interrupt_active(&self, comparator: usize) -> bool {
+        let (control, _, mode, _) = Self::comparator_registers(comparator);
+        let enable = if comparator == 0 { ECP0 } else { ECP1 };
+        self.registers[EIE1] & enable != 0
+            && ((self.registers[control] & CMP_CPRIF != 0 && self.registers[mode] & CMP_CPRIE != 0)
+                || (self.registers[control] & CMP_CPFIF != 0
+                    && self.registers[mode] & CMP_CPFIE != 0))
+    }
+
     fn canonical(raw: usize) -> usize {
         let page = raw >> 8;
         let address = raw & 0xff;
+        if raw == EIP1 || raw == EIP1H {
+            return raw;
+        }
+        if page == 0x30
+            && matches!(
+                address,
+                CMP0CN0 | CMP0CN1 | CMP0MD | CMP0MX | CMP1CN0 | CMP1CN1 | CMP1MD | CMP1MX
+            )
+        {
+            return address;
+        }
         match address {
             0x80
             | 0x88..=0x8e
@@ -183,10 +304,10 @@ impl Efm8State {
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 6] {
+    fn interrupt_levels(&self) -> [bool; 10] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 6];
+            return [false; 10];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
@@ -194,17 +315,27 @@ impl Efm8State {
             enabled & IE_ET2 != 0 && self.registers[TMR2CN0] & TMR2_TF2H != 0,
         ];
         let priorities = [IE_ET0, IE_ES0, IE_ET2];
-        let mut levels = [false; 6];
+        let mut levels = [false; 10];
         for source in 0..3 {
             if active[source] {
                 let high = self.registers[IP] & priorities[source] != 0;
                 levels[source + if high { 3 } else { 0 }] = true;
             }
         }
+        for comparator in 0..2 {
+            if self.comparator_interrupt_active(comparator) {
+                let priority_bit = if comparator == 0 { 0x20 } else { 0x40 };
+                let high = self.registers[EIP1] & priority_bit != 0
+                    || self.registers[EIP1H] & priority_bit != 0;
+                let low_line = 6 + comparator;
+                let high_line = 8 + comparator;
+                levels[if high { high_line } else { low_line }] = true;
+            }
+        }
         levels
     }
 
-    fn update_interrupt_signals(&self, at: SimTime) {
+    fn update_interrupt_signals(&mut self, at: SimTime) {
         self.set_signal(
             self.timer0_irq_signal,
             u64::from(self.registers[TCON] & TCON_TF0 != 0),
@@ -217,6 +348,7 @@ impl Efm8State {
             1,
             at,
         );
+        self.refresh_comparators(at);
         self.set_signal(
             self.interrupt_signal,
             u64::from(self.interrupt_levels().iter().any(|level| *level)),
@@ -244,8 +376,28 @@ impl Efm8PeripheralsHandle {
         state.update_interrupt_signals(at);
     }
 
+    /// Supplies deterministic scalar codes to one comparator's positive and
+    /// negative inputs and refreshes its digital output/edge flags.
+    pub fn set_comparator_inputs(
+        &self,
+        comparator: u8,
+        positive: u16,
+        negative: u16,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let comparator = usize::from(comparator);
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        let inputs = state.comparator_inputs.get_mut(comparator).ok_or_else(|| {
+            DeviceError::new(format!("EFM8 comparator {comparator} is outside 0..1"))
+        })?;
+        *inputs = [positive, negative];
+        state.refresh_comparators(at);
+        state.update_interrupt_signals(at);
+        Ok(())
+    }
+
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 6] {
+    pub fn poll(&self, now: SimTime) -> [bool; 10] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -342,6 +494,16 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer2 high-byte overflow request".to_owned()),
         )?;
+        let comparator0_output_signal = hub.declare(
+            "board.efm8bb52f32g.comparator0.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("CMP0 digital comparison output".to_owned()),
+        )?;
+        let comparator1_output_signal = hub.declare(
+            "board.efm8bb52f32g.comparator1.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("CMP1 digital comparison output".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -364,10 +526,12 @@ impl Efm8Peripherals {
             watchdog_key: 0,
             watchdog_enabled: true,
             watchdog_reset: false,
+            comparator_inputs: [[0; 2]; 2],
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
             timer2_irq_signal,
+            comparator_output_signals: [comparator0_output_signal, comparator1_output_signal],
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -435,7 +599,13 @@ impl Device for Efm8Peripherals {
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
         }
-        state.registers[address] = value;
+        let comparator_address = matches!(
+            address,
+            CMP0CN0 | CMP0CN1 | CMP0MD | CMP0MX | CMP1CN0 | CMP1CN1 | CMP1MD | CMP1MX
+        );
+        if !comparator_address {
+            state.registers[address] = value;
+        }
         if let Some(port) = Self::port_index(address) {
             state.registers[address] &= PORT_MASKS[port];
             state.refresh_port(port, at)?;
@@ -455,6 +625,8 @@ impl Device for Efm8Peripherals {
                 state.set_signal(state.uart_strobe_signal, previous ^ 1, 1, at);
             }
             state.registers[SCON0] |= SCON0_TI;
+        } else if comparator_address {
+            state.write_comparator_register(address, value, at);
         } else if address == WDTCN {
             if state.watchdog_key == 0xde && value == 0xad {
                 state.watchdog_enabled = false;
@@ -481,8 +653,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, CMP0CN0, CMP0MD, CMP1CN0, CMP1MD, EIE1, Efm8Peripherals, IE, IE_EA, IE_ET0,
+        P0, P0MDOUT, SBUF0, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +714,121 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn comparators_compare_host_codes_latch_edges_and_raise_interrupts() {
+        let hub = super::SignalHub::new();
+        let trace_hub = hub.clone();
+        let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(EIE1 as u64, AccessWidth::Byte, 0x60, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                IE as u64,
+                AccessWidth::Byte,
+                u64::from(IE_EA),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(CMP0MD as u64, AccessWidth::Byte, 0x30, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(CMP1MD as u64, AccessWidth::Byte, 0x30, SimTime::ZERO)
+            .unwrap();
+        handle
+            .set_comparator_inputs(0, 100, 20, SimTime::from_ticks(1))
+            .unwrap();
+        handle
+            .set_comparator_inputs(1, 20, 10, SimTime::from_ticks(1))
+            .unwrap();
+        device
+            .write(
+                CMP0CN0 as u64,
+                AccessWidth::Byte,
+                0x80,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                CMP1CN0 as u64,
+                AccessWidth::Byte,
+                0x80,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+
+        assert_eq!(
+            device
+                .read(CMP0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & 0x70,
+            0x60
+        );
+        assert_eq!(
+            device
+                .read(CMP1CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & 0x70,
+            0x60
+        );
+        let levels = handle.poll(SimTime::from_ticks(2));
+        assert!(levels[6]);
+        assert!(levels[7]);
+
+        let cmp0_output = trace_hub
+            .with_registry(|registry| registry.find("board.efm8bb52f32g.comparator0.output"))
+            .unwrap();
+        let cmp1_output = trace_hub
+            .with_registry(|registry| registry.find("board.efm8bb52f32g.comparator1.output"))
+            .unwrap();
+        assert_eq!(
+            trace_hub.with_registry(|registry| registry.value(cmp0_output).unwrap().bit(0)),
+            Some(super::Logic::One)
+        );
+        assert_eq!(
+            trace_hub.with_registry(|registry| registry.value(cmp1_output).unwrap().bit(0)),
+            Some(super::Logic::One)
+        );
+
+        // Clearing the rising flag and reversing the scalar inputs creates a
+        // falling edge, which is independently latched and routed.
+        device
+            .write(
+                CMP0CN0 as u64,
+                AccessWidth::Byte,
+                0x80,
+                SimTime::from_ticks(3),
+            )
+            .unwrap();
+        handle
+            .set_comparator_inputs(0, 1, 2, SimTime::from_ticks(4))
+            .unwrap();
+        let control = device
+            .read(CMP0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap();
+        assert_ne!(control & 0x10, 0);
+        assert!(handle.poll(SimTime::from_ticks(4))[6]);
+
+        // Output inversion changes CPOUT deterministically without claiming
+        // comparator voltage or synchronization-delay fidelity.
+        device
+            .write(
+                CMP0MD as u64,
+                AccessWidth::Byte,
+                0x70,
+                SimTime::from_ticks(5),
+            )
+            .unwrap();
+        assert_ne!(
+            device
+                .read(CMP0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & 0x40,
+            0
+        );
     }
 }
