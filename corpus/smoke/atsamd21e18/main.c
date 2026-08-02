@@ -111,7 +111,7 @@ int main(void)
     EVSYS_CTRL = 1u << 4;
     EVSYS_CHANNEL = 2u | (0x36u << 16) | (1u << 26);
     EVSYS_USER = 0x13u | (3u << 8);
-    EVSYS_INTENSET = 1u << (16u + 2u);
+    EVSYS_INTENSET = 1u << (8u + 2u);
     EVSYS_CHANNEL_HALF = 2u | (1u << 8);
     if ((EVSYS_CHANNEL & ((0x7fu << 16) | (3u << 24) | (3u << 26) | 0xfu)) !=
         (2u | (0x36u << 16) | (1u << 26))) {
@@ -120,11 +120,11 @@ int main(void)
     if ((EVSYS_USER & 0x1fu) != 0x13u || (EVSYS_USER & (0x1fu << 8)) != (3u << 8)) {
         failures |= 1u << 12;
     }
-    if ((EVSYS_INTFLAG & (1u << (16u + 2u))) == 0u) {
+    if ((EVSYS_INTFLAG & (1u << (8u + 2u))) == 0u) {
         failures |= 1u << 13;
     }
-    EVSYS_INTFLAG = 1u << (16u + 2u);
-    if ((EVSYS_INTFLAG & (1u << (16u + 2u))) != 0u) {
+    EVSYS_INTFLAG = 1u << (8u + 2u);
+    if ((EVSYS_INTFLAG & (1u << (8u + 2u))) != 0u) {
         failures |= 1u << 14;
     }
 
