@@ -241,19 +241,19 @@ manual_urls = [
   "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
   "https://sdcc.sourceforge.net/doc/sdccman.pdf",
 ]
-sample_url = "qualification/efm8bb52f32g/silabs/remu_blinky.c"
-sample_revision = "original Renvo Emulator EFM8BB52 Timer2/GPIO and UART interrupt register fixtures"
+sample_url = "qualification/efm8bb52f32g/silabs/"
+sample_revision = "original Renvo Emulator EFM8BB52 Timer2/GPIO, UART interrupt, and SMBus register fixtures"
 sample_adaptation = "project-authored fixtures written from the public data sheet and reference manual; no Silicon Labs SDK source is incorporated"
 toolchain = "source-built SDCC 4.5.0 MCS-51"
 compiler_flags = ["-mmcs51", "--model-small"]
-peripherals = ["RSTSRC", "CLKSEL", "WDTCN", "PORT0", "PORT1", "PORT2", "PORT3", "XBR", "TIMER0", "TIMER2", "UART0", "IE", "IP"]
+peripherals = ["RSTSRC", "CLKSEL", "WDTCN", "PORT0", "PORT1", "PORT2", "PORT3", "XBR", "TIMER0", "TIMER2", "UART0", "SMBus0", "IE", "IP"]
 image_formats = ["Intel HEX byte-addressed CODE image produced by SDCC"]
 memory_map = ["CODE flash 0x0000..0x7fff", "IDATA 0x00..0xff", "XDATA 0x0000..0x08ff", "paged SFR window 0x80..0xff with explicit bit-addressable access"]
 reset_assumptions = "Power-on reset starts at CODE 0x0000 with SP=0x07, register bank 0 and default SFR page; SDCC startup initializes memory before main"
 vectors = ["reset 0x0000", "Timer0 0x000b", "UART0 0x0023", "Timer2 0x002b", "low/high priority levels retained separately"]
 selected_pins = ["P0.1 external digital input", "P0.0 GPIO/timer ISR output", "P1.4 register-fixture output", "UART0 logical TX"]
 interrupt_routes = ["TF0/ET0/EA -> Timer0 vector 0x000b", "RI/TI/ES0/EA -> UART0 vector 0x0023", "TF2H/ET2/EA -> Timer2 vector 0x002b", "IP selects low/high priority"]
-vcd_signals = ["board.efm8bb52f32g.port0", "board.efm8bb52f32g.timer0.irq", "board.efm8bb52f32g.timer2.irq", "board.efm8bb52f32g.uart0", "board.efm8bb52f32g.interrupt.request"]
+vcd_signals = ["board.efm8bb52f32g.port0", "board.efm8bb52f32g.timer0.irq", "board.efm8bb52f32g.timer2.irq", "board.efm8bb52f32g.uart0", "board.efm8bb52f32g.smb0.tx_byte", "board.efm8bb52f32g.smb0.tx_strobe", "board.efm8bb52f32g.smb0.busy", "board.efm8bb52f32g.smb0.interrupt", "board.efm8bb52f32g.interrupt.request"]
 fidelity_tier = "functional EFM8-flavoured MCS-51 and selected peripherals, deterministic timing"
-unsupported = ["analog peripherals", "PCA", "SMBus", "SPI", "cycle-accurate pipelining and historical 8051 buses"]
+unsupported = ["analog peripherals", "PCA", "SMBus arbitration/clock-level waveform fidelity", "SPI", "cycle-accurate pipelining and historical 8051 buses"]
 vendor_sample_license = "MIT OR Apache-2.0; original Renvo Emulator fixtures"
