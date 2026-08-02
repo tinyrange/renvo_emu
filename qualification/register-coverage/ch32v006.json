@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "5860dbacac85e42807491bddc326cf744bdae352934c186f82fda5a9041286c3"
+    "sha256": "fdbe05cb51497ba4544203fa41e0ebaf9a53d4b4e6c494390fd931ac5e7150fe"
   },
   "proofs": [
     {
@@ -314,6 +314,6 @@
     "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
     "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
     "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.",
-    "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, waveform pins, and exact clock timing remain outside the slice."
+    "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, center-alignment, compare/auto-reload preload transfers, waveform pins, and exact clock timing remain outside the slice."
   ]
 }

@@ -38,7 +38,7 @@
         "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
         "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
         "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.",
-        "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, waveform pins, and exact clock timing remain outside the slice."
+        "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, center-alignment, compare/auto-reload preload transfers, waveform pins, and exact clock timing remain outside the slice."
       ]
     },
     "rp2040": {

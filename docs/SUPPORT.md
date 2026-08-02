@@ -29,9 +29,9 @@ conventions without pretending that vendor peripherals are interchangeable.
 The CH32V006-specific TIM3 streamlined timer is modeled at its native
 `0x40000800` window. Its deterministic internal-clock counter, auto-reload,
 up/down direction, compare channels, and channel 3/4 DMA-event enables are
-covered by the Docker `wch-sltm` proof. Timer-1 cascade, physical waveform
-alternate functions, and silicon clock timing remain outside this functional
-slice.
+covered by the Docker `wch-sltm` proof. Timer-1 cascade, center-alignment,
+compare/auto-reload preload transfers, physical waveform alternate functions,
+and silicon clock timing remain outside this functional slice.
 
 ## Official MicroPython milestone
 

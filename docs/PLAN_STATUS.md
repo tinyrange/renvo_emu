@@ -204,5 +204,5 @@ channel-3/channel-4 DMA-event enables. Direct device tests cover counter
 progression and compare/update events; Docker-built RV32EC firmware exercises
 the native register window. DMA data movement and CPU interrupt routing are
 left to the dedicated DMA/timer follow-up work. Timer-1 cascade,
-alternate-function waveform pins, and exact silicon clock timing remain
-explicit limitations.
+center-alignment, compare/auto-reload preload transfers, alternate-function
+waveform pins, and exact silicon clock timing remain explicit limitations.
