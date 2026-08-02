@@ -64,10 +64,13 @@ cmp "$artifact_root/run-O2/signals.vcd" "$artifact_root/run-O2-repeat/signals.vc
 grep -q '^\$scope module pic16f15376 \$end$' "$artifact_root/run-O2/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-O2/signals.vcd"
 grep -q '^\$scope module eusart1 \$end$' "$artifact_root/run-O2/signals.vcd"
+grep -q '^\$scope module mssp1 \$end$' "$artifact_root/run-O2/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-O2/signals.vcd"
 grep -q 'porta' "$artifact_root/run-O2/signals.vcd"
 grep -q 'timer0' "$artifact_root/run-O2/signals.vcd"
 grep -q 'eusart1' "$artifact_root/run-O2/signals.vcd"
+grep -q 'i2c_byte' "$artifact_root/run-O2/signals.vcd"
+grep -q 'i2c_strobe' "$artifact_root/run-O2/signals.vcd"
 grep -q 'interrupt' "$artifact_root/run-O2/signals.vcd"
 jq -e '.architecture == "Pic16Enhanced" and .fetch_accesses > 100 and .unique_addresses > 100' \
     "$artifact_root/run-O2/coverage.json" >/dev/null

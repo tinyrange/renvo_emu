@@ -20,11 +20,14 @@ stack, reset and interrupt vectors, oscillator-ready state, PORT/LAT/TRIS/
 ANSEL A–E, named PPS RxyPPS/PPSLOCK registers with functional lock behavior and
 TMR0/TX1 output-source routing, PIR/PIE routing, Timer0/1, Timer2 period
 matching with its prescaler/postscaler, EUSART1 transmit, MSSP1 SPI master byte
-transfers, the normalized DAC1 code and enable/output controls, the C1
+transfers and I²C host byte path (7-bit addresses, START/RESTART/STOP, queued
+reads, and SSP1IF), the normalized DAC1 code and enable/output controls, the C1
 comparator GPIO input/polarity/output and edge-flag slice, NCO1 fixed-duty and
 pulse-frequency overflow/output/interrupt behavior, and watchdog reset. Timer,
 serial, SPI, comparator, and NCO timing are deterministic approximations.
-MSSP1 I²C/slave operation remains unsupported. The comparator is a logic-level
+The I²C model reports deterministic byte-level transactions; it does not model
+SCL/SDA edge timing, arbitration, 10-bit addressing, or slave mode. The
+comparator is a logic-level
 model; it does not simulate analog voltage, propagation delay, or the complete
 C2/zero-cross path. PPS unlock-sequence, NCO clock-source and exact pulse-width
 timing, serial receive timing, and unlisted peripherals remain unsupported or
