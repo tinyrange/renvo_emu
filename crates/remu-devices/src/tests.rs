@@ -379,6 +379,73 @@ fn rp2350_sio_uses_interleaved_low_and_high_gpio_registers() {
 }
 
 #[test]
+fn rp2350_io_bank_models_overrides_and_proc0_edge_events() {
+    let hub = SignalHub::new();
+    let (mut sio, gpio) =
+        RpSioGpio::new_rp2350("sio", 4, "board.rp2350.io.gpio", hub.clone()).unwrap();
+    let (mut io_bank, handle) = RpIoBank::new("io-bank0", gpio.clone(), 48);
+
+    sio.write(0x038, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    sio.write(0x018, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    io_bank
+        .write(0x004, AccessWidth::Word, 0x3003_f01f, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(0x004, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        0x3003_f01f
+    );
+    assert_eq!(
+        io_bank
+            .read(0x000, AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+            & ((1 << 9) | (1 << 13)),
+        (1 << 9) | (1 << 13)
+    );
+
+    gpio.set_input(2, Logic::One, SimTime::from_ticks(1))
+        .unwrap();
+    io_bank
+        .write(0x248, AccessWidth::Word, 1 << 11, SimTime::from_ticks(1))
+        .unwrap();
+    assert!(handle.poll(SimTime::from_ticks(1)).unwrap());
+    assert_eq!(
+        io_bank
+            .read(0x230, AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+            & (1 << 11),
+        1 << 11
+    );
+    assert_eq!(
+        io_bank
+            .read(0x278, AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+            & (1 << 11),
+        1 << 11
+    );
+    io_bank
+        .write(0x230, AccessWidth::Word, 1 << 11, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(0x230, AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+            & (1 << 11),
+        0
+    );
+    assert_eq!(
+        io_bank
+            .read(0x278, AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+            & (1 << 11),
+        0
+    );
+}
+
+#[test]
 fn rp_sio_echoes_bootrom_launch_and_routes_live_fifo_words() {
     let hub = SignalHub::new();
     let (mut sio, _, multicore) =
