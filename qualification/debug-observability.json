@@ -1,7 +1,7 @@
 {
   "schema": "remu.debug-observability-qualification.v1",
   "generated_by": "scripts/qualify-debug-observability.sh",
-  "source_sha256": "18fc8d4a9879ff5ef5179b13fe7f51af60c2116d5ac13fb9ad3580714df17161",
+  "source_sha256": "cec1550482878bca2ec843437030228757bcd3afd8c6609c8c7f8e302b9d1a45",
   "result": "pass",
   "families": [
     {

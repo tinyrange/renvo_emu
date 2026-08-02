@@ -18,8 +18,8 @@ use remu_devices::{
     FunctionalTimer, FunctionalUart, GpioHandle, I2cEvent, I2cHandle, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Resets, Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle,
     Rp2040UsbController, Rp2040UsbHandle, Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam,
-    Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub,
-    TimerHandle, UartHandle,
+    Rp2350XipMaintenance, RpI2c, RpI2cHandle, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -57,6 +57,7 @@ pub struct ArmMachine {
     native_bootrom: bool,
     ppb: ArmPpbHandle,
     chip_timers: Vec<Rp2040TimerHandle>,
+    i2c: Vec<RpI2cHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -121,6 +122,7 @@ impl ArmMachine {
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
         let mut chip_i2cs = Vec::new();
+        let mut i2c = Vec::new();
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -430,6 +432,16 @@ impl ArmMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
+            for (index, (name, base)) in
+                [("rp2350.i2c0", 0x4009_0000), ("rp2350.i2c1", 0x4009_8000)]
+                    .into_iter()
+                    .enumerate()
+            {
+                let (device, handle) =
+                    RpI2c::new(name, &format!("board.rp2350.i2c{index}"), signals.clone())?;
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                i2c.push(handle);
+            }
             bus.map_device(
                 "rp2350.xosc",
                 0x4004_8000,
@@ -618,6 +630,7 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            i2c,
             pio,
             usb,
             usb_dpram,
@@ -1273,6 +1286,12 @@ impl ArmMachine {
                 (chip_timer_pending & !chip_timer_was_pending).count_ones(),
             ));
             chip_timer_was_pending = chip_timer_pending;
+            for (index, handle) in self.i2c.iter().enumerate() {
+                self.cpu.set_interrupt(
+                    36_u16 + u16::try_from(index).expect("RP2350 I²C index fits u16"),
+                    handle.pending(),
+                )?;
+            }
             for pio in &self.pio {
                 if pio.poll(self.now)? {
                     stats.events = stats.events.saturating_add(1);
