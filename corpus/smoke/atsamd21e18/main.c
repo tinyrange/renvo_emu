@@ -8,6 +8,12 @@ typedef unsigned int u32;
 
 #define PM_APBCMASK REG32(0x40000420u)
 #define GCLK_CLKCTRL REG16(0x40000c02u)
+#define EVSYS_CTRL REG8(0x42000400u)
+#define EVSYS_CHANNEL REG32(0x42000404u)
+#define EVSYS_CHANNEL_HALF REG16(0x42000404u)
+#define EVSYS_USER REG16(0x42000408u)
+#define EVSYS_INTENSET REG32(0x42000414u)
+#define EVSYS_INTFLAG REG32(0x42000418u)
 #define PORT_DIRSET REG32(0x41004408u)
 #define PORT_OUTSET REG32(0x41004418u)
 #define PORT_OUTCLR REG32(0x41004414u)
@@ -101,6 +107,26 @@ int main(void)
 
     PM_APBCMASK |= (1u << 2) | (1u << 11);
     GCLK_CLKCTRL = (u16)((0x14u << 8) | 0u | (1u << 14));
+
+    EVSYS_CTRL = 1u << 4;
+    EVSYS_CHANNEL = 2u | (0x36u << 16) | (1u << 26);
+    EVSYS_USER = 0x13u | (3u << 8);
+    EVSYS_INTENSET = 1u << (8u + 2u);
+    EVSYS_CHANNEL_HALF = 2u | (1u << 8);
+    if ((EVSYS_CHANNEL & ((0x7fu << 16) | (3u << 24) | (3u << 26) | 0xfu)) !=
+        (2u | (0x36u << 16) | (1u << 26))) {
+        failures |= 1u << 11;
+    }
+    if ((EVSYS_USER & 0x1fu) != 0x13u || (EVSYS_USER & (0x1fu << 8)) != (3u << 8)) {
+        failures |= 1u << 12;
+    }
+    if ((EVSYS_INTFLAG & (1u << (8u + 2u))) == 0u) {
+        failures |= 1u << 13;
+    }
+    EVSYS_INTFLAG = 1u << (8u + 2u);
+    if ((EVSYS_INTFLAG & (1u << (8u + 2u))) != 0u) {
+        failures |= 1u << 14;
+    }
 
     PORT_DIRSET = 1u << 7;
     PORT_OUTSET = 1u << 7;
