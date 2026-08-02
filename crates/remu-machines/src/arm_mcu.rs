@@ -17,8 +17,7 @@ use remu_devices::{
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Evsys, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle,
     Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub,
-    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
-    UartHandle,
+    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};

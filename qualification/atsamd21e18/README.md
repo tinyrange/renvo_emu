@@ -3,10 +3,13 @@
 The pinned Arm GNU 13.2.Rel1 and Clang/LLD 18 lanes select Cortex-M0+ Thumb code and the exact
 SAMD21E18A device identity. The compiler smoke covers startup, Arm EABI calls,
 native widths, arithmetic, GPIO input/output, EIC routing, TC3 interrupt entry,
-SERCOM0 UART output, and the USB device control/endpoint register surface. It
-also configures the 12-channel EVSYS register
-surface, user mux, synchronous software event, event-detected flag, and
-write-one-to-clear behavior. It boots from the vector table at flash address zero,
+SERCOM0 UART output, and the SAM D21 USB device control/endpoint register
+surface. The USB slice follows the vendor CMSIS register masks, including
+FSMSTATUS, descriptor and pad-calibration fields, endpoint status aliases and
+write-one-to-clear interrupt flags. The smoke also configures the 12-channel
+EVSYS register surface, user mux, synchronous software event, event-detected
+flag, and write-one-to-clear behavior. It boots from the vector table at flash
+address zero,
 uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup

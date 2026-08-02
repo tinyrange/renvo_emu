@@ -150,7 +150,7 @@ int main(void)
     USB_EPINTENSET0 = 1u | (1u << 4);
     USB_INTENSET = 1u << 3;
     if (USB_CTRLA != (1u << 1) || USB_CTRLB != 0u || USB_DADD != 0x85u ||
-        USB_STATUS != 0x40u || USB_DESCADD != 0x20000100u) {
+        USB_STATUS != 0x40u || USB_DESCADD != 0x20000103u) {
         failures |= 1u << 18;
     }
     if (USB_EPCFG0 != (1u | (1u << 4)) || USB_EPSTATUS0 != ((1u << 6) | (1u << 4)) ||

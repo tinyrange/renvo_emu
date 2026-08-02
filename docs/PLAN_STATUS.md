@@ -77,11 +77,14 @@ machine, and cycle-accurate synchronization remain explicitly deferred.
 
 The ATSAMD21E18 expansion qualification now maps the documented USB device
 block at `0x41005000`. The functional model exposes named common control,
-address, status, frame, interrupt, descriptor, and pad-calibration registers,
-plus the eight endpoint configuration/status/interrupt windows. It implements
-deterministic enable/detach/address behavior, endpoint status aliases,
-interrupt enable and W1C flags, endpoint interrupt summaries, software bus
-reset, SOF, and SETUP stimuli through a host-facing handle. The Docker fixture
+address, status, finite-state-machine, frame, interrupt, descriptor, and
+pad-calibration registers, plus the eight endpoint configuration/status/
+interrupt windows. Its register masks and access widths follow the official
+SAM D21 CMSIS definitions, including the split endpoint status/interrupt masks
+and write-one-to-clear common and endpoint flags. It implements deterministic
+enable/detach/address behavior, endpoint status aliases, interrupt enable and
+W1C flags, endpoint interrupt summaries, software bus reset, SOF, and
+control-endpoint SETUP stimuli through a host-facing handle. The Docker fixture
 checks the device control and endpoint register paths at native addresses.
 
 USB packet encoding/decoding, descriptor/DMA transfers through system RAM,
