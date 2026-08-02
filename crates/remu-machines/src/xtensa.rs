@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3Ledc, Esp32S3LedcHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -379,6 +380,7 @@ pub struct XtensaMachine {
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
+    ledc: Esp32S3LedcHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -478,7 +480,6 @@ impl XtensaMachine {
             ("rmt", 0x6001_6000),
             ("pcnt", 0x6001_7000),
             ("slc", 0x6001_8000),
-            ("ledc", 0x6001_9000),
             ("radio-nrx", 0x6001_c000),
             ("radio-bb", 0x6001_d000),
             ("pwm0", 0x6001_e000),
@@ -595,6 +596,9 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (ledc_device, ledc) =
+            Esp32S3Ledc::new("esp32s3.ledc", "board.esp32s3.ledc", signals.clone())?;
+        bus.map_device("esp32s3.ledc", 0x6001_9000, 0x1000, Box::new(ledc_device))?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -716,6 +720,7 @@ impl XtensaMachine {
             system,
             systimer,
             timer_groups,
+            ledc,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -1283,6 +1288,7 @@ impl XtensaMachine {
                         .checked_add(remu_core::SimDuration::TICK)
                         .map_err(|_| XtensaMachineError::TimeOverflow)?;
                     stats.time = self.now;
+                    self.ledc.poll(self.now)?;
                     if let Some(hit) = self.bus.take_watchpoint_hit() {
                         break StopReason::Watchpoint {
                             address: hit.address,
@@ -1323,6 +1329,7 @@ impl XtensaMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
             stats.time = self.now;
+            self.ledc.poll(self.now)?;
             next_core = if self.appcpu_boot_address.is_some() {
                 next_core ^ 1
             } else {
