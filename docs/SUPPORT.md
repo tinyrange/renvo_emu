@@ -132,6 +132,12 @@ This is a software-visible model: it does not claim analogue voltage curves,
 process/voltage/temperature frequency drift, exact oscillator startup delay,
 or automatic reset and clock gating of every dependent block.
 
+The STM32L432KC model additionally maps the native bxCAN controller at
+`0x40006400`. Its functional slice supports initialization state, loopback
+bit-timing selection, one transmit mailbox, receive FIFO 0, standard/extended
+identifier fields, payload words, completion/error flags, and maskable status
+interrupts. It does not claim bit-level arbitration or a physical CAN bus.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
