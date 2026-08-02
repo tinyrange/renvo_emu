@@ -7,10 +7,13 @@
 #define PICO_DEFAULT_LED_PIN 25u
 #define GPIO_OUT true
 #define PICO_OK 0
+#define GPIO_FUNC_UART 2u
+#define GPIO_FUNC_PWM 4u
 
 void gpio_init(unsigned int pin);
 void gpio_set_dir(unsigned int pin, bool output);
 void gpio_put(unsigned int pin, bool value);
+void gpio_set_function(unsigned int pin, unsigned int function);
 void sleep_ms(uint32_t milliseconds);
 
 #endif

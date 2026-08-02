@@ -1,0 +1,40 @@
+{
+  "schema": "remu.rp2040-sdk-qualification.v1",
+  "generated_by": "scripts/qualify-rp2040-sdk.sh",
+  "result": "pass",
+  "source_sha256": "74c37d4b8eaa32bedd2e8dd32b1ac314cdfc6b7ffd6dbbee7b2daee45080d0fd",
+  "adapter_sha256": "cae2510855980cc17a22065e48a8c249e3fd48c50b777b8ce7f88ef22361ce5d",
+  "repository": "https://github.com/raspberrypi/pico-examples",
+  "commit": "c81c855ffdedc825975a40ba357723a71358ddf0",
+  "cases": [
+    {
+      "name": "hello_uart",
+      "path": "uart/hello_uart/hello_uart.c",
+      "source_sha256": "7fe8455ecd2bb246eba1a2f9a4c018e68b53a2fd9c893b98095151fbc5507872",
+      "build": ".remu/qualification/rp2040-sdk/uart/build.json",
+      "build_sha256": "302268c4d50d624689ea61b3069c1489d986fce0352e63cf307f2a36c5195d9f",
+      "run": ".remu/qualification/rp2040-sdk/uart/run.json",
+      "run_sha256": "660de2aeb5a30ccd97a9cdc182e0dfd4476a02d75d186c2768b50853d9caed96",
+      "observables": [
+        "RP2040 UART0 transmit",
+        "GPIO function select",
+        "CRLF conversion"
+      ]
+    },
+    {
+      "name": "hello_pwm",
+      "path": "pwm/hello_pwm/hello_pwm.c",
+      "source_sha256": "7015a851cb67d5e792661c16ca9497c5d416bdb852f7a075449e24a14137db9d",
+      "build": ".remu/qualification/rp2040-sdk/pwm/build.json",
+      "build_sha256": "d8eda0a24f78a2dee428feb0d92aa32fef06b4076466fd5d0347992cb0c7cf42",
+      "run": ".remu/qualification/rp2040-sdk/pwm/run.json",
+      "run_sha256": "798f38ea0c1e0b2be48fc77dac34a73ca46d33e8ac3e771e7bcacd078561ea2b",
+      "observables": [
+        "PWM GPIO function select",
+        "slice wrap",
+        "channel compare",
+        "enable mask"
+      ]
+    }
+  ]
+}
