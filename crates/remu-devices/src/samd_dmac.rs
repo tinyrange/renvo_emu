@@ -6,6 +6,10 @@ const CHANNEL_COUNT: usize = 12;
 const CHANNEL_MASK: u32 = (1 << CHANNEL_COUNT) - 1;
 const CHANNEL_STRIDE: u64 = 0x10;
 const REGISTER_LIMIT: u64 = 0x50;
+const CTRL_MASK: u16 = 0x0f07;
+const PRICTRL0_MASK: u32 = 0x8f8f_8f8f;
+const CHCTRLB_CONFIGURATION_MASK: u32 = 0x00c0_3f7f;
+const CHCTRLB_COMMAND_MASK: u32 = 0x0300_0000;
 
 /// Named SAM D21 DMAC APB registers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,8 +27,6 @@ pub enum Samd21DmacRegister {
     CrcStatus = 0x0c,
     /// Debug-run control.
     DbgCtrl = 0x0d,
-    /// Quality-of-service control.
-    QosCtrl = 0x0e,
     /// Software trigger bitmap.
     SwTrigCtrl = 0x10,
     /// Priority arbitration control.
@@ -60,6 +62,40 @@ pub enum Samd21DmacRegister {
 }
 
 impl Samd21DmacRegister {
+    /// Converts a documented DMAC register offset to its named ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Ctrl),
+            0x02 => Some(Self::CrcCtrl),
+            0x04 => Some(Self::CrcDataIn),
+            0x08 => Some(Self::CrcChecksum),
+            0x0c => Some(Self::CrcStatus),
+            0x0d => Some(Self::DbgCtrl),
+            0x10 => Some(Self::SwTrigCtrl),
+            0x14 => Some(Self::PriCtrl0),
+            0x20 => Some(Self::IntPend),
+            0x24 => Some(Self::IntStatus),
+            0x28 => Some(Self::BusyCh),
+            0x2c => Some(Self::PendCh),
+            0x30 => Some(Self::Active),
+            0x34 => Some(Self::BaseAddr),
+            0x38 => Some(Self::WrbAddr),
+            0x3f => Some(Self::Chid),
+            0x40 => Some(Self::ChCtrlA),
+            0x44 => Some(Self::ChCtrlB),
+            0x4c => Some(Self::ChIntEnClr),
+            0x4d => Some(Self::ChIntEnSet),
+            0x4e => Some(Self::ChIntFlag),
+            0x4f => Some(Self::ChStatus),
+            _ => None,
+        }
+    }
+
+    /// Returns the documented byte offset for this register.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
     fn locate(offset: u64) -> Option<(Self, u64, u8)> {
         let registers = [
             (Self::Ctrl, 0x00, 2),
@@ -68,7 +104,6 @@ impl Samd21DmacRegister {
             (Self::CrcChecksum, 0x08, 4),
             (Self::CrcStatus, 0x0c, 1),
             (Self::DbgCtrl, 0x0d, 1),
-            (Self::QosCtrl, 0x0e, 1),
             (Self::SwTrigCtrl, 0x10, 4),
             (Self::PriCtrl0, 0x14, 4),
             (Self::IntPend, 0x20, 2),
@@ -108,6 +143,13 @@ pub enum Samd21DmacDescriptorRegister {
     DescAddr = 0x0c,
 }
 
+impl Samd21DmacDescriptorRegister {
+    /// Returns the documented byte offset within one descriptor.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct ChannelState {
     ctrl_a: u8,
@@ -127,7 +169,6 @@ struct DmacState {
     crc_checksum: u32,
     crc_status: u8,
     dbg_ctrl: u8,
-    qos_ctrl: u8,
     sw_trig_ctrl: u16,
     prictl0: u32,
     channel_id: u8,
@@ -146,7 +187,6 @@ impl Default for DmacState {
             crc_checksum: 0,
             crc_status: 0,
             dbg_ctrl: 0,
-            qos_ctrl: 0x2a,
             sw_trig_ctrl: 0,
             prictl0: 0,
             channel_id: 0,
@@ -249,11 +289,10 @@ impl Samd21DmacHandle {
             return false;
         }
         let selected = state.channel_mut(channel);
-        if selected.pending {
-            selected.pending = true;
+        let was_pending = selected.pending;
+        selected.pending = true;
+        if was_pending {
             state.sw_trig_ctrl |= 1 << channel;
-        } else {
-            selected.pending = true;
         }
         true
     }
@@ -441,7 +480,7 @@ fn read_descriptor<B: Bus + ?Sized>(
 ) -> Result<DmacDescriptor, ()> {
     let base = descriptor_base(base, channel).ok_or(())?;
     let mut read = |offset: Samd21DmacDescriptorRegister, width: AccessWidth| {
-        bus.read(base + offset as u64, width, AccessKind::Read, at)
+        bus.read(base + offset.offset(), width, AccessKind::Read, at)
             .map_err(|_| ())
     };
     Ok(DmacDescriptor {
@@ -509,7 +548,7 @@ fn write_descriptor<B: Bus + ?Sized>(
         ),
     ];
     for (offset, width, value) in writes {
-        bus.write(base + offset as u64, width, value, at)
+        bus.write(base + offset.offset(), width, value, at)
             .map_err(|_| ())?;
     }
     Ok(())
@@ -548,7 +587,6 @@ impl Samd21Dmac {
             Samd21DmacRegister::CrcChecksum => u64::from(state.crc_checksum),
             Samd21DmacRegister::CrcStatus => u64::from(state.crc_status),
             Samd21DmacRegister::DbgCtrl => u64::from(state.dbg_ctrl),
-            Samd21DmacRegister::QosCtrl => u64::from(state.qos_ctrl),
             Samd21DmacRegister::SwTrigCtrl => u64::from(state.sw_trig_ctrl),
             Samd21DmacRegister::PriCtrl0 => u64::from(state.prictl0),
             Samd21DmacRegister::IntPend => state.lowest_interrupt_channel().map_or(0, |channel| {
@@ -603,7 +641,8 @@ impl Samd21Dmac {
         let value32 = value as u32;
         match register {
             Samd21DmacRegister::Ctrl => {
-                let requested = u16::try_from(value & 0x0f03).expect("CTRL mask fits u16");
+                let requested =
+                    u16::try_from(value & u64::from(CTRL_MASK)).expect("CTRL mask fits u16");
                 if requested & 1 != 0 && requested & 0x06 == 0 {
                     Self::reset_all(state);
                 } else {
@@ -628,7 +667,6 @@ impl Samd21Dmac {
                 }
             }
             Samd21DmacRegister::DbgCtrl => state.dbg_ctrl = value as u8 & 1,
-            Samd21DmacRegister::QosCtrl => state.qos_ctrl = value as u8 & 0x3f,
             Samd21DmacRegister::SwTrigCtrl => {
                 let requested = value32 & CHANNEL_MASK;
                 let dma_enabled = state.dma_enabled();
@@ -646,7 +684,7 @@ impl Samd21Dmac {
                     }
                 }
             }
-            Samd21DmacRegister::PriCtrl0 => state.prictl0 = value32,
+            Samd21DmacRegister::PriCtrl0 => state.prictl0 = value32 & PRICTRL0_MASK,
             Samd21DmacRegister::IntPend => {
                 state.channel_id = (value as u8).min(11);
                 let selected = state.channel_mut(state.channel_id);
@@ -667,20 +705,21 @@ impl Samd21Dmac {
             | Samd21DmacRegister::ChStatus => {}
             Samd21DmacRegister::BaseAddr => {
                 if !state.dma_enabled() {
-                    state.base_addr = value32 & !0x3f;
+                    state.base_addr = value32;
                 }
             }
             Samd21DmacRegister::WrbAddr => {
                 if !state.dma_enabled() {
-                    state.wrb_addr = value32 & !0x3f;
+                    state.wrb_addr = value32;
                 }
             }
             Samd21DmacRegister::Chid => state.channel_id = (value as u8).min(11),
             Samd21DmacRegister::ChCtrlA => {
                 let channel = Self::selected_channel(state);
-                if value & 1 != 0 && state.channel(channel).ctrl_a & 0x02 == 0 {
+                let was_enabled = state.channel(channel).ctrl_a & 0x02 != 0;
+                if value & 1 != 0 && !was_enabled {
                     state.reset_channel(channel);
-                } else {
+                } else if value & 1 == 0 || !was_enabled {
                     let selected = state.channel_mut(channel);
                     selected.ctrl_a = value as u8 & 0x02;
                     if selected.ctrl_a == 0 {
@@ -691,9 +730,9 @@ impl Samd21Dmac {
             }
             Samd21DmacRegister::ChCtrlB => {
                 let channel = Self::selected_channel(state);
-                let command = (value32 >> 24) & 0x3;
+                let command = (value32 & CHCTRLB_COMMAND_MASK) >> 24;
                 let selected = state.channel_mut(channel);
-                selected.ctrl_b = value32 & 0x00c0_3f7f;
+                selected.ctrl_b = value32 & CHCTRLB_CONFIGURATION_MASK;
                 match command {
                     1 => {
                         selected.pending = false;
@@ -776,11 +815,26 @@ impl Device for Samd21Dmac {
             return Err(DeviceError::new(format!("DMAC write crosses {register:?}")));
         }
         let mut state = self.state.lock().expect("DMAC lock poisoned");
-        let old = Samd21Dmac::read_register(&state, register);
         let shift = (offset - base) * 8;
         let mask = width.value_mask() << shift;
-        let merged = (old & !mask) | ((value & width.value_mask()) << shift);
-        Samd21Dmac::write_register(&mut state, register, merged);
+        let raw = (value & width.value_mask()) << shift;
+        let old = Samd21Dmac::read_register(&state, register);
+        let merged = (old & !mask) | raw;
+        let register_value = if matches!(
+            register,
+            Samd21DmacRegister::SwTrigCtrl
+                | Samd21DmacRegister::IntPend
+                | Samd21DmacRegister::ChIntEnClr
+                | Samd21DmacRegister::ChIntEnSet
+                | Samd21DmacRegister::ChIntFlag
+        ) {
+            raw
+        } else if u64::from(width.bytes()) == u64::from(size) {
+            value & width.value_mask()
+        } else {
+            merged
+        };
+        Samd21Dmac::write_register(&mut state, register, register_value);
         Ok(())
     }
 
@@ -797,29 +851,234 @@ mod tests {
     #[test]
     fn named_registers_expose_channel_and_control_state() {
         let (mut dmac, _handle) = Samd21Dmac::new("dmac");
-        dmac.write(0x0e, AccessWidth::Byte, 0x15, SimTime::ZERO)
-            .unwrap();
-        dmac.write(0x3f, AccessWidth::Byte, 3, SimTime::ZERO)
-            .unwrap();
-        dmac.write(0x40, AccessWidth::Byte, 2, SimTime::ZERO)
-            .unwrap();
-        dmac.write(0x44, AccessWidth::Word, 0x00c0_3f7f, SimTime::ZERO)
-            .unwrap();
+        dmac.write(
+            Samd21DmacRegister::Ctrl.offset(),
+            AccessWidth::HalfWord,
+            0x0f06,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::Chid.offset(),
+            AccessWidth::Byte,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::ChCtrlA.offset(),
+            AccessWidth::Byte,
+            2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::ChCtrlB.offset(),
+            AccessWidth::Word,
+            0x00c0_3f7f,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert_eq!(
-            dmac.read(0x0e, AccessWidth::Byte, SimTime::ZERO).unwrap(),
-            0x15
+            dmac.read(
+                Samd21DmacRegister::Ctrl.offset(),
+                AccessWidth::HalfWord,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x0f06
         );
         assert_eq!(
-            dmac.read(0x3f, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            dmac.read(
+                Samd21DmacRegister::Chid.offset(),
+                AccessWidth::Byte,
+                SimTime::ZERO
+            )
+            .unwrap(),
             3
         );
         assert_eq!(
-            dmac.read(0x40, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            dmac.read(
+                Samd21DmacRegister::ChCtrlA.offset(),
+                AccessWidth::Byte,
+                SimTime::ZERO
+            )
+            .unwrap(),
             2
         );
         assert_eq!(
-            dmac.read(0x44, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            dmac.read(
+                Samd21DmacRegister::ChCtrlB.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
             0x00c0_3f7f
+        );
+        assert_eq!(Samd21DmacRegister::from_offset(0x0e), None);
+    }
+
+    #[test]
+    fn direct_writes_can_disable_dma_and_channels_and_w1_registers_use_payload() {
+        let (mut dmac, _handle) = Samd21Dmac::new("dmac");
+        dmac.write(
+            Samd21DmacRegister::Ctrl.offset(),
+            AccessWidth::HalfWord,
+            0x0002,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::Ctrl.offset(),
+            AccessWidth::HalfWord,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            dmac.read(
+                Samd21DmacRegister::Ctrl.offset(),
+                AccessWidth::HalfWord,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0
+        );
+        dmac.write(
+            Samd21DmacRegister::Ctrl.offset(),
+            AccessWidth::HalfWord,
+            0x0002,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::Chid.offset(),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::ChCtrlA.offset(),
+            AccessWidth::Byte,
+            2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::ChIntFlag.offset(),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::ChIntEnSet.offset(),
+            AccessWidth::Byte,
+            0x02,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        dmac.write(
+            Samd21DmacRegister::ChCtrlB.offset(),
+            AccessWidth::Word,
+            0x0100_0000,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            dmac.read(
+                Samd21DmacRegister::ChIntFlag.offset(),
+                AccessWidth::Byte,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x04
+        );
+        dmac.write(
+            Samd21DmacRegister::ChIntFlag.offset(),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            dmac.read(
+                Samd21DmacRegister::ChIntFlag.offset(),
+                AccessWidth::Byte,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x04
+        );
+        dmac.write(
+            Samd21DmacRegister::ChIntFlag.offset(),
+            AccessWidth::Byte,
+            0x04,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            dmac.read(
+                Samd21DmacRegister::ChIntFlag.offset(),
+                AccessWidth::Byte,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0
+        );
+        dmac.write(
+            Samd21DmacRegister::ChCtrlA.offset(),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            dmac.read(
+                Samd21DmacRegister::ChCtrlA.offset(),
+                AccessWidth::Byte,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn vendor_masks_preserve_only_documented_fields() {
+        let (mut dmac, _) = Samd21Dmac::new("dmac");
+        dmac.write(
+            Samd21DmacRegister::PriCtrl0.offset(),
+            AccessWidth::Word,
+            u32::MAX.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            dmac.read(
+                Samd21DmacRegister::PriCtrl0.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x8f8f_8f8f
+        );
+        dmac.write(
+            Samd21DmacRegister::BaseAddr.offset(),
+            AccessWidth::Word,
+            0x2000_0003,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            dmac.read(
+                Samd21DmacRegister::BaseAddr.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x2000_0003
         );
     }
 
