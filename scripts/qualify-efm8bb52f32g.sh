@@ -65,6 +65,8 @@ grep -q '^\$scope module port0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer2 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module uart0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module comparator0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module comparator1 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-speed/signals.vcd"
 jq -e '.architecture == "Mcs51" and .fetch_accesses > 100 and .unique_addresses > 100' \
     "$artifact_root/run-speed/coverage.json" >/dev/null
@@ -125,6 +127,17 @@ mkdir -p "$uart_build"
     --artifact "$artifact_root/register-uart-build.json" \
     -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
+
+comparator_build="$artifact_root/register-comparator-build"
+mkdir -p "$comparator_build"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$comparator_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-comparator-build.json" \
+    -- -I. -c remu_comparator.c -o /workspace/out/comparator.rel
+test -s "$comparator_build/comparator.rel"
 
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"

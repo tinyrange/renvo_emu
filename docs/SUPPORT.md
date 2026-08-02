@@ -77,6 +77,15 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52F32G model also exposes deterministic CMP0 and CMP1 comparator
+outputs. Host-controlled scalar positive/negative input codes are compared
+when CPEN is set, CPINV is honored, rising/falling flags latch in the native
+control registers, comparator interrupt enables and priority bits route the
+documented vectors `0x0063` and `0x006b`, and both outputs are available for
+VCD inspection. Pin-level voltage, hysteresis, response-time, reference-DAC,
+crossbar, and synchronization behavior are intentionally not claimed. Register
+choices are based on the [EFM8BB52 reference manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
