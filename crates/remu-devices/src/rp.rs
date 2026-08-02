@@ -1002,6 +1002,11 @@ impl Device for RpPio {
     }
 }
 
+/// Functional transaction observed on an RP2350 DW_apb_i2c master.
+///
+/// The model deliberately records logical transactions rather than attempting
+/// to resolve electrical SDA/SCL levels.  This keeps firmware tests
+
 /// Storage-backed RP2040 APB register slice with atomic XOR, SET, and CLEAR aliases.
 ///
 /// This is used for configuration-only blocks whose values affect observability but do not yet

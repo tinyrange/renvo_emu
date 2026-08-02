@@ -73,7 +73,7 @@
       "build": ".remu/qualification/vendor-samples/rp2350-arm/build.json",
       "build_sha256": "37ae897e6a2ff80e0e16354c9e4cef94e47f78f88d39ad7a303e2c1a06e1e308",
       "run": ".remu/qualification/vendor-samples/rp2350-arm/run.json",
-      "run_sha256": "260d102f35d5a56e00ca36fabe63cc76ac273122cf2feabc2b853045858315c8"
+      "run_sha256": "1d26bdf6ca60609a1b9bb2a9176716be2a84a4cc237a0f306146b281d5e12202"
     },
     {
       "target": "rp2350-riscv",
@@ -83,7 +83,7 @@
       "build": ".remu/qualification/vendor-samples/rp2350-riscv/build.json",
       "build_sha256": "851b95425dbb48354fa4f7bcb81d96dcc9ebf0bc604f8a943285c33387d62e38",
       "run": ".remu/qualification/vendor-samples/rp2350-riscv/run.json",
-      "run_sha256": "9dd2debe53b52f44e6f8b62713258061138d72e7ccf2a240608413453e92c91b"
+      "run_sha256": "db91b758ae3d948d307aed7e7b98ea30c925b87a9b454351f7c05c639fc2da7f"
     },
     {
       "target": "esp32s3",

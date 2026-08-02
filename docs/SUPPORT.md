@@ -11,7 +11,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, PIO0 waveform, and functional I²C0/I²C1 host proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
@@ -44,6 +44,12 @@ See `scripts/qualify-micropython.sh` and
 
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+
+The RP2350 I²C slice exposes the documented DW_apb_i2c register/FIFO command
+path, deterministic host-provided read bytes, interrupt latches, and VCD byte
+and strobe signals. It is a functional host model; electrical SDA/SCL
+resolution, arbitration, slave mode, DMA, and exact bus timing remain outside
+the current support contract.
 
 ## Implemented CPU surface
 
