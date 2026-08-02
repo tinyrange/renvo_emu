@@ -35,6 +35,7 @@ allocative = "0.3.4"
 clap = { version = "4.5.46", features = ["derive"] }
 hex = "0.4.3"
 md-5 = "0.11.0"
+num-bigint = "0.4.8"
 object = { version = "0.39.1", default-features = false, features = ["read", "elf"] }
 remu-bus = { path = "crates/remu-bus" }
 remu-core = { path = "crates/remu-core" }
