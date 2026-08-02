@@ -31,6 +31,7 @@ authors = ["Renvo Emulator contributors"]
 repository = "https://github.com/tinyrange/renvo_emu"
 
 [workspace.dependencies]
+aes = "0.8.4"
 allocative = "0.3.4"
 clap = { version = "4.5.46", features = ["derive"] }
 hex = "0.4.3"

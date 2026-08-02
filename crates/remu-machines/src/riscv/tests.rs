@@ -166,6 +166,74 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_native_aes_page_matches_aes128_ecb_vector() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let base = 0x6008_8000;
+    let key = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f,
+    ];
+    let plaintext = [
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+        0xff,
+    ];
+    for (offset, bytes) in [(0_u64, &key[..]), (0x20, &plaintext[..])] {
+        for (word, chunk) in bytes.chunks_exact(4).enumerate() {
+            machine
+                .bus
+                .write(
+                    base + offset + (word as u64) * 4,
+                    AccessWidth::Word,
+                    u64::from(u32::from_le_bytes(chunk.try_into().unwrap())),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
+    }
+    machine
+        .bus
+        .write(base + 0x48, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    let mut output = Vec::new();
+    for word in 0..4 {
+        output.extend_from_slice(
+            &u32::try_from(
+                machine
+                    .bus
+                    .read(
+                        base + 0x30 + word * 4,
+                        AccessWidth::Word,
+                        AccessKind::Read,
+                        SimTime::ZERO,
+                    )
+                    .unwrap(),
+            )
+            .unwrap()
+            .to_le_bytes(),
+        );
+    }
+    assert_eq!(
+        output,
+        [
+            0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30, 0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4,
+            0xc5, 0x5a,
+        ]
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x4c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]

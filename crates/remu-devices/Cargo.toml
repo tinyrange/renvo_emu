@@ -8,11 +8,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+aes.workspace = true
 remu-bus.workspace = true
 remu-core.workspace = true
 remu-signals.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
 
 [lints]
 workspace = true
