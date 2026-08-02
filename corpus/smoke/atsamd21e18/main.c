@@ -25,6 +25,9 @@ typedef unsigned int u32;
 #define SERCOM0_CTRLB REG32(0x42000804u)
 #define SERCOM0_INTFLAG REG8(0x42000818u)
 #define SERCOM0_DATA REG16(0x42000828u)
+#define DAC_CTRLA REG8(0x42004800u)
+#define DAC_CTRLB REG8(0x42004801u)
+#define DAC_DATA REG16(0x42004808u)
 #define NVIC_ISER0 REG32(0xe000e100u)
 
 static volatile u32 timer_interrupts;
@@ -99,7 +102,7 @@ int main(void)
                        record.wide != 0x89abcdefu) << 9);
     failures |= (u32)(((int)state != 300) << 10);
 
-    PM_APBCMASK |= (1u << 2) | (1u << 11);
+    PM_APBCMASK |= (1u << 2) | (1u << 11) | (1u << 18);
     GCLK_CLKCTRL = (u16)((0x14u << 8) | 0u | (1u << 14));
 
     PORT_DIRSET = 1u << 7;
@@ -113,6 +116,10 @@ int main(void)
     SERCOM0_CTRLB = 1u << 17;
     SERCOM0_CTRLA |= 1u << 1;
     uart_write("SAMD21\n");
+
+    DAC_CTRLB = 1u;
+    DAC_CTRLA = 1u << 1;
+    DAC_DATA = 0x2a5u;
 
     TC3_CC0 = 8u;
     TC3_INTENSET = 1u << 4;

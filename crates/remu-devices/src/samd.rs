@@ -1,7 +1,7 @@
 use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
-use remu_signals::{Logic, SignalId};
+use remu_signals::{Logic, SignalError, SignalId, SignalValue};
 use std::sync::{Arc, Mutex};
 
 fn width_bytes(width: AccessWidth) -> usize {
@@ -388,62 +388,211 @@ pub struct Samd21Usart {
     registers: [u8; 0x30],
 }
 
+/// Native ATSAMD21 DAC register identifiers.
+///
+/// Keeping the register map typed makes it harder to accidentally confuse the
+/// adjacent interrupt-enable, interrupt-flag, and status offsets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Samd21DacRegister {
+    /// Control A: SWRST, ENABLE, and RUNSTDBY.
+    Ctrla = 0x00,
+    /// Control B: reference and output selection.
+    Ctrlb = 0x01,
+    /// Event input/output selection.
+    Evctrl = 0x02,
+    /// Interrupt-enable clear (write one to clear).
+    Intenclr = 0x04,
+    /// Interrupt-enable set (write one to set).
+    Intenset = 0x05,
+    /// Interrupt flags (write one to clear).
+    Intflag = 0x06,
+    /// Synchronization status.
+    Status = 0x07,
+    /// Direct 10-bit conversion data.
+    Data = 0x08,
+    /// Buffered 10-bit conversion data.
+    Databuf = 0x0c,
+}
+
+impl Samd21DacRegister {
+    fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Ctrla),
+            0x01 => Some(Self::Ctrlb),
+            0x02 => Some(Self::Evctrl),
+            0x04 => Some(Self::Intenclr),
+            0x05 => Some(Self::Intenset),
+            0x06 => Some(Self::Intflag),
+            0x07 => Some(Self::Status),
+            0x08 => Some(Self::Data),
+            0x0c => Some(Self::Databuf),
+            _ => None,
+        }
+    }
+}
+
+const DAC_CTRLA_MASK: u8 = 0x07;
+const DAC_CTRLA_SWRST: u8 = 1 << 0;
+const DAC_CTRLA_ENABLE: u8 = 1 << 1;
+const DAC_CTRLB_MASK: u8 = 0xdf;
+const DAC_CTRLB_LEFTADJ: u8 = 1 << 2;
+const DAC_EVENT_MASK: u8 = 0x03;
+const DAC_INTERRUPT_MASK: u8 = 0x07;
+const DAC_INTERRUPT_EMPTY: u8 = 1 << 1;
+const DAC_INTERRUPT_UNDERRUN: u8 = 1 << 0;
+
 #[derive(Default)]
 struct DacState {
     ctrla: u8,
     ctrlb: u8,
     evctrl: u8,
+    interrupt_enable: u8,
+    interrupt_flags: u8,
     data: u16,
     databuf: u16,
+    databuf_full: bool,
 }
 
 /// Host-facing SAM D21 DAC output state.
 #[derive(Clone)]
-pub struct Samd21DacHandle(Arc<Mutex<DacState>>);
+pub struct Samd21DacHandle {
+    state: Arc<Mutex<DacState>>,
+    output: Option<(SignalHub, SignalId)>,
+}
 
 impl Samd21DacHandle {
     /// Returns whether the DAC channel is enabled.
     pub fn enabled(&self) -> bool {
-        self.0.lock().expect("DAC lock poisoned").ctrla & 1 != 0
+        self.state.lock().expect("DAC lock poisoned").ctrla & DAC_CTRLA_ENABLE != 0
     }
 
-    /// Returns the 10-bit digital output code currently held by DATA.
+    /// Returns the normalized 10-bit digital output code currently held by DATA.
     pub fn data(&self) -> u16 {
-        self.0.lock().expect("DAC lock poisoned").data
+        self.state.lock().expect("DAC lock poisoned").data
+    }
+
+    /// Returns the normalized 10-bit code waiting in DATABUF.
+    pub fn data_buffer(&self) -> u16 {
+        self.state.lock().expect("DAC lock poisoned").databuf
+    }
+
+    /// Returns whether DATABUF contains a value waiting for a conversion event.
+    pub fn data_buffer_full(&self) -> bool {
+        self.state.lock().expect("DAC lock poisoned").databuf_full
     }
 
     /// Returns the selected reference and output mode bits.
     pub fn control_b(&self) -> u8 {
-        self.0.lock().expect("DAC lock poisoned").ctrlb
+        self.state.lock().expect("DAC lock poisoned").ctrlb
+    }
+
+    /// Returns the interrupt request level derived from enabled flags.
+    pub fn interrupt_pending(&self) -> bool {
+        let state = self.state.lock().expect("DAC lock poisoned");
+        state.interrupt_flags & state.interrupt_enable != 0
+    }
+
+    /// Starts one deterministic conversion from DATABUF, modelling STARTEI.
+    ///
+    /// A full buffer transfers to DATA and raises EMPTY. An empty buffer raises
+    /// UNDERRUN. Analog settling and clock-dependent conversion time are outside
+    /// this functional model.
+    pub fn start_conversion(&self, at: SimTime) -> Result<(), SignalError> {
+        let code = {
+            let mut state = self.state.lock().expect("DAC lock poisoned");
+            if state.databuf_full {
+                state.data = state.databuf;
+                state.databuf_full = false;
+                state.interrupt_flags |= DAC_INTERRUPT_EMPTY;
+                Some(state.data)
+            } else {
+                state.interrupt_flags |= DAC_INTERRUPT_UNDERRUN;
+                None
+            }
+        };
+        if let (Some(code), Some((hub, signal))) = (code, &self.output) {
+            hub.set(*signal, SignalValue::from_u64(u64::from(code), 10)?, at)?;
+        }
+        Ok(())
     }
 }
 
 /// Functional SAM D21 single-channel 10-bit DAC.
 ///
-/// The model covers the register and data path used by bare-metal firmware:
-/// enable/reset, reference selection, DATA and DATABUF writes, and readback.
-/// Conversion settling, analog voltage, event triggers, and the output
-/// buffer are intentionally represented as a deterministic digital code.
+/// This follows the native register offsets and bit meanings from Microchip
+/// DS40001882E §35. It deliberately reports a deterministic digital code rather
+/// than attempting analog voltage, settling, or reference-electrical fidelity.
 pub struct Samd21Dac {
     name: String,
     state: Arc<Mutex<DacState>>,
+    output: Option<(SignalHub, SignalId)>,
 }
 
 impl Samd21Dac {
-    /// Constructs a DAC and its host observation handle.
+    /// Constructs a DAC without a waveform output signal.
     pub fn new(name: impl Into<String>) -> (Self, Samd21DacHandle) {
+        Self::new_inner(name.into(), None)
+    }
+
+    /// Constructs a DAC and declares its 10-bit digital output signal.
+    pub fn new_with_signals(
+        name: impl Into<String>,
+        hub: SignalHub,
+        path: impl Into<String>,
+    ) -> Result<(Self, Samd21DacHandle), SignalError> {
+        let signal = hub.declare(
+            path,
+            SignalValue::from_u64(0, 10)?,
+            Some("deterministic DAC conversion code".to_owned()),
+        )?;
+        Ok(Self::new_inner(name.into(), Some((hub, signal))))
+    }
+
+    fn new_inner(name: String, output: Option<(SignalHub, SignalId)>) -> (Self, Samd21DacHandle) {
         let state = Arc::new(Mutex::new(DacState::default()));
         (
             Self {
-                name: name.into(),
+                name,
                 state: state.clone(),
+                output: output.clone(),
             },
-            Samd21DacHandle(state),
+            Samd21DacHandle { state, output },
         )
     }
 
-    fn reset_state(&mut self) {
+    fn reset_state(&mut self, at: SimTime) -> Result<(), DeviceError> {
         *self.state.lock().expect("DAC lock poisoned") = DacState::default();
+        self.emit_output(0, at)
+    }
+
+    fn emit_output(&self, code: u16, at: SimTime) -> Result<(), DeviceError> {
+        if let Some((hub, signal)) = &self.output {
+            hub.set(
+                *signal,
+                SignalValue::from_u64(u64::from(code), 10)
+                    .map_err(|error| DeviceError::new(error.to_string()))?,
+                at,
+            )
+            .map_err(|error| DeviceError::new(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn decode(value: u16, ctrlb: u8) -> u16 {
+        if ctrlb & DAC_CTRLB_LEFTADJ != 0 {
+            (value >> 6) & 0x03ff
+        } else {
+            value & 0x03ff
+        }
+    }
+
+    fn encode(code: u16, ctrlb: u8) -> u16 {
+        if ctrlb & DAC_CTRLB_LEFTADJ != 0 {
+            (code & 0x03ff) << 6
+        } else {
+            code & 0x03ff
+        }
     }
 }
 
@@ -454,50 +603,81 @@ impl Device for Samd21Dac {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         let state = self.state.lock().expect("DAC lock poisoned");
-        let value = match offset {
-            0x00 => u64::from(state.ctrla),
-            0x01 => u64::from(state.ctrlb),
-            0x02 => u64::from(state.evctrl),
-            0x05 => 0, // INTFLAG: conversion complete is immediate in this model.
-            0x06 => 0, // STATUS.SYNCBUSY is never asserted for functional accesses.
-            0x08 => u64::from(state.data),
-            0x0c => u64::from(state.databuf),
-            _ => 0,
+        let value = match Samd21DacRegister::from_offset(offset) {
+            Some(Samd21DacRegister::Ctrla) => u64::from(state.ctrla),
+            Some(Samd21DacRegister::Ctrlb) => u64::from(state.ctrlb),
+            Some(Samd21DacRegister::Evctrl) => u64::from(state.evctrl),
+            Some(Samd21DacRegister::Intenclr | Samd21DacRegister::Intenset) => {
+                u64::from(state.interrupt_enable)
+            }
+            Some(Samd21DacRegister::Intflag) => u64::from(state.interrupt_flags),
+            Some(Samd21DacRegister::Status) => 0,
+            Some(Samd21DacRegister::Data) => u64::from(Self::encode(state.data, state.ctrlb)),
+            Some(Samd21DacRegister::Databuf) => u64::from(Self::encode(state.databuf, state.ctrlb)),
+            None => 0,
         };
-        let bits = usize::from(width.bytes()) * 8;
-        Ok(if bits >= 64 {
-            value
-        } else {
-            value & ((1_u64 << bits) - 1)
-        })
+        Ok(value & width.value_mask())
     }
 
     fn write(
         &mut self,
         offset: u64,
-        _width: AccessWidth,
+        width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
-        let value = value as u16;
-        if offset == 0x00 && value & 0x80 != 0 {
-            self.reset_state();
+        let value = value & width.value_mask();
+        if Samd21DacRegister::from_offset(offset) == Some(Samd21DacRegister::Ctrla)
+            && value as u8 & DAC_CTRLA_SWRST != 0
+        {
+            self.reset_state(at)?;
             return Ok(());
         }
-        let mut state = self.state.lock().expect("DAC lock poisoned");
-        match offset {
-            0x00 => state.ctrla = value as u8 & 0x47,
-            0x01 => state.ctrlb = value as u8 & 0x41,
-            0x02 => state.evctrl = value as u8 & 0x03,
-            0x08 => state.data = value & 0x03ff,
-            0x0c => state.databuf = value & 0x03ff,
-            _ => {}
+        let mut output = None;
+        {
+            let mut state = self.state.lock().expect("DAC lock poisoned");
+            match Samd21DacRegister::from_offset(offset) {
+                Some(Samd21DacRegister::Ctrla) => state.ctrla = value as u8 & DAC_CTRLA_MASK,
+                Some(Samd21DacRegister::Ctrlb) => state.ctrlb = value as u8 & DAC_CTRLB_MASK,
+                Some(Samd21DacRegister::Evctrl) => state.evctrl = value as u8 & DAC_EVENT_MASK,
+                Some(Samd21DacRegister::Intenclr) => {
+                    state.interrupt_enable &= !(value as u8 & DAC_INTERRUPT_MASK)
+                }
+                Some(Samd21DacRegister::Intenset) => {
+                    state.interrupt_enable |= value as u8 & DAC_INTERRUPT_MASK
+                }
+                Some(Samd21DacRegister::Intflag) => {
+                    state.interrupt_flags &= !(value as u8 & DAC_INTERRUPT_MASK)
+                }
+                Some(Samd21DacRegister::Data) => {
+                    state.data = Self::decode(value as u16, state.ctrlb);
+                    output = Some(state.data);
+                }
+                Some(Samd21DacRegister::Databuf) => {
+                    state.databuf = Self::decode(value as u16, state.ctrlb);
+                    state.databuf_full = true;
+                    state.interrupt_flags &= !DAC_INTERRUPT_EMPTY;
+                }
+                Some(Samd21DacRegister::Status) | None => {}
+            }
+        }
+        if let Some(code) = output {
+            self.emit_output(code, at)?;
         }
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.reset_state();
+        // Reset cannot report a signal error through the bus trait; a reset
+        // transition is still deterministic and the next write remains visible.
+        *self.state.lock().expect("DAC lock poisoned") = DacState::default();
+        if let Some((hub, signal)) = &self.output {
+            let _ = hub.set(
+                *signal,
+                SignalValue::from_u64(0, 10).expect("fixed DAC signal width is valid"),
+                SimTime::ZERO,
+            );
+        }
     }
 }
 
@@ -828,12 +1008,12 @@ mod tests {
     }
 
     #[test]
-    fn dac_latches_a_masked_code_and_reference_until_reset() {
+    fn dac_models_native_control_data_buffer_and_interrupts() {
         let (mut dac, handle) = Samd21Dac::new("dac");
         assert!(!handle.enabled());
         dac.write(0x01, AccessWidth::Byte, 0x41, SimTime::ZERO)
             .unwrap();
-        dac.write(0x00, AccessWidth::Byte, 1, SimTime::ZERO)
+        dac.write(0x00, AccessWidth::Byte, 2, SimTime::ZERO)
             .unwrap();
         dac.write(0x08, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
             .unwrap();
@@ -842,15 +1022,37 @@ mod tests {
         assert!(handle.enabled());
         assert_eq!(handle.control_b(), 0x41);
         assert_eq!(handle.data(), 0x03ff);
+        assert_eq!(handle.data_buffer(), 0x0155);
+        assert!(handle.data_buffer_full());
+        dac.write(0x05, AccessWidth::Byte, 0x02, SimTime::ZERO)
+            .unwrap();
+        handle.start_conversion(SimTime::from_ticks(3)).unwrap();
+        assert_eq!(handle.data(), 0x0155);
+        assert!(!handle.data_buffer_full());
+        assert!(handle.interrupt_pending());
         assert_eq!(
-            dac.read(0x0c, AccessWidth::HalfWord, SimTime::ZERO)
-                .unwrap(),
-            0x0155
+            dac.read(0x06, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x02
         );
-        dac.write(0x00, AccessWidth::Byte, 0x80, SimTime::ZERO)
+        dac.write(0x06, AccessWidth::Byte, 0x02, SimTime::from_ticks(3))
+            .unwrap();
+        assert!(!handle.interrupt_pending());
+        dac.write(0x00, AccessWidth::Byte, 0x01, SimTime::from_ticks(3))
             .unwrap();
         assert!(!handle.enabled());
         assert_eq!(handle.data(), 0);
+    }
+
+    #[test]
+    fn dac_decodes_left_adjusted_data_and_reports_underrun() {
+        let (mut dac, handle) = Samd21Dac::new("dac");
+        dac.write(0x01, AccessWidth::Byte, 0x04, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x08, AccessWidth::HalfWord, 0x03fc, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.data(), 0x000f);
+        handle.start_conversion(SimTime::from_ticks(1)).unwrap();
+        assert_eq!(dac.read(0x06, AccessWidth::Byte, SimTime::ZERO).unwrap(), 1);
     }
 
     #[test]

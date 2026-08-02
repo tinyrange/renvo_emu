@@ -226,10 +226,13 @@ artifacts. Coverage uses the same event stream but retains only unique executed
 addresses.
 
 The ATSAMD21E18 slice also maps the native DAC at `0x42004800`. Its
-functional boundary covers enable/reset, reference and event-control register
-state, 10-bit `DATA`/`DATABUF` latches, and deterministic host readback. Analog
-settling, voltage/reference accuracy, event-triggered conversion, and the
-physical output buffer remain outside the model.
+functional boundary follows the typed register map from Microchip
+DS40001882E §35: enable/reset, reference and event-control register state,
+interrupt enable/flag semantics, 10-bit right/left-adjusted `DATA`/`DATABUF`
+latches, buffered start/EMPTY/UNDERRUN behavior, IRQ 25, and deterministic
+host/VCD output-code observation. Analog settling, voltage/reference accuracy,
+clock synchronization, Event System/DMAC coupling, and the physical output
+buffer remain outside the model.
 
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the

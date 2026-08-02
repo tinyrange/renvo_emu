@@ -2,15 +2,24 @@
 
 The pinned Arm GNU 13.2.Rel1 and Clang/LLD 18 lanes select Cortex-M0+ Thumb code and the exact
 SAMD21E18A device identity. The compiler smoke covers startup, Arm EABI calls,
-native widths, arithmetic, GPIO input/output, EIC routing, TC3 interrupt entry
-and SERCOM0 UART output. It boots from the vector table at flash address zero,
+native widths, arithmetic, GPIO input/output, EIC routing, TC3 interrupt entry,
+SERCOM0 UART output, and the native DAC data path. It boots from the vector table at flash address zero,
 uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
-state, PORT A, EIC, TC3, SERCOM0 USART and watchdog. Clock synchronization and
-timing are deterministic approximations; analog, USB and DMA are unsupported.
-VCD exposes PORT, timer, UART and interrupt hierarchy and the gate compares two
-runs byte-for-byte.
+state, PORT A, EIC, TC3, SERCOM0 USART, watchdog, and the DAC at `0x42004800`.
+The DAC follows the native `CTRLA`, `CTRLB`, `EVCTRL`, interrupt, `DATA`, and
+`DATABUF` offsets, including 10-bit right/left adjustment, buffered start,
+EMPTY/UNDERRUN flags, and IRQ 25. Its VCD `output_code` is a deterministic
+10-bit digital observation rather than an analog voltage. Clock synchronization
+and timing remain functional approximations; analog settling/reference voltage,
+USB, DMA, and the QTouch PTC are unsupported.
+VCD exposes PORT, timer, UART, DAC and interrupt hierarchy and the gate compares
+two runs byte-for-byte.
+
+The DAC register map and bit definitions are sourced from Microchip
+DS40001882E, section 35:
+<https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf>.
 
 The vendor lane builds the pinned Microchip Harmony
 `port_led_on_off_polling` main source unchanged. Tracked startup, declarations
