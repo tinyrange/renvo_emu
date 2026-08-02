@@ -29,3 +29,31 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_mcpwm_native_window_drives_compare_output() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6001_e000;
+    machine
+        .bus
+        .write(base + 0x04, AccessWidth::Word, 4 << 8, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x08, AccessWidth::Word, 2 | (1 << 3), SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x40, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    machine.mcpwm[0].poll(SimTime::from_ticks(1)).unwrap();
+    assert!(machine.mcpwm[0].output_level(0));
+    machine.mcpwm[0].poll(SimTime::from_ticks(3)).unwrap();
+    assert!(!machine.mcpwm[0].output_level(0));
+    let changes = machine.signals.drain_changes();
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.value.bit(0) == Some(Logic::One))
+    );
+}

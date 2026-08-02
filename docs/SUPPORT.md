@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and native MCPWM compare/force/interrupt slice |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -89,6 +89,18 @@ a hardware timing claim.
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
+
+ESP32-S3 MCPWM is available at the two native windows `0x6001_e000` and
+`0x6002_c000`. Each instance models three timers, three operators with A/B
+outputs, compare timestamps, software-force levels, up/down timer modes, and
+timer overflow raw/enable/status/clear interrupts. Timer advancement is tied to
+the abstract simulation tick; it is deterministic but not a claim of ESP32-S3
+clock or dead-time accuracy. Outputs are observable as
+`board.esp32s3.mcpwm{0,1}.op{0,1,2}.{a,b}` VCD signals. Capture, fault handling,
+carrier modulation, dead-time generation, GPIO-matrix routing, and complete
+interrupt-matrix delivery remain outside this functional slice. The register
+layout is based on Espressif's official
+[ESP32-S3 MCPWM register definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/register/soc/mcpwm_reg.h).
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
