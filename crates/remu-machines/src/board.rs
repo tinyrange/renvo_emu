@@ -373,6 +373,17 @@ pub enum BoardError {
         /// Requested address.
         address: u8,
     },
+    /// An I2C connector aliases its data and clock pin.
+    #[error("I2C connector {connector:?} aliases data and clock on GPIO pin {pin}")]
+    I2cPinAlias {
+        /// Connector name.
+        connector: String,
+        /// Aliased GPIO number.
+        pin: u8,
+    },
+    /// An I2C waveform would exceed the representable simulation timeline.
+    #[error("I2C waveform time overflow")]
+    I2cTimeOverflow,
     /// A model-specific SGP30 command failed.
     #[error(transparent)]
     Sgp30(#[from] Sgp30Error),
