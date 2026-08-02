@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3Mcpwm, Esp32S3McpwmHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -379,6 +380,7 @@ pub struct XtensaMachine {
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
+    mcpwm: Vec<Esp32S3McpwmHandle>,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -481,7 +483,6 @@ impl XtensaMachine {
             ("ledc", 0x6001_9000),
             ("radio-nrx", 0x6001_c000),
             ("radio-bb", 0x6001_d000),
-            ("pwm0", 0x6001_e000),
             ("rtc-slowmem-controller", 0x6002_1000),
             ("spi2", 0x6002_4000),
             ("spi3", 0x6002_5000),
@@ -490,7 +491,6 @@ impl XtensaMachine {
             ("sdmmc", 0x6002_8000),
             ("peripheral-backup", 0x6002_a000),
             ("twai", 0x6002_b000),
-            ("pwm1", 0x6002_c000),
             ("i2s1", 0x6002_d000),
             ("uart2", 0x6002_e000),
             ("usb-wrap", 0x6003_9000),
@@ -595,6 +595,21 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let mut mcpwm = Vec::new();
+        for (instance, base) in [(0, 0x6001_e000), (1, 0x6002_c000)] {
+            let (device, handle) = Esp32S3Mcpwm::new(
+                format!("esp32s3.mcpwm{instance}"),
+                &format!("board.esp32s3.mcpwm{instance}"),
+                signals.clone(),
+            )?;
+            bus.map_device(
+                format!("esp32s3.mcpwm{instance}"),
+                base,
+                0x1000,
+                Box::new(device),
+            )?;
+            mcpwm.push(handle);
+        }
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -716,6 +731,7 @@ impl XtensaMachine {
             system,
             systimer,
             timer_groups,
+            mcpwm,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -1283,6 +1299,9 @@ impl XtensaMachine {
                         .checked_add(remu_core::SimDuration::TICK)
                         .map_err(|_| XtensaMachineError::TimeOverflow)?;
                     stats.time = self.now;
+                    for handle in &self.mcpwm {
+                        handle.poll(self.now)?;
+                    }
                     if let Some(hit) = self.bus.take_watchpoint_hit() {
                         break StopReason::Watchpoint {
                             address: hit.address,
@@ -1323,6 +1342,9 @@ impl XtensaMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
             stats.time = self.now;
+            for handle in &self.mcpwm {
+                handle.poll(self.now)?;
+            }
             next_core = if self.appcpu_boot_address.is_some() {
                 next_core ^ 1
             } else {
