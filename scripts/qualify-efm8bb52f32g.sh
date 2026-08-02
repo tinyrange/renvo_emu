@@ -67,6 +67,7 @@ grep -q '^\$scope module timer2 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer3 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer4 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer5 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module adc0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module uart0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module pca0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-speed/signals.vcd"
@@ -145,6 +146,17 @@ test -s "$uart_build/uart.rel"
     --artifact "$artifact_root/register-uart1-build.json" \
     -- -I. -c remu_uart1_irq.c -o /workspace/out/uart1.rel
 test -s "$uart_build/uart1.rel"
+
+adc_build="$artifact_root/register-adc-build"
+mkdir -p "$adc_build"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$adc_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-adc-build.json" \
+    -- -I. -c remu_adc_irq.c -o /workspace/out/adc.rel
+test -s "$adc_build/adc.rel"
 
 pca_build="$artifact_root/register-pca-build"
 mkdir -p "$pca_build"

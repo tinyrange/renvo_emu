@@ -232,6 +232,95 @@ fn timer345_reload_flags_and_interrupts_are_functional() {
 }
 
 #[test]
+fn adc_channel_conversion_window_and_interrupts_are_functional() {
+    let hub = super::SignalHub::new();
+    let trace_hub = hub.clone();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    handle.set_adc_input(3, 0x0abc).unwrap();
+
+    for (address, value) in [
+        (super::ADC0MX, 3),
+        (super::ADC0GTH, 0x0b),
+        (super::ADC0GTL, 0xff),
+        (super::ADC0LTH, 0x08),
+        (super::ADC0LTL, 0x00),
+        (0x30b2, 0),
+        (0x30b3, 0),
+    ] {
+        device
+            .write(address as u64, AccessWidth::Byte, value, SimTime::ZERO)
+            .unwrap();
+    }
+    device
+        .write(
+            Efm8SmbusRegister::Eie1.offset() as u64,
+            AccessWidth::Byte,
+            u64::from(super::ADC0_EADC0 | super::ADC0_EWADC0),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+        .unwrap();
+    device
+        .write(
+            super::ADC0CN0 as u64,
+            AccessWidth::Byte,
+            u64::from(super::ADC0_ADEN | super::ADC0_ADBUSY),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+
+    assert_eq!(
+        device
+            .read(super::ADC0L as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0xbc
+    );
+    assert_eq!(
+        device
+            .read(super::ADC0H as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x0a
+    );
+    let control = device
+        .read(super::ADC0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+        .unwrap();
+    assert_ne!(control & u64::from(super::ADC0_ADINT), 0);
+    assert_eq!(control & u64::from(super::ADC0_ADWINT), 0);
+    let levels = handle.poll(SimTime::from_ticks(1));
+    assert!(!levels[20]);
+    assert!(levels[22]);
+
+    let result_id = trace_hub
+        .with_registry(|registry| registry.find("board.efm8bb52f32g.adc0.result"))
+        .unwrap();
+    assert_eq!(
+        trace_hub.with_registry(|registry| registry.value(result_id).unwrap().to_vcd_binary()),
+        "0000101010111100"
+    );
+
+    device
+        .write(
+            super::ADC0CN0 as u64,
+            AccessWidth::Byte,
+            u64::from(super::ADC0_ADEN),
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
+    handle.set_adc_input(3, 0x0fff).unwrap();
+    device
+        .write(
+            super::ADC0CN0 as u64,
+            AccessWidth::Byte,
+            u64::from(super::ADC0_ADEN | super::ADC0_ADBUSY),
+            SimTime::from_ticks(3),
+        )
+        .unwrap();
+    assert!(handle.poll(SimTime::from_ticks(3))[20]);
+}
+
+#[test]
 fn spi0_master_transfer_exposes_injected_miso_and_interrupt() {
     let hub = super::SignalHub::new();
     let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();

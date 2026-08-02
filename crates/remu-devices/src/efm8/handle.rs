@@ -1,5 +1,41 @@
 use super::*;
 
+fn advance_16bit_timer(
+    state: &mut Efm8State,
+    now: u64,
+    epoch: u64,
+    control: usize,
+    current_low: usize,
+    current_high: usize,
+    reload_low: usize,
+    reload_high: usize,
+    run_bit: u8,
+    low_flag: u8,
+    high_flag: u8,
+) -> u64 {
+    if state.registers[control] & run_bit == 0 {
+        return epoch;
+    }
+    let initial = u16::from_le_bytes([state.registers[current_low], state.registers[current_high]]);
+    let elapsed = now.saturating_sub(epoch);
+    let low_until_overflow = u64::from(0x100_u16 - (initial & 0xff));
+    let until_overflow = u64::from(u16::MAX - initial) + 1;
+    if elapsed >= until_overflow {
+        state.registers[control] |= high_flag | low_flag;
+        state.registers[current_low] = state.registers[reload_low];
+        state.registers[current_high] = state.registers[reload_high];
+    } else {
+        if elapsed >= low_until_overflow {
+            state.registers[control] |= low_flag;
+        }
+        let value = initial.wrapping_add((elapsed & u64::from(u16::MAX)) as u16);
+        let [low, high] = value.to_le_bytes();
+        state.registers[current_low] = low;
+        state.registers[current_high] = high;
+    }
+    now
+}
+
 impl Efm8PeripheralsHandle {
     /// Captured UART0 transmit bytes.
     pub fn uart_bytes(&self) -> Vec<u8> {
@@ -111,6 +147,17 @@ impl Efm8PeripheralsHandle {
         state.update_interrupt_signals(at);
     }
 
+    /// Sets one deterministic analog input code for the ADC multiplexer.
+    pub fn set_adc_input(&self, channel: u8, value: u16) -> Result<(), DeviceError> {
+        let channel = usize::from(channel);
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        let input = state.adc_inputs.get_mut(channel).ok_or_else(|| {
+            DeviceError::new(format!("EFM8 ADC channel {channel} is outside 0..31"))
+        })?;
+        *input = value.min(0x0fff);
+        Ok(())
+    }
+
     /// Supplies the next byte returned by a functional SPI0 master transfer.
     pub fn inject_spi_rx(&self, value: u8) {
         self.0
@@ -138,7 +185,7 @@ impl Efm8PeripheralsHandle {
     }
 
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 20] {
+    pub fn poll(&self, now: SimTime) -> [bool; 24] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);

@@ -396,6 +396,13 @@ and page-`0x10` registers. Their native vectors are `0x0073`, `0x008b`, and
 `0x0093`; split, capture, external-clock, and cycle-accurate timing modes remain
 outside this slice.
 
+ADC0 accepts deterministic host-provided multiplexer channel codes, supports
+software-triggered 8-, 10-, and 12-bit formatting with repeat/shift controls,
+latches end-of-conversion and window-comparison flags, routes native vectors
+`0x004b` and `0x0053`, and exposes result/flag signals in VCD. Autoscan and
+timer triggers, reference/gain physics, and calibration remain outside this
+functional model.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

@@ -273,6 +273,28 @@ fn extended_timer_interrupts_use_documented_vector_slots() {
 }
 
 #[test]
+fn adc_interrupt_lines_enter_documented_vectors() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x4b, &[0x32]).unwrap();
+    cpu.load_code(0x53, &[0x32]).unwrap();
+
+    cpu.set_interrupt(20, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x4b);
+    cpu.set_interrupt(20, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+
+    cpu.set_interrupt(22, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x53);
+    cpu.set_interrupt(22, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+}
+
+#[test]
 fn every_base_opcode_except_reserved_a5_decodes() {
     for opcode in 0_u8..=u8::MAX {
         let mut cpu = Mcs51Cpu::new();

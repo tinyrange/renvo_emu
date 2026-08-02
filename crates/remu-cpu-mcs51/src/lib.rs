@@ -130,7 +130,7 @@ pub struct Mcs51Cpu {
     sp: u8,
     pc: u16,
     sfr_page: u8,
-    interrupts: [bool; 20],
+    interrupts: [bool; 24],
     last_interrupt_line: Option<u8>,
     active_priority: Option<bool>,
     priority_stack: Vec<Option<bool>>,
@@ -158,7 +158,7 @@ impl Mcs51Cpu {
             sp: 7,
             pc: 0,
             sfr_page: 0,
-            interrupts: [false; 20],
+            interrupts: [false; 24],
             last_interrupt_line: None,
             active_priority: None,
             priority_stack: Vec::new(),
@@ -471,7 +471,7 @@ impl Mcs51Cpu {
         self.sp = 7;
         self.pc = 0;
         self.sfr_page = 0;
-        self.interrupts = [false; 20];
+        self.interrupts = [false; 24];
         self.last_interrupt_line = None;
         self.active_priority = None;
         self.priority_stack.clear();
@@ -481,8 +481,8 @@ impl Mcs51Cpu {
     }
 
     fn pending_interrupt(&self) -> Option<(usize, bool)> {
-        const LOW_LINES: [usize; 10] = [0, 1, 2, 6, 8, 10, 12, 14, 16, 18];
-        const HIGH_LINES: [usize; 10] = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19];
+        const LOW_LINES: [usize; 12] = [0, 1, 2, 6, 8, 10, 12, 14, 16, 18, 20, 22];
+        const HIGH_LINES: [usize; 12] = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23];
         for high in [true, false] {
             if high && self.active_priority == Some(true) {
                 continue;
@@ -510,6 +510,8 @@ impl Mcs51Cpu {
             14 | 15 => 0x0073,
             16 | 17 => 0x008b,
             18 | 19 => 0x0093,
+            20 | 21 => 0x004b,
+            22 | 23 => 0x0053,
             _ => unreachable!("MCS-51 interrupt line is validated by pending_interrupt"),
         };
         self.push_pc();
@@ -559,7 +561,7 @@ impl Cpu for Mcs51Cpu {
             CpuFault::new(
                 CpuFaultKind::Architecture,
                 u64::from(self.pc),
-                format!("MCS-51 interrupt line {line} is outside 0..19"),
+                format!("MCS-51 interrupt line {line} is outside 0..23"),
             )
         })?;
         *slot = asserted;

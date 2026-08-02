@@ -1,5 +1,7 @@
 use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
+mod adc;
 mod registers;
+use adc::*;
 pub use registers::{Efm8PcaRegister, Efm8SmbusRegister};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
@@ -214,6 +216,7 @@ struct Efm8State {
     uart1: Vec<u8>,
     uart1_rx: VecDeque<u8>,
     uart1_last_rx: u8,
+    adc_inputs: [u16; 32],
     smbus0_tx: Vec<u8>,
     smbus0_tx_fifo: VecDeque<u8>,
     smbus0_rx: VecDeque<u8>,
@@ -234,6 +237,9 @@ struct Efm8State {
     uart_strobe_signal: SignalId,
     uart1_byte_signal: SignalId,
     uart1_strobe_signal: SignalId,
+    adc_result_signal: SignalId,
+    adc_eoc_signal: SignalId,
+    adc_window_signal: SignalId,
     smbus0_tx_byte_signal: SignalId,
     smbus0_tx_strobe_signal: SignalId,
     smbus0_busy_signal: SignalId,
@@ -359,6 +365,11 @@ impl Efm8State {
         self.uart1.clear();
         self.uart1_rx.clear();
         self.uart1_last_rx = 0;
+        self.adc_inputs.fill(0);
+        self.registers[ADC0MX] = 0x1f;
+        self.registers[ADC0CF2] = 0x1f;
+        self.registers[ADC0GTH] = 0xff;
+        self.registers[ADC0GTL] = 0xff;
         self.registers[UART1FCN1] = UART1FCN1_TFRQ | UART1FCN1_TXNF | 0x10 | 0x01;
         self.smbus0_tx.clear();
         self.smbus0_tx_fifo.clear();
@@ -384,6 +395,8 @@ impl Efm8State {
         for signal in [
             self.uart_strobe_signal,
             self.uart1_strobe_signal,
+            self.adc_eoc_signal,
+            self.adc_window_signal,
             self.smbus0_tx_strobe_signal,
             self.timer0_irq_signal,
             self.timer1_irq_signal,
@@ -401,6 +414,7 @@ impl Efm8State {
             self.set_signal(signal, 0, 1, at);
         }
         self.set_signal(self.smbus0_tx_byte_signal, 0, 8, at);
+        self.set_signal(self.adc_result_signal, 0, 16, at);
         self.update_smbus0_signals(at);
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
@@ -435,6 +449,36 @@ impl Efm8State {
             ) {
                 return raw;
             }
+        }
+        if page == 0x30
+            && matches!(
+                address,
+                ADC0CN1
+                    | ADC0CN2
+                    | ADC0CF1
+                    | ADC0MX
+                    | ADC0L..=ADC0H
+                    | ADC0GTL..=ADC0LTH
+                    | ADC0CF2
+                    | ADC0CN0
+            )
+        {
+            return address;
+        }
+        if page == 0
+            && matches!(
+                address,
+                ADC0CN1
+                    | ADC0CN2
+                    | ADC0CF1
+                    | ADC0MX
+                    | ADC0L..=ADC0H
+                    | ADC0GTL..=ADC0LTH
+                    | ADC0CF2
+                    | ADC0CN0
+            )
+        {
+            return address;
         }
         if page == (UART1_PAGE >> 8) && matches!(address, 0x92 | 0x94 | 0x9d | 0xc8 | 0xd8 | 0xfa) {
             return raw;
@@ -477,10 +521,10 @@ impl Efm8State {
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 20] {
+    fn interrupt_levels(&self) -> [bool; 24] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 20];
+            return [false; 24];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
@@ -503,7 +547,7 @@ impl Efm8State {
         ];
         const LOW_LINES: [usize; 6] = [0, 1, 2, 6, 8, 10];
         const HIGH_LINES: [usize; 6] = [3, 4, 5, 7, 9, 11];
-        let mut levels = [false; 20];
+        let mut levels = [false; 24];
         for source in 0..active.len() {
             if active[source] {
                 levels[if priorities[source] {
@@ -549,6 +593,19 @@ impl Efm8State {
         if timer5 {
             levels[18 + usize::from(timer5_high)] = true;
         }
+        let adc_window =
+            self.registers[EIE1] & ADC0_EWADC0 != 0 && self.registers[ADC0CN0] & ADC0_ADWINT != 0;
+        let adc_complete =
+            self.registers[EIE1] & ADC0_EADC0 != 0 && self.registers[ADC0CN0] & ADC0_ADINT != 0;
+        let adc_window_high = self.registers[EIP1] & 0x04 != 0 || self.registers[EIP1H] & 0x04 != 0;
+        let adc_complete_high =
+            self.registers[EIP1] & 0x08 != 0 || self.registers[EIP1H] & 0x08 != 0;
+        if adc_window {
+            levels[20 + usize::from(adc_window_high)] = true;
+        }
+        if adc_complete {
+            levels[22 + usize::from(adc_complete_high)] = true;
+        }
         levels
     }
 
@@ -586,6 +643,18 @@ impl Efm8State {
         self.set_signal(
             self.timer5_irq_signal,
             u64::from(self.registers[TMR5CN0] & (TMR5_TF5L | TMR5_TF5H) != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.adc_eoc_signal,
+            u64::from(self.registers[ADC0CN0] & ADC0_ADINT != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.adc_window_signal,
+            u64::from(self.registers[ADC0CN0] & ADC0_ADWINT != 0),
             1,
             at,
         );
@@ -785,42 +854,6 @@ impl Efm8State {
     }
 }
 
-fn advance_16bit_timer(
-    state: &mut Efm8State,
-    now: u64,
-    epoch: u64,
-    control: usize,
-    current_low: usize,
-    current_high: usize,
-    reload_low: usize,
-    reload_high: usize,
-    run_bit: u8,
-    low_flag: u8,
-    high_flag: u8,
-) -> u64 {
-    if state.registers[control] & run_bit == 0 {
-        return epoch;
-    }
-    let initial = u16::from_le_bytes([state.registers[current_low], state.registers[current_high]]);
-    let elapsed = now.saturating_sub(epoch);
-    let low_until_overflow = u64::from(0x100_u16 - (initial & 0xff));
-    let until_overflow = u64::from(u16::MAX - initial) + 1;
-    if elapsed >= until_overflow {
-        state.registers[control] |= high_flag | low_flag;
-        state.registers[current_low] = state.registers[reload_low];
-        state.registers[current_high] = state.registers[reload_high];
-    } else {
-        if elapsed >= low_until_overflow {
-            state.registers[control] |= low_flag;
-        }
-        let value = initial.wrapping_add((elapsed & u64::from(u16::MAX)) as u16);
-        let [low, high] = value.to_le_bytes();
-        state.registers[current_low] = low;
-        state.registers[current_high] = high;
-    }
-    now
-}
-
 /// Machine-facing EFM8BB52F32G peripheral state.
 #[derive(Clone)]
 pub struct Efm8PeripheralsHandle(Arc<Mutex<Efm8State>>);
@@ -913,6 +946,21 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer5 overflow request".to_owned()),
         )?;
+        let adc_result_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.result",
+            SignalValue::from_u64(0, 16)?,
+            Some("last ADC0 conversion result".to_owned()),
+        )?;
+        let adc_eoc_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.end_of_conversion",
+            SignalValue::from_u64(0, 1)?,
+            Some("ADC0 conversion-complete flag".to_owned()),
+        )?;
+        let adc_window_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.window",
+            SignalValue::from_u64(0, 1)?,
+            Some("ADC0 window-comparison flag".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -954,6 +1002,7 @@ impl Efm8Peripherals {
             uart1: Vec::new(),
             uart1_rx: VecDeque::new(),
             uart1_last_rx: 0,
+            adc_inputs: [0; 32],
             smbus0_tx: Vec::new(),
             smbus0_tx_fifo: VecDeque::new(),
             smbus0_rx: VecDeque::new(),
@@ -974,6 +1023,9 @@ impl Efm8Peripherals {
             uart_strobe_signal,
             uart1_byte_signal,
             uart1_strobe_signal,
+            adc_result_signal,
+            adc_eoc_signal,
+            adc_window_signal,
             smbus0_tx_byte_signal,
             smbus0_tx_strobe_signal,
             smbus0_busy_signal,
@@ -1252,6 +1304,12 @@ impl Device for Efm8Peripherals {
                     });
                     state.set_signal(state.uart1_strobe_signal, previous ^ 1, 1, at);
                     state.registers[SCON1] |= SCON1_TI;
+                }
+            } else if address == ADC0CN0 && value & ADC0_ADBUSY != 0 {
+                if value & ADC0_ADEN != 0 && state.registers[ADC0CN2] & 0x0f == 0 {
+                    state.complete_adc_conversion(at);
+                } else {
+                    state.registers[ADC0CN0] &= !ADC0_ADBUSY;
                 }
             } else if address == SCON1 {
                 state.registers[address] = value & !SCON1_RI;

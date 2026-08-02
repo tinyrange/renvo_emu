@@ -11,7 +11,8 @@ prove SDCC's declaration and interrupt ABI for UART0, the paged UART1 vector,
 and the extended Timer3/4/5 vectors. `remu_pca.c` compiles
 the PCA0 three-channel PWM/compare declaration and
 interrupt vector against the same header. `remu_smbus.c` exercises the SMB0
-leader-start and data-register path.
+leader-start and data-register path. `remu_adc_irq.c` proves the ADC window and
+conversion interrupt declarations.
 The small declaration and startup adapters expose only the documented register
 surface needed by these fixtures.
 
