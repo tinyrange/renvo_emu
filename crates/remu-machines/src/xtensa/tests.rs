@@ -1,8 +1,5 @@
 use super::*;
-use remu_devices::{
-    ESP32S3_AES_INT_ENA, ESP32S3_AES_KEY_BASE, ESP32S3_AES_MODE, ESP32S3_AES_TEXT_IN_BASE,
-    ESP32S3_AES_TEXT_OUT_BASE, ESP32S3_AES_TRIGGER,
-};
+use remu_devices::Esp32S3AesRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -50,7 +47,13 @@ fn esp32s3_aes_native_text_window_matches_standard_vectors() {
         0x39, 0x25, 0x84, 0x1d, 0x02, 0xdc, 0x09, 0xfb, 0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0x0b,
         0x32,
     ];
-    fn write_block(machine: &mut XtensaMachine, base: u64, offset: u64, bytes: &[u8]) {
+    fn write_block(
+        machine: &mut XtensaMachine,
+        base: u64,
+        register: Esp32S3AesRegister,
+        bytes: &[u8],
+    ) {
+        let offset = register.offset();
         for (index, word) in bytes.chunks_exact(4).enumerate() {
             machine
                 .bus
@@ -63,7 +66,8 @@ fn esp32s3_aes_native_text_window_matches_standard_vectors() {
                 .unwrap();
         }
     }
-    fn read_block(machine: &mut XtensaMachine, base: u64, offset: u64) -> Vec<u8> {
+    fn read_block(machine: &mut XtensaMachine, base: u64, register: Esp32S3AesRegister) -> Vec<u8> {
+        let offset = register.offset();
         (0..4)
             .map(|index| {
                 (machine
@@ -81,12 +85,12 @@ fn esp32s3_aes_native_text_window_matches_standard_vectors() {
             .collect::<Vec<_>>()
     }
 
-    write_block(&mut machine, base, ESP32S3_AES_KEY_BASE, &key);
-    write_block(&mut machine, base, ESP32S3_AES_TEXT_IN_BASE, &plaintext);
+    write_block(&mut machine, base, Esp32S3AesRegister::Key0, &key);
+    write_block(&mut machine, base, Esp32S3AesRegister::TextIn0, &plaintext);
     machine
         .bus
         .write(
-            base + ESP32S3_AES_INT_ENA,
+            base + Esp32S3AesRegister::IntEna.offset(),
             AccessWidth::Word,
             1,
             SimTime::ZERO,
@@ -95,23 +99,23 @@ fn esp32s3_aes_native_text_window_matches_standard_vectors() {
     machine
         .bus
         .write(
-            base + ESP32S3_AES_TRIGGER,
+            base + Esp32S3AesRegister::Trigger.offset(),
             AccessWidth::Word,
             1,
             SimTime::ZERO,
         )
         .unwrap();
     assert_eq!(
-        read_block(&mut machine, base, ESP32S3_AES_TEXT_OUT_BASE),
+        read_block(&mut machine, base, Esp32S3AesRegister::TextOut0),
         ciphertext
     );
     assert!(machine.aes().interrupt_pending());
 
-    write_block(&mut machine, base, ESP32S3_AES_TEXT_IN_BASE, &ciphertext);
+    write_block(&mut machine, base, Esp32S3AesRegister::TextIn0, &ciphertext);
     machine
         .bus
         .write(
-            base + ESP32S3_AES_MODE,
+            base + Esp32S3AesRegister::Mode.offset(),
             AccessWidth::Word,
             0x04,
             SimTime::ZERO,
@@ -120,14 +124,14 @@ fn esp32s3_aes_native_text_window_matches_standard_vectors() {
     machine
         .bus
         .write(
-            base + ESP32S3_AES_TRIGGER,
+            base + Esp32S3AesRegister::Trigger.offset(),
             AccessWidth::Word,
             1,
             SimTime::ZERO,
         )
         .unwrap();
     assert_eq!(
-        read_block(&mut machine, base, ESP32S3_AES_TEXT_OUT_BASE),
+        read_block(&mut machine, base, Esp32S3AesRegister::TextOut0),
         plaintext
     );
 }

@@ -6,48 +6,180 @@ use aes::{
     cipher::{Array, BlockCipherDecrypt, BlockCipherEncrypt, KeyInit},
 };
 
-/// Native ESP32-S3 AES register offsets from `hwcrypto_reg.h`.
-pub const ESP32S3_AES_KEY_BASE: u64 = 0x00;
-/// Native text input register window base.
-pub const ESP32S3_AES_TEXT_IN_BASE: u64 = 0x20;
-/// Native text output register window base.
-pub const ESP32S3_AES_TEXT_OUT_BASE: u64 = 0x30;
-/// AES mode register.
-pub const ESP32S3_AES_MODE: u64 = 0x40;
-/// AES trigger register.
-pub const ESP32S3_AES_TRIGGER: u64 = 0x48;
-/// AES busy state register.
-pub const ESP32S3_AES_STATE: u64 = 0x4c;
-/// Initialization-vector register window base.
-pub const ESP32S3_AES_IV_MEM_BASE: u64 = 0x50;
-/// GCM hash-subkey register window base.
-pub const ESP32S3_AES_H_MEM_BASE: u64 = 0x60;
-/// GCM J0 register window base.
-pub const ESP32S3_AES_J0_MEM_BASE: u64 = 0x70;
-/// GCM T0 register window base.
-pub const ESP32S3_AES_T0_MEM_BASE: u64 = 0x80;
-/// DMA working-mode register.
-pub const ESP32S3_AES_DMA_ENABLE: u64 = 0x90;
-/// DMA block-mode register.
-pub const ESP32S3_AES_BLOCK_MODE: u64 = 0x94;
-/// DMA block-count register.
-pub const ESP32S3_AES_BLOCK_NUM: u64 = 0x98;
-/// DMA counter-increment selection register.
-pub const ESP32S3_AES_INC_SEL: u64 = 0x9c;
-/// DMA additional-authenticated-data block count register.
-pub const ESP32S3_AES_AAD_BLOCK_NUM: u64 = 0xa0;
-/// DMA remainder-bit count register.
-pub const ESP32S3_AES_REMAINDER_BIT_NUM: u64 = 0xa4;
-/// AES continuation trigger register.
-pub const ESP32S3_AES_CONTINUE: u64 = 0xa8;
-/// AES interrupt clear register.
-pub const ESP32S3_AES_INT_CLR: u64 = 0xac;
-/// AES interrupt enable register.
-pub const ESP32S3_AES_INT_ENA: u64 = 0xb0;
-/// AES version register.
-pub const ESP32S3_AES_DATE: u64 = 0xb4;
-/// DMA exit configuration register.
-pub const ESP32S3_AES_DMA_EXIT: u64 = 0xb8;
+/// Native ESP32-S3 AES register identifiers from `hwcrypto_reg.h`.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u16)]
+#[allow(missing_docs)]
+pub enum Esp32S3AesRegister {
+    Key0 = 0x00,
+    Key1 = 0x04,
+    Key2 = 0x08,
+    Key3 = 0x0c,
+    Key4 = 0x10,
+    Key5 = 0x14,
+    Key6 = 0x18,
+    Key7 = 0x1c,
+    TextIn0 = 0x20,
+    TextIn1 = 0x24,
+    TextIn2 = 0x28,
+    TextIn3 = 0x2c,
+    TextOut0 = 0x30,
+    TextOut1 = 0x34,
+    TextOut2 = 0x38,
+    TextOut3 = 0x3c,
+    Mode = 0x40,
+    Endian = 0x44,
+    Trigger = 0x48,
+    State = 0x4c,
+    Iv0 = 0x50,
+    Iv1 = 0x54,
+    Iv2 = 0x58,
+    Iv3 = 0x5c,
+    H0 = 0x60,
+    H1 = 0x64,
+    H2 = 0x68,
+    H3 = 0x6c,
+    J0_0 = 0x70,
+    J0_1 = 0x74,
+    J0_2 = 0x78,
+    J0_3 = 0x7c,
+    T0 = 0x80,
+    T1 = 0x84,
+    T2 = 0x88,
+    T3 = 0x8c,
+    DmaEnable = 0x90,
+    BlockMode = 0x94,
+    BlockNum = 0x98,
+    IncSel = 0x9c,
+    AadBlockNum = 0xa0,
+    BitValidNum = 0xa4,
+    Continue = 0xa8,
+    IntClear = 0xac,
+    IntEna = 0xb0,
+    Date = 0xb4,
+    DmaExit = 0xb8,
+}
+
+impl Esp32S3AesRegister {
+    /// Returns the byte offset in the AES peripheral page.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Resolves a native byte offset. Reserved holes return `None`.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x00 => Self::Key0,
+            0x04 => Self::Key1,
+            0x08 => Self::Key2,
+            0x0c => Self::Key3,
+            0x10 => Self::Key4,
+            0x14 => Self::Key5,
+            0x18 => Self::Key6,
+            0x1c => Self::Key7,
+            0x20 => Self::TextIn0,
+            0x24 => Self::TextIn1,
+            0x28 => Self::TextIn2,
+            0x2c => Self::TextIn3,
+            0x30 => Self::TextOut0,
+            0x34 => Self::TextOut1,
+            0x38 => Self::TextOut2,
+            0x3c => Self::TextOut3,
+            0x40 => Self::Mode,
+            0x44 => Self::Endian,
+            0x48 => Self::Trigger,
+            0x4c => Self::State,
+            0x50 => Self::Iv0,
+            0x54 => Self::Iv1,
+            0x58 => Self::Iv2,
+            0x5c => Self::Iv3,
+            0x60 => Self::H0,
+            0x64 => Self::H1,
+            0x68 => Self::H2,
+            0x6c => Self::H3,
+            0x70 => Self::J0_0,
+            0x74 => Self::J0_1,
+            0x78 => Self::J0_2,
+            0x7c => Self::J0_3,
+            0x80 => Self::T0,
+            0x84 => Self::T1,
+            0x88 => Self::T2,
+            0x8c => Self::T3,
+            0x90 => Self::DmaEnable,
+            0x94 => Self::BlockMode,
+            0x98 => Self::BlockNum,
+            0x9c => Self::IncSel,
+            0xa0 => Self::AadBlockNum,
+            0xa4 => Self::BitValidNum,
+            0xa8 => Self::Continue,
+            0xac => Self::IntClear,
+            0xb0 => Self::IntEna,
+            0xb4 => Self::Date,
+            0xb8 => Self::DmaExit,
+            _ => return None,
+        })
+    }
+
+    fn key_index(self) -> Option<usize> {
+        Some(match self {
+            Self::Key0 => 0,
+            Self::Key1 => 1,
+            Self::Key2 => 2,
+            Self::Key3 => 3,
+            Self::Key4 => 4,
+            Self::Key5 => 5,
+            Self::Key6 => 6,
+            Self::Key7 => 7,
+            _ => return None,
+        })
+    }
+
+    fn text_in_index(self) -> Option<usize> {
+        Some(match self {
+            Self::TextIn0 => 0,
+            Self::TextIn1 => 1,
+            Self::TextIn2 => 2,
+            Self::TextIn3 => 3,
+            _ => return None,
+        })
+    }
+
+    fn text_out_index(self) -> Option<usize> {
+        Some(match self {
+            Self::TextOut0 => 0,
+            Self::TextOut1 => 1,
+            Self::TextOut2 => 2,
+            Self::TextOut3 => 3,
+            _ => return None,
+        })
+    }
+
+    const fn read_mask(self) -> u32 {
+        match self {
+            Self::Mode => 0x7,
+            Self::Endian | Self::State | Self::DmaEnable | Self::IncSel | Self::IntEna => 1,
+            Self::BlockMode => 0x7,
+            Self::Trigger | Self::Continue | Self::IntClear | Self::DmaExit => 0,
+            _ => u32::MAX,
+        }
+    }
+
+    const fn write_mask(self) -> u32 {
+        match self {
+            Self::TextOut0
+            | Self::TextOut1
+            | Self::TextOut2
+            | Self::TextOut3
+            | Self::State
+            | Self::Date => 0,
+            Self::Mode => 0x7,
+            Self::Endian | Self::DmaEnable | Self::IncSel | Self::IntEna => 1,
+            Self::BlockMode => 0x7,
+            Self::Trigger | Self::Continue | Self::IntClear | Self::DmaExit => 1,
+            _ => u32::MAX,
+        }
+    }
+}
 
 const AES_MODE_256: u32 = 0x02;
 const AES_MODE_DECRYPT: u32 = 0x04;
@@ -68,7 +200,7 @@ struct Esp32S3AesState {
     interrupt_enable: u32,
     interrupt_pending: bool,
     operation_supported: bool,
-    registers: BTreeMap<u64, u32>,
+    registers: BTreeMap<Esp32S3AesRegister, u32>,
 }
 
 impl Default for Esp32S3AesState {
@@ -192,34 +324,26 @@ impl Esp32S3Aes {
             .expect("AES output signal remains declared");
     }
 
-    fn read_word(state: &Esp32S3AesState, offset: u64) -> Result<u32, DeviceError> {
-        if (ESP32S3_AES_KEY_BASE..ESP32S3_AES_KEY_BASE + 0x20).contains(&offset) {
-            return Ok(
-                state.key[usize::try_from((offset - ESP32S3_AES_KEY_BASE) / 4)
-                    .expect("AES key index fits")],
-            );
+    fn read_word(state: &Esp32S3AesState, register: Esp32S3AesRegister) -> u32 {
+        if let Some(index) = register.key_index() {
+            return state.key[index];
         }
-        if (ESP32S3_AES_TEXT_IN_BASE..ESP32S3_AES_TEXT_IN_BASE + 0x10).contains(&offset) {
-            return Ok(
-                state.text_in[usize::try_from((offset - ESP32S3_AES_TEXT_IN_BASE) / 4)
-                    .expect("AES input index fits")],
-            );
+        if let Some(index) = register.text_in_index() {
+            return state.text_in[index];
         }
-        if (ESP32S3_AES_TEXT_OUT_BASE..ESP32S3_AES_TEXT_OUT_BASE + 0x10).contains(&offset) {
-            return Ok(
-                state.text_out[usize::try_from((offset - ESP32S3_AES_TEXT_OUT_BASE) / 4)
-                    .expect("AES output index fits")],
-            );
+        if let Some(index) = register.text_out_index() {
+            return state.text_out[index];
         }
-        Ok(match offset {
-            ESP32S3_AES_MODE => state.mode,
-            ESP32S3_AES_TRIGGER => 0,
-            ESP32S3_AES_STATE => u32::from(state.busy),
-            ESP32S3_AES_INT_CLR => 0,
-            ESP32S3_AES_INT_ENA => state.interrupt_enable,
-            ESP32S3_AES_DATE => 0,
-            _ => state.registers.get(&offset).copied().unwrap_or_default(),
-        })
+        match register {
+            Esp32S3AesRegister::Mode => state.mode,
+            Esp32S3AesRegister::Trigger
+            | Esp32S3AesRegister::Continue
+            | Esp32S3AesRegister::IntClear => 0,
+            Esp32S3AesRegister::State => u32::from(state.busy),
+            Esp32S3AesRegister::IntEna => state.interrupt_enable,
+            Esp32S3AesRegister::Date => 0,
+            _ => state.registers.get(&register).copied().unwrap_or_default() & register.read_mask(),
+        }
     }
 }
 
@@ -234,10 +358,15 @@ impl Device for Esp32S3Aes {
                 "ESP32-S3 AES requires aligned word access",
             ));
         }
+        let register = Esp32S3AesRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unsupported ESP32-S3 AES register offset {offset:#x}"
+            ))
+        })?;
         Ok(u64::from(Self::read_word(
             &self.state.lock().expect("ESP32-S3 AES lock poisoned"),
-            offset,
-        )?))
+            register,
+        )))
     }
 
     fn write(
@@ -252,34 +381,50 @@ impl Device for Esp32S3Aes {
                 "ESP32-S3 AES requires aligned word access",
             ));
         }
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("AES value fits in u32");
+        let register = Esp32S3AesRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unsupported ESP32-S3 AES register offset {offset:#x}"
+            ))
+        })?;
+        let value = u32::try_from(value).map_err(|_| {
+            DeviceError::new(format!(
+                "ESP32-S3 AES word write exceeds 32 bits: {value:#x}"
+            ))
+        })?;
         let mut trigger = false;
         let mut continue_operation = false;
         {
             let mut state = self.state.lock().expect("ESP32-S3 AES lock poisoned");
-            if (ESP32S3_AES_KEY_BASE..ESP32S3_AES_KEY_BASE + 0x20).contains(&offset) {
-                state.key[usize::try_from((offset - ESP32S3_AES_KEY_BASE) / 4)
-                    .expect("AES key index fits")] = value;
-            } else if (ESP32S3_AES_TEXT_IN_BASE..ESP32S3_AES_TEXT_IN_BASE + 0x10).contains(&offset)
-            {
-                state.text_in[usize::try_from((offset - ESP32S3_AES_TEXT_IN_BASE) / 4)
-                    .expect("AES input index fits")] = value;
+            if let Some(index) = register.key_index() {
+                state.key[index] = value;
+            } else if let Some(index) = register.text_in_index() {
+                state.text_in[index] = value;
+            } else if register.text_out_index().is_some() {
+                return Err(DeviceError::new(
+                    "ESP32-S3 AES text output registers are read-only",
+                ));
             } else {
-                match offset {
-                    ESP32S3_AES_MODE => state.mode = value,
-                    ESP32S3_AES_TRIGGER => trigger = value & 1 != 0,
-                    ESP32S3_AES_CONTINUE => continue_operation = value & 1 != 0,
-                    ESP32S3_AES_INT_CLR => {
-                        if value != 0 {
+                match register {
+                    Esp32S3AesRegister::Mode => state.mode = value & register.write_mask(),
+                    Esp32S3AesRegister::Trigger => trigger = value & register.write_mask() != 0,
+                    Esp32S3AesRegister::Continue => {
+                        continue_operation = value & register.write_mask() != 0
+                    }
+                    Esp32S3AesRegister::IntClear => {
+                        if value & register.write_mask() != 0 {
                             state.interrupt_pending = false;
                         }
                     }
-                    ESP32S3_AES_INT_ENA => state.interrupt_enable = value & 1,
-                    ESP32S3_AES_STATE | ESP32S3_AES_DATE => {
+                    Esp32S3AesRegister::IntEna => {
+                        state.interrupt_enable = value & register.write_mask()
+                    }
+                    Esp32S3AesRegister::State | Esp32S3AesRegister::Date => {
                         return Err(DeviceError::new("ESP32-S3 AES register is read-only"));
                     }
                     _ => {
-                        state.registers.insert(offset, value);
+                        state
+                            .registers
+                            .insert(register, value & register.write_mask());
                     }
                 }
             }
@@ -362,7 +507,8 @@ mod tests {
         0x2a,
     ];
 
-    fn write_block(device: &mut Esp32S3Aes, base: u64, block: &[u8]) {
+    fn write_block(device: &mut Esp32S3Aes, base: Esp32S3AesRegister, block: &[u8]) {
+        let base = base.offset();
         for (index, chunk) in block.chunks_exact(4).enumerate() {
             device
                 .write(
@@ -379,13 +525,23 @@ mod tests {
     fn aes_128_encrypts_and_decrypts_native_text_window() {
         let hub = SignalHub::new();
         let (mut device, handle) = Esp32S3Aes::new("aes", hub).unwrap();
-        write_block(&mut device, ESP32S3_AES_KEY_BASE, &KEY128);
-        write_block(&mut device, ESP32S3_AES_TEXT_IN_BASE, &PLAINTEXT);
+        write_block(&mut device, Esp32S3AesRegister::Key0, &KEY128);
+        write_block(&mut device, Esp32S3AesRegister::TextIn0, &PLAINTEXT);
         device
-            .write(ESP32S3_AES_INT_ENA, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3AesRegister::IntEna.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(ESP32S3_AES_TRIGGER, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3AesRegister::Trigger.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_eq!(
             handle.text_out(),
@@ -396,21 +552,31 @@ mod tests {
         );
         assert!(handle.interrupt_pending());
         device
-            .write(ESP32S3_AES_INT_CLR, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3AesRegister::IntClear.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert!(!handle.interrupt_pending());
 
-        write_block(&mut device, ESP32S3_AES_TEXT_IN_BASE, &handle.text_out());
+        write_block(&mut device, Esp32S3AesRegister::TextIn0, &handle.text_out());
         device
             .write(
-                ESP32S3_AES_MODE,
+                Esp32S3AesRegister::Mode.offset(),
                 AccessWidth::Word,
                 AES_MODE_DECRYPT as u64,
                 SimTime::ZERO,
             )
             .unwrap();
         device
-            .write(ESP32S3_AES_TRIGGER, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3AesRegister::Trigger.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_eq!(handle.text_out(), PLAINTEXT);
     }
@@ -419,18 +585,23 @@ mod tests {
     fn aes_256_and_unsupported_modes_are_explicit() {
         let hub = SignalHub::new();
         let (mut device, handle) = Esp32S3Aes::new("aes", hub).unwrap();
-        write_block(&mut device, ESP32S3_AES_KEY_BASE, &KEY256);
-        write_block(&mut device, ESP32S3_AES_TEXT_IN_BASE, &PLAINTEXT);
+        write_block(&mut device, Esp32S3AesRegister::Key0, &KEY256);
+        write_block(&mut device, Esp32S3AesRegister::TextIn0, &PLAINTEXT);
         device
             .write(
-                ESP32S3_AES_MODE,
+                Esp32S3AesRegister::Mode.offset(),
                 AccessWidth::Word,
                 AES_MODE_256 as u64,
                 SimTime::ZERO,
             )
             .unwrap();
         device
-            .write(ESP32S3_AES_TRIGGER, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3AesRegister::Trigger.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_eq!(
             handle.text_out(),
@@ -441,12 +612,72 @@ mod tests {
         );
 
         device
-            .write(ESP32S3_AES_MODE, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3AesRegister::Mode.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(ESP32S3_AES_TRIGGER, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3AesRegister::Trigger.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_eq!(handle.text_out(), [0; 16]);
         assert!(!handle.operation_supported());
+    }
+
+    #[test]
+    fn register_enum_covers_native_windows_and_rejects_invalid_access() {
+        assert_eq!(Esp32S3AesRegister::Key0.offset(), 0x00);
+        assert_eq!(Esp32S3AesRegister::TextOut3.offset(), 0x3c);
+        assert_eq!(Esp32S3AesRegister::DmaExit.offset(), 0xb8);
+        assert_eq!(Esp32S3AesRegister::from_offset(0x45), None);
+
+        let hub = SignalHub::new();
+        let (mut device, _) = Esp32S3Aes::new("aes", hub).unwrap();
+        assert!(
+            device
+                .write(
+                    Esp32S3AesRegister::Mode.offset(),
+                    AccessWidth::Word,
+                    1_u64 << 32,
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+        assert!(device.read(0x45, AccessWidth::Word, SimTime::ZERO).is_err());
+        assert!(
+            device
+                .write(
+                    Esp32S3AesRegister::TextOut0.offset(),
+                    AccessWidth::Word,
+                    0,
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+        device
+            .write(
+                Esp32S3AesRegister::Mode.offset(),
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3AesRegister::Mode.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            7
+        );
     }
 }
