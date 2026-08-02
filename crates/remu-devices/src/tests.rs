@@ -282,6 +282,61 @@ fn wch_timer_raises_and_vendor_clear_sequence_lowers_update_interrupt() {
 }
 
 #[test]
+fn wch_sltm_counts_and_reports_compare_events() {
+    let (mut timer, handle) = WchSltm::new("tim3");
+    timer
+        .write(0x0c, AccessWidth::HalfWord, 4, SimTime::ZERO)
+        .unwrap();
+    timer
+        .write(0x10, AccessWidth::HalfWord, 2, SimTime::ZERO)
+        .unwrap();
+    timer
+        .write(0x14, AccessWidth::HalfWord, 3, SimTime::ZERO)
+        .unwrap();
+    timer
+        .write(0x00, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(handle.poll(SimTime::from_ticks(1)), 0);
+    assert_eq!(
+        timer
+            .read(0x08, AccessWidth::HalfWord, SimTime::from_ticks(1))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(2)),
+        wch_sltm_events::COMPARE1
+    );
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(5)),
+        wch_sltm_events::UPDATE | wch_sltm_events::COMPARE2
+    );
+
+    timer
+        .write(0x00, AccessWidth::HalfWord, 0, SimTime::from_ticks(5))
+        .unwrap();
+    timer
+        .write(0x08, AccessWidth::HalfWord, 3, SimTime::from_ticks(5))
+        .unwrap();
+    timer
+        .write(0x10, AccessWidth::HalfWord, 1, SimTime::from_ticks(5))
+        .unwrap();
+    timer
+        .write(
+            0x00,
+            AccessWidth::HalfWord,
+            (1 << 4) | 1,
+            SimTime::from_ticks(5),
+        )
+        .unwrap();
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(7)),
+        wch_sltm_events::COMPARE1
+    );
+}
+
+#[test]
 fn wch_pfic_gates_pending_source_with_vendor_enable_register() {
     let (mut pfic, handle) = WchPfic::new("pfic");
     handle.set_pending(38, true);

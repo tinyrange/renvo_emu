@@ -20,7 +20,7 @@ Status meanings:
 | 1 — RISC-V family | Proven | Docker GCC/Clang corpus, exact-RV32E and RV32IMAC Rust ABI matrix, CoreMark, QingKe XW/Zmmul, CH32V003/006 PFIC table entry, ESP32-C6 machine/user traps and PMP CSR visibility, typed stops, and the complete RP2350 Hazard3 compiler `-march` harness | None |
 | 2 — Arm M-profile | Proven | RP2040 and RP2350 pass Docker C/Rust ABI and CoreMark suites; both take SysTick and bank-1 NVIC exceptions with architectural stacking/return; RP2350 runs compiler-emitted hard-float FPv5 and DSP code; Cortex-M33/Hazard3 share the same Rust computation matrix | None |
 | 3 — Xtensa LX7 | Proven | Pinned Espressif GCC emits and Renvo Emulator executes windowed ABI calls, register windows, S32C1I atomics, single-precision FPU code, level-one exception entry/RFE, and all four ESP32-S3 ELF memory views at `-O0`, `-O2` and `-Os`; every run repeats byte-identically | None |
-| 4 — Peripheral and VCD baseline | Proven | Four-state signals, scheduled input, stable VCD, native WCH GPIO/USART/TIM2/PFIC, native RP GPIO/timer/UART/PIO paths on all three CPU profiles, native ESP GPIO/timer/UART paths, official-firmware peripheral use, and six generated register-coverage/deviation manifests | None |
+| 4 — Peripheral and VCD baseline | Proven | Four-state signals, scheduled input, stable VCD, native WCH GPIO/USART/TIM2/TIM3/PFIC, native RP GPIO/timer/UART/PIO paths on all three CPU profiles, native ESP GPIO/timer/UART paths, official-firmware peripheral use, and six generated register-coverage/deviation manifests | None |
 | 5 — Distillation and selective depth | Proven | Immutable Docker builds; GCC/Clang/Rust matrices; 1,000 distinct C cases; comparison and three-axis reduction; hash-pinned unmodified WCH EVT, Pico SDK and ESP-IDF samples; bounded Starlark assertions; GDB RSP; coverage/replay; and the six-target fidelity dashboard | None |
 
 ## Six-chip baseline definition
@@ -194,3 +194,15 @@ and CH32V006. `scripts/docker-smoke.sh` checks the exit code and single event.
 The preceding USART1 closure remains covered by the same gate: native
 `STATR`, `DATAR`, `BRR`, `CTLR1/2/3`, and `GPR` accesses produce the exact
 `REMU-WCH\n` transcript on both WCH targets.
+
+## CH32V006 streamlined timer closure
+
+The CH32V006-only streamlined TIM3 block is now mapped at its documented
+`0x40000800` address. The functional model implements the 16-bit internal-clock
+counter, auto-reload, up/down direction, four compare registers, and the
+channel-3/channel-4 DMA-event enables. Direct device tests cover counter
+progression and compare/update events; Docker-built RV32EC firmware exercises
+the native register window. DMA data movement and CPU interrupt routing are
+left to the dedicated DMA/timer follow-up work. Timer-1 cascade,
+alternate-function waveform pins, and exact silicon clock timing remain
+explicit limitations.
