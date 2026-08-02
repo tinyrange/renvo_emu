@@ -12,7 +12,7 @@ cycle accuracy or complete silicon compatibility.
 | R7FA4M1AB3CFM#AA0 | Cortex-M4F / Armv7E-M / FPv4-SP-D16 | little-endian Arm ELF; Intel HEX inspection | option/startup surface, IOPORT, ICU-routed GPT0 IRQ, SCI9, P111 |
 | ATmega328PB-AU | enhanced AVR8 | AVR ELF; Intel HEX inspection | Harvard spaces, PB pin change, Timer0 IRQ, USART0, EEPROM |
 | MSP430FR2433IRGE | MSP430 CPUXv2 | MSP430 ELF; Intel HEX inspection | reset vector, FRAM/SRAM, P1 IRQ, Timer_A wake, eUSCI_A0 |
-| PIC16F15376-I/PT | enhanced mid-range PIC16 | Intel HEX reconstructed into 14-bit words | XC8 startup, banked/linear RAM, RA input, Timer0 IRQ, EUSART1 |
+| PIC16F15376-I/PT | enhanced mid-range PIC16 | Intel HEX reconstructed into 14-bit words | XC8 startup, banked/linear RAM, RA input, Timer0 IRQ, EUSART1, MSSP1 I²C host |
 | EFM8BB52F32G-C-QFN32 | EFM8-flavoured MCS-51 | Intel HEX CODE image | separate CODE/IDATA/XDATA/SFR, crossbar GPIO, Timer0/2, UART0 |
 
 The exact memory maps, reset assumptions, vectors, selected pins, interrupt
