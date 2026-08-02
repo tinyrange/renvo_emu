@@ -16,8 +16,9 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32QuadSpi,
+    Stm32QuadSpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -78,6 +79,7 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    qspi: Option<Stm32QuadSpiHandle>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -230,7 +232,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, qspi, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -254,6 +256,7 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    None,
                     Some(eic),
                     None,
                     Some(watchdog),
@@ -282,16 +285,21 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (qspi_device, qspi, qspi_flash) =
+                    Stm32QuadSpi::new("stm32l432kc.quadspi", signals.clone())?;
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    qspi_device,
+                    qspi_flash,
                 )?;
                 (
                     gpio,
                     VendorUart::Stm32(uart),
                     VendorTimer::Stm32(timer),
+                    Some(qspi),
                     None,
                     None,
                     None,
@@ -319,6 +327,7 @@ impl ArmMcuMachine {
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -336,6 +345,7 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            qspi,
             eic,
             ra_icu,
             watchdog,
@@ -410,6 +420,8 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        qspi: Stm32QuadSpi,
+        qspi_flash: SharedMemory,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -474,6 +486,15 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device("stm32l432kc.quadspi", 0xa000_1000, 0x400, Box::new(qspi))?;
+        bus.map_shared(
+            "stm32l432kc.quadspi.flash",
+            0x9000_0000,
+            qspi_flash.len(),
+            Permissions::RX,
+            qspi_flash,
+            0,
+        )?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -654,6 +675,23 @@ impl ArmMcuMachine {
         self.gpio.output()
     }
 
+    /// Loads bytes into the STM32L432 external QUADSPI flash window.
+    pub fn qspi_load_flash(&self, offset: usize, bytes: &[u8]) -> Result<(), ArmMachineError> {
+        let Some(qspi) = &self.qspi else {
+            return Err(ArmMachineError::UnsupportedTarget(self.target));
+        };
+        if qspi.load_flash(offset, bytes) {
+            Ok(())
+        } else {
+            Err(remu_bus::DeviceError::new("QUADSPI flash range is out of bounds").into())
+        }
+    }
+
+    /// Returns a copy of the STM32L432 external QUADSPI flash.
+    pub fn qspi_flash(&self) -> Option<Vec<u8>> {
+        self.qspi.as_ref().map(Stm32QuadSpiHandle::flash)
+    }
+
     /// Reads guest-visible bytes for qualification and debugger adapters.
     pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         (0..length)
@@ -811,6 +849,12 @@ impl ArmMcuMachine {
                 TargetId::R7fa4m1ab3cfm => {}
                 _ => unreachable!(),
             }
+            if let Some(qspi) = &self.qspi {
+                let qspi_pending = qspi.interrupt_pending();
+                interrupt_requested |= qspi_pending;
+                self.cpu
+                    .set_interrupt(71, qspi_pending && self.ppb.interrupt_enabled(71))?;
+            }
             self.signals.set(
                 self.timer_irq_signal,
                 SignalValue::from_u64(u64::from(timer_pending), 1)?,
@@ -957,6 +1001,40 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_quadspi_maps_registers_and_external_flash_window() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine
+            .qspi_load_flash(0x100, &[0xde, 0xad, 0xbe, 0xef])
+            .unwrap();
+        assert_eq!(
+            machine.debug_read_memory(0x9000_0100, 4).unwrap(),
+            &[0xde, 0xad, 0xbe, 0xef]
+        );
+        machine
+            .bus
+            .write(0xa000_1000, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0xa000_1010, AccessWidth::Word, 3, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0xa000_1018, AccessWidth::Word, 0x100, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(
+                0xa000_1014,
+                AccessWidth::Word,
+                u64::from(0x0b_u32 | (1 << 8) | (1 << 10) | (2 << 12) | (1 << 24) | (3 << 26)),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(machine.qspi_flash().unwrap()[0x100], 0xde);
     }
 
     #[test]
