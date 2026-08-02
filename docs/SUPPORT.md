@@ -26,6 +26,13 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The STM32L432KC model also maps LPTIM2 at its native `0x40009400` address. Its
+functional slice covers enable/start control, deterministic prescaled up-counting,
+16-bit `CMP`/`ARR`/`CNT` access, compare and autoreload interrupt flags with
+`ICR` clearing, the native `LPTIM2_IRQn` line (66), and a VCD-visible waveform
+output. External trigger/capture, encoder mode, DMA, and low-power clock-source
+fidelity are not claimed.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
