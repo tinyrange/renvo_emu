@@ -5,8 +5,10 @@ written from the public PIC16F15376 data sheet. It does not reproduce source
 from Microchip application notes or SDK examples.
 
 The fixture configures the internal oscillator, RE0, MSSP1 as a 7-bit I²C host,
-Timer0, and the combined interrupt path. Qualification stops on the first RE0
-rising edge and checks the Timer0, MSSP1, interrupt, and port signals in VCD.
+Timer0, and the combined interrupt path. Its START/address/data/STOP sequence
+exercises the host command strobes and SSP1IF completion path. Qualification
+stops on the first RE0 rising edge and checks the Timer0, MSSP1, interrupt, and
+port signals in VCD.
 Timing remains a deterministic functional approximation rather than a
 cycle-accurate 100 ms measurement.
 
