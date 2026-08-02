@@ -1354,6 +1354,17 @@ fn rp2350_sio_uses_interleaved_low_and_high_gpio_registers() {
 
 #[test]
 fn rp2350_io_bank_models_overrides_and_proc0_edge_events() {
+    assert_eq!(
+        RpIoBankRegister::from_offset(0x204),
+        Some(RpIoBankRegister::IrqSummary {
+            kind: RpIoBankSummary::Proc0Secure,
+            bank: 1,
+        })
+    );
+    assert_eq!(
+        RpIoBankRegister::from_offset(0x2d4),
+        Some(RpIoBankRegister::Proc1Status(5))
+    );
     let hub = SignalHub::new();
     let (mut sio, gpio) =
         RpSioGpio::new_rp2350("sio", 4, "board.rp2350.io.gpio", hub.clone()).unwrap();
@@ -1364,17 +1375,30 @@ fn rp2350_io_bank_models_overrides_and_proc0_edge_events() {
     sio.write(0x018, AccessWidth::Word, 1, SimTime::ZERO)
         .unwrap();
     io_bank
-        .write(0x004, AccessWidth::Word, 0x3003_f01f, SimTime::ZERO)
+        .write(
+            RpIoBankRegister::GpioControl(0).offset(),
+            AccessWidth::Word,
+            0x3003_f01f,
+            SimTime::ZERO,
+        )
         .unwrap();
     assert_eq!(
         io_bank
-            .read(0x004, AccessWidth::Word, SimTime::ZERO)
+            .read(
+                RpIoBankRegister::GpioControl(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
             .unwrap(),
         0x3003_f01f
     );
     assert_eq!(
         io_bank
-            .read(0x000, AccessWidth::Word, SimTime::ZERO)
+            .read(
+                RpIoBankRegister::GpioStatus(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
             .unwrap()
             & ((1 << 9) | (1 << 13)),
         (1 << 9) | (1 << 13)
@@ -1383,36 +1407,88 @@ fn rp2350_io_bank_models_overrides_and_proc0_edge_events() {
     gpio.set_input(2, Logic::One, SimTime::from_ticks(1))
         .unwrap();
     io_bank
-        .write(0x248, AccessWidth::Word, 1 << 11, SimTime::from_ticks(1))
+        .write(
+            RpIoBankRegister::Proc0Enable(0).offset(),
+            AccessWidth::Word,
+            1 << 11,
+            SimTime::from_ticks(1),
+        )
         .unwrap();
     assert!(handle.poll(SimTime::from_ticks(1)).unwrap());
     assert_eq!(
         io_bank
-            .read(0x230, AccessWidth::Word, SimTime::ZERO)
+            .read(
+                RpIoBankRegister::RawInterrupt(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
             .unwrap()
             & (1 << 11),
         1 << 11
     );
     assert_eq!(
         io_bank
-            .read(0x278, AccessWidth::Word, SimTime::ZERO)
+            .read(
+                RpIoBankRegister::Proc0Status(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
             .unwrap()
             & (1 << 11),
         1 << 11
     );
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::IrqSummary {
+                    kind: RpIoBankSummary::Proc0Secure,
+                    bank: 0,
+                }
+                .offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & (1 << 2),
+        1 << 2
+    );
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::RawInterrupt(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & (1 << 9),
+        1 << 9
+    );
     io_bank
-        .write(0x230, AccessWidth::Word, 1 << 11, SimTime::ZERO)
+        .write(
+            RpIoBankRegister::RawInterrupt(0).offset(),
+            AccessWidth::Word,
+            1 << 11,
+            SimTime::ZERO,
+        )
         .unwrap();
     assert_eq!(
         io_bank
-            .read(0x230, AccessWidth::Word, SimTime::ZERO)
+            .read(
+                RpIoBankRegister::RawInterrupt(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
             .unwrap()
             & (1 << 11),
         0
     );
     assert_eq!(
         io_bank
-            .read(0x278, AccessWidth::Word, SimTime::ZERO)
+            .read(
+                RpIoBankRegister::Proc0Status(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
             .unwrap()
             & (1 << 11),
         0

@@ -4,6 +4,151 @@ const GPIO_COUNT: usize = 48;
 const EVENT_GROUP_COUNT: usize = 6;
 const EDGE_MASK: u32 = 0xcccc_cccc;
 
+/// Security/processor bank represented by an RP2350 IO_BANK0 IRQ summary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RpIoBankSummary {
+    /// PROC0 secure summary.
+    Proc0Secure,
+    /// PROC0 non-secure summary.
+    Proc0NonSecure,
+    /// PROC1 secure summary.
+    Proc1Secure,
+    /// PROC1 non-secure summary.
+    Proc1NonSecure,
+    /// Dormant-wake secure summary (not functionally generated yet).
+    ComaWakeSecure,
+    /// Dormant-wake non-secure summary (not functionally generated yet).
+    ComaWakeNonSecure,
+}
+
+impl RpIoBankSummary {
+    const fn base(self) -> u64 {
+        match self {
+            Self::Proc0Secure => 0x200,
+            Self::Proc0NonSecure => 0x208,
+            Self::Proc1Secure => 0x210,
+            Self::Proc1NonSecure => 0x218,
+            Self::ComaWakeSecure => 0x220,
+            Self::ComaWakeNonSecure => 0x228,
+        }
+    }
+
+    const fn processor(self) -> Option<bool> {
+        match self {
+            Self::Proc0Secure | Self::Proc0NonSecure => Some(true),
+            Self::Proc1Secure | Self::Proc1NonSecure => Some(false),
+            Self::ComaWakeSecure | Self::ComaWakeNonSecure => None,
+        }
+    }
+}
+
+/// RP2350 IO_BANK0 register identifiers.
+///
+/// Indexed variants correspond to the six packed interrupt groups or the
+/// per-pin STATUS/CTRL pairs in the native register map.  Keeping offsets in
+/// this enum prevents callers from having to duplicate undocumented numbers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RpIoBankRegister {
+    /// Per-pin STATUS register.
+    GpioStatus(usize),
+    /// Per-pin CTRL register.
+    GpioControl(usize),
+    /// Per-processor/security IRQ summary register.
+    IrqSummary {
+        /// Summary bank kind.
+        kind: RpIoBankSummary,
+        /// GPIO bank, zero for GPIO0..31 or one for GPIO32..47.
+        bank: usize,
+    },
+    /// Packed raw interrupt register.
+    RawInterrupt(usize),
+    /// PROC0 interrupt enable register.
+    Proc0Enable(usize),
+    /// PROC0 interrupt force register.
+    Proc0Force(usize),
+    /// PROC0 masked/forced status register.
+    Proc0Status(usize),
+    /// PROC1 interrupt enable register.
+    Proc1Enable(usize),
+    /// PROC1 interrupt force register.
+    Proc1Force(usize),
+    /// PROC1 masked/forced status register.
+    Proc1Status(usize),
+}
+
+impl RpIoBankRegister {
+    const fn group_at(offset: u64, base: u64) -> Option<usize> {
+        if offset >= base && offset < base + (EVENT_GROUP_COUNT as u64 * 4) {
+            Some(((offset - base) / 4) as usize)
+        } else {
+            None
+        }
+    }
+
+    /// Converts a native IO_BANK0 byte offset to a typed register ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        if offset < 0x180 {
+            let pin = (offset / 8) as usize;
+            return match offset & 7 {
+                0 => Some(Self::GpioStatus(pin)),
+                4 => Some(Self::GpioControl(pin)),
+                _ => None,
+            };
+        }
+        if offset >= 0x200 && offset < 0x230 {
+            let kind = match offset & !7 {
+                0x200 => RpIoBankSummary::Proc0Secure,
+                0x208 => RpIoBankSummary::Proc0NonSecure,
+                0x210 => RpIoBankSummary::Proc1Secure,
+                0x218 => RpIoBankSummary::Proc1NonSecure,
+                0x220 => RpIoBankSummary::ComaWakeSecure,
+                0x228 => RpIoBankSummary::ComaWakeNonSecure,
+                _ => return None,
+            };
+            let bank = ((offset - kind.base()) / 4) as usize;
+            return Some(Self::IrqSummary { kind, bank });
+        }
+        if let Some(group) = Self::group_at(offset, 0x230) {
+            return Some(Self::RawInterrupt(group));
+        }
+        if let Some(group) = Self::group_at(offset, 0x248) {
+            return Some(Self::Proc0Enable(group));
+        }
+        if let Some(group) = Self::group_at(offset, 0x260) {
+            return Some(Self::Proc0Force(group));
+        }
+        if let Some(group) = Self::group_at(offset, 0x278) {
+            return Some(Self::Proc0Status(group));
+        }
+        if let Some(group) = Self::group_at(offset, 0x290) {
+            return Some(Self::Proc1Enable(group));
+        }
+        if let Some(group) = Self::group_at(offset, 0x2a8) {
+            return Some(Self::Proc1Force(group));
+        }
+        if let Some(group) = Self::group_at(offset, 0x2c0) {
+            return Some(Self::Proc1Status(group));
+        }
+        None
+    }
+
+    /// Returns the native byte offset represented by this register ID.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::GpioStatus(pin) => (pin as u64) * 8,
+            Self::GpioControl(pin) => (pin as u64) * 8 + 4,
+            Self::IrqSummary { kind, bank } => kind.base() + (bank as u64) * 4,
+            Self::RawInterrupt(group) => 0x230 + (group as u64) * 4,
+            Self::Proc0Enable(group) => 0x248 + (group as u64) * 4,
+            Self::Proc0Force(group) => 0x260 + (group as u64) * 4,
+            Self::Proc0Status(group) => 0x278 + (group as u64) * 4,
+            Self::Proc1Enable(group) => 0x290 + (group as u64) * 4,
+            Self::Proc1Force(group) => 0x2a8 + (group as u64) * 4,
+            Self::Proc1Status(group) => 0x2c0 + (group as u64) * 4,
+        }
+    }
+}
+
 /// RP2350 IO_BANK0 GPIO status, override, and interrupt state.
 ///
 /// The model intentionally concentrates on the register surface used by the
@@ -23,6 +168,7 @@ pub struct RpIoBankHandle {
 
 struct RpIoBankState {
     gpio: GpioHandle,
+    pins: usize,
     controls: [u32; GPIO_COUNT],
     edge_latches: [u32; EVENT_GROUP_COUNT],
     proc0_enable: [u32; EVENT_GROUP_COUNT],
@@ -36,13 +182,15 @@ impl RpIoBank {
     /// Creates the RP2350 IO_BANK0 slice and a scheduler-facing handle.
     pub fn new(name: impl Into<String>, gpio: GpioHandle, pins: u8) -> (Self, RpIoBankHandle) {
         let mut previous_input = [false; GPIO_COUNT];
-        for pin in 0..usize::from(pins).min(GPIO_COUNT).min(gpio.pin_count()) {
+        let pins = usize::from(pins).min(GPIO_COUNT).min(gpio.pin_count());
+        for pin in 0..pins {
             previous_input[pin] = gpio
                 .resolved(u8::try_from(pin).expect("GPIO index fits u8"))
                 .is_ok_and(|value| value == Logic::One);
         }
         let state = Rc::new(RefCell::new(RpIoBankState {
             gpio,
+            pins,
             controls: [0x1f; GPIO_COUNT],
             edge_latches: [0; EVENT_GROUP_COUNT],
             proc0_enable: [0; EVENT_GROUP_COUNT],
@@ -68,8 +216,7 @@ impl RpIoBankHandle {
     /// Samples GPIO inputs, latches edge events, and returns PROC0 pending.
     pub fn poll(&self, _at: SimTime) -> Result<bool, DeviceError> {
         let mut state = self.state.borrow_mut();
-        let pins = state.gpio.pin_count().min(GPIO_COUNT);
-        for pin in 0..pins {
+        for pin in 0..state.pins {
             let pin_u8 = u8::try_from(pin).expect("GPIO index fits u8");
             let high = state.gpio.resolved(pin_u8)? == Logic::One;
             let previous = state.previous_input[pin];
@@ -113,6 +260,25 @@ impl RpIoBankState {
         (0..EVENT_GROUP_COUNT).any(|group| self.group_value(group, true, false) != 0)
     }
 
+    fn irq_summary(&self, kind: RpIoBankSummary, bank: usize) -> u32 {
+        let Some(proc0) = kind.processor() else {
+            // Dormant-wake routing is intentionally outside this functional
+            // slice; its summary registers remain clear.
+            return 0;
+        };
+        let first_pin = bank * 32;
+        let last_pin = (first_pin + 32).min(GPIO_COUNT);
+        let mut summary = 0_u32;
+        for pin in first_pin..last_pin {
+            let group = pin / 8;
+            let shift = (pin % 8) * 4;
+            if self.group_value(group, proc0, false) & (0xf << shift) != 0 {
+                summary |= 1_u32 << (pin - first_pin);
+            }
+        }
+        summary
+    }
+
     fn input_level(&self, pin: usize) -> bool {
         self.gpio
             .resolved(u8::try_from(pin).expect("GPIO index fits u8"))
@@ -145,15 +311,15 @@ impl RpIoBankState {
                 break;
             }
             let shift = pin_in_group * 4;
-            let high = pin < self.gpio.pin_count() && self.input_level(pin);
+            let high = pin < self.pins && self.input_level(pin);
             events &= !(0x3_u32 << shift);
-            events |= 1_u32 << (shift + usize::from(!high));
+            events |= 1_u32 << (shift + if high { 1 } else { 0 });
         }
         events
     }
 
     fn status(&self, pin: usize) -> u32 {
-        if pin >= self.gpio.pin_count() {
+        if pin >= self.pins {
             return 0;
         }
         let control = self.controls[pin];
@@ -181,11 +347,6 @@ impl RpIoBankState {
         Ok(())
     }
 
-    fn register_group(register: u64, first: u64) -> Option<usize> {
-        (register >= first && register < first + 4 * EVENT_GROUP_COUNT as u64)
-            .then(|| usize::try_from((register - first) / 4).expect("IO_BANK0 group fits"))
-    }
-
     fn reset(&mut self) {
         self.controls = [0x1f; GPIO_COUNT];
         self.edge_latches = [0; EVENT_GROUP_COUNT];
@@ -193,7 +354,7 @@ impl RpIoBankState {
         self.proc0_force = [0; EVENT_GROUP_COUNT];
         self.proc1_enable = [0; EVENT_GROUP_COUNT];
         self.proc1_force = [0; EVENT_GROUP_COUNT];
-        for pin in 0..GPIO_COUNT.min(self.gpio.pin_count()) {
+        for pin in 0..self.pins {
             self.previous_input[pin] = self.input_level(pin);
         }
     }
@@ -210,34 +371,22 @@ impl Device for RpIoBank {
                 "RP2350 IO_BANK0 requires aligned word access",
             ));
         }
-        let register = offset & 0x0fff;
+        let register = RpIoBankRegister::from_offset(offset & 0x0fff);
         let state = self.state.borrow();
-        let value = if register < 0x180 {
-            let pin = usize::try_from(register / 8).expect("GPIO index fits");
-            match register & 7 {
-                0 => state.status(pin),
-                4 => state.controls.get(pin).copied().unwrap_or(0x1f),
-                _ => unreachable!(),
+        let value = match register {
+            Some(RpIoBankRegister::GpioStatus(pin)) => state.status(pin),
+            Some(RpIoBankRegister::GpioControl(pin)) => {
+                state.controls.get(pin).copied().unwrap_or(0x1f)
             }
-        } else if (0x200..0x230).contains(&register) {
-            let pin = usize::try_from((register - 0x200) / 4).expect("GPIO index fits");
-            u32::from(state.status(pin) & (1 << 26) != 0)
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x230) {
-            state.raw_events(group)
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x248) {
-            state.proc0_enable[group]
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x260) {
-            state.proc0_force[group]
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x278) {
-            state.group_value(group, true, false)
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x290) {
-            state.proc1_enable[group]
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x2a8) {
-            state.proc1_force[group]
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x2c0) {
-            state.group_value(group, false, false)
-        } else {
-            0
+            Some(RpIoBankRegister::IrqSummary { kind, bank }) => state.irq_summary(kind, bank),
+            Some(RpIoBankRegister::RawInterrupt(group)) => state.raw_events(group),
+            Some(RpIoBankRegister::Proc0Enable(group)) => state.proc0_enable[group],
+            Some(RpIoBankRegister::Proc0Force(group)) => state.proc0_force[group],
+            Some(RpIoBankRegister::Proc0Status(group)) => state.group_value(group, true, false),
+            Some(RpIoBankRegister::Proc1Enable(group)) => state.proc1_enable[group],
+            Some(RpIoBankRegister::Proc1Force(group)) => state.proc1_force[group],
+            Some(RpIoBankRegister::Proc1Status(group)) => state.group_value(group, false, false),
+            None => 0,
         };
         Ok(u64::from(value))
     }
@@ -255,24 +404,31 @@ impl Device for RpIoBank {
             ));
         }
         let alias = (offset >> 12) & 3;
-        let register = offset & 0x0fff;
+        let register = RpIoBankRegister::from_offset(offset & 0x0fff);
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("IO_BANK0 value fits");
         let mut state = self.state.borrow_mut();
-        if register < 0x180 && register & 7 == 4 {
-            let pin = usize::try_from(register / 8).expect("GPIO index fits");
-            if let Some(control) = state.controls.get_mut(pin) {
-                RpIoBankState::atomic_update(control, alias, value & 0x3003_f01f)?;
+        match register {
+            Some(RpIoBankRegister::GpioControl(pin)) => {
+                if let Some(control) = state.controls.get_mut(pin) {
+                    RpIoBankState::atomic_update(control, alias, value & 0x3003_f01f)?;
+                }
             }
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x230) {
-            state.edge_latches[group] &= !(value & EDGE_MASK);
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x248) {
-            RpIoBankState::atomic_update(&mut state.proc0_enable[group], alias, value)?;
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x260) {
-            RpIoBankState::atomic_update(&mut state.proc0_force[group], alias, value)?;
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x290) {
-            RpIoBankState::atomic_update(&mut state.proc1_enable[group], alias, value)?;
-        } else if let Some(group) = RpIoBankState::register_group(register, 0x2a8) {
-            RpIoBankState::atomic_update(&mut state.proc1_force[group], alias, value)?;
+            Some(RpIoBankRegister::RawInterrupt(group)) => {
+                state.edge_latches[group] &= !(value & EDGE_MASK);
+            }
+            Some(RpIoBankRegister::Proc0Enable(group)) => {
+                RpIoBankState::atomic_update(&mut state.proc0_enable[group], alias, value)?;
+            }
+            Some(RpIoBankRegister::Proc0Force(group)) => {
+                RpIoBankState::atomic_update(&mut state.proc0_force[group], alias, value)?;
+            }
+            Some(RpIoBankRegister::Proc1Enable(group)) => {
+                RpIoBankState::atomic_update(&mut state.proc1_enable[group], alias, value)?;
+            }
+            Some(RpIoBankRegister::Proc1Force(group)) => {
+                RpIoBankState::atomic_update(&mut state.proc1_force[group], alias, value)?;
+            }
+            _ => {}
         }
         Ok(())
     }
