@@ -293,6 +293,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         limitations: &[
             "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
+            "USART1 and USART2 are transmit-focused slices without physical baud timing or a complete receive path",
             "analog and touch peripherals are outside the baseline",
         ],
     },

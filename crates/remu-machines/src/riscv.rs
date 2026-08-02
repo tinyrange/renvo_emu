@@ -38,6 +38,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
+mod wch_usart2;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -560,6 +561,9 @@ impl RiscVMachine {
                     Box::new(wch_uart),
                 )?;
                 chip_uarts.push(handle);
+                if target == TargetId::Ch32v006 {
+                    chip_uarts.push(wch_usart2::map(&mut bus, target)?);
+                }
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 wch_timer = Some(handle);
