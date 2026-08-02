@@ -22,7 +22,8 @@ software-triggered descriptor for memory-to-memory byte/halfword/word
 transfers, records write-back state, and latches completion/fetch-error flags.
 The I2S two-clock/two-serializer control, interrupt, and sample-holding
 registers capture transmitted sample words and latch ready/overrun flags for
-host-injected receive words. SERCOM
+host-injected receive words. The model uses documented register masks and
+routes the shared I2S interrupt to Cortex-M0+ IRQ 27. SERCOM
 transfers use deterministic register-level loopback/injected responses; pin
 electrical timing and complete client/slave behavior are not modeled. The
 register implementation follows the vendor mode encodings, per-mode masks,

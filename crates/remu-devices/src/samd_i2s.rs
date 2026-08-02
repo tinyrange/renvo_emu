@@ -3,6 +3,11 @@ use remu_core::{AccessWidth, ResetKind, SimTime};
 use std::sync::{Arc, Mutex};
 
 const REGISTER_LIMIT: u64 = 0x38;
+const CTRLA_MASK: u8 = 0x3f;
+const CLKCTRL_MASK: u32 = 0xfffd_19ff;
+const INTERRUPT_MASK: u16 = 0x3333;
+const SYNCBUSY_MASK: u16 = 0x033f;
+const SERCTRL_MASK: u32 = 0x07ff_f7bf;
 const TX_READY_BITS: [u16; 2] = [1 << 8, 1 << 9];
 const RX_READY_BITS: [u16; 2] = [1, 1 << 1];
 const RX_OVERRUN_BITS: [u16; 2] = [1 << 4, 1 << 5];
@@ -36,23 +41,55 @@ pub enum Samd21I2sRegister {
 }
 
 impl Samd21I2sRegister {
+    /// Converts a documented I2S register offset to its named ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Ctrla),
+            0x04 => Some(Self::Clkctrl0),
+            0x08 => Some(Self::Clkctrl1),
+            0x0c => Some(Self::Intenclr),
+            0x10 => Some(Self::Intenset),
+            0x14 => Some(Self::Intflag),
+            0x18 => Some(Self::Syncbusy),
+            0x20 => Some(Self::Serctrl0),
+            0x24 => Some(Self::Serctrl1),
+            0x30 => Some(Self::Data0),
+            0x34 => Some(Self::Data1),
+            _ => None,
+        }
+    }
+
+    /// Returns the documented byte offset for this register.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    fn width(self) -> u8 {
+        match self {
+            Self::Ctrla => 1,
+            Self::Clkctrl0 | Self::Clkctrl1 => 4,
+            Self::Intenclr | Self::Intenset | Self::Intflag | Self::Syncbusy => 2,
+            Self::Serctrl0 | Self::Serctrl1 | Self::Data0 | Self::Data1 => 4,
+        }
+    }
+
     fn locate(offset: u64) -> Option<(Self, u64, u8)> {
-        let registers = [
-            (Self::Ctrla, 0x00, 1),
-            (Self::Clkctrl0, 0x04, 4),
-            (Self::Clkctrl1, 0x08, 4),
-            (Self::Intenclr, 0x0c, 2),
-            (Self::Intenset, 0x10, 2),
-            (Self::Intflag, 0x14, 2),
-            (Self::Syncbusy, 0x18, 2),
-            (Self::Serctrl0, 0x20, 4),
-            (Self::Serctrl1, 0x24, 4),
-            (Self::Data0, 0x30, 4),
-            (Self::Data1, 0x34, 4),
-        ];
-        registers
-            .into_iter()
-            .find(|(_, base, size)| offset >= *base && offset < *base + u64::from(*size))
+        let register = if offset == 0 {
+            Self::Ctrla
+        } else {
+            Self::from_offset(offset & !0x3)?
+        };
+        let base = register.offset();
+        let size = register.width();
+        if offset >= base && offset < base + u64::from(size) {
+            Some((register, base, size))
+        } else {
+            None
+        }
+    }
+
+    fn is_write_one_register(self) -> bool {
+        matches!(self, Self::Intenclr | Self::Intenset | Self::Intflag)
     }
 
     fn serializer(self) -> Option<usize> {
@@ -89,6 +126,12 @@ impl I2sState {
         self.ctrla & (1 << (2 + clock)) != 0
     }
 
+    fn serializer_active(&self, serializer: usize) -> bool {
+        self.module_enabled()
+            && self.clock_enabled(self.clock_for_serializer(serializer))
+            && self.serializer_enabled(serializer)
+    }
+
     fn transmit_mode(&self, serializer: usize) -> bool {
         self.serializer[serializer] & 0x3 == 1
     }
@@ -103,19 +146,17 @@ impl I2sState {
 
     fn refresh_ready_flags(&mut self) {
         for serializer in 0..2 {
-            if self.module_enabled()
-                && self.clock_enabled(self.clock_for_serializer(serializer))
-                && self.serializer_enabled(serializer)
-                && self.transmit_mode(serializer)
-            {
+            if self.serializer_active(serializer) && self.transmit_mode(serializer) {
                 self.interrupt_flags |= TX_READY_BITS[serializer];
+            } else {
+                self.interrupt_flags &= !TX_READY_BITS[serializer];
             }
         }
     }
 
     fn write_data(&mut self, serializer: usize, value: u32) {
         self.data[serializer] = value;
-        if self.transmit_mode(serializer) {
+        if self.serializer_active(serializer) && self.transmit_mode(serializer) {
             self.interrupt_flags &= !TX_READY_BITS[serializer];
             self.transmitted.push((
                 u8::try_from(serializer).expect("serializer index fits u8"),
@@ -123,12 +164,7 @@ impl I2sState {
             ));
             // The functional model completes one abstract frame at the same
             // simulation instant, so a polling transmitter can continue.
-            if self.module_enabled()
-                && self.clock_enabled(self.clock_for_serializer(serializer))
-                && self.serializer_enabled(serializer)
-            {
-                self.interrupt_flags |= TX_READY_BITS[serializer];
-            }
+            self.interrupt_flags |= TX_READY_BITS[serializer];
         }
     }
 
@@ -171,7 +207,7 @@ impl Samd21I2sHandle {
             return false;
         }
         let mut state = self.0.lock().expect("I2S lock poisoned");
-        if !state.receive_mode(serializer) || !state.serializer_enabled(serializer) {
+        if !state.receive_mode(serializer) || !state.serializer_active(serializer) {
             return false;
         }
         if state.interrupt_flags & RX_READY_BITS[serializer] != 0 {
@@ -221,7 +257,7 @@ impl Samd21I2s {
                 u64::from(state.interrupt_enable)
             }
             Samd21I2sRegister::Intflag => u64::from(state.interrupt_flags),
-            Samd21I2sRegister::Syncbusy => u64::from(state.syncbusy),
+            Samd21I2sRegister::Syncbusy => u64::from(state.syncbusy & SYNCBUSY_MASK),
             Samd21I2sRegister::Serctrl0 => u64::from(state.serializer[0]),
             Samd21I2sRegister::Serctrl1 => u64::from(state.serializer[1]),
             Samd21I2sRegister::Data0 => u64::from(state.data[0]),
@@ -240,22 +276,30 @@ impl Samd21I2s {
                 if value & 1 != 0 {
                     Self::reset_state(state);
                 } else {
-                    state.ctrla = value as u8 & 0x3e;
+                    state.ctrla = value as u8 & CTRLA_MASK & !1;
                     state.refresh_ready_flags();
                 }
             }
-            Samd21I2sRegister::Clkctrl0 => state.clock[0] = value32,
-            Samd21I2sRegister::Clkctrl1 => state.clock[1] = value32,
-            Samd21I2sRegister::Intenclr => state.interrupt_enable &= !(value as u16),
-            Samd21I2sRegister::Intenset => state.interrupt_enable |= value as u16,
-            Samd21I2sRegister::Intflag => state.interrupt_flags &= !(value as u16),
+            Samd21I2sRegister::Clkctrl0 => {
+                state.clock[0] = value32 & CLKCTRL_MASK;
+                state.refresh_ready_flags();
+            }
+            Samd21I2sRegister::Clkctrl1 => {
+                state.clock[1] = value32 & CLKCTRL_MASK;
+                state.refresh_ready_flags();
+            }
+            Samd21I2sRegister::Intenclr => {
+                state.interrupt_enable &= !(value as u16 & INTERRUPT_MASK)
+            }
+            Samd21I2sRegister::Intenset => state.interrupt_enable |= value as u16 & INTERRUPT_MASK,
+            Samd21I2sRegister::Intflag => state.interrupt_flags &= !(value as u16 & INTERRUPT_MASK),
             Samd21I2sRegister::Syncbusy => {}
             Samd21I2sRegister::Serctrl0 => {
-                state.serializer[0] = value32 & 0x07ff_ffff;
+                state.serializer[0] = value32 & SERCTRL_MASK;
                 state.refresh_ready_flags();
             }
             Samd21I2sRegister::Serctrl1 => {
-                state.serializer[1] = value32 & 0x07ff_ffff;
+                state.serializer[1] = value32 & SERCTRL_MASK;
                 state.refresh_ready_flags();
             }
             Samd21I2sRegister::Data0 => state.write_data(0, value32),
@@ -323,11 +367,16 @@ impl Device for Samd21I2s {
             return Err(DeviceError::new(format!("I2S write crosses {register:?}")));
         }
         let mut state = self.state.lock().expect("I2S lock poisoned");
-        let old = Self::read_register(&state, register);
         let shift = (offset - base) * 8;
-        let mask = width.value_mask() << shift;
-        let merged = (old & !mask) | ((value & width.value_mask()) << shift);
-        Self::write_register(&mut state, register, merged);
+        let payload = (value & width.value_mask()) << shift;
+        if register.is_write_one_register() {
+            Self::write_register(&mut state, register, payload);
+        } else {
+            let old = Self::read_register(&state, register);
+            let mask = width.value_mask() << shift;
+            let merged = (old & !mask) | payload;
+            Self::write_register(&mut state, register, merged);
+        }
         Ok(())
     }
 
@@ -339,6 +388,72 @@ impl Device for Samd21I2s {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_registers_and_vendor_masks_are_enforced() {
+        assert_eq!(
+            Samd21I2sRegister::from_offset(0x00),
+            Some(Samd21I2sRegister::Ctrla)
+        );
+        assert_eq!(Samd21I2sRegister::from_offset(0x1c), None);
+        assert_eq!(Samd21I2sRegister::Data1.offset(), 0x34);
+
+        let (mut i2s, _) = Samd21I2s::new("i2s");
+        i2s.write(0x04, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            i2s.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(CLKCTRL_MASK)
+        );
+        i2s.write(0x20, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            i2s.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(SERCTRL_MASK)
+        );
+        i2s.write(0x10, AccessWidth::HalfWord, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            i2s.read(0x10, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            u64::from(INTERRUPT_MASK)
+        );
+    }
+
+    #[test]
+    fn interrupt_w1c_uses_raw_payload_without_clearing_on_zero() {
+        let (mut i2s, _) = Samd21I2s::new("i2s");
+        i2s.write(0x04, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        i2s.write(0x20, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        i2s.write(
+            0x00,
+            AccessWidth::Byte,
+            (1 << 4) | (1 << 2) | (1 << 1),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            i2s.read(0x14, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            1 << 8
+        );
+        i2s.write(0x14, AccessWidth::HalfWord, 0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            i2s.read(0x14, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            1 << 8
+        );
+        i2s.write(0x14, AccessWidth::HalfWord, 1 << 8, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            i2s.read(0x14, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+    }
 
     #[test]
     fn named_clock_serializer_and_tx_registers_capture_samples() {
