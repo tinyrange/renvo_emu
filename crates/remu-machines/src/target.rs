@@ -673,7 +673,7 @@ const MANIFESTS: &[TargetManifest] = &[
         fidelity: Fidelity::Functional,
         baseline: &[
             "crossbar GPIO",
-            "Timer0/2",
+            "Timer0/2/3/4/5",
             "UART0",
             "interrupt priority",
             "VCD",
@@ -682,7 +682,9 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.silabs.com/documents/public/data-sheets/efm8bb52-datasheet.pdf",
             "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
         ],
-        limitations: &["analog, PCA, SMBus, SPI, and historical 8051 machine timing are deferred"],
+        limitations: &[
+            "Timer1, timer split/capture/external-clock modes, analog, PCA, SMBus, SPI, and historical 8051 machine timing are deferred",
+        ],
     },
 ];
 

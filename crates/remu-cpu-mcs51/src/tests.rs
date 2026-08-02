@@ -164,6 +164,34 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
 }
 
 #[test]
+fn extended_timer_interrupts_use_documented_vector_slots() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x73, &[0x32]).unwrap();
+    cpu.load_code(0x8b, &[0x32]).unwrap();
+    cpu.load_code(0x93, &[0x32]).unwrap();
+
+    cpu.set_interrupt(8, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x73);
+    cpu.set_interrupt(8, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+
+    cpu.set_interrupt(10, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x8b);
+    cpu.set_interrupt(10, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+
+    cpu.set_interrupt(12, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x93);
+    cpu.set_interrupt(12, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.active_priority, None);
+}
+
+#[test]
 fn every_base_opcode_except_reserved_a5_decodes() {
     for opcode in 0_u8..=u8::MAX {
         let mut cpu = Mcs51Cpu::new();

@@ -29,6 +29,31 @@ const TMR2RLL: usize = 0xca;
 const TMR2RLH: usize = 0xcb;
 const TMR2L: usize = 0xce;
 const TMR2H: usize = 0xcf;
+const TMR3CN0: usize = 0x91;
+const TMR3RLL: usize = 0x92;
+const TMR3RLH: usize = 0x93;
+const TMR3L: usize = 0x94;
+const TMR3H: usize = 0x95;
+const TMR3CN1: usize = (0x10 << 8) | 0xfe;
+const TMR4RLL: usize = (0x10 << 8) | 0xa2;
+const TMR4RLH: usize = (0x10 << 8) | 0xa3;
+const TMR4L: usize = (0x10 << 8) | 0xa4;
+const TMR4H: usize = (0x10 << 8) | 0xa5;
+const TMR4CN0: usize = (0x10 << 8) | 0x98;
+const TMR4CN1: usize = (0x10 << 8) | 0xff;
+const TMR5RLL: usize = (0x10 << 8) | 0xd2;
+const TMR5RLH: usize = (0x10 << 8) | 0xd3;
+const TMR5L: usize = (0x10 << 8) | 0xd4;
+const TMR5H: usize = (0x10 << 8) | 0xd5;
+const TMR5CN0: usize = (0x10 << 8) | 0xc0;
+const TMR5CN1: usize = (0x10 << 8) | 0xf1;
+const EIE1: usize = 0xe6;
+const EIE1_PAGE10: usize = (0x10 << 8) | 0xe6;
+const EIP1: usize = (0x10 << 8) | 0xbb;
+const EIP1H: usize = (0x10 << 8) | 0xee;
+const EIE2: usize = 0xf3;
+const EIP2: usize = (0x10 << 8) | 0xed;
+const EIP2H: usize = (0x10 << 8) | 0xf6;
 const XBR0: usize = 0xe1;
 const XBR2: usize = 0xe3;
 const RSTSRC: usize = 0xef;
@@ -51,6 +76,24 @@ const TCON_TR0: u8 = 0x10;
 const TCON_TF0: u8 = 0x20;
 const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
+const TMR3_TR3: u8 = 0x04;
+const TMR3_TF3L: u8 = 0x40;
+const TMR3_TF3H: u8 = 0x80;
+const TMR3_TF3LEN: u8 = 0x20;
+const TMR3_TF3CEN: u8 = 0x10;
+const TMR4_TR4: u8 = 0x04;
+const TMR4_TF4L: u8 = 0x40;
+const TMR4_TF4H: u8 = 0x80;
+const TMR4_TF4LEN: u8 = 0x20;
+const TMR4_TF4CEN: u8 = 0x10;
+const TMR5_TR5: u8 = 0x04;
+const TMR5_TF5L: u8 = 0x40;
+const TMR5_TF5H: u8 = 0x80;
+const TMR5_TF5LEN: u8 = 0x20;
+const TMR5_TF5CEN: u8 = 0x10;
+const EIE1_ET3: u8 = 0x80;
+const EIE2_ET4: u8 = 0x04;
+const EIE2_ET5: u8 = 0x08;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const XBR0_URT0E: u8 = 0x01;
@@ -64,6 +107,9 @@ struct Efm8State {
     uart: Vec<u8>,
     timer0_epoch: u64,
     timer2_epoch: u64,
+    timer3_epoch: u64,
+    timer4_epoch: u64,
+    timer5_epoch: u64,
     watchdog_epoch: u64,
     watchdog_key: u8,
     watchdog_enabled: bool,
@@ -72,6 +118,9 @@ struct Efm8State {
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
+    timer3_irq_signal: SignalId,
+    timer4_irq_signal: SignalId,
+    timer5_irq_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -141,6 +190,9 @@ impl Efm8State {
         self.uart.clear();
         self.timer0_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
+        self.timer3_epoch = at.ticks();
+        self.timer4_epoch = at.ticks();
+        self.timer5_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
@@ -149,6 +201,9 @@ impl Efm8State {
             self.uart_strobe_signal,
             self.timer0_irq_signal,
             self.timer2_irq_signal,
+            self.timer3_irq_signal,
+            self.timer4_irq_signal,
+            self.timer5_irq_signal,
             self.interrupt_signal,
             self.watchdog_reset_signal,
         ] {
@@ -162,10 +217,37 @@ impl Efm8State {
     fn canonical(raw: usize) -> usize {
         let page = raw >> 8;
         let address = raw & 0xff;
+        if page == 0x10 {
+            if (0x91..=0x95).contains(&address) || raw == EIE1_PAGE10 {
+                // Timer3 and EIE1 are mirrored on SFR page 0x10.
+                return address;
+            }
+            if matches!(
+                raw,
+                TMR3CN1
+                    | TMR4CN0
+                    | TMR4RLL
+                    | TMR4RLH
+                    | TMR4L
+                    | TMR4H
+                    | TMR4CN1
+                    | TMR5RLL
+                    | TMR5RLH
+                    | TMR5L
+                    | TMR5H
+                    | TMR5CN0
+                    | TMR5CN1
+            ) {
+                // Timer4/5 and their control-1 registers exist only on page
+                // 0x10 and must not alias page-0 GPIO/SFR names.
+                return raw;
+            }
+        }
         match address {
             0x80
             | 0x88..=0x8e
             | 0x90
+            | 0x91..=0x95
             | 0x97..=0x99
             | 0xa0
             | 0xa4..=0xa6
@@ -183,10 +265,10 @@ impl Efm8State {
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 6] {
+    fn interrupt_levels(&self) -> [bool; 14] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 6];
+            return [false; 14];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
@@ -194,12 +276,39 @@ impl Efm8State {
             enabled & IE_ET2 != 0 && self.registers[TMR2CN0] & TMR2_TF2H != 0,
         ];
         let priorities = [IE_ET0, IE_ES0, IE_ET2];
-        let mut levels = [false; 6];
+        let mut levels = [false; 14];
         for source in 0..3 {
             if active[source] {
                 let high = self.registers[IP] & priorities[source] != 0;
                 levels[source + if high { 3 } else { 0 }] = true;
             }
+        }
+        let timer3 = self.registers[EIE1] & EIE1_ET3 != 0
+            && ((self.registers[TMR3CN0] & TMR3_TF3H != 0
+                && self.registers[TMR3CN0] & TMR3_TF3CEN != 0)
+                || (self.registers[TMR3CN0] & TMR3_TF3L != 0
+                    && self.registers[TMR3CN0] & TMR3_TF3LEN != 0));
+        let timer4 = self.registers[EIE2] & EIE2_ET4 != 0
+            && ((self.registers[TMR4CN0] & TMR4_TF4H != 0
+                && self.registers[TMR4CN0] & TMR4_TF4CEN != 0)
+                || (self.registers[TMR4CN0] & TMR4_TF4L != 0
+                    && self.registers[TMR4CN0] & TMR4_TF4LEN != 0));
+        let timer5 = self.registers[EIE2] & EIE2_ET5 != 0
+            && ((self.registers[TMR5CN0] & TMR5_TF5H != 0
+                && self.registers[TMR5CN0] & TMR5_TF5CEN != 0)
+                || (self.registers[TMR5CN0] & TMR5_TF5L != 0
+                    && self.registers[TMR5CN0] & TMR5_TF5LEN != 0));
+        let timer3_high = self.registers[EIP1] & 0x80 != 0 || self.registers[EIP1H] & 0x80 != 0;
+        let timer4_high = self.registers[EIP2] & 0x04 != 0 || self.registers[EIP2H] & 0x04 != 0;
+        let timer5_high = self.registers[EIP2] & 0x08 != 0 || self.registers[EIP2H] & 0x08 != 0;
+        if timer3 {
+            levels[8 + usize::from(timer3_high)] = true;
+        }
+        if timer4 {
+            levels[10 + usize::from(timer4_high)] = true;
+        }
+        if timer5 {
+            levels[12 + usize::from(timer5_high)] = true;
         }
         levels
     }
@@ -218,12 +327,66 @@ impl Efm8State {
             at,
         );
         self.set_signal(
+            self.timer3_irq_signal,
+            u64::from(self.registers[TMR3CN0] & (TMR3_TF3L | TMR3_TF3H) != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.timer4_irq_signal,
+            u64::from(self.registers[TMR4CN0] & (TMR4_TF4L | TMR4_TF4H) != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.timer5_irq_signal,
+            u64::from(self.registers[TMR5CN0] & (TMR5_TF5L | TMR5_TF5H) != 0),
+            1,
+            at,
+        );
+        self.set_signal(
             self.interrupt_signal,
             u64::from(self.interrupt_levels().iter().any(|level| *level)),
             1,
             at,
         );
     }
+}
+
+fn advance_16bit_timer(
+    state: &mut Efm8State,
+    now: u64,
+    epoch: u64,
+    control: usize,
+    current_low: usize,
+    current_high: usize,
+    reload_low: usize,
+    reload_high: usize,
+    run_bit: u8,
+    low_flag: u8,
+    high_flag: u8,
+) -> u64 {
+    if state.registers[control] & run_bit == 0 {
+        return epoch;
+    }
+    let initial = u16::from_le_bytes([state.registers[current_low], state.registers[current_high]]);
+    let elapsed = now.saturating_sub(epoch);
+    let low_until_overflow = u64::from(0x100_u16 - (initial & 0xff));
+    let until_overflow = u64::from(u16::MAX - initial) + 1;
+    if elapsed >= until_overflow {
+        state.registers[control] |= high_flag | low_flag;
+        state.registers[current_low] = state.registers[reload_low];
+        state.registers[current_high] = state.registers[reload_high];
+    } else {
+        if elapsed >= low_until_overflow {
+            state.registers[control] |= low_flag;
+        }
+        let value = initial.wrapping_add((elapsed & u64::from(u16::MAX)) as u16);
+        let [low, high] = value.to_le_bytes();
+        state.registers[current_low] = low;
+        state.registers[current_high] = high;
+    }
+    now
 }
 
 /// Machine-facing EFM8BB52F32G peripheral state.
@@ -245,7 +408,7 @@ impl Efm8PeripheralsHandle {
     }
 
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 6] {
+    pub fn poll(&self, now: SimTime) -> [bool; 14] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -292,6 +455,48 @@ impl Efm8PeripheralsHandle {
                 state.timer2_epoch = now.ticks();
             }
         }
+        let timer3_epoch = state.timer3_epoch;
+        state.timer3_epoch = advance_16bit_timer(
+            &mut state,
+            now.ticks(),
+            timer3_epoch,
+            TMR3CN0,
+            TMR3L,
+            TMR3H,
+            TMR3RLL,
+            TMR3RLH,
+            TMR3_TR3,
+            TMR3_TF3L,
+            TMR3_TF3H,
+        );
+        let timer4_epoch = state.timer4_epoch;
+        state.timer4_epoch = advance_16bit_timer(
+            &mut state,
+            now.ticks(),
+            timer4_epoch,
+            TMR4CN0,
+            TMR4L,
+            TMR4H,
+            TMR4RLL,
+            TMR4RLH,
+            TMR4_TR4,
+            TMR4_TF4L,
+            TMR4_TF4H,
+        );
+        let timer5_epoch = state.timer5_epoch;
+        state.timer5_epoch = advance_16bit_timer(
+            &mut state,
+            now.ticks(),
+            timer5_epoch,
+            TMR5CN0,
+            TMR5L,
+            TMR5H,
+            TMR5RLL,
+            TMR5RLH,
+            TMR5_TR5,
+            TMR5_TF5L,
+            TMR5_TF5H,
+        );
         if state.watchdog_enabled && now.ticks().saturating_sub(state.watchdog_epoch) >= 65_536 {
             state.watchdog_reset = true;
             state.set_signal(state.watchdog_reset_signal, 1, 1, now);
@@ -342,6 +547,21 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer2 high-byte overflow request".to_owned()),
         )?;
+        let timer3_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer3.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer3 overflow request".to_owned()),
+        )?;
+        let timer4_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer4.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer4 overflow request".to_owned()),
+        )?;
+        let timer5_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer5.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer5 overflow request".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -360,6 +580,9 @@ impl Efm8Peripherals {
             uart: Vec::new(),
             timer0_epoch: 0,
             timer2_epoch: 0,
+            timer3_epoch: 0,
+            timer4_epoch: 0,
+            timer5_epoch: 0,
             watchdog_epoch: 0,
             watchdog_key: 0,
             watchdog_enabled: true,
@@ -368,6 +591,9 @@ impl Efm8Peripherals {
             uart_strobe_signal,
             timer0_irq_signal,
             timer2_irq_signal,
+            timer3_irq_signal,
+            timer4_irq_signal,
+            timer5_irq_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -465,6 +691,12 @@ impl Device for Efm8Peripherals {
             state.timer0_epoch = at.ticks();
         } else if address == TMR2CN0 && value & TMR2_TR2 != 0 {
             state.timer2_epoch = at.ticks();
+        } else if address == TMR3CN0 && value & TMR3_TR3 != 0 {
+            state.timer3_epoch = at.ticks();
+        } else if address == TMR4CN0 && value & TMR4_TR4 != 0 {
+            state.timer4_epoch = at.ticks();
+        } else if address == TMR5CN0 && value & TMR5_TR5 != 0 {
+            state.timer5_epoch = at.ticks();
         }
         state.update_interrupt_signals(at);
         Ok(())
@@ -542,5 +774,114 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn timer345_reload_flags_and_interrupts_are_functional() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(
+                super::EIE1_PAGE10 as u64,
+                AccessWidth::Byte,
+                super::EIE1_ET3.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                super::EIE2 as u64,
+                AccessWidth::Byte,
+                (super::EIE2_ET4 | super::EIE2_ET5).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+            .unwrap();
+
+        for (reload_low, reload_high, current_low, current_high, control, run, cen) in [
+            (
+                super::TMR3RLL,
+                super::TMR3RLH,
+                super::TMR3L,
+                super::TMR3H,
+                super::TMR3CN0,
+                super::TMR3_TR3,
+                super::TMR3_TF3CEN,
+            ),
+            (
+                super::TMR4RLL,
+                super::TMR4RLH,
+                super::TMR4L,
+                super::TMR4H,
+                super::TMR4CN0,
+                super::TMR4_TR4,
+                super::TMR4_TF4CEN,
+            ),
+            (
+                super::TMR5RLL,
+                super::TMR5RLH,
+                super::TMR5L,
+                super::TMR5H,
+                super::TMR5CN0,
+                super::TMR5_TR5,
+                super::TMR5_TF5CEN,
+            ),
+        ] {
+            device
+                .write(reload_low as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+                .unwrap();
+            device
+                .write(reload_high as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+                .unwrap();
+            device
+                .write(current_low as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+                .unwrap();
+            device
+                .write(current_high as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+                .unwrap();
+            device
+                .write(
+                    control as u64,
+                    AccessWidth::Byte,
+                    (run | cen).into(),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
+
+        // The page-10 control-1 aliases are addressable without colliding with
+        // the page-0 GPIO/SFR names.
+        for address in [super::TMR3CN1, super::TMR4CN1, super::TMR5CN1] {
+            device
+                .write(address as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+                .unwrap();
+        }
+        let levels = handle.poll(SimTime::from_ticks(4));
+        assert!(levels[8]);
+        assert!(levels[10]);
+        assert!(levels[12]);
+        assert_ne!(
+            device
+                .read(super::TMR3CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & u64::from(super::TMR3_TF3H),
+            0
+        );
+        assert_ne!(
+            device
+                .read(super::TMR4CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & u64::from(super::TMR4_TF4H),
+            0
+        );
+        assert_ne!(
+            device
+                .read(super::TMR5CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & u64::from(super::TMR5_TF5H),
+            0
+        );
     }
 }

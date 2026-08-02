@@ -77,6 +77,14 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52 MCS-51 model includes functional Timer3, Timer4, and Timer5
+16-bit system-clock/reload/overflow paths. Their documented page-0/page-0x10
+registers, overflow flags, enable/priority bits, interrupt vectors
+(`0x0073`, `0x008b`, and `0x0093`), and VCD request signals are modeled. Timer1,
+split/capture/external-clock modes, analog, PCA, SMBus, SPI, and historical
+8051 timing remain outside this slice. Register and vector choices follow the
+[EFM8BB52 reference manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
