@@ -9,7 +9,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
+    "sha256": "89dbf5f5dd21682f17f48cf77f2ce8fcb63a12d2ca67cf3a4c357a64ebe58f98"
   },
   "proofs": [
     {
@@ -147,16 +147,118 @@
           "events": 87
         }
       }
+    },
+    {
+      "id": "rp2350-arm-io",
+      "result": ".remu/portfolio-smoke/rp2350-arm-io-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-arm-io-bus.json",
+      "result_sha256": "ac2fb79805dd0f48935a02d9e8f1d5a3efc85653f054d43f9da300e03201c739",
+      "bus_log_sha256": "c52b5b2623e914a9d990da1aa4a825bd0e0a077034b8e340019871241bebafaa",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "eb10e6df834cfbd5a7df03bc767c70541bd2c81608a511ac38b9c95d9ed50519",
+        "stats": {
+          "instructions": 30,
+          "time": 30,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-riscv-io",
+      "result": ".remu/portfolio-smoke/rp2350-riscv-io-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-riscv-io-bus.json",
+      "result_sha256": "9b1e5ee2d8a76f3721678c52f6abfd51ee61cab452fc0283890fc8ce93adf650",
+      "bus_log_sha256": "e1b8d6ad97caf16cd5a391c126b2d28a68045d854d8cdb6e7d1078c2bdd13499",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "1e5a5ede130dc33fa0e32c45fa4be509ff9ce45eeabdd8ac34ff4f440fa8b31e",
+        "stats": {
+          "instructions": 43,
+          "time": 43,
+          "events": 0
+        }
+      }
     }
   ],
   "required_covered_regions": [
     "rp2350.pio0",
     "rp2350.sio",
+    "rp2350.io-bank0",
     "rp2350.timer0",
     "rp2350.uart0"
   ],
-  "covered_register_count": 13,
+  "covered_register_count": 21,
   "covered_registers": [
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073905664,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073905668,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073906224,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073906320,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073906344,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073906368,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
     {
       "region": "rp2350.pio0",
       "address": 1344274432,
@@ -225,6 +327,17 @@
     },
     {
       "region": "rp2350.sio",
+      "address": 3489660952,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.sio",
       "address": 3489660964,
       "operations": [
         "Write"
@@ -233,6 +346,17 @@
         "Word"
       ],
       "access_count": 1
+    },
+    {
+      "region": "rp2350.sio",
+      "address": 3489660984,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     },
     {
       "region": "rp2350.timer0",
@@ -310,6 +434,7 @@
     "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
     "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
     "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
-    "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
+    "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature.",
+    "IO_BANK0 covers functional per-pin STATUS/CTRL overrides and PROC0/PROC1 raw/enable/force/status interrupt registers for the active first 32 GPIOs; pad electrical muxing, secure bank routing, and GPIO32-47 electrical connections remain deferred."
   ]
 }

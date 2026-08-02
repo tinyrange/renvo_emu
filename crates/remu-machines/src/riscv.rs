@@ -17,9 +17,9 @@ use remu_devices::{
     EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpIoBankHandle, RpPio, RpPioHandle, RpSioGpio,
+    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -38,6 +38,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
+mod rp_io;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -170,6 +171,7 @@ pub struct RiscVMachine {
     cpu1: RiscVCpu,
     cpu1_active: bool,
     sio: Option<RpSioHandle>,
+    io_bank: Option<RpIoBankHandle>,
     bus: AddressSpace,
     signals: SignalHub,
     gpio: GpioHandle,
@@ -244,6 +246,7 @@ impl RiscVMachine {
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
+        let mut io_bank = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
             // Functional core-1 return point: the physical ROM parks a hart
@@ -364,15 +367,6 @@ impl RiscVMachine {
                 0x4002_0000,
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2350.resets", reset_values)),
-            )?;
-            bus.map_device(
-                "rp2350.io-bank0",
-                0x4002_8000,
-                0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2350.io-bank0",
-                    vec![0; 0x1000 / 4],
-                )),
             )?;
             let mut io_qspi_reset = vec![0; 0x1000 / 4];
             for offset in (0..=0x28).step_by(8) {
@@ -738,6 +732,7 @@ impl RiscVMachine {
                 )?;
                 bus.map_device("rp2350.sio", 0xd000_0000, 0x200, Box::new(device))?;
                 chip_gpio.push(handle);
+                io_bank = Some(rp_io::map(&mut bus, chip_gpio[0].clone())?);
                 sio = Some(multicore);
                 let (uart0, handle) =
                     FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
@@ -769,6 +764,7 @@ impl RiscVMachine {
             cpu1: RiscVCpu::new(profile)?,
             cpu1_active: false,
             sio,
+            io_bank,
             bus,
             signals,
             gpio,
@@ -991,6 +987,7 @@ impl RiscVMachine {
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
+        let mut io_bank_was_pending = false;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
         let mut esp_timer_was_pending = [[false; 2]; 2];
@@ -1071,6 +1068,7 @@ impl RiscVMachine {
                         stats.events = stats.events.saturating_add(1);
                     }
                 }
+                rp_io::poll(self, &mut stats, &mut io_bank_was_pending)?;
                 for line in 0..self.chip_timers.len() * 4 {
                     self.cpu.set_hazard3_external_interrupt(
                         u16::try_from(line).expect("RP timer IRQ line fits u16"),
