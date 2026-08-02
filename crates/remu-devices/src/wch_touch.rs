@@ -13,6 +13,53 @@ const ADON: u32 = 1;
 const EOCIE: u32 = 1 << 5;
 const TKENABLE: u32 = 1 << 24;
 
+/// Native CH32V006 ADC/TKEY register identifiers.
+///
+/// `TouchDischargeData` is the documented write-to-start/read-data alias at
+/// offset `0x4c`: writes provide `TKACT_DCG` and reads return converted data.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum WchTouchKeyRegister {
+    /// ADC status register (`ADC_STATR`).
+    Status = 0x00,
+    /// ADC control register 1 (`ADC_CTLR1`).
+    Control1 = 0x04,
+    /// ADC control register 2 (`ADC_CTLR2`).
+    Control2 = 0x08,
+    /// ADC injection-data alias used for TKEY charge time reads.
+    InjectionData1 = 0x10,
+    /// ADC regular-sequence register 3 (`ADC_RSQR3`).
+    RuleSequence3 = 0x34,
+    /// TKEY charge-time write register (`TKEY_CHG`).
+    TouchCharge = 0x3c,
+    /// TKEY start/discharge write and converted-data read alias.
+    TouchDischargeData = 0x4c,
+    /// ADC control register 3 (`ADC_CTLR3`).
+    Control3 = 0x50,
+}
+
+impl WchTouchKeyRegister {
+    /// Converts a native byte offset into a typed register identifier.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x00 => Self::Status,
+            0x04 => Self::Control1,
+            0x08 => Self::Control2,
+            0x10 => Self::InjectionData1,
+            0x34 => Self::RuleSequence3,
+            0x3c => Self::TouchCharge,
+            0x4c => Self::TouchDischargeData,
+            0x50 => Self::Control3,
+            _ => return None,
+        })
+    }
+
+    /// Returns the native byte offset of this register identifier.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+}
+
 /// Host-facing control and observation handle for a WCH touch-key block.
 #[derive(Clone)]
 pub struct WchTouchKeyHandle {
@@ -149,28 +196,26 @@ impl Device for WchTouchKey {
 
     fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
         Self::require_access(offset, width)?;
+        let register = WchTouchKeyRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!("unmodeled WCH ADC/TKEY read at offset {offset:#x}"))
+        })?;
         let mut state = self.state.borrow_mut();
         state.update(at);
-        let value = match offset {
-            0x00 => state.statr,
-            0x04 => state.ctlr1,
-            0x08 => state.ctlr2,
-            0x10 => 0,
-            0x34 => state.rsqr3,
+        let value = match register {
+            WchTouchKeyRegister::Status => state.statr,
+            WchTouchKeyRegister::Control1 => state.ctlr1,
+            WchTouchKeyRegister::Control2 => state.ctlr2,
+            WchTouchKeyRegister::InjectionData1 => 0,
+            WchTouchKeyRegister::RuleSequence3 => state.rsqr3,
             // A read of the aliased injection-data address is not the charge
             // configuration register; it exposes the retained data register.
-            0x3c => 0,
-            0x4c => {
+            WchTouchKeyRegister::TouchCharge => 0,
+            WchTouchKeyRegister::TouchDischargeData => {
                 let value = state.rdatar;
                 state.statr &= !EOC;
                 value.into()
             }
-            0x50 => state.ctlr3,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled WCH ADC/TKEY read at offset {offset:#x}"
-                )));
-            }
+            WchTouchKeyRegister::Control3 => state.ctlr3,
         };
         Ok(u64::from(value))
     }
@@ -183,21 +228,26 @@ impl Device for WchTouchKey {
         at: SimTime,
     ) -> Result<(), DeviceError> {
         Self::require_access(offset, width)?;
+        let register = WchTouchKeyRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unmodeled WCH ADC/TKEY write at offset {offset:#x}"
+            ))
+        })?;
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("value fits u32");
         let mut state = self.state.borrow_mut();
         state.update(at);
-        match offset {
-            0x00 => state.statr &= (value & STATUS_MASK) | !STATUS_MASK,
-            0x04 => state.ctlr1 = value,
-            0x08 => state.ctlr2 = value,
-            0x34 => state.rsqr3 = value & 0x3fff_ffff,
-            0x3c => state.tk_charge = (value & 0x07ff) as u16,
-            0x4c => state.start(at, (value & 0x07ff) as u16),
-            0x50 => state.ctlr3 = value,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled WCH ADC/TKEY write at offset {offset:#x}"
-                )));
+        match register {
+            WchTouchKeyRegister::Status => state.statr &= (value & STATUS_MASK) | !STATUS_MASK,
+            WchTouchKeyRegister::Control1 => state.ctlr1 = value,
+            WchTouchKeyRegister::Control2 => state.ctlr2 = value,
+            WchTouchKeyRegister::RuleSequence3 => state.rsqr3 = value & 0x3fff_ffff,
+            WchTouchKeyRegister::TouchCharge => state.tk_charge = (value & 0x07ff) as u16,
+            WchTouchKeyRegister::TouchDischargeData => state.start(at, (value & 0x07ff) as u16),
+            WchTouchKeyRegister::Control3 => state.ctlr3 = value,
+            WchTouchKeyRegister::InjectionData1 => {
+                return Err(DeviceError::new(
+                    "unmodeled WCH ADC/TKEY injection-data write",
+                ));
             }
         }
         Ok(())

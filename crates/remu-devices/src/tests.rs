@@ -283,6 +283,15 @@ fn wch_timer_raises_and_vendor_clear_sequence_lowers_update_interrupt() {
 
 #[test]
 fn wch_touch_key_runs_the_documented_adc_sequence() {
+    assert_eq!(
+        WchTouchKeyRegister::from_offset(0x3c),
+        Some(WchTouchKeyRegister::TouchCharge)
+    );
+    assert_eq!(
+        WchTouchKeyRegister::from_offset(0x4c),
+        Some(WchTouchKeyRegister::TouchDischargeData)
+    );
+    assert_eq!(WchTouchKeyRegister::TouchDischargeData.offset(), 0x4c);
     let (mut touch, handle) = WchTouchKey::new("adc-tkey");
     handle.set_channel_value(3, 0x0a5a);
 
