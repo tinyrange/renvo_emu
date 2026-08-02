@@ -20,6 +20,7 @@
 #define TIMER5_IRQn 18
 #define ADC_WINDOW_IRQn 9
 #define ADC0_IRQn 10
+#define CL0_IRQn 19
 #define SFR_P0 0x80
 #define SFR_P1 0x90
 #define SFR_P2 0xa0
@@ -81,6 +82,14 @@ __sfr __at (0xaa) CMP1MX;
 __sfr __at (0xab) CMP1MD;
 __sfr __at (0xac) CMP1CN1;
 __sfr __at (0xbf) CMP1CN0;
+/* CLU0-3 are selected with SFRPAGE=0x20. */
+__sfr __at (0xc6) CLEN0;
+__sfr __at (0xc7) CLIE0;
+__sfr __at (0xe8) CLIF0;
+__sfr __at (0xd1) CLOUT0;
+__sfr __at (0x84) CLU0MX;
+__sfr __at (0xaf) CLU0FN;
+__sfr __at (0xb1) CLU0CF;
 __sfr __at (0xf3) EIE2;
 __sfr __at (0xbb) EIP1;
 __sfr __at (0xee) EIP1H;

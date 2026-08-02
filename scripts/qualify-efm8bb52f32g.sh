@@ -70,6 +70,10 @@ grep -q '^\$scope module timer5 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module adc0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module comparator0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module comparator1 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu1 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu2 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu3 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module uart0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module pca0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-speed/signals.vcd"
@@ -170,6 +174,45 @@ mkdir -p "$comparator_build"
     --artifact "$artifact_root/register-comparator-build.json" \
     -- -I. -c remu_comparator.c -o /workspace/out/comparator.rel
 test -s "$comparator_build/comparator.rel"
+
+clu_build="$artifact_root/register-clu-build"
+clu_run="$artifact_root/register-clu-run"
+mkdir -p "$clu_build" "$clu_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-build.json" \
+    -- -I. -c remu_clu.c -o /workspace/out/clu.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-link.json" \
+    -- /workspace/out/clu.rel /workspace/out/adapter.rel -o /workspace/out/clu.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$clu_build/clu.ihx" \
+    --max-instructions 10000 \
+    --pin 0=1@0 \
+    --pin 1=1@0 \
+    --stop-signal board.efm8bb52f32g.port1.pin4=rising \
+    --vcd "$clu_run/signals.vcd" \
+    --result "$clu_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.port1.pin4"}' \
+    "$clu_run/result.json" >/dev/null
+grep -q '^\$scope module clu0 \$end$' "$clu_run/signals.vcd"
+test -s "$clu_build/clu.rel"
 
 pca_build="$artifact_root/register-pca-build"
 mkdir -p "$pca_build"

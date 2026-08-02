@@ -205,6 +205,20 @@ impl Mcs51McuMachine {
         self.peripherals.inject_spi_rx(value);
     }
 
+    /// Supplies resolved A/B logic values to one configurable logic unit.
+    pub fn set_clu_inputs(&self, clu: u8, a: bool, b: bool) -> Result<(), Mcs51MachineError> {
+        self.peripherals
+            .set_clu_inputs(clu, a, b, self.now)
+            .map_err(Into::into)
+    }
+
+    /// Releases a host-supplied configurable-logic input override.
+    pub fn clear_clu_inputs(&self, clu: u8) -> Result<(), Mcs51MachineError> {
+        self.peripherals
+            .clear_clu_inputs(clu, self.now)
+            .map_err(Into::into)
+    }
+
     /// Current Port 0 output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio[0].output()

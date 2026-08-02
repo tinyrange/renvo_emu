@@ -460,6 +460,63 @@ fn comparators_latch_edges_and_raise_documented_interrupts() {
 }
 
 #[test]
+fn configurable_logic_lut_edges_and_interrupts_are_functional() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    for (address, value) in [
+        (super::CLU_FN[0], 0xc0),
+        (super::CLU_CF[0], 0x80),
+        (super::CLEN0, 1),
+        (super::CLIE0, 0x03),
+        (super::EIE2, super::EIE2_CL0),
+        (IE, IE_EA),
+    ] {
+        device
+            .write(
+                address as u64,
+                AccessWidth::Byte,
+                value.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    handle
+        .set_clu_inputs(0, false, true, SimTime::from_ticks(1))
+        .unwrap();
+    assert!(!handle.clu_output(0).unwrap());
+    handle
+        .set_clu_inputs(0, true, true, SimTime::from_ticks(2))
+        .unwrap();
+    assert!(handle.clu_output(0).unwrap());
+    assert_eq!(
+        device
+            .read(super::CLOUT0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        device
+            .read(super::CLIF0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x02
+    );
+    assert!(handle.poll(SimTime::from_ticks(2))[28]);
+
+    device
+        .write(super::CLIF0 as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+        .unwrap();
+    handle
+        .set_clu_inputs(0, false, true, SimTime::from_ticks(3))
+        .unwrap();
+    assert_eq!(
+        device
+            .read(super::CLIF0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x01
+    );
+}
+
+#[test]
 fn spi0_master_transfer_exposes_injected_miso_and_interrupt() {
     let hub = super::SignalHub::new();
     let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();

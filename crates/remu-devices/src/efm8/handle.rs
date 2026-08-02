@@ -177,6 +177,50 @@ impl Efm8PeripheralsHandle {
         Ok(())
     }
 
+    /// Supplies resolved A/B logic values to one configurable logic unit.
+    pub fn set_clu_inputs(
+        &self,
+        clu: u8,
+        a: bool,
+        b: bool,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        let inputs = state
+            .clu_input_overrides
+            .get_mut(usize::from(clu))
+            .ok_or_else(|| DeviceError::new(format!("EFM8 CLU index {clu} is outside 0..3")))?;
+        *inputs = Some([a, b]);
+        state.refresh_clu(at);
+        state.update_interrupt_signals(at);
+        Ok(())
+    }
+
+    /// Releases a CLU host-input override and returns to mux resolution.
+    pub fn clear_clu_inputs(&self, clu: u8, at: SimTime) -> Result<(), DeviceError> {
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        let inputs = state
+            .clu_input_overrides
+            .get_mut(usize::from(clu))
+            .ok_or_else(|| DeviceError::new(format!("EFM8 CLU index {clu} is outside 0..3")))?;
+        *inputs = None;
+        state.refresh_clu(at);
+        state.update_interrupt_signals(at);
+        Ok(())
+    }
+
+    /// Returns the current selected output of one configurable logic unit.
+    pub fn clu_output(&self, clu: u8) -> Result<bool, DeviceError> {
+        let state = self.0.lock().expect("EFM8 lock poisoned");
+        let index = usize::from(clu);
+        if index >= 4 {
+            return Err(DeviceError::new(format!(
+                "EFM8 CLU index {clu} is outside 0..3"
+            )));
+        }
+        Ok(state.clu_output(index))
+    }
+
     /// Supplies the next byte returned by a functional SPI0 master transfer.
     pub fn inject_spi_rx(&self, value: u8) {
         self.0
@@ -204,7 +248,7 @@ impl Efm8PeripheralsHandle {
     }
 
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 28] {
+    pub fn poll(&self, now: SimTime) -> [bool; 30] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -336,6 +380,7 @@ impl Efm8PeripheralsHandle {
             state.set_signal(state.watchdog_reset_signal, 1, 1, now);
         }
         let _ = state.advance_pca(now);
+        state.refresh_clu(now);
         state.update_smbus0_signals(now);
         state.update_interrupt_signals(now);
         state.interrupt_levels()

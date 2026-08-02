@@ -16,6 +16,8 @@ conversion interrupt declarations.
 `remu_dac.c` exercises the DAC0 page-`0x30` register declarations and output
 update path. `remu_comparator.c` covers both comparator register declarations
 and interrupt-enable bits.
+`remu_clu.c` configures CLU0 as an external-input AND gate and proves its paged
+register declarations in a runnable fixture.
 The small declaration and startup adapters expose only the documented register
 surface needed by these fixtures.
 

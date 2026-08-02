@@ -817,6 +817,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "ADC0 deterministic conversion",
             "DAC0 digital-code output",
             "CMP0/1 deterministic comparison",
+            "CLU0-3 LUT and edge logic",
             "PCA0 PWM/capture/compare",
             "interrupt priority",
             "VCD",

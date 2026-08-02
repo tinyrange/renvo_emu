@@ -415,6 +415,13 @@ priority bits to vectors `0x0063` and `0x006b`, and expose both outputs in VCD.
 Voltage, hysteresis, response-time, reference-DAC, and synchronization physics
 are intentionally not claimed.
 
+CLU0-3 implement the documented three-input LUT, external-pin selection,
+LUT/D-flip-flop output selection, CLOUT0 readback, rising/falling edge flags,
+the CL0 enable/priority interrupt path, and VCD outputs. Host overrides provide
+deterministic values for internal sources not otherwise modeled. Clock-source
+timing, complete internal peripheral routing, and electrical synchronization
+remain outside this functional slice.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
