@@ -133,8 +133,6 @@
         {
           "evidence": [
             "riscv-cpu.json",
-            "arm-cpu.json",
-            "xtensa-cpu.json",
             "rust-abi.json"
           ],
           "name": "compiler-execution"
@@ -208,8 +206,6 @@
         {
           "evidence": [
             "riscv-cpu.json",
-            "arm-cpu.json",
-            "xtensa-cpu.json",
             "rust-abi.json"
           ],
           "name": "compiler-execution"
@@ -279,9 +275,7 @@
       "support_tiers": [
         {
           "evidence": [
-            "riscv-cpu.json",
             "arm-cpu.json",
-            "xtensa-cpu.json",
             "rust-abi.json"
           ],
           "name": "compiler-execution"
@@ -358,7 +352,6 @@
           "evidence": [
             "riscv-cpu.json",
             "arm-cpu.json",
-            "xtensa-cpu.json",
             "rust-abi.json"
           ],
           "name": "compiler-execution"
@@ -429,8 +422,6 @@
       "support_tiers": [
         {
           "evidence": [
-            "riscv-cpu.json",
-            "arm-cpu.json",
             "xtensa-cpu.json",
             "rust-abi.json"
           ],
@@ -504,8 +495,6 @@
         {
           "evidence": [
             "riscv-cpu.json",
-            "arm-cpu.json",
-            "xtensa-cpu.json",
             "rust-abi.json"
           ],
           "name": "compiler-execution"
