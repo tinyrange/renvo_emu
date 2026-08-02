@@ -237,6 +237,35 @@ jq -e '.target == "pic16f15376" and
     "$pps_run/result.json" >/dev/null
 grep -q 'porta' "$pps_run/signals.vcd"
 
+nco_build="$artifact_root/register-nco-build"
+nco_run="$artifact_root/register-nco-run"
+mkdir -p "$nco_build" "$nco_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$nco_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-nco-build.json" \
+    -- -Os remu_nco.c \
+    -Wl,-Map=/workspace/out/nco.map \
+    -o /workspace/out/nco.elf
+docker run --rm --network=none \
+    -v "$repo_root/$nco_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/nco.elf \
+    >"$nco_build/nco.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$nco_build/nco.hex" \
+    --max-instructions 30000 \
+    --stop-signal board.pic16f15376.nco1.output=rising \
+    --vcd "$nco_run/signals.vcd" \
+    --bus-log "$nco_run/bus.json" \
+    --result "$nco_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.nco1.output"}' \
+    "$nco_run/result.json" >/dev/null
+grep -q 'nco1' "$nco_run/signals.vcd"
+
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \
     >"$artifact_root/SHA256SUMS"
 
