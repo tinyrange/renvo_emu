@@ -29,6 +29,21 @@ const TMR2RLL: usize = 0xca;
 const TMR2RLH: usize = 0xcb;
 const TMR2L: usize = 0xce;
 const TMR2H: usize = 0xcf;
+const ADC0CN0: usize = 0xe8;
+const ADC0CN1: usize = 0xb2;
+const ADC0CN2: usize = 0xb3;
+const ADC0CF1: usize = 0xb9;
+const ADC0CF2: usize = 0xdf;
+const ADC0L: usize = 0xbd;
+const ADC0H: usize = 0xbe;
+const ADC0GTH: usize = 0xc4;
+const ADC0GTL: usize = 0xc3;
+const ADC0LTH: usize = 0xc6;
+const ADC0LTL: usize = 0xc5;
+const ADC0MX: usize = 0xbb;
+const EIE1: usize = 0xe6;
+const EIP1: usize = (0x10 << 8) | 0xbb;
+const EIP1H: usize = (0x10 << 8) | 0xee;
 const XBR0: usize = 0xe1;
 const XBR2: usize = 0xe3;
 const RSTSRC: usize = 0xef;
@@ -51,6 +66,12 @@ const TCON_TR0: u8 = 0x10;
 const TCON_TF0: u8 = 0x20;
 const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
+const ADC0_ADEN: u8 = 0x80;
+const ADC0_ADINT: u8 = 0x20;
+const ADC0_ADBUSY: u8 = 0x10;
+const ADC0_ADWINT: u8 = 0x08;
+const ADC0_EADC0: u8 = 0x08;
+const ADC0_EWADC0: u8 = 0x04;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const XBR0_URT0E: u8 = 0x01;
@@ -62,6 +83,7 @@ struct Efm8State {
     port_signals: [Vec<SignalId>; 4],
     hub: SignalHub,
     uart: Vec<u8>,
+    adc_inputs: [u16; 32],
     timer0_epoch: u64,
     timer2_epoch: u64,
     watchdog_epoch: u64,
@@ -72,6 +94,9 @@ struct Efm8State {
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
+    adc_result_signal: SignalId,
+    adc_eoc_signal: SignalId,
+    adc_window_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -139,6 +164,11 @@ impl Efm8State {
             ResetKind::Watchdog => 0x08,
         };
         self.uart.clear();
+        self.adc_inputs.fill(0);
+        self.registers[ADC0MX] = 0x1f;
+        self.registers[ADC0CF2] = 0x1f;
+        self.registers[ADC0GTH] = 0xff;
+        self.registers[ADC0GTL] = 0xff;
         self.timer0_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
@@ -149,23 +179,93 @@ impl Efm8State {
             self.uart_strobe_signal,
             self.timer0_irq_signal,
             self.timer2_irq_signal,
+            self.adc_eoc_signal,
+            self.adc_window_signal,
             self.interrupt_signal,
             self.watchdog_reset_signal,
         ] {
             self.set_signal(signal, 0, 1, at);
         }
+        self.set_signal(self.adc_result_signal, 0, 16, at);
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
         }
     }
 
+    fn complete_adc_conversion(&mut self, at: SimTime) {
+        let control = self.registers[ADC0CN0];
+        if control & ADC0_ADEN == 0 {
+            self.registers[ADC0CN0] &= !ADC0_ADBUSY;
+            return;
+        }
+        let channel = usize::from(self.registers[ADC0MX] & 0x1f);
+        let mut sample = self.adc_inputs[channel.min(self.adc_inputs.len() - 1)];
+        match (self.registers[ADC0CN1] >> 5) & 0x03 {
+            0x01 => sample >>= 2,
+            0x02 => sample >>= 4,
+            _ => {}
+        }
+        let repeat = match self.registers[ADC0CN1] & 0x07 {
+            0x01 => 4,
+            0x02 => 8,
+            0x03 => 16,
+            0x04 => 32,
+            _ => 1,
+        };
+        let mut result = sample.saturating_mul(repeat);
+        result >>= (self.registers[ADC0CN1] >> 3) & 0x03;
+        let [low, high] = result.to_le_bytes();
+        self.registers[ADC0L] = low;
+        self.registers[ADC0H] = high;
+        self.registers[ADC0CN0] &= !ADC0_ADBUSY;
+        self.registers[ADC0CN0] |= ADC0_ADINT;
+        let greater = u16::from_be_bytes([self.registers[ADC0GTH], self.registers[ADC0GTL]]);
+        let less = u16::from_be_bytes([self.registers[ADC0LTH], self.registers[ADC0LTL]]);
+        if result > greater || result < less {
+            self.registers[ADC0CN0] |= ADC0_ADWINT;
+        }
+        self.set_signal(self.adc_result_signal, u64::from(result), 16, at);
+        self.set_signal(self.adc_eoc_signal, 1, 1, at);
+        self.set_signal(
+            self.adc_window_signal,
+            u64::from(self.registers[ADC0CN0] & ADC0_ADWINT != 0),
+            1,
+            at,
+        );
+    }
+
     fn canonical(raw: usize) -> usize {
         let page = raw >> 8;
         let address = raw & 0xff;
+        if raw == EIP1 || raw == EIP1H {
+            return raw;
+        }
+        if page == 0x30
+            && matches!(
+                address,
+                ADC0CN1
+                    | ADC0CN2
+                    | ADC0CF1
+                    | ADC0MX
+                    | ADC0L..=ADC0H
+                    | ADC0GTL..=ADC0LTH
+                    | ADC0CF2
+                    | ADC0CN0
+            )
+        {
+            // The ADC control/result block is mirrored on pages 0x00 and
+            // 0x30; autoscan-only registers retain their page-30 address.
+            return address;
+        }
         match address {
             0x80
             | 0x88..=0x8e
             | 0x90
+            | ADC0CN1..=ADC0CN2
+            | ADC0CF1
+            | ADC0MX
+            | ADC0L..=ADC0H
+            | ADC0GTL..=ADC0LTH
             | 0x97..=0x99
             | 0xa0
             | 0xa4..=0xa6
@@ -176,6 +276,8 @@ impl Efm8State {
             | 0xca..=0xcf
             | 0xd4..=0xd5
             | 0xe1..=0xe3
+            | ADC0CN0
+            | ADC0CF2
             | 0xef
             | 0xf1..=0xf3 => address,
             0x9c | 0xf4 if page == PAGE3 => (PAGE3 << 8) | address,
@@ -183,10 +285,10 @@ impl Efm8State {
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 6] {
+    fn interrupt_levels(&self) -> [bool; 18] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 6];
+            return [false; 18];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
@@ -194,12 +296,25 @@ impl Efm8State {
             enabled & IE_ET2 != 0 && self.registers[TMR2CN0] & TMR2_TF2H != 0,
         ];
         let priorities = [IE_ET0, IE_ES0, IE_ET2];
-        let mut levels = [false; 6];
+        let mut levels = [false; 18];
         for source in 0..3 {
             if active[source] {
                 let high = self.registers[IP] & priorities[source] != 0;
                 levels[source + if high { 3 } else { 0 }] = true;
             }
+        }
+        let adc_window =
+            self.registers[EIE1] & ADC0_EWADC0 != 0 && self.registers[ADC0CN0] & ADC0_ADWINT != 0;
+        let adc_complete =
+            self.registers[EIE1] & ADC0_EADC0 != 0 && self.registers[ADC0CN0] & ADC0_ADINT != 0;
+        let adc_window_high = self.registers[EIP1] & 0x04 != 0 || self.registers[EIP1H] & 0x04 != 0;
+        let adc_complete_high =
+            self.registers[EIP1] & 0x08 != 0 || self.registers[EIP1H] & 0x08 != 0;
+        if adc_window {
+            levels[14 + usize::from(adc_window_high)] = true;
+        }
+        if adc_complete {
+            levels[16 + usize::from(adc_complete_high)] = true;
         }
         levels
     }
@@ -214,6 +329,18 @@ impl Efm8State {
         self.set_signal(
             self.timer2_irq_signal,
             u64::from(self.registers[TMR2CN0] & TMR2_TF2H != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.adc_eoc_signal,
+            u64::from(self.registers[ADC0CN0] & ADC0_ADINT != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.adc_window_signal,
+            u64::from(self.registers[ADC0CN0] & ADC0_ADWINT != 0),
             1,
             at,
         );
@@ -244,8 +371,19 @@ impl Efm8PeripheralsHandle {
         state.update_interrupt_signals(at);
     }
 
+    /// Sets one deterministic analog input code for the ADC multiplexer.
+    pub fn set_adc_input(&self, channel: u8, value: u16) -> Result<(), DeviceError> {
+        let channel = usize::from(channel);
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        let input = state.adc_inputs.get_mut(channel).ok_or_else(|| {
+            DeviceError::new(format!("EFM8 ADC channel {channel} is outside 0..31"))
+        })?;
+        *input = value.min(0x0fff);
+        Ok(())
+    }
+
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 6] {
+    pub fn poll(&self, now: SimTime) -> [bool; 18] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -342,6 +480,21 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer2 high-byte overflow request".to_owned()),
         )?;
+        let adc_result_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.result",
+            SignalValue::from_u64(0, 16)?,
+            Some("last ADC0 conversion result".to_owned()),
+        )?;
+        let adc_eoc_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.end_of_conversion",
+            SignalValue::from_u64(0, 1)?,
+            Some("ADC0 conversion-complete flag".to_owned()),
+        )?;
+        let adc_window_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.window",
+            SignalValue::from_u64(0, 1)?,
+            Some("ADC0 window-comparison flag".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -358,6 +511,7 @@ impl Efm8Peripherals {
             port_signals: [signals0, signals1, signals2, signals3],
             hub,
             uart: Vec::new(),
+            adc_inputs: [0; 32],
             timer0_epoch: 0,
             timer2_epoch: 0,
             watchdog_epoch: 0,
@@ -368,6 +522,9 @@ impl Efm8Peripherals {
             uart_strobe_signal,
             timer0_irq_signal,
             timer2_irq_signal,
+            adc_result_signal,
+            adc_eoc_signal,
+            adc_window_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -455,6 +612,14 @@ impl Device for Efm8Peripherals {
                 state.set_signal(state.uart_strobe_signal, previous ^ 1, 1, at);
             }
             state.registers[SCON0] |= SCON0_TI;
+        } else if address == ADC0CN0 && value & ADC0_ADBUSY != 0 {
+            if value & ADC0_ADEN != 0 && state.registers[ADC0CN2] & 0x0f == 0 {
+                state.complete_adc_conversion(at);
+            } else {
+                // Only the documented software-trigger path is modeled;
+                // unsupported trigger sources never leave the ADC stuck busy.
+                state.registers[ADC0CN0] &= !ADC0_ADBUSY;
+            }
         } else if address == WDTCN {
             if state.watchdog_key == 0xde && value == 0xad {
                 state.watchdog_enabled = false;
@@ -481,8 +646,10 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        ADC0_ADBUSY, ADC0_ADEN, ADC0_ADINT, ADC0_ADWINT, ADC0_EADC0, ADC0_EWADC0, ADC0CN0, ADC0GTH,
+        ADC0GTL, ADC0H, ADC0L, ADC0LTH, ADC0LTL, ADC0MX, AccessWidth, EIE1, Efm8Peripherals, IE,
+        IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2,
+        XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +709,120 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn adc_channel_conversion_window_and_interrupts_are_functional() {
+        let hub = super::SignalHub::new();
+        let trace_hub = hub.clone();
+        let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        handle.set_adc_input(3, 0x0abc).unwrap();
+
+        device
+            .write(ADC0MX as u64, AccessWidth::Byte, 3, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(ADC0GTH as u64, AccessWidth::Byte, 0x0b, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(ADC0GTL as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(ADC0LTH as u64, AccessWidth::Byte, 0x08, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(ADC0LTL as u64, AccessWidth::Byte, 0x00, SimTime::ZERO)
+            .unwrap();
+        // The page-0x30 aliases are the names used by the Silicon Labs SDK.
+        device
+            .write(0x30b2, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device
+                .read(0x30b2, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        device
+            .write(
+                EIE1 as u64,
+                AccessWidth::Byte,
+                u64::from(ADC0_EADC0 | ADC0_EWADC0),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                IE as u64,
+                AccessWidth::Byte,
+                u64::from(IE_EA),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                ADC0CN0 as u64,
+                AccessWidth::Byte,
+                u64::from(ADC0_ADEN | ADC0_ADBUSY),
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+
+        assert_eq!(
+            device
+                .read(ADC0L as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xbc
+        );
+        assert_eq!(
+            device
+                .read(ADC0H as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x0a
+        );
+        let control = device
+            .read(ADC0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap();
+        assert_ne!(control & u64::from(ADC0_ADINT), 0);
+        assert_eq!(control & u64::from(ADC0_ADWINT), 0);
+        let levels = handle.poll(SimTime::from_ticks(1));
+        assert!(!levels[14]);
+        assert!(levels[16]);
+
+        let result_id = trace_hub
+            .with_registry(|registry| registry.find("board.efm8bb52f32g.adc0.result"))
+            .unwrap();
+        assert_eq!(
+            trace_hub
+                .with_registry(|registry| { registry.value(result_id).unwrap().to_vcd_binary() }),
+            "0000101010111100"
+        );
+
+        // Clear the latched EOC/window flags, then produce an out-of-window
+        // result and verify that the independent window interrupt is raised.
+        device
+            .write(
+                ADC0CN0 as u64,
+                AccessWidth::Byte,
+                u64::from(ADC0_ADEN),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        handle.set_adc_input(3, 0x0fff).unwrap();
+        device
+            .write(
+                ADC0CN0 as u64,
+                AccessWidth::Byte,
+                u64::from(ADC0_ADEN | ADC0_ADBUSY),
+                SimTime::from_ticks(3),
+            )
+            .unwrap();
+        let control = device
+            .read(ADC0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap();
+        assert_ne!(control & u64::from(ADC0_ADWINT), 0);
+        let levels = handle.poll(SimTime::from_ticks(3));
+        assert!(levels[14]);
+        assert!(levels[16]);
     }
 }

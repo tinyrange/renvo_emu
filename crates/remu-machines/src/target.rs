@@ -674,6 +674,7 @@ const MANIFESTS: &[TargetManifest] = &[
         baseline: &[
             "crossbar GPIO",
             "Timer0/2",
+            "ADC0 conversion",
             "UART0",
             "interrupt priority",
             "VCD",
@@ -682,7 +683,9 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.silabs.com/documents/public/data-sheets/efm8bb52-datasheet.pdf",
             "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
         ],
-        limitations: &["analog, PCA, SMBus, SPI, and historical 8051 machine timing are deferred"],
+        limitations: &[
+            "ADC autoscan/temperature/electrical analog behavior, PCA, SMBus, SPI, and historical 8051 machine timing are deferred",
+        ],
     },
 ];
 
