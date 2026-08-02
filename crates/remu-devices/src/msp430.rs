@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 const REGISTER_BYTES: usize = 0x1000;
@@ -33,12 +34,27 @@ const UCA0TXBUF: usize = 0x050e;
 const UCA0IE: usize = 0x051a;
 const UCA0IFG: usize = 0x051c;
 const UCA0IV: usize = 0x051e;
+const UCB0CTLW0: usize = 0x0540;
+const UCB0RXBUF: usize = 0x054c;
+const UCB0TXBUF: usize = 0x054e;
+const UCB0I2CSA: usize = 0x0560;
+const UCB0IE: usize = 0x056a;
+const UCB0IFG: usize = 0x056c;
+const UCB0IV: usize = 0x056e;
 
 const LOCKLPM5: u16 = 0x0001;
 const WDTHOLD: u16 = 0x0080;
 const WDTPW: u16 = 0x5a00;
 const UCSWRST: u16 = 0x0001;
 const UCLISTEN: u8 = 0x80;
+const UCTR: u16 = 1 << 4;
+const UCTXSTT: u16 = 1 << 1;
+const UCTXSTP: u16 = 1 << 2;
+const UCTXNACK: u16 = 1 << 3;
+const UCMODE_I2C: u16 = 0x0600;
+const UCMODE_MASK: u16 = 0x0600;
+const UCMST: u16 = 0x0800;
+const UCSYNC: u16 = 0x0100;
 const CCIE: u16 = 0x0010;
 const CCIFG: u16 = 0x0001;
 const UCRXIFG: u16 = 0x0001;
@@ -48,8 +64,35 @@ const UCTXIFG: u16 = 0x0002;
 pub const MSP430_PORT1_VECTOR: u16 = 0xffdc;
 /// eUSCI_A0 receive/transmit vector address.
 pub const MSP430_USCI_A0_VECTOR: u16 = 0xffe4;
+/// eUSCI_B0 receive/transmit vector address.
+pub const MSP430_USCI_B0_VECTOR: u16 = 0xffe0;
 /// Timer0_A0 capture/compare vector address.
 pub const MSP430_TIMER0_A0_VECTOR: u16 = 0xfff8;
+
+/// One functional eUSCI_B0 I²C host transaction observed by the test harness.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Msp430I2cEvent {
+    /// START condition on the virtual bus.
+    Start,
+    /// Repeated START without releasing the virtual bus.
+    RepeatedStart,
+    /// A transmitted address or data byte.
+    Write {
+        /// Seven-bit target address selected in UCB0I2CSA.
+        address: u16,
+        /// Byte placed in UCB0TXBUF.
+        value: u8,
+    },
+    /// A received byte supplied by the host fixture.
+    Read {
+        /// Seven-bit target address selected in UCB0I2CSA.
+        address: u16,
+        /// Byte supplied by the host fixture.
+        value: u8,
+    },
+    /// STOP condition on the virtual bus.
+    Stop,
+}
 
 struct Msp430State {
     registers: [u8; REGISTER_BYTES],
@@ -62,9 +105,16 @@ struct Msp430State {
     watchdog_epoch: u64,
     watchdog_reset: bool,
     loopback_pending: Option<(u8, u64)>,
+    i2c_events: Vec<Msp430I2cEvent>,
+    i2c_responses: BTreeMap<u16, VecDeque<u8>>,
+    i2c_active_address: Option<u16>,
+    i2c_read: bool,
+    i2c_strobe: bool,
     uart_strobe: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
+    i2c_byte_signal: SignalId,
+    i2c_strobe_signal: SignalId,
     timer_irq_signal: SignalId,
     port1_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
@@ -150,20 +200,121 @@ impl Msp430State {
         Ok(())
     }
 
+    fn eusci_b0_i2c_master(&self) -> bool {
+        let control = self.word(UCB0CTLW0);
+        control & UCSWRST == 0
+            && control & (UCSYNC | UCMODE_MASK | UCMST) == (UCSYNC | UCMODE_I2C | UCMST)
+    }
+
+    fn emit_i2c_byte(&mut self, value: u8, at: SimTime) {
+        self.set_signal(self.i2c_byte_signal, u64::from(value), 8, at);
+        self.i2c_strobe = !self.i2c_strobe;
+        self.set_signal(self.i2c_strobe_signal, u64::from(self.i2c_strobe), 1, at);
+    }
+
+    fn i2c_start(&mut self, control: u16, at: SimTime) {
+        let address = self.word(UCB0I2CSA) & 0x007f;
+        if self.i2c_active_address.is_some() {
+            self.i2c_events.push(Msp430I2cEvent::RepeatedStart);
+        } else {
+            self.i2c_events.push(Msp430I2cEvent::Start);
+        }
+        self.i2c_active_address = Some(address);
+        self.i2c_read = control & UCTR == 0;
+        if self.i2c_read {
+            let value = self
+                .i2c_responses
+                .get_mut(&address)
+                .and_then(VecDeque::pop_front)
+                .unwrap_or(0xff);
+            self.set_word(UCB0RXBUF, u16::from(value));
+            self.set_word(UCB0IFG, self.word(UCB0IFG) | UCRXIFG);
+            self.i2c_events
+                .push(Msp430I2cEvent::Read { address, value });
+            self.emit_i2c_byte(value, at);
+        } else {
+            self.set_word(UCB0IFG, self.word(UCB0IFG) | UCTXIFG);
+        }
+    }
+
+    fn i2c_control_write(&mut self, at: SimTime) {
+        if !self.eusci_b0_i2c_master() {
+            return;
+        }
+        let control = self.word(UCB0CTLW0);
+        if control & UCTXSTT != 0 {
+            self.i2c_start(control, at);
+        }
+        if control & UCTXSTP != 0 {
+            if self.i2c_active_address.take().is_some() {
+                self.i2c_events.push(Msp430I2cEvent::Stop);
+            }
+            self.i2c_read = false;
+            self.set_word(UCB0IFG, self.word(UCB0IFG) | UCTXIFG);
+        }
+        // START, STOP, and NACK are command bits in the real peripheral and
+        // clear once accepted. Keeping that behavior makes polling loops in
+        // vendor drivers deterministic without adding bus-level timing.
+        self.set_word(UCB0CTLW0, control & !(UCTXSTT | UCTXSTP | UCTXNACK));
+    }
+
+    fn i2c_tx_write(&mut self, value: u8, at: SimTime) {
+        let Some(address) = self.i2c_active_address else {
+            return;
+        };
+        if self.i2c_read {
+            return;
+        }
+        self.i2c_events
+            .push(Msp430I2cEvent::Write { address, value });
+        self.emit_i2c_byte(value, at);
+        self.set_word(UCB0IFG, self.word(UCB0IFG) | UCTXIFG);
+    }
+
+    fn i2c_prefetch_read(&mut self, at: SimTime) {
+        let Some(address) = self.i2c_active_address else {
+            return;
+        };
+        if !self.i2c_read {
+            return;
+        }
+        let Some(value) = self
+            .i2c_responses
+            .get_mut(&address)
+            .and_then(VecDeque::pop_front)
+        else {
+            return;
+        };
+        self.set_word(UCB0RXBUF, u16::from(value));
+        self.set_word(UCB0IFG, self.word(UCB0IFG) | UCRXIFG);
+        self.i2c_events
+            .push(Msp430I2cEvent::Read { address, value });
+        self.emit_i2c_byte(value, at);
+    }
+
     fn reset_registers(&mut self, at: SimTime) {
         self.registers.fill(0);
         self.set_word(PM5CTL0, LOCKLPM5);
         self.set_word(WDTCTL, 0x6900);
         self.set_word(UCA0CTLW0, UCSWRST);
         self.set_word(UCA0IFG, UCTXIFG);
+        self.set_word(UCB0CTLW0, UCSWRST);
+        self.set_word(UCB0IFG, UCTXIFG);
         self.previous_p1 = 0;
         self.timer_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.loopback_pending = None;
+        self.i2c_events.clear();
+        self.i2c_responses.clear();
+        self.i2c_active_address = None;
+        self.i2c_read = false;
+        self.i2c_strobe = false;
         self.set_signal(self.timer_irq_signal, 0, 1, at);
         self.set_signal(self.port1_irq_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
+        self.set_signal(self.i2c_byte_signal, 0, 8, at);
+        self.set_signal(self.i2c_strobe_signal, 0, 1, at);
         let _ = self.refresh_ports(at);
     }
 }
@@ -180,6 +331,33 @@ impl Msp430PeripheralsHandle {
             .expect("MSP430 peripheral lock poisoned")
             .uart
             .clone()
+    }
+
+    /// Queues bytes returned by the next 7-bit eUSCI_B0 I²C read at `address`.
+    pub fn queue_i2c_read(&self, address: u16, bytes: impl IntoIterator<Item = u8>) {
+        self.0
+            .lock()
+            .expect("MSP430 peripheral lock poisoned")
+            .i2c_responses
+            .entry(address & 0x007f)
+            .or_default()
+            .extend(bytes);
+    }
+
+    /// Returns the functional I²C host transactions observed since reset or clear.
+    pub fn i2c_events(&self) -> Vec<Msp430I2cEvent> {
+        self.0
+            .lock()
+            .expect("MSP430 peripheral lock poisoned")
+            .i2c_events
+            .clone()
+    }
+
+    /// Clears captured I²C events and queued host responses.
+    pub fn clear_i2c(&self) {
+        let mut state = self.0.lock().expect("MSP430 peripheral lock poisoned");
+        state.i2c_events.clear();
+        state.i2c_responses.clear();
     }
 
     /// Advances functional timers and edge detection, returning pending vector addresses.
@@ -240,6 +418,9 @@ impl Msp430PeripheralsHandle {
         if state.word(UCA0IE) & state.word(UCA0IFG) & (UCRXIFG | UCTXIFG) != 0 {
             vectors.push(MSP430_USCI_A0_VECTOR);
         }
+        if state.word(UCB0IE) & state.word(UCB0IFG) & (UCRXIFG | UCTXIFG) != 0 {
+            vectors.push(MSP430_USCI_B0_VECTOR);
+        }
 
         let watchdog = state.word(WDTCTL);
         if watchdog & WDTHOLD == 0 && now.ticks().saturating_sub(state.watchdog_epoch) >= 65_536 {
@@ -287,6 +468,16 @@ impl Msp430Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("eUSCI_A0 transmit event".to_owned()),
         )?;
+        let i2c_byte_signal = hub.declare(
+            "board.msp430fr2433.i2c0.byte",
+            SignalValue::from_u64(0, 8)?,
+            Some("eUSCI_B0 I²C host byte".to_owned()),
+        )?;
+        let i2c_strobe_signal = hub.declare(
+            "board.msp430fr2433.i2c0.strobe",
+            SignalValue::from_u64(0, 1)?,
+            Some("eUSCI_B0 I²C host byte event".to_owned()),
+        )?;
         let timer_irq_signal = hub.declare(
             "board.msp430fr2433.timer_a0.ccr0_irq",
             SignalValue::from_u64(0, 1)?,
@@ -313,9 +504,16 @@ impl Msp430Peripherals {
             watchdog_epoch: 0,
             watchdog_reset: false,
             loopback_pending: None,
+            i2c_events: Vec::new(),
+            i2c_responses: BTreeMap::new(),
+            i2c_active_address: None,
+            i2c_read: false,
+            i2c_strobe: false,
             uart_strobe: false,
             uart_byte_signal,
             uart_strobe_signal,
+            i2c_byte_signal,
+            i2c_strobe_signal,
             timer_irq_signal,
             port1_irq_signal,
             watchdog_reset_signal,
@@ -398,13 +596,34 @@ impl Device for Msp430Peripherals {
             };
             state.set_word(UCA0IV, vector);
         }
+        if start == UCB0IV && length >= 2 {
+            let flags = state.word(UCB0IFG);
+            let vector = if flags & UCRXIFG != 0 {
+                2
+            } else if flags & UCTXIFG != 0 {
+                4
+            } else {
+                0
+            };
+            state.set_word(UCB0IV, vector);
+        }
         if overlaps(start, length, UCA0RXBUF, 2) {
             let flags = state.word(UCA0IFG) & !UCRXIFG;
             state.set_word(UCA0IFG, flags);
         }
+        let i2c_rx_read = overlaps(start, length, UCB0RXBUF, 2)
+            && state.i2c_active_address.is_some()
+            && state.i2c_read;
+        if overlaps(start, length, UCB0RXBUF, 2) {
+            let flags = state.word(UCB0IFG) & !UCRXIFG;
+            state.set_word(UCB0IFG, flags);
+        }
         let mut value = 0_u64;
         for index in 0..length {
             value |= u64::from(state.registers[start + index]) << (index * 8);
+        }
+        if i2c_rx_read {
+            state.i2c_prefetch_read(at);
         }
         Ok(value)
     }
@@ -430,6 +649,9 @@ impl Device for Msp430Peripherals {
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
         for index in 0..length {
             state.registers[start + index] = (value >> (index * 8)) as u8;
+        }
+        if overlaps(start, length, UCB0CTLW0, 2) {
+            state.i2c_control_write(at);
         }
         if overlaps(start, length, WDTCTL, 2) {
             let written = state.word(WDTCTL);
@@ -470,6 +692,14 @@ impl Device for Msp430Peripherals {
         if overlaps(start, length, UCA0RXBUF, 2) {
             let flags = state.word(UCA0IFG) & !UCRXIFG;
             state.set_word(UCA0IFG, flags);
+        }
+        if overlaps(start, length, UCB0TXBUF, 2) && state.eusci_b0_i2c_master() {
+            let byte = state.registers[UCB0TXBUF];
+            state.i2c_tx_write(byte, at);
+        }
+        if overlaps(start, length, UCB0RXBUF, 2) {
+            let flags = state.word(UCB0IFG) & !UCRXIFG;
+            state.set_word(UCB0IFG, flags);
         }
         if overlaps(start, length, PM5CTL0, 2)
             || overlaps(start, length, PAOUT, 4)
@@ -563,6 +793,143 @@ mod tests {
         assert_eq!(
             device.read(UCA0IFG as u64, AccessWidth::HalfWord, SimTime::ZERO),
             Ok(UCTXIFG.into())
+        );
+    }
+
+    #[test]
+    fn eusci_b0_i2c_host_records_write_start_and_stop() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        let base = UCSYNC | UCMODE_I2C | UCMST;
+        device
+            .write(
+                UCB0CTLW0 as u64,
+                AccessWidth::HalfWord,
+                u64::from(base | UCSWRST),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                UCB0CTLW0 as u64,
+                AccessWidth::HalfWord,
+                u64::from(base),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(UCB0I2CSA as u64, AccessWidth::HalfWord, 0x50, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                UCB0CTLW0 as u64,
+                AccessWidth::HalfWord,
+                u64::from(base | UCTR | UCTXSTT),
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        device
+            .write(
+                UCB0TXBUF as u64,
+                AccessWidth::HalfWord,
+                0x10,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                UCB0CTLW0 as u64,
+                AccessWidth::HalfWord,
+                u64::from(base | UCTR | UCTXSTP),
+                SimTime::from_ticks(3),
+            )
+            .unwrap();
+        assert_eq!(
+            handle.i2c_events(),
+            [
+                Msp430I2cEvent::Start,
+                Msp430I2cEvent::Write {
+                    address: 0x50,
+                    value: 0x10,
+                },
+                Msp430I2cEvent::Stop,
+            ]
+        );
+    }
+
+    #[test]
+    fn eusci_b0_i2c_host_supplies_queued_read_and_interrupt() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        let base = UCSYNC | UCMODE_I2C | UCMST;
+        device
+            .write(
+                UCB0CTLW0 as u64,
+                AccessWidth::HalfWord,
+                u64::from(base | UCSWRST),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                UCB0CTLW0 as u64,
+                AccessWidth::HalfWord,
+                u64::from(base),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(UCB0I2CSA as u64, AccessWidth::HalfWord, 0x44, SimTime::ZERO)
+            .unwrap();
+        handle.queue_i2c_read(0x44, [0x42, 0x43]);
+        device
+            .write(
+                UCB0IE as u64,
+                AccessWidth::HalfWord,
+                u64::from(UCRXIFG),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                UCB0CTLW0 as u64,
+                AccessWidth::HalfWord,
+                u64::from(base | UCTXSTT),
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        assert_eq!(handle.poll(SimTime::from_ticks(1)), [MSP430_USCI_B0_VECTOR]);
+        assert_eq!(
+            device.read(
+                UCB0RXBUF as u64,
+                AccessWidth::HalfWord,
+                SimTime::from_ticks(2),
+            ),
+            Ok(0x42)
+        );
+        assert_eq!(
+            device.read(
+                UCB0RXBUF as u64,
+                AccessWidth::HalfWord,
+                SimTime::from_ticks(3),
+            ),
+            Ok(0x43)
+        );
+        assert_eq!(
+            handle.i2c_events(),
+            [
+                Msp430I2cEvent::Start,
+                Msp430I2cEvent::Read {
+                    address: 0x44,
+                    value: 0x42,
+                },
+                Msp430I2cEvent::Read {
+                    address: 0x44,
+                    value: 0x43,
+                },
+            ]
         );
     }
 }
