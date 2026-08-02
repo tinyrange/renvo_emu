@@ -6,8 +6,10 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 import pathlib
 import subprocess
+import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -25,6 +27,8 @@ def digest(path: pathlib.Path) -> str:
 
 def require_pass(path: pathlib.Path):
     value = load(path)
+    if value.get("evidence_status") == "passing":
+        return value
     nested_results = []
     for collection in ("proofs", "supported_hosts"):
         nested_results.extend(item.get("result") for item in value.get(collection, []))
@@ -36,12 +40,45 @@ def require_pass(path: pathlib.Path):
     return value
 
 
+def source_tree_digest() -> str:
+    """Hash the checked source tree without the generated matrix outputs."""
+    excluded = {
+        "qualification/dashboard.json",
+        "qualification/dashboard.html",
+        "qualification/capability-matrix.md",
+    }
+    names = subprocess.check_output(
+        ["git", "ls-files", "-z"], cwd=ROOT
+    ).split(b"\0")
+    tree = hashlib.sha256()
+    for raw_name in sorted(name for name in names if name):
+        name = raw_name.decode("utf-8")
+        if name in excluded:
+            continue
+        tree.update(raw_name)
+        tree.update(b"\0")
+        tree.update((ROOT / name).read_bytes())
+        tree.update(b"\0")
+    return tree.hexdigest()
+
+
+def emit(path: pathlib.Path, content: str, check: bool) -> None:
+    if check:
+        if not path.exists() or path.read_text(encoding="utf-8") != content:
+            raise SystemExit(f"generated artifact is stale: {path.relative_to(ROOT)}")
+        return
+    path.write_text(content, encoding="utf-8")
+
+
 def escape_list(values: list[str]) -> str:
     return "".join(f"<li>{html.escape(value)}</li>" for value in values)
 
 
 def main() -> None:
-    remu = ROOT / "target" / "debug" / "remu"
+    check = "--check" in sys.argv[1:]
+    remu = pathlib.Path(os.environ.get("REMU_BIN", "target/debug/remu"))
+    if not remu.is_absolute():
+        remu = ROOT / remu
     all_manifests = json.loads(
         subprocess.check_output([str(remu), "targets", "--json"], cwd=ROOT)
     )
@@ -52,6 +89,17 @@ def main() -> None:
     manifests = [
         manifest for manifest in all_manifests if manifest["id"] in baseline_ids
     ]
+    if spec.get("schema") != "remu.dashboard-spec.v2":
+        raise SystemExit("dashboard spec must use remu.dashboard-spec.v2")
+    tier_definitions = spec.get("tier_definitions", [])
+    tier_ids = [tier.get("id") for tier in tier_definitions]
+    required_tiers = [
+        "compiler_execution",
+        "firmware_functional_slice",
+        "selected_board_or_sdk_workflow",
+    ]
+    if tier_ids != required_tiers:
+        raise SystemExit("dashboard tier definitions must be ordered and complete")
     if len(baseline_ids) != 6 or len(manifests) != 6:
         raise SystemExit("dashboard requires all six original target manifests")
     if baseline_ids != {manifest["id"] for manifest in manifests}:
@@ -68,11 +116,14 @@ def main() -> None:
         QUALIFICATION / "rust-abi.json",
         QUALIFICATION / "stop-conditions.json",
         QUALIFICATION / "host-determinism.json",
+        QUALIFICATION / "native-images.json",
     ]
     for path in evidence_paths:
         require_pass(path)
 
     vendor = load(QUALIFICATION / "vendor-samples.json")
+    native_images = load(QUALIFICATION / "native-images.json")
+    source_digest = source_tree_digest()
     targets = []
     for manifest in manifests:
         target_id = manifest["id"]
@@ -88,14 +139,76 @@ def main() -> None:
         ]
         if not target_vendor or any(item["result"] != "pass" for item in target_vendor):
             raise SystemExit(f"vendor sample evidence is incomplete: {target_id}")
-        entry_spec = spec["targets"][target_id]
+        entry_spec = spec["targets"].get(target_id)
+        if entry_spec is None:
+            raise SystemExit(f"dashboard target metadata is missing: {target_id}")
+        if manifest["support_tier"] != entry_spec["highest_tier"]:
+            raise SystemExit(f"target tier metadata disagrees: {target_id}")
+        native_cases = [
+            case
+            for case in native_images["cases"]
+            if case["target"] == target_id and case.get("status") == "pass"
+        ]
+        if not native_cases:
+            raise SystemExit(f"native-image evidence is incomplete: {target_id}")
+
+        tiers = []
+        for tier in tier_definitions:
+            tier_id = tier["id"]
+            artifact_names = entry_spec.get("tier_artifacts", {}).get(tier_id)
+            if not artifact_names:
+                raise SystemExit(f"tier evidence is missing: {target_id}/{tier_id}")
+            artifacts = []
+            for artifact_name in artifact_names:
+                artifact_path = ROOT / artifact_name
+                if not artifact_path.exists():
+                    raise SystemExit(f"tier artifact is missing: {artifact_name}")
+                require_pass(artifact_path)
+                artifacts.append({"path": artifact_name, "sha256": digest(artifact_path)})
+            if tier_id == "compiler_execution":
+                omissions = [
+                    "chip-specific peripheral and board behavior is not implied by compiler execution"
+                ]
+            elif tier_id == "firmware_functional_slice":
+                omissions = list(manifest["limitations"])
+            else:
+                omissions = [
+                    "only the named workflow is qualified; arbitrary SDK or production firmware is not implied"
+                ]
+            tiers.append(
+                {
+                    "id": tier_id,
+                    "label": tier["label"],
+                    "description": tier["description"],
+                    "status": "proven",
+                    "evidence": artifacts,
+                    "known_omissions": omissions,
+                }
+            )
+
+        cpu_rows = [
+            {
+                "id": case["id"],
+                "native_image_format": case["native_format"],
+                "status": case["status"],
+                "native_result_sha256": case.get("native_sha256"),
+            }
+            for case in native_cases
+        ]
         targets.append(
             {
                 "id": target_id,
                 "name": manifest["name"],
-                "support_tier": entry_spec["support_tier"],
+                "support_tier": manifest["support_tier"],
+                "highest_tier": entry_spec["highest_tier"],
+                "support_tiers": tiers,
                 "fidelity": manifest["fidelity"],
                 "cpu_profiles": manifest["cpus"],
+                "cpu_evidence_rows": cpu_rows,
+                "native_image_formats": entry_spec["native_image_formats"],
+                "peripheral_scope": entry_spec["peripheral_scope"],
+                "official_workflows": entry_spec["official_workflows"],
+                "peripheral_tracker": entry_spec["peripheral_tracker"],
                 "passing_corpus": entry_spec["passing_corpus"],
                 "register_coverage": {
                     "status": coverage["evidence_status"],
@@ -114,6 +227,8 @@ def main() -> None:
         "schema": "remu.support-dashboard.v1",
         "portfolio": "six-chip baseline",
         "result": "pass",
+        "source_tree_sha256": source_digest,
+        "tier_definitions": tier_definitions,
         "scope_note": (
             "Baseline proven means deterministic functional compiler/firmware testing; "
             "it does not claim cycle accuracy, complete ISA coverage, or complete peripherals."
@@ -140,23 +255,37 @@ def main() -> None:
     }
 
     json_path = QUALIFICATION / "dashboard.json"
-    json_path.write_text(
-        json.dumps(dashboard, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    dashboard_json = json.dumps(dashboard, indent=2, sort_keys=True) + "\n"
 
     rows = []
     for target in targets:
         profiles = ", ".join(profile["name"] for profile in target["cpu_profiles"])
         coverage = target["register_coverage"]
+        cpu_rows = escape_list(
+            [
+                f"{row['id']} · {row['native_image_format']} · {row['status']}"
+                for row in target["cpu_evidence_rows"]
+            ]
+        )
+        tiers = "".join(
+            f"<li><strong>{html.escape(tier['label'])}</strong> — {html.escape(tier['status'])}; "
+            f"evidence: {escape_list([item['path'] + ' (' + item['sha256'][:12] + ')' for item in tier['evidence']])}"
+            f"</li>"
+            for tier in target["support_tiers"]
+        )
         rows.append(
             f"""
             <article class="target">
-              <header><div><code>{html.escape(target['id'])}</code><h2>{html.escape(target['name'])}</h2></div><span>PROVEN</span></header>
-              <p class="tier">{html.escape(target['support_tier'])}</p>
+              <header><div><code>{html.escape(target['id'])}</code><h2>{html.escape(target['name'])}</h2></div><span>{html.escape(target['support_tiers'][-1]['label'].upper())}</span></header>
+              <p class="tier">Highest tier: {html.escape(target['support_tiers'][-1]['label'])}. This is a named evidence claim, not arbitrary-device compatibility.</p>
               <dl><dt>CPU profiles</dt><dd>{html.escape(profiles)}</dd>
+                <dt>Native-image rows</dt><dd><ul>{cpu_rows}</ul></dd>
+                <dt>Native formats</dt><dd>{html.escape(', '.join(target['native_image_formats']))}</dd>
+                <dt>Peripheral scope</dt><dd>{html.escape(', '.join(target['peripheral_scope']))} · <a href="{html.escape(target['peripheral_tracker'])}">tracker</a></dd>
                 <dt>Register evidence</dt><dd>{coverage['covered_register_count']} registers across {len(coverage['required_covered_regions'])} required regions · <a href="register-coverage/{html.escape(target['id'])}.json">manifest</a></dd></dl>
-              <div class="columns"><section><h3>Passing corpus</h3><ul>{escape_list(target['passing_corpus'])}</ul></section>
-              <section><h3>Known gaps</h3><ul>{escape_list(target['known_gaps'])}</ul></section></div>
+              <div class="columns"><section><h3>Support tiers</h3><ul>{tiers}</ul></section>
+              <section><h3>Official workflows</h3><ul>{escape_list(target['official_workflows'])}</ul><h3>Passing corpus</h3><ul>{escape_list(target['passing_corpus'])}</ul></section></div>
+              <p><strong>Known gaps:</strong> {html.escape('; '.join(target['known_gaps']))}</p>
             </article>"""
         )
 
@@ -172,10 +301,57 @@ def main() -> None:
 <p class="lede">Checked compiler, firmware, register, and observability evidence for the original baseline.</p>
 <div class="notice"><strong>What “proven” means.</strong> {html.escape(dashboard['scope_note'])}</div>
 {''.join(rows)}
-<section class="provenance"><h2>Provenance and licences</h2><p>Renvo Emulator: MIT OR Apache-2.0. Upstream samples are downloaded at pinned commits, verified by SHA-256, and compiled without changes; tracked adapters provide the SDK and native-MMIO boundary.</p><ul>{sources}</ul><p><a href="dashboard.json">Machine-readable dashboard</a> · <a href="vendor-samples.json">Vendor qualification</a> · <a href="../PLAN.html">Original plan</a></p></section>
+<section class="provenance"><h2>Provenance and licences</h2><p>Renvo Emulator: MIT OR Apache-2.0. Upstream samples are downloaded at pinned commits, verified by SHA-256, and compiled without changes; tracked adapters provide the SDK and native-MMIO boundary.</p><ul>{sources}</ul><p>Source tree digest: <code>{source_digest}</code></p><p><a href="dashboard.json">Machine-readable dashboard</a> · <a href="capability-matrix.md">Markdown capability matrix</a> · <a href="vendor-samples.json">Vendor qualification</a> · <a href="../PLAN.html">Original plan</a></p></section>
 </main></body></html>"""
-    (QUALIFICATION / "dashboard.html").write_text(page, encoding="utf-8")
-    print("generated six-target dashboard: qualification/dashboard.html")
+    matrix_rows = [
+        "# Renvo Emulator capability matrix",
+        "",
+        "This matrix is generated from target manifests and checked qualification artifacts. Tier 3 is a named workflow claim, not arbitrary SDK or production-firmware compatibility.",
+        "",
+        f"Source tree SHA-256 (generated artifacts excluded): `{source_digest}`",
+        "",
+        "| Target | Highest tier | CPU evidence rows | Native formats | Peripheral scope | Official workflow | Tracker |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for target in targets:
+        cpu_rows = "; ".join(
+            f"{row['id']} ({row['native_image_format']})" for row in target["cpu_evidence_rows"]
+        )
+        workflows = "; ".join(target["official_workflows"])
+        matrix_rows.append(
+            "| "
+            + " | ".join(
+                [
+                    f"[{target['name']}]({target['peripheral_tracker']})",
+                    target["support_tiers"][-1]["label"],
+                    cpu_rows,
+                    ", ".join(target["native_image_formats"]),
+                    ", ".join(target["peripheral_scope"]),
+                    workflows,
+                    target["peripheral_tracker"],
+                ]
+            )
+            + " |"
+        )
+    matrix_rows.extend(
+        [
+            "",
+            "## Tier definitions",
+            "",
+            *[
+                f"- **{tier['label']}** — {tier['description']}"
+                for tier in tier_definitions
+            ],
+            "",
+            "Every tier above is bound to artifact paths and SHA-256 digests in `dashboard.json`; `scripts/check-capability-matrix.sh` rejects stale generated outputs.",
+            "",
+        ]
+    )
+    matrix = "\n".join(matrix_rows)
+    emit(json_path, dashboard_json, check)
+    emit(QUALIFICATION / "dashboard.html", page, check)
+    emit(QUALIFICATION / "capability-matrix.md", matrix, check)
+    print("checked" if check else "generated", "capability matrix and six-target dashboard")
 
 
 if __name__ == "__main__":

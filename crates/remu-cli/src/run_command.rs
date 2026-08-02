@@ -6,7 +6,7 @@ pub(super) fn list_targets(json: bool) -> Result<(), Box<dyn Error>> {
         println!("{}", serde_json::to_string_pretty(target_manifests())?);
         return Ok(());
     }
-    println!("TARGET     CPU MODE(S)                         FIDELITY");
+    println!("TARGET     CPU MODE(S)                         FIDELITY       SUPPORT TIER");
     for target in target_manifests() {
         let cpus = target
             .cpus
@@ -14,7 +14,10 @@ pub(super) fn list_targets(json: bool) -> Result<(), Box<dyn Error>> {
             .map(|cpu| cpu.name)
             .collect::<Vec<_>>()
             .join(", ");
-        println!("{:<10} {:<35} {:?}", target.id, cpus, target.fidelity);
+        println!(
+            "{:<10} {:<35} {:?} {:?}",
+            target.id, cpus, target.fidelity, target.support_tier
+        );
     }
     Ok(())
 }
