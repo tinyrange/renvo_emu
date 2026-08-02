@@ -29,3 +29,62 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_saradc_native_window_triggers_conversion() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6004_0000;
+    machine.saradc().set_input(0, 0x12345).unwrap();
+    machine
+        .bus
+        .write(base + 0x18, AccessWidth::Word, 3 | (1 << 6), SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x5c, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base, AccessWidth::Word, 1, SimTime::from_ticks(2))
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x40,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x12345
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x64,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        1 << 31
+    );
+    machine
+        .bus
+        .write(base + 0x68, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x64,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0
+    );
+}
