@@ -6,11 +6,35 @@ use std::sync::{Arc, Mutex};
 
 /// Number of event channels present on the SAM D21.
 pub const SAMD21_EVSYS_CHANNEL_COUNT: usize = 12;
+/// Number of user-multiplexer entries defined by the SAM D21.
+pub const SAMD21_EVSYS_USER_COUNT: usize = 29;
 
-const CHANNEL_MASK: u32 = (1 << SAMD21_EVSYS_CHANNEL_COUNT) - 1;
-const EVD_MASK: u32 = CHANNEL_MASK << 16;
-const OVR_MASK: u32 = CHANNEL_MASK;
+const CHANNEL_MASK: u32 = 0x0f;
+const USER_MASK: u32 = 0x1f;
+const EVENT_CHANNEL_MASK: u32 = 0x1f;
+const EVENT_GENERATOR_MASK: u32 = 0x7f;
+// The interrupt vectors are split around the reserved bits in the SAM D21
+// register layout: channels 0..7 occupy the low byte and channels 8..11 the
+// upper nibble for both OVR and EVD.
+const OVR_MASK: u32 = 0x000f_00ff;
+const EVD_MASK: u32 = 0x0f00_ff00;
 const CHSTATUS_RESET: u32 = 0x000f_00ff;
+
+fn user_ready_bit(channel: usize) -> u32 {
+    if channel < 8 {
+        1 << channel
+    } else {
+        1 << (16 + channel - 8)
+    }
+}
+
+fn evd_bit(channel: usize) -> u32 {
+    if channel < 8 {
+        1 << (8 + channel)
+    } else {
+        1 << (24 + channel - 8)
+    }
+}
 
 /// Named SAM D21 EVSYS register offsets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,7 +57,8 @@ pub enum Samd21EvsysRegister {
 }
 
 impl Samd21EvsysRegister {
-    fn from_offset(offset: u64) -> Option<Self> {
+    /// Converts a register-block byte offset to its named register.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
         match offset & !3 {
             0x00 => Some(Self::Control),
             0x04 => Some(Self::Channel),
@@ -46,7 +71,8 @@ impl Samd21EvsysRegister {
         }
     }
 
-    fn offset(self) -> u64 {
+    /// Returns the native byte offset of this register.
+    pub const fn offset(self) -> u64 {
         self as u64
     }
 }
@@ -71,8 +97,9 @@ impl Default for ChannelConfig {
 struct EvsysState {
     generic_clock_request: bool,
     channels: [ChannelConfig; SAMD21_EVSYS_CHANNEL_COUNT],
+    channel_configured: [bool; SAMD21_EVSYS_CHANNEL_COUNT],
     selected_channel: u8,
-    user_channels: [u8; 0x40],
+    user_channels: [u8; SAMD21_EVSYS_USER_COUNT],
     selected_user: u8,
     interrupt_enable: u32,
     interrupt_flags: u32,
@@ -84,8 +111,9 @@ impl Default for EvsysState {
         Self {
             generic_clock_request: false,
             channels: [ChannelConfig::default(); SAMD21_EVSYS_CHANNEL_COUNT],
+            channel_configured: [false; SAMD21_EVSYS_CHANNEL_COUNT],
             selected_channel: 0,
-            user_channels: [0; 0x40],
+            user_channels: [0; SAMD21_EVSYS_USER_COUNT],
             selected_user: 0,
             interrupt_enable: 0,
             interrupt_flags: 0,
@@ -111,9 +139,22 @@ impl EvsysState {
     }
 
     fn status_value(&self) -> u32 {
-        // No asynchronous consumer is modelled yet.  All users are therefore
-        // ready and no channel remains busy after an event is observed.
-        CHSTATUS_RESET
+        // On reset the device reports every channel user-ready.  Once a
+        // channel is configured for the asynchronous path, the hardware
+        // reports zero for that channel because asynchronous paths have no
+        // channel-clock status or interrupt state.  The first eight channels
+        // are the only channels that support synchronous/resynchronized paths
+        // on SAM D21.  Events are delivered immediately in this functional
+        // model, so CHBUSY is never asserted.
+        let mut status = CHSTATUS_RESET;
+        for channel in 0..SAMD21_EVSYS_CHANNEL_COUNT {
+            if self.channel_configured[channel]
+                && (channel >= 8 || self.channels[channel].path == 2)
+            {
+                status &= !user_ready_bit(channel);
+            }
+        }
+        status
     }
 
     fn reset(&mut self) {
@@ -132,12 +173,25 @@ impl EvsysState {
         // no event output.  This is the useful software-event contract while
         // peripheral generator wiring remains a later slice.
         let output_enabled = if software {
-            self.generic_clock_request && config.path <= 1 && config.edge == 1
+            // Microchip documents software events only for a clocked channel,
+            // with a synchronous or resynchronized path and rising-edge
+            // detection.  SAM D21 channels 8..11 cannot use those paths.
+            channel_index < 8 && self.generic_clock_request && config.path <= 1 && config.edge == 1
         } else {
-            config.path != 2 && config.edge != 0
+            match config.path {
+                // Asynchronous events propagate directly to users but do not
+                // generate EVD interrupts.
+                2 => true,
+                // Edge detection (and therefore EVD) is available only on the
+                // first eight, clocked channels.
+                0 | 1 => channel_index < 8 && config.edge != 0,
+                _ => false,
+            }
         };
         if output_enabled {
-            self.interrupt_flags |= 1 << (16 + channel_index);
+            if config.path != 2 {
+                self.interrupt_flags |= evd_bit(channel_index);
+            }
             true
         } else {
             false
@@ -189,6 +243,7 @@ impl Samd21EvsysHandle {
             .get(usize::from(user))
             .copied()
             .and_then(|channel| channel.checked_sub(1))
+            .filter(|channel| usize::from(*channel) < SAMD21_EVSYS_CHANNEL_COUNT)
     }
 }
 
@@ -274,6 +329,28 @@ impl Samd21Evsys {
         let merged = (old & !mask) | (((value & width.value_mask()) as u32) << shift);
         Ok((register, merged))
     }
+
+    fn payload(
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+    ) -> Result<(Samd21EvsysRegister, u32), DeviceError> {
+        let register = Samd21EvsysRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!("unmodeled SAM D21 EVSYS access at {offset:#x}"))
+        })?;
+        let base = register.offset();
+        let shift = offset
+            .checked_sub(base)
+            .and_then(|value| value.checked_mul(8))
+            .ok_or_else(|| DeviceError::new("SAM D21 EVSYS access offset overflow"))?;
+        let bits = u64::from(width.bytes()) * 8;
+        if shift + bits > 32 {
+            return Err(DeviceError::new(format!(
+                "SAM D21 EVSYS access crosses register boundary at {offset:#x}"
+            )));
+        }
+        Ok((register, ((value & width.value_mask()) as u32) << shift))
+    }
 }
 
 impl Device for Samd21Evsys {
@@ -295,17 +372,18 @@ impl Device for Samd21Evsys {
         _at: SimTime,
     ) -> Result<(), DeviceError> {
         let mut state = self.state.lock().expect("EVSYS lock poisoned");
-        let (register, value) = Self::merged_write(&state, offset, width, value)?;
+        let (register, merged) = Self::merged_write(&state, offset, width, value)?;
+        let (_, payload) = Self::payload(offset, width, value)?;
         match register {
             Samd21EvsysRegister::Control => {
-                if value & 1 != 0 {
+                if payload & 1 != 0 {
                     state.reset();
                 } else {
-                    state.generic_clock_request = value & (1 << 4) != 0;
+                    state.generic_clock_request = payload & (1 << 4) != 0;
                 }
             }
             Samd21EvsysRegister::Channel => {
-                let channel = value & 0xf;
+                let channel = merged & CHANNEL_MASK;
                 if channel >= u32::try_from(SAMD21_EVSYS_CHANNEL_COUNT).expect("channel count") {
                     return Err(DeviceError::new(format!(
                         "SAM D21 EVSYS channel index {channel} is out of range"
@@ -313,22 +391,28 @@ impl Device for Samd21Evsys {
                 }
                 state.selected_channel = channel as u8;
                 let index = usize::from(state.selected_channel);
+                state.channel_configured[index] = true;
                 state.channels[index] = ChannelConfig {
-                    event_generator: ((value >> 16) & 0x7f) as u8,
-                    path: ((value >> 24) & 0x3) as u8,
-                    edge: ((value >> 26) & 0x3) as u8,
+                    event_generator: ((merged >> 16) & EVENT_GENERATOR_MASK) as u8,
+                    path: ((merged >> 24) & 0x3) as u8,
+                    edge: ((merged >> 26) & 0x3) as u8,
                 };
-                if value & (1 << 8) != 0 {
+                if payload & (1 << 8) != 0 {
                     let selected_channel = state.selected_channel;
                     state.trigger(selected_channel, true);
                 }
             }
             Samd21EvsysRegister::User => {
-                let user = value & 0xff;
-                let channel = (value >> 8) & 0x1f;
-                if user >= 0x40 {
+                let user = merged & USER_MASK;
+                let channel = (merged >> 8) & EVENT_CHANNEL_MASK;
+                if user >= u32::try_from(SAMD21_EVSYS_USER_COUNT).expect("user count") {
                     return Err(DeviceError::new(format!(
                         "SAM D21 EVSYS user index {user} is outside the modeled range"
+                    )));
+                }
+                if channel > u32::try_from(SAMD21_EVSYS_CHANNEL_COUNT).expect("channel count") {
+                    return Err(DeviceError::new(format!(
+                        "SAM D21 EVSYS user channel {channel} is outside the modeled range"
                     )));
                 }
                 state.selected_user = user as u8;
@@ -338,13 +422,13 @@ impl Device for Samd21Evsys {
                 // Read-only on silicon.
             }
             Samd21EvsysRegister::InterruptEnableClear => {
-                state.interrupt_enable &= !(value & (EVD_MASK | OVR_MASK));
+                state.interrupt_enable &= !(payload & (EVD_MASK | OVR_MASK));
             }
             Samd21EvsysRegister::InterruptEnableSet => {
-                state.interrupt_enable |= value & (EVD_MASK | OVR_MASK);
+                state.interrupt_enable |= payload & (EVD_MASK | OVR_MASK);
             }
             Samd21EvsysRegister::InterruptFlags => {
-                state.interrupt_flags &= !(value & (EVD_MASK | OVR_MASK));
+                state.interrupt_flags &= !(payload & (EVD_MASK | OVR_MASK));
             }
         }
         Ok(())
@@ -377,7 +461,12 @@ mod tests {
             .write(0x08, AccessWidth::HalfWord, 0x13 | (3 << 8), SimTime::ZERO)
             .unwrap();
         evsys
-            .write(0x14, AccessWidth::Word, 1 << (16 + 2), SimTime::ZERO)
+            .write(
+                0x14,
+                AccessWidth::Word,
+                u64::from(evd_bit(2)),
+                SimTime::ZERO,
+            )
             .unwrap();
         evsys
             .write(0x04, AccessWidth::HalfWord, 2 | (1 << 8), SimTime::ZERO)
@@ -385,7 +474,7 @@ mod tests {
 
         assert_eq!(handle.event_count(2), 1);
         assert_eq!(handle.user_channel(0x13), Some(2));
-        assert_eq!(handle.flags(), 1 << (16 + 2));
+        assert_eq!(handle.flags(), evd_bit(2));
         assert!(handle.interrupt_pending());
         assert_eq!(
             evsys.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
@@ -397,10 +486,126 @@ mod tests {
         );
 
         evsys
-            .write(0x18, AccessWidth::Word, 1 << (16 + 2), SimTime::ZERO)
+            .write(
+                0x18,
+                AccessWidth::Word,
+                u64::from(evd_bit(2)),
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_eq!(handle.flags(), 0);
         assert!(!handle.interrupt_pending());
+    }
+
+    #[test]
+    fn named_register_ids_round_trip_native_offsets() {
+        let registers = [
+            Samd21EvsysRegister::Control,
+            Samd21EvsysRegister::Channel,
+            Samd21EvsysRegister::User,
+            Samd21EvsysRegister::ChannelStatus,
+            Samd21EvsysRegister::InterruptEnableClear,
+            Samd21EvsysRegister::InterruptEnableSet,
+            Samd21EvsysRegister::InterruptFlags,
+        ];
+        for register in registers {
+            assert_eq!(
+                Samd21EvsysRegister::from_offset(register.offset()),
+                Some(register)
+            );
+        }
+    }
+
+    #[test]
+    fn interrupt_masks_match_split_sam_d21_layout_and_w1_semantics() {
+        let (mut evsys, handle) = Samd21Evsys::new("evsys");
+        evsys
+            .write(0x00, AccessWidth::Byte, 1 << 4, SimTime::ZERO)
+            .unwrap();
+        evsys
+            .write(0x04, AccessWidth::Word, 2 | (1 << 26), SimTime::ZERO)
+            .unwrap();
+        evsys
+            .write(
+                0x14,
+                AccessWidth::Word,
+                u64::from(evd_bit(2) | (1 << 16)),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.interrupt_pending() == false);
+        evsys
+            .write(0x04, AccessWidth::HalfWord, 2 | (1 << 8), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.flags(), evd_bit(2));
+        assert!(handle.interrupt_pending());
+
+        // A zero write must not clear a W1C register's existing state.
+        evsys
+            .write(0x18, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.flags(), evd_bit(2));
+        evsys
+            .write(
+                0x18,
+                AccessWidth::Word,
+                u64::from(evd_bit(2)),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(handle.flags(), 0);
+
+        // INTENCLR also consumes only the written one bits.
+        evsys
+            .write(0x10, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.interrupt_pending() == false);
+        evsys
+            .write(
+                0x14,
+                AccessWidth::Word,
+                u64::from(evd_bit(2)),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.interrupt_pending());
+        evsys
+            .write(
+                0x10,
+                AccessWidth::Word,
+                u64::from(evd_bit(2)),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn asynchronous_channels_have_no_channel_status_or_event_interrupt() {
+        let (mut evsys, handle) = Samd21Evsys::new("evsys");
+        evsys
+            .write(0x04, AccessWidth::Word, 2 | (2 << 24), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            evsys.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap() & user_ready_bit(2) as u64,
+            0
+        );
+        assert!(handle.trigger(2));
+        assert_eq!(handle.flags(), 0);
+    }
+
+    #[test]
+    fn user_mux_rejects_reserved_user_and_channel_values() {
+        let (mut evsys, _) = Samd21Evsys::new("evsys");
+        assert!(
+            evsys
+                .write(0x08, AccessWidth::HalfWord, 29, SimTime::ZERO)
+                .is_err()
+        );
+        assert!(
+            evsys
+                .write(0x08, AccessWidth::HalfWord, 1 | (13 << 8), SimTime::ZERO)
+                .is_err()
+        );
     }
 
     #[test]
