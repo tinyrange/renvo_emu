@@ -945,6 +945,58 @@ mod tests {
     }
 
     #[test]
+    fn samd21_native_sercom0_accepts_spi_and_i2c_master_registers() {
+        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
+        let sercom0 = 0x4200_0800;
+
+        // SERCOM0 SPI host mode: MODE=0x3 and ENABLE=1. The functional model provides
+        // deterministic loopback so a compiler-facing transfer can observe a response.
+        machine
+            .bus
+            .write(sercom0, AccessWidth::Word, (3_u64 << 2) | 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(sercom0 + 0x28, AccessWidth::Byte, 0x5a, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    sercom0 + 0x28,
+                    AccessWidth::Byte,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x5a
+        );
+
+        // Reconfigure the same native window for I²C host mode and issue a write address.
+        machine
+            .bus
+            .write(sercom0, AccessWidth::Word, (5_u64 << 2) | 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(sercom0 + 0x24, AccessWidth::Byte, 0xa0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    sercom0 + 0x18,
+                    AccessWidth::Byte,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap()
+                & 1,
+            1
+        );
+    }
+
+    #[test]
     fn stm32l432_uses_the_distinct_m4f_profile_and_gpioa_bsrr() {
         let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
         assert_eq!(machine.cpu.profile(), ArmProfile::CortexM4F);
