@@ -95,7 +95,11 @@ The ESP32-S3 SHA accelerator is mapped at `0x6003_b000` using the native
 SHA-256 text-block and host-backed DMA starts/continues, digest words at
 `SHA_H_BASE`, busy state, completion interrupt enable/clear, and the VCD path
 `board.esp32s3.sha.digest`. SHA-1/SHA-384/SHA-512, exact block scheduling,
-descriptor-level DMA and cycle timing remain unsupported.
+descriptor-level DMA and cycle timing remain unsupported. The implementation
+exposes a named `Esp32S3ShaRegister` enum for the complete SHA control,
+digest, text, and DATE offset map, applies conservative native masks and reset
+values, treats start/continue/clear strobes as write-only self-clearing
+operations, and rejects reserved holes and writes wider than 32 bits.
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be

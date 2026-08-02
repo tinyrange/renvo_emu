@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3ShaRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -37,17 +38,27 @@ fn esp32s3_sha_native_window_hashes_a_host_message() {
     machine.sha().queue_dma_message(b"abc");
     machine
         .bus
-        .write(base + 0x28, AccessWidth::Word, 1, SimTime::ZERO)
+        .write(
+            base + Esp32S3ShaRegister::IntEna.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
         .unwrap();
     machine
         .bus
-        .write(base + 0x1c, AccessWidth::Word, 1, SimTime::from_ticks(2))
+        .write(
+            base + Esp32S3ShaRegister::DmaStart.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::from_ticks(2),
+        )
         .unwrap();
     assert_eq!(
         machine
             .bus
             .read(
-                base + 0x40,
+                base + Esp32S3ShaRegister::H0.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -58,7 +69,12 @@ fn esp32s3_sha_native_window_hashes_a_host_message() {
     assert!(machine.sha().interrupt_pending());
     machine
         .bus
-        .write(base + 0x24, AccessWidth::Word, 1, SimTime::ZERO)
+        .write(
+            base + Esp32S3ShaRegister::ClearIrq.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
         .unwrap();
     assert!(!machine.sha().interrupt_pending());
 }

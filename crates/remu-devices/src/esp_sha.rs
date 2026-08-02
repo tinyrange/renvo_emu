@@ -1,20 +1,172 @@
 use super::*;
 use sha2::{Digest, Sha224, Sha256};
 
-const MODE: u64 = 0x00;
-const T_STRING: u64 = 0x04;
-const T_LENGTH: u64 = 0x08;
-const BLOCK_NUM: u64 = 0x0c;
-const START: u64 = 0x10;
-const CONTINUE: u64 = 0x14;
-const BUSY: u64 = 0x18;
-const DMA_START: u64 = 0x1c;
-const DMA_CONTINUE: u64 = 0x20;
-const CLEAR_IRQ: u64 = 0x24;
-const INT_ENA: u64 = 0x28;
-const H_BASE: u64 = 0x40;
-const TEXT_BASE: u64 = 0x80;
-const DATE: u64 = 0xfc;
+/// Native ESP32-S3 SHA register identifiers from Espressif's
+/// `hwcrypto_reg.h` map.  The digest and text windows are represented as
+/// individual IDs so callers never need to use an integer register index.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u16)]
+#[allow(missing_docs)]
+pub enum Esp32S3ShaRegister {
+    Mode = 0x00,
+    TString = 0x04,
+    TLength = 0x08,
+    BlockNum = 0x0c,
+    Start = 0x10,
+    Continue = 0x14,
+    Busy = 0x18,
+    DmaStart = 0x1c,
+    DmaContinue = 0x20,
+    ClearIrq = 0x24,
+    IntEna = 0x28,
+    H0 = 0x40,
+    H1 = 0x44,
+    H2 = 0x48,
+    H3 = 0x4c,
+    H4 = 0x50,
+    H5 = 0x54,
+    H6 = 0x58,
+    H7 = 0x5c,
+    Text0 = 0x80,
+    Text1 = 0x84,
+    Text2 = 0x88,
+    Text3 = 0x8c,
+    Text4 = 0x90,
+    Text5 = 0x94,
+    Text6 = 0x98,
+    Text7 = 0x9c,
+    Text8 = 0xa0,
+    Text9 = 0xa4,
+    Text10 = 0xa8,
+    Text11 = 0xac,
+    Text12 = 0xb0,
+    Text13 = 0xb4,
+    Text14 = 0xb8,
+    Text15 = 0xbc,
+    Date = 0xfc,
+}
+
+impl Esp32S3ShaRegister {
+    /// Returns the byte offset in the SHA peripheral page.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Resolves a native byte offset. Reserved holes return `None`.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x00 => Self::Mode,
+            0x04 => Self::TString,
+            0x08 => Self::TLength,
+            0x0c => Self::BlockNum,
+            0x10 => Self::Start,
+            0x14 => Self::Continue,
+            0x18 => Self::Busy,
+            0x1c => Self::DmaStart,
+            0x20 => Self::DmaContinue,
+            0x24 => Self::ClearIrq,
+            0x28 => Self::IntEna,
+            0x40 => Self::H0,
+            0x44 => Self::H1,
+            0x48 => Self::H2,
+            0x4c => Self::H3,
+            0x50 => Self::H4,
+            0x54 => Self::H5,
+            0x58 => Self::H6,
+            0x5c => Self::H7,
+            0x80 => Self::Text0,
+            0x84 => Self::Text1,
+            0x88 => Self::Text2,
+            0x8c => Self::Text3,
+            0x90 => Self::Text4,
+            0x94 => Self::Text5,
+            0x98 => Self::Text6,
+            0x9c => Self::Text7,
+            0xa0 => Self::Text8,
+            0xa4 => Self::Text9,
+            0xa8 => Self::Text10,
+            0xac => Self::Text11,
+            0xb0 => Self::Text12,
+            0xb4 => Self::Text13,
+            0xb8 => Self::Text14,
+            0xbc => Self::Text15,
+            0xfc => Self::Date,
+            _ => return None,
+        })
+    }
+
+    fn digest_index(self) -> Option<usize> {
+        Some(match self {
+            Self::H0 => 0,
+            Self::H1 => 1,
+            Self::H2 => 2,
+            Self::H3 => 3,
+            Self::H4 => 4,
+            Self::H5 => 5,
+            Self::H6 => 6,
+            Self::H7 => 7,
+            _ => return None,
+        })
+    }
+
+    fn text_index(self) -> Option<usize> {
+        Some(match self {
+            Self::Text0 => 0,
+            Self::Text1 => 1,
+            Self::Text2 => 2,
+            Self::Text3 => 3,
+            Self::Text4 => 4,
+            Self::Text5 => 5,
+            Self::Text6 => 6,
+            Self::Text7 => 7,
+            Self::Text8 => 8,
+            Self::Text9 => 9,
+            Self::Text10 => 10,
+            Self::Text11 => 11,
+            Self::Text12 => 12,
+            Self::Text13 => 13,
+            Self::Text14 => 14,
+            Self::Text15 => 15,
+            _ => return None,
+        })
+    }
+
+    const fn read_mask(self) -> u32 {
+        match self {
+            Self::Busy => 1,
+            Self::Mode => 0x7,
+            Self::TLength => 0xff,
+            Self::IntEna => 1,
+            Self::Start | Self::Continue | Self::DmaStart | Self::DmaContinue | Self::ClearIrq => 0,
+            Self::Date => u32::MAX,
+            _ => u32::MAX,
+        }
+    }
+
+    const fn write_mask(self) -> u32 {
+        match self {
+            Self::Busy | Self::Date => 0,
+            Self::Mode => 0x7,
+            Self::TLength => 0xff,
+            Self::IntEna => 1,
+            Self::Start | Self::Continue | Self::DmaStart | Self::DmaContinue | Self::ClearIrq => 1,
+            _ => u32::MAX,
+        }
+    }
+}
+
+const MODE: Esp32S3ShaRegister = Esp32S3ShaRegister::Mode;
+const T_STRING: Esp32S3ShaRegister = Esp32S3ShaRegister::TString;
+const T_LENGTH: Esp32S3ShaRegister = Esp32S3ShaRegister::TLength;
+const BLOCK_NUM: Esp32S3ShaRegister = Esp32S3ShaRegister::BlockNum;
+const START: Esp32S3ShaRegister = Esp32S3ShaRegister::Start;
+const CONTINUE: Esp32S3ShaRegister = Esp32S3ShaRegister::Continue;
+const BUSY: Esp32S3ShaRegister = Esp32S3ShaRegister::Busy;
+const DMA_START: Esp32S3ShaRegister = Esp32S3ShaRegister::DmaStart;
+const DMA_CONTINUE: Esp32S3ShaRegister = Esp32S3ShaRegister::DmaContinue;
+const CLEAR_IRQ: Esp32S3ShaRegister = Esp32S3ShaRegister::ClearIrq;
+const INT_ENA: Esp32S3ShaRegister = Esp32S3ShaRegister::IntEna;
+const DATE: Esp32S3ShaRegister = Esp32S3ShaRegister::Date;
 
 const TEXT_BYTES: usize = 64;
 const DIGEST_BYTES: usize = 32;
@@ -53,7 +205,7 @@ impl Esp32S3ShaHandle {
 }
 
 struct Esp32S3ShaState {
-    registers: BTreeMap<u64, u32>,
+    registers: BTreeMap<Esp32S3ShaRegister, u32>,
     text: [u8; TEXT_BYTES],
     digest: [u8; DIGEST_BYTES],
     dma_message: Vec<u8>,
@@ -81,8 +233,8 @@ impl Esp32S3ShaState {
         }
     }
 
-    fn register(&self, offset: u64) -> u32 {
-        self.registers.get(&offset).copied().unwrap_or_default()
+    fn register(&self, register: Esp32S3ShaRegister) -> u32 {
+        self.registers.get(&register).copied().unwrap_or_default()
     }
 
     fn publish(&self, at: SimTime) -> Result<(), DeviceError> {
@@ -186,12 +338,15 @@ impl Device for Esp32S3Sha {
                 "ESP32-S3 SHA requires aligned word access",
             ));
         }
+        let register = Esp32S3ShaRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unsupported ESP32-S3 SHA register offset {offset:#x}"
+            ))
+        })?;
         let state = self.state.borrow();
-        let value = match offset {
-            BUSY => state.register(BUSY),
-            INT_ENA => state.register(INT_ENA),
-            H_BASE..=0x5c if (offset - H_BASE) % 4 == 0 => {
-                let index = usize::try_from((offset - H_BASE) / 4).expect("SHA digest index fits");
+        let value = match register {
+            register if register.digest_index().is_some() => {
+                let index = register.digest_index().expect("matched digest register");
                 let start = index * 4;
                 u32::from_be_bytes(
                     state.digest[start..start + 4]
@@ -199,15 +354,15 @@ impl Device for Esp32S3Sha {
                         .expect("digest word"),
                 )
             }
-            TEXT_BASE..=0xbc if (offset - TEXT_BASE) % 4 == 0 => {
-                let index = usize::try_from((offset - TEXT_BASE) / 4).expect("SHA text index fits");
+            register if register.text_index().is_some() => {
+                let index = register.text_index().expect("matched text register");
                 u32::from_le_bytes(
                     state.text[index * 4..index * 4 + 4]
                         .try_into()
                         .expect("text word"),
                 )
             }
-            _ => state.register(offset),
+            _ => state.register(register) & register.read_mask(),
         };
         Ok(u64::from(value))
     }
@@ -224,37 +379,47 @@ impl Device for Esp32S3Sha {
                 "ESP32-S3 SHA requires aligned word access",
             ));
         }
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits u32");
+        let register = Esp32S3ShaRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unsupported ESP32-S3 SHA register offset {offset:#x}"
+            ))
+        })?;
+        let value = u32::try_from(value).map_err(|_| {
+            DeviceError::new(format!(
+                "ESP32-S3 SHA word write exceeds 32 bits: {value:#x}"
+            ))
+        })?;
         let mut state = self.state.borrow_mut();
-        match offset {
-            TEXT_BASE..=0xbc if (offset - TEXT_BASE) % 4 == 0 => {
-                let index = usize::try_from((offset - TEXT_BASE) / 4).expect("SHA text index fits");
+        match register {
+            register if register.text_index().is_some() => {
+                let index = register.text_index().expect("matched text register");
                 state.text[index * 4..index * 4 + 4].copy_from_slice(&value.to_le_bytes());
             }
-            H_BASE..=0x5c if (offset - H_BASE) % 4 == 0 => {
-                let index = usize::try_from((offset - H_BASE) / 4).expect("SHA digest index fits");
+            register if register.digest_index().is_some() => {
+                let index = register.digest_index().expect("matched digest register");
                 state.digest[index * 4..index * 4 + 4].copy_from_slice(&value.to_be_bytes());
             }
             START | CONTINUE => {
-                state.registers.insert(offset, value);
-                if value != 0 {
+                if value & register.write_mask() != 0 {
                     state.registers.insert(BUSY, 1);
                     state.process_text(at)?;
                 }
             }
             DMA_START | DMA_CONTINUE => {
-                state.registers.insert(offset, value);
-                if value != 0 {
+                if value & register.write_mask() != 0 {
                     state.registers.insert(BUSY, 1);
                     state.process_dma(at)?;
                 }
             }
             CLEAR_IRQ => {
-                state.irq = false;
-                state.registers.insert(CLEAR_IRQ, 0);
+                if value & register.write_mask() != 0 {
+                    state.irq = false;
+                }
             }
             _ => {
-                state.registers.insert(offset, value);
+                state
+                    .registers
+                    .insert(register, value & register.write_mask());
             }
         }
         Ok(())
@@ -273,26 +438,41 @@ mod tests {
     fn dma_sha256_and_sha224_digest_words_are_native() {
         let hub = SignalHub::new();
         let (mut sha, handle) = Esp32S3Sha::new("sha", hub).unwrap();
-        sha.write(INT_ENA, AccessWidth::Word, 1, SimTime::ZERO)
+        sha.write(INT_ENA.offset(), AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
         handle.queue_dma_message(b"abc");
-        sha.write(DMA_START, AccessWidth::Word, 1, SimTime::from_ticks(2))
-            .unwrap();
+        sha.write(
+            DMA_START.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
         assert_eq!(handle.digest(), Sha256::digest(b"abc").to_vec());
         assert_eq!(
-            sha.read(H_BASE, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            sha.read(
+                Esp32S3ShaRegister::H0.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
             0xba78_16bf
         );
         assert!(handle.interrupt_pending());
-        sha.write(CLEAR_IRQ, AccessWidth::Word, 1, SimTime::ZERO)
+        sha.write(CLEAR_IRQ.offset(), AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
         assert!(!handle.interrupt_pending());
 
-        sha.write(MODE, AccessWidth::Word, 1, SimTime::ZERO)
+        sha.write(MODE.offset(), AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
         handle.queue_dma_message(b"abc");
-        sha.write(DMA_START, AccessWidth::Word, 1, SimTime::from_ticks(3))
-            .unwrap();
+        sha.write(
+            DMA_START.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::from_ticks(3),
+        )
+        .unwrap();
         assert_eq!(handle.digest(), Sha224::digest(b"abc").to_vec());
     }
 
@@ -300,20 +480,88 @@ mod tests {
     fn text_window_is_little_endian_and_unsupported_modes_are_explicit() {
         let hub = SignalHub::new();
         let (mut sha, handle) = Esp32S3Sha::new("sha", hub).unwrap();
-        sha.write(TEXT_BASE, AccessWidth::Word, 0x64636261, SimTime::ZERO)
-            .unwrap();
-        sha.write(START, AccessWidth::Word, 1, SimTime::ZERO)
+        sha.write(
+            Esp32S3ShaRegister::Text0.offset(),
+            AccessWidth::Word,
+            0x64636261,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        sha.write(START.offset(), AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
         assert_eq!(
-            sha.read(TEXT_BASE, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
+            sha.read(
+                Esp32S3ShaRegister::Text0.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
             0x6463_6261
         );
         assert_ne!(handle.digest(), vec![0; DIGEST_BYTES]);
-        sha.write(MODE, AccessWidth::Word, 4, SimTime::ZERO)
+        sha.write(MODE.offset(), AccessWidth::Word, 4, SimTime::ZERO)
             .unwrap();
-        sha.write(START, AccessWidth::Word, 1, SimTime::ZERO)
+        sha.write(START.offset(), AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.digest(), vec![0; DIGEST_BYTES]);
+    }
+
+    #[test]
+    fn register_enum_enforces_native_masks_and_self_clearing_strobes() {
+        assert_eq!(Esp32S3ShaRegister::Mode.offset(), 0x00);
+        assert_eq!(Esp32S3ShaRegister::H7.offset(), 0x5c);
+        assert_eq!(Esp32S3ShaRegister::Text15.offset(), 0xbc);
+        assert_eq!(Esp32S3ShaRegister::from_offset(0x2c), None);
+
+        let hub = SignalHub::new();
+        let (mut sha, _) = Esp32S3Sha::new("sha", hub).unwrap();
+        sha.write(
+            Esp32S3ShaRegister::Mode.offset(),
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            sha.read(
+                Esp32S3ShaRegister::Mode.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            7
+        );
+        sha.write(
+            Esp32S3ShaRegister::Start.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            sha.read(
+                Esp32S3ShaRegister::Start.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn register_access_rejects_reserved_offsets_and_wide_words() {
+        let hub = SignalHub::new();
+        let (mut sha, _) = Esp32S3Sha::new("sha", hub).unwrap();
+        assert!(sha.read(0x2c, AccessWidth::Word, SimTime::ZERO).is_err());
+        assert!(
+            sha.write(
+                Esp32S3ShaRegister::Mode.offset(),
+                AccessWidth::Word,
+                1_u64 << 32,
+                SimTime::ZERO,
+            )
+            .is_err()
+        );
     }
 }
