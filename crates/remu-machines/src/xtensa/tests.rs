@@ -38,6 +38,11 @@ fn esp32s3_i2c0_mmio_executes_sgp30_transaction() {
     const DATA: u64 = 0x1c;
     const CTR: u64 = 0x04;
     const COMMAND0: u64 = 0x58;
+    const RESTART: u64 = 0;
+    const WRITE: u64 = 1;
+    const READ: u64 = 2;
+    const STOP: u64 = 3;
+    const END: u64 = 4;
     const fn command(bytes: u64, opcode: u64) -> u64 {
         bytes | (opcode << 11)
     }
@@ -50,9 +55,14 @@ fn esp32s3_i2c0_mmio_executes_sgp30_transaction() {
     for byte in [0xb0, 0x20, 0x03] {
         write_word(&mut machine, DATA, byte, SimTime::ZERO);
     }
-    for (index, command) in [command(0, 6), command(3, 1), command(0, 2), command(0, 4)]
-        .into_iter()
-        .enumerate()
+    for (index, command) in [
+        command(0, RESTART),
+        command(3, WRITE),
+        command(0, STOP),
+        command(0, END),
+    ]
+    .into_iter()
+    .enumerate()
     {
         write_word(
             &mut machine,
@@ -67,13 +77,13 @@ fn esp32s3_i2c0_mmio_executes_sgp30_transaction() {
         write_word(&mut machine, DATA, byte, at);
     }
     for (index, command) in [
-        command(0, 6),
-        command(3, 1),
-        command(0, 6),
-        command(1, 1),
-        command(6, 3),
-        command(0, 2),
-        command(0, 4),
+        command(0, RESTART),
+        command(3, WRITE),
+        command(0, RESTART),
+        command(1, WRITE),
+        command(6, READ),
+        command(0, STOP),
+        command(0, END),
     ]
     .into_iter()
     .enumerate()

@@ -23,6 +23,32 @@ pub struct Esp32s3I2c {
     hub: SignalHub,
 }
 
+/// ESP32-S3 I2C command-list opcodes defined by the vendor register block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+enum CommandOpcode {
+    Restart = 0,
+    Write = 1,
+    Read = 2,
+    Stop = 3,
+    End = 4,
+}
+
+impl TryFrom<u32> for CommandOpcode {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Restart),
+            1 => Ok(Self::Write),
+            2 => Ok(Self::Read),
+            3 => Ok(Self::Stop),
+            4 => Ok(Self::End),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Esp32s3I2c {
     /// SCL low-period register offset.
     pub const SCL_LOW_PERIOD: u64 = 0x00;
@@ -214,10 +240,10 @@ impl Esp32s3I2c {
         for (index, command) in self.commands.iter_mut().enumerate() {
             let word = *command;
             let byte_count = (word & 0xff) as usize;
-            let opcode = (word >> 11) & 0x7;
+            let opcode = CommandOpcode::try_from((word >> 11) & 0x7);
             match opcode {
-                6 => awaiting_address = true,
-                1 => {
+                Ok(CommandOpcode::Restart) => awaiting_address = true,
+                Ok(CommandOpcode::Write) => {
                     let end = tx_index.saturating_add(byte_count);
                     if end > tx.len() {
                         self.nack = true;
@@ -239,17 +265,16 @@ impl Esp32s3I2c {
                         write_payload.extend_from_slice(bytes);
                     }
                 }
-                3 => read_len = read_len.saturating_add(byte_count),
-                2 | 4 => {
+                Ok(CommandOpcode::Read) => read_len = read_len.saturating_add(byte_count),
+                Ok(CommandOpcode::Stop) => {
                     complete = true;
-                    if opcode == 2 {
-                        awaiting_address = true;
-                    }
-                    if opcode == 4 {
-                        break;
-                    }
+                    awaiting_address = true;
                 }
-                _ => {
+                Ok(CommandOpcode::End) => {
+                    complete = true;
+                    break;
+                }
+                Err(()) => {
                     self.nack = true;
                     break;
                 }
@@ -288,15 +313,19 @@ impl Esp32s3I2c {
                 self.int_raw |= Self::INT_RXFIFO_WM;
             }
         }
-        self.emit_waveform(&tx, at);
+        self.emit_waveform(&tx, at)?;
         Ok(())
     }
 
-    fn emit_waveform(&self, bytes: &[u8], at: SimTime) {
+    fn emit_waveform(&self, bytes: &[u8], at: SimTime) -> Result<(), DeviceError> {
         let high = SignalValue::repeat(Logic::One, 1).expect("one-bit signal");
         let low = SignalValue::repeat(Logic::Zero, 1).expect("one-bit signal");
-        let _ = self.hub.set(self.sda, high.clone(), at);
-        let _ = self.hub.set(self.scl, high.clone(), at);
+        self.hub
+            .set(self.sda, high.clone(), at)
+            .map_err(|error| DeviceError::new(error.to_string()))?;
+        self.hub
+            .set(self.scl, high.clone(), at)
+            .map_err(|error| DeviceError::new(error.to_string()))?;
         for byte in bytes {
             for bit in (0..8).rev() {
                 let value = if byte & (1 << bit) == 0 {
@@ -304,12 +333,21 @@ impl Esp32s3I2c {
                 } else {
                     high.clone()
                 };
-                let _ = self.hub.set(self.sda, value, at);
-                let _ = self.hub.set(self.scl, low.clone(), at);
-                let _ = self.hub.set(self.scl, high.clone(), at);
+                self.hub
+                    .set(self.sda, value, at)
+                    .map_err(|error| DeviceError::new(error.to_string()))?;
+                self.hub
+                    .set(self.scl, low.clone(), at)
+                    .map_err(|error| DeviceError::new(error.to_string()))?;
+                self.hub
+                    .set(self.scl, high.clone(), at)
+                    .map_err(|error| DeviceError::new(error.to_string()))?;
             }
         }
-        let _ = self.hub.set(self.sda, high, at);
+        self.hub
+            .set(self.sda, high, at)
+            .map_err(|error| DeviceError::new(error.to_string()))?;
+        Ok(())
     }
 
     /// Returns the deterministic sensor state for host-side qualification.
@@ -364,8 +402,8 @@ impl Device for Esp32s3I2c {
 mod tests {
     use super::*;
 
-    const fn command(bytes: u32, opcode: u32) -> u32 {
-        bytes | (opcode << 11)
+    const fn command(bytes: u32, opcode: CommandOpcode) -> u32 {
+        bytes | ((opcode as u32) << 11)
     }
 
     fn write_word(device: &mut Esp32s3I2c, offset: u64, value: u32, at: SimTime) {
@@ -400,7 +438,12 @@ mod tests {
         program(
             &mut device,
             &[0xb0, 0x20, 0x03],
-            &[command(0, 6), command(3, 1), command(0, 2), command(0, 4)],
+            &[
+                command(0, CommandOpcode::Restart),
+                command(3, CommandOpcode::Write),
+                command(0, CommandOpcode::Stop),
+                command(0, CommandOpcode::End),
+            ],
             SimTime::ZERO,
         );
         assert_eq!(device.sensor_snapshot().commands, 1);
@@ -408,13 +451,13 @@ mod tests {
             &mut device,
             &[0xb0, 0x20, 0x08, 0xb1],
             &[
-                command(0, 6),
-                command(3, 1),
-                command(0, 6),
-                command(1, 1),
-                command(6, 3),
-                command(0, 2),
-                command(0, 4),
+                command(0, CommandOpcode::Restart),
+                command(3, CommandOpcode::Write),
+                command(0, CommandOpcode::Restart),
+                command(1, CommandOpcode::Write),
+                command(6, CommandOpcode::Read),
+                command(0, CommandOpcode::Stop),
+                command(0, CommandOpcode::End),
             ],
             at,
         );
@@ -431,7 +474,11 @@ mod tests {
         program(
             &mut device,
             &[0x80],
-            &[command(0, 6), command(1, 1), command(0, 2)],
+            &[
+                command(0, CommandOpcode::Restart),
+                command(1, CommandOpcode::Write),
+                command(0, CommandOpcode::Stop),
+            ],
             SimTime::ZERO,
         );
         assert_ne!(
