@@ -782,6 +782,8 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         sources: &[
             "https://www.microchip.com/en-us/product/PIC16F15376",
+            "https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/PIC16-L-F15356-75-76-85-86-Microcontroller-Data-Sheet-DS40001866.pdf",
+            "https://onlinedocs.microchip.com/oxy/GUID-632C0460-65B2-4F1E-8D1A-B760EB793F79-en-US-4/GUID-D3B83BDB-C56A-4C05-B597-4BE11AB88523.html",
             "https://packs.download.microchip.com/Microchip.PIC16F1xxxx_DFP.1.31.465.atpack",
         ],
         limitations: &[

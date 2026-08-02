@@ -15,13 +15,60 @@ const RC1REG: usize = 0x119;
 const TX1REG: usize = 0x11a;
 const RC1STA: usize = 0x11d;
 const TX1STA: usize = 0x11e;
-const SSP1BUF: usize = 0x18c;
-const SSP1ADD: usize = 0x18d;
-const SSP1MSK: usize = 0x18e;
-const SSP1STAT: usize = 0x18f;
-const SSP1CON1: usize = 0x190;
-const SSP1CON2: usize = 0x191;
-const SSP1CON3: usize = 0x192;
+/// Native PIC16F15376 MSSP1 register identifiers.
+///
+/// The enum keeps the peripheral register window typed at the API boundary;
+/// callers should not have to carry unlabelled data-space offsets when
+/// inspecting or driving the functional I²C host model.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[repr(usize)]
+pub enum Pic16Mssp1Register {
+    /// SSP1BUF synchronous serial input/output buffer.
+    Buffer = 0x18c,
+    /// SSP1ADD baud divider/address register.
+    Address = 0x18d,
+    /// SSP1MSK address-mask register.
+    Mask = 0x18e,
+    /// SSP1STAT status register.
+    Status = 0x18f,
+    /// SSP1CON1 mode and enable control.
+    Control1 = 0x190,
+    /// SSP1CON2 I²C command and acknowledge control.
+    Control2 = 0x191,
+    /// SSP1CON3 I²C auxiliary control.
+    Control3 = 0x192,
+}
+
+impl Pic16Mssp1Register {
+    /// Native banked data-space offset for this MSSP1 register.
+    pub const fn offset(self) -> usize {
+        self as usize
+    }
+
+    /// Converts a native data-space offset into a typed MSSP1 identifier.
+    pub const fn from_offset(offset: usize) -> Option<Self> {
+        match offset {
+            0x18c => Some(Self::Buffer),
+            0x18d => Some(Self::Address),
+            0x18e => Some(Self::Mask),
+            0x18f => Some(Self::Status),
+            0x190 => Some(Self::Control1),
+            0x191 => Some(Self::Control2),
+            0x192 => Some(Self::Control3),
+            _ => None,
+        }
+    }
+}
+
+// Keep the internal register-array indexing readable while deriving every
+// offset from the named enum above rather than duplicating numeric IDs.
+const SSP1BUF: usize = Pic16Mssp1Register::Buffer.offset();
+const SSP1ADD: usize = Pic16Mssp1Register::Address.offset();
+const SSP1MSK: usize = Pic16Mssp1Register::Mask.offset();
+const SSP1STAT: usize = Pic16Mssp1Register::Status.offset();
+const SSP1CON1: usize = Pic16Mssp1Register::Control1.offset();
+const SSP1CON2: usize = Pic16Mssp1Register::Control2.offset();
+const SSP1CON3: usize = Pic16Mssp1Register::Control3.offset();
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
@@ -515,6 +562,9 @@ const SSP1CON2_RSEN: u8 = 1 << 1;
 const SSP1CON2_PEN: u8 = 1 << 2;
 const SSP1CON2_RCEN: u8 = 1 << 3;
 const SSP1CON2_ACKEN: u8 = 1 << 4;
+const SSP1CON2_ACKDT: u8 = 1 << 5;
+const SSP1CON2_ACKSTAT: u8 = 1 << 6;
+const SSP1CON3_BOEN: u8 = 1 << 4;
 
 /// A functional MSSP1 I²C host transaction observed by the emulator.
 ///
@@ -541,6 +591,11 @@ pub enum Pic16I2cEvent {
         /// Received data byte.
         value: u8,
     },
+    /// An acknowledge or not-acknowledge bit emitted after a host read.
+    Ack {
+        /// `true` for ACK (`ACKDT = 0`), `false` for NACK (`ACKDT = 1`).
+        acknowledge: bool,
+    },
     /// A normal bus STOP condition.
     Stop,
 }
@@ -555,6 +610,7 @@ struct Pic16State {
     spi_incoming: VecDeque<u8>,
     i2c_events: Vec<Pic16I2cEvent>,
     i2c_responses: BTreeMap<u8, VecDeque<u8>>,
+    i2c_acknowledgements: BTreeMap<u8, bool>,
     i2c_address: Option<u8>,
     i2c_read: bool,
     i2c_byte_signal: SignalId,
@@ -848,66 +904,122 @@ impl Pic16State {
     }
 
     fn i2c_command(&mut self, value: u8, at: SimTime) {
-        let commands =
-            value & (SSP1CON2_SEN | SSP1CON2_RSEN | SSP1CON2_PEN | SSP1CON2_RCEN | SSP1CON2_ACKEN);
-        self.registers[SSP1CON2] = value;
+        const COMMANDS: u8 =
+            SSP1CON2_SEN | SSP1CON2_RSEN | SSP1CON2_PEN | SSP1CON2_RCEN | SSP1CON2_ACKEN;
+        let commands = value & COMMANDS;
+        // ACKSTAT is hardware-owned. Firmware may clear it, but a write must
+        // not manufacture a NACK that was never observed on the bus.
+        self.registers[SSP1CON2] =
+            (value & !SSP1CON2_ACKSTAT) | (self.registers[SSP1CON2] & SSP1CON2_ACKSTAT);
         if !self.i2c_master_enabled() {
+            self.registers[SSP1CON2] &= !COMMANDS;
             return;
         }
 
-        if commands & SSP1CON2_SEN != 0 {
-            self.registers[SSP1STAT] |= SSP1STAT_S;
-            self.registers[SSP1STAT] &= !SSP1STAT_P;
-            self.i2c_address = None;
-            self.i2c_read = false;
-            self.i2c_events.push(Pic16I2cEvent::Start);
-            self.registers[PIR3] |= SSP1IF;
+        // The hardware has no event queue: setting more than one command bit
+        // while an operation is being requested is a collision rather than a
+        // sequence of operations.
+        if commands.count_ones() > 1 {
+            self.registers[SSP1CON1] |= SSP1CON1_WCOL;
+            self.registers[SSP1CON2] &= !COMMANDS;
+            return;
         }
-        if commands & SSP1CON2_RSEN != 0 {
-            self.registers[SSP1STAT] |= SSP1STAT_S;
-            self.registers[SSP1STAT] &= !SSP1STAT_P;
-            self.i2c_address = None;
-            self.i2c_read = false;
-            self.i2c_events.push(Pic16I2cEvent::RepeatedStart);
-            self.registers[PIR3] |= SSP1IF;
+
+        if self.registers[SSP1STAT] & SSP1STAT_BF != 0 && commands != SSP1CON2_RCEN {
+            self.registers[SSP1CON1] |= SSP1CON1_WCOL;
+            self.registers[SSP1CON2] &= !COMMANDS;
+            return;
         }
-        if commands & SSP1CON2_PEN != 0 {
-            self.registers[SSP1STAT] |= SSP1STAT_P;
-            self.registers[SSP1STAT] &= !SSP1STAT_S;
-            self.i2c_address = None;
-            self.i2c_read = false;
-            self.i2c_events.push(Pic16I2cEvent::Stop);
-            self.registers[PIR3] |= SSP1IF;
-        }
-        if commands & SSP1CON2_RCEN != 0 {
-            if let (Some(address), true) = (self.i2c_address, self.i2c_read) {
-                let value = self
-                    .i2c_responses
-                    .get_mut(&address)
-                    .and_then(VecDeque::pop_front)
-                    .unwrap_or(0xff);
-                self.registers[SSP1BUF] = value;
-                self.registers[SSP1STAT] |= SSP1STAT_BF | SSP1STAT_RW;
-                self.registers[SSP1STAT] &= !SSP1STAT_DA;
-                self.emit_i2c_byte(value, at);
-                self.i2c_events.push(Pic16I2cEvent::Read { address, value });
+
+        match commands {
+            SSP1CON2_SEN => {
+                self.registers[SSP1STAT] |= SSP1STAT_S;
+                self.registers[SSP1STAT] &= !SSP1STAT_P;
+                self.i2c_address = None;
+                self.i2c_read = false;
+                self.i2c_events.push(Pic16I2cEvent::Start);
                 self.registers[PIR3] |= SSP1IF;
-            } else {
-                self.registers[SSP1CON1] |= SSP1CON1_WCOL;
             }
+            SSP1CON2_RSEN => {
+                self.registers[SSP1STAT] |= SSP1STAT_S;
+                self.registers[SSP1STAT] &= !SSP1STAT_P;
+                self.i2c_address = None;
+                self.i2c_read = false;
+                self.i2c_events.push(Pic16I2cEvent::RepeatedStart);
+                self.registers[PIR3] |= SSP1IF;
+            }
+            SSP1CON2_PEN => {
+                self.registers[SSP1STAT] |= SSP1STAT_P;
+                self.registers[SSP1STAT] &= !SSP1STAT_S;
+                self.i2c_address = None;
+                self.i2c_read = false;
+                self.i2c_events.push(Pic16I2cEvent::Stop);
+                self.registers[PIR3] |= SSP1IF;
+            }
+            SSP1CON2_RCEN => {
+                if let (Some(address), true) = (self.i2c_address, self.i2c_read) {
+                    if self.registers[SSP1STAT] & SSP1STAT_BF != 0
+                        && self.registers[SSP1CON3] & SSP1CON3_BOEN == 0
+                    {
+                        self.registers[SSP1CON1] |= 1 << 6;
+                    } else {
+                        let value = self
+                            .i2c_responses
+                            .get_mut(&address)
+                            .and_then(VecDeque::pop_front)
+                            .unwrap_or(0xff);
+                        self.registers[SSP1BUF] = value;
+                        self.registers[SSP1STAT] |= SSP1STAT_BF;
+                        self.registers[SSP1STAT] &= !(SSP1STAT_DA | SSP1STAT_RW);
+                        self.emit_i2c_byte(value, at);
+                        self.i2c_events.push(Pic16I2cEvent::Read { address, value });
+                        self.registers[PIR3] |= SSP1IF;
+                    }
+                } else {
+                    self.registers[SSP1CON1] |= SSP1CON1_WCOL;
+                }
+            }
+            SSP1CON2_ACKEN => {
+                let acknowledge = self.registers[SSP1CON2] & SSP1CON2_ACKDT == 0;
+                self.i2c_events.push(Pic16I2cEvent::Ack { acknowledge });
+                self.registers[PIR3] |= SSP1IF;
+                if !acknowledge {
+                    self.i2c_address = None;
+                    self.i2c_read = false;
+                }
+            }
+            0 => {}
+            _ => unreachable!("MSSP command mask is one-hot"),
         }
-        if commands & SSP1CON2_ACKEN != 0 {
-            self.registers[PIR3] |= SSP1IF;
-        }
+
         // SEN/RSEN/PEN/RCEN/ACKEN are command strobes. Firmware waits for
         // SSP1IF and observes these bits cleared by the peripheral.
-        self.registers[SSP1CON2] &=
-            !(SSP1CON2_SEN | SSP1CON2_RSEN | SSP1CON2_PEN | SSP1CON2_RCEN | SSP1CON2_ACKEN);
+        self.registers[SSP1CON2] &= !COMMANDS;
+    }
+
+    fn i2c_acknowledged(&self, address: u8) -> bool {
+        self.i2c_acknowledgements
+            .get(&address)
+            .copied()
+            .unwrap_or(true)
+    }
+
+    fn set_i2c_ackstat(&mut self, acknowledged: bool) {
+        if acknowledged {
+            self.registers[SSP1CON2] &= !SSP1CON2_ACKSTAT;
+        } else {
+            self.registers[SSP1CON2] |= SSP1CON2_ACKSTAT;
+        }
     }
 
     fn i2c_buffer_write(&mut self, value: u8, at: SimTime) {
         if !self.i2c_master_enabled() {
             self.registers[SSP1BUF] = value;
+            return;
+        }
+
+        if self.registers[SSP1STAT] & SSP1STAT_BF != 0 {
+            self.registers[SSP1CON1] |= SSP1CON1_WCOL;
             return;
         }
 
@@ -922,13 +1034,11 @@ impl Pic16State {
             self.i2c_address = Some(value >> 1);
             self.i2c_read = value & 1 != 0;
             self.registers[SSP1BUF] = value;
-            self.registers[SSP1STAT] &= !(SSP1STAT_BF | SSP1STAT_DA);
-            if self.i2c_read {
-                self.registers[SSP1STAT] |= SSP1STAT_RW;
-            } else {
-                self.registers[SSP1STAT] &= !SSP1STAT_RW;
-            }
+            self.registers[SSP1STAT] |= SSP1STAT_BF | SSP1STAT_RW;
             self.emit_i2c_byte(value, at);
+            let acknowledged = self.i2c_acknowledged(value >> 1);
+            self.set_i2c_ackstat(acknowledged);
+            self.registers[SSP1STAT] &= !(SSP1STAT_BF | SSP1STAT_DA | SSP1STAT_RW);
             self.registers[PIR3] |= SSP1IF;
             return;
         }
@@ -939,11 +1049,13 @@ impl Pic16State {
         }
         let address = self.i2c_address.expect("I²C address was checked above");
         self.registers[SSP1BUF] = value;
-        self.registers[SSP1STAT] &= !(SSP1STAT_BF | SSP1STAT_RW);
-        self.registers[SSP1STAT] |= SSP1STAT_DA;
+        self.registers[SSP1STAT] |= SSP1STAT_BF | SSP1STAT_RW;
         self.emit_i2c_byte(value, at);
         self.i2c_events
             .push(Pic16I2cEvent::Write { address, value });
+        let acknowledged = self.i2c_acknowledged(address);
+        self.set_i2c_ackstat(acknowledged);
+        self.registers[SSP1STAT] &= !(SSP1STAT_BF | SSP1STAT_DA | SSP1STAT_RW);
         self.registers[PIR3] |= SSP1IF;
     }
 
@@ -969,6 +1081,7 @@ impl Pic16State {
         self.spi_incoming.clear();
         self.i2c_events.clear();
         self.i2c_responses.clear();
+        self.i2c_acknowledgements.clear();
         self.i2c_address = None;
         self.i2c_read = false;
         self.timer0_epoch = at.ticks();
@@ -1117,11 +1230,25 @@ impl Pic16PeripheralsHandle {
     /// reproducible without pretending to model an electrical bus.
     pub fn queue_i2c_read(&self, address: u8, bytes: impl IntoIterator<Item = u8>) {
         let mut state = self.0.lock().expect("PIC16 peripheral lock poisoned");
+        let address = address & 0x7f;
+        state.i2c_acknowledgements.insert(address, true);
         state
             .i2c_responses
-            .entry(address & 0x7f)
+            .entry(address)
             .or_default()
             .extend(bytes);
+    }
+
+    /// Configures whether the deterministic host should observe an ACK for a
+    /// seven-bit address. Addresses ACK by default; this hook lets firmware
+    /// tests exercise the documented `ACKSTAT` NACK path without electrical
+    /// bus timing.
+    pub fn set_i2c_ack(&self, address: u8, acknowledge: bool) {
+        self.0
+            .lock()
+            .expect("PIC16 peripheral lock poisoned")
+            .i2c_acknowledgements
+            .insert(address & 0x7f, acknowledge);
     }
 
     /// Returns the byte-level MSSP1 I²C host events observed since reset or
@@ -1370,6 +1497,7 @@ impl Pic16Peripherals {
             spi_incoming: VecDeque::new(),
             i2c_events: Vec::new(),
             i2c_responses: BTreeMap::new(),
+            i2c_acknowledgements: BTreeMap::new(),
             i2c_address: None,
             i2c_read: false,
             timer0_epoch: 0,
@@ -1574,6 +1702,11 @@ impl Device for Pic16Peripherals {
                     state.i2c_read = false;
                     state.registers[SSP1STAT] &=
                         !(SSP1STAT_BF | SSP1STAT_RW | SSP1STAT_S | SSP1STAT_P | SSP1STAT_DA);
+                    state.registers[SSP1CON2] &= !(SSP1CON2_SEN
+                        | SSP1CON2_RSEN
+                        | SSP1CON2_PEN
+                        | SSP1CON2_RCEN
+                        | SSP1CON2_ACKEN);
                 }
             }
             SSP1CON2 => state.i2c_command(value, at),
@@ -1845,6 +1978,20 @@ mod tests {
                 .unwrap(),
             u64::from(NCO1EN | NCO1OUT | NCO1POL)
         );
+    }
+
+    #[test]
+    fn mssp1_register_ids_cover_the_native_window() {
+        assert_eq!(
+            Pic16Mssp1Register::from_offset(0x18c),
+            Some(Pic16Mssp1Register::Buffer)
+        );
+        assert_eq!(
+            Pic16Mssp1Register::Control3.offset(),
+            0x192,
+            "the typed ID must retain the PIC16 native offset"
+        );
+        assert_eq!(Pic16Mssp1Register::from_offset(0x193), None);
     }
 
     #[test]
@@ -2633,6 +2780,157 @@ mod tests {
                     value: 0x42
                 }
             ]
+        );
+    }
+
+    #[test]
+    fn mssp1_i2c_master_reports_ackstat_and_ack_sequence() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        device
+            .write(
+                SSP1CON1 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON1_SSPEN | SSP1_I2C_MASTER_7BIT),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        handle.set_i2c_ack(0x50, false);
+        device
+            .write(
+                SSP1CON2 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON2_SEN),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                SSP1BUF as u64,
+                AccessWidth::Byte,
+                0xa0,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        assert_ne!(
+            device
+                .read(SSP1CON2 as u64, AccessWidth::Byte, SimTime::from_ticks(1))
+                .unwrap()
+                & u64::from(SSP1CON2_ACKSTAT),
+            0,
+            "a configured NACK must be visible through ACKSTAT"
+        );
+
+        handle.set_i2c_ack(0x50, true);
+        handle.queue_i2c_read(0x50, [0x42]);
+        device
+            .write(
+                SSP1CON2 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON2_RSEN),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                SSP1BUF as u64,
+                AccessWidth::Byte,
+                0xa1,
+                SimTime::from_ticks(3),
+            )
+            .unwrap();
+        device
+            .write(
+                SSP1CON2 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON2_RCEN),
+                SimTime::from_ticks(4),
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(SSP1BUF as u64, AccessWidth::Byte, SimTime::from_ticks(5))
+                .unwrap(),
+            0x42
+        );
+        device
+            .write(
+                SSP1CON2 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON2_ACKDT | SSP1CON2_ACKEN),
+                SimTime::from_ticks(6),
+            )
+            .unwrap();
+        assert_eq!(
+            handle.i2c_events().last(),
+            Some(&Pic16I2cEvent::Ack { acknowledge: false })
+        );
+        assert_eq!(
+            device
+                .read(SSP1CON2 as u64, AccessWidth::Byte, SimTime::from_ticks(6))
+                .unwrap()
+                & u64::from(SSP1CON2_ACKEN),
+            0
+        );
+    }
+
+    #[test]
+    fn mssp1_i2c_master_rejects_queued_commands_and_preserves_receive_buffer() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        device
+            .write(
+                SSP1CON1 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON1_SSPEN | SSP1_I2C_MASTER_7BIT),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        handle.queue_i2c_read(0x50, [0x10, 0x20]);
+        device
+            .write(
+                SSP1CON2 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON2_SEN),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                SSP1BUF as u64,
+                AccessWidth::Byte,
+                0xa1,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        device
+            .write(
+                SSP1CON2 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON2_RCEN),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                SSP1CON2 as u64,
+                AccessWidth::Byte,
+                u64::from(SSP1CON2_SEN | SSP1CON2_PEN),
+                SimTime::from_ticks(3),
+            )
+            .unwrap();
+        assert_ne!(
+            device
+                .read(SSP1CON1 as u64, AccessWidth::Byte, SimTime::from_ticks(3))
+                .unwrap()
+                & u64::from(SSP1CON1_WCOL),
+            0
+        );
+        assert_eq!(
+            device
+                .read(SSP1BUF as u64, AccessWidth::Byte, SimTime::from_ticks(4))
+                .unwrap(),
+            0x10
         );
     }
 }

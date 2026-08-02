@@ -21,17 +21,25 @@ ANSEL A–E, named PPS RxyPPS/PPSLOCK registers with functional lock behavior an
 TMR0/TX1 output-source routing, PIR/PIE routing, Timer0/1, Timer2 period
 matching with its prescaler/postscaler, EUSART1 transmit, MSSP1 SPI master byte
 transfers and I²C host byte path (7-bit addresses, START/RESTART/STOP, queued
-reads, and SSP1IF), the normalized DAC1 code and enable/output controls, the C1
+reads, SSP1IF, typed native register IDs, BF/WCOL/SSPOV, ACKSTAT, and ACKEN),
+the normalized DAC1 code and enable/output controls, the C1
 comparator GPIO input/polarity/output and edge-flag slice, NCO1 fixed-duty and
 pulse-frequency overflow/output/interrupt behavior, and watchdog reset. Timer,
 serial, SPI, comparator, and NCO timing are deterministic approximations.
-The I²C model reports deterministic byte-level transactions; it does not model
-SCL/SDA edge timing, arbitration, 10-bit addressing, or slave mode. The
-comparator is a logic-level
+The I²C model reports deterministic byte-level transactions, including
+configurable address ACK/NACK responses; it does not model SCL/SDA edge timing,
+arbitration, 10-bit addressing, or slave mode. The comparator is a logic-level
 model; it does not simulate analog voltage, propagation delay, or the complete
 C2/zero-cross path. PPS unlock-sequence, NCO clock-source and exact pulse-width
 timing, serial receive timing, and unlisted peripherals remain unsupported or
 are not represented as hardware-accurate.
+
+The MSSP1 audit follows the native register summary and I²C host transmission
+and reception descriptions in Microchip DS40001866E, with the device-specific
+register window at `0x018c..0x0192`. Command bits are modeled as
+single-operation strobes, writes while the receive buffer is full set the
+documented overflow/collision diagnostics, and functional transfers complete
+immediately at the abstract simulation timestamp.
 
 Run from the repository root:
 
