@@ -379,6 +379,277 @@ fn rp2350_sio_uses_interleaved_low_and_high_gpio_registers() {
 }
 
 #[test]
+fn rp2350_spi_models_primecell_fifo_loopback_and_interrupts() {
+    let (mut spi, handle) = Rp2350Spi::new("spi0");
+    assert_eq!(
+        Rp2350SpiRegister::from_offset(0x00c),
+        Some(Rp2350SpiRegister::Sr)
+    );
+    assert_eq!(Rp2350SpiRegister::Cr0.offset(), 0x000);
+    assert_eq!(Rp2350SpiRegister::from_offset(0x028), None);
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Sr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x03
+    );
+    spi.write(
+        Rp2350SpiRegister::Cr0.offset(),
+        AccessWidth::Word,
+        0x07,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2350SpiRegister::Cr1.offset(),
+        AccessWidth::Word,
+        0x03,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2350SpiRegister::Imsc.offset(),
+        AccessWidth::Word,
+        1 << 3,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2350SpiRegister::Dr.offset(),
+        AccessWidth::Word,
+        0x5a,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(handle.take_output(), vec![0x5a]);
+    assert!(handle.interrupt_pending());
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Dr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x5a
+    );
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Sr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x03
+    );
+
+    spi.write(
+        Rp2350SpiRegister::Cr1.offset(),
+        AccessWidth::Word,
+        0x02,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    handle.queue_input(&[0xa5]);
+    spi.write(
+        Rp2350SpiRegister::Dr.offset(),
+        AccessWidth::Word,
+        0x11,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Dr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0xa5
+    );
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Mis.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x08
+    );
+}
+
+#[test]
+fn rp2350_spi_matches_apb_width_alias_and_reset_contract() {
+    let (mut spi, _) = Rp2350Spi::new("spi0");
+
+    // PrimeCell reset values and identification bytes are part of the published register
+    // contract, not implementation details of the functional FIFO model.
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Sr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x03
+    );
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Ris.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x08
+    );
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::PeriphId0.offset(),
+            AccessWidth::Byte,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x22
+    );
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::CellId3.offset() + 3,
+            AccessWidth::Byte,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+
+    // RP2350 narrow writes replicate across the APB data bus. The model also preserves the
+    // legal even CPSDVSR range while retaining zero as its reset value.
+    spi.write(
+        Rp2350SpiRegister::Cpsr.offset(),
+        AccessWidth::Byte,
+        3,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Cpsr.offset(),
+            AccessWidth::HalfWord,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        2
+    );
+    spi.write(
+        Rp2350SpiRegister::Cpsr.offset(),
+        AccessWidth::Word,
+        0xff,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Cpsr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xfe
+    );
+
+    // The RP atomic aliases are available on the mapped SPI APB window. IMSC is an ordinary
+    // read/write mask, so SET and CLEAR aliases operate on its current value.
+    spi.write(
+        Rp2350SpiRegister::Imsc.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        0x2000 + Rp2350SpiRegister::Imsc.offset(),
+        AccessWidth::Byte,
+        2,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        0x3000 + Rp2350SpiRegister::Imsc.offset(),
+        AccessWidth::Byte,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Imsc.offset(),
+            AccessWidth::Byte,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        2
+    );
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Imsc.offset() + 1,
+            AccessWidth::Byte,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+
+    // MS is only writable while the SSP is disabled. Atomic writes retain that restriction.
+    spi.write(
+        Rp2350SpiRegister::Cr1.offset(),
+        AccessWidth::Word,
+        0x02,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        0x2000 + Rp2350SpiRegister::Cr1.offset(),
+        AccessWidth::Word,
+        0x04,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Cr1.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x02
+    );
+    spi.write(
+        Rp2350SpiRegister::Cr1.offset(),
+        AccessWidth::Word,
+        0,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2350SpiRegister::Cr1.offset(),
+        AccessWidth::Word,
+        0x04,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2350SpiRegister::Cr1.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x04
+    );
+}
+
+#[test]
 fn rp_sio_echoes_bootrom_launch_and_routes_live_fifo_words() {
     let hub = SignalHub::new();
     let (mut sio, _, multicore) =
