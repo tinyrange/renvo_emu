@@ -282,6 +282,286 @@ fn wch_timer_raises_and_vendor_clear_sequence_lowers_update_interrupt() {
 }
 
 #[test]
+fn wch_sltm_counts_and_reports_compare_events() {
+    let (mut timer, handle) = WchSltm::new("tim3");
+    timer
+        .write(
+            WchSltmRegister::AutoReload.offset(),
+            AccessWidth::HalfWord,
+            4,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Compare1.offset(),
+            AccessWidth::HalfWord,
+            2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Compare2.offset(),
+            AccessWidth::HalfWord,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(handle.poll(SimTime::from_ticks(1)), 0);
+    assert_eq!(
+        timer
+            .read(
+                WchSltmRegister::Counter.offset(),
+                AccessWidth::HalfWord,
+                SimTime::from_ticks(1),
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(2)),
+        wch_sltm_events::COMPARE1
+    );
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(5)),
+        wch_sltm_events::UPDATE | wch_sltm_events::COMPARE2
+    );
+
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            0,
+            SimTime::from_ticks(5),
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Counter.offset(),
+            AccessWidth::HalfWord,
+            3,
+            SimTime::from_ticks(5),
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Compare1.offset(),
+            AccessWidth::HalfWord,
+            1,
+            SimTime::from_ticks(5),
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            (1 << 4) | 1,
+            SimTime::from_ticks(5),
+        )
+        .unwrap();
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(7)),
+        wch_sltm_events::COMPARE1
+    );
+}
+
+#[test]
+fn wch_sltm_register_ids_round_trip_native_offsets() {
+    for register in [
+        WchSltmRegister::Control,
+        WchSltmRegister::DmaIntEnable,
+        WchSltmRegister::Counter,
+        WchSltmRegister::AutoReload,
+        WchSltmRegister::Compare1,
+        WchSltmRegister::Compare2,
+        WchSltmRegister::Compare3,
+        WchSltmRegister::Compare4,
+    ] {
+        assert_eq!(
+            WchSltmRegister::from_offset(register.offset()),
+            Some(register)
+        );
+    }
+    assert_eq!(WchSltmRegister::from_offset(0x20), None);
+}
+
+#[test]
+fn wch_sltm_masks_reserved_fields_and_honors_center_mode_lock() {
+    let (mut timer, handle) = WchSltm::new("tim3");
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            u64::from(u16::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        timer
+            .read(
+                WchSltmRegister::Control.offset(),
+                AccessWidth::HalfWord,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x07f3
+    );
+
+    timer
+        .write(
+            WchSltmRegister::DmaIntEnable.offset(),
+            AccessWidth::HalfWord,
+            u64::from(u16::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        timer
+            .read(
+                WchSltmRegister::DmaIntEnable.offset(),
+                AccessWidth::HalfWord,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x180f
+    );
+
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            1 | (1 << 5),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    // CMS cannot be changed while CEN is set.
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            1 | (2 << 5),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+    assert_eq!(
+        timer
+            .read(
+                WchSltmRegister::Control.offset(),
+                AccessWidth::HalfWord,
+                SimTime::from_ticks(1),
+            )
+            .unwrap()
+            & 0x0060,
+        1 << 5
+    );
+    assert_eq!(handle.poll(SimTime::from_ticks(1)), 0);
+}
+
+#[test]
+fn wch_sltm_update_event_uses_the_programmed_counter_phase() {
+    let (mut timer, handle) = WchSltm::new("tim3");
+    timer
+        .write(
+            WchSltmRegister::AutoReload.offset(),
+            AccessWidth::HalfWord,
+            4,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Counter.offset(),
+            AccessWidth::HalfWord,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(handle.poll(SimTime::from_ticks(1)), 0);
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(2)) & wch_sltm_events::UPDATE,
+        wch_sltm_events::UPDATE
+    );
+}
+
+#[test]
+fn wch_sltm_dma_compare_events_follow_documented_enable_bits() {
+    let (mut timer, handle) = WchSltm::new("tim3");
+    timer
+        .write(
+            WchSltmRegister::AutoReload.offset(),
+            AccessWidth::HalfWord,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Compare3.offset(),
+            AccessWidth::HalfWord,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    for register in [WchSltmRegister::Compare1, WchSltmRegister::Compare2] {
+        timer
+            .write(register.offset(), AccessWidth::HalfWord, 2, SimTime::ZERO)
+            .unwrap();
+    }
+    timer
+        .write(
+            WchSltmRegister::Compare4.offset(),
+            AccessWidth::HalfWord,
+            2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(2)),
+        wch_sltm_events::COMPARE1 | wch_sltm_events::COMPARE2
+    );
+
+    timer
+        .write(
+            WchSltmRegister::DmaIntEnable.offset(),
+            AccessWidth::HalfWord,
+            1 << 11,
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(5)),
+        wch_sltm_events::UPDATE | wch_sltm_events::COMPARE3
+    );
+}
+
+#[test]
 fn wch_pfic_gates_pending_source_with_vendor_enable_register() {
     let (mut pfic, handle) = WchPfic::new("pfic");
     handle.set_pending(38, true);

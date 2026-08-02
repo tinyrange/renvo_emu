@@ -22,12 +22,13 @@
     },
     "ch32v006": {
       "cpu_profiles": ["QingKe RV32EC"],
-      "proofs": ["ch32v006", "ch32v006-uart", "ch32v006-timer"],
+      "proofs": ["ch32v006", "ch32v006-uart", "ch32v006-timer", "ch32v006-sltm"],
       "required_covered_regions": [
         "ch32v006.gpioc",
         "ch32v006.pfic",
         "ch32v006.rcc",
         "ch32v006.tim2",
+        "ch32v006.tim3",
         "ch32v006.usart1"
       ],
       "additional_evidence": ["scripts/edge-corpus.sh", "scripts/qualify-coremark.sh"],
@@ -36,7 +37,8 @@
         "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
         "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
         "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
-        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
+        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.",
+        "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, center-alignment, compare/auto-reload preload transfers, waveform pins, and exact clock timing remain outside the slice."
       ]
     },
     "rp2040": {
