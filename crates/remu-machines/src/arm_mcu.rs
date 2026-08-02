@@ -14,10 +14,11 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Evsys, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle,
-    Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub,
-    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Dmac,
+    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21Port, Samd21RegisterBlock,
+    Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
+    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -79,6 +80,7 @@ pub struct ArmMcuMachine {
     compiler_uart: UartHandle,
     timer: VendorTimer,
     eic: Option<Samd21EicHandle>,
+    dmac: Option<Samd21DmacHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
@@ -230,7 +232,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, dmac, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -244,6 +246,7 @@ impl ArmMcuMachine {
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
                 let (evsys_device, _evsys) = Samd21Evsys::new("atsamd21e18.evsys");
                 let (usb_device, _usb) = Samd21UsbDevice::new("atsamd21e18.usb");
+                let (dmac_device, dmac) = Samd21Dmac::new("atsamd21e18.dmac");
                 Self::map_samd21(
                     &mut bus,
                     port_device,
@@ -253,12 +256,14 @@ impl ArmMcuMachine {
                     sercom0_device,
                     evsys_device,
                     usb_device,
+                    dmac_device,
                 )?;
                 (
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
                     Some(eic),
+                    Some(dmac),
                     None,
                     Some(watchdog),
                 )
@@ -299,6 +304,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -323,6 +329,7 @@ impl ArmMcuMachine {
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -341,6 +348,7 @@ impl ArmMcuMachine {
             compiler_uart,
             timer,
             eic,
+            dmac,
             ra_icu,
             watchdog,
             compiler_timer,
@@ -368,6 +376,7 @@ impl ArmMcuMachine {
         sercom0: Samd21Usart,
         evsys: Samd21Evsys,
         usb: Samd21UsbDevice,
+        dmac: Samd21Dmac,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "atsamd21e18.pm",
@@ -398,6 +407,7 @@ impl ArmMcuMachine {
         bus.map_device("atsamd21e18.usb", 0x4100_5000, 0x200, Box::new(usb))?;
         bus.map_device("atsamd21e18.sercom0", 0x4200_0800, 0x40, Box::new(sercom0))?;
         bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
+        bus.map_device("atsamd21e18.dmac", 0x4100_4800, 0x100, Box::new(dmac))?;
         // NVMCTRL.INTFLAG.READY is set after reset.
         bus.map_device(
             "atsamd21e18.nvmctrl",
@@ -780,6 +790,12 @@ impl ArmMcuMachine {
                 self.cpu
                     .set_interrupt(4, eic_pending && self.ppb.interrupt_enabled(4))?;
             }
+            if let Some(dmac) = &self.dmac {
+                let dmac_pending = dmac.interrupt_pending();
+                interrupt_requested |= dmac_pending;
+                self.cpu
+                    .set_interrupt(6, dmac_pending && self.ppb.interrupt_enabled(6))?;
+            }
             if let Some(timer_line) = timer_line {
                 self.cpu.set_interrupt(
                     timer_line,
@@ -852,6 +868,11 @@ impl ArmMcuMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| ArmMachineError::TimeOverflow)?;
             stats.time = self.now;
+            if let Some(dmac) = &self.dmac {
+                if dmac.service(&mut self.bus, self.now) {
+                    stats.events = stats.events.saturating_add(1);
+                }
+            }
             let uart = self.uart.bytes();
             for byte in uart.iter().skip(self.traced_uart_len) {
                 self.uart_strobe = !self.uart_strobe;

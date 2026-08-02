@@ -8,21 +8,24 @@ surface. The USB slice follows the vendor CMSIS register masks, including
 FSMSTATUS, descriptor and pad-calibration fields, endpoint status aliases and
 write-one-to-clear interrupt flags. The smoke also configures the 12-channel
 EVSYS register surface, user mux, synchronous software event, event-detected
-flag, and write-one-to-clear behavior. It boots from the vector table at flash
-address zero,
+flag, write-one-to-clear behavior, and a software-triggered DMAC descriptor
+transfer. It boots from the vector table at flash address zero,
 uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
 state, PORT A, EIC, TC3, SERCOM0 USART, SPI host, I²C host, EVSYS, USB, and
-watchdog. SERCOM
+watchdog, plus the DMAC common/channel registers. The DMAC executes one valid
+software-triggered descriptor for memory-to-memory byte/halfword/word
+transfers, records write-back state, and latches completion/fetch-error flags.
+SERCOM
 transfers use deterministic register-level loopback/injected responses; pin
 electrical timing and complete client/slave behavior are not modeled. The
 register implementation follows the vendor mode encodings, per-mode masks,
 enable-protection, raw interrupt aliases, I²C bus-state/command semantics, and
 SPI receiver-enable behavior. Clock synchronization and timing are deterministic
-approximations. Full USB packet protocol, descriptor DMA, analog behavior,
-standalone DMAC, and live peripheral event-generator/user routing are
-unsupported.
+approximations. Full USB packet protocol and USB descriptor DMA, linked DMAC
+descriptors, peripheral/event trigger routing, CRC execution, analog behavior,
+and live peripheral event-generator/user routing are unsupported.
 VCD exposes PORT, timer, UART and interrupt hierarchy and the gate compares two
 runs byte-for-byte.
 
