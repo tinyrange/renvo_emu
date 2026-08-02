@@ -162,8 +162,10 @@ The final distillation gate adds four bounded capabilities:
   evidence-bound `qualification/dashboard.html`, `.json`, and
   `capability-matrix.md` outputs.
 - `scripts/check-capability-matrix.sh` runs the generator in check mode and
-  rejects modified working trees or generated outputs whose source-tree digest
-  is stale. This is the release check for the public capability matrix.
+  rejects modified or untracked source files, or generated outputs whose
+  source-tree digest is stale. Set `REMU_BIN=target/release/remu` when running
+  the check from a release workflow; this is the release check for the public
+  capability matrix.
 
 ## Unmodified vendor sample gate
 

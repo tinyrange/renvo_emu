@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -75,7 +76,9 @@ def escape_list(values: list[str]) -> str:
 
 def main() -> None:
     check = "--check" in sys.argv[1:]
-    remu = ROOT / "target" / "debug" / "remu"
+    remu = pathlib.Path(os.environ.get("REMU_BIN", "target/debug/remu"))
+    if not remu.is_absolute():
+        remu = ROOT / remu
     all_manifests = json.loads(
         subprocess.check_output([str(remu), "targets", "--json"], cwd=ROOT)
     )
