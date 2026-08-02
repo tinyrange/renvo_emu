@@ -17,9 +17,9 @@ use remu_devices::{
     EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle, Rp2350XipMaintenance, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -37,7 +37,9 @@ mod esp_bootrom_secondary;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;
+mod rp2350_spi;
 mod rp_bootrom;
+use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -200,6 +202,7 @@ pub struct RiscVMachine {
     esp_timer_groups: Vec<EspTimerGroupHandle>,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
+    spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
     wch_timer: Option<WchTimerHandle>,
     wch_pfic: Option<WchPficHandle>,
@@ -235,6 +238,7 @@ impl RiscVMachine {
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
         let mut chip_timers = Vec::new();
+        let mut spi = Vec::new();
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -432,8 +436,6 @@ impl RiscVMachine {
             )?;
             for (name, base) in [
                 ("rp2350.uart1", 0x4007_8000),
-                ("rp2350.spi0", 0x4008_0000),
-                ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.adc", 0x400a_0000),
@@ -449,6 +451,7 @@ impl RiscVMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
+            map_rp2350_spi(&mut bus, &mut spi)?;
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
                 ("rp2350.timer1", 0x400b_8000),
@@ -799,6 +802,7 @@ impl RiscVMachine {
             esp_timer_groups,
             flash_storage,
             chip_timers,
+            spi,
             pio,
             wch_timer,
             wch_pfic,
@@ -1077,6 +1081,7 @@ impl RiscVMachine {
                         chip_timer_pending & (1 << line) != 0,
                     )?;
                 }
+                set_rp2350_spi_interrupts(&mut self.cpu, &self.spi)?;
                 if let Some(usb) = &self.usb {
                     if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
                         stats.events = stats.events.saturating_add(host.poll(self.now, usb, dpram));
