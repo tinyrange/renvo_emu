@@ -103,6 +103,13 @@ Direct ESP execution is an architectural/compiler oracle, not proof that a
 bootloader accepts the flash layout. Supplying `--esp-app-image` adds a separate
 esptool-compatible application-image validation step.
 
+The ESP32-S3 model also exposes a functional RMT transmitter slice. Channels
+0–3 accept native FIFO pulse items at `0x6001_6000`, set TX-complete status, and
+publish deterministic channel waveforms to VCD as
+`board.esp32s3.rmt.ch0`–`ch3`. This is sufficient for bounded WS2812-style
+firmware tests; carrier modulation, DMA, receive channels, and clock-accurate
+behavior are not claimed.
+
 There is not yet a published runtime container or binary release. Until that
 distribution path exists, the source build above is the supported installation
 method.

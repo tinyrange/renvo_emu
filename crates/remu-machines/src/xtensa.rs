@@ -14,11 +14,11 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32s3Rmt, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl,
+    EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup,
+    EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -462,6 +462,7 @@ impl XtensaMachine {
         )?;
         bus.map_ram("rtc-fast-memory", 0x600f_e000, 0x2000, true)?;
         bus.map_ram("rtc-slow-memory", 0x5000_0000, 0x2000, true)?;
+        let signals = SignalHub::new();
         for (name, base) in [
             ("radio-fe2", 0x6000_5000),
             ("radio-fe", 0x6000_6000),
@@ -475,7 +476,6 @@ impl XtensaMachine {
             ("i2c0", 0x6001_3000),
             ("uhci0", 0x6001_4000),
             ("slchost", 0x6001_5000),
-            ("rmt", 0x6001_6000),
             ("pcnt", 0x6001_7000),
             ("slc", 0x6001_8000),
             ("ledc", 0x6001_9000),
@@ -517,6 +517,8 @@ impl XtensaMachine {
                 )),
             )?;
         }
+        let rmt_device = Esp32s3Rmt::new("esp32s3.rmt", signals.clone())?;
+        bus.map_device("esp32s3.rmt", 0x6001_6000, 0x1000, Box::new(rmt_device))?;
         bus.map_device(
             "esp32s3.rng",
             0x6003_5000,
@@ -594,7 +596,6 @@ impl XtensaMachine {
             0x1000,
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
-        let signals = SignalHub::new();
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,

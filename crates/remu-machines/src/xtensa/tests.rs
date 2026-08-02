@@ -29,3 +29,40 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_rmt_native_mmio_emits_a_named_channel_waveform() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6001_6000;
+    let item = 2_u64 | (1 << 15) | (3 << 16);
+    machine
+        .bus
+        .write(base, AccessWidth::Word, item, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x20, AccessWidth::Word, 1 | (1 << 6), SimTime::ZERO)
+        .unwrap();
+    let raw = machine
+        .bus
+        .read(
+            base + 0x70,
+            AccessWidth::Word,
+            AccessKind::Read,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(raw & 1, 1);
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32s3.rmt.ch0").is_some())
+    );
+    assert!(
+        machine
+            .signals
+            .drain_changes()
+            .iter()
+            .any(|change| change.at == SimTime::from_ticks(2))
+    );
+}
