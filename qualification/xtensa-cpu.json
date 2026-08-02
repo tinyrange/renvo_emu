@@ -1,6 +1,6 @@
 {
   "schema": "remu.xtensa-cpu.v1",
-  "source_sha256": "47ab1281070e4f6366aeb5ab5fff47613a0f82681b60abf7283567981d74f8ae",
+  "source_sha256": "2903baaa2d41294f1fafae5f55f82bfbf545c9f5b6b37c81d9ec9e03703835a1",
   "primary_sources": [
     "https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf",
     "https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/tools/idf-tools.html",
@@ -24,7 +24,7 @@
   ],
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/xtensa-cpu-unit-tests.txt",
-    "sha256": "4d56310a6b303f5896ecf46b40abe8f094f8ccbb985fc0e0a561ce99f1241d8b"
+    "sha256": "15d04edbd01ab5105dd067675b13a73f7b39144faa4a0f24db22e5bc3240ab31"
   },
   "proofs": [
     {

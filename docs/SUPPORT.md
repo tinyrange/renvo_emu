@@ -86,13 +86,16 @@ instruction per abstract tick and intentionally ignores divider and delay
 timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
 
-The ESP32-S3 HMAC slice retains the native command registers (`0x40`–`0x6c`),
-64-byte write window (`0x80`), and 32-byte result window (`0xc0`). It supports
-start/configuration, key-purpose validation, one-block and streaming message
-commands, result reads, and deterministic error/busy polling. No physical
-eFuse key is exposed: selected key slots derive synthetic test keys, so this is
-functional cryptographic behavior rather than secure-key or provisioning
-fidelity.
+The ESP32-S3 HMAC slice exposes the native command/data map through the typed
+`Esp32S3HmacRegister` enum: command registers (`0x40`–`0x6c`), the 64-byte
+write window (`0x80`), the 32-byte result window (`0xc0`), and the padding/JTAG
+tail (`0xf0`–`0xfc`). Reserved holes, 32-bit access width, command strobes,
+read-only result/query registers, and writable payload masks are enforced. It
+supports start/configuration, key-purpose validation, one-block and streaming
+message commands, result reads, and deterministic error/busy polling. No
+physical eFuse key is exposed: selected key slots derive synthetic test keys,
+so this is functional cryptographic behavior rather than secure-key or
+provisioning fidelity.
 
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.

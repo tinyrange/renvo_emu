@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3HmacRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -13,28 +14,38 @@ fn direct_load_starts_with_appcpu_reset_and_parked() {
 fn esp32s3_hmac_native_register_window_produces_sha256_digest() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let base = 0x6003_e000;
-    let write = |machine: &mut XtensaMachine, offset: u64, value: u64| {
+    let write = |machine: &mut XtensaMachine, register: Esp32S3HmacRegister, value: u64| {
         machine
             .bus
-            .write(base + offset, AccessWidth::Word, value, SimTime::ZERO)
+            .write(
+                base + register.offset(),
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
             .unwrap();
     };
-    write(&mut machine, 0x40, 1);
-    write(&mut machine, 0x44, 8);
-    write(&mut machine, 0x48, 2);
-    write(&mut machine, 0x4c, 1);
+    write(&mut machine, Esp32S3HmacRegister::SetStart, 1);
+    write(&mut machine, Esp32S3HmacRegister::SetParaPurpose, 8);
+    write(&mut machine, Esp32S3HmacRegister::SetParaKey, 2);
+    write(&mut machine, Esp32S3HmacRegister::SetParaFinish, 1);
     for index in 0..16_u64 {
         let start = index * 4;
         let word = start | ((start + 1) << 8) | ((start + 2) << 16) | ((start + 3) << 24);
-        write(&mut machine, 0x80 + index * 4, word);
+        write(
+            &mut machine,
+            Esp32S3HmacRegister::from_offset(Esp32S3HmacRegister::Wdata0.offset() + index * 4)
+                .expect("HMAC write window register"),
+            word,
+        );
     }
-    write(&mut machine, 0x50, 1);
+    write(&mut machine, Esp32S3HmacRegister::SetMessageOne, 1);
 
     assert_eq!(
         machine
             .bus
             .read(
-                base + 0x68,
+                base + Esp32S3HmacRegister::QueryError.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -48,7 +59,7 @@ fn esp32s3_hmac_native_register_window_produces_sha256_digest() {
                 machine
                     .bus
                     .read(
-                        base + 0xc0 + index * 4,
+                        base + Esp32S3HmacRegister::Rdata0.offset() + index * 4,
                         AccessWidth::Word,
                         AccessKind::Read,
                         SimTime::ZERO,

@@ -1,49 +1,235 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
-const HMAC_SET_START: u64 = 0x40;
-const HMAC_SET_PURPOSE: u64 = 0x44;
-const HMAC_SET_KEY: u64 = 0x48;
-const HMAC_SET_FINISH: u64 = 0x4c;
-const HMAC_MESSAGE_ONE: u64 = 0x50;
-const HMAC_MESSAGE_ING: u64 = 0x54;
-const HMAC_MESSAGE_END: u64 = 0x58;
-const HMAC_RESULT_FINISH: u64 = 0x5c;
-const HMAC_INVALIDATE_JTAG: u64 = 0x60;
-const HMAC_INVALIDATE_DS: u64 = 0x64;
-const HMAC_QUERY_ERROR: u64 = 0x68;
-const HMAC_QUERY_BUSY: u64 = 0x6c;
-const HMAC_WDATA_BASE: u64 = 0x80;
-const HMAC_RDATA_BASE: u64 = 0xc0;
-const HMAC_MESSAGE_PAD: u64 = 0xf0;
-const HMAC_ONE_BLOCK: u64 = 0xf4;
-
 const HMAC_KEY_PURPOSE_DOWN_ALL: u32 = 5;
 const HMAC_KEY_PURPOSE_UP: u32 = 8;
 const HMAC_BLOCK_BYTES: usize = 64;
 const HMAC_DIGEST_BYTES: usize = 32;
 
+/// Native ESP32-S3 HMAC register identifiers from Espressif's
+/// `hwcrypto_reg.h` map.
+///
+/// The command registers and data windows are intentionally represented as
+/// distinct IDs. This keeps firmware-facing register access typed and makes
+/// reserved holes in the native map fail explicitly instead of becoming
+/// accidental backing storage.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u16)]
+#[allow(missing_docs)]
+pub enum Esp32S3HmacRegister {
+    SetStart = 0x40,
+    SetParaPurpose = 0x44,
+    SetParaKey = 0x48,
+    SetParaFinish = 0x4c,
+    SetMessageOne = 0x50,
+    SetMessageIng = 0x54,
+    SetMessageEnd = 0x58,
+    SetResultFinish = 0x5c,
+    SetInvalidateJtag = 0x60,
+    SetInvalidateDs = 0x64,
+    QueryError = 0x68,
+    QueryBusy = 0x6c,
+    Wdata0 = 0x80,
+    Wdata1 = 0x84,
+    Wdata2 = 0x88,
+    Wdata3 = 0x8c,
+    Wdata4 = 0x90,
+    Wdata5 = 0x94,
+    Wdata6 = 0x98,
+    Wdata7 = 0x9c,
+    Wdata8 = 0xa0,
+    Wdata9 = 0xa4,
+    Wdata10 = 0xa8,
+    Wdata11 = 0xac,
+    Wdata12 = 0xb0,
+    Wdata13 = 0xb4,
+    Wdata14 = 0xb8,
+    Wdata15 = 0xbc,
+    Rdata0 = 0xc0,
+    Rdata1 = 0xc4,
+    Rdata2 = 0xc8,
+    Rdata3 = 0xcc,
+    Rdata4 = 0xd0,
+    Rdata5 = 0xd4,
+    Rdata6 = 0xd8,
+    Rdata7 = 0xdc,
+    SetMessagePad = 0xf0,
+    OneBlock = 0xf4,
+    SoftJtagCtrl = 0xf8,
+    WrJtag = 0xfc,
+}
+
+impl Esp32S3HmacRegister {
+    /// Returns the native byte offset in the HMAC peripheral page.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Resolves a native byte offset. Reserved holes return `None`.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x40 => Self::SetStart,
+            0x44 => Self::SetParaPurpose,
+            0x48 => Self::SetParaKey,
+            0x4c => Self::SetParaFinish,
+            0x50 => Self::SetMessageOne,
+            0x54 => Self::SetMessageIng,
+            0x58 => Self::SetMessageEnd,
+            0x5c => Self::SetResultFinish,
+            0x60 => Self::SetInvalidateJtag,
+            0x64 => Self::SetInvalidateDs,
+            0x68 => Self::QueryError,
+            0x6c => Self::QueryBusy,
+            0x80 => Self::Wdata0,
+            0x84 => Self::Wdata1,
+            0x88 => Self::Wdata2,
+            0x8c => Self::Wdata3,
+            0x90 => Self::Wdata4,
+            0x94 => Self::Wdata5,
+            0x98 => Self::Wdata6,
+            0x9c => Self::Wdata7,
+            0xa0 => Self::Wdata8,
+            0xa4 => Self::Wdata9,
+            0xa8 => Self::Wdata10,
+            0xac => Self::Wdata11,
+            0xb0 => Self::Wdata12,
+            0xb4 => Self::Wdata13,
+            0xb8 => Self::Wdata14,
+            0xbc => Self::Wdata15,
+            0xc0 => Self::Rdata0,
+            0xc4 => Self::Rdata1,
+            0xc8 => Self::Rdata2,
+            0xcc => Self::Rdata3,
+            0xd0 => Self::Rdata4,
+            0xd4 => Self::Rdata5,
+            0xd8 => Self::Rdata6,
+            0xdc => Self::Rdata7,
+            0xf0 => Self::SetMessagePad,
+            0xf4 => Self::OneBlock,
+            0xf8 => Self::SoftJtagCtrl,
+            0xfc => Self::WrJtag,
+            _ => return None,
+        })
+    }
+
+    fn wdata_index(self) -> Option<usize> {
+        Some(match self {
+            Self::Wdata0 => 0,
+            Self::Wdata1 => 1,
+            Self::Wdata2 => 2,
+            Self::Wdata3 => 3,
+            Self::Wdata4 => 4,
+            Self::Wdata5 => 5,
+            Self::Wdata6 => 6,
+            Self::Wdata7 => 7,
+            Self::Wdata8 => 8,
+            Self::Wdata9 => 9,
+            Self::Wdata10 => 10,
+            Self::Wdata11 => 11,
+            Self::Wdata12 => 12,
+            Self::Wdata13 => 13,
+            Self::Wdata14 => 14,
+            Self::Wdata15 => 15,
+            _ => return None,
+        })
+    }
+
+    fn rdata_index(self) -> Option<usize> {
+        Some(match self {
+            Self::Rdata0 => 0,
+            Self::Rdata1 => 1,
+            Self::Rdata2 => 2,
+            Self::Rdata3 => 3,
+            Self::Rdata4 => 4,
+            Self::Rdata5 => 5,
+            Self::Rdata6 => 6,
+            Self::Rdata7 => 7,
+            _ => return None,
+        })
+    }
+
+    /// Bits returned by a native read of this register.
+    pub const fn read_mask(self) -> u32 {
+        match self {
+            Self::QueryError => 0x3,
+            Self::QueryBusy => 1,
+            Self::Rdata0
+            | Self::Rdata1
+            | Self::Rdata2
+            | Self::Rdata3
+            | Self::Rdata4
+            | Self::Rdata5
+            | Self::Rdata6
+            | Self::Rdata7 => u32::MAX,
+            _ => 0,
+        }
+    }
+
+    /// Bits accepted by a native write of this register.
+    pub const fn write_mask(self) -> u32 {
+        match self {
+            Self::SetParaPurpose => 0xf,
+            Self::SetParaKey => 0x7,
+            Self::SetResultFinish => 0x3,
+            Self::SoftJtagCtrl => 1,
+            Self::QueryError | Self::QueryBusy => 0,
+            Self::Rdata0
+            | Self::Rdata1
+            | Self::Rdata2
+            | Self::Rdata3
+            | Self::Rdata4
+            | Self::Rdata5
+            | Self::Rdata6
+            | Self::Rdata7 => 0,
+            Self::WrJtag
+            | Self::Wdata0
+            | Self::Wdata1
+            | Self::Wdata2
+            | Self::Wdata3
+            | Self::Wdata4
+            | Self::Wdata5
+            | Self::Wdata6
+            | Self::Wdata7
+            | Self::Wdata8
+            | Self::Wdata9
+            | Self::Wdata10
+            | Self::Wdata11
+            | Self::Wdata12
+            | Self::Wdata13
+            | Self::Wdata14
+            | Self::Wdata15 => u32::MAX,
+            _ => 1,
+        }
+    }
+}
+
 struct EspHmacState {
-    registers: Vec<u32>,
+    registers: BTreeMap<Esp32S3HmacRegister, u32>,
+    wdata: [u32; HMAC_BLOCK_BYTES / 4],
+    rdata: [u32; HMAC_DIGEST_BYTES / 4],
     message: Vec<u8>,
     result: [u8; HMAC_DIGEST_BYTES],
     key_id: u32,
     purpose: u32,
     started: bool,
     config_finished: bool,
+    busy: bool,
     error: u32,
 }
 
 impl EspHmacState {
     fn new() -> Self {
         let mut state = Self {
-            registers: vec![0; 0x1000 / 4],
+            registers: BTreeMap::new(),
+            wdata: [0; HMAC_BLOCK_BYTES / 4],
+            rdata: [0; HMAC_DIGEST_BYTES / 4],
             message: Vec::new(),
             result: [0; HMAC_DIGEST_BYTES],
             key_id: 0,
             purpose: 0,
             started: false,
             config_finished: false,
+            busy: false,
             error: 0,
         };
         state.reset();
@@ -51,23 +237,22 @@ impl EspHmacState {
     }
 
     fn reset(&mut self) {
-        self.registers.fill(0);
+        self.registers.clear();
+        self.wdata.fill(0);
+        self.rdata.fill(0);
         self.message.clear();
         self.result = [0; HMAC_DIGEST_BYTES];
         self.key_id = 0;
         self.purpose = 0;
         self.started = false;
         self.config_finished = false;
+        self.busy = false;
         self.error = 0;
     }
 
     fn block(&self) -> [u8; HMAC_BLOCK_BYTES] {
         let mut block = [0_u8; HMAC_BLOCK_BYTES];
-        for (index, word) in self.registers[(HMAC_WDATA_BASE / 4) as usize
-            ..((HMAC_WDATA_BASE + HMAC_BLOCK_BYTES as u64) / 4) as usize]
-            .iter()
-            .enumerate()
-        {
+        for (index, word) in self.wdata.iter().enumerate() {
             block[index * 4..index * 4 + 4].copy_from_slice(&word.to_le_bytes());
         }
         block
@@ -101,9 +286,15 @@ impl EspHmacState {
     fn publish_result(&mut self) {
         self.result = self.digest(&self.message);
         for (index, chunk) in self.result.chunks_exact(4).enumerate() {
-            self.registers[(HMAC_RDATA_BASE / 4) as usize + index] =
+            self.rdata[index] =
                 u32::from_le_bytes(chunk.try_into().expect("digest word is four bytes"));
         }
+    }
+
+    fn clear_result(&mut self) {
+        self.message.clear();
+        self.result = [0; HMAC_DIGEST_BYTES];
+        self.rdata.fill(0);
     }
 
     fn command_error(&mut self, error: u32) {
@@ -126,18 +317,34 @@ impl EspHmacState {
         }
     }
 
-    fn execute_message_command(&mut self, offset: u64) {
+    fn execute_message_command(&mut self, register: Esp32S3HmacRegister) {
         if !self.config_finished {
             self.command_error(3);
             return;
         }
-        match offset {
-            HMAC_MESSAGE_ING => self.append_block(),
-            HMAC_MESSAGE_ONE | HMAC_MESSAGE_END | HMAC_MESSAGE_PAD | HMAC_ONE_BLOCK => {
+        self.busy = true;
+        match register {
+            Esp32S3HmacRegister::SetMessageIng => self.append_block(),
+            Esp32S3HmacRegister::SetMessageOne
+            | Esp32S3HmacRegister::SetMessageEnd
+            | Esp32S3HmacRegister::SetMessagePad
+            | Esp32S3HmacRegister::OneBlock => {
                 self.append_block();
                 self.publish_result();
             }
             _ => {}
+        }
+        self.busy = false;
+    }
+
+    fn read_word(&self, register: Esp32S3HmacRegister) -> u32 {
+        if let Some(index) = register.rdata_index() {
+            return self.rdata[index];
+        }
+        match register {
+            Esp32S3HmacRegister::QueryError => self.error,
+            Esp32S3HmacRegister::QueryBusy => u32::from(self.busy),
+            _ => self.registers.get(&register).copied().unwrap_or_default() & register.read_mask(),
         }
     }
 }
@@ -145,9 +352,9 @@ impl EspHmacState {
 /// Functional ESP32-S3 HMAC-SHA256 accelerator.
 ///
 /// The native command and data-window layout is retained. Since an emulator
-/// has no physical eFuse key, each selected key slot derives a stable synthetic
-/// 256-bit key; this keeps compiler and firmware tests deterministic while
-/// explicitly avoiding a claim of secure-key or eFuse fidelity.
+/// has no physical eFuse key, each selected key slot derives a stable
+/// synthetic 256-bit key; this keeps compiler and firmware tests deterministic
+/// while explicitly avoiding a claim of secure-key or eFuse fidelity.
 pub struct EspHmac {
     name: String,
     state: EspHmacState,
@@ -172,17 +379,12 @@ impl Device for EspHmac {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("ESP HMAC requires aligned word access"));
         }
-        match offset {
-            HMAC_QUERY_ERROR => Ok(u64::from(self.state.error)),
-            HMAC_QUERY_BUSY => Ok(0),
-            _ => self
-                .state
-                .registers
-                .get(usize::try_from(offset / 4).expect("HMAC offset fits"))
-                .copied()
-                .map(u64::from)
-                .ok_or_else(|| DeviceError::new(format!("{} read at {offset:#x}", self.name))),
-        }
+        let register = Esp32S3HmacRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unsupported ESP32-S3 HMAC register offset {offset:#x}"
+            ))
+        })?;
+        Ok(u64::from(self.state.read_word(register)))
     }
 
     fn write(
@@ -195,39 +397,71 @@ impl Device for EspHmac {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("ESP HMAC requires aligned word access"));
         }
-        let index = usize::try_from(offset / 4).expect("HMAC offset fits");
-        if index >= self.state.registers.len() {
-            return Err(DeviceError::new(format!(
-                "{} write at {offset:#x}",
-                self.name
-            )));
+        let register = Esp32S3HmacRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unsupported ESP32-S3 HMAC register offset {offset:#x}"
+            ))
+        })?;
+        let value = u32::try_from(value).map_err(|_| {
+            DeviceError::new(format!(
+                "ESP32-S3 HMAC word write exceeds 32 bits: {value:#x}"
+            ))
+        })?;
+        if register.rdata_index().is_some() {
+            return Err(DeviceError::new(
+                "ESP32-S3 HMAC result registers are read-only",
+            ));
         }
-        let value = value as u32;
-        self.state.registers[index] = value;
-        match offset {
-            HMAC_SET_START => {
-                self.state.started = value != 0;
-                self.state.config_finished = false;
-                self.state.message.clear();
-                self.state.result = [0; HMAC_DIGEST_BYTES];
-                self.state.error = 0;
-            }
-            HMAC_SET_PURPOSE => self.state.purpose = value,
-            HMAC_SET_KEY => self.state.key_id = value,
-            HMAC_SET_FINISH => self.state.finish_configuration(),
-            HMAC_MESSAGE_ING | HMAC_MESSAGE_ONE | HMAC_MESSAGE_END | HMAC_MESSAGE_PAD
-            | HMAC_ONE_BLOCK => self.state.execute_message_command(offset),
-            HMAC_RESULT_FINISH => {
-                self.state.message.clear();
-                self.state.result = [0; HMAC_DIGEST_BYTES];
-                for register in &mut self.state.registers
-                    [(HMAC_RDATA_BASE / 4) as usize..((HMAC_RDATA_BASE + 0x20) / 4) as usize]
-                {
-                    *register = 0;
+        if register == Esp32S3HmacRegister::QueryError || register == Esp32S3HmacRegister::QueryBusy
+        {
+            return Err(DeviceError::new(
+                "ESP32-S3 HMAC query registers are read-only",
+            ));
+        }
+        if let Some(index) = register.wdata_index() {
+            self.state.wdata[index] = value & register.write_mask();
+            return Ok(());
+        }
+
+        let command = value & register.write_mask();
+        match register {
+            Esp32S3HmacRegister::SetStart => {
+                if command != 0 {
+                    self.state.started = true;
+                    self.state.config_finished = false;
+                    self.state.clear_result();
+                    self.state.error = 0;
                 }
             }
-            HMAC_INVALIDATE_JTAG | HMAC_INVALIDATE_DS => self.state.result = [0; HMAC_DIGEST_BYTES],
-            HMAC_QUERY_ERROR | HMAC_QUERY_BUSY | HMAC_RDATA_BASE..=0xdf => {}
+            Esp32S3HmacRegister::SetParaPurpose => self.state.purpose = command,
+            Esp32S3HmacRegister::SetParaKey => self.state.key_id = command,
+            Esp32S3HmacRegister::SetParaFinish => {
+                if command != 0 {
+                    self.state.finish_configuration();
+                }
+            }
+            Esp32S3HmacRegister::SetMessageIng
+            | Esp32S3HmacRegister::SetMessageOne
+            | Esp32S3HmacRegister::SetMessageEnd
+            | Esp32S3HmacRegister::SetMessagePad
+            | Esp32S3HmacRegister::OneBlock => {
+                if command != 0 {
+                    self.state.execute_message_command(register);
+                }
+            }
+            Esp32S3HmacRegister::SetResultFinish => {
+                if command != 0 {
+                    self.state.clear_result();
+                }
+            }
+            Esp32S3HmacRegister::SetInvalidateJtag | Esp32S3HmacRegister::SetInvalidateDs => {
+                if command != 0 {
+                    self.state.clear_result();
+                }
+            }
+            Esp32S3HmacRegister::SoftJtagCtrl | Esp32S3HmacRegister::WrJtag => {
+                self.state.registers.insert(register, command);
+            }
             _ => {}
         }
         Ok(())
@@ -246,22 +480,42 @@ mod tests {
     fn computes_native_one_block_hmac_with_a_deterministic_key_slot() {
         let mut device = EspHmac::new("hmac");
         device
-            .write(HMAC_SET_START, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetStart.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(HMAC_SET_PURPOSE, AccessWidth::Word, 8, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetParaPurpose.offset(),
+                AccessWidth::Word,
+                8,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(HMAC_SET_KEY, AccessWidth::Word, 2, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetParaKey.offset(),
+                AccessWidth::Word,
+                2,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(HMAC_SET_FINISH, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetParaFinish.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         let message = (0_u8..64).collect::<Vec<_>>();
         for (index, chunk) in message.chunks_exact(4).enumerate() {
             device
                 .write(
-                    HMAC_WDATA_BASE + (index as u64 * 4),
+                    Esp32S3HmacRegister::Wdata0.offset() + (index as u64 * 4),
                     AccessWidth::Word,
                     u64::from(u32::from_le_bytes(chunk.try_into().unwrap())),
                     SimTime::ZERO,
@@ -269,7 +523,12 @@ mod tests {
                 .unwrap();
         }
         device
-            .write(HMAC_MESSAGE_ONE, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetMessageOne.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
 
         let expected = device.state.digest(&message);
@@ -278,7 +537,7 @@ mod tests {
                 u32::try_from(
                     device
                         .read(
-                            HMAC_RDATA_BASE + index * 4,
+                            Esp32S3HmacRegister::Rdata0.offset() + index * 4,
                             AccessWidth::Word,
                             SimTime::ZERO,
                         )
@@ -290,11 +549,19 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(actual, expected);
         assert_eq!(
-            device.read(HMAC_QUERY_ERROR, AccessWidth::Word, SimTime::ZERO),
+            device.read(
+                Esp32S3HmacRegister::QueryError.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
             Ok(0)
         );
         assert_eq!(
-            device.read(HMAC_QUERY_BUSY, AccessWidth::Word, SimTime::ZERO),
+            device.read(
+                Esp32S3HmacRegister::QueryBusy.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
             Ok(0)
         );
     }
@@ -303,20 +570,173 @@ mod tests {
     fn rejects_hmac_commands_before_a_valid_configuration() {
         let mut device = EspHmac::new("hmac");
         device
-            .write(HMAC_SET_START, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetStart.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(HMAC_SET_PURPOSE, AccessWidth::Word, 4, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetParaPurpose.offset(),
+                AccessWidth::Word,
+                4,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(HMAC_SET_FINISH, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetParaFinish.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(HMAC_MESSAGE_ONE, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                Esp32S3HmacRegister::SetMessageOne.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_ne!(
-            device.read(HMAC_QUERY_ERROR, AccessWidth::Word, SimTime::ZERO),
+            device.read(
+                Esp32S3HmacRegister::QueryError.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
             Ok(0)
+        );
+    }
+
+    #[test]
+    fn register_enum_covers_native_windows_and_rejects_invalid_access() {
+        assert_eq!(Esp32S3HmacRegister::SetStart.offset(), 0x40);
+        assert_eq!(Esp32S3HmacRegister::Wdata15.offset(), 0xbc);
+        assert_eq!(Esp32S3HmacRegister::Rdata7.offset(), 0xdc);
+        assert_eq!(Esp32S3HmacRegister::WrJtag.offset(), 0xfc);
+        assert_eq!(Esp32S3HmacRegister::from_offset(0x70), None);
+        assert_eq!(Esp32S3HmacRegister::from_offset(0xe0), None);
+        assert_eq!(Esp32S3HmacRegister::SetParaPurpose.write_mask(), 0xf);
+        assert_eq!(Esp32S3HmacRegister::QueryError.write_mask(), 0);
+        assert_eq!(Esp32S3HmacRegister::Rdata0.read_mask(), u32::MAX);
+
+        let mut device = EspHmac::new("hmac");
+        assert!(device.read(0x70, AccessWidth::Word, SimTime::ZERO).is_err());
+        assert!(
+            device
+                .write(
+                    Esp32S3HmacRegister::SetStart.offset(),
+                    AccessWidth::Word,
+                    1_u64 << 32,
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+        assert!(
+            device
+                .write(
+                    Esp32S3HmacRegister::Rdata0.offset(),
+                    AccessWidth::Word,
+                    0,
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+        assert!(
+            device
+                .write(
+                    Esp32S3HmacRegister::QueryError.offset(),
+                    AccessWidth::Word,
+                    0,
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn command_strobes_are_read_zero_and_result_finish_clears_result() {
+        let mut device = EspHmac::new("hmac");
+        device
+            .write(
+                Esp32S3HmacRegister::SetStart.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3HmacRegister::SetStart.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0
+        );
+        device
+            .write(
+                Esp32S3HmacRegister::SetParaPurpose.offset(),
+                AccessWidth::Word,
+                8,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3HmacRegister::SetParaFinish.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3HmacRegister::Wdata0.offset(),
+                AccessWidth::Word,
+                0x0403_0201,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3HmacRegister::SetMessageOne.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_ne!(
+            device
+                .read(
+                    Esp32S3HmacRegister::Rdata0.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0
+        );
+        device
+            .write(
+                Esp32S3HmacRegister::SetResultFinish.offset(),
+                AccessWidth::Word,
+                2,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3HmacRegister::Rdata0.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0
         );
     }
 }
