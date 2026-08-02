@@ -471,13 +471,16 @@ const MANIFESTS: &[TargetManifest] = &[
             "PORT/EIC GPIO",
             "TC3 timer interrupt",
             "SERCOM0 USART",
+            "DMAC software-triggered descriptor transfer",
             "VCD",
         ],
         sources: &[
             "https://www.microchip.com/en-us/product/ATSAMD21E18",
             "https://packs.download.microchip.com/Microchip.SAMD21_DFP.3.8.270.atpack",
         ],
-        limitations: &["analog, USB, DMA, and exact clock timing are outside this tranche"],
+        limitations: &[
+            "linked descriptors, peripheral/event trigger routing, CRC execution, analog, USB, and exact clock timing are outside this tranche",
+        ],
     },
     TargetManifest {
         schema: 1,

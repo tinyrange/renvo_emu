@@ -25,11 +25,31 @@ typedef unsigned int u32;
 #define SERCOM0_CTRLB REG32(0x42000804u)
 #define SERCOM0_INTFLAG REG8(0x42000818u)
 #define SERCOM0_DATA REG16(0x42000828u)
+#define DMAC_CTRL REG16(0x41004800u)
+#define DMAC_SWTRIGCTRL REG32(0x41004810u)
+#define DMAC_BASEADDR REG32(0x41004834u)
+#define DMAC_WRBADDR REG32(0x41004838u)
+#define DMAC_CHID REG8(0x4100483fu)
+#define DMAC_CHCTRLA REG8(0x41004840u)
+#define DMAC_CHINTENSET REG8(0x4100484du)
+#define DMAC_CHINTFLAG REG8(0x4100484eu)
+#define DMAC_CHSTATUS REG8(0x4100484fu)
 #define NVIC_ISER0 REG32(0xe000e100u)
 
 static volatile u32 timer_interrupts;
 static volatile u32 dividend = 100000u;
 static volatile u16 switch_input = 7u;
+static volatile u8 dmac_source[4] = { 0xa1u, 0xb2u, 0xc3u, 0xd4u };
+static volatile u8 dmac_destination[4];
+struct dmac_descriptor {
+    u16 btctrl;
+    u16 btcnt;
+    u32 srcaddr;
+    u32 dstaddr;
+    u32 descaddr;
+};
+static volatile struct dmac_descriptor dmac_descriptor __attribute__((aligned(64)));
+static volatile u32 dmac_writeback[4] __attribute__((aligned(64)));
 
 struct abi_record {
     u8 tag;
@@ -101,6 +121,24 @@ int main(void)
 
     PM_APBCMASK |= (1u << 2) | (1u << 11);
     GCLK_CLKCTRL = (u16)((0x14u << 8) | 0u | (1u << 14));
+
+    dmac_descriptor.btctrl = (u16)((1u << 10) | (1u << 11) | (1u << 3) | 1u);
+    dmac_descriptor.btcnt = 4u;
+    dmac_descriptor.srcaddr = (u32)(dmac_source + 4);
+    dmac_descriptor.dstaddr = (u32)dmac_destination;
+    dmac_descriptor.descaddr = 0u;
+    DMAC_BASEADDR = (u32)&dmac_descriptor;
+    DMAC_WRBADDR = (u32)dmac_writeback;
+    DMAC_CHID = 0u;
+    DMAC_CHINTENSET = 1u << 1;
+    DMAC_CHCTRLA = 1u << 1;
+    DMAC_CTRL = (u16)((1u << 8) | (1u << 1));
+    DMAC_SWTRIGCTRL = 1u;
+    while ((DMAC_CHINTFLAG & (1u << 1)) == 0u) {
+    }
+    failures |= (u32)((dmac_destination[0] != 0xd4u || dmac_destination[1] != 0xc3u ||
+                       dmac_destination[2] != 0xb2u || dmac_destination[3] != 0xa1u) << 11);
+    failures |= (u32)((DMAC_CHSTATUS & 0x06u) != 0u) << 12;
 
     PORT_DIRSET = 1u << 7;
     PORT_OUTSET = 1u << 7;

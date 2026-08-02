@@ -2,13 +2,19 @@
 
 The pinned Arm GNU 13.2.Rel1 and Clang/LLD 18 lanes select Cortex-M0+ Thumb code and the exact
 SAMD21E18A device identity. The compiler smoke covers startup, Arm EABI calls,
-native widths, arithmetic, GPIO input/output, EIC routing, TC3 interrupt entry
-and SERCOM0 UART output. It boots from the vector table at flash address zero,
+native widths, arithmetic, GPIO input/output, EIC routing, TC3 interrupt entry,
+SERCOM0 UART output, and a software-triggered DMAC descriptor transfer. It boots from the vector table at flash address zero,
 uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
-state, PORT A, EIC, TC3, SERCOM0 USART and watchdog. Clock synchronization and
-timing are deterministic approximations; analog, USB and DMA are unsupported.
+state, PORT A, EIC, TC3, SERCOM0 USART, watchdog, and the DMAC common/channel
+registers. The model follows the vendor masks and direct/W1C access semantics,
+including the reserved gap between DBGCTRL and SWTRIGCTRL. The DMAC executes
+one valid software-triggered descriptor for memory-to-memory byte/halfword/word
+transfers, records write-back state, and latches completion/fetch-error flags.
+Clock synchronization and timing are
+deterministic approximations; linked descriptors, peripheral/event trigger
+routing, CRC execution, analog, and USB are unsupported.
 VCD exposes PORT, timer, UART and interrupt hierarchy and the gate compares two
 runs byte-for-byte.
 
