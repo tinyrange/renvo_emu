@@ -122,17 +122,20 @@ public `Samd21AcRegister` enum names the native control, event, interrupt,
 status, window, comparator-control, and scaler registers from section 34.7 of
 the Microchip data sheet.
 
-`Samd21AcHandle::inject_input` supplies deterministic digitalized AIN codes.
-Guest writes can enable the AC, select positive/negative inputs, configure
-single-shot or continuous mode and edge/EOC interrupt selection, start a
-comparison, observe ready/state status, and clear W1C flags. Comparator outputs
-are emitted as `board.atsamd21e18.ac.comp0` and `.comp1` signals for VCD. The
-bounded window state derives from the paired comparator outputs. Analog
-voltages, hysteresis/filter sampling, startup/propagation timing, Event System
-delivery, and package-level electrical routing remain deferred. The register
-map and IRQ assignment are sourced from Microchip SAM D21/DA1 Family Data Sheet
+`Samd21AcHandle::inject_input` supplies deterministic digitalized codes for the
+four AIN inputs in the SAM D21 first comparator pair. Guest writes can enable
+the AC, select positive/negative inputs, configure single-shot or continuous
+mode and edge/EOC interrupt selection, start a comparison, observe ready/state
+status, and clear raw-payload W1C flags. Comparator outputs are emitted as
+`board.atsamd21e18.ac.comp0` and `.comp1` signals for VCD. The bounded window
+state derives from the paired comparator outputs, and window-mode starts run
+both single-shot comparators. Vendor masks, `CTRLA.RUNSTDBY/LPMUX`, and SWAP’s
+input-swap-plus-invert behavior are covered by unit tests. Analog voltages,
+hysteresis/filter sampling, startup/propagation timing, Event System delivery,
+and package-level electrical routing remain deferred. The register map and IRQ
+assignment are sourced from Microchip SAM D21/DA1 Family Data Sheet
 [DS40001882E](https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf),
-section 34.
+section 34, and the [SAM D21 CMSIS AC definitions](https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/ac.h).
 
 ## Phase 5 closure
 

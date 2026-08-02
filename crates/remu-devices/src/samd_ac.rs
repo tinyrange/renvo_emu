@@ -42,6 +42,15 @@ fn write_le(
     Ok(())
 }
 
+const CTRLA_MASK: u8 = 0x87;
+const CTRLB_MASK: u8 = 0x03;
+const EVCTRL_MASK: u16 = 0x0313;
+const INTERRUPT_MASK: u8 = 0x13;
+const STATUSA_MASK: u8 = 0x33;
+const STATUSB_MASK: u8 = 0x83;
+const WINCTRL_MASK: u8 = 0x07;
+const SCALER_MASK: u8 = 0x3f;
+
 /// Native ATSAMD21 analog-comparator register identifiers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Samd21AcRegister {
@@ -76,6 +85,27 @@ pub enum Samd21AcRegister {
 }
 
 impl Samd21AcRegister {
+    /// Converts a documented AC register offset to its named ID.
+    pub const fn from_offset(offset: usize) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Ctrla),
+            0x01 => Some(Self::Ctrlb),
+            0x02 => Some(Self::Evctrl),
+            0x04 => Some(Self::Intenclr),
+            0x05 => Some(Self::Intenset),
+            0x06 => Some(Self::Intflag),
+            0x08 => Some(Self::Statusa),
+            0x09 => Some(Self::Statusb),
+            0x0a => Some(Self::Statusc),
+            0x0c => Some(Self::Winctrl),
+            0x10 => Some(Self::Compctrl0),
+            0x14 => Some(Self::Compctrl1),
+            0x20 => Some(Self::Scaler0),
+            0x21 => Some(Self::Scaler1),
+            _ => None,
+        }
+    }
+
     /// Returns the native byte offset of this register.
     pub const fn offset(self) -> usize {
         match self {
@@ -175,7 +205,7 @@ impl Default for AcRegisters {
 #[derive(Default)]
 struct AcState {
     registers: AcRegisters,
-    inputs: [u16; 8],
+    inputs: [u16; 4],
 }
 
 /// Host-facing deterministic input and interrupt handle for the AC pair.
@@ -187,7 +217,7 @@ pub struct Samd21AcHandle {
 }
 
 impl Samd21AcHandle {
-    /// Supplies a digitalized analog code for one of the eight AIN inputs.
+    /// Supplies a digitalized analog code for one of the four AC AIN inputs.
     pub fn inject_input(&self, input: u8, value: u16) -> Result<(), DeviceError> {
         let mut state = self.state.lock().expect("AC lock poisoned");
         let Some(sample) = state.inputs.get_mut(usize::from(input)) else {
@@ -285,12 +315,12 @@ impl Samd21Ac {
 fn comparator_input(state: &AcState, comparator: usize, positive: bool) -> u16 {
     let control = state.registers.compctrl[comparator];
     if positive {
-        let mux = ((control >> 12) & 0x03) as usize + comparator * 4;
+        let mux = ((control >> 12) & 0x03) as usize;
         state.inputs[mux.min(state.inputs.len() - 1)]
     } else {
         match (control >> 8) & 0x07 {
             0..=3 => {
-                let mux = ((control >> 8) & 0x03) as usize + comparator * 4;
+                let mux = ((control >> 8) & 0x03) as usize;
                 state.inputs[mux.min(state.inputs.len() - 1)]
             }
             4 => 0,
@@ -308,7 +338,7 @@ fn evaluate_comparator(state: &mut AcState, comparator: usize) {
     let negative = comparator_input(state, comparator, false);
     let swap = control & (1 << 15) != 0;
     let output = if swap {
-        positive <= negative
+        negative <= positive
     } else {
         positive > negative
     };
@@ -378,23 +408,23 @@ fn refresh_outputs(
 
 fn read_register(state: &mut AcState, register: Samd21AcRegister) -> u32 {
     match register {
-        Samd21AcRegister::Ctrla => u32::from(state.registers.ctrla & 0x06),
+        Samd21AcRegister::Ctrla => u32::from(state.registers.ctrla & CTRLA_MASK & !1),
         Samd21AcRegister::Ctrlb => 0,
-        Samd21AcRegister::Evctrl => u32::from(state.registers.evctrl & 0x0313),
+        Samd21AcRegister::Evctrl => u32::from(state.registers.evctrl & EVCTRL_MASK),
         Samd21AcRegister::Intenclr | Samd21AcRegister::Intenset => {
-            u32::from(state.registers.interrupt_enable & 0x13)
+            u32::from(state.registers.interrupt_enable & INTERRUPT_MASK)
         }
-        Samd21AcRegister::Intflag => u32::from(state.registers.interrupt_flags & 0x13),
+        Samd21AcRegister::Intflag => u32::from(state.registers.interrupt_flags & INTERRUPT_MASK),
         Samd21AcRegister::Statusa | Samd21AcRegister::Statusc => {
-            u32::from(state.registers.states & 0x03)
+            u32::from(state.registers.states & STATUSA_MASK & 0x03)
                 | (u32::from(state.registers.window_state & 0x03) << 4)
         }
-        Samd21AcRegister::Statusb => u32::from(state.registers.ready & 0x03),
-        Samd21AcRegister::Winctrl => u32::from(state.registers.winctrl & 0x07),
+        Samd21AcRegister::Statusb => u32::from(state.registers.ready & STATUSB_MASK & 0x03),
+        Samd21AcRegister::Winctrl => u32::from(state.registers.winctrl & WINCTRL_MASK),
         Samd21AcRegister::Compctrl0 => state.registers.compctrl[0] & COMPCTRL_MASK,
         Samd21AcRegister::Compctrl1 => state.registers.compctrl[1] & COMPCTRL_MASK,
-        Samd21AcRegister::Scaler0 => u32::from(state.registers.scaler[0] & 0x3f),
-        Samd21AcRegister::Scaler1 => u32::from(state.registers.scaler[1] & 0x3f),
+        Samd21AcRegister::Scaler0 => u32::from(state.registers.scaler[0] & SCALER_MASK),
+        Samd21AcRegister::Scaler1 => u32::from(state.registers.scaler[1] & SCALER_MASK),
     }
 }
 
@@ -405,7 +435,17 @@ fn write_register(
     width: AccessWidth,
     value: u64,
 ) -> Result<[usize; 2], DeviceError> {
-    let mut raw = read_register(state, register);
+    let mut raw = if matches!(
+        register,
+        Samd21AcRegister::Ctrlb
+            | Samd21AcRegister::Intenclr
+            | Samd21AcRegister::Intenset
+            | Samd21AcRegister::Intflag
+    ) {
+        0
+    } else {
+        read_register(state, register)
+    };
     let mut bytes = [0_u8; 4];
     bytes[..register.size()].copy_from_slice(&raw.to_le_bytes()[..register.size()]);
     write_le(&mut bytes, byte_offset, width, value)?;
@@ -417,36 +457,49 @@ fn write_register(
             if write & 1 != 0 {
                 *state = AcState::default();
             } else {
-                state.registers.ctrla = write & 0x06;
+                state.registers.ctrla = write & CTRLA_MASK & !1;
             }
         }
         Samd21AcRegister::Ctrlb => {
+            let starts = raw as u8 & CTRLB_MASK;
+            let window_start = state.registers.winctrl & 1 != 0 && starts != 0;
             for comparator in 0..2 {
-                if raw as u8 & (1 << comparator) != 0 {
+                let selected = if window_start {
+                    true
+                } else {
+                    starts & (1 << comparator) != 0
+                };
+                if selected && state.registers.compctrl[comparator] & 3 == 3 {
                     state.registers.ready &= !(1 << comparator);
                     evaluate[comparator] = comparator;
                 }
             }
         }
-        Samd21AcRegister::Evctrl => state.registers.evctrl = raw as u16 & 0x0313,
-        Samd21AcRegister::Intenclr => state.registers.interrupt_enable &= !(raw as u8 & 0x13),
-        Samd21AcRegister::Intenset => state.registers.interrupt_enable |= raw as u8 & 0x13,
-        Samd21AcRegister::Intflag => state.registers.interrupt_flags &= !(raw as u8 & 0x13),
+        Samd21AcRegister::Evctrl => state.registers.evctrl = raw as u16 & EVCTRL_MASK,
+        Samd21AcRegister::Intenclr => {
+            state.registers.interrupt_enable &= !(raw as u8 & INTERRUPT_MASK)
+        }
+        Samd21AcRegister::Intenset => {
+            state.registers.interrupt_enable |= raw as u8 & INTERRUPT_MASK
+        }
+        Samd21AcRegister::Intflag => {
+            state.registers.interrupt_flags &= !(raw as u8 & INTERRUPT_MASK)
+        }
         Samd21AcRegister::Statusa | Samd21AcRegister::Statusb | Samd21AcRegister::Statusc => {}
-        Samd21AcRegister::Winctrl => state.registers.winctrl = raw as u8 & 0x07,
+        Samd21AcRegister::Winctrl => state.registers.winctrl = raw as u8 & WINCTRL_MASK,
         Samd21AcRegister::Compctrl0 | Samd21AcRegister::Compctrl1 => {
             let comparator = usize::from(register == Samd21AcRegister::Compctrl1);
             state.registers.compctrl[comparator] = raw & COMPCTRL_MASK;
         }
         Samd21AcRegister::Scaler0 | Samd21AcRegister::Scaler1 => {
             let comparator = usize::from(register == Samd21AcRegister::Scaler1);
-            state.registers.scaler[comparator] = raw as u8 & 0x3f;
+            state.registers.scaler[comparator] = raw as u8 & SCALER_MASK;
         }
     }
     for comparator in evaluate {
         if comparator != usize::MAX
             && state.registers.ctrla & 2 != 0
-            && state.registers.compctrl[comparator] & 1 != 0
+            && state.registers.compctrl[comparator] & 3 == 3
         {
             evaluate_comparator(state, comparator);
         }
@@ -498,6 +551,115 @@ impl Device for Samd21Ac {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_registers_and_vendor_masks_are_enforced() {
+        assert_eq!(
+            Samd21AcRegister::from_offset(0x00),
+            Some(Samd21AcRegister::Ctrla)
+        );
+        assert_eq!(Samd21AcRegister::from_offset(0x03), None);
+        assert_eq!(Samd21AcRegister::Scaler1.offset(), 0x21);
+
+        let signals = SignalHub::new();
+        let (mut ac, _) = Samd21Ac::new("ac", "board.ac", signals).unwrap();
+        ac.write(0x00, AccessWidth::Byte, 0x86, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            ac.read(0x00, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x86
+        );
+        ac.write(0x02, AccessWidth::HalfWord, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            ac.read(0x02, AccessWidth::HalfWord, SimTime::ZERO).unwrap(),
+            u64::from(EVCTRL_MASK)
+        );
+        ac.write(0x10, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            ac.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(COMPCTRL_MASK)
+        );
+    }
+
+    #[test]
+    fn interrupt_aliases_use_raw_write_one_payloads() {
+        let signals = SignalHub::new();
+        let (mut ac, handle) = Samd21Ac::new("ac", "board.ac", signals).unwrap();
+        handle.inject_input(0, 0x0900).unwrap();
+        ac.write(0x00, AccessWidth::Byte, 2, SimTime::ZERO).unwrap();
+        ac.write(
+            0x10,
+            AccessWidth::Word,
+            (1 << 5) | (1 << 8) | (1 << 1) | 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        ac.write(0x05, AccessWidth::Byte, FLAG_COMP0 as u64, SimTime::ZERO)
+            .unwrap();
+        ac.write(0x01, AccessWidth::Byte, 1, SimTime::ZERO).unwrap();
+        assert_eq!(handle.interrupt_flags(), FLAG_COMP0);
+        ac.write(0x06, AccessWidth::Byte, 0, SimTime::ZERO).unwrap();
+        assert_eq!(handle.interrupt_flags(), FLAG_COMP0);
+        ac.write(0x06, AccessWidth::Byte, FLAG_COMP0 as u64, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.interrupt_flags(), 0);
+    }
+
+    #[test]
+    fn swap_preserves_the_vendor_swapped_and_inverted_comparison_rule() {
+        let signals = SignalHub::new();
+        let (mut ac, handle) = Samd21Ac::new("ac", "board.ac", signals).unwrap();
+        handle.inject_input(0, 0x0900).unwrap();
+        handle.inject_input(1, 0x0100).unwrap();
+        ac.write(0x00, AccessWidth::Byte, 2, SimTime::ZERO).unwrap();
+        ac.write(
+            0x10,
+            AccessWidth::Word,
+            (1 << 8) | (1 << 15) | (1 << 1) | 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        ac.write(0x05, AccessWidth::Byte, FLAG_COMP0 as u64, SimTime::ZERO)
+            .unwrap();
+        ac.write(0x01, AccessWidth::Byte, 1, SimTime::ZERO).unwrap();
+        assert!(handle.output(0).unwrap());
+    }
+
+    #[test]
+    fn window_start_evaluates_both_single_shot_comparators() {
+        let signals = SignalHub::new();
+        let (mut ac, handle) = Samd21Ac::new("ac", "board.ac", signals).unwrap();
+        handle.inject_input(0, 0x0900).unwrap();
+        handle.inject_input(1, 0x0100).unwrap();
+        handle.inject_input(2, 0x0a00).unwrap();
+        ac.write(0x00, AccessWidth::Byte, 2, SimTime::ZERO).unwrap();
+        ac.write(0x0c, AccessWidth::Byte, 1 | (1 << 1), SimTime::ZERO)
+            .unwrap();
+        ac.write(
+            0x10,
+            AccessWidth::Word,
+            (1 << 8) | (1 << 1) | 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        ac.write(
+            0x14,
+            AccessWidth::Word,
+            (2 << 8) | (1 << 1) | 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        ac.write(0x05, AccessWidth::Byte, FLAG_WINDOW as u64, SimTime::ZERO)
+            .unwrap();
+        ac.write(0x01, AccessWidth::Byte, 1, SimTime::ZERO).unwrap();
+        assert_eq!(
+            ac.read(0x08, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            (1 << 4) | 1
+        );
+        assert_ne!(handle.interrupt_flags() & FLAG_WINDOW, 0);
+    }
 
     #[test]
     fn named_registers_match_samd21_ac_offsets() {

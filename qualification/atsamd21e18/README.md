@@ -38,9 +38,11 @@ descriptors, peripheral/event trigger routing, CRC execution, analog behavior,
 ADC averaging/event-DMA coupling, I2S serial timing/framing/pin waveforms/DMAC coupling, and live peripheral
 event-generator/user routing are unsupported.
 The AC exposes native control/input/status/interrupt registers, deterministic
-host-supplied AIN codes, single-shot and continuous comparison, edge/EOC flags,
-window state, and VCD-visible digital comparator outputs. Comparator filtering,
-startup behavior, and exact window electrical behavior remain unsupported.
+host-supplied first-pair AIN codes, single-shot and continuous comparison,
+edge/EOC flags, window state, and VCD-visible digital comparator outputs. It
+follows vendor masks, raw interrupt alias semantics, CTRLA low-power bits, and
+SWAP behavior. Comparator filtering, startup behavior, and exact window
+electrical behavior remain unsupported.
 VCD exposes PORT, timer, UART, comparator, and interrupt hierarchy, and the gate
 compares two runs byte-for-byte.
 
