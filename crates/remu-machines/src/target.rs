@@ -227,6 +227,16 @@ const COMMON_BASELINE: &[&str] = &[
     "VCD output",
 ];
 
+const RP2350_BASELINE: &[&str] = &[
+    "direct ELF loading",
+    "deterministic interpreted execution",
+    "compiler-test exit convention",
+    "functional GPIO, timer, and UART facades",
+    "external digital pin stimulus",
+    "VCD output",
+    "functional RP2350 I²C0/I²C1 host controllers",
+];
+
 const MANIFESTS: &[TargetManifest] = &[
     TargetManifest {
         schema: 1,
@@ -349,11 +359,12 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 48,
         fidelity: Fidelity::Functional,
-        baseline: COMMON_BASELINE,
+        baseline: RP2350_BASELINE,
         sources: &["https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"],
         limitations: &[
             "Cortex-M33 and Hazard3 direct-ELF modes implement compiler-facing ISA subsets",
             "TrustZone, HSTX, USB, NVIC priority/preemption, and exact QMI timing are deferred",
+            "I²C pin-level arbitration, slave mode, DMA, and exact SCL/SDA timing are deferred",
         ],
     },
     TargetManifest {

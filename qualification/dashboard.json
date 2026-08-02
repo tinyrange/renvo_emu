@@ -8,15 +8,15 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "79ca99307decbde3e2ac874c09cd0004e4c37ee86f4ec097f3f177cfa0629a0d"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "bca7e88525cc6d6320077bc71093aff06cab71345d04a700855fde3c35529e9e"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "9d77e6ad0891691543bf6ee72addfdb221e081f6a5495a68181ea68072fea705"
     },
     {
       "path": "qualification/reduction.json",
@@ -24,23 +24,23 @@
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "f7dde1520d959d650c5a78a027f7388df279d2233e0d228a77f8982260e5fe97"
+      "sha256": "4fb562cc258c461a2b4bfaed26a6e4c4826808f6a74040a63523f1b3f034ed1a"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+      "sha256": "86c19da019e5b7ee849d6e8a917c1416103e1411e972f8c09921da04aff9eb14"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "721954ec77f92d0e141ab2f6ce5ec26cee1ee4b031c97a9626b4c7a1e6962d58"
     },
     {
       "path": "qualification/rust-abi.json",
-      "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+      "sha256": "a006e3db0ccaebdddc717359319f4096dd3d77b17c885b20e1cd917ba6e0f483"
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+      "sha256": "30fcd91219ae8ef5dee5fd92e79734f3840c7c9accf4e8c5d797f338aa328843"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "dff87cdf11a4ca63ec36435415dca6780fe2092c7acc71a7653d973f19189492",
+        "manifest_sha256": "36e13000001313c7fd39e691cbf333a12b30be2c5480c5b99bd7b6322f0090ea",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -168,7 +168,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "f9183872e0295be232156081ca16457b0c7d655fa1a1280ac0885f92b29a85ca",
+        "manifest_sha256": "8a56e5014c069e577428862a20a74255e4c946aca8eff214999d5f768e18c9af",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -215,7 +215,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487",
+        "manifest_sha256": "3769e8383f1027cb298795f63ddf7e4f147a79ef280b1f8442f3df17caa55624",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -250,10 +250,12 @@
       "known_gaps": [
         "Cortex-M33 and Hazard3 direct-ELF modes implement compiler-facing ISA subsets",
         "TrustZone, HSTX, USB, NVIC priority/preemption, and exact QMI timing are deferred",
+        "I\u00b2C pin-level arbitration, slave mode, DMA, and exact SCL/SDA timing are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
         "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
+        "I\u00b2C0/I\u00b2C1 cover functional host commands and FIFO/interrupt status without pin-level arbitration, slave mode, DMA, or exact SCL/SDA timing.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
       ],
       "name": "Raspberry Pi RP2350A",
@@ -264,14 +266,16 @@
         "Unmodified Pico SDK blink_simple on both CPU modes"
       ],
       "register_coverage": {
-        "covered_register_count": 13,
+        "covered_register_count": 20,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95",
+        "manifest_sha256": "7b2162301694431e8f47c81667e23bc78b164f50b02e89283251dc1c9792ff29",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
           "rp2350.timer0",
-          "rp2350.uart0"
+          "rp2350.uart0",
+          "rp2350.i2c0",
+          "rp2350.i2c1"
         ],
         "status": "passing"
       },
@@ -315,7 +319,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4",
+        "manifest_sha256": "f93b381571c29b44a72a276fb9080f9f01fafa594ca2d96ac87f1ee15c9d1de5",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"
@@ -360,7 +364,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf",
+        "manifest_sha256": "f28dfa0c905ba25b57f8e15c8586b9bed81102ac8d51d1ae6f42cebb786b469a",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",
