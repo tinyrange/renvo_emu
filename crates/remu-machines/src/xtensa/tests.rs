@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3SdmmcRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -38,7 +39,7 @@ fn esp32s3_sdmmc_native_window_reads_a_host_card_block() {
     machine
         .bus
         .write(
-            base + 0x24,
+            base + Esp32S3SdmmcRegister::Intmask.offset(),
             AccessWidth::Word,
             (1 << 2) | (1 << 5) | (1 << 3),
             SimTime::ZERO,
@@ -46,16 +47,26 @@ fn esp32s3_sdmmc_native_window_reads_a_host_card_block() {
         .unwrap();
     machine
         .bus
-        .write(base + 0x28, AccessWidth::Word, 1, SimTime::ZERO)
-        .unwrap();
-    machine
-        .bus
-        .write(base + 0x20, AccessWidth::Word, 4, SimTime::ZERO)
+        .write(
+            base + Esp32S3SdmmcRegister::Cmdarg.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
         .unwrap();
     machine
         .bus
         .write(
-            base + 0x2c,
+            base + Esp32S3SdmmcRegister::Bytcnt.offset(),
+            AccessWidth::Word,
+            4,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            base + Esp32S3SdmmcRegister::Cmd.offset(),
             AccessWidth::Word,
             u64::from((1_u32 << 31) | (1 << 9) | 17),
             SimTime::from_ticks(1),
@@ -65,7 +76,7 @@ fn esp32s3_sdmmc_native_window_reads_a_host_card_block() {
         machine
             .bus
             .read(
-                base + 0x200,
+                base + Esp32S3SdmmcRegister::Fifo.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -77,7 +88,7 @@ fn esp32s3_sdmmc_native_window_reads_a_host_card_block() {
         machine
             .bus
             .read(
-                base + 0x40,
+                base + Esp32S3SdmmcRegister::Mintsts.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO

@@ -1,25 +1,192 @@
 use super::*;
 
-const CTRL: u64 = 0x00;
-const BLKSIZ: u64 = 0x1c;
-const BYTCNT: u64 = 0x20;
-const INTMASK: u64 = 0x24;
-const CMDARG: u64 = 0x28;
-const CMD: u64 = 0x2c;
-const RESP0: u64 = 0x30;
-const RESP1: u64 = 0x34;
-const RESP2: u64 = 0x38;
-const RESP3: u64 = 0x3c;
-const MINTSTS: u64 = 0x40;
-const RINTSTS: u64 = 0x44;
-const STATUS: u64 = 0x48;
-const CDETECT: u64 = 0x50;
-const TCBCNT: u64 = 0x5c;
-const TBBCNT: u64 = 0x60;
-const VERID: u64 = 0x6c;
-const HCON: u64 = 0x70;
-const RST_N: u64 = 0x78;
-const FIFO: u64 = 0x200;
+/// Native ESP32-S3 SD/MMC register identifiers from Espressif's
+/// `sdmmc_reg.h`.  `Dbaddru` and `Idsts` are aliases at the same hardware
+/// offset; the associated `IDSTS` constant provides the second datasheet
+/// name without introducing an integer register identifier.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u16)]
+#[allow(missing_docs)]
+pub enum Esp32S3SdmmcRegister {
+    Ctrl = 0x00,
+    Pwren = 0x04,
+    Clkdiv = 0x08,
+    Clksrc = 0x0c,
+    Clkena = 0x10,
+    Tmout = 0x14,
+    Ctype = 0x18,
+    Blksiz = 0x1c,
+    Bytcnt = 0x20,
+    Intmask = 0x24,
+    Cmdarg = 0x28,
+    Cmd = 0x2c,
+    Resp0 = 0x30,
+    Resp1 = 0x34,
+    Resp2 = 0x38,
+    Resp3 = 0x3c,
+    Mintsts = 0x40,
+    Rintsts = 0x44,
+    Status = 0x48,
+    Fifoth = 0x4c,
+    Cdetect = 0x50,
+    Wrtprt = 0x54,
+    Gpio = 0x58,
+    Tcbcnt = 0x5c,
+    Tbbcnt = 0x60,
+    Debnce = 0x64,
+    Usrid = 0x68,
+    Verid = 0x6c,
+    Hcon = 0x70,
+    Uhs = 0x74,
+    RstN = 0x78,
+    Bmod = 0x80,
+    Pldmnd = 0x84,
+    Dbaddr = 0x88,
+    Dbaddru = 0x8c,
+    Idinten = 0x90,
+    Dscaddr = 0x94,
+    Dscaddrl = 0x98,
+    Dscaddru = 0x9c,
+    Bufaddrl = 0xa0,
+    Bufaddru = 0xa4,
+    Cardthrctl = 0x100,
+    BackendPower = 0x104,
+    UhsExt = 0x108,
+    EmmcDdr = 0x10c,
+    EnableShift = 0x110,
+    Clock = 0x800,
+    /// Functional host FIFO endpoint used by the emulator's card model.
+    Fifo = 0x200,
+}
+
+impl Esp32S3SdmmcRegister {
+    /// Datasheet spelling for the DBADDRU/IDSTS register alias.
+    pub const IDSTS: Self = Self::Dbaddru;
+
+    /// Returns the byte offset of this register in the SD/MMC page.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Resolves a byte offset in the native SD/MMC page to its named ID.
+    /// Reserved holes return `None`.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x00 => Self::Ctrl,
+            0x04 => Self::Pwren,
+            0x08 => Self::Clkdiv,
+            0x0c => Self::Clksrc,
+            0x10 => Self::Clkena,
+            0x14 => Self::Tmout,
+            0x18 => Self::Ctype,
+            0x1c => Self::Blksiz,
+            0x20 => Self::Bytcnt,
+            0x24 => Self::Intmask,
+            0x28 => Self::Cmdarg,
+            0x2c => Self::Cmd,
+            0x30 => Self::Resp0,
+            0x34 => Self::Resp1,
+            0x38 => Self::Resp2,
+            0x3c => Self::Resp3,
+            0x40 => Self::Mintsts,
+            0x44 => Self::Rintsts,
+            0x48 => Self::Status,
+            0x4c => Self::Fifoth,
+            0x50 => Self::Cdetect,
+            0x54 => Self::Wrtprt,
+            0x58 => Self::Gpio,
+            0x5c => Self::Tcbcnt,
+            0x60 => Self::Tbbcnt,
+            0x64 => Self::Debnce,
+            0x68 => Self::Usrid,
+            0x6c => Self::Verid,
+            0x70 => Self::Hcon,
+            0x74 => Self::Uhs,
+            0x78 => Self::RstN,
+            0x80 => Self::Bmod,
+            0x84 => Self::Pldmnd,
+            0x88 => Self::Dbaddr,
+            0x8c => Self::Dbaddru,
+            0x90 => Self::Idinten,
+            0x94 => Self::Dscaddr,
+            0x98 => Self::Dscaddrl,
+            0x9c => Self::Dscaddru,
+            0xa0 => Self::Bufaddrl,
+            0xa4 => Self::Bufaddru,
+            0x100 => Self::Cardthrctl,
+            0x104 => Self::BackendPower,
+            0x108 => Self::UhsExt,
+            0x10c => Self::EmmcDdr,
+            0x110 => Self::EnableShift,
+            0x200 => Self::Fifo,
+            0x800 => Self::Clock,
+            _ => return None,
+        })
+    }
+
+    /// Bits that are architecturally visible when the register is read.
+    /// The Espressif header publishes offsets and interrupt bits, while the
+    /// remaining DesignWare fields are intentionally modelled conservatively.
+    const fn read_mask(self) -> u32 {
+        match self {
+            Self::Mintsts | Self::Rintsts => SDMMC_INTERRUPT_MASK,
+            Self::Cdetect | Self::Wrtprt => 1,
+            Self::Resp0 | Self::Resp1 | Self::Resp2 | Self::Resp3 => u32::MAX,
+            Self::Verid | Self::Hcon | Self::Tcbcnt | Self::Tbbcnt => u32::MAX,
+            _ => u32::MAX,
+        }
+    }
+
+    /// Bits accepted by a normal register write.  Read-only registers are
+    /// ignored by the device write path; RINTSTS is a functional W1C latch.
+    const fn write_mask(self) -> u32 {
+        match self {
+            Self::Resp0
+            | Self::Resp1
+            | Self::Resp2
+            | Self::Resp3
+            | Self::Mintsts
+            | Self::Status
+            | Self::Cdetect
+            | Self::Wrtprt
+            | Self::Tcbcnt
+            | Self::Tbbcnt
+            | Self::Verid
+            | Self::Hcon
+            | Self::Dbaddru => 0,
+            Self::Intmask => SDMMC_INTERRUPT_MASK,
+            Self::Rintsts => SDMMC_INTERRUPT_MASK,
+            Self::Pwren | Self::Clksrc | Self::Ctype => 0x3,
+            Self::Blksiz => 0xffff,
+            Self::Fifoth => 0x03ff_03ff,
+            Self::RstN => 0x7,
+            Self::Idinten => SDMMC_IDMAC_INTERRUPT_MASK,
+            Self::Pldmnd => 1,
+            _ => u32::MAX,
+        }
+    }
+}
+
+const CTRL: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Ctrl;
+const BLKSIZ: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Blksiz;
+const BYTCNT: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Bytcnt;
+const INTMASK: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Intmask;
+const CMDARG: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Cmdarg;
+const CMD: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Cmd;
+const RESP0: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Resp0;
+const RESP1: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Resp1;
+const RESP2: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Resp2;
+const RESP3: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Resp3;
+const MINTSTS: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Mintsts;
+const RINTSTS: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Rintsts;
+const STATUS: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Status;
+const CDETECT: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Cdetect;
+const TCBCNT: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Tcbcnt;
+const TBBCNT: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Tbbcnt;
+const VERID: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Verid;
+const HCON: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Hcon;
+const RST_N: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::RstN;
+const FIFO: Esp32S3SdmmcRegister = Esp32S3SdmmcRegister::Fifo;
 
 const CMD_INDEX_MASK: u32 = 0x3f;
 const CMD_DATA_EXPECTED: u32 = 1 << 9;
@@ -32,6 +199,8 @@ const INT_DATA_OVER: u32 = 1 << 3;
 const INT_TXDR: u32 = 1 << 4;
 const INT_RXDR: u32 = 1 << 5;
 const INT_RTO: u32 = 1 << 8;
+const SDMMC_INTERRUPT_MASK: u32 = 0x0003_ffff;
+const SDMMC_IDMAC_INTERRUPT_MASK: u32 = 0x0000_0337;
 
 const BLOCK_BYTES: usize = 512;
 const DEFAULT_CARD_BYTES: usize = 128 * BLOCK_BYTES;
@@ -77,7 +246,7 @@ impl Esp32S3SdmmcHandle {
 }
 
 struct Esp32S3SdmmcState {
-    registers: BTreeMap<u64, u32>,
+    registers: BTreeMap<Esp32S3SdmmcRegister, u32>,
     raw_interrupts: u32,
     card_present: bool,
     card: Vec<u8>,
@@ -119,8 +288,8 @@ impl Esp32S3SdmmcState {
             .insert(MINTSTS, self.raw_interrupts & self.register(INTMASK));
     }
 
-    fn register(&self, offset: u64) -> u32 {
-        self.registers.get(&offset).copied().unwrap_or_default()
+    fn register(&self, register: Esp32S3SdmmcRegister) -> u32 {
+        self.registers.get(&register).copied().unwrap_or_default()
     }
 
     fn publish(&self, signal: SignalId, value: u32, at: SimTime) -> Result<(), DeviceError> {
@@ -355,8 +524,13 @@ impl Device for Esp32S3Sdmmc {
                 "ESP32-S3 SDMMC requires aligned word access",
             ));
         }
+        let register = Esp32S3SdmmcRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unsupported ESP32-S3 SDMMC register offset {offset:#x}"
+            ))
+        })?;
         let mut state = self.state.borrow_mut();
-        let value = match offset {
+        let value = match register {
             MINTSTS => state.raw_interrupts & state.register(INTMASK),
             RINTSTS => state.raw_interrupts,
             STATUS => state.status(),
@@ -368,7 +542,7 @@ impl Device for Esp32S3Sdmmc {
                 }
             }
             FIFO => state.pop_fifo(at)?,
-            _ => state.register(offset),
+            _ => state.register(register) & register.read_mask(),
         };
         Ok(u64::from(value))
     }
@@ -385,9 +559,18 @@ impl Device for Esp32S3Sdmmc {
                 "ESP32-S3 SDMMC requires aligned word access",
             ));
         }
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits u32");
+        let register = Esp32S3SdmmcRegister::from_offset(offset).ok_or_else(|| {
+            DeviceError::new(format!(
+                "unsupported ESP32-S3 SDMMC register offset {offset:#x}"
+            ))
+        })?;
+        let value = u32::try_from(value).map_err(|_| {
+            DeviceError::new(format!(
+                "ESP32-S3 SDMMC word write exceeds 32 bits: {value:#x}"
+            ))
+        })?;
         let mut state = self.state.borrow_mut();
-        match offset {
+        match register {
             FIFO => state.push_fifo(value, at)?,
             CTRL => {
                 if value & 1 != 0 {
@@ -395,24 +578,39 @@ impl Device for Esp32S3Sdmmc {
                 } else if value & 2 != 0 {
                     state.clear_fifos();
                 }
-                state.registers.insert(CTRL, value & !3);
+                state.registers.insert(CTRL, value & CTRL.write_mask() & !7);
             }
             RINTSTS => {
-                state.raw_interrupts &= !value;
+                state.raw_interrupts &= !(value & RINTSTS.write_mask());
                 state.refresh_interrupt_status();
             }
             INTMASK => {
-                state.registers.insert(INTMASK, value);
+                state
+                    .registers
+                    .insert(INTMASK, value & INTMASK.write_mask());
                 state.refresh_interrupt_status();
             }
             CMD => {
-                state.registers.insert(CMD, value);
+                state.registers.insert(CMD, value & CMD.write_mask());
                 state.execute_command(value, at)?;
             }
             RST_N if value == 0 => state.reset(),
-            CDETECT | STATUS | MINTSTS | RESP0 | RESP1 | RESP2 | RESP3 => {}
+            CDETECT
+            | STATUS
+            | MINTSTS
+            | RESP0
+            | RESP1
+            | RESP2
+            | RESP3
+            | Esp32S3SdmmcRegister::Wrtprt
+            | TCBCNT
+            | TBBCNT
+            | VERID
+            | HCON
+            | Esp32S3SdmmcRegister::Dbaddru => {}
             _ => {
-                state.registers.insert(offset, value);
+                let mask = register.write_mask();
+                state.registers.insert(register, value & mask);
             }
         }
         Ok(())
@@ -434,33 +632,35 @@ mod tests {
         handle.load_card(2 * BLOCK_BYTES, [0x10, 0x20, 0x30, 0x40]);
         sdmmc
             .write(
-                INTMASK,
+                INTMASK.offset(),
                 AccessWidth::Word,
                 (INT_CMD_DONE | INT_RXDR | INT_DATA_OVER) as u64,
                 SimTime::ZERO,
             )
             .unwrap();
         sdmmc
-            .write(CMDARG, AccessWidth::Word, 2, SimTime::ZERO)
+            .write(CMDARG.offset(), AccessWidth::Word, 2, SimTime::ZERO)
             .unwrap();
         sdmmc
-            .write(BYTCNT, AccessWidth::Word, 4, SimTime::ZERO)
+            .write(BYTCNT.offset(), AccessWidth::Word, 4, SimTime::ZERO)
             .unwrap();
         sdmmc
             .write(
-                CMD,
+                CMD.offset(),
                 AccessWidth::Word,
                 u64::from(CMD_START | CMD_DATA_EXPECTED | 17),
                 SimTime::from_ticks(1),
             )
             .unwrap();
         assert_eq!(
-            sdmmc.read(FIFO, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            sdmmc
+                .read(FIFO.offset(), AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
             0x4030_2010
         );
         assert_eq!(
             sdmmc
-                .read(MINTSTS, AccessWidth::Word, SimTime::ZERO)
+                .read(MINTSTS.offset(), AccessWidth::Word, SimTime::ZERO)
                 .unwrap()
                 & u64::from(INT_CMD_DONE | INT_DATA_OVER),
             u64::from(INT_CMD_DONE | INT_DATA_OVER)
@@ -468,28 +668,33 @@ mod tests {
 
         sdmmc
             .write(
-                RINTSTS,
+                RINTSTS.offset(),
                 AccessWidth::Word,
                 u64::from(u32::MAX),
                 SimTime::ZERO,
             )
             .unwrap();
         sdmmc
-            .write(CMDARG, AccessWidth::Word, 3, SimTime::ZERO)
+            .write(CMDARG.offset(), AccessWidth::Word, 3, SimTime::ZERO)
             .unwrap();
         sdmmc
-            .write(BYTCNT, AccessWidth::Word, 4, SimTime::ZERO)
+            .write(BYTCNT.offset(), AccessWidth::Word, 4, SimTime::ZERO)
             .unwrap();
         sdmmc
             .write(
-                CMD,
+                CMD.offset(),
                 AccessWidth::Word,
                 u64::from(CMD_START | CMD_DATA_EXPECTED | CMD_WRITE | 24),
                 SimTime::from_ticks(2),
             )
             .unwrap();
         sdmmc
-            .write(FIFO, AccessWidth::Word, 0xdead_beef, SimTime::from_ticks(3))
+            .write(
+                FIFO.offset(),
+                AccessWidth::Word,
+                0xdead_beef,
+                SimTime::from_ticks(3),
+            )
             .unwrap();
         assert_eq!(
             handle.take_written_blocks(),
@@ -503,24 +708,26 @@ mod tests {
         let (mut sdmmc, handle) = Esp32S3Sdmmc::new("sdmmc", hub).unwrap();
         assert_eq!(
             sdmmc
-                .read(CDETECT, AccessWidth::Word, SimTime::ZERO)
+                .read(CDETECT.offset(), AccessWidth::Word, SimTime::ZERO)
                 .unwrap(),
             0
         );
         assert_eq!(
-            sdmmc.read(VERID, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            sdmmc
+                .read(VERID.offset(), AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
             0x3430_322a
         );
         handle.set_card_present(false);
         assert_eq!(
             sdmmc
-                .read(CDETECT, AccessWidth::Word, SimTime::ZERO)
+                .read(CDETECT.offset(), AccessWidth::Word, SimTime::ZERO)
                 .unwrap(),
             1
         );
         sdmmc
             .write(
-                CMD,
+                CMD.offset(),
                 AccessWidth::Word,
                 u64::from(CMD_START | 0),
                 SimTime::ZERO,
@@ -528,10 +735,91 @@ mod tests {
             .unwrap();
         assert_ne!(
             sdmmc
-                .read(RINTSTS, AccessWidth::Word, SimTime::ZERO)
+                .read(RINTSTS.offset(), AccessWidth::Word, SimTime::ZERO)
                 .unwrap()
                 & u64::from(INT_RTO),
             0
+        );
+    }
+
+    #[test]
+    fn register_enum_covers_native_aliases_and_reset_semantics() {
+        assert_eq!(Esp32S3SdmmcRegister::Ctrl.offset(), 0x00);
+        assert_eq!(Esp32S3SdmmcRegister::Clock.offset(), 0x800);
+        assert_eq!(Esp32S3SdmmcRegister::IDSTS, Esp32S3SdmmcRegister::Dbaddru);
+
+        let hub = SignalHub::new();
+        let (mut sdmmc, _) = Esp32S3Sdmmc::new("sdmmc", hub).unwrap();
+        sdmmc
+            .write(
+                Esp32S3SdmmcRegister::Intmask.offset(),
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            sdmmc
+                .read(
+                    Esp32S3SdmmcRegister::Intmask.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(SDMMC_INTERRUPT_MASK)
+        );
+        sdmmc
+            .write(
+                Esp32S3SdmmcRegister::Blksiz.offset(),
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            sdmmc
+                .read(
+                    Esp32S3SdmmcRegister::Blksiz.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xffff
+        );
+        sdmmc
+            .write(
+                Esp32S3SdmmcRegister::Ctrl.offset(),
+                AccessWidth::Word,
+                0x7,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            sdmmc
+                .read(
+                    Esp32S3SdmmcRegister::Ctrl.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn register_access_rejects_reserved_offsets_and_wide_words() {
+        let hub = SignalHub::new();
+        let (mut sdmmc, _) = Esp32S3Sdmmc::new("sdmmc", hub).unwrap();
+        assert!(sdmmc.read(0x7c, AccessWidth::Word, SimTime::ZERO).is_err());
+        assert!(
+            sdmmc
+                .write(
+                    Esp32S3SdmmcRegister::Cmdarg.offset(),
+                    AccessWidth::Word,
+                    1_u64 << 32,
+                    SimTime::ZERO,
+                )
+                .is_err()
         );
     }
 }

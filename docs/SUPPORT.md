@@ -97,7 +97,12 @@ host-backed FIFO at `0x200`, transfer counts, status, and raw/masked command,
 FIFO, data-over, and timeout interrupts. VCD paths are
 `board.esp32s3.sdmmc.card` and `.data`. It intentionally does not claim SD
 electrical signaling, CRC timing, SDIO function protocol, multi-card
-arbitration, or descriptor-level IDMAC execution.
+arbitration, or descriptor-level IDMAC execution. The implementation exposes a
+named `Esp32S3SdmmcRegister` enum for the complete native offset map, masks
+reserved interrupt/IDMAC bits, preserves documented reset values, treats
+response/status/card-detect fields as read-only, and models command/FIFO/reset
+strobes as self-clearing or write-one-to-clear operations. Unsupported holes
+and writes wider than 32 bits are rejected rather than silently aliased.
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
