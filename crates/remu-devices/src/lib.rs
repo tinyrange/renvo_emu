@@ -37,6 +37,8 @@ mod wch_power;
 pub use wch_power::*;
 mod wch_touch;
 pub use wch_touch::*;
+mod wch_sltm;
+pub use wch_sltm::*;
 mod esp_usb_serial_jtag;
 pub use esp_usb_serial_jtag::*;
 mod gpio;

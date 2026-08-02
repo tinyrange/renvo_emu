@@ -396,6 +396,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "USART1 and USART2 are transmit-focused slices without physical baud timing or a complete receive path",
             "TKEY uses deterministic host-provided samples rather than analogue capacitance physics",
             "ADC DMA, scan/injection groups, watchdogs and exact HBCLK timing remain outside the baseline",
+            "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, center-alignment, preload transfers, waveform pins, and exact clock timing are deferred",
         ],
     },
     TargetManifest {

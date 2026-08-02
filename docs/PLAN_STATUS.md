@@ -417,3 +417,15 @@ contract for both instances, exposes typed offset conversion, and implements
 RW0 clearing for the modeled `STATR` flags while retaining immediate
 byte-oriented transmission. Nine-bit data, receive state, DMA, baud timing,
 and USART interrupt routing remain explicit gaps.
+
+## CH32V006 streamlined timer closure
+
+The CH32V006-only streamlined TIM3 block is mapped at its documented
+`0x40000800` address. The functional model implements the 16-bit internal-clock
+counter, auto-reload, up/down direction, four compare registers, and the
+channel-3/channel-4 DMA-event enables. Direct device tests cover counter
+progression and compare/update events; Docker-built RV32EC firmware exercises
+the native register window. DMA data movement and CPU interrupt routing are
+left to the dedicated DMA/timer follow-up work. Timer-1 cascade,
+center-alignment, compare/auto-reload preload transfers, alternate-function
+waveform pins, and exact silicon clock timing remain explicit limitations.

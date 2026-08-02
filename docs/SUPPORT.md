@@ -9,7 +9,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, SPI1, TIM2, ADC, I2C1, PWR, AFIO/EXTI, PFIC and table-mode interrupt proofs; no native TKEY block |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/USART2/SPI1/TIM2/I2C1/PWR/AFIO/EXTI/PFIC plus ADC/TKEY single-channel conversion slice |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/USART2/SPI1/TIM2/TIM3/I2C1/PWR/AFIO/EXTI/PFIC plus ADC/TKEY single-channel conversion slice |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1; USB; watchdog/RTC; and ROSC/PSM/VREG controls |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER0/1; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1/2; USB; and deterministic accelerator/control slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
@@ -41,6 +41,13 @@ All targets also expose a stable compiler-test block:
 This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
+
+The CH32V006-specific TIM3 streamlined timer is modeled at its native
+`0x40000800` window. Its deterministic internal-clock counter, auto-reload,
+up/down direction, compare channels, and channel 3/4 DMA-event enables are
+covered by the Docker `wch-sltm` proof. Timer-1 cascade, center-alignment,
+compare/auto-reload preload transfers, physical waveform alternate functions,
+and silicon clock timing remain outside this functional slice.
 
 The WCH DMA1 block at `0x4002_0000` exposes all seven channel register sets,
 transfer-count/address configuration, byte/halfword/word widths (including

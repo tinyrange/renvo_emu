@@ -25,8 +25,8 @@ use remu_devices::{
     RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2cHandle, RpIoBankHandle,
     RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
     RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchAdc, WchDma,
-    WchGpio, WchI2c, WchPfic, WchPower, WchPowerVariant, WchSpi, WchTimer, WchUsart, WchWatchdog,
-    new_rp2350_hstx,
+    WchGpio, WchI2c, WchPfic, WchPower, WchPowerVariant, WchSltm, WchSpi, WchTimer, WchUsart,
+    WchWatchdog, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -701,6 +701,10 @@ impl RiscVMachine {
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 let timer = handle;
+                if target == TargetId::Ch32v006 {
+                    let (tim3, _handle) = WchSltm::new(format!("{target}.tim3"));
+                    bus.map_device(format!("{target}.tim3"), 0x4000_0800, 0x400, Box::new(tim3))?;
+                }
                 let (tim1, timer1) = WchTimer::new(format!("{target}.tim1"));
                 bus.map_device(format!("{target}.tim1"), 0x4001_2c00, 0x400, Box::new(tim1))?;
                 let (iwdg, iwdg_handle) = WchWatchdog::new_iwdg(format!("{target}.iwdg"));
