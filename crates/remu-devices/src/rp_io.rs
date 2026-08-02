@@ -3,6 +3,7 @@ use super::*;
 const GPIO_COUNT: usize = 48;
 const EVENT_GROUP_COUNT: usize = 6;
 const EDGE_MASK: u32 = 0xcccc_cccc;
+const GPIO_CTRL_BITS: u32 = 0x3003_f01f;
 
 /// Security/processor bank represented by an RP2350 IO_BANK0 IRQ summary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -154,7 +155,9 @@ impl RpIoBankRegister {
 /// The model intentionally concentrates on the register surface used by the
 /// SDK: per-pin STATUS/CTRL, raw INTR, and PROC0/PROC1 enable/force/status
 /// registers. Pad electrical muxing and the secure/non-secure interrupt bank
-/// remain outside this functional slice.
+/// remain outside this functional slice. Register offsets, access widths, and
+/// reset values are audited against the [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf)
+/// and Raspberry Pi's generated [`io_bank0.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2350/hardware_regs/include/hardware/regs/io_bank0.h).
 pub struct RpIoBank {
     name: String,
     state: Rc<RefCell<RpIoBankState>>,
@@ -311,7 +314,14 @@ impl RpIoBankState {
                 break;
             }
             let shift = pin_in_group * 4;
-            let high = pin < self.pins && self.input_level(pin);
+            if pin >= self.pins {
+                // The machine currently exposes only the first 32 GPIO nets.
+                // Do not manufacture a LEVEL_LOW event for the register-only
+                // GPIO32..47 surface.
+                events &= !(0xf_u32 << shift);
+                continue;
+            }
+            let high = self.input_level(pin);
             events &= !(0x3_u32 << shift);
             events |= 1_u32 << (shift + if high { 1 } else { 0 });
         }
@@ -366,12 +376,14 @@ impl Device for RpIoBank {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
+        if width == AccessWidth::DoubleWord {
             return Err(DeviceError::new(
-                "RP2350 IO_BANK0 requires aligned word access",
+                "RP2350 IO_BANK0 does not support 64-bit access",
             ));
         }
-        let register = RpIoBankRegister::from_offset(offset & 0x0fff);
+        let register_offset = (offset & 0x0fff) & !3;
+        let lane = offset & 3;
+        let register = RpIoBankRegister::from_offset(register_offset);
         let state = self.state.borrow();
         let value = match register {
             Some(RpIoBankRegister::GpioStatus(pin)) => state.status(pin),
@@ -388,6 +400,12 @@ impl Device for RpIoBank {
             Some(RpIoBankRegister::Proc1Status(group)) => state.group_value(group, false, false),
             None => 0,
         };
+        let value = match width {
+            AccessWidth::Byte => (value >> (lane * 8)) & 0xff,
+            AccessWidth::HalfWord => (value >> ((lane & 2) * 8)) & 0xffff,
+            AccessWidth::Word => value,
+            AccessWidth::DoubleWord => unreachable!("checked above"),
+        };
         Ok(u64::from(value))
     }
 
@@ -398,22 +416,39 @@ impl Device for RpIoBank {
         value: u64,
         _at: SimTime,
     ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
+        if width == AccessWidth::DoubleWord {
             return Err(DeviceError::new(
-                "RP2350 IO_BANK0 requires aligned word access",
+                "RP2350 IO_BANK0 does not support 64-bit access",
             ));
         }
+        let register_offset = (offset & 0x0fff) & !3;
         let alias = (offset >> 12) & 3;
-        let register = RpIoBankRegister::from_offset(offset & 0x0fff);
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("IO_BANK0 value fits");
+        let register = RpIoBankRegister::from_offset(register_offset);
+        let value = match width {
+            AccessWidth::Byte => {
+                let value = u32::try_from(value & 0xff).expect("IO_BANK0 byte fits");
+                value | (value << 8) | (value << 16) | (value << 24)
+            }
+            AccessWidth::HalfWord => {
+                let value = u32::try_from(value & 0xffff).expect("IO_BANK0 halfword fits");
+                value | (value << 16)
+            }
+            AccessWidth::Word => {
+                u32::try_from(value & u64::from(u32::MAX)).expect("IO_BANK0 value fits")
+            }
+            AccessWidth::DoubleWord => unreachable!("checked above"),
+        };
         let mut state = self.state.borrow_mut();
         match register {
             Some(RpIoBankRegister::GpioControl(pin)) => {
                 if let Some(control) = state.controls.get_mut(pin) {
-                    RpIoBankState::atomic_update(control, alias, value & 0x3003_f01f)?;
+                    RpIoBankState::atomic_update(control, alias, value & GPIO_CTRL_BITS)?;
                 }
             }
             Some(RpIoBankRegister::RawInterrupt(group)) => {
+                // INTR is a write-clear register. The bus aliases still land
+                // on this same write-clear destination; only edge bits are
+                // acknowledgeable, while level bits remain read-only.
                 state.edge_latches[group] &= !(value & EDGE_MASK);
             }
             Some(RpIoBankRegister::Proc0Enable(group)) => {

@@ -111,9 +111,11 @@ controller delivery, and exact bus timing are intentionally not claimed.
 RP2350's IO_BANK0 model covers the SDK-facing per-pin STATUS and CTRL
 registers, input/output/enable overrides, packed raw edge/level events, and
 PROC0/PROC1 enable, force, and status registers. Both Cortex-M33 and Hazard3
-modes route PROC0 pending state to IO IRQ line 21. This is a functional
-first-32-GPIO slice: pad electrical muxing, secure/non-secure bank routing, and
-the GPIO32-47 electrical connections are not yet modeled.
+modes route PROC0 pending state to IO IRQ line 21. It honors the RP2350 atomic
+register aliases and replicated byte/halfword writes. This is a functional
+first-32-GPIO electrical slice: GPIO32-47 retain their documented register
+surface but do not have connected nets. Pad electrical muxing,
+secure/non-secure bank routing, and dormant-wake behavior are not yet modeled.
 
 The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
 connection control surface. They start connected for existing console fixtures;

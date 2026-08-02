@@ -1496,6 +1496,124 @@ fn rp2350_io_bank_models_overrides_and_proc0_edge_events() {
 }
 
 #[test]
+fn rp2350_io_bank_matches_narrow_access_and_register_reset_contract() {
+    let hub = SignalHub::new();
+    let (sio, gpio) = RpSioGpio::new_rp2350("sio", 4, "board.rp2350.io.contract", hub).unwrap();
+    let (mut io_bank, _) = RpIoBank::new("io-bank0", gpio, 48);
+
+    // GPIO32..47 have registers but no electrical nets in the current machine.
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::GpioControl(47).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x1f
+    );
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::GpioStatus(47).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::RawInterrupt(4).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+
+    // Narrow writes replicate across the register, as specified by RP2350's APB bridge.
+    let enable = RpIoBankRegister::Proc0Enable(0).offset();
+    io_bank
+        .write(enable + 1, AccessWidth::Byte, 0xa5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(enable, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        0xa5a5_a5a5
+    );
+    assert_eq!(
+        io_bank
+            .read(enable + 2, AccessWidth::HalfWord, SimTime::ZERO)
+            .unwrap(),
+        0xa5a5
+    );
+
+    // Atomic SET and CLEAR aliases apply to the native enable registers.
+    io_bank
+        .write(enable, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    io_bank
+        .write(enable + 0x2000, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(enable, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        3
+    );
+    io_bank
+        .write(enable + 0x3000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(enable, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        2
+    );
+
+    // A forced event contributes directly to INTS and IRQSUMMARY.
+    io_bank
+        .write(
+            RpIoBankRegister::Proc0Force(0).offset(),
+            AccessWidth::Word,
+            1 << 3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::Proc0Status(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & (1 << 3),
+        1 << 3
+    );
+    assert_eq!(
+        io_bank
+            .read(
+                RpIoBankRegister::IrqSummary {
+                    kind: RpIoBankSummary::Proc0Secure,
+                    bank: 0,
+                }
+                .offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & 1,
+        1
+    );
+
+    drop(sio);
+}
+
+#[test]
 fn rp2350_spi_models_primecell_fifo_loopback_and_interrupts() {
     let (mut spi, handle) = Rp2350Spi::new("spi0");
     assert_eq!(
