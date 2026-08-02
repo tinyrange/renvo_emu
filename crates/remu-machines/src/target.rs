@@ -603,6 +603,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "GPIO/low-power wake",
             "Timer_A",
             "eUSCI_A0 UART",
+            "eUSCI_B0 I²C host",
             "FRAM",
             "VCD",
         ],
@@ -610,7 +611,9 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf",
             "https://www.ti.com/lit/ug/slau445/slau445.pdf",
         ],
-        limitations: &["ADC, capacitive touch, BSL, and clock accuracy are deferred"],
+        limitations: &[
+            "ADC, capacitive touch, BSL, clock accuracy, and pin-level/slave/10-bit I²C are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,
