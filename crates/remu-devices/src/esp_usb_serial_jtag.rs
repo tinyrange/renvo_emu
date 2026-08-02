@@ -12,6 +12,8 @@ struct EspUsbSerialJtagState {
     tx_packet: Vec<u8>,
     output: Vec<u8>,
     input_queued: bool,
+    host_connected: bool,
+    sof_epoch: SimTime,
     interrupt_raw: u32,
     interrupt_enable: u32,
     registers: BTreeMap<u64, u32>,
@@ -28,6 +30,54 @@ impl EspUsbSerialJtagHandle {
             state.input_queued = true;
             state.interrupt_raw |= 1 << 2;
         }
+    }
+
+    /// Selects whether the deterministic USB host is attached.
+    ///
+    /// A connected host emits one start-of-frame indication every
+    /// [`EspUsbSerialJtag::SOF_PERIOD_TICKS`] abstract ticks. The epoch is
+    /// reset when the connection changes so tests can make the transition
+    /// reproducible at a chosen simulation timestamp.
+    pub fn set_host_connected(&self, connected: bool, at: SimTime) {
+        let mut state = self.state.lock().expect("USB Serial/JTAG lock poisoned");
+        state.host_connected = connected;
+        state.sof_epoch = at;
+        if !connected {
+            state.interrupt_raw &= !EspUsbSerialJtag::SERIAL_SOF;
+        }
+    }
+
+    /// Returns whether the deterministic host is currently attached.
+    pub fn host_connected(&self) -> bool {
+        self.state
+            .lock()
+            .expect("USB Serial/JTAG lock poisoned")
+            .host_connected
+    }
+
+    /// Advances host USB scheduling and returns true on a newly asserted SOF.
+    ///
+    /// SOF is intentionally functional rather than clock accurate: one
+    /// abstract tick is one completed architectural action, and the fixed
+    /// period gives firmware a stable connected-host signal without tying the
+    /// model to a particular CPU frequency.
+    pub fn poll(&self, now: SimTime) -> bool {
+        let mut state = self.state.lock().expect("USB Serial/JTAG lock poisoned");
+        if !state.host_connected {
+            state.interrupt_raw &= !EspUsbSerialJtag::SERIAL_SOF;
+            return false;
+        }
+
+        let elapsed = now.ticks().saturating_sub(state.sof_epoch.ticks());
+        if elapsed < EspUsbSerialJtag::SOF_PERIOD_TICKS {
+            return false;
+        }
+        let periods = elapsed / EspUsbSerialJtag::SOF_PERIOD_TICKS;
+        let advance = periods.saturating_mul(EspUsbSerialJtag::SOF_PERIOD_TICKS);
+        state.sof_epoch = SimTime::from_ticks(state.sof_epoch.ticks().saturating_add(advance));
+        let newly_asserted = state.interrupt_raw & EspUsbSerialJtag::SERIAL_SOF == 0;
+        state.interrupt_raw |= EspUsbSerialJtag::SERIAL_SOF;
+        newly_asserted
     }
 
     /// Returns all bytes transmitted to the deterministic CDC-ACM host.
@@ -84,7 +134,10 @@ impl EspUsbSerialJtag {
     const INT_ST: u64 = 0x0c;
     const INT_ENA: u64 = 0x10;
     const INT_CLR: u64 = 0x14;
+    /// USB full-speed start-of-frame period in abstract simulation ticks.
+    pub const SOF_PERIOD_TICKS: u64 = 1_000;
     const SERIAL_OUT_RECV_PKT: u32 = 1 << 2;
+    const SERIAL_SOF: u32 = 1 << 1;
     const SERIAL_IN_EMPTY: u32 = 1 << 3;
     const INTERRUPT_MASK: u32 = 0x7ffff;
     const ENDPOINT_SIZE: usize = 64;
@@ -93,7 +146,10 @@ impl EspUsbSerialJtag {
     pub fn new(name: impl Into<String>) -> (Self, EspUsbSerialJtagHandle) {
         let state = Arc::new(Mutex::new(EspUsbSerialJtagState {
             // Hardware reset state: an empty IN endpoint is writable and its
-            // raw empty indication is asserted.
+            // raw empty indication is asserted. The deterministic host starts
+            // connected so existing console tests model a plugged-in USB
+            // cable unless they explicitly select disconnected mode.
+            host_connected: true,
             interrupt_raw: Self::SERIAL_IN_EMPTY,
             ..EspUsbSerialJtagState::default()
         }));
@@ -182,6 +238,7 @@ impl Device for EspUsbSerialJtag {
     fn reset(&mut self, _kind: ResetKind) {
         let mut state = self.state.lock().expect("USB Serial/JTAG lock poisoned");
         *state = EspUsbSerialJtagState {
+            host_connected: true,
             interrupt_raw: Self::SERIAL_IN_EMPTY,
             ..EspUsbSerialJtagState::default()
         };

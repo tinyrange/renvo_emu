@@ -337,6 +337,58 @@ fn esp_usb_serial_jtag_moves_deterministic_host_packets() {
 }
 
 #[test]
+fn esp_usb_serial_jtag_models_host_connection_and_sof() {
+    let (mut usb, handle) = EspUsbSerialJtag::new("usb-serial-jtag");
+    let sof = 1_u64 << 1;
+    let enabled = 0x10;
+    let clear = 0x14;
+    let before_first_sof = SimTime::from_ticks(EspUsbSerialJtag::SOF_PERIOD_TICKS - 1);
+    let first_sof = SimTime::from_ticks(EspUsbSerialJtag::SOF_PERIOD_TICKS);
+
+    assert!(handle.host_connected());
+    usb.write(enabled, AccessWidth::Word, sof, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.poll(before_first_sof));
+    assert_eq!(
+        usb.read(0x08, AccessWidth::Word, before_first_sof).unwrap() & sof,
+        0
+    );
+    assert!(handle.poll(first_sof));
+    assert_eq!(
+        usb.read(0x08, AccessWidth::Word, first_sof).unwrap() & sof,
+        sof
+    );
+    assert!(handle.interrupt_pending());
+
+    // SOF is a latched raw status bit and clear-on-write registers acknowledge
+    // it. The next frame asserts it again after another fixed period.
+    usb.write(clear, AccessWidth::Word, sof, first_sof).unwrap();
+    assert!(!handle.interrupt_pending());
+    assert!(!handle.poll(SimTime::from_ticks(first_sof.ticks() + 1)));
+    assert!(handle.poll(SimTime::from_ticks(
+        first_sof.ticks() + EspUsbSerialJtag::SOF_PERIOD_TICKS,
+    )));
+
+    handle.set_host_connected(false, first_sof);
+    assert!(!handle.host_connected());
+    assert_eq!(
+        usb.read(0x08, AccessWidth::Word, first_sof).unwrap() & sof,
+        0
+    );
+    assert!(!handle.poll(SimTime::from_ticks(10 * EspUsbSerialJtag::SOF_PERIOD_TICKS)));
+
+    let reconnected = SimTime::from_ticks(20 * EspUsbSerialJtag::SOF_PERIOD_TICKS);
+    handle.set_host_connected(true, reconnected);
+    assert!(handle.host_connected());
+    assert!(!handle.poll(SimTime::from_ticks(
+        reconnected.ticks() + EspUsbSerialJtag::SOF_PERIOD_TICKS - 1,
+    )));
+    assert!(handle.poll(SimTime::from_ticks(
+        reconnected.ticks() + EspUsbSerialJtag::SOF_PERIOD_TICKS,
+    )));
+}
+
+#[test]
 fn vendor_gpio_set_clear_registers_drive_signals() {
     let hub = SignalHub::new();
     let (mut sio, handle) = RpSioGpio::new("sio", 4, "board.rp.gpio", hub.clone()).unwrap();

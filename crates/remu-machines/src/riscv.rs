@@ -1035,7 +1035,11 @@ impl RiscVMachine {
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }
-
+            stats.events = stats.events.saturating_add(u64::from(
+                self.esp_usb_serial_jtag
+                    .as_ref()
+                    .is_some_and(|usb| usb.poll(self.now)),
+            ));
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
                 stats.events = stats.events.saturating_add(1);
