@@ -953,6 +953,14 @@ mod tests {
         // deterministic loopback so a compiler-facing transfer can observe a response.
         machine
             .bus
+            .write(sercom0, AccessWidth::Word, 3_u64 << 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(sercom0 + 0x04, AccessWidth::Word, 1 << 17, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
             .write(sercom0, AccessWidth::Word, (3_u64 << 2) | 2, SimTime::ZERO)
             .unwrap();
         machine
@@ -973,6 +981,10 @@ mod tests {
         );
 
         // Reconfigure the same native window for I²C host mode and issue a write address.
+        machine
+            .bus
+            .write(sercom0, AccessWidth::Word, 5_u64 << 2, SimTime::ZERO)
+            .unwrap();
         machine
             .bus
             .write(sercom0, AccessWidth::Word, (5_u64 << 2) | 2, SimTime::ZERO)
