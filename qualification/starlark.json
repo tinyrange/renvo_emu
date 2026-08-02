@@ -16,7 +16,7 @@
     {
       "name": "xtensa_cpu",
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "7ba45e2352a6758521251e1bfb98ba8e29130dea0165792023b9a545a00a7ebc"
+      "sha256": "b27a34849c2c7a332436008a3cd6c727e87a39a7a44cd307e6b08ed4345a2475"
     },
     {
       "name": "reduction",
