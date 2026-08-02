@@ -1,24 +1,164 @@
 use super::*;
 
 const REGISTER_BYTES: usize = 0x100;
-const CAM_CTRL: usize = 0x04;
-const CAM_CTRL1: usize = 0x08;
-const LCD_USER: usize = 0x14;
-const LCD_MISC: usize = 0x18;
-const LCD_CMD_VAL: usize = 0x28;
-const INT_ENA: usize = 0x64;
-const INT_RAW: usize = 0x68;
-const INT_ST: usize = 0x6c;
-const INT_CLR: usize = 0x70;
-const DATE: usize = 0xfc;
 
+const LCD_CMD: u32 = 1 << 26;
 const LCD_START: u32 = 1 << 27;
+const LCD_RESET: u32 = 1 << 28;
+const LCD_UPDATE: u32 = 1 << 20;
+const LCD_AFIFO_RESET: u32 = 1 << 27;
+const CAM_LINE_INT_ENABLE: u32 = 1 << 7;
+const CAM_UPDATE: u32 = 1 << 4;
 const CAM_START: u32 = 1 << 29;
-const CAM_LINE_INT_EN: u32 = 1 << 7;
-const INT_MASK: u32 = 0x0f;
-const LCD_TRANS_DONE_INT: u32 = 1 << 1;
-const CAM_VSYNC_INT: u32 = 1 << 2;
-const CAM_HS_INT: u32 = 1 << 3;
+const CAM_RESET: u32 = 1 << 30;
+const CAM_AFIFO_RESET: u32 = 1 << 31;
+const INTERRUPT_MASK: u32 = 0x0f;
+const LCD_TRANS_DONE_INTERRUPT: u32 = 1 << 1;
+const CAMERA_VSYNC_INTERRUPT: u32 = 1 << 2;
+const CAMERA_HS_INTERRUPT: u32 = 1 << 3;
+
+/// Native register identifiers for the functional ESP32-S3 LCD_CAM aperture.
+///
+/// The enum deliberately contains the documented register surface used by
+/// the functional model. Reserved offsets are rejected instead of silently
+/// turning the peripheral into an unstructured RAM window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u16)]
+pub enum Esp32S3LcdCamRegister {
+    /// LCD clock configuration (`LCD_CAM_LCD_CLOCK_REG`).
+    LcdClock = 0x00,
+    /// Camera clock/control configuration (`LCD_CAM_CAM_CTRL_REG`).
+    CamCtrl = 0x04,
+    /// Camera capture configuration and start strobes (`LCD_CAM_CAM_CTRL1_REG`).
+    CamCtrl1 = 0x08,
+    /// Camera RGB/YUV conversion configuration (`LCD_CAM_CAM_RGB_YUV_REG`).
+    CamRgbYuv = 0x0c,
+    /// LCD RGB/YUV conversion configuration (`LCD_CAM_LCD_RGB_YUV_REG`).
+    LcdRgbYuv = 0x10,
+    /// LCD sequence configuration and start strobes (`LCD_CAM_LCD_USER_REG`).
+    LcdUser = 0x14,
+    /// LCD asynchronous FIFO and CD configuration (`LCD_CAM_LCD_MISC_REG`).
+    LcdMisc = 0x18,
+    /// LCD frame timing configuration (`LCD_CAM_LCD_CTRL_REG`).
+    LcdCtrl = 0x1c,
+    /// LCD horizontal/vertical width configuration (`LCD_CAM_LCD_CTRL1_REG`).
+    LcdCtrl1 = 0x20,
+    /// LCD sync pulse configuration (`LCD_CAM_LCD_CTRL2_REG`).
+    LcdCtrl2 = 0x24,
+    /// LCD command value latch (`LCD_CAM_LCD_CMD_VAL_REG`).
+    LcdCmdVal = 0x28,
+    /// LCD signal delay configuration (`LCD_CAM_LCD_DLY_MODE_REG`).
+    LcdDlyMode = 0x30,
+    /// LCD data delay configuration (`LCD_CAM_LCD_DATA_DOUT_MODE_REG`).
+    LcdDataDoutMode = 0x38,
+    /// LCD/CAM DMA interrupt enables (`LCD_CAM_LC_DMA_INT_ENA_REG`).
+    LcDmaIntEna = 0x64,
+    /// LCD/CAM DMA raw interrupts (`LCD_CAM_LC_DMA_INT_RAW_REG`).
+    LcDmaIntRaw = 0x68,
+    /// LCD/CAM DMA masked interrupt status (`LCD_CAM_LC_DMA_INT_ST_REG`).
+    LcDmaIntStatus = 0x6c,
+    /// LCD/CAM DMA interrupt clear strobes (`LCD_CAM_LC_DMA_INT_CLR_REG`).
+    LcDmaIntClear = 0x70,
+    /// LCD/CAM version/date register (`LCD_CAM_LC_REG_DATE_REG`).
+    LcDate = 0xfc,
+}
+
+impl Esp32S3LcdCamRegister {
+    /// Returns the native register offset within the LCD_CAM window.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x00 => Self::LcdClock,
+            0x04 => Self::CamCtrl,
+            0x08 => Self::CamCtrl1,
+            0x0c => Self::CamRgbYuv,
+            0x10 => Self::LcdRgbYuv,
+            0x14 => Self::LcdUser,
+            0x18 => Self::LcdMisc,
+            0x1c => Self::LcdCtrl,
+            0x20 => Self::LcdCtrl1,
+            0x24 => Self::LcdCtrl2,
+            0x28 => Self::LcdCmdVal,
+            0x30 => Self::LcdDlyMode,
+            0x38 => Self::LcdDataDoutMode,
+            0x64 => Self::LcDmaIntEna,
+            0x68 => Self::LcDmaIntRaw,
+            0x6c => Self::LcDmaIntStatus,
+            0x70 => Self::LcDmaIntClear,
+            0xfc => Self::LcDate,
+            _ => return None,
+        })
+    }
+
+    fn read_mask(self) -> u32 {
+        match self {
+            Self::LcdClock
+            | Self::LcdCtrl
+            | Self::LcdCtrl1
+            | Self::LcdCmdVal
+            | Self::LcdDataDoutMode => u32::MAX,
+            Self::CamCtrl => 0x7fff_ffff,
+            Self::CamCtrl1 => 0x3fff_ffff,
+            Self::CamRgbYuv => 0xffe0_0000,
+            Self::LcdRgbYuv => 0xfff0_0000,
+            Self::LcdUser => 0xeff8_3fff,
+            Self::LcdMisc => 0xf7ff_fffe,
+            Self::LcdCtrl2 => 0xffff_03ff,
+            Self::LcdDlyMode => 0xff,
+            Self::LcDmaIntEna | Self::LcDmaIntRaw | Self::LcDmaIntStatus => INTERRUPT_MASK,
+            Self::LcDmaIntClear => 0,
+            Self::LcDate => 0x0fff_ffff,
+        }
+    }
+
+    fn write_mask(self) -> u32 {
+        match self {
+            Self::LcdClock
+            | Self::LcdCtrl
+            | Self::LcdCtrl1
+            | Self::LcdCmdVal
+            | Self::LcdDataDoutMode => u32::MAX,
+            Self::CamCtrl => Self::CamCtrl.read_mask(),
+            Self::CamCtrl1 => u32::MAX,
+            Self::CamRgbYuv => Self::CamRgbYuv.read_mask(),
+            Self::LcdRgbYuv => Self::LcdRgbYuv.read_mask(),
+            Self::LcdUser => 0xfff8_3fff,
+            Self::LcdMisc => 0xffff_fffe,
+            Self::LcdCtrl2 => Self::LcdCtrl2.read_mask(),
+            Self::LcdDlyMode => Self::LcdDlyMode.read_mask(),
+            Self::LcDmaIntEna => INTERRUPT_MASK,
+            Self::LcDmaIntRaw | Self::LcDmaIntStatus => 0,
+            Self::LcDmaIntClear => INTERRUPT_MASK,
+            Self::LcDate => 0x0fff_ffff,
+        }
+    }
+
+    fn reset_value(self) -> u32 {
+        match self {
+            Self::LcdMisc => 17 << 1,
+            Self::LcDate => 33_566_752,
+            Self::LcdClock
+            | Self::CamCtrl
+            | Self::CamCtrl1
+            | Self::CamRgbYuv
+            | Self::LcdRgbYuv
+            | Self::LcdUser
+            | Self::LcdCtrl
+            | Self::LcdCtrl1
+            | Self::LcdCtrl2
+            | Self::LcdCmdVal
+            | Self::LcdDlyMode
+            | Self::LcdDataDoutMode
+            | Self::LcDmaIntEna
+            | Self::LcDmaIntRaw
+            | Self::LcDmaIntStatus
+            | Self::LcDmaIntClear => 0,
+        }
+    }
+}
 
 /// Host-side frame/DMA endpoint for the ESP32-S3 LCD/camera controller.
 #[derive(Clone)]
@@ -59,16 +199,26 @@ struct Esp32S3LcdCamState {
 }
 
 impl Esp32S3LcdCamState {
-    fn register(&self, offset: usize) -> u32 {
-        self.registers[offset / 4]
+    fn register(&self, register: Esp32S3LcdCamRegister) -> u32 {
+        self.registers[register as usize / 4]
     }
 
-    fn set_register(&mut self, offset: usize, value: u32) {
-        self.registers[offset / 4] = value;
+    fn set_register(&mut self, register: Esp32S3LcdCamRegister, value: u32) {
+        self.registers[register as usize / 4] = value & register.read_mask();
+    }
+
+    fn write_register(&mut self, register: Esp32S3LcdCamRegister, value: u32) {
+        let writable = register.write_mask();
+        self.set_register(
+            register,
+            (self.register(register) & !writable) | (value & writable),
+        );
     }
 
     fn refresh_interrupt_status(&mut self) {
-        self.registers[INT_ST / 4] = self.register(INT_RAW) & self.register(INT_ENA);
+        let raw = self.register(Esp32S3LcdCamRegister::LcDmaIntRaw);
+        let enabled = self.register(Esp32S3LcdCamRegister::LcDmaIntEna);
+        self.set_register(Esp32S3LcdCamRegister::LcDmaIntStatus, raw & enabled);
     }
 
     fn publish(&self, signal: usize, value: u32, at: SimTime) -> Result<(), DeviceError> {
@@ -82,20 +232,31 @@ impl Esp32S3LcdCamState {
             .map_err(|error| DeviceError::new(error.to_string()))
     }
 
+    fn reset_lcd_fifo(&mut self) {
+        self.lcd_input.clear();
+        self.lcd_output.clear();
+    }
+
+    fn reset_camera_fifo(&mut self) {
+        self.camera_input.clear();
+        self.camera_output.clear();
+    }
+
     fn start_lcd(&mut self, at: SimTime) -> Result<(), DeviceError> {
         let mut emitted = Vec::new();
         // LCD_CMD_VAL is the native command latch. Treat it as the first
         // transmitted word when LCD_CMD is enabled, then consume the bounded
         // host DMA queue as the data phase.
-        if self.register(LCD_USER) & (1 << 26) != 0 {
-            emitted.push(self.register(LCD_CMD_VAL));
+        if self.register(Esp32S3LcdCamRegister::LcdUser) & LCD_CMD != 0 {
+            emitted.push(self.register(Esp32S3LcdCamRegister::LcdCmdVal));
         }
         emitted.extend(self.lcd_input.drain(..));
         if let Some(last) = emitted.last().copied() {
             self.lcd_output.extend(emitted);
             self.publish(0, last, at)?;
         }
-        self.registers[INT_RAW / 4] |= LCD_TRANS_DONE_INT;
+        let raw = self.register(Esp32S3LcdCamRegister::LcDmaIntRaw) | LCD_TRANS_DONE_INTERRUPT;
+        self.set_register(Esp32S3LcdCamRegister::LcDmaIntRaw, raw);
         self.refresh_interrupt_status();
         Ok(())
     }
@@ -106,22 +267,41 @@ impl Esp32S3LcdCamState {
             self.camera_output.extend(captured);
             self.publish(1, last, at)?;
         }
-        self.registers[INT_RAW / 4] |= CAM_VSYNC_INT;
-        if self.register(CAM_CTRL) & CAM_LINE_INT_EN != 0 {
-            self.registers[INT_RAW / 4] |= CAM_HS_INT;
+        let mut raw = self.register(Esp32S3LcdCamRegister::LcDmaIntRaw) | CAMERA_VSYNC_INTERRUPT;
+        if self.register(Esp32S3LcdCamRegister::CamCtrl) & CAM_LINE_INT_ENABLE != 0 {
+            raw |= CAMERA_HS_INTERRUPT;
         }
+        self.set_register(Esp32S3LcdCamRegister::LcDmaIntRaw, raw);
         self.refresh_interrupt_status();
         Ok(())
     }
 
     fn reset(&mut self) {
         self.registers.fill(0);
-        self.lcd_input.clear();
-        self.lcd_output.clear();
-        self.camera_input.clear();
-        self.camera_output.clear();
-        self.registers[LCD_MISC / 4] = 17 << 1;
-        self.registers[DATE / 4] = 33_566_752;
+        self.reset_lcd_fifo();
+        self.reset_camera_fifo();
+        for register in [
+            Esp32S3LcdCamRegister::LcdClock,
+            Esp32S3LcdCamRegister::CamCtrl,
+            Esp32S3LcdCamRegister::CamCtrl1,
+            Esp32S3LcdCamRegister::CamRgbYuv,
+            Esp32S3LcdCamRegister::LcdRgbYuv,
+            Esp32S3LcdCamRegister::LcdUser,
+            Esp32S3LcdCamRegister::LcdMisc,
+            Esp32S3LcdCamRegister::LcdCtrl,
+            Esp32S3LcdCamRegister::LcdCtrl1,
+            Esp32S3LcdCamRegister::LcdCtrl2,
+            Esp32S3LcdCamRegister::LcdCmdVal,
+            Esp32S3LcdCamRegister::LcdDlyMode,
+            Esp32S3LcdCamRegister::LcdDataDoutMode,
+            Esp32S3LcdCamRegister::LcDmaIntEna,
+            Esp32S3LcdCamRegister::LcDmaIntRaw,
+            Esp32S3LcdCamRegister::LcDmaIntStatus,
+            Esp32S3LcdCamRegister::LcDmaIntClear,
+            Esp32S3LcdCamRegister::LcDate,
+        ] {
+            self.set_register(register, register.reset_value());
+        }
     }
 }
 
@@ -173,6 +353,13 @@ impl Esp32S3LcdCam {
             Esp32S3LcdCamHandle { state },
         ))
     }
+
+    fn unsupported(&self, operation: &str, offset: u64) -> DeviceError {
+        DeviceError::new(format!(
+            "{} {operation} at unsupported ESP32-S3 LCD_CAM offset {offset:#x}",
+            self.name
+        ))
+    }
 }
 
 impl Device for Esp32S3LcdCam {
@@ -181,19 +368,16 @@ impl Device for Esp32S3LcdCam {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
+        if width != AccessWidth::Word || !width.is_aligned(offset) {
             return Err(DeviceError::new(
                 "ESP32-S3 LCD_CAM requires aligned word access",
             ));
         }
-        let offset = usize::try_from(offset).expect("LCD_CAM offset fits usize");
-        if offset >= REGISTER_BYTES {
-            return Err(DeviceError::new(format!(
-                "{} read at {offset:#x}",
-                self.name
-            )));
-        }
-        Ok(u64::from(self.state.borrow().register(offset)))
+        let register = Esp32S3LcdCamRegister::from_offset(offset)
+            .ok_or_else(|| self.unsupported("read", offset))?;
+        Ok(u64::from(
+            self.state.borrow().register(register) & register.read_mask(),
+        ))
     }
 
     fn write(
@@ -203,50 +387,59 @@ impl Device for Esp32S3LcdCam {
         value: u64,
         at: SimTime,
     ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
+        if width != AccessWidth::Word || !width.is_aligned(offset) {
             return Err(DeviceError::new(
                 "ESP32-S3 LCD_CAM requires aligned word access",
             ));
         }
-        let offset = usize::try_from(offset).expect("LCD_CAM offset fits usize");
-        if offset >= REGISTER_BYTES {
-            return Err(DeviceError::new(format!(
-                "{} write at {offset:#x}",
-                self.name
-            )));
-        }
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits u32");
+        let register = Esp32S3LcdCamRegister::from_offset(offset)
+            .ok_or_else(|| self.unsupported("write", offset))?;
+        let value = u32::try_from(value)
+            .map_err(|_| DeviceError::new("ESP32-S3 LCD_CAM word write exceeds 32 bits"))?;
         let mut state = self.state.borrow_mut();
-        match offset {
-            LCD_USER => {
-                state.set_register(LCD_USER, value & !LCD_START);
+        match register {
+            Esp32S3LcdCamRegister::LcdUser => {
+                state.write_register(register, value & !(LCD_START | LCD_UPDATE | LCD_RESET));
+                if value & LCD_RESET != 0 {
+                    state.reset_lcd_fifo();
+                }
                 if value & LCD_START != 0 {
                     state.start_lcd(at)?;
                 }
             }
-            CAM_CTRL1 => {
-                state.set_register(CAM_CTRL1, value & !CAM_START);
+            Esp32S3LcdCamRegister::CamCtrl => {
+                state.write_register(register, value & !CAM_UPDATE);
+            }
+            Esp32S3LcdCamRegister::CamCtrl1 => {
+                state.write_register(register, value & !(CAM_START | CAM_RESET | CAM_AFIFO_RESET));
+                if value & (CAM_RESET | CAM_AFIFO_RESET) != 0 {
+                    state.reset_camera_fifo();
+                }
                 if value & CAM_START != 0 {
                     state.start_camera(at)?;
                 }
             }
-            INT_RAW | INT_ST => {}
-            INT_ENA => {
-                state.set_register(INT_ENA, value & INT_MASK);
+            Esp32S3LcdCamRegister::LcdMisc => {
+                state.write_register(register, value & !LCD_AFIFO_RESET);
+                if value & LCD_AFIFO_RESET != 0 {
+                    state.reset_lcd_fifo();
+                }
+            }
+            Esp32S3LcdCamRegister::LcDmaIntRaw
+            | Esp32S3LcdCamRegister::LcDmaIntStatus
+            | Esp32S3LcdCamRegister::LcDmaIntClear => {
+                if register == Esp32S3LcdCamRegister::LcDmaIntClear {
+                    let raw = state.register(Esp32S3LcdCamRegister::LcDmaIntRaw)
+                        & !(value & register.write_mask());
+                    state.set_register(Esp32S3LcdCamRegister::LcDmaIntRaw, raw);
+                    state.refresh_interrupt_status();
+                }
+            }
+            Esp32S3LcdCamRegister::LcDmaIntEna => {
+                state.write_register(register, value);
                 state.refresh_interrupt_status();
             }
-            INT_CLR => {
-                state.registers[INT_RAW / 4] &= !(value & INT_MASK);
-                state.set_register(INT_CLR, 0);
-                state.refresh_interrupt_status();
-            }
-            LCD_MISC if value & (1 << 27) != 0 => {
-                state.lcd_input.clear();
-                state.lcd_output.clear();
-                state.set_register(LCD_MISC, value & !(1 << 27));
-            }
-            DATE => state.set_register(DATE, value & 0x0fff_ffff),
-            _ => state.set_register(offset, value),
+            _ => state.write_register(register, value),
         }
         Ok(())
     }
@@ -260,71 +453,128 @@ impl Device for Esp32S3LcdCam {
 mod tests {
     use super::*;
 
+    fn read(device: &mut Esp32S3LcdCam, register: Esp32S3LcdCamRegister) -> u64 {
+        device
+            .read(register.offset(), AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+    }
+
+    fn write(
+        device: &mut Esp32S3LcdCam,
+        register: Esp32S3LcdCamRegister,
+        value: u64,
+    ) -> Result<(), DeviceError> {
+        device.write(register.offset(), AccessWidth::Word, value, SimTime::ZERO)
+    }
+
     #[test]
-    fn lcd_start_consumes_command_and_dma_words_and_sets_done_interrupt() {
+    fn register_enum_matches_native_offsets_and_reserved_accesses_fail() {
+        assert_eq!(Esp32S3LcdCamRegister::LcdClock.offset(), 0);
+        assert_eq!(Esp32S3LcdCamRegister::LcDate.offset(), 0xfc);
+        let hub = SignalHub::new();
+        let (mut lcd, _) = Esp32S3LcdCam::new("lcd-cam", hub).unwrap();
+        assert!(lcd.read(0x2c, AccessWidth::Word, SimTime::ZERO).is_err());
+        assert!(
+            lcd.write(0x2c, AccessWidth::Word, 0, SimTime::ZERO)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn reset_values_and_write_masks_follow_native_header() {
+        let hub = SignalHub::new();
+        let (mut lcd, _) = Esp32S3LcdCam::new("lcd-cam", hub).unwrap();
+        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcdMisc), 17 << 1);
+        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcDate), 33_566_752);
+        write(
+            &mut lcd,
+            Esp32S3LcdCamRegister::LcdCtrl2,
+            u64::from(u32::MAX),
+        )
+        .unwrap();
+        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcdCtrl2), 0xffff_03ff);
+        write(
+            &mut lcd,
+            Esp32S3LcdCamRegister::LcdUser,
+            u64::from(u32::MAX),
+        )
+        .unwrap();
+        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcdUser), 0xe7e8_3fff);
+        assert!(
+            write(
+                &mut lcd,
+                Esp32S3LcdCamRegister::LcdUser,
+                u64::from(u32::MAX) + 1,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn lcd_and_camera_strobes_are_self_clearing_and_fifo_resettable() {
         let hub = SignalHub::new();
         let (mut lcd, handle) = Esp32S3LcdCam::new("lcd-cam", hub).unwrap();
-        handle.queue_lcd_words([0x1122_3344, 0x5566_7788]);
-        lcd.write(INT_ENA as u64, AccessWidth::Word, 1 << 1, SimTime::ZERO)
-            .unwrap();
-        lcd.write(
-            LCD_CMD_VAL as u64,
-            AccessWidth::Word,
-            0x00ab_cdef,
-            SimTime::ZERO,
+        handle.queue_lcd_words([0x11, 0x22]);
+        write(
+            &mut lcd,
+            Esp32S3LcdCamRegister::LcdUser,
+            u64::from(LCD_CMD | LCD_START),
         )
         .unwrap();
-        lcd.write(
-            LCD_USER as u64,
-            AccessWidth::Word,
-            u64::from((1 << 26) | LCD_START),
-            SimTime::from_ticks(2),
+        assert_eq!(handle.take_lcd_words(), vec![0, 0x11, 0x22]);
+        assert_eq!(
+            read(&mut lcd, Esp32S3LcdCamRegister::LcdUser) & u64::from(LCD_START),
+            0
+        );
+        handle.queue_camera_words([0x33]);
+        write(
+            &mut lcd,
+            Esp32S3LcdCamRegister::CamCtrl1,
+            u64::from(CAM_START | CAM_RESET),
         )
         .unwrap();
+        assert!(handle.take_camera_words().is_empty());
         assert_eq!(
-            handle.take_lcd_words(),
-            vec![0x00ab_cdef, 0x1122_3344, 0x5566_7788]
-        );
-        assert_eq!(
-            lcd.read(INT_ST as u64, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            1 << 1
-        );
-        lcd.write(INT_CLR as u64, AccessWidth::Word, 1 << 1, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            lcd.read(INT_ST as u64, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
+            read(&mut lcd, Esp32S3LcdCamRegister::CamCtrl1) & u64::from(CAM_START),
             0
         );
     }
 
     #[test]
-    fn camera_start_captures_host_frame_and_line_interrupt() {
+    fn raw_interrupts_are_read_only_and_clear_routes_through_status() {
         let hub = SignalHub::new();
         let (mut lcd, handle) = Esp32S3LcdCam::new("lcd-cam", hub).unwrap();
-        handle.queue_camera_words([0xdead_beef, 0xcafe_babe]);
-        lcd.write(INT_ENA as u64, AccessWidth::Word, 0x0c, SimTime::ZERO)
-            .unwrap();
-        lcd.write(
-            CAM_CTRL as u64,
-            AccessWidth::Word,
-            CAM_LINE_INT_EN as u64,
-            SimTime::ZERO,
+        write(
+            &mut lcd,
+            Esp32S3LcdCamRegister::LcDmaIntEna,
+            u64::from(INTERRUPT_MASK),
         )
         .unwrap();
-        lcd.write(
-            CAM_CTRL1 as u64,
-            AccessWidth::Word,
-            CAM_START as u64,
-            SimTime::ZERO,
+        handle.queue_lcd_words([0x44]);
+        write(
+            &mut lcd,
+            Esp32S3LcdCamRegister::LcdUser,
+            u64::from(LCD_START),
         )
         .unwrap();
-        assert_eq!(handle.take_camera_words(), vec![0xdead_beef, 0xcafe_babe]);
+        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcDmaIntRaw), 1 << 1);
         assert_eq!(
-            lcd.read(INT_ST as u64, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0x0c
+            read(&mut lcd, Esp32S3LcdCamRegister::LcDmaIntStatus),
+            1 << 1
         );
+        write(
+            &mut lcd,
+            Esp32S3LcdCamRegister::LcDmaIntRaw,
+            u64::from(INTERRUPT_MASK),
+        )
+        .unwrap();
+        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcDmaIntRaw), 1 << 1);
+        write(
+            &mut lcd,
+            Esp32S3LcdCamRegister::LcDmaIntClear,
+            u64::from(1u32 << 1),
+        )
+        .unwrap();
+        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcDmaIntStatus), 0);
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3LcdCamRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -42,16 +43,26 @@ fn esp32s3_lcd_cam_native_window_transmits_and_captures_host_words() {
         .queue_camera_words([0xdead_beef, 0xcafe_babe]);
     machine
         .bus
-        .write(base + 0x64, AccessWidth::Word, 0x0f, SimTime::ZERO)
-        .unwrap();
-    machine
-        .bus
-        .write(base + 0x28, AccessWidth::Word, 0x00ab_cdef, SimTime::ZERO)
+        .write(
+            base + Esp32S3LcdCamRegister::LcDmaIntEna.offset(),
+            AccessWidth::Word,
+            0x0f,
+            SimTime::ZERO,
+        )
         .unwrap();
     machine
         .bus
         .write(
-            base + 0x14,
+            base + Esp32S3LcdCamRegister::LcdCmdVal.offset(),
+            AccessWidth::Word,
+            0x00ab_cdef,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            base + Esp32S3LcdCamRegister::LcdUser.offset(),
             AccessWidth::Word,
             (1 << 26) | (1 << 27),
             SimTime::from_ticks(2),
@@ -59,12 +70,17 @@ fn esp32s3_lcd_cam_native_window_transmits_and_captures_host_words() {
         .unwrap();
     machine
         .bus
-        .write(base + 0x04, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .write(
+            base + Esp32S3LcdCamRegister::CamCtrl.offset(),
+            AccessWidth::Word,
+            1 << 7,
+            SimTime::ZERO,
+        )
         .unwrap();
     machine
         .bus
         .write(
-            base + 0x08,
+            base + Esp32S3LcdCamRegister::CamCtrl1.offset(),
             AccessWidth::Word,
             1 << 29,
             SimTime::from_ticks(3),
@@ -82,7 +98,7 @@ fn esp32s3_lcd_cam_native_window_transmits_and_captures_host_words() {
         machine
             .bus
             .read(
-                base + 0x6c,
+                base + Esp32S3LcdCamRegister::LcDmaIntStatus.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO,

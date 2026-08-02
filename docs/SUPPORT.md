@@ -95,9 +95,11 @@ The ESP32-S3 LCD_CAM block is mapped at `0x6004_1000` using the native
 LCD command/data starts backed by a host DMA word queue, camera frame capture
 from a host word queue, LCD transfer-done/camera VSYNC/HS interrupt
 enable/status/clear, and VCD paths `board.esp32s3.lcd_cam.lcd` and
-`.camera`. It intentionally does not claim panel or camera electrical
-behavior, GDMA descriptor execution, pixel-format conversion, or exact
-pixel-clock timing.
+`.camera`. The modeled offsets use named `Esp32S3LcdCamRegister` IDs, official
+read/write masks and reset values, read-only/raw interrupt semantics, and
+self-clearing LCD/CAM/FIFO update strobes. It intentionally does not claim
+panel or camera electrical behavior, GDMA descriptor execution, pixel-format
+conversion, or exact pixel-clock timing.
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be

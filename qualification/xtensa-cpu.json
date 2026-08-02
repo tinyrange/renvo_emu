@@ -1,6 +1,6 @@
 {
   "schema": "remu.xtensa-cpu.v1",
-  "source_sha256": "47ab1281070e4f6366aeb5ab5fff47613a0f82681b60abf7283567981d74f8ae",
+  "source_sha256": "0e797f33f7361a250b69e8ba53c91f763c535b2cd78f685eff55b86527ce62e4",
   "primary_sources": [
     "https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf",
     "https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/tools/idf-tools.html",
@@ -24,7 +24,7 @@
   ],
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/xtensa-cpu-unit-tests.txt",
-    "sha256": "4d56310a6b303f5896ecf46b40abe8f094f8ccbb985fc0e0a561ce99f1241d8b"
+    "sha256": "15d04edbd01ab5105dd067675b13a73f7b39144faa4a0f24db22e5bc3240ab31"
   },
   "proofs": [
     {
@@ -38,7 +38,7 @@
       "elf_sha256": "8ef819e98557c29694f72cbbe860f3c41e2ac2d92c8fb33914f54e19432f8a26",
       "result_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-o0-run.json",
       "repeat_result_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-o0-repeat-run.json",
-      "result_sha256": "0eff455ba00d03e637b50c11255faa763d02742a8cc7decaebe0449dcb060346",
+      "result_sha256": "990c1fea9a900e01dad53a7edf73f4d97c7092597dde800c42bcbae87a218bee",
       "disassembly_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-o0-disassembly.txt",
       "disassembly_sha256": "1583347803af754560065a525a78ed80852802e037d7f4124f73077fc10dfb22",
       "reason": "Halted",
@@ -69,7 +69,7 @@
       "elf_sha256": "12c7ca4614b2ebb08bcaea5a5a6610f8ea21d565f0baef841e4e97048640a1a6",
       "result_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-o2-run.json",
       "repeat_result_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-o2-repeat-run.json",
-      "result_sha256": "790243d6728efdd887744610fbf08def69c66076f1a23e27aac4487edce216df",
+      "result_sha256": "91ee9c5ae60725642da2cf355a37557aa17bbaac0a4672cc2fdd9fb7464c39c5",
       "disassembly_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-o2-disassembly.txt",
       "disassembly_sha256": "6b5f7dacac07919075aaa4c33249a8159b0ea9429987334e7e135deeb379fba4",
       "reason": "Halted",
@@ -100,7 +100,7 @@
       "elf_sha256": "9dd45a25d6f23762503f9bca0d4b11727f99d96d95ff4bdce0f20c7bf1385768",
       "result_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-os-run.json",
       "repeat_result_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-os-repeat-run.json",
-      "result_sha256": "17ae87f65f257455395b617b727163f1f261e7ca9714cef576fddad57611db6c",
+      "result_sha256": "84e532d2299a2c19a2ec1a129aa2338bcc0bc11f34688d5397a20a141c352c40",
       "disassembly_artifact": ".remu/portfolio-smoke/esp32s3-xtensa-os-disassembly.txt",
       "disassembly_sha256": "23c58542c2d4f4747b49cd4886ee865738232d9ec85fe849411524cfa72a545d",
       "reason": "Halted",
