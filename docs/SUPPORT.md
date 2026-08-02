@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and deterministic Wi-Fi/BLE packet-loopback slice |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -43,7 +43,15 @@ See `scripts/qualify-micropython.sh` and
 `qualification/acceptance-report.html`.
 
 This milestone does not yet cover the complete upstream MicroPython suite,
-PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+PWM/ADC/serial buses, watchdog resets, or full virtual ESP radio connectivity.
+
+The ESP32-S3 radio slice is deliberately narrower than radio connectivity. The
+native Wi-Fi FE page at `0x60006000` and Bluetooth page at `0x60011000` expose
+deterministic control, channel, packet FIFO, packet-count, and interrupt
+registers for headless firmware tests. Enabling loopback delivers a committed
+packet to the receive FIFO without host networking. It does not claim native
+PHY/MAC register compatibility, RF behavior, association, channel timing,
+coexistence, security, or interoperability with an external network.
 
 ## Implemented CPU surface
 
@@ -207,6 +215,7 @@ the target manifests and `PLAN.html`, principally:
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif's official [ESP32-S3 register base definitions](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s3/register/soc/reg_base.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either

@@ -29,3 +29,77 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_radio_pages_provide_deterministic_wifi_loopback_and_btle_identity() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let wifi = 0x6000_6000;
+    machine
+        .bus
+        .write(wifi, AccessWidth::Word, 0b11, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(wifi + 0x14, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(wifi + 0x0c, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(wifi + 0x100, AccessWidth::Word, 0xaabb_ccdd, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(wifi + 0x24, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                wifi + 0x04,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0b101
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                wifi + 0x1c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                wifi + 0x200,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0xaabb_ccdd
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_1000 + 0x28,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        u64::from(u32::from_le_bytes(*b"BTLE"))
+    );
+}

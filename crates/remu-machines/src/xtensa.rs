@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRadio, EspRadioKind,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -464,14 +465,12 @@ impl XtensaMachine {
         bus.map_ram("rtc-slow-memory", 0x5000_0000, 0x2000, true)?;
         for (name, base) in [
             ("radio-fe2", 0x6000_5000),
-            ("radio-fe", 0x6000_6000),
             ("efuse", 0x6000_7000),
             ("io-mux", 0x6000_9000),
             ("hinf", 0x6000_b000),
             ("uhci1", 0x6000_c000),
             ("i2s0", 0x6000_f000),
             ("uart1", 0x6001_0000),
-            ("bluetooth", 0x6001_1000),
             ("i2c0", 0x6001_3000),
             ("uhci0", 0x6001_4000),
             ("slchost", 0x6001_5000),
@@ -517,6 +516,21 @@ impl XtensaMachine {
                 )),
             )?;
         }
+        bus.map_device(
+            "esp32s3.wifi-radio",
+            0x6000_6000,
+            0x1000,
+            Box::new(EspRadio::new("esp32s3.wifi-radio", EspRadioKind::Wifi)),
+        )?;
+        bus.map_device(
+            "esp32s3.bluetooth-radio",
+            0x6001_1000,
+            0x1000,
+            Box::new(EspRadio::new(
+                "esp32s3.bluetooth-radio",
+                EspRadioKind::BluetoothLe,
+            )),
+        )?;
         bus.map_device(
             "esp32s3.rng",
             0x6003_5000,
