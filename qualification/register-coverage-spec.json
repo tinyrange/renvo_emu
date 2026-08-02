@@ -64,16 +64,20 @@
         "rp2350-arm-uart",
         "rp2350-arm-native-timer",
         "rp2350-arm-pio",
+        "rp2350-arm-i2c",
         "rp2350-riscv",
         "rp2350-riscv-uart",
         "rp2350-riscv-native-timer",
-        "rp2350-riscv-pio"
+        "rp2350-riscv-pio",
+        "rp2350-riscv-i2c"
       ],
       "required_covered_regions": [
         "rp2350.pio0",
         "rp2350.sio",
         "rp2350.timer0",
-        "rp2350.uart0"
+        "rp2350.uart0",
+        "rp2350.i2c0",
+        "rp2350.i2c1"
       ],
       "additional_evidence": ["scripts/qualify-micropython.sh", "scripts/qualify-coremark.sh"],
       "known_deviations": [
@@ -81,6 +85,7 @@
         "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
         "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
+        "I²C0/I²C1 cover functional host commands and FIFO/interrupt status without pin-level arbitration, slave mode, DMA, or exact SCL/SDA timing.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
       ]
     },

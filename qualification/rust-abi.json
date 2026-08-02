@@ -116,7 +116,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-rp2350-arm-o0.json",
       "build_provenance_sha256": "103ed146a4c7522267ea699f7328be7dab341af319dff8679e3656226411e566",
       "result_artifact": ".remu/rust-abi-qualification-v2/rp2350-arm-o0-run.json",
-      "result_sha256": "291d6d17ac71378c1a6af25ecdcc86bf6d481f42103a6a2285e8b90e9122c679",
+      "result_sha256": "319c2862ce7b6370c9ff084a6b9e0e07a8d320f1a01e9649947e36ddbaede4b8",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -124,7 +124,7 @@
         "time": 784,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "b548c81ca3e33532dbcf6562b9d64e021fe6fde14c95c14e1717a6c1a95c4170",
       "deterministic_repeat": true,
       "result": "pass"
     },
@@ -139,7 +139,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-rp2350-riscv-o0.json",
       "build_provenance_sha256": "647b888b71daae917606b044cba3ccd1bf69086d381bed15d78f443991f7be85",
       "result_artifact": ".remu/rust-abi-qualification-v2/rp2350-riscv-o0-run.json",
-      "result_sha256": "05c39f85f207b1f9eb7d13c5220b87e918254ecf17e132601c0335a9a6e6544e",
+      "result_sha256": "514c7b6f17cc5cd73068c00c23b724f73de3904a8c14efcc3ec3b91c82134e64",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -147,7 +147,7 @@
         "time": 884,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "e5e04eec221807e1cb5a84e75955f97b2f6817f16de5c72afbc8ab73c798d87f",
       "deterministic_repeat": true,
       "result": "pass"
     },
@@ -254,7 +254,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-rp2350-arm-o2.json",
       "build_provenance_sha256": "fb18526be53007db3c358d928533ac80991b273a36e2370129c17e4e7a1dc511",
       "result_artifact": ".remu/rust-abi-qualification-v2/rp2350-arm-o2-run.json",
-      "result_sha256": "7414a01c6ba1d32e6eb6a5613f7c5680a0ed679825aee7fae4fe91c64b4cc413",
+      "result_sha256": "3affa788432a7d78c1395b90b1c04178858cfd89326809dc28b61a50313f5edd",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -262,7 +262,7 @@
         "time": 156,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "b548c81ca3e33532dbcf6562b9d64e021fe6fde14c95c14e1717a6c1a95c4170",
       "deterministic_repeat": true,
       "result": "pass"
     },
@@ -277,7 +277,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-rp2350-riscv-o2.json",
       "build_provenance_sha256": "9c1906c6223f1e06eef3c0f231d6a91a13420902fa1083a18dd85d793a86deed",
       "result_artifact": ".remu/rust-abi-qualification-v2/rp2350-riscv-o2-run.json",
-      "result_sha256": "05fb3dec68d131e33c4af5f2ad5a63393a119fafa9919d91ca8af5a88cdf72db",
+      "result_sha256": "de19e731baf123103a3f41cafdc53248101d48fd22e1d64756ff29080c141d6f",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -285,7 +285,7 @@
         "time": 207,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "e5e04eec221807e1cb5a84e75955f97b2f6817f16de5c72afbc8ab73c798d87f",
       "deterministic_repeat": true,
       "result": "pass"
     },
@@ -392,7 +392,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-rp2350-arm-os.json",
       "build_provenance_sha256": "93ff30f170bb1dd62851378de4f784b45d5db886558a98f9257d54f85d3355f1",
       "result_artifact": ".remu/rust-abi-qualification-v2/rp2350-arm-os-run.json",
-      "result_sha256": "c21434650cab4fc95180994e24020d9fec8cc7615293b775017bef21ddac6772",
+      "result_sha256": "928e096d6a0698574ccf10697e3c98519d1bb1654edd75336fcbb61bd386b3a0",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -400,7 +400,7 @@
         "time": 202,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "b548c81ca3e33532dbcf6562b9d64e021fe6fde14c95c14e1717a6c1a95c4170",
       "deterministic_repeat": true,
       "result": "pass"
     },
@@ -415,7 +415,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-rp2350-riscv-os.json",
       "build_provenance_sha256": "d533a6b2f5ebd2bc38d139278454e8de64ea8bb7abc8044424c9ba0fa08bf1f7",
       "result_artifact": ".remu/rust-abi-qualification-v2/rp2350-riscv-os-run.json",
-      "result_sha256": "61b52f8b907276889ca7bb56009598511d8a1700b5c7a2f75221985ff5004ee0",
+      "result_sha256": "0d2a5da70055e23449b42106e7abb8c1b1b4e331e66a7a926741ec4ff71bc083",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -423,7 +423,7 @@
         "time": 254,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "e5e04eec221807e1cb5a84e75955f97b2f6817f16de5c72afbc8ab73c798d87f",
       "deterministic_repeat": true,
       "result": "pass"
     }
