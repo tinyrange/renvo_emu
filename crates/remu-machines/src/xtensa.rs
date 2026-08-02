@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3Tsens, Esp32S3TsensHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -376,6 +377,7 @@ pub struct XtensaMachine {
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
     usb_host: EspDwc2Host,
+    tsens: Esp32S3TsensHandle,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
@@ -551,7 +553,7 @@ impl XtensaMachine {
         bus.map_device(
             "esp32s3.rtc-control",
             0x6000_8000,
-            0x1000,
+            0x800,
             Box::new(EspRtcControl::new("esp32s3.rtc-control")),
         )?;
         let mut timer_groups = Vec::new();
@@ -595,6 +597,8 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (tsens_device, tsens) = Esp32S3Tsens::new("esp32s3.tsens", signals.clone())?;
+        bus.map_device("esp32s3.tsens", 0x6000_8800, 0x200, Box::new(tsens_device))?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -713,6 +717,7 @@ impl XtensaMachine {
             usb_serial_jtag,
             usb_otg,
             usb_host: EspDwc2Host::new(),
+            tsens,
             system,
             systimer,
             timer_groups,
@@ -1000,6 +1005,11 @@ impl XtensaMachine {
         self.gpio.set_input(pin, value, self.now)?;
         self.chip_gpio.set_input(pin, value, self.now)?;
         Ok(())
+    }
+
+    /// Returns the host-side ESP32-S3 temperature-sensor handle.
+    pub fn tsens(&self) -> Esp32S3TsensHandle {
+        self.tsens.clone()
     }
 
     fn set_systimer_interrupt(

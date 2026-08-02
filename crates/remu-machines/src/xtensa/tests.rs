@@ -29,3 +29,62 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_tsens_native_window_reports_ready_raw_code_and_interrupt() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6000_8800;
+    machine.tsens().set_raw(173);
+    machine
+        .bus
+        .write(base + 0xec, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            base + 0x50,
+            AccessWidth::Word,
+            1 << 22,
+            SimTime::from_ticks(3),
+        )
+        .unwrap();
+    let control = machine
+        .bus
+        .read(
+            base + 0x50,
+            AccessWidth::Word,
+            AccessKind::Read,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(control & 0xff, 173);
+    assert_ne!(control & (1 << 8), 0);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0xf0,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        1 << 5
+    );
+    machine
+        .bus
+        .write(base + 0xf4, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0xf0,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0
+    );
+}
