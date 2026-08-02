@@ -138,8 +138,11 @@ boundary while keeping the implementation in Rust.
 The I2C endpoint intentionally remains a host-transfer slice: it emits the bus
 waveform and returns the model response, but it does not yet observe a firmware
 I2C controller's MMIO transaction or inject device ACK/data bits into that
-controller. The generic board runner and this endpoint therefore do not claim
-that an ESP32-C6 firmware driver talks to the SGP30.
+controller. Data/clock pin aliases are rejected, transfers must start at or
+after the previous transfer's stop time, and waveform timestamp overflow is
+reported instead of being saturated. The generic board runner and this
+endpoint therefore do not claim that an ESP32-C6 firmware driver talks to the
+SGP30.
 
 An external protocol transfer produces connector-level VCD changes:
 
