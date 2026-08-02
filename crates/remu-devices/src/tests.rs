@@ -282,6 +282,78 @@ fn wch_timer_raises_and_vendor_clear_sequence_lowers_update_interrupt() {
 }
 
 #[test]
+fn wch_touch_key_runs_the_documented_adc_sequence() {
+    assert_eq!(
+        WchTouchKeyRegister::from_offset(0x3c),
+        Some(WchTouchKeyRegister::TouchCharge)
+    );
+    assert_eq!(
+        WchTouchKeyRegister::from_offset(0x4c),
+        Some(WchTouchKeyRegister::TouchDischargeData)
+    );
+    assert_eq!(WchTouchKeyRegister::TouchDischargeData.offset(), 0x4c);
+    let (mut touch, handle) = WchTouchKey::new("adc-tkey");
+    handle.set_channel_value(3, 0x0a5a);
+
+    // ADC_CTLR2.ADON, ADC_CTLR1.TKENABLE|EOCIE, ADC_RSQR3.SQ1, then the
+    // charge and discharge writes described by the CH32V00X manual.
+    touch
+        .write(0x08, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x04, AccessWidth::Word, (1 << 24) | (1 << 5), SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x34, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x3c, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x4c, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(
+        touch.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap() & 0x1f,
+        1 << 4
+    );
+    assert!(handle.pending(SimTime::from_ticks(22)));
+    assert_eq!(
+        touch
+            .read(0x4c, AccessWidth::Word, SimTime::from_ticks(22))
+            .unwrap(),
+        0x0a5a
+    );
+    assert_eq!(
+        touch
+            .read(0x00, AccessWidth::Word, SimTime::from_ticks(22))
+            .unwrap()
+            & 0x1f,
+        0
+    );
+    assert!(!handle.pending(SimTime::from_ticks(22)));
+}
+
+#[test]
+fn wch_touch_key_does_not_start_without_adc_and_tkey_enable() {
+    let (mut touch, handle) = WchTouchKey::new("adc-tkey");
+    touch
+        .write(0x34, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x4c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        touch
+            .read(0x00, AccessWidth::Word, SimTime::from_ticks(100))
+            .unwrap()
+            & 0x1f,
+        0
+    );
+    assert!(!handle.pending(SimTime::from_ticks(100)));
+}
+
+#[test]
 fn wch_pfic_gates_pending_source_with_vendor_enable_register() {
     let (mut pfic, handle) = WchPfic::new("pfic");
     handle.set_pending(38, true);
