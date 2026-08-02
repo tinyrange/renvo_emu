@@ -3,7 +3,8 @@ use super::*;
 /// Register offsets for the CH32V006 streamlined TIM3 block.
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum WchSltmRegister {
+#[allow(missing_docs)]
+pub enum WchSltmRegister {
     Control = 0x00,
     DmaIntEnable = 0x04,
     Counter = 0x08,
@@ -15,7 +16,8 @@ enum WchSltmRegister {
 }
 
 impl WchSltmRegister {
-    fn from_offset(offset: u64) -> Option<Self> {
+    /// Converts a TIM3 register offset into its named identifier.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
         Some(match offset {
             0x00 => Self::Control,
             0x04 => Self::DmaIntEnable,
@@ -27,6 +29,11 @@ impl WchSltmRegister {
             0x1c => Self::Compare4,
             _ => return None,
         })
+    }
+
+    /// Returns the native byte offset for this TIM3 register.
+    pub const fn offset(self) -> u64 {
+        self as u64
     }
 
     fn compare_index(self) -> Option<usize> {
