@@ -148,6 +148,35 @@ grep -q 'timer2' "$timer2_run/signals.vcd"
 grep -q 'interrupt' "$timer2_run/signals.vcd"
 grep -q 'porte' "$timer2_run/signals.vcd"
 
+dac_build="$artifact_root/register-dac-build"
+dac_run="$artifact_root/register-dac-run"
+mkdir -p "$dac_build" "$dac_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$dac_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-dac-build.json" \
+    -- -Os remu_dac.c \
+    -Wl,-Map=/workspace/out/dac.map \
+    -o /workspace/out/dac.elf
+docker run --rm --network=none \
+    -v "$repo_root/$dac_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/dac.elf \
+    >"$dac_build/dac.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$dac_build/dac.hex" \
+    --max-instructions 30000 \
+    --stop-signal board.pic16f15376.dac1.active=rising \
+    --vcd "$dac_run/signals.vcd" \
+    --bus-log "$dac_run/bus.json" \
+    --result "$dac_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.dac1.active"}' \
+    "$dac_run/result.json" >/dev/null
+grep -q 'dac1' "$dac_run/signals.vcd"
+
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \
     >"$artifact_root/SHA256SUMS"
 

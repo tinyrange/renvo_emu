@@ -24,6 +24,8 @@ const SSP1CON3: usize = 0x192;
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
+const DAC1CON0: usize = 0x90e;
+const DAC1CON1: usize = 0x90f;
 const TMR0L: usize = 0x59c;
 const TMR0H: usize = 0x59d;
 const T0CON0: usize = 0x59e;
@@ -131,6 +133,9 @@ impl Pic16Timer2Register {
         }
     }
 }
+const DAC1EN: u8 = 1 << 7;
+const DAC1CON0_MASK: u8 = 0xbd;
+const DAC1R_MASK: u8 = 0x1f;
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -156,6 +161,8 @@ struct Pic16State {
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
+    dac1_value_signal: SignalId,
+    dac1_active_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -182,6 +189,17 @@ impl Pic16State {
                 value | (u8::from(net.resolved() == Logic::One) << pin)
             })
             & PORT_MASKS[port]
+    }
+
+    fn update_dac_signals(&self, at: SimTime) {
+        let enabled = self.registers[DAC1CON0] & DAC1EN != 0;
+        let code = if enabled {
+            self.registers[DAC1CON1] & DAC1R_MASK
+        } else {
+            0
+        };
+        self.set_signal(self.dac1_value_signal, u64::from(code), 5, at);
+        self.set_signal(self.dac1_active_signal, u64::from(enabled), 1, at);
     }
 
     fn refresh_port(&mut self, port: usize, at: SimTime) -> Result<(), DeviceError> {
@@ -237,6 +255,7 @@ impl Pic16State {
         self.set_signal(self.timer0_irq_signal, 0, 1, at);
         self.set_signal(self.timer1_irq_signal, 0, 1, at);
         self.set_signal(self.timer2_irq_signal, 0, 1, at);
+        self.update_dac_signals(at);
         self.set_signal(self.interrupt_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
         for port in 0..5 {
@@ -305,6 +324,26 @@ impl Pic16PeripheralsHandle {
         let mut state = self.0.lock().expect("PIC16 peripheral lock poisoned");
         state.spi_incoming.push_back(value);
         state.update_interrupt_signals(at);
+    }
+
+    /// Returns the normalized 5-bit DAC code, or zero while DAC1 is disabled.
+    pub fn dac1_code(&self) -> u8 {
+        let state = self.0.lock().expect("PIC16 peripheral lock poisoned");
+        if state.registers[DAC1CON0] & DAC1EN != 0 {
+            state.registers[DAC1CON1] & DAC1R_MASK
+        } else {
+            0
+        }
+    }
+
+    /// Returns whether DAC1 is enabled.
+    pub fn dac1_enabled(&self) -> bool {
+        self.0
+            .lock()
+            .expect("PIC16 peripheral lock poisoned")
+            .registers[DAC1CON0]
+            & DAC1EN
+            != 0
     }
 
     /// Advances functional timers and returns the combined interrupt request.
@@ -479,6 +518,16 @@ impl Pic16Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("functional Timer2 period-match interrupt flag".to_owned()),
         )?;
+        let dac1_value_signal = hub.declare(
+            "board.pic16f15376.dac1.value",
+            SignalValue::from_u64(0, 5)?,
+            Some("normalized 5-bit DAC1 code while enabled".to_owned()),
+        )?;
+        let dac1_active_signal = hub.declare(
+            "board.pic16f15376.dac1.active",
+            SignalValue::from_u64(0, 1)?,
+            Some("DAC1 enable state".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.pic16f15376.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -513,6 +562,8 @@ impl Pic16Peripherals {
             timer0_irq_signal,
             timer1_irq_signal,
             timer2_irq_signal,
+            dac1_value_signal,
+            dac1_active_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -714,6 +765,14 @@ impl Device for Pic16Peripherals {
                 state.registers[address] = value;
                 state.timer2_epoch = at.ticks();
                 state.timer2_postscale = 0;
+            }
+            DAC1CON0 => {
+                state.registers[address] = value & DAC1CON0_MASK;
+                state.update_dac_signals(at);
+            }
+            DAC1CON1 => {
+                state.registers[address] = value & DAC1R_MASK;
+                state.update_dac_signals(at);
             }
             WDTCON0 => {
                 state.registers[address] = value & 0x3f;
@@ -984,5 +1043,36 @@ mod tests {
             )
             .unwrap();
         assert!(!handle.poll(SimTime::from_ticks(13)));
+    }
+
+    #[test]
+    fn dac1_exposes_a_masked_code_and_enable_state() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        assert!(!handle.dac1_enabled());
+        assert_eq!(handle.dac1_code(), 0);
+        device
+            .write(DAC1CON1 as u64, AccessWidth::Byte, 0xb5, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                DAC1CON0 as u64,
+                AccessWidth::Byte,
+                u64::from(DAC1EN | (1 << 5) | (1 << 2) | 1),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.dac1_enabled());
+        assert_eq!(handle.dac1_code(), 0x15);
+        device
+            .write(
+                DAC1CON0 as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        assert!(!handle.dac1_enabled());
+        assert_eq!(handle.dac1_code(), 0);
     }
 }
