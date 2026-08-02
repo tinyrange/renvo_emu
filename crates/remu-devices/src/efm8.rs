@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const SFR_BYTES: usize = 0x1_0000;
@@ -15,6 +16,13 @@ const P1: usize = 0x90;
 const WDTCN: usize = 0x97;
 const SCON0: usize = 0x98;
 const SBUF0: usize = 0x99;
+const SMB0CN0: usize = 0xc0;
+const SMB0CF: usize = 0xc1;
+const SMB0DAT: usize = 0xc2;
+const SMB0TC: usize = 0xac;
+const SMB0ADM: usize = 0xd6;
+const SMB0ADR: usize = 0xd7;
+const EIE1: usize = 0xe6;
 const P3MDOUT: usize = (PAGE3 << 8) | 0x9c;
 const P2: usize = 0xa0;
 const P0MDOUT: usize = 0xa4;
@@ -36,6 +44,10 @@ const P0MDIN: usize = 0xf1;
 const P1MDIN: usize = 0xf2;
 const P2MDIN: usize = 0xf3;
 const P3MDIN: usize = (PAGE3 << 8) | 0xf4;
+const SMB0FCN0: usize = (PAGE3 << 8) | 0xc3;
+const SMB0FCN1: usize = (PAGE3 << 8) | 0xc4;
+const SMB0RXLN: usize = (PAGE3 << 8) | 0xc5;
+const SMB0FCT: usize = (PAGE3 << 8) | 0xef;
 
 const PORTS: [usize; 4] = [P0, P1, P2, P3];
 const PORT_WIDTHS: [u8; 4] = [8, 8, 8, 5];
@@ -53,6 +65,17 @@ const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
+const SMB0CN0_MASTER: u8 = 1 << 7;
+const SMB0CN0_TXMODE: u8 = 1 << 6;
+const SMB0CN0_STA: u8 = 1 << 5;
+const SMB0CN0_STO: u8 = 1 << 4;
+const SMB0CN0_ACKRQ: u8 = 1 << 3;
+const SMB0CN0_ARBLOST: u8 = 1 << 2;
+const SMB0CN0_ACK: u8 = 1 << 1;
+const SMB0CN0_SI: u8 = 1;
+const SMB0CF_ENSMB: u8 = 1 << 7;
+const SMB0CF_BUSY: u8 = 1 << 5;
+const EIE1_ESMB0: u8 = 1;
 const XBR0_URT0E: u8 = 0x01;
 const XBR2_XBARE: u8 = 0x40;
 
@@ -62,6 +85,8 @@ struct Efm8State {
     port_signals: [Vec<SignalId>; 4],
     hub: SignalHub,
     uart: Vec<u8>,
+    smbus0_tx: Vec<u8>,
+    smbus0_rx: VecDeque<u8>,
     timer0_epoch: u64,
     timer2_epoch: u64,
     watchdog_epoch: u64,
@@ -70,6 +95,10 @@ struct Efm8State {
     watchdog_reset: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
+    smbus0_tx_byte_signal: SignalId,
+    smbus0_tx_strobe_signal: SignalId,
+    smbus0_busy_signal: SignalId,
+    smbus0_interrupt_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
     interrupt_signal: SignalId,
@@ -98,6 +127,32 @@ impl Efm8State {
                 value | (u8::from(net.resolved() == Logic::One) << pin)
             })
             & PORT_MASKS[port]
+    }
+
+    fn update_smbus0_signals(&self, at: SimTime) {
+        let enabled = self.registers[SMB0CF] & SMB0CF_ENSMB != 0;
+        let busy = enabled && self.registers[SMB0CF] & SMB0CF_BUSY != 0;
+        let interrupt = enabled
+            && self.registers[EIE1] & EIE1_ESMB0 != 0
+            && self.registers[SMB0CN0] & SMB0CN0_SI != 0;
+        self.set_signal(self.smbus0_busy_signal, u64::from(busy), 1, at);
+        self.set_signal(self.smbus0_interrupt_signal, u64::from(interrupt), 1, at);
+    }
+
+    fn smbus0_start(&mut self) {
+        self.registers[SMB0CF] |= SMB0CF_BUSY;
+        self.registers[SMB0CN0] |= SMB0CN0_MASTER | SMB0CN0_STA | SMB0CN0_SI;
+        self.registers[SMB0CN0] &= !SMB0CN0_STO;
+    }
+
+    fn smbus0_stop(&mut self) {
+        self.registers[SMB0CF] &= !SMB0CF_BUSY;
+        self.registers[SMB0CN0] &= !(SMB0CN0_MASTER
+            | SMB0CN0_TXMODE
+            | SMB0CN0_STA
+            | SMB0CN0_STO
+            | SMB0CN0_ACKRQ
+            | SMB0CN0_SI);
     }
 
     fn refresh_port(&mut self, port: usize, at: SimTime) -> Result<(), DeviceError> {
@@ -139,6 +194,9 @@ impl Efm8State {
             ResetKind::Watchdog => 0x08,
         };
         self.uart.clear();
+        self.smbus0_tx.clear();
+        self.smbus0_rx.clear();
+        self.registers[SMB0ADM] = 0x7f;
         self.timer0_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
@@ -147,6 +205,7 @@ impl Efm8State {
         self.watchdog_reset = false;
         for signal in [
             self.uart_strobe_signal,
+            self.smbus0_tx_strobe_signal,
             self.timer0_irq_signal,
             self.timer2_irq_signal,
             self.interrupt_signal,
@@ -154,6 +213,8 @@ impl Efm8State {
         ] {
             self.set_signal(signal, 0, 1, at);
         }
+        self.set_signal(self.smbus0_tx_byte_signal, 0, 8, at);
+        self.update_smbus0_signals(at);
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
         }
@@ -170,15 +231,17 @@ impl Efm8State {
             | 0xa0
             | 0xa4..=0xa6
             | 0xa8..=0xa9
+            | 0xac
             | 0xb0
             | 0xb8
+            | 0xc0..=0xc2
             | 0xc8
             | 0xca..=0xcf
-            | 0xd4..=0xd5
+            | 0xd4..=0xd7
             | 0xe1..=0xe3
-            | 0xef
+            | 0xe6
             | 0xf1..=0xf3 => address,
-            0x9c | 0xf4 if page == PAGE3 => (PAGE3 << 8) | address,
+            0x9c | 0xc3..=0xc5 | 0xef | 0xf4 if page == PAGE3 => (PAGE3 << 8) | address,
             _ => raw,
         }
     }
@@ -234,6 +297,36 @@ impl Efm8PeripheralsHandle {
     /// Captured UART0 transmit bytes.
     pub fn uart_bytes(&self) -> Vec<u8> {
         self.0.lock().expect("EFM8 lock poisoned").uart.clone()
+    }
+
+    /// Captured SMBus 0 bytes written by the guest to the transmit FIFO.
+    pub fn smbus0_tx_bytes(&self) -> Vec<u8> {
+        self.0.lock().expect("EFM8 lock poisoned").smbus0_tx.clone()
+    }
+
+    /// Returns whether the functional SMBus 0 state machine owns the bus.
+    pub fn smbus0_busy(&self) -> bool {
+        let state = self.0.lock().expect("EFM8 lock poisoned");
+        state.registers[SMB0CF] & SMB0CF_BUSY != 0
+    }
+
+    /// Returns whether SMBus 0 has an enabled service request pending.
+    pub fn smbus0_interrupt(&self) -> bool {
+        let state = self.0.lock().expect("EFM8 lock poisoned");
+        state.registers[EIE1] & EIE1_ESMB0 != 0 && state.registers[SMB0CN0] & SMB0CN0_SI != 0
+    }
+
+    /// Queues bytes as a deterministic follower-side SMBus 0 receive event.
+    pub fn inject_smbus0_rx(&self, bytes: &[u8], at: SimTime) {
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        state.smbus0_rx.extend(bytes.iter().copied());
+        if let Some(&first) = state.smbus0_rx.front() {
+            state.registers[SMB0DAT] = first;
+            state.registers[SMB0CF] |= SMB0CF_BUSY;
+            state.registers[SMB0CN0] &= !(SMB0CN0_MASTER | SMB0CN0_TXMODE);
+            state.registers[SMB0CN0] |= SMB0CN0_ACKRQ | SMB0CN0_SI;
+        }
+        state.update_smbus0_signals(at);
     }
 
     /// Supplies one received UART0 byte and raises RI.
@@ -296,6 +389,7 @@ impl Efm8PeripheralsHandle {
             state.watchdog_reset = true;
             state.set_signal(state.watchdog_reset_signal, 1, 1, now);
         }
+        state.update_smbus0_signals(now);
         state.update_interrupt_signals(now);
         state.interrupt_levels()
     }
@@ -332,6 +426,26 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("toggles for every UART0 transmit byte".to_owned()),
         )?;
+        let smbus0_tx_byte_signal = hub.declare(
+            "board.efm8bb52f32g.smb0.tx_byte",
+            SignalValue::from_u64(0, 8)?,
+            Some("last SMBus 0 byte written by the guest".to_owned()),
+        )?;
+        let smbus0_tx_strobe_signal = hub.declare(
+            "board.efm8bb52f32g.smb0.tx_strobe",
+            SignalValue::from_u64(0, 1)?,
+            Some("toggles for every SMBus 0 transmit byte".to_owned()),
+        )?;
+        let smbus0_busy_signal = hub.declare(
+            "board.efm8bb52f32g.smb0.busy",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional SMBus 0 bus-busy state".to_owned()),
+        )?;
+        let smbus0_interrupt_signal = hub.declare(
+            "board.efm8bb52f32g.smb0.interrupt",
+            SignalValue::from_u64(0, 1)?,
+            Some("enabled SMBus 0 service request".to_owned()),
+        )?;
         let timer0_irq_signal = hub.declare(
             "board.efm8bb52f32g.timer0.irq",
             SignalValue::from_u64(0, 1)?,
@@ -358,6 +472,8 @@ impl Efm8Peripherals {
             port_signals: [signals0, signals1, signals2, signals3],
             hub,
             uart: Vec::new(),
+            smbus0_tx: Vec::new(),
+            smbus0_rx: VecDeque::new(),
             timer0_epoch: 0,
             timer2_epoch: 0,
             watchdog_epoch: 0,
@@ -366,6 +482,10 @@ impl Efm8Peripherals {
             watchdog_reset: false,
             uart_byte_signal,
             uart_strobe_signal,
+            smbus0_tx_byte_signal,
+            smbus0_tx_strobe_signal,
+            smbus0_busy_signal,
+            smbus0_interrupt_signal,
             timer0_irq_signal,
             timer2_irq_signal,
             interrupt_signal,
@@ -406,13 +526,28 @@ impl Device for Efm8Peripherals {
             state.refresh_port(port, at)?;
             return Ok(u64::from(state.port_read(port)));
         }
-        let mut value = *state
-            .registers
-            .get(address)
-            .ok_or_else(|| DeviceError::new(format!("EFM8 read outside SFR space: {raw:#x}")))?;
-        if address == CLKSEL {
-            value |= 0x80;
-        }
+        let value = match address {
+            SMB0DAT => {
+                let value = state.registers[SMB0DAT];
+                state.smbus0_rx.pop_front();
+                if let Some(&next) = state.smbus0_rx.front() {
+                    state.registers[SMB0DAT] = next;
+                } else {
+                    state.registers[SMB0CN0] &= !SMB0CN0_ACKRQ;
+                }
+                state.update_smbus0_signals(at);
+                value
+            }
+            SMB0FCT => {
+                let tx = u8::try_from(state.smbus0_tx.len().min(15)).unwrap_or(15);
+                let rx = u8::try_from(state.smbus0_rx.len().min(15)).unwrap_or(15);
+                (tx << 4) | rx
+            }
+            CLKSEL => state.registers[address] | 0x80,
+            _ => *state.registers.get(address).ok_or_else(|| {
+                DeviceError::new(format!("EFM8 read outside SFR space: {raw:#x}"))
+            })?,
+        };
         Ok(u64::from(value))
     }
 
@@ -435,14 +570,60 @@ impl Device for Efm8Peripherals {
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
         }
-        state.registers[address] = value;
-        if let Some(port) = Self::port_index(address) {
+        if address == SMB0CF {
+            let busy = state.registers[SMB0CF] & SMB0CF_BUSY;
+            state.registers[SMB0CF] = (value & !SMB0CF_BUSY) | busy;
+            if value & SMB0CF_ENSMB == 0 {
+                state.smbus0_stop();
+                state.registers[SMB0CN0] &= !SMB0CN0_SI;
+            }
+        } else if address == SMB0TC {
+            state.registers[address] = value & 0x83;
+        } else if address == SMB0ADR {
+            state.registers[address] = value & 0xfe;
+        } else if address == SMB0ADM {
+            state.registers[address] = value;
+        } else if matches!(address, SMB0FCN0 | SMB0FCN1 | SMB0RXLN | SMB0FCT) {
+            state.registers[address] = value;
+        } else if address == SMB0CN0 {
+            let request_start = value & SMB0CN0_STA != 0;
+            let request_stop = value & SMB0CN0_STO != 0;
+            let old_hardware = state.registers[SMB0CN0]
+                & (SMB0CN0_MASTER | SMB0CN0_TXMODE | SMB0CN0_ACKRQ | SMB0CN0_ARBLOST);
+            state.registers[SMB0CN0] = old_hardware | (value & SMB0CN0_ACK);
+            if request_start {
+                state.smbus0_start();
+            } else if request_stop {
+                state.smbus0_stop();
+            } else if value & SMB0CN0_SI != 0 {
+                state.registers[SMB0CN0] |= SMB0CN0_SI;
+            }
+        } else if address == SMB0DAT {
+            state.registers[SMB0DAT] = value;
+            if state.registers[SMB0CF] & SMB0CF_ENSMB != 0 {
+                state.smbus0_tx.push(value);
+                state.registers[SMB0CF] |= SMB0CF_BUSY;
+                state.registers[SMB0CN0] |= SMB0CN0_MASTER | SMB0CN0_TXMODE | SMB0CN0_SI;
+                state.registers[SMB0CN0] &= !SMB0CN0_ACKRQ;
+                state.set_signal(state.smbus0_tx_byte_signal, u64::from(value), 8, at);
+                let previous = state.hub.with_registry(|registry| {
+                    registry
+                        .value(state.smbus0_tx_strobe_signal)
+                        .and_then(|signal| signal.bit(0))
+                        .map_or(0, |logic| u64::from(logic == Logic::One))
+                });
+                state.set_signal(state.smbus0_tx_strobe_signal, previous ^ 1, 1, at);
+            }
+        } else if let Some(port) = Self::port_index(address) {
+            state.registers[address] = value;
             state.registers[address] &= PORT_MASKS[port];
             state.refresh_port(port, at)?;
         } else if let Some(port) = PORT_MDOUT.iter().position(|item| *item == address) {
+            state.registers[address] = value;
             state.registers[address] &= PORT_MASKS[port];
             state.refresh_port(port, at)?;
         } else if address == SBUF0 {
+            state.registers[address] = value;
             if state.registers[XBR0] & XBR0_URT0E != 0 && state.registers[XBR2] & XBR2_XBARE != 0 {
                 state.uart.push(value);
                 state.set_signal(state.uart_byte_signal, u64::from(value), 8, at);
@@ -456,16 +637,22 @@ impl Device for Efm8Peripherals {
             }
             state.registers[SCON0] |= SCON0_TI;
         } else if address == WDTCN {
+            state.registers[address] = value;
             if state.watchdog_key == 0xde && value == 0xad {
                 state.watchdog_enabled = false;
             }
             state.watchdog_key = value;
             state.watchdog_epoch = at.ticks();
         } else if address == TCON && value & TCON_TR0 != 0 {
+            state.registers[address] = value;
             state.timer0_epoch = at.ticks();
         } else if address == TMR2CN0 && value & TMR2_TR2 != 0 {
+            state.registers[address] = value;
             state.timer2_epoch = at.ticks();
+        } else {
+            state.registers[address] = value;
         }
+        state.update_smbus0_signals(at);
         state.update_interrupt_signals(at);
         Ok(())
     }
@@ -481,8 +668,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, EIE1, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SMB0CF, SMB0CN0,
+        SMB0DAT, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +729,49 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn smbus0_master_and_follower_byte_paths_are_observable() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _ports) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(SMB0CF as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(EIE1 as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(SMB0CN0 as u64, AccessWidth::Byte, 0x20, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.smbus0_busy());
+        assert!(handle.smbus0_interrupt());
+        device
+            .write(SMB0CN0 as u64, AccessWidth::Byte, 0, SimTime::from_ticks(1))
+            .unwrap();
+        device
+            .write(
+                SMB0DAT as u64,
+                AccessWidth::Byte,
+                0xa0,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        assert_eq!(handle.smbus0_tx_bytes(), vec![0xa0]);
+        assert!(handle.smbus0_interrupt());
+
+        device
+            .write(SMB0CN0 as u64, AccessWidth::Byte, 0, SimTime::from_ticks(3))
+            .unwrap();
+        handle.inject_smbus0_rx(&[0x12, 0x34], SimTime::from_ticks(4));
+        assert!(handle.smbus0_interrupt());
+        assert_eq!(
+            device.read(SMB0DAT as u64, AccessWidth::Byte, SimTime::from_ticks(5)),
+            Ok(0x12)
+        );
+        assert_eq!(
+            device.read(SMB0DAT as u64, AccessWidth::Byte, SimTime::from_ticks(6)),
+            Ok(0x34)
+        );
     }
 }
