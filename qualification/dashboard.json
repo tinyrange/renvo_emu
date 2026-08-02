@@ -1,7 +1,7 @@
 {
   "generator": {
     "path": "scripts/generate-dashboard.py",
-    "sha256": "30024c0308185307c56af7c7511dcc6079f25ea78321dfba40238221235320c2",
+    "sha256": "4b06e6df3ee969f8c4360ea8fa4878f4dc14dbb1d289fd8ec761b0f48f9adfcd",
     "spec": "qualification/dashboard-spec.json",
     "spec_sha256": "5472d2a49edd7a2a23a1680eea65f01fed68cc8efeac2be5122b1135343732f0"
   },
@@ -88,7 +88,7 @@
   "result": "pass",
   "schema": "remu.support-dashboard.v1",
   "scope_note": "Baseline proven means deterministic functional compiler/firmware testing; it does not claim cycle accuracy, complete ISA coverage, or complete peripherals.",
-  "source_tree_sha256": "24ae3416d4b09571334e4ef715e71ced69db9d0ea1f81dc1a8b57d1aef128392",
+  "source_tree_sha256": "13e5f09abaeef6e031d51a1abe9bf558494ac5815972d86a9571f0b6b4fe889c",
   "targets": [
     {
       "cpu_evidence_rows": [
