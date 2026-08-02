@@ -24,6 +24,8 @@ mod rp;
 pub use rp::*;
 mod esp;
 pub use esp::*;
+mod esp_digital_signature;
+pub use esp_digital_signature::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;
