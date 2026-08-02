@@ -19,10 +19,11 @@ use remu_devices::{
     Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
     Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
     Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32Can, Stm32Crc, Stm32CrcHandle,
-    Stm32Dac, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc,
-    Stm32RtcHandle, Stm32Spi, Stm32SpiHandle, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle, TimerHandle, UartHandle,
+    Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32AdvancedTimer,
+    Stm32AdvancedTimerHandle, Stm32Can, Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Gpio, Stm32I2c,
+    Stm32I2cHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc, Stm32RtcHandle, Stm32Spi, Stm32SpiHandle,
+    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, Stm32Watchdog, Stm32WatchdogHandle,
+    TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -118,6 +119,7 @@ pub struct ArmMcuMachine {
     stm32_crc: Option<Stm32CrcHandle>,
     stm32_rtc: Option<Stm32RtcHandle>,
     stm32_rng: Option<Stm32RngHandle>,
+    stm32_tim1: Option<Stm32AdvancedTimerHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -272,6 +274,7 @@ impl ArmMcuMachine {
         let mut stm32_crc = None;
         let mut stm32_rtc = None;
         let mut stm32_rng = None;
+        let mut stm32_tim1 = None;
         let (
             gpio,
             uart,
@@ -400,6 +403,9 @@ impl ArmMcuMachine {
                     signals.clone(),
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
+                let (tim1_device, tim1) =
+                    Stm32AdvancedTimer::new("board.stm32l432kc.tim1", signals.clone())?;
+                stm32_tim1 = Some(tim1);
                 let (usart1_device, usart1) = Stm32Usart::new("stm32l432kc.usart1");
                 let (usart2_device, usart2) = Stm32Usart::new("stm32l432kc.usart2");
                 let (lpuart1_device, lpuart1) = Stm32Usart::new("stm32l432kc.lpuart1");
@@ -421,6 +427,7 @@ impl ArmMcuMachine {
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
+                    tim1_device,
                     tim2_device,
                     usart1_device,
                     usart2_device,
@@ -522,6 +529,7 @@ impl ArmMcuMachine {
             stm32_crc,
             stm32_rtc,
             stm32_rng,
+            stm32_tim1,
             compiler_timer,
             exit,
             ppb,
@@ -631,6 +639,7 @@ impl ArmMcuMachine {
     fn map_stm32l432(
         bus: &mut AddressSpace,
         gpio: [Stm32Gpio; 4],
+        tim1: Stm32AdvancedTimer,
         tim2: Stm32Timer,
         usart1: Stm32Usart,
         usart2: Stm32Usart,
@@ -708,6 +717,7 @@ impl ArmMcuMachine {
                 ],
             )),
         )?;
+        bus.map_device("stm32l432kc.tim1", 0x4001_2c00, 0x400, Box::new(tim1))?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart1", 0x4001_3800, 0x400, Box::new(usart1))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
@@ -1057,8 +1067,12 @@ impl ArmMcuMachine {
             }
 
             let (timer_line, timer_pending) = self.timer.poll(self.now);
+            let advanced_timer_pending = self
+                .stm32_tim1
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending;
+            let mut interrupt_requested = timer_pending || advanced_timer_pending;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -1135,6 +1149,10 @@ impl ArmMcuMachine {
                             .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
                     }
                 }
+            }
+            if self.target == TargetId::Stm32l432kc {
+                self.cpu
+                    .set_interrupt(25, advanced_timer_pending && self.ppb.interrupt_enabled(25))?;
             }
             for (line, i2c) in &self.stm32_i2c {
                 let pending = i2c.interrupt_pending();
@@ -1867,6 +1885,42 @@ mod tests {
                 SimTime::ZERO
             ),
             Ok(0x5a0)
+        );
+    }
+
+    #[test]
+    fn stm32l432_native_tim1_window_routes_update_and_pwm() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        let base = 0x4001_2c00;
+        for (offset, value) in [
+            (0x2c, 9),
+            (0x34, 4),
+            (0x18, 6 << 4),
+            (0x20, 1 | (1 << 2)),
+            (0x44, 1 << 15),
+            (0x0c, 1),
+            (0x00, 1),
+        ] {
+            machine
+                .bus
+                .write(base + offset, AccessWidth::Word, value, SimTime::ZERO)
+                .unwrap();
+        }
+        assert!(
+            machine
+                .stm32_tim1
+                .as_ref()
+                .expect("STM32 machine has TIM1")
+                .poll(SimTime::from_ticks(10))
+        );
+        assert_eq!(
+            machine.bus.read(
+                base + 0x10,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(1)
         );
     }
 

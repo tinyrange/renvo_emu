@@ -144,6 +144,13 @@ left-aligned plus 8-bit data writes, software-triggered transfers, and
 trace-visible digital output/enable signals. It does not claim analog voltage,
 calibration, sample-and-hold settling, or DMA behavior.
 
+The STM32L432KC model additionally maps the native TIM1 advanced-control
+timer at `0x40012c00`. Its functional slice supports the time-base, update
+interrupt, four PWM compare channels, three complementary outputs, main-output
+enable, and update generation, with each channel exposed to VCD. It does not
+claim cycle-accurate dead-time, break/capture behavior, DMA, or alternate-
+function pin routing.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw

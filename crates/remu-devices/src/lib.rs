@@ -223,6 +223,8 @@ mod stm32_rtc;
 pub use stm32_rtc::*;
 mod stm32_rng;
 pub use stm32_rng::*;
+mod stm32_tim1;
+pub use stm32_tim1::*;
 mod stm32_can;
 pub use stm32_can::*;
 mod stm32_dac;
