@@ -228,6 +228,7 @@ impl RiscVMachine {
                         chip_timer_pending & (1 << line) != 0,
                     )?;
                 }
+                set_rp2350_spi_interrupts(&mut self.cpu, &self.spi)?;
                 if let Some(usb) = &self.usb {
                     if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
                         stats.events = stats.events.saturating_add(host.poll(self.now, usb, dpram));

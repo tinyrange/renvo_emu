@@ -18,7 +18,8 @@ use remu_devices::{
     FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
+    Rp2350XipMaintenance, RpPio, RpPioHandle,
     RpAdc, RpAdcHandle, RpAdcVariant, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout,
     RpPioVersion, SignalHub, SpiHandle, TimerHandle, UartHandle,
 };
@@ -61,6 +62,7 @@ pub struct ArmMachine {
     native_bootrom: bool,
     ppb: ArmPpbHandle,
     chip_timers: Vec<Rp2040TimerHandle>,
+    spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -124,6 +126,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut spi = Vec::new();
         let chip_pwm;
         let mut chip_spis = Vec::new();
         let mut pio = Vec::new();
@@ -427,6 +430,11 @@ impl ArmMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
+            for (name, base) in [("rp2350.spi0", 0x4008_0000), ("rp2350.spi1", 0x4008_8000)] {
+                let (device, handle) = Rp2350Spi::new(name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                spi.push(handle);
+            }
             bus.map_device(
                 "rp2350.xosc",
                 0x4004_8000,
@@ -676,6 +684,7 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            spi,
             pio,
             usb,
             usb_dpram,
@@ -1344,6 +1353,13 @@ impl ArmMachine {
                 self.cpu.set_interrupt(
                     u16::from(usb_irq),
                     usb.interrupt_pending() && self.ppb.interrupt_enabled(u16::from(usb_irq)),
+                )?;
+            }
+            for (index, spi) in self.spi.iter().enumerate() {
+                let line = 31_u16 + u16::try_from(index).expect("RP2350 SPI index fits IRQ line");
+                self.cpu.set_interrupt(
+                    line,
+                    spi.interrupt_pending() && self.ppb.interrupt_enabled(line),
                 )?;
             }
             if self.ppb.take_systick_pending(self.now) {

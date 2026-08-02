@@ -19,7 +19,8 @@ use remu_devices::{
     FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
     Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpPio,
+    Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle, Rp2350XipMaintenance, RpAdc,
+    RpAdcHandle, RpAdcVariant, RpPio,
     RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle,
     UartHandle,
     WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
@@ -53,7 +54,9 @@ mod lp_uart;
 mod radio;
 mod pwm;
 mod pio;
+mod rp2350_spi;
 mod rp_bootrom;
+use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
 mod runtime;
 mod watchdog;
 
@@ -271,6 +274,7 @@ pub struct RiscVMachine {
     radio_event_cursor: usize,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
+    spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
     wch_timer: Option<WchTimerHandle>,
     wch_pfic: Option<WchPficHandle>,
@@ -306,6 +310,7 @@ impl RiscVMachine {
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
         let mut chip_timers = Vec::new();
+        let mut spi = Vec::new();
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -524,8 +529,6 @@ impl RiscVMachine {
             )?;
             for (name, base) in [
                 ("rp2350.uart1", 0x4007_8000),
-                ("rp2350.spi0", 0x4008_0000),
-                ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.dma", 0x5000_0000),
@@ -537,6 +540,7 @@ impl RiscVMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
+            map_rp2350_spi(&mut bus, &mut spi)?;
             let (adc, adc_handle) = RpAdc::new_for_variant("rp2350.adc", RpAdcVariant::FiveChannel);
             bus.map_device("rp2350.adc", 0x400a_0000, 0x1000, Box::new(adc))?;
             chip_adc = Some(adc_handle);
@@ -848,6 +852,7 @@ impl RiscVMachine {
             radio_event_cursor: 0,
             flash_storage,
             chip_timers,
+            spi,
             pio,
             wch_timer,
             wch_pfic,

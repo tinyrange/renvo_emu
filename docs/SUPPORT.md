@@ -11,7 +11,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; PL011 UART1 register slice; native TIMER→NVIC; native PIO0/1 register slices |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, PL011 UART1 register slice, TIMER interrupt, and native PIO0/1/2 register slices in both CPU modes |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, PL011 UART1, TIMER, SPI0/SPI1 PrimeCell FIFOs, and native PIO0/1/2 register slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
@@ -59,6 +59,13 @@ edge timing, GPIO pin muxing, DMA pacing, and interrupt controller delivery
 remain outside this functional slice. The register layout is checked against
 the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
 and [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf).
+
+RP2350 SPI0 and SPI1 are mapped at their documented `0x4008_0000` and
+`0x4008_8000` bases. The functional PrimeCell SSP slice covers the eight-word
+transmit/receive FIFOs, DSS/loopback/enable controls, status flags, masked and
+raw FIFO interrupts, interrupt clears, peripheral IDs, and deterministic host
+input/output. It intentionally does not model serial-clock waveforms, DMA
+handshakes, or exact slave-mode timing.
 
 The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
 connection control surface. They start connected for existing console fixtures;

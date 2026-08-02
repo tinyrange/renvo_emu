@@ -161,6 +161,8 @@ mod esp_assist_debug;
 pub use esp_assist_debug::*;
 mod arm;
 pub use arm::*;
+mod rp2350_spi;
+pub use rp2350_spi::*;
 mod esp_gpio;
 pub use esp_gpio::*;
 mod functional;
