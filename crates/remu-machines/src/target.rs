@@ -569,14 +569,17 @@ const MANIFESTS: &[TargetManifest] = &[
         baseline: &[
             "PORT/EIC GPIO",
             "TC3 timer interrupt",
-            "SERCOM0 USART",
+            "SERCOM0 USART/SPI/I2C host slice",
             "VCD",
         ],
         sources: &[
             "https://www.microchip.com/en-us/product/ATSAMD21E18",
             "https://packs.download.microchip.com/Microchip.SAMD21_DFP.3.8.270.atpack",
         ],
-        limitations: &["analog, USB, DMA, and exact clock timing are outside this tranche"],
+        limitations: &[
+            "analog, USB, DMA, and exact clock timing are outside this tranche",
+            "SERCOM transfers are functional and deterministic; pin-level bus timing and full slave behavior remain deferred",
+        ],
     },
     TargetManifest {
         schema: 1,
