@@ -8,6 +8,17 @@ typedef unsigned int u32;
 
 #define PM_APBCMASK REG32(0x40000420u)
 #define GCLK_CLKCTRL REG16(0x40000c02u)
+#define USB_CTRLA REG8(0x41005000u)
+#define USB_CTRLB REG16(0x41005008u)
+#define USB_DADD REG8(0x4100500au)
+#define USB_STATUS REG8(0x4100500cu)
+#define USB_INTENSET REG16(0x41005018u)
+#define USB_DESCADD REG32(0x41005024u)
+#define USB_EPCFG0 REG8(0x41005100u)
+#define USB_EPSTATUSCLR0 REG8(0x41005104u)
+#define USB_EPSTATUSSET0 REG8(0x41005105u)
+#define USB_EPSTATUS0 REG8(0x41005106u)
+#define USB_EPINTENSET0 REG8(0x41005109u)
 #define PORT_DIRSET REG32(0x41004408u)
 #define PORT_OUTSET REG32(0x41004418u)
 #define PORT_OUTCLR REG32(0x41004414u)
@@ -101,6 +112,27 @@ int main(void)
 
     PM_APBCMASK |= (1u << 2) | (1u << 11);
     GCLK_CLKCTRL = (u16)((0x14u << 8) | 0u | (1u << 14));
+
+    USB_CTRLA = 1u << 1;
+    USB_CTRLB = 0u;
+    USB_DADD = 0x85u;
+    USB_DESCADD = 0x20000103u;
+    USB_EPCFG0 = 1u | (1u << 4);
+    USB_EPSTATUSSET0 = (1u << 6) | (1u << 4);
+    USB_EPINTENSET0 = 1u | (1u << 4);
+    USB_INTENSET = 1u << 3;
+    if (USB_CTRLA != (1u << 1) || USB_CTRLB != 0u || USB_DADD != 0x85u ||
+        USB_STATUS != 0x40u || USB_DESCADD != 0x20000100u) {
+        failures |= 1u << 11;
+    }
+    if (USB_EPCFG0 != (1u | (1u << 4)) || USB_EPSTATUS0 != ((1u << 6) | (1u << 4)) ||
+        USB_EPINTENSET0 != (1u | (1u << 4)) || (USB_INTENSET & (1u << 3)) == 0u) {
+        failures |= 1u << 12;
+    }
+    USB_EPSTATUSCLR0 = 1u << 6;
+    if (USB_EPSTATUS0 != (1u << 4)) {
+        failures |= 1u << 13;
+    }
 
     PORT_DIRSET = 1u << 7;
     PORT_OUTSET = 1u << 7;
