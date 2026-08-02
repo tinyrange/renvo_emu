@@ -121,24 +121,14 @@ impl RiscVMachine {
             return Err(MachineError::MissingRunLimit);
         }
 
-        let mut digest = TraceDigest::new();
-        self.signals.with_registry(|registry| {
-            digest.begin(registry);
-            if let Some(sink) = trace.as_deref_mut() {
-                sink.begin(registry)
-            } else {
-                Ok(())
-            }
-        })?;
+        let mut control = RunControl::new(limits, stimuli);
+        control.begin_trace(&self.signals, &mut trace)?;
 
         let mut stats = RunStats {
             instructions: 0,
             time: self.now,
             events: 0,
         };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
         self.cpu
             .set_interrupt(TIMER_INTERRUPT, self.timer.pending())?;
         let mut timer_was_pending = false;
@@ -160,15 +150,9 @@ impl RiscVMachine {
             if let Some(sio) = &self.sio {
                 sio.select_core(0);
             }
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
-                self.set_pin(stimulus.pin, stimulus.value)?;
-                stats.events = stats.events.saturating_add(1);
-                next_stimulus += 1;
-            }
+            control.apply_stimuli(self.now, &mut stats, |stimulus| {
+                self.set_pin(stimulus.pin, stimulus.value)
+            })?;
             if let Some(code) = self.exit.code() {
                 let _ = code;
                 break StopReason::Halted;
@@ -185,14 +169,8 @@ impl RiscVMachine {
             {
                 break StopReason::HostInputComplete;
             }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
+            if let Some(reason) = control.limit_reason(self.now, &stats) {
+                break reason;
             }
             if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu.pc())) {
                 break StopReason::Breakpoint;
@@ -561,16 +539,9 @@ impl RiscVMachine {
             }
 
             if self.signals.has_changes() {
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
+            if let Some(path) =
+                control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+            {
                     break StopReason::Signal(path);
                 }
             }
@@ -694,16 +665,9 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(0);
                 }
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
+                if let Some(path) =
+                    control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+                {
                     break StopReason::Signal(path);
                 }
             }
@@ -738,7 +702,7 @@ impl RiscVMachine {
                     bytes
                 },
             ),
-            trace_digest: digest.finish(),
+            trace_digest: control.digest.finish(),
         })
     }
 }

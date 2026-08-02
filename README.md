@@ -322,6 +322,10 @@ front-end concerns:
   time, events, address spaces, resolved nets, and deterministic artifacts.
   `remu-core::Scheduler` owns monotonic time and typed due-event dispatch over
   the stable event queue; target/device migration is intentionally incremental.
+- `remu-machines::RunControl` owns stable stimulus ordering, shared
+  instruction/time limits, and signal trace/digest streaming for the RISC-V,
+  Arm, and ATmega run paths; target-specific CPU, interrupt, boot, and device
+  work remains in each machine implementation.
 - `remu-cpu-*` crates implement RISC-V, Arm, Xtensa, AVR, MSP430, PIC16, and
   MCS-51 execution.
 - `remu-devices` provides reusable chip and board components.

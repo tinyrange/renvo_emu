@@ -1,7 +1,7 @@
 use crate::arm::Rp2040UsbHost;
 use crate::{
-    MemoryKind, PinStimulus, SignalEdge, SignalStop, TargetId, matching_signal_stop,
-    resolve_signal_stop, target_manifest,
+    MemoryKind, PinStimulus, SignalEdge, SignalStop, TargetId, resolve_signal_stop,
+    run_control::RunControl, target_manifest,
 };
 use md5::{Digest, Md5};
 use remu_bus::{
@@ -31,7 +31,7 @@ use remu_radio::{
     RadioLegalityValidator, RadioMedium, TransmissionId, WifiEngine,
 };
 use remu_signals::{Logic, SignalError};
-use remu_trace::{TraceDigest, TraceError, TraceSink};
+use remu_trace::{TraceError, TraceSink};
 use serde::Serialize;
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
