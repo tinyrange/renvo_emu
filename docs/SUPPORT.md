@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and HMAC-SHA256 command-window slice |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -85,6 +85,14 @@ model is not tied to target clock frequency. Baseline PIO executes one
 instruction per abstract tick and intentionally ignores divider and delay
 timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
+
+The ESP32-S3 HMAC slice retains the native command registers (`0x40`–`0x6c`),
+64-byte write window (`0x80`), and 32-byte result window (`0xc0`). It supports
+start/configuration, key-purpose validation, one-block and streaming message
+commands, result reads, and deterministic error/busy polling. No physical
+eFuse key is exposed: selected key slots derive synthetic test keys, so this is
+functional cryptographic behavior rather than secure-key or provisioning
+fidelity.
 
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
@@ -207,6 +215,7 @@ the target manifests and `PLAN.html`, principally:
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif’s official [ESP32-S3 hardware-crypto register definitions](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s3/include/soc/hwcrypto_reg.h) and [HMAC HAL](https://github.com/espressif/esp-idf/blob/master/components/esp_hal_security/esp32s3/include/hal/hmac_ll.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either
