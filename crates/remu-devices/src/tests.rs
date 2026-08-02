@@ -141,9 +141,9 @@ fn rp2350_i2c_executes_host_write_and_read_commands() {
     let (mut i2c, handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub.clone()).unwrap();
     handle.queue_read(0x48, [0x12, 0x34]);
     i2c.write(
-        0x30,
+        RpI2cRegister::InterruptMask.offset(),
         AccessWidth::Word,
-        (1 << 2) | (1 << 4) | (1 << 9),
+        0,
         SimTime::ZERO,
     )
     .unwrap();
@@ -207,6 +207,78 @@ fn rp2350_i2c_executes_host_write_and_read_commands() {
     );
     let changes = hub.drain_changes();
     assert_eq!(changes.len(), 6);
+}
+
+#[test]
+fn rp2350_i2c_interrupt_mask_follows_active_high_mask_bits() {
+    let hub = SignalHub::new();
+    let (mut i2c, _handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub).unwrap();
+    i2c.write(
+        RpI2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        0x48,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        RpI2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        RpI2cRegister::DataCommand.offset(),
+        AccessWidth::Word,
+        0xa5,
+        SimTime::ZERO,
+    )
+    .unwrap();
+
+    let tx_empty = 1_u64 << 4;
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::InterruptStatus.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & tx_empty,
+        0
+    );
+    i2c.write(
+        RpI2cRegister::InterruptMask.offset(),
+        AccessWidth::Word,
+        0,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_ne!(
+        i2c.read(
+            RpI2cRegister::InterruptStatus.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & tx_empty,
+        0
+    );
+}
+
+#[test]
+fn rp2350_i2c_status_reports_empty_transmit_fifo_when_disabled() {
+    let hub = SignalHub::new();
+    let (mut i2c, _handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub).unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::Status.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & 0x06,
+        0x06
+    );
 }
 
 #[test]
