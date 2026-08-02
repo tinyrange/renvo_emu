@@ -34,6 +34,8 @@ mod samd;
 pub use samd::*;
 mod stm32;
 pub use stm32::*;
+mod stm32_basic_timer;
+pub use stm32_basic_timer::*;
 mod ra;
 pub use ra::*;
 mod avr;
