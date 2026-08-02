@@ -64,6 +64,11 @@ where
     }
 
     /// Schedules a payload at an absolute timestamp.
+    ///
+    /// An event cannot be inserted behind the scheduler's current timestamp;
+    /// use [`Self::advance_to`] before scheduling work for a later window.
+    /// Rejecting past events here keeps [`Self::advance_to_next`] monotonic and
+    /// avoids silently dispatching work that was already missed.
     pub fn schedule_at(&mut self, at: SimTime, payload: T) -> Result<EventId, SchedulerError> {
         if at < self.now {
             return Err(SchedulerError::Rewind {
@@ -146,6 +151,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TimeError;
 
     #[test]
     fn dispatches_due_events_in_stable_order() {
@@ -212,5 +218,69 @@ mod tests {
                 requested: SimTime::from_ticks(3),
             })
         );
+    }
+
+    #[test]
+    fn rejected_past_event_does_not_consume_an_event_id() {
+        let mut scheduler = Scheduler::new(SimTime::from_ticks(4));
+        assert!(
+            scheduler
+                .schedule_at(SimTime::from_ticks(3), "past")
+                .is_err()
+        );
+
+        let id = scheduler
+            .schedule_at(SimTime::from_ticks(4), "current")
+            .unwrap();
+        assert_eq!(id.get(), 0);
+        assert_eq!(scheduler.pop_due().unwrap().payload, "current");
+    }
+
+    #[test]
+    fn relative_overflow_is_reported_without_queuing_work() {
+        let mut scheduler = Scheduler::new(SimTime::from_ticks(u64::MAX));
+        assert_eq!(
+            scheduler.schedule_after(SimDuration::TICK, "overflow"),
+            Err(SchedulerError::Queue(QueueError::Time(TimeError::Overflow)))
+        );
+        assert_eq!(scheduler.next_wakeup(), None);
+        assert_eq!(scheduler.dispatched(), 0);
+    }
+
+    #[test]
+    fn callback_errors_stop_dispatch_and_leave_later_events_queued() {
+        let mut scheduler = Scheduler::new(SimTime::from_ticks(5));
+        scheduler
+            .schedule_at(SimTime::from_ticks(5), "first")
+            .unwrap();
+        scheduler
+            .schedule_at(SimTime::from_ticks(5), "second")
+            .unwrap();
+
+        let mut calls = 0;
+        assert_eq!(
+            scheduler.dispatch_due(|event| {
+                calls += 1;
+                assert_eq!(event.payload, "first");
+                Err::<(), _>("callback failed")
+            }),
+            Err("callback failed")
+        );
+        assert_eq!(calls, 1);
+        assert_eq!(scheduler.dispatched(), 1);
+        assert_eq!(scheduler.next_wakeup(), Some(SimTime::from_ticks(5)));
+        assert_eq!(scheduler.pop_due().unwrap().payload, "second");
+        assert_eq!(scheduler.next_wakeup(), None);
+    }
+
+    #[test]
+    fn zero_delay_work_is_due_at_the_current_timestamp() {
+        let mut scheduler = Scheduler::new(SimTime::from_ticks(9));
+        let id = scheduler.schedule_after(SimDuration::ZERO, "now").unwrap();
+        assert_eq!(scheduler.next_wakeup(), Some(SimTime::from_ticks(9)));
+        let event = scheduler.pop_due().unwrap();
+        assert_eq!(event.id, id);
+        assert_eq!(event.at, SimTime::from_ticks(9));
+        assert_eq!(event.payload, "now");
     }
 }
