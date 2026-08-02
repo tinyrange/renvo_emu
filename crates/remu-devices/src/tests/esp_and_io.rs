@@ -481,6 +481,11 @@ fn rp_pl011_rejects_reserved_fifo_level_encodings() {
 fn wch_usart_requires_enable_and_preserves_configuration() {
     let (mut usart, handle) = WchUsart::new("usart1");
     assert_eq!(
+        WchUsartRegister::from_offset(0x0c),
+        Some(WchUsartRegister::Control1)
+    );
+    assert_eq!(WchUsartRegister::GuardPrescaler.offset(), 0x18);
+    assert_eq!(
         usart.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0xc0
     );

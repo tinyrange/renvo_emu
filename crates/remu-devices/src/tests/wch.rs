@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn wch_usart_masks_documented_fields_and_clears_rw0_status_flags() {
+    let (mut usart, handle) = WchUsart::new("usart2");
+    for (offset, expected) in [
+        (0x08, 0xffff),
+        (0x0c, 0x3fff),
+        (0x10, 0x706f),
+        (0x14, 0x07cf),
+        (0x18, 0x00ff),
+    ] {
+        usart
+            .write(
+                offset,
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            usart
+                .read(offset, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            expected
+        );
+    }
+    usart
+        .write(0x0c, AccessWidth::Word, (1 << 13) | (1 << 3), SimTime::ZERO)
+        .unwrap();
+    usart
+        .write(0x04, AccessWidth::Word, u64::from(b'A'), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.text_lossy(), "A");
+    assert_eq!(
+        usart.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xc0
+    );
+    usart
+        .write(0x00, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usart.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x80
+    );
+}
+
+#[test]
 fn wch_touch_key_runs_the_documented_adc_sequence() {
     assert_eq!(
         WchTouchKeyRegister::from_offset(0x10),
