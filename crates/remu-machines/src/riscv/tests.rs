@@ -199,6 +199,106 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 }
 
 #[test]
+fn wch_i2c1_is_mapped_for_both_qingke_targets() {
+    const I2C1: u64 = 0x4000_5400;
+    const PE: u64 = 1;
+    const START: u64 = 1 << 8;
+    const STOP: u64 = 1 << 9;
+    const ADDR: u64 = 1 << 1;
+    const RXNE: u64 = 1 << 6;
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        let i2c = machine.wch_i2c().expect("WCH target exposes I2C1");
+        i2c.queue_read(0x50, &[0xde, 0xad]);
+        machine
+            .bus
+            .write(I2C1, AccessWidth::HalfWord, PE | START, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    I2C1 + 0x14,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap()
+                & 1,
+            1,
+            "{target} start flag"
+        );
+        machine
+            .bus
+            .write(I2C1 + 0x10, AccessWidth::HalfWord, 0xa1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    I2C1 + 0x14,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap()
+                & ADDR,
+            ADDR,
+            "{target} address acknowledge"
+        );
+        let _ = machine
+            .bus
+            .read(
+                I2C1 + 0x14,
+                AccessWidth::HalfWord,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        let _ = machine
+            .bus
+            .read(
+                I2C1 + 0x18,
+                AccessWidth::HalfWord,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_ne!(
+            machine
+                .bus
+                .read(
+                    I2C1 + 0x14,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap()
+                & RXNE,
+            0,
+            "{target} receive data ready"
+        );
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    I2C1 + 0x10,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            0xde,
+            "{target} first received byte"
+        );
+        machine
+            .bus
+            .write(I2C1, AccessWidth::HalfWord, PE | STOP, SimTime::ZERO)
+            .unwrap();
+    }
+}
+
+#[test]
 fn gpio_facade_streams_valid_vcd() {
     // lui x1,0xffff0; addi x2,x0,1; sw x2,0(x1); sw x2,4(x1); ebreak
     let program = [

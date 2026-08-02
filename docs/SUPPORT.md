@@ -8,8 +8,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
-| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
+| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, I2C1, PFIC and table-mode interrupt proofs |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/I2C1/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
@@ -25,6 +25,22 @@ All targets also expose a stable compiler-test block:
 This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
+
+## WCH I2C1 functional slice
+
+CH32V003 and CH32V006 map the vendor `I2C1` register block at `0x40005400`.
+The functional model covers the documented 16-bit `CTLR1`, `CTLR2`, `OADDR1`,
+`OADDR2`, `DATAR`, `STAR1`, `STAR2`, and `CKCFGR` registers. Firmware can
+enable the controller, generate a START or STOP, send seven-bit addresses,
+transmit bytes, clear the ADDR sequence, and receive queued bytes. Event and
+error interrupt enables route to the WCH PFIC's I2C1 event/error lines 30 and
+31.
+
+The host-facing `WchI2cHandle` acknowledges every address by default, can
+queue deterministic read responses, selectively NACK addresses, and collect
+bytes transmitted by firmware. This is a functional transaction model: it
+does not claim electrical arbitration, clock stretching, analogue pull-up
+timing, DMA requests, slave-mode operation, or multi-master behaviour.
 
 ## Official MicroPython milestone
 

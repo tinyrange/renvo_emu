@@ -6,7 +6,7 @@ use remu_signals::{
     DigitalNet, DriverId, Logic, SignalChange, SignalError, SignalId, SignalRegistry, SignalValue,
 };
 use std::cell::RefCell;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -16,6 +16,8 @@ mod uart;
 pub use uart::*;
 mod wch;
 pub use wch::*;
+mod wch_i2c;
+pub use wch_i2c::*;
 mod esp_usb_serial_jtag;
 pub use esp_usb_serial_jtag::*;
 mod gpio;
