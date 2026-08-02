@@ -24,6 +24,8 @@ mod rp;
 pub use rp::*;
 mod esp;
 pub use esp::*;
+mod esp_interrupt_matrix;
+pub use esp_interrupt_matrix::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;
