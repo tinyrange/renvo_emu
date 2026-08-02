@@ -4,11 +4,13 @@ The target is the exact `R7FA4M1AB3CFM#AA0` Cortex-M4F used by the UNO R4
 Minima path: 256 KiB code flash, 32 KiB SRAM and 8 KiB data flash. The pinned
 Arm GNU 13.2.Rel1 and Clang/LLD 18 smokes use the hard-float ABI and exercise vector reset,
 compiler-generated Thumb-2/DSP/FPU code, option/startup state, external GPIO,
-explicit ICU routing, GPT0 interrupt entry and SCI9 UART (`RA4M1\n`).
+explicit ICU/KINT routing, GPT0 interrupt entry and SCI9 UART (`RA4M1\n`).
 
 Implemented functionally are SYSTEM clock/oscillator and module-stop state,
-IOPORT, ICU, GPT0, SCI9 and watchdog. USB, CAN, analog/LCD blocks, exact clock
-timing and the UNO R4 Wi-Fi-board bridge are unsupported. VCD records the
+IOPORT, ICU, KINT, GPT0, SCI9 and watchdog. KINT models KR00-KR07 on P100-P107,
+the selectable rising/falling level, KRM enable bits, and KRF latching at
+`0x40080000`; its ELC event is `0x045`. USB, CAN, analog/LCD blocks, exact
+clock timing and the UNO R4 Wi-Fi-board bridge are unsupported. VCD records the
 selected port, GPT, SCI and ICU/interrupt signals and deterministic runs are
 compared byte-for-byte.
 

@@ -110,6 +110,7 @@ pub struct ArmMcuMachine {
     exit: ExitHandle,
     ppb: ArmPpbHandle,
     timer_irq_signal: SignalId,
+    kint_irq_signal: Option<SignalId>,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     interrupt_signal: SignalId,
@@ -193,6 +194,15 @@ impl ArmMcuMachine {
             SignalValue::from_u64(0, 1)?,
             Some("selected timer interrupt request".to_owned()),
         )?;
+        let kint_irq_signal = if target == TargetId::R7fa4m1ab3cfm {
+            Some(signals.declare(
+                "board.r7fa4m1ab3cfm.kint.irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("KINT interrupt request".to_owned()),
+            )?)
+        } else {
+            None
+        };
         let uart_byte_signal = signals.declare(
             format!("{uart_path}.tx_byte"),
             SignalValue::from_u64(0, 8)?,
@@ -428,6 +438,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -567,6 +578,7 @@ impl ArmMcuMachine {
             exit,
             ppb,
             timer_irq_signal,
+            kint_irq_signal,
             uart_byte_signal,
             uart_strobe_signal,
             interrupt_signal,
@@ -1105,6 +1117,14 @@ impl ArmMcuMachine {
             }
 
             let (timer_line, timer_pending) = self.timer.poll(self.now);
+            let kint_inputs = (0..8).fold(0_u8, |value, pin| {
+                let pin = u8::try_from(pin).expect("KINT pin index fits u8");
+                value | (u8::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
+            });
+            let kint_pending = self
+                .ra_kint
+                .as_ref()
+                .is_some_and(|kint| kint.poll(kint_inputs));
             let compiler_pending = self.compiler_timer.poll(self.now);
             let mut interrupt_requested = timer_pending;
             let rtc_pending = self.ra_rtc.as_ref().is_some_and(|rtc| rtc.poll(self.now));
@@ -1245,6 +1265,13 @@ impl ArmMcuMachine {
                 SignalValue::from_u64(u64::from(timer_pending), 1)?,
                 self.now,
             )?;
+            if let Some(signal) = self.kint_irq_signal {
+                self.signals.set(
+                    signal,
+                    SignalValue::from_u64(u64::from(kint_pending), 1)?,
+                    self.now,
+                )?;
+            }
             self.signals.set(
                 self.interrupt_signal,
                 SignalValue::from_u64(u64::from(interrupt_requested), 1)?,

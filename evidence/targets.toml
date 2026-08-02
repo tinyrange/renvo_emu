@@ -104,14 +104,14 @@ arduino_examples_url = "https://github.com/arduino/arduino-examples"
 arduino_examples_revision = "ad14bc44cb95555e5df7c16e6605559cad860d29"
 toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
 compiler_flags = ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16"]
-peripherals = ["SYSTEM", "MSTP", "IOPORT", "ICU", "GPT0", "SCI9", "WDT"]
+peripherals = ["SYSTEM", "MSTP", "IOPORT", "ICU", "KINT", "GPT0", "SCI9", "WDT"]
 image_formats = ["ELF32 little-endian Arm executable", "Intel HEX generated and inspected as a loader artifact"]
 memory_map = ["code flash 0x00000000..0x0003ffff", "SRAM 0x20000000..0x20007fff", "data flash 0x40100000..0x40101fff", "documented MMIO windows for the selected peripheral slice"]
 reset_assumptions = "Power-on reset reads MSP and Thumb reset PC from code-flash vectors; option-setting, write-protection and oscillator-ready values are the documented acceptance subset"
 vectors = ["reset exception 1", "ICU IELSR7 / NVIC external IRQ 7"]
 selected_pins = ["P103 external digital input", "P111 GPIO/UNO R4 Minima LED output", "SCI9 logical TX"]
-interrupt_routes = ["GPT0 overflow event 0x05d -> ICU IELSR7 -> NVIC line 7", "SCI9 TXI is routed through configured ICU event slots"]
-vcd_signals = ["board.r7fa4m1ab3cfm.port1", "board.r7fa4m1ab3cfm.gpt0.irq", "board.r7fa4m1ab3cfm.sci9", "board.r7fa4m1ab3cfm.icu.request"]
+interrupt_routes = ["KINT event 0x045 -> configured ICU IELSR slot", "GPT0 overflow event 0x05d -> ICU IELSR7 -> NVIC line 7", "SCI9 TXI is routed through configured ICU event slots"]
+vcd_signals = ["board.r7fa4m1ab3cfm.port1", "board.r7fa4m1ab3cfm.kint.irq", "board.r7fa4m1ab3cfm.gpt0.irq", "board.r7fa4m1ab3cfm.sci9", "board.r7fa4m1ab3cfm.icu.request"]
 fidelity_tier = "functional Cortex-M4F and peripherals, deterministic, not cycle accurate"
 unsupported = ["USB", "CAN", "analog and LCD peripherals", "exact clock timing", "UNO R4 WiFi bridge"]
 vendor_sample_license = "Renesas FSP examples: BSD-3-Clause; ArduinoCore-renesas: MIT; Arduino sketches: CC0-1.0"
