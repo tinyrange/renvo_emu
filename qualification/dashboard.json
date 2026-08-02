@@ -12,7 +12,7 @@
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "e271348b4755c4811a889f5a585af56fd84bd77b762e040e9140dd8fbe584c9e"
+      "sha256": "dc09ea6ac2249c23d37cea9b8dd8ee21ec270fe797e07ffc7aafd3097a5be75f"
     },
     {
       "path": "qualification/xtensa-cpu.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "09d3ff9cbd87db64c8ba203c6956176796f9f06abca9721f7f2f7212df478ca0"
+      "sha256": "276919abe49579ecf8fc395660436ace65e7bdffec0723d1aa2bafe7df982d42"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "c04e59fd8aece44cbf79ea4611808ca988bd6e95c8961af64010de713c7e6001",
+        "manifest_sha256": "34fb7fb1da7238d5a1d3e5a27e4d6eda836141da4b411b8ed5c88e9e84bfe5ec",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -168,7 +168,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "6c418f2607e23b943f6e474887753c6f00d249659ef1c205335e30d4c5dd28b9",
+        "manifest_sha256": "05460a25a4a3d4242bc808b2f1b60a3a4afaf6858847de27d9aff25879bf8053",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -215,7 +215,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "840a4bb3ab8f29ce9d6815a287b9db08a63c02b4d5dc207a59d1c10acd4e53a3",
+        "manifest_sha256": "b80c80deeecbd9af6037aa16101ed85cc768eeb362d5597313d0658c7ddb6374",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -254,7 +254,7 @@
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
-        "SPI0 and SPI1 implement the PrimeCell SSP FIFO, status, interrupt and deterministic host-transfer slice; serial clock waveforms, DMA and exact slave timing are absent.",
+        "SPI0 and SPI1 implement the PrimeCell SSP FIFO, status, interrupt and deterministic host-transfer slice, including RP2350 APB narrow-access lanes, replicated writes, writable-register atomic aliases, and CPSDVSR validation; serial clock waveforms, DMA, receive-timeout scheduling and exact slave timing are absent.",
         "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
       ],
@@ -268,7 +268,7 @@
       "register_coverage": {
         "covered_register_count": 25,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "17277a4f17316c8abb697ef974df032bd9fecf1fbdbabd617cf40858c61689ea",
+        "manifest_sha256": "646cf0d7ffdee279fa566a6983b713706363096f7b93c25b347acfc774416d8d",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -319,7 +319,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "96d49694f811a4b6e73cc2172849c19f138fff1d123236bbed4fd79b14581616",
+        "manifest_sha256": "2cc4a73fe99eaff767869bc7ef3c227ab80a5d264d55f557280b239f573fd090",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"
@@ -364,7 +364,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "8a118d58b1de08de4f26d5999d942c3ced3028b7501605dc7748d31bcaa02b78",
+        "manifest_sha256": "211723693876360ca4395c753bdaecab7471a519d471ea5e0e3fbe9a557cdfdd",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

@@ -49,8 +49,11 @@ RP2350 SPI0 and SPI1 are mapped at their documented `0x4008_0000` and
 `0x4008_8000` bases. The functional PrimeCell SSP slice covers the eight-word
 transmit/receive FIFOs, DSS/loopback/enable controls, status flags, masked and
 raw FIFO interrupts, interrupt clears, peripheral IDs, and deterministic host
-input/output. It intentionally does not model serial-clock waveforms, DMA
-handshakes, or exact slave-mode timing.
+input/output. It also follows the RP2350 APB access contract for byte/halfword
+lane reads, replicated narrow writes, and the XOR/SET/CLEAR aliases on ordinary
+writable registers; CPSDVSR writes are normalised to the documented even
+`2..254` range. It intentionally does not model serial-clock waveforms, DMA
+handshakes, receive-timeout scheduling, or exact slave-mode timing.
 
 ## Implemented CPU surface
 
