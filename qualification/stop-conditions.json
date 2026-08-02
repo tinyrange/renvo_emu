@@ -1,6 +1,6 @@
 {
   "schema": "remu.stop-conditions.v1",
-  "source_sha256": "d02b76d2617a96268006f6b8928354f9f7db34e78082a4ad7f5236d9b3e31299",
+  "source_sha256": "5ab6a7a82ae76377a1540a63e82114787dc8ac66b025094087fccbe9446142c4",
   "cpu_families": [
     "riscv",
     "arm",
@@ -47,7 +47,7 @@
     {
       "id": "xtensa-breakpoint",
       "artifact": ".remu/stop-conditions/xtensa-breakpoint.json",
-      "sha256": "438cc173c7ec5d07dfbfa0626d1369bf601aa8423f1d3fb611b1c62d02199fe5",
+      "sha256": "62a5999c7fdf1870a3f378915b22d2953ed120aae32995d62c26782acd03b3b2",
       "target": "esp32s3",
       "reason": "Breakpoint",
       "stats": {
@@ -55,7 +55,7 @@
         "time": 0,
         "events": 0
       },
-      "trace_digest": "3ca497c22c93a225244a272465c80983e699c7d9842e0450748191a1212b80c6",
+      "trace_digest": "ed7db8c206bddcc734ee76c0345b7a6eed9c858cb9fedbf03203c72b7b42e2ab",
       "result": "pass"
     },
     {
@@ -93,7 +93,7 @@
     {
       "id": "xtensa-fault",
       "artifact": ".remu/stop-conditions/xtensa-fault.json",
-      "sha256": "6975469b894c63cb3add6c0a53b0c55b17383ddaef9b9fd44a2bda19e858db19",
+      "sha256": "ad512748ba2f0db9df7dc107396f641e3f1d827c3ef94cf236e255f18e151e85",
       "target": "esp32s3",
       "reason": {
         "Fault": "CPU0: IllegalInstruction CPU fault at PC 0x40370003: Xtensa instruction 0xffffff is not implemented"
@@ -103,7 +103,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "3ca497c22c93a225244a272465c80983e699c7d9842e0450748191a1212b80c6",
+      "trace_digest": "ed7db8c206bddcc734ee76c0345b7a6eed9c858cb9fedbf03203c72b7b42e2ab",
       "result": "pass"
     },
     {
@@ -137,7 +137,7 @@
     {
       "id": "xtensa-instruction-limit",
       "artifact": ".remu/stop-conditions/xtensa-instruction-limit.json",
-      "sha256": "880a8845aff8e321595dc5a2e5e4a8452c2e3f5cf4fb9e2b6c80e6ef712bd67a",
+      "sha256": "25a8a8fc16e378c067f52cd5a84a00b04bef55f04d2194c936d9675adc4ab58c",
       "target": "esp32s3",
       "reason": "InstructionLimit",
       "stats": {
@@ -145,7 +145,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "3ca497c22c93a225244a272465c80983e699c7d9842e0450748191a1212b80c6",
+      "trace_digest": "ed7db8c206bddcc734ee76c0345b7a6eed9c858cb9fedbf03203c72b7b42e2ab",
       "result": "pass"
     },
     {
@@ -183,7 +183,7 @@
     {
       "id": "xtensa-signal",
       "artifact": ".remu/stop-conditions/xtensa-signal.json",
-      "sha256": "2b34816c464d095b6009631040793d0267200c71d8c2795b307e3ad2749e64da",
+      "sha256": "7a9d44747ab64668ec3f6fea3383c313966e6b224a86f2fdf5bec09116b33130",
       "target": "esp32s3",
       "reason": {
         "Signal": "board.esp32s3.chip_gpio.pin2"
@@ -193,7 +193,7 @@
         "time": 8,
         "events": 0
       },
-      "trace_digest": "cf872020c2198b8dc7c592c33869197219214953dad039234766a980b653a4d8",
+      "trace_digest": "58ef89146af68671ec1795d3fef8acd7b5bae837680f4a6cf571ad5a3003d47f",
       "result": "pass"
     },
     {
@@ -227,7 +227,7 @@
     {
       "id": "xtensa-time-limit",
       "artifact": ".remu/stop-conditions/xtensa-time-limit.json",
-      "sha256": "33936877d4a7dcf92c3bc2214e71170a1e49df29959119d59dee49cb27ccc30d",
+      "sha256": "ef39886a64a6c0920b66f96c7b85f6de2172530ef1e8f58d0972f1b02cb0c8ce",
       "target": "esp32s3",
       "reason": "TimeLimit",
       "stats": {
@@ -235,7 +235,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "3ca497c22c93a225244a272465c80983e699c7d9842e0450748191a1212b80c6",
+      "trace_digest": "ed7db8c206bddcc734ee76c0345b7a6eed9c858cb9fedbf03203c72b7b42e2ab",
       "result": "pass"
     },
     {
@@ -279,7 +279,7 @@
     {
       "id": "xtensa-watchpoint",
       "artifact": ".remu/stop-conditions/xtensa-watchpoint.json",
-      "sha256": "e26ae5f21ad15017fb9ecfedbadceab9bf54125abfeefc41de8057dd7b9efede",
+      "sha256": "658f3826ddcfcd3d93f7b4582fe76a096c8a24ff97f7d3d26f141346a88555a0",
       "target": "esp32s3",
       "reason": {
         "Watchpoint": {
@@ -292,7 +292,7 @@
         "time": 18,
         "events": 0
       },
-      "trace_digest": "cf872020c2198b8dc7c592c33869197219214953dad039234766a980b653a4d8",
+      "trace_digest": "58ef89146af68671ec1795d3fef8acd7b5bae837680f4a6cf571ad5a3003d47f",
       "result": "pass"
     }
   ]
