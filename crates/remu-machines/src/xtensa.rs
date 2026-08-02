@@ -14,11 +14,11 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, EspDigitalSignature, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl,
+    EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup,
+    EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -497,7 +497,6 @@ impl XtensaMachine {
             ("aes", 0x6003_a000),
             ("sha", 0x6003_b000),
             ("rsa", 0x6003_c000),
-            ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
             ("gdma", 0x6003_f000),
             ("saradc", 0x6004_0000),
@@ -517,6 +516,12 @@ impl XtensaMachine {
                 )),
             )?;
         }
+        bus.map_device(
+            "esp32s3.digital-signature",
+            0x6003_d000,
+            0x1000,
+            Box::new(EspDigitalSignature::new("esp32s3.digital-signature")),
+        )?;
         bus.map_device(
             "esp32s3.rng",
             0x6003_5000,
