@@ -60,6 +60,14 @@ read aliases over a deterministic read-only image. Lock bits are monotonic
 until reset. Fuse programming, security-domain filtering, and ECC fault
 injection are deliberately not simulated.
 
+### RP2350 ACCESSCTRL subset
+
+Both RP2350 CPU modes map ACCESSCTRL at `0x40060000`. It models documented
+peripheral reset permissions, GPIO non-secure masks, `FORCE_CORE_NS`, atomic
+aliases, configuration reset, and write-once locks. Because the CPU/bus API
+does not yet propagate privilege or security tags, these registers expose
+policy state but do not enforce it as a bus filter.
+
 ### RP2040 power and oscillator subset
 
 The RP2040 map includes deterministic functional models for the official
