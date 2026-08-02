@@ -8,7 +8,7 @@ use remu_core::{
     StopReason,
 };
 use remu_cpu_mcs51::{Mcs51Cpu, Mcs51Register};
-use remu_devices::{Efm8Peripherals, Efm8PeripheralsHandle, GpioHandle, SignalHub};
+use remu_devices::{Efm8Peripherals, Efm8PeripheralsHandle, Efm8PowerMode, GpioHandle, SignalHub};
 use remu_image::IntelHexImage;
 use remu_signals::Logic;
 use remu_trace::{TraceDigest, TraceSink};
@@ -339,6 +339,12 @@ impl Mcs51McuMachine {
             if let Some(path) = signal_stop {
                 break StopReason::Signal(path);
             }
+            if matches!(
+                self.peripherals.power_mode(),
+                Efm8PowerMode::Stop | Efm8PowerMode::Snooze | Efm8PowerMode::Shutdown
+            ) {
+                break StopReason::Halted;
+            }
             if let Some(hit) = self.bus.take_watchpoint_hit() {
                 break StopReason::Watchpoint {
                     address: hit.address,
@@ -393,5 +399,24 @@ mod tests {
         assert_eq!(result.reason, StopReason::InstructionLimit);
         assert_eq!(machine.gpio_output() & 1, 1);
         assert_eq!(result.uart, b"M");
+    }
+
+    #[test]
+    fn stop_command_returns_a_bounded_halted_result() {
+        // MOV PCON0,#CPUSTOP; SJMP -2.
+        let image = IntelHexImage::parse(b":0500000075870280FE7F\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(10),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::Halted);
+        assert_eq!(result.stats.instructions, 1);
     }
 }

@@ -126,6 +126,44 @@ mkdir -p "$uart_build"
     -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
 
+clock_build="$artifact_root/clock-power-build"
+clock_run="$artifact_root/clock-power-run"
+mkdir -p "$clock_build" "$clock_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clock_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clock-power-build.json" \
+    -- -I. -c remu_clock_power.c -o /workspace/out/clock-power.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clock_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clock-power-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clock_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clock-power-link.json" \
+    -- /workspace/out/clock-power.rel /workspace/out/adapter.rel -o /workspace/out/clock-power.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$clock_build/clock-power.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.power.mode=change \
+    --vcd "$clock_run/signals.vcd" \
+    --result "$clock_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.power.mode"} and
+       .exit_code == 0' \
+    "$clock_run/result.json" >/dev/null
+grep -q '^$scope module clock $end$' "$clock_run/signals.vcd"
+grep -q '^$scope module power $end$' "$clock_run/signals.vcd"
+
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \

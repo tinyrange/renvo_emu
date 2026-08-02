@@ -56,6 +56,96 @@ const SCON0_TI: u8 = 0x02;
 const XBR0_URT0E: u8 = 0x01;
 const XBR2_XBARE: u8 = 0x40;
 
+const PCON0: usize = 0x87;
+const PCON1: usize = 0xcd;
+const REG0CN: usize = 0xc9;
+const PSTAT0: usize = (0x10 << 8) | 0xaa;
+const HFO0CN: usize = (0x10 << 8) | 0xef;
+const LFO0CN: usize = (0x10 << 8) | 0xb1;
+
+const CLKSEL_DIVRDY: u8 = 0x80;
+const PCON0_CPUIDLE: u8 = 0x01;
+const PCON0_CPUSTOP: u8 = 0x02;
+const PCON1_SNOOZE: u8 = 0x80;
+const REG0CN_STOPCF: u8 = 0x08;
+
+/// EFM8 system-clock source selected by CLKSEL.CLKSL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Efm8ClockSource {
+    /// 24.5 MHz HFOSC0 output.
+    Hfosc24p5,
+    /// External oscillator input; host frequency is configurable.
+    External,
+    /// 80 kHz LFOSC0 output.
+    Lfosc,
+    /// 49 MHz HFOSC0 output.
+    Hfosc49,
+    /// 24.5 MHz HFOSC0 output divided by 1.5.
+    Hfosc24p5Div1p5,
+    /// 10 MHz fast-start oscillator.
+    Fsrc10,
+    /// 2.5 MHz fast-start oscillator output.
+    Fsrc2p5,
+    /// 49 MHz HFOSC0 output divided by 1.5.
+    Hfosc49Div1p5,
+}
+
+impl Efm8ClockSource {
+    const fn from_bits(value: u8) -> Self {
+        match value & 0x07 {
+            0 => Self::Hfosc24p5,
+            1 => Self::External,
+            2 => Self::Lfosc,
+            3 => Self::Hfosc49,
+            4 => Self::Hfosc24p5Div1p5,
+            5 => Self::Fsrc10,
+            6 => Self::Fsrc2p5,
+            _ => Self::Hfosc49Div1p5,
+        }
+    }
+
+    const fn nominal_hz(self, external_hz: u32) -> u32 {
+        match self {
+            Self::Hfosc24p5 => 24_500_000,
+            Self::External => external_hz,
+            Self::Lfosc => 80_000,
+            Self::Hfosc49 => 49_000_000,
+            Self::Hfosc24p5Div1p5 => 16_333_333,
+            Self::Fsrc10 => 10_000_000,
+            Self::Fsrc2p5 => 2_500_000,
+            Self::Hfosc49Div1p5 => 32_666_666,
+        }
+    }
+
+    const fn bits(self) -> u64 {
+        match self {
+            Self::Hfosc24p5 => 0,
+            Self::External => 1,
+            Self::Lfosc => 2,
+            Self::Hfosc49 => 3,
+            Self::Hfosc24p5Div1p5 => 4,
+            Self::Fsrc10 => 5,
+            Self::Fsrc2p5 => 6,
+            Self::Hfosc49Div1p5 => 7,
+        }
+    }
+}
+
+/// Functional power mode entered by a firmware power-control write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Efm8PowerMode {
+    /// Core and peripherals are running.
+    Normal,
+    /// Core waits for an interrupt while peripherals remain active.
+    Idle,
+    /// Core and peripheral clocks are stopped until reset.
+    Stop,
+    /// High-frequency clocks and SYSCLK are gated until a wake/reset event.
+    Snooze,
+    /// Regulator and internal state are shut down until power-on/external reset.
+    Shutdown,
+}
+
 struct Efm8State {
     registers: Box<[u8]>,
     ports: [Arc<Mutex<GpioState>>; 4],
@@ -68,12 +158,18 @@ struct Efm8State {
     watchdog_key: u8,
     watchdog_enabled: bool,
     watchdog_reset: bool,
+    power_mode: Efm8PowerMode,
+    external_clock_hz: u32,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
+    clock_source_signal: SignalId,
+    clock_divider_signal: SignalId,
+    sysclk_hz_signal: SignalId,
+    power_mode_signal: SignalId,
 }
 
 impl Efm8State {
@@ -118,6 +214,31 @@ impl Efm8State {
         )
     }
 
+    fn refresh_clock(&self, at: SimTime) {
+        let source = Efm8ClockSource::from_bits(self.registers[CLKSEL]);
+        let divider_field = (self.registers[CLKSEL] >> 4) & 0x07;
+        let divider = 1_u32 << divider_field;
+        let sysclk_hz = source.nominal_hz(self.external_clock_hz) / divider;
+        self.set_signal(self.clock_source_signal, source.bits(), 3, at);
+        self.set_signal(self.clock_divider_signal, u64::from(divider), 8, at);
+        self.set_signal(self.sysclk_hz_signal, u64::from(sysclk_hz), 32, at);
+    }
+
+    fn power_mode_code(mode: Efm8PowerMode) -> u64 {
+        match mode {
+            Efm8PowerMode::Normal => 0,
+            Efm8PowerMode::Idle => 1,
+            Efm8PowerMode::Stop => 2,
+            Efm8PowerMode::Snooze => 3,
+            Efm8PowerMode::Shutdown => 4,
+        }
+    }
+
+    fn set_power_mode(&mut self, mode: Efm8PowerMode, at: SimTime) {
+        self.power_mode = mode;
+        self.set_signal(self.power_mode_signal, Self::power_mode_code(mode), 3, at);
+    }
+
     fn port_read(&self, port: usize) -> u8 {
         let latch = self.registers[PORTS[port]];
         let push_pull = self.registers[PORT_MDOUT[port]];
@@ -131,7 +252,15 @@ impl Efm8State {
             self.registers[PORTS[port]] = PORT_MASKS[port];
             self.registers[PORT_MDIN[port]] = PORT_MASKS[port];
         }
-        self.registers[CLKSEL] = 0x80;
+        // Reset selects HFOSC0 divided by eight. DIVRDY is read-only and is
+        // reported as ready by this functional model.
+        self.registers[CLKSEL] = CLKSEL_DIVRDY | (0x03 << 4);
+        self.registers[PCON0] = 0;
+        self.registers[PCON1] = 0;
+        self.registers[REG0CN] = 0;
+        self.registers[PSTAT0] = 0;
+        self.registers[HFO0CN] = 0;
+        self.registers[LFO0CN] = 0;
         self.registers[RSTSRC] = match kind {
             ResetKind::PowerOn => 0x02,
             ResetKind::External => 0x01,
@@ -145,6 +274,7 @@ impl Efm8State {
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
         self.watchdog_reset = false;
+        self.set_power_mode(Efm8PowerMode::Normal, at);
         for signal in [
             self.uart_strobe_signal,
             self.timer0_irq_signal,
@@ -157,6 +287,7 @@ impl Efm8State {
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
         }
+        self.refresh_clock(at);
     }
 
     fn canonical(raw: usize) -> usize {
@@ -164,6 +295,7 @@ impl Efm8State {
         let address = raw & 0xff;
         match address {
             0x80
+            | 0x87
             | 0x88..=0x8e
             | 0x90
             | 0x97..=0x99
@@ -173,6 +305,7 @@ impl Efm8State {
             | 0xb0
             | 0xb8
             | 0xc8
+            | 0xc9
             | 0xca..=0xcf
             | 0xd4..=0xd5
             | 0xe1..=0xe3
@@ -236,6 +369,37 @@ impl Efm8PeripheralsHandle {
         self.0.lock().expect("EFM8 lock poisoned").uart.clone()
     }
 
+    /// Returns the functional SYSCLK source selected by CLKSEL.CLKSL.
+    pub fn clock_source(&self) -> Efm8ClockSource {
+        Efm8ClockSource::from_bits(self.0.lock().expect("EFM8 lock poisoned").registers[CLKSEL])
+    }
+
+    /// Returns the active SYSCLK divider (one of 1, 2, 4, ..., 128).
+    pub fn clock_divider(&self) -> u32 {
+        let register = self.0.lock().expect("EFM8 lock poisoned").registers[CLKSEL];
+        1_u32 << ((register >> 4) & 0x07)
+    }
+
+    /// Returns the nominal functional SYSCLK frequency in hertz.
+    pub fn sysclk_hz(&self) -> u32 {
+        let state = self.0.lock().expect("EFM8 lock poisoned");
+        let source = Efm8ClockSource::from_bits(state.registers[CLKSEL]);
+        let divider = 1_u32 << ((state.registers[CLKSEL] >> 4) & 0x07);
+        source.nominal_hz(state.external_clock_hz) / divider
+    }
+
+    /// Sets the host-provided frequency used when CLKSEL selects EXTOSC.
+    pub fn set_external_clock_hz(&self, hz: u32, at: SimTime) {
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        state.external_clock_hz = hz;
+        state.refresh_clock(at);
+    }
+
+    /// Returns the current functional power mode.
+    pub fn power_mode(&self) -> Efm8PowerMode {
+        self.0.lock().expect("EFM8 lock poisoned").power_mode
+    }
+
     /// Supplies one received UART0 byte and raises RI.
     pub fn inject_uart_rx(&self, value: u8, at: SimTime) {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
@@ -297,7 +461,11 @@ impl Efm8PeripheralsHandle {
             state.set_signal(state.watchdog_reset_signal, 1, 1, now);
         }
         state.update_interrupt_signals(now);
-        state.interrupt_levels()
+        let levels = state.interrupt_levels();
+        if levels.iter().any(|level| *level) && state.power_mode == Efm8PowerMode::Idle {
+            state.set_power_mode(Efm8PowerMode::Normal, now);
+        }
+        levels
     }
 
     /// Consumes a watchdog reset request.
@@ -352,6 +520,26 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("functional watchdog reset request".to_owned()),
         )?;
+        let clock_source_signal = hub.declare(
+            "board.efm8bb52f32g.clock.source",
+            SignalValue::from_u64(0, 3)?,
+            Some("CLKSEL clock-source selector".to_owned()),
+        )?;
+        let clock_divider_signal = hub.declare(
+            "board.efm8bb52f32g.clock.divider",
+            SignalValue::from_u64(8, 8)?,
+            Some("functional SYSCLK divider".to_owned()),
+        )?;
+        let sysclk_hz_signal = hub.declare(
+            "board.efm8bb52f32g.clock.sysclk_hz",
+            SignalValue::from_u64(3_062_500, 32)?,
+            Some("nominal functional SYSCLK frequency".to_owned()),
+        )?;
+        let power_mode_signal = hub.declare(
+            "board.efm8bb52f32g.power.mode",
+            SignalValue::from_u64(0, 3)?,
+            Some("functional power-mode code".to_owned()),
+        )?;
         let state = Arc::new(Mutex::new(Efm8State {
             registers: vec![0; SFR_BYTES].into_boxed_slice(),
             ports: [port0, port1, port2, port3],
@@ -364,12 +552,18 @@ impl Efm8Peripherals {
             watchdog_key: 0,
             watchdog_enabled: true,
             watchdog_reset: false,
+            power_mode: Efm8PowerMode::Normal,
+            external_clock_hz: 24_000_000,
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
             timer2_irq_signal,
             interrupt_signal,
             watchdog_reset_signal,
+            clock_source_signal,
+            clock_divider_signal,
+            sysclk_hz_signal,
+            power_mode_signal,
         }));
         state
             .lock()
@@ -435,7 +629,37 @@ impl Device for Efm8Peripherals {
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
         }
-        state.registers[address] = value;
+        if address == CLKSEL {
+            // CLKSEL bit 7 (DIVRDY) is read-only and bit 3 is reserved.
+            state.registers[address] = CLKSEL_DIVRDY | (value & 0x77);
+            state.refresh_clock(at);
+        } else if address == PCON0 {
+            // CPUIDLE/CPUSTOP are write-only command bits; CPUGP is retained.
+            state.registers[address] = value & 0xfc;
+            if value & PCON0_CPUSTOP != 0 {
+                let mode = if state.registers[REG0CN] & REG0CN_STOPCF != 0 {
+                    Efm8PowerMode::Shutdown
+                } else {
+                    Efm8PowerMode::Stop
+                };
+                state.set_power_mode(mode, at);
+            } else if value & PCON0_CPUIDLE != 0 {
+                state.set_power_mode(Efm8PowerMode::Idle, at);
+            } else if state.power_mode == Efm8PowerMode::Idle {
+                state.set_power_mode(Efm8PowerMode::Normal, at);
+            }
+        } else if address == PCON1 {
+            state.registers[address] = value & (PCON1_SNOOZE | 0x01);
+            if value & PCON1_SNOOZE != 0 {
+                state.set_power_mode(Efm8PowerMode::Snooze, at);
+            } else if state.power_mode == Efm8PowerMode::Snooze {
+                state.set_power_mode(Efm8PowerMode::Normal, at);
+            }
+        } else if address == REG0CN {
+            state.registers[address] = value & REG0CN_STOPCF;
+        } else {
+            state.registers[address] = value;
+        }
         if let Some(port) = Self::port_index(address) {
             state.registers[address] &= PORT_MASKS[port];
             state.refresh_port(port, at)?;
@@ -481,8 +705,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, Efm8ClockSource, Efm8Peripherals, Efm8PowerMode, IE, IE_EA, IE_ET0, P0,
+        P0MDOUT, SBUF0, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +766,62 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn clock_selection_and_low_power_commands_are_observable() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        assert_eq!(handle.clock_source(), Efm8ClockSource::Hfosc24p5);
+        assert_eq!(handle.clock_divider(), 8);
+        assert_eq!(handle.sysclk_hz(), 3_062_500);
+        assert_eq!(handle.power_mode(), Efm8PowerMode::Normal);
+
+        device
+            .write(super::CLKSEL as u64, AccessWidth::Byte, 0x11, SimTime::ZERO)
+            .unwrap();
+        handle.set_external_clock_hz(48_000_000, SimTime::from_ticks(1));
+        assert_eq!(handle.clock_source(), Efm8ClockSource::External);
+        assert_eq!(handle.clock_divider(), 2);
+        assert_eq!(handle.sysclk_hz(), 24_000_000);
+
+        device
+            .write(
+                super::PCON0 as u64,
+                AccessWidth::Byte,
+                0x01,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        assert_eq!(handle.power_mode(), Efm8PowerMode::Idle);
+        device
+            .write(
+                super::PCON0 as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::from_ticks(3),
+            )
+            .unwrap();
+        assert_eq!(handle.power_mode(), Efm8PowerMode::Normal);
+
+        device
+            .write(
+                super::PCON1 as u64,
+                AccessWidth::Byte,
+                0x80,
+                SimTime::from_ticks(4),
+            )
+            .unwrap();
+        assert_eq!(handle.power_mode(), Efm8PowerMode::Snooze);
+        device.reset(remu_core::ResetKind::PowerOn);
+        assert_eq!(handle.power_mode(), Efm8PowerMode::Normal);
+
+        device
+            .write(super::REG0CN as u64, AccessWidth::Byte, 0x08, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(super::PCON0 as u64, AccessWidth::Byte, 0x02, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.power_mode(), Efm8PowerMode::Shutdown);
     }
 }

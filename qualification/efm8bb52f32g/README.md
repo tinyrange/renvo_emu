@@ -12,12 +12,14 @@ VCD signals. The smoke builds baseline, size-optimized and speed-optimized
 lanes and emits `EFM8BB52:OK\nIRQ\n` after reading an externally stimulated
 P0.1 input.
 
-The exact functional register surface is RSTSRC, CLKSEL, WDTCN, Ports 0–3,
-port modes and crossbar, Timer0/2, UART0 and IE/IP routing. The machine boots
+The exact functional register surface is RSTSRC, CLKSEL, PCON0/PCON1/REG0CN,
+WDTCN, Ports 0–3, port modes and crossbar, Timer0/2, UART0 and IE/IP routing.
+CLKSEL reports source/divider and nominal SYSCLK transitions through VCD;
+PCON0/PCON1 enters deterministic IDLE/STOP/SNOOZE/SHUTDOWN modes. The machine boots
 from CODE address zero with 32 KiB flash, 256-byte IDATA and 2304-byte XRAM;
 CODE, IDATA, XDATA, paged SFR and bit-addressable accesses remain distinct.
-Timing, analog peripherals, PCA, SMBus and SPI remain explicitly
-functional/deferred as stated by the target manifest.
+Oscillator settle timing, pin-retention wake, analog peripherals, PCA, SMBus
+and SPI remain explicitly functional/deferred as stated by the target manifest.
 
 The register fixtures are original project code written from the public data
 sheet and reference manual; no Silicon Labs SDK source is distributed or

@@ -77,6 +77,13 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52F32G model exposes the documented `CLKSEL` source/divider choices,
+a host-configurable external oscillator frequency, and deterministic `IDLE`,
+`STOP`, `SNOOZE`, and regulator-selected `SHUTDOWN` transitions. The
+`clock.source`, `clock.divider`, `clock.sysclk_hz`, and `power.mode` signals are
+VCD-observable. Oscillator settle periods, pin-retention wake, analog regulator
+behavior, and exact low-power wake timing remain outside the functional model.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
