@@ -198,8 +198,11 @@ RP2350 Arm and Hazard3 firmware now exercise both documented PrimeCell SSP insta
 `0x4008_0000` and `0x4008_8000`. The model preserves the eight-word FIFO
 status contract, 4--16-bit data-size selection, enable and loopback controls,
 raw/masked FIFO interrupts, interrupt clears, and PrimeCell identification
-registers. Transfers complete in one abstract operation and are observable
-through deterministic host input/output handles; serial clock waveforms, DMA,
+registers. APB byte/halfword lane reads, replicated narrow writes, and the
+RP2350 XOR/SET/CLEAR aliases are covered for writable control registers, with
+CPSDVSR constrained to its documented even `2..254` range. Transfers complete
+in one abstract operation and are observable through deterministic host
+input/output handles; serial clock waveforms, DMA, receive-timeout scheduling,
 and exact slave timing remain explicit deviations. The `rp2350-arm-spi` and
 `rp2350-riscv-spi` Docker fixtures cover both instances and contribute
 `rp2350.spi0` and `rp2350.spi1` to register-coverage evidence.
