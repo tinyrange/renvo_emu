@@ -90,11 +90,18 @@ mod tests {
 
     #[test]
     fn endpoint_roles_are_stable_across_uart_handle_backed_machines() {
-        let riscv = RiscVMachine::new(TargetId::Esp32c6).expect("ESP32-C6 machine");
-        assert_eq!(
-            ids(&riscv.uart_endpoints()),
-            vec![UartEndpointId::Compiler, UartEndpointId::Native]
-        );
+        for target in [
+            TargetId::Ch32v003,
+            TargetId::Ch32v006,
+            TargetId::Esp32c6,
+            TargetId::Rp2350,
+        ] {
+            let riscv = RiscVMachine::new(target).expect("RISC-V machine");
+            assert_eq!(
+                ids(&riscv.uart_endpoints()),
+                vec![UartEndpointId::Compiler, UartEndpointId::Native]
+            );
+        }
 
         let arm = ArmMachine::new(TargetId::Rp2040).expect("RP2040 machine");
         assert_eq!(
@@ -120,5 +127,6 @@ mod tests {
 
         endpoint.handle().transmit(b"ok");
         assert_eq!(endpoint.handle().bytes(), b"ok");
+        assert_eq!(machine.chip_uarts[0].bytes(), b"ok");
     }
 }
