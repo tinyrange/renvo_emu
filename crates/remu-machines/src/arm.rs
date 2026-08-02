@@ -2,7 +2,7 @@ use crate::HOST_SCRIPT_COMPLETE_MARKER;
 use crate::riscv::{TEST_DEVICE_SIZE, TEST_EXIT_SIZE};
 use crate::{
     MemoryKind, PinStimulus, RunResult, SignalEdge, SignalStop, TEST_EXIT, TEST_GPIO, TEST_TIMER,
-    TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop, target_manifest,
+    TEST_UART, TargetId, resolve_signal_stop, run_control::RunControl, target_manifest,
 };
 use remu_bus::{
     AddressSpace, BusAccessRecord, Endianness, MapError, Permissions, SharedBusAccessObserver,
@@ -22,7 +22,7 @@ use remu_devices::{
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
-use remu_trace::{TraceDigest, TraceError, TraceSink};
+use remu_trace::{TraceError, TraceSink};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
@@ -1189,45 +1189,25 @@ impl ArmMachine {
         if limits.instructions.is_none() && limits.deadline.is_none() {
             return Err(ArmMachineError::MissingRunLimit);
         }
-        let mut digest = TraceDigest::new();
-        self.signals.with_registry(|registry| {
-            digest.begin(registry);
-            trace
-                .as_deref_mut()
-                .map_or(Ok(()), |sink| sink.begin(registry))
-        })?;
+        let mut control = RunControl::new(limits, stimuli);
+        control.begin_trace(&self.signals, &mut trace)?;
         let mut stats = RunStats {
             instructions: 0,
             time: self.now,
             events: 0,
         };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
         let reason = loop {
             self.sio.select_core(0);
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
-                self.set_pin(stimulus.pin, stimulus.value)?;
-                stats.events = stats.events.saturating_add(1);
-                next_stimulus += 1;
-            }
+            control.apply_stimuli(self.now, &mut stats, |stimulus| {
+                self.set_pin(stimulus.pin, stimulus.value)
+            })?;
             if self.exit.code().is_some() {
                 break StopReason::Halted;
             }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
+            if let Some(reason) = control.limit_reason(self.now, &stats) {
+                break reason;
             }
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
@@ -1318,16 +1298,9 @@ impl ArmMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| ArmMachineError::TimeOverflow)?;
             stats.time = self.now;
-            let mut signal_stop = None;
-            for change in self.signals.drain_changes() {
-                signal_stop =
-                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                digest.change(&change);
-                if let Some(sink) = trace.as_deref_mut() {
-                    sink.change(&change)?;
-                }
-            }
-            if let Some(path) = signal_stop {
+            if let Some(path) =
+                control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+            {
                 break StopReason::Signal(path);
             }
             if let Some(hit) = self.bus.take_watchpoint_hit() {
@@ -1423,16 +1396,9 @@ impl ArmMachine {
                     }
                 }
                 self.sio.select_core(0);
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
+                if let Some(path) =
+                    control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+                {
                     break StopReason::Signal(path);
                 }
             }
@@ -1456,7 +1422,7 @@ impl ArmMachine {
                 .usb_host
                 .as_ref()
                 .map_or_else(Vec::new, Rp2040UsbHost::output),
-            trace_digest: digest.finish(),
+            trace_digest: control.digest.finish(),
         })
     }
 }
