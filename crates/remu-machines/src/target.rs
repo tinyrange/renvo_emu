@@ -137,6 +137,15 @@ pub struct MemoryRegion {
     pub executable: bool,
 }
 
+/// Cumulative public capability tier backed by named qualification evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct SupportTier {
+    /// Stable tier identifier.
+    pub name: &'static str,
+    /// Evidence manifests required to maintain the tier.
+    pub evidence: &'static [&'static str],
+}
+
 /// Evidence-backed initial support description for one chip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct TargetManifest {
@@ -154,6 +163,8 @@ pub struct TargetManifest {
     pub gpio_count: u8,
     /// Currently promised support tier.
     pub fidelity: Fidelity,
+    /// Cumulative public capability tiers and their evidence manifests.
+    pub support_tiers: &'static [SupportTier],
     /// Explicitly implemented or planned baseline surface.
     pub baseline: &'static [&'static str],
     /// Primary vendor evidence used to establish the manifest.
@@ -227,6 +238,71 @@ const COMMON_BASELINE: &[&str] = &[
     "VCD output",
 ];
 
+const BASELINE_RISCV_COMPILER_TIER: SupportTier = SupportTier {
+    name: "compiler-execution",
+    evidence: &["riscv-cpu.json", "rust-abi.json"],
+};
+const BASELINE_ARM_COMPILER_TIER: SupportTier = SupportTier {
+    name: "compiler-execution",
+    evidence: &["arm-cpu.json", "rust-abi.json"],
+};
+const BASELINE_DUAL_CORE_COMPILER_TIER: SupportTier = SupportTier {
+    name: "compiler-execution",
+    evidence: &["riscv-cpu.json", "arm-cpu.json", "rust-abi.json"],
+};
+const BASELINE_XTENSA_COMPILER_TIER: SupportTier = SupportTier {
+    name: "compiler-execution",
+    evidence: &["xtensa-cpu.json", "rust-abi.json"],
+};
+const BASELINE_FIRMWARE_TIER: SupportTier = SupportTier {
+    name: "firmware-functional-slice",
+    evidence: &[
+        "vendor-samples.json",
+        "register-coverage/",
+        "stop-conditions.json",
+    ],
+};
+const BASELINE_BOARD_TIER: SupportTier = SupportTier {
+    name: "board-or-sdk-workflow",
+    evidence: &[
+        "starlark.json",
+        "native-images.json",
+        "acceptance-report.html",
+    ],
+};
+
+const BASELINE_RISCV_SUPPORT_TIERS: &[SupportTier] = &[
+    BASELINE_RISCV_COMPILER_TIER,
+    BASELINE_FIRMWARE_TIER,
+    BASELINE_BOARD_TIER,
+];
+const BASELINE_ARM_SUPPORT_TIERS: &[SupportTier] = &[
+    BASELINE_ARM_COMPILER_TIER,
+    BASELINE_FIRMWARE_TIER,
+    BASELINE_BOARD_TIER,
+];
+const BASELINE_DUAL_CORE_SUPPORT_TIERS: &[SupportTier] = &[
+    BASELINE_DUAL_CORE_COMPILER_TIER,
+    BASELINE_FIRMWARE_TIER,
+    BASELINE_BOARD_TIER,
+];
+const BASELINE_XTENSA_SUPPORT_TIERS: &[SupportTier] = &[
+    BASELINE_XTENSA_COMPILER_TIER,
+    BASELINE_FIRMWARE_TIER,
+    BASELINE_BOARD_TIER,
+];
+
+const EXPANSION_SUPPORT_TIERS: &[SupportTier] = &[
+    SupportTier {
+        name: "compiler-execution",
+        evidence: &["expansion/summary.json"],
+    },
+    SupportTier {
+        name: "firmware-functional-slice",
+        evidence: &["expansion/summary.json", "register-coverage/"],
+    },
+];
+
 const MANIFESTS: &[TargetManifest] = &[
     TargetManifest {
         schema: 1,
@@ -251,6 +327,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 18,
         fidelity: Fidelity::Functional,
+        support_tiers: BASELINE_RISCV_SUPPORT_TIERS,
         baseline: COMMON_BASELINE,
         sources: &[
             "https://www.wch-ic.com/downloads/CH32V003DS0_PDF.html",
@@ -285,6 +362,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 24,
         fidelity: Fidelity::Functional,
+        support_tiers: BASELINE_RISCV_SUPPORT_TIERS,
         baseline: COMMON_BASELINE,
         sources: &[
             "https://www.wch-ic.com/downloads/CH32V006DS0_PDF.html",
@@ -319,6 +397,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 30,
         fidelity: Fidelity::Functional,
+        support_tiers: BASELINE_ARM_SUPPORT_TIERS,
         baseline: COMMON_BASELINE,
         sources: &["https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"],
         limitations: &[
@@ -349,6 +428,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 48,
         fidelity: Fidelity::Functional,
+        support_tiers: BASELINE_DUAL_CORE_SUPPORT_TIERS,
         baseline: COMMON_BASELINE,
         sources: &["https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"],
         limitations: &[
@@ -386,6 +466,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 49,
         fidelity: Fidelity::Functional,
+        support_tiers: BASELINE_XTENSA_SUPPORT_TIERS,
         baseline: COMMON_BASELINE,
         sources: &[
             "https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf",
@@ -434,6 +515,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 31,
         fidelity: Fidelity::Functional,
+        support_tiers: BASELINE_RISCV_SUPPORT_TIERS,
         baseline: COMMON_BASELINE,
         sources: &[
             "https://www.espressif.com/sites/default/files/documentation/esp32-c6_datasheet_en.pdf",
@@ -467,6 +549,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 26,
         fidelity: Fidelity::Functional,
+        support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
             "PORT/EIC GPIO",
             "TC3 timer interrupt",
@@ -502,6 +585,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 26,
         fidelity: Fidelity::Functional,
+        support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &["GPIO/EXTI", "TIM2 interrupt", "USART2", "VCD"],
         sources: &[
             "https://www.st.com/en/microcontrollers-microprocessors/stm32l432kc.html",
@@ -539,6 +623,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 49,
         fidelity: Fidelity::Functional,
+        support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &["IOPORT/ICU", "GPT0 interrupt", "SCI9 UART", "VCD"],
         sources: &[
             "https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware",
@@ -569,6 +654,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 27,
         fidelity: Fidelity::Functional,
+        support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &["PORT/interrupt GPIO", "Timer0/1", "USART0", "EEPROM", "VCD"],
         sources: &[
             "https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip-AVR-Microcontroller-ATmega328PB-Data-Sheet-DS40001906.pdf",
@@ -599,6 +685,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 19,
         fidelity: Fidelity::Functional,
+        support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
             "GPIO/low-power wake",
             "Timer_A",
@@ -635,6 +722,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 36,
         fidelity: Fidelity::Functional,
+        support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
             "PORT/PPS GPIO",
             "Timer0/1",
@@ -671,6 +759,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 29,
         fidelity: Fidelity::Functional,
+        support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
             "crossbar GPIO",
             "Timer0/2",
@@ -712,6 +801,108 @@ mod tests {
                 !target_manifests()[..index]
                     .iter()
                     .any(|earlier| earlier.id == manifest.id)
+            );
+        }
+    }
+
+    #[test]
+    fn every_target_has_named_support_tier_evidence() {
+        for manifest in target_manifests() {
+            assert!(
+                !manifest.support_tiers.is_empty(),
+                "{} has no tiers",
+                manifest.id
+            );
+            for tier in manifest.support_tiers {
+                assert!(!tier.name.is_empty(), "{} has an unnamed tier", manifest.id);
+                assert!(
+                    !tier.evidence.is_empty(),
+                    "{} tier {} has no evidence",
+                    manifest.id,
+                    tier.name
+                );
+                assert!(
+                    tier.evidence.iter().all(|path| !path.is_empty()),
+                    "{} tier {} has empty evidence",
+                    manifest.id,
+                    tier.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn support_tiers_are_unique_and_progressive() {
+        let tier_order = [
+            "compiler-execution",
+            "firmware-functional-slice",
+            "board-or-sdk-workflow",
+        ];
+        for manifest in target_manifests() {
+            let mut previous_rank = None;
+            for tier in manifest.support_tiers {
+                assert!(
+                    manifest.support_tiers[..]
+                        .iter()
+                        .filter(|other| other.name == tier.name)
+                        .count()
+                        == 1,
+                    "{} declares support tier {} more than once",
+                    manifest.id,
+                    tier.name
+                );
+                let rank = tier_order
+                    .iter()
+                    .position(|name| *name == tier.name)
+                    .unwrap_or_else(|| {
+                        panic!("{} has unknown support tier {}", manifest.id, tier.name)
+                    });
+                assert!(
+                    previous_rank.is_none_or(|previous| previous < rank),
+                    "{} support tiers are not in progressive order",
+                    manifest.id
+                );
+                previous_rank = Some(rank);
+            }
+        }
+    }
+
+    #[test]
+    fn compiler_support_evidence_matches_declared_cpu_architecture() {
+        let architecture_evidence = [
+            ("riscv-cpu.json", FirmwareArchitecture::RiscV32),
+            ("arm-cpu.json", FirmwareArchitecture::Arm),
+            ("xtensa-cpu.json", FirmwareArchitecture::Xtensa),
+        ];
+        for manifest in target_manifests() {
+            let compiler_tier = manifest
+                .support_tiers
+                .iter()
+                .find(|tier| tier.name == "compiler-execution")
+                .expect("every target declares a compiler-execution tier");
+            let uses_expansion_evidence =
+                compiler_tier.evidence.contains(&"expansion/summary.json");
+            if uses_expansion_evidence {
+                assert_eq!(compiler_tier.evidence, &["expansion/summary.json"]);
+                continue;
+            }
+
+            for (path, architecture) in architecture_evidence {
+                let evidence_present = compiler_tier.evidence.contains(&path);
+                let architecture_present = manifest
+                    .cpus
+                    .iter()
+                    .any(|cpu| cpu.architecture == architecture);
+                assert_eq!(
+                    evidence_present, architecture_present,
+                    "{} compiler evidence {} does not match its CPU profiles",
+                    manifest.id, path
+                );
+            }
+            assert!(
+                compiler_tier.evidence.contains(&"rust-abi.json"),
+                "{} compiler evidence is missing rust ABI coverage",
+                manifest.id
             );
         }
     }

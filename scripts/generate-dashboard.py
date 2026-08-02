@@ -12,6 +12,11 @@ import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 QUALIFICATION = ROOT / "qualification"
+SUPPORT_TIER_ORDER = {
+    "compiler-execution": 0,
+    "firmware-functional-slice": 1,
+    "board-or-sdk-workflow": 2,
+}
 
 
 def load(path: pathlib.Path):
@@ -38,6 +43,25 @@ def require_pass(path: pathlib.Path):
 
 def escape_list(values: list[str]) -> str:
     return "".join(f"<li>{html.escape(value)}</li>" for value in values)
+
+
+def validate_support_tiers(target_id: str, support_tiers: list[dict]) -> None:
+    """Ensure tier metadata is unique and ordered from compiler to board scope."""
+    if not support_tiers or any(
+        not tier.get("name") or not tier.get("evidence") for tier in support_tiers
+    ):
+        raise SystemExit(f"support tier metadata is incomplete: {target_id}")
+    names = [tier["name"] for tier in support_tiers]
+    if len(names) != len(set(names)):
+        raise SystemExit(f"support tier metadata has duplicate names: {target_id}")
+    try:
+        ranks = [SUPPORT_TIER_ORDER[name] for name in names]
+    except KeyError as error:
+        raise SystemExit(
+            f"support tier metadata has unknown name {error.args[0]!r}: {target_id}"
+        ) from error
+    if ranks != sorted(ranks):
+        raise SystemExit(f"support tier metadata is out of order: {target_id}")
 
 
 def main() -> None:
@@ -88,12 +112,14 @@ def main() -> None:
         ]
         if not target_vendor or any(item["result"] != "pass" for item in target_vendor):
             raise SystemExit(f"vendor sample evidence is incomplete: {target_id}")
+        support_tiers = manifest.get("support_tiers", [])
+        validate_support_tiers(target_id, support_tiers)
         entry_spec = spec["targets"][target_id]
         targets.append(
             {
                 "id": target_id,
                 "name": manifest["name"],
-                "support_tier": entry_spec["support_tier"],
+                "support_tiers": support_tiers,
                 "fidelity": manifest["fidelity"],
                 "cpu_profiles": manifest["cpus"],
                 "passing_corpus": entry_spec["passing_corpus"],
@@ -111,7 +137,7 @@ def main() -> None:
         )
 
     dashboard = {
-        "schema": "remu.support-dashboard.v1",
+        "schema": "remu.support-dashboard.v2",
         "portfolio": "six-chip baseline",
         "result": "pass",
         "scope_note": (
@@ -148,11 +174,15 @@ def main() -> None:
     for target in targets:
         profiles = ", ".join(profile["name"] for profile in target["cpu_profiles"])
         coverage = target["register_coverage"]
+        tiers = "".join(
+            f"<li><code>{html.escape(tier['name'])}</code> · {html.escape(', '.join(tier['evidence']))}</li>"
+            for tier in target["support_tiers"]
+        )
         rows.append(
             f"""
             <article class="target">
               <header><div><code>{html.escape(target['id'])}</code><h2>{html.escape(target['name'])}</h2></div><span>PROVEN</span></header>
-              <p class="tier">{html.escape(target['support_tier'])}</p>
+              <p class="tier">Support tiers</p><ul>{tiers}</ul>
               <dl><dt>CPU profiles</dt><dd>{html.escape(profiles)}</dd>
                 <dt>Register evidence</dt><dd>{coverage['covered_register_count']} registers across {len(coverage['required_covered_regions'])} required regions · <a href="register-coverage/{html.escape(target['id'])}.json">manifest</a></dd></dl>
               <div class="columns"><section><h3>Passing corpus</h3><ul>{escape_list(target['passing_corpus'])}</ul></section>
