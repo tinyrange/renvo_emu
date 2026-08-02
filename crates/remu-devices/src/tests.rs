@@ -136,6 +136,464 @@ fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
 }
 
 #[test]
+fn rp2350_i2c_executes_host_write_and_read_commands() {
+    let hub = SignalHub::new();
+    let (mut i2c, handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub.clone()).unwrap();
+    handle.queue_read(0x48, [0x12, 0x34]);
+    i2c.write(
+        RpI2cRegister::InterruptMask.offset(),
+        AccessWidth::Word,
+        0x1fff,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(0x04, AccessWidth::Word, 0x48, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x6c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+
+    i2c.write(0x10, AccessWidth::Word, 0xa5, SimTime::from_ticks(1))
+        .unwrap();
+    i2c.write(
+        0x10,
+        AccessWidth::Word,
+        (1 << 8) | (1 << 10),
+        SimTime::from_ticks(2),
+    )
+    .unwrap();
+    i2c.write(
+        0x10,
+        AccessWidth::Word,
+        (1 << 8) | (1 << 9),
+        SimTime::from_ticks(3),
+    )
+    .unwrap();
+
+    assert_eq!(
+        i2c.read(0x10, AccessWidth::Word, SimTime::from_ticks(4))
+            .unwrap(),
+        0x12
+    );
+    assert_eq!(
+        i2c.read(0x10, AccessWidth::Word, SimTime::from_ticks(4))
+            .unwrap(),
+        0x34
+    );
+    assert_eq!(
+        handle.events(),
+        vec![
+            RpI2cEvent::Start,
+            RpI2cEvent::Write {
+                address: 0x48,
+                value: 0xa5,
+            },
+            RpI2cEvent::RepeatedStart,
+            RpI2cEvent::Read {
+                address: 0x48,
+                value: 0x12,
+            },
+            RpI2cEvent::Read {
+                address: 0x48,
+                value: 0x34,
+            },
+            RpI2cEvent::Stop,
+        ]
+    );
+    assert!(handle.pending());
+    assert_ne!(
+        i2c.read(0x2c, AccessWidth::Word, SimTime::from_ticks(4))
+            .unwrap(),
+        0
+    );
+    let changes = hub.drain_changes();
+    assert_eq!(changes.len(), 6);
+}
+
+#[test]
+fn rp2350_i2c_interrupt_mask_follows_documented_unmask_bits() {
+    let hub = SignalHub::new();
+    let (mut i2c, _handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub).unwrap();
+    i2c.write(
+        RpI2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        0x48,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        RpI2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        RpI2cRegister::DataCommand.offset(),
+        AccessWidth::Word,
+        0xa5,
+        SimTime::ZERO,
+    )
+    .unwrap();
+
+    let tx_empty = 1_u64 << 4;
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::InterruptStatus.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & tx_empty,
+        tx_empty
+    );
+    i2c.write(
+        RpI2cRegister::InterruptMask.offset(),
+        AccessWidth::Word,
+        0,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::InterruptStatus.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & tx_empty,
+        0
+    );
+}
+
+#[test]
+fn rp2350_i2c_status_reports_empty_transmit_fifo_when_disabled() {
+    let hub = SignalHub::new();
+    let (mut i2c, _handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub).unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::Status.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & 0x06,
+        0x06
+    );
+}
+
+#[test]
+fn rp2350_i2c_disable_flushes_fifo_and_clears_activity() {
+    let hub = SignalHub::new();
+    let (mut i2c, handle) = RpI2c::new("i2c1", "board.rp2350.i2c1", hub).unwrap();
+    handle.queue_read(0x20, [0x55]);
+    i2c.write(0x04, AccessWidth::Word, 0x20, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x6c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x10, AccessWidth::Word, 1 << 8, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(i2c.read(0x78, AccessWidth::Word, SimTime::ZERO).unwrap(), 1);
+    i2c.write(0x6c, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(i2c.read(0x78, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+    assert!(!handle.pending());
+}
+
+#[test]
+fn rp2350_i2c_matches_official_reset_register_contract() {
+    let hub = SignalHub::new();
+    let (mut i2c, _handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub).unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::Control.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x65
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::TargetAddress.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x55
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::SlaveAddress.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x55
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::InterruptMask.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x8ff
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::StandardSpeedHighCount.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x28
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::StandardSpeedLowCount.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x2f
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::SdaSetup.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x64
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::ComponentVersion.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x3230_312a
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::ComponentType.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x4457_0140
+    );
+}
+
+#[test]
+fn rp2350_i2c_enforces_disabled_configuration_and_fifo_depth() {
+    let hub = SignalHub::new();
+    let (mut i2c, _handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub).unwrap();
+    i2c.write(
+        RpI2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        0x48,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        RpI2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1 | 4,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        RpI2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        0x49,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::TargetAddress.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x48
+    );
+    for value in 0..16 {
+        i2c.write(
+            RpI2cRegister::DataCommand.offset(),
+            AccessWidth::Word,
+            value,
+            SimTime::from_ticks(value),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::TransmitFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        16
+    );
+    i2c.write(
+        RpI2cRegister::DataCommand.offset(),
+        AccessWidth::Word,
+        0xff,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_ne!(
+        i2c.read(
+            RpI2cRegister::RawInterruptStatus.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 3),
+        0
+    );
+    i2c.write(
+        RpI2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::TransmitFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::Status.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & 0x06,
+        0x06
+    );
+}
+
+#[test]
+fn rp2350_i2c_supports_rp2350_atomic_write_aliases() {
+    let hub = SignalHub::new();
+    let (mut i2c, _handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub).unwrap();
+    i2c.write(
+        RpI2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        0x40,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    // +0x2000 is the RP2350 atomic SET alias and +0x3000 is CLEAR.
+    i2c.write(0x2004, AccessWidth::Word, 0x08, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::TargetAddress.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x48
+    );
+    i2c.write(0x3004, AccessWidth::Word, 0x08, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::TargetAddress.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x40
+    );
+}
+
+#[test]
+fn rp2350_i2c_clear_registers_follow_read_clear_contract() {
+    let hub = SignalHub::new();
+    let (mut i2c, _handle) = RpI2c::new("i2c0", "board.rp2350.i2c0", hub).unwrap();
+    i2c.write(
+        RpI2cRegister::InterruptMask.offset(),
+        AccessWidth::Word,
+        0x1fff,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        RpI2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::DataCommand.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::ClearReceiveUnderflow.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::ClearReceiveUnderflow.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+    i2c.write(
+        RpI2cRegister::DataCommand.offset(),
+        AccessWidth::Word,
+        0,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            RpI2cRegister::ClearInterrupt.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1
+    );
+    // TX_EMPTY is a hardware-cleared status and is not cleared by CLR_INTR.
+    assert_ne!(
+        i2c.read(
+            RpI2cRegister::RawInterruptStatus.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 4),
+        0
+    );
+}
+
+#[test]
 fn esp_timer_group_schedules_and_clears_alarm_interrupts() {
     let (mut group, handle) = EspTimerGroup::new("timer-group", EspTimerGroupKind::Esp32C6);
     group
