@@ -219,6 +219,11 @@ fn uart_captures_low_byte() {
 fn wch_usart_requires_enable_and_preserves_configuration() {
     let (mut usart, handle) = WchUsart::new("usart1");
     assert_eq!(
+        WchUsartRegister::from_offset(0x0c),
+        Some(WchUsartRegister::Control1)
+    );
+    assert_eq!(WchUsartRegister::GuardPrescaler.offset(), 0x18);
+    assert_eq!(
         usart.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0xc0
     );
@@ -246,6 +251,68 @@ fn wch_usart_requires_enable_and_preserves_configuration() {
     assert_eq!(
         usart.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x01a1
+    );
+}
+
+#[test]
+fn wch_usart_masks_documented_fields_and_clears_rw0_status_flags() {
+    let (mut usart, handle) = WchUsart::new("usart2");
+
+    usart
+        .write(0x08, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usart.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xffff
+    );
+    usart
+        .write(0x0c, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usart.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x3fff
+    );
+    usart
+        .write(0x10, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usart.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x706f
+    );
+    usart
+        .write(0x14, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usart.read(0x14, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x7cf
+    );
+    usart
+        .write(0x18, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usart.read(0x18, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xff
+    );
+
+    usart
+        .write(0x0c, AccessWidth::Word, (1 << 13) | (1 << 3), SimTime::ZERO)
+        .unwrap();
+    usart
+        .write(0x04, AccessWidth::Word, u64::from(b'A'), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.text_lossy(), "A");
+    assert_eq!(
+        usart.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xc0
+    );
+
+    // TC is RW0: writing zero clears it while TXE remains read-only/high.
+    usart
+        .write(0x00, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        usart.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x80
     );
 }
 
