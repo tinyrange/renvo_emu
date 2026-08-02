@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 
 /// RA4M1 ELC event number for GPT0 counter overflow.
 pub const RA4M1_EVENT_GPT0_OVERFLOW: u16 = 0x05d;
+/// RA4M1 ELC event number for GPT4 counter overflow.
+pub const RA4M1_EVENT_GPT4_OVERFLOW: u16 = 0x07d;
 /// RA4M1 ELC event number for SCI9 transmit-data-empty.
 pub const RA4M1_EVENT_SCI9_TXI: u16 = 0x0a9;
 
@@ -576,6 +578,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.route_event(RA4M1_EVENT_GPT0_OVERFLOW), vec![7]);
+        icu.write(
+            0x300 + 8 * 4,
+            AccessWidth::Word,
+            u64::from(RA4M1_EVENT_GPT4_OVERFLOW),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(handle.route_event(RA4M1_EVENT_GPT4_OVERFLOW), vec![8]);
 
         let (mut gpt, gpt_handle) = RaGpt::new("gpt0");
         gpt.write(0x64, AccessWidth::Word, 3, SimTime::ZERO)
