@@ -13,6 +13,8 @@
 #define TIMER0_IRQn 1
 #define UART0_IRQn 4
 #define TIMER2_IRQn 5
+#define ADC_WINDOW_IRQn 9
+#define ADC0_IRQn 10
 #define SFR_P0 0x80
 #define SFR_P1 0x90
 #define SFR_P2 0xa0
@@ -36,6 +38,19 @@ __sfr __at (0xca) TMR2RLL;
 __sfr __at (0xcb) TMR2RLH;
 __sfr __at (0xce) TMR2L;
 __sfr __at (0xcf) TMR2H;
+__sfr __at (0xb2) ADC0CN1;
+__sfr __at (0xb3) ADC0CN2;
+__sfr __at (0xb9) ADC0CF1;
+__sfr __at (0xbb) ADC0MX;
+__sfr __at (0xbd) ADC0L;
+__sfr __at (0xbe) ADC0H;
+__sfr __at (0xc3) ADC0GTL;
+__sfr __at (0xc4) ADC0GTH;
+__sfr __at (0xc5) ADC0LTL;
+__sfr __at (0xc6) ADC0LTH;
+__sfr __at (0xdf) ADC0CF2;
+__sfr __at (0xe6) EIE1;
+__sfr __at (0xe8) ADC0CN0;
 __sfr __at (0xe1) XBR0;
 __sfr __at (0xe3) XBR2;
 __sfr __at (0xf1) P0MDIN;
