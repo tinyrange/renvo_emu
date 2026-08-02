@@ -8,8 +8,9 @@ external GPIO and USART2 output (`STM32L432\n`) in the documented 256 KiB flash
 and 64 KiB SRAM map.
 
 The functional register surface is RCC, FLASH/PWR startup state, GPIO A/B/C/H,
-SYSCFG/EXTI, TIM2 and USART2. Analog, USB, DMA, exact clocks and low-power
-timing are unsupported. VCD records GPIO, timer, UART and interrupt signals.
+SYSCFG/EXTI, TIM2, USART2 and SWPMI1. Analog, USB, DMA, SWPMI protocol timing,
+exact clocks and low-power timing are unsupported. VCD records GPIO, timer,
+UART, SWPMI and interrupt signals.
 
 The official lane copies STM32CubeL4's pinned NUCLEO-L432KC
 `GPIO_IOToggle/Src/main.c` unchanged and supplies only documented startup/HAL
@@ -20,3 +21,9 @@ BSD-3-Clause, and the expected result is a rising PB3 edge. Run:
 ```sh
 scripts/qualify-stm32l432kc.sh
 ```
+
+SWPMI1 is mapped at `0x40008800` with the documented CR/BRR/ISR/ICR/IER/RFL/
+TDR/RDR/OR register layout. Firmware can transmit 32-bit frames, use loopback,
+and receive deterministic host frames through the machine API; enabled status
+flags route to NVIC IRQ 76. Electrical single-wire signalling, CRC, DMA and
+bit-level timing are outside this functional slice.
