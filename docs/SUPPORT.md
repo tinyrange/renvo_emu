@@ -43,6 +43,15 @@ start/status and byte swapping, and exposes all eight read-only digest words.
 Complete 512-bit blocks are processed immediately; DMA handshakes, timing, and
 security-domain policy are outside this functional slice.
 
+### RP2350 HSTX subset
+
+Both RP2350 CPU modes map HSTX control at `0x400c0000` and its FIFO at
+`0x50600000`. The model covers the control CSR, eight lane selectors and
+inverters, command-expander configuration, FIFO status/overflow, atomic
+aliases, deterministic word consumption, and VCD-visible positive/negative
+lane values. Clock-divider latency, DMA pacing, TMDS encoding, and physical
+GPIO muxing are not modeled.
+
 ### RP2040 power and oscillator subset
 
 The RP2040 map includes deterministic functional models for the official

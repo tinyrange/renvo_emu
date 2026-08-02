@@ -506,6 +506,61 @@ fn rp2350_sha256_accepts_padded_byte_stream_and_matches_fips_digest() {
 }
 
 #[test]
+fn rp2350_hstx_serializes_fifo_words_and_reports_overflow() {
+    let hub = SignalHub::new();
+    let (mut ctrl, mut fifo, handle) =
+        new_rp2350_hstx("rp2350.hstx", "board.rp2350.hstx", hub.clone()).unwrap();
+    assert_eq!(
+        ctrl.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x1005_0600
+    );
+    ctrl.write(0x04, AccessWidth::Word, 1 | (1 << 8), SimTime::ZERO)
+        .unwrap();
+    for lane in 1..8 {
+        ctrl.write(
+            0x04 + lane * 4,
+            AccessWidth::Word,
+            2 | (2 << 8),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    }
+    ctrl.write(0, AccessWidth::Word, 0x1005_0601, SimTime::ZERO)
+        .unwrap();
+    fifo.write(0x04, AccessWidth::Word, 0b11, SimTime::from_ticks(3))
+        .unwrap();
+    assert_eq!(
+        handle.samples(),
+        vec![HstxSample {
+            word: 0b11,
+            positive: [true, false, false, false, false, false, false, false],
+            negative: [true, false, false, false, false, false, false, false],
+            clock: false,
+        }]
+    );
+    assert_eq!(
+        fifo.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 9
+    );
+
+    ctrl.write(0, AccessWidth::Word, 0, SimTime::ZERO).unwrap();
+    for word in 0..9 {
+        fifo.write(0x04, AccessWidth::Word, word, SimTime::ZERO)
+            .unwrap();
+    }
+    assert_eq!(
+        fifo.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        8 | (1 << 8) | (1 << 10)
+    );
+    fifo.write(0, AccessWidth::Word, 1 << 10, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        fifo.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        8 | (1 << 8)
+    );
+}
+
+#[test]
 fn rp2040_psm_exposes_power_state_masks_and_atomic_aliases() {
     let mut psm = Rp2040Psm::new("psm");
     assert_eq!(
