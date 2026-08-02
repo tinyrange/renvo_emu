@@ -19,10 +19,11 @@ use remu_devices::{
     FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
     Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
     Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp,
-    Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance,
-    RpAdc, RpAdcHandle, RpAdcVariant, RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle,
-    RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
-    WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart, new_rp2350_hstx,
+    Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle,
+    Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2cHandle, RpIoBankHandle, RpPio,
+    RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle,
+    UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
+    new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -520,7 +521,7 @@ impl RiscVMachine {
                 "rp2350.ticks",
                 0x4010_8000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2350.ticks", vec![0; 0x1000 / 4])),
+                Box::new(Rp2350Ticks::new("rp2350.ticks")),
             )?;
             bus.map_device(
                 "rp2350.powman",

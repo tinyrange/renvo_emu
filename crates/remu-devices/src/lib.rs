@@ -51,6 +51,8 @@ mod rp_otp;
 pub use rp_otp::*;
 mod rp_accessctrl;
 pub use rp_accessctrl::*;
+mod rp_ticks;
+pub use rp_ticks::*;
 mod esp;
 pub use esp::*;
 mod esp_spi;

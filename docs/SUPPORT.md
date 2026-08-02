@@ -68,6 +68,14 @@ aliases, configuration reset, and write-once locks. Because the CPU/bus API
 does not yet propagate privilege or security tags, these registers expose
 policy state but do not enforce it as a bus filter.
 
+### RP2350 TICKS subset
+
+The block at `0x40108000` models the six documented generators for PROC0,
+PROC1, TIMER0, TIMER1, WATCHDOG, and RISC-V. Each has enable/running state, a
+nine-bit cycles-per-tick divider, a simulation-time-derived countdown, and RP
+atomic aliases. Clock-source frequency changes and interrupt generation are
+outside this slice.
+
 ### RP2040 power and oscillator subset
 
 The RP2040 map includes deterministic functional models for the official

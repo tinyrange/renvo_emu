@@ -686,6 +686,52 @@ fn rp2350_accessctrl_tracks_masks_locks_and_configuration_reset() {
 }
 
 #[test]
+fn rp2350_ticks_expose_independent_running_and_countdown_state() {
+    let mut ticks = Rp2350Ticks::new("ticks");
+    assert_eq!(ticks.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+    ticks
+        .write(4, AccessWidth::Word, 4, SimTime::from_ticks(10))
+        .unwrap();
+    ticks
+        .write(0, AccessWidth::Word, 1, SimTime::from_ticks(10))
+        .unwrap();
+    assert_eq!(
+        ticks
+            .read(0, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        ticks
+            .read(8, AccessWidth::Word, SimTime::from_ticks(12))
+            .unwrap(),
+        2
+    );
+    assert_eq!(ticks.countdown(0, SimTime::from_ticks(14)), Some(4));
+    ticks
+        .write(0x3000, AccessWidth::Word, 1, SimTime::from_ticks(15))
+        .unwrap();
+    assert_eq!(
+        ticks
+            .read(0, AccessWidth::Word, SimTime::from_ticks(15))
+            .unwrap(),
+        0
+    );
+    ticks
+        .write(0x40, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    ticks
+        .write(0x3c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(ticks.is_running(5, SimTime::ZERO), Some(true));
+    assert!(
+        ticks
+            .write(0x08, AccessWidth::Word, 1, SimTime::ZERO)
+            .is_err()
+    );
+}
+
+#[test]
 fn rp2040_psm_exposes_power_state_masks_and_atomic_aliases() {
     let mut psm = Rp2040Psm::new("psm");
     assert_eq!(
