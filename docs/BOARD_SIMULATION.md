@@ -63,6 +63,11 @@ the SGP30; that is the next I²C endpoint slice.
 The endpoint keeps all CPU, scheduler, peripheral, and electrical state in Rust:
 Starlark continues to describe topology and bounded actions only.
 
+Each mounted GPIO component must claim a unique primary MCU pin.  Attaching two
+components to the same pin fails with an explicit `GpioPinConflict` error rather
+than silently creating an electrical contention that this first endpoint slice
+cannot resolve.
+
 For a direct machine run, the machine exposes its shared hub and the caller
 keeps endpoint polling at the same deterministic boundaries as execution:
 
