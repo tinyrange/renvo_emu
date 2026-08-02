@@ -29,3 +29,37 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_pcnt_native_window_counts_host_edges() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6001_7000;
+    machine
+        .bus
+        .write(base, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    machine
+        .pulse_pcnt(0, remu_devices::EspPcntEdge::Rising)
+        .unwrap();
+    machine
+        .pulse_pcnt(0, remu_devices::EspPcntEdge::Rising)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x30,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        2
+    );
+    let changes = machine.signals.drain_changes();
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.value.bit(1) == Some(Logic::One))
+    );
+}

@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3Pcnt, Esp32S3PcntHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -379,6 +380,7 @@ pub struct XtensaMachine {
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
+    pcnt: Esp32S3PcntHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -476,7 +478,6 @@ impl XtensaMachine {
             ("uhci0", 0x6001_4000),
             ("slchost", 0x6001_5000),
             ("rmt", 0x6001_6000),
-            ("pcnt", 0x6001_7000),
             ("slc", 0x6001_8000),
             ("ledc", 0x6001_9000),
             ("radio-nrx", 0x6001_c000),
@@ -595,6 +596,9 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (pcnt_device, pcnt) =
+            Esp32S3Pcnt::new("esp32s3.pcnt", "board.esp32s3.pcnt", signals.clone())?;
+        bus.map_device("esp32s3.pcnt", 0x6001_7000, 0x1000, Box::new(pcnt_device))?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -716,6 +720,7 @@ impl XtensaMachine {
             system,
             systimer,
             timer_groups,
+            pcnt,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -1000,6 +1005,15 @@ impl XtensaMachine {
         self.gpio.set_input(pin, value, self.now)?;
         self.chip_gpio.set_input(pin, value, self.now)?;
         Ok(())
+    }
+
+    /// Applies a host-supplied edge to an ESP32-S3 PCNT unit.
+    pub fn pulse_pcnt(
+        &self,
+        unit: usize,
+        edge: remu_devices::EspPcntEdge,
+    ) -> Result<bool, XtensaMachineError> {
+        Ok(self.pcnt.pulse(unit, edge, self.now)?)
     }
 
     fn set_systimer_interrupt(
