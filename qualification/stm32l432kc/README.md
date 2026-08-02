@@ -8,8 +8,13 @@ external GPIO and USART2 output (`STM32L432\n`) in the documented 256 KiB flash
 and 64 KiB SRAM map.
 
 The functional register surface is RCC, FLASH/PWR startup state, GPIO A/B/C/H,
-SYSCFG/EXTI, TIM2 and USART2. Analog, USB, DMA, exact clocks and low-power
-timing are unsupported. VCD records GPIO, timer, UART and interrupt signals.
+SYSCFG/EXTI, TIM2, USART2, and the seven-channel DMA1/DMA2 controllers. DMA
+request selection uses the STM32L4 CSELR registers. Firmware and host tests can
+run deterministic memory transfers with byte, halfword, or word widths,
+incrementing/circular modes, half/complete/error flags, and NVIC routing for
+all DMA channels. Peripheral request timing, arbitration, and exact clock/low-
+power behaviour remain unsupported. VCD records GPIO, timer, UART and interrupt
+signals.
 
 The official lane copies STM32CubeL4's pinned NUCLEO-L432KC
 `GPIO_IOToggle/Src/main.c` unchanged and supplies only documented startup/HAL
