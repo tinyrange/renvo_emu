@@ -59,6 +59,7 @@ mod radio;
 mod rp2350_spi;
 mod rp_bootrom;
 mod rp_i2c;
+mod systick;
 use rp_i2c::map_rp2350_i2c;
 mod rp_io;
 use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};

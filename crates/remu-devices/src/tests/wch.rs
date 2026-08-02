@@ -142,3 +142,29 @@ fn advanced_timer_honors_update_disable_and_native_capture_width() {
         0x1234
     );
 }
+
+#[test]
+fn pfic_models_systick_reload_countflag_and_irq12() {
+    let (mut pfic, handle) = WchPfic::new("pfic");
+    pfic.write(0x014, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    pfic.write(0x018, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    pfic.write(0x010, AccessWidth::Word, 7, SimTime::ZERO)
+        .unwrap();
+
+    assert!(!handle.take_systick_pending(SimTime::from_ticks(2)));
+    assert!(handle.take_systick_pending(SimTime::from_ticks(3)));
+    assert_ne!(
+        pfic.read(0x010, AccessWidth::Word, SimTime::from_ticks(3))
+            .unwrap()
+            & (1 << 16),
+        0
+    );
+    assert_eq!(
+        pfic.read(0x014, AccessWidth::Word, SimTime::from_ticks(3))
+            .unwrap(),
+        2
+    );
+    assert!(!handle.take_systick_pending(SimTime::from_ticks(3)));
+}

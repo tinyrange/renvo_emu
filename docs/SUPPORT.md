@@ -813,6 +813,12 @@ firmware tests; the WWDG early-warning signal is routed through the native PFIC
 vector 16. The model does not claim the silicon LSI/APB frequencies or
 cycle-accurate timeout values.
 
+The CH32V003 and CH32V006 PFIC maps include the QingKe SysTick-compatible
+control, reload, current, calibration, COUNTFLAG, and IRQ 12 behavior. The
+counter advances in deterministic abstract simulation ticks; this is suitable
+for firmware scheduling tests but does not claim a silicon clock-frequency
+model.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification
