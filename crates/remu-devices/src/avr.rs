@@ -12,6 +12,8 @@ const PINC: u16 = 0x26;
 const PIND: u16 = 0x29;
 const TIFR0: u16 = 0x35;
 const TIFR1: u16 = 0x36;
+const TIFR3: u16 = 0x38;
+const TIFR4: u16 = 0x39;
 const EIFR: u16 = 0x3c;
 const EIMSK: u16 = 0x3d;
 const EECR: u16 = 0x3f;
@@ -28,11 +30,23 @@ const EICRA: u16 = 0x69;
 const PCMSK0: u16 = 0x6b;
 const TIMSK0: u16 = 0x6e;
 const TIMSK1: u16 = 0x6f;
+const TIMSK3: u16 = 0x71;
+const TIMSK4: u16 = 0x72;
 const TCCR1B: u16 = 0x81;
 const TCNT1L: u16 = 0x84;
 const TCNT1H: u16 = 0x85;
 const OCR1AL: u16 = 0x88;
 const OCR1AH: u16 = 0x89;
+const TCCR3B: u16 = 0x91;
+const TCNT3L: u16 = 0x94;
+const TCNT3H: u16 = 0x95;
+const OCR3AL: u16 = 0x98;
+const OCR3AH: u16 = 0x99;
+const TCCR4B: u16 = 0xa1;
+const TCNT4L: u16 = 0xa4;
+const TCNT4H: u16 = 0xa5;
+const OCR4AL: u16 = 0xa8;
+const OCR4AH: u16 = 0xa9;
 const UCSR0A: u16 = 0xc0;
 const UCSR0B: u16 = 0xc1;
 const UDR0: u16 = 0xc6;
@@ -48,6 +62,14 @@ struct AtmegaState {
     timer_pending: bool,
     timer1_started: u64,
     timer1_pending: bool,
+    timer3_started: u64,
+    timer3_elapsed: u64,
+    timer3_compare_pending: bool,
+    timer3_overflow_pending: bool,
+    timer4_started: u64,
+    timer4_elapsed: u64,
+    timer4_compare_pending: bool,
+    timer4_overflow_pending: bool,
     previous_pinb: u8,
     previous_pind: u8,
     watchdog_started: u64,
@@ -55,6 +77,10 @@ struct AtmegaState {
     uart_tx_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
+    timer3_compare_irq_signal: SignalId,
+    timer3_overflow_irq_signal: SignalId,
+    timer4_compare_irq_signal: SignalId,
+    timer4_overflow_irq_signal: SignalId,
     pcint0_irq_signal: SignalId,
     int0_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
@@ -110,6 +136,70 @@ impl AtmegaIoHandle {
         if state.timer1_pending && state.registers[usize::from(TIMSK1 - IO_BASE)] & (1 << 1) != 0 {
             // TIMER1_COMPA is vector 11, represented by CPU interrupt line 10.
             lines.push(10);
+        }
+        let tccr3 = state.registers[usize::from(TCCR3B - IO_BASE)];
+        if tccr3 & 7 != 0 {
+            let elapsed = now.ticks().saturating_sub(state.timer3_started);
+            let compare = u16::from(state.registers[usize::from(OCR3AL - IO_BASE)])
+                | (u16::from(state.registers[usize::from(OCR3AH - IO_BASE)]) << 8);
+            let compare_period = u64::from(compare).saturating_add(1);
+            if elapsed / compare_period > state.timer3_elapsed / compare_period {
+                state.timer3_compare_pending = true;
+                state.registers[usize::from(TIFR3 - IO_BASE)] |= 1 << 1;
+                set_bit_signal(&state, state.timer3_compare_irq_signal, true, now);
+            }
+            if elapsed / 0x1_0000 > state.timer3_elapsed / 0x1_0000 {
+                state.timer3_overflow_pending = true;
+                state.registers[usize::from(TIFR3 - IO_BASE)] |= 1;
+                set_bit_signal(&state, state.timer3_overflow_irq_signal, true, now);
+            }
+            state.timer3_elapsed = elapsed;
+            let counter = elapsed as u16;
+            state.registers[usize::from(TCNT3L - IO_BASE)] = counter as u8;
+            state.registers[usize::from(TCNT3H - IO_BASE)] = (counter >> 8) as u8;
+        }
+        if state.timer3_compare_pending
+            && state.registers[usize::from(TIMSK3 - IO_BASE)] & (1 << 1) != 0
+        {
+            // TIMER3_COMPA is vector 33, represented by CPU interrupt line 32.
+            lines.push(32);
+        }
+        if state.timer3_overflow_pending && state.registers[usize::from(TIMSK3 - IO_BASE)] & 1 != 0
+        {
+            // TIMER3_OVF is vector 35, represented by CPU interrupt line 34.
+            lines.push(34);
+        }
+        let tccr4 = state.registers[usize::from(TCCR4B - IO_BASE)];
+        if tccr4 & 7 != 0 {
+            let elapsed = now.ticks().saturating_sub(state.timer4_started);
+            let compare = u16::from(state.registers[usize::from(OCR4AL - IO_BASE)])
+                | (u16::from(state.registers[usize::from(OCR4AH - IO_BASE)]) << 8);
+            let compare_period = u64::from(compare).saturating_add(1);
+            if elapsed / compare_period > state.timer4_elapsed / compare_period {
+                state.timer4_compare_pending = true;
+                state.registers[usize::from(TIFR4 - IO_BASE)] |= 1 << 1;
+                set_bit_signal(&state, state.timer4_compare_irq_signal, true, now);
+            }
+            if elapsed / 0x1_0000 > state.timer4_elapsed / 0x1_0000 {
+                state.timer4_overflow_pending = true;
+                state.registers[usize::from(TIFR4 - IO_BASE)] |= 1;
+                set_bit_signal(&state, state.timer4_overflow_irq_signal, true, now);
+            }
+            state.timer4_elapsed = elapsed;
+            let counter = elapsed as u16;
+            state.registers[usize::from(TCNT4L - IO_BASE)] = counter as u8;
+            state.registers[usize::from(TCNT4H - IO_BASE)] = (counter >> 8) as u8;
+        }
+        if state.timer4_compare_pending
+            && state.registers[usize::from(TIMSK4 - IO_BASE)] & (1 << 1) != 0
+        {
+            // TIMER4_COMPA is vector 42, represented by CPU interrupt line 41.
+            lines.push(41);
+        }
+        if state.timer4_overflow_pending && state.registers[usize::from(TIMSK4 - IO_BASE)] & 1 != 0
+        {
+            // TIMER4_OVF is vector 44, represented by CPU interrupt line 43.
+            lines.push(43);
         }
         if state.registers[usize::from(UCSR0B - IO_BASE)] & (1 << 5) != 0 {
             lines.push(18);
@@ -214,6 +304,26 @@ impl AtmegaIo {
             SignalValue::from_u64(0, 1)?,
             Some("functional Timer1 compare-A request".to_owned()),
         )?;
+        let timer3_compare_irq_signal = hub.declare(
+            "board.atmega328pb.timer3.compare_a_irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer3 compare-A request".to_owned()),
+        )?;
+        let timer3_overflow_irq_signal = hub.declare(
+            "board.atmega328pb.timer3.overflow_irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer3 overflow request".to_owned()),
+        )?;
+        let timer4_compare_irq_signal = hub.declare(
+            "board.atmega328pb.timer4.compare_a_irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer4 compare-A request".to_owned()),
+        )?;
+        let timer4_overflow_irq_signal = hub.declare(
+            "board.atmega328pb.timer4.overflow_irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer4 overflow request".to_owned()),
+        )?;
         let pcint0_irq_signal = hub.declare(
             "board.atmega328pb.interrupt.pcint0",
             SignalValue::from_u64(0, 1)?,
@@ -240,6 +350,14 @@ impl AtmegaIo {
             timer_pending: false,
             timer1_started: 0,
             timer1_pending: false,
+            timer3_started: 0,
+            timer3_elapsed: 0,
+            timer3_compare_pending: false,
+            timer3_overflow_pending: false,
+            timer4_started: 0,
+            timer4_elapsed: 0,
+            timer4_compare_pending: false,
+            timer4_overflow_pending: false,
             previous_pinb: 0,
             previous_pind: 0,
             watchdog_started: 0,
@@ -247,6 +365,10 @@ impl AtmegaIo {
             uart_tx_signal,
             timer0_irq_signal,
             timer1_irq_signal,
+            timer3_compare_irq_signal,
+            timer3_overflow_irq_signal,
+            timer4_compare_irq_signal,
+            timer4_overflow_irq_signal,
             pcint0_irq_signal,
             int0_irq_signal,
             watchdog_reset_signal,
@@ -365,6 +487,42 @@ impl Device for AtmegaIo {
                     set_bit_signal(&state, state.timer1_irq_signal, false, at);
                 }
             }
+            TCCR3B => {
+                if state.registers[usize::from(TCCR3B - IO_BASE)] & 7 == 0 && value & 7 != 0 {
+                    state.timer3_started = at.ticks();
+                    state.timer3_elapsed = 0;
+                }
+                state.registers[usize::from(TCCR3B - IO_BASE)] = value;
+            }
+            TIFR3 => {
+                state.registers[usize::from(TIFR3 - IO_BASE)] &= !value;
+                if value & (1 << 1) != 0 {
+                    state.timer3_compare_pending = false;
+                    set_bit_signal(&state, state.timer3_compare_irq_signal, false, at);
+                }
+                if value & 1 != 0 {
+                    state.timer3_overflow_pending = false;
+                    set_bit_signal(&state, state.timer3_overflow_irq_signal, false, at);
+                }
+            }
+            TCCR4B => {
+                if state.registers[usize::from(TCCR4B - IO_BASE)] & 7 == 0 && value & 7 != 0 {
+                    state.timer4_started = at.ticks();
+                    state.timer4_elapsed = 0;
+                }
+                state.registers[usize::from(TCCR4B - IO_BASE)] = value;
+            }
+            TIFR4 => {
+                state.registers[usize::from(TIFR4 - IO_BASE)] &= !value;
+                if value & (1 << 1) != 0 {
+                    state.timer4_compare_pending = false;
+                    set_bit_signal(&state, state.timer4_compare_irq_signal, false, at);
+                }
+                if value & 1 != 0 {
+                    state.timer4_overflow_pending = false;
+                    set_bit_signal(&state, state.timer4_overflow_irq_signal, false, at);
+                }
+            }
             PCIFR => {
                 state.registers[usize::from(PCIFR - IO_BASE)] &= !value;
                 if value & 1 != 0 {
@@ -415,9 +573,39 @@ impl Device for AtmegaIo {
         state.uart.clear();
         state.timer_pending = false;
         state.timer1_pending = false;
+        state.timer3_elapsed = 0;
+        state.timer3_compare_pending = false;
+        state.timer3_overflow_pending = false;
+        state.timer4_elapsed = 0;
+        state.timer4_compare_pending = false;
+        state.timer4_overflow_pending = false;
         state.watchdog_reset = false;
         set_bit_signal(&state, state.timer0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer1_irq_signal, false, SimTime::ZERO);
+        set_bit_signal(
+            &state,
+            state.timer3_compare_irq_signal,
+            false,
+            SimTime::ZERO,
+        );
+        set_bit_signal(
+            &state,
+            state.timer3_overflow_irq_signal,
+            false,
+            SimTime::ZERO,
+        );
+        set_bit_signal(
+            &state,
+            state.timer4_compare_irq_signal,
+            false,
+            SimTime::ZERO,
+        );
+        set_bit_signal(
+            &state,
+            state.timer4_overflow_irq_signal,
+            false,
+            SimTime::ZERO,
+        );
         set_bit_signal(&state, state.pcint0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.int0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.watchdog_reset_signal, false, SimTime::ZERO);
@@ -482,5 +670,56 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15]);
+        io.write(
+            u64::from(OCR3AL - IO_BASE),
+            AccessWidth::Byte,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TIMSK3 - IO_BASE),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TCCR3B - IO_BASE),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15, 32]);
+        io.write(
+            u64::from(TIFR3 - IO_BASE),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::from_ticks(4),
+        )
+        .unwrap();
+        io.write(
+            u64::from(OCR4AL - IO_BASE),
+            AccessWidth::Byte,
+            2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TIMSK4 - IO_BASE),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TCCR4B - IO_BASE),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(4)).contains(&41));
     }
 }

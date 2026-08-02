@@ -7,16 +7,18 @@ compiled as the older ATmega328P.
 
 The smoke firmware checks the native AVR ABI (`int` and data pointers are 16
 bits), startup/data initialization, calls and recursion, switch lowering,
-16-bit division helpers, volatile MMIO and interrupt prologues. Timer0 overflow
-and a PORTB pin-change interrupt each toggle PB0. USART0 emits `AVR8-PB\n`, and
-an EEPROM byte is written and read back. VCD contains PORT B/C/D plus explicit
-Timer0, Timer1, USART0, pin-change, external-interrupt and watchdog signals.
+16-bit division helpers, volatile MMIO and interrupt prologues. Timer0 overflow,
+Timer3 compare-A, Timer4 compare-A and a PORTB pin-change interrupt are all
+serviced; USART0 emits `AVR8-PB\n`, and an EEPROM byte is written and read back.
+VCD contains PORT B/C/D plus explicit Timer0, Timer1, Timer3, Timer4, USART0,
+pin-change, external-interrupt and watchdog signals.
 
 Implemented functionally: clock/power register storage, PORT B/C/D, INT0 and
-pin-change group 0, Timer0 overflow, Timer1 compare A, USART0 transmit, EEPROM,
-watchdog reset, reset/vectors and AVR Harvard program/data separation. Timer
-prescalers and serial bit timing are deterministic approximations. Analog,
-touch, SPI and TWI are outside this acceptance slice.
+pin-change group 0, Timer0 overflow, Timer1 compare A, Timer3/4 compare A and
+overflow flags/interrupts, USART0 transmit, EEPROM, watchdog reset,
+reset/vectors and AVR Harvard program/data separation. Timer prescalers,
+PWM/capture modes and serial bit timing are deterministic approximations.
+Analog, touch, SPI and TWI are outside this acceptance slice.
 
 Run from the repository root:
 

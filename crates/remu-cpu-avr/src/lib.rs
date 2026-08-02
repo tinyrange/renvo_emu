@@ -358,8 +358,11 @@ impl Cpu for AvrCpu {
     }
 
     fn set_interrupt(&mut self, line: u16, asserted: bool) -> Result<(), CpuFault> {
-        if line >= 32 {
-            return Err(self.fault(CpuFaultKind::Unsupported, "AVR interrupt line exceeds 31"));
+        if line >= 128 {
+            return Err(self.fault(
+                CpuFaultKind::Unsupported,
+                "AVR interrupt vector exceeds the supported table",
+            ));
         }
         if asserted {
             self.interrupts.insert(line);
@@ -398,5 +401,13 @@ mod tests {
             assert_eq!(register.gdb_number(), number);
             assert!(!register.name().is_empty());
         }
+    }
+
+    #[test]
+    fn extended_atmega_vector_table_accepts_timer3_and_timer4_lines() {
+        let mut cpu = AvrCpu::new();
+        assert!(cpu.set_interrupt(32, true).is_ok());
+        assert!(cpu.set_interrupt(43, true).is_ok());
+        assert!(cpu.set_interrupt(128, true).is_err());
     }
 }
