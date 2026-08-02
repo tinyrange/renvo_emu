@@ -16,12 +16,12 @@ use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalI2c,
     FunctionalPwm, FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, I2cEvent, I2cHandle,
-    PwmHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets, Rp2040Rtc, Rp2040Ssi,
-    Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040Watchdog,
-    Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle, Rp2350XipMaintenance, RpAdc,
-    RpAdcHandle, RpAdcVariant, RpI2c, RpI2cEvent, RpI2cHandle, RpIoBank, RpIoBankHandle, RpPio,
-    RpPioHandle, RpPioVersion, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub,
-    SpiHandle, TimerHandle, UartHandle,
+    PwmHandle, Rp2040Clocks, Rp2040IoBank, Rp2040IoBankHandle, Rp2040Pll, Rp2040RegisterBank,
+    Rp2040Resets, Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
+    Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2c, RpI2cEvent, RpI2cHandle,
+    RpIoBank, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart, RpSioGpio,
+    RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -62,7 +62,8 @@ pub struct ArmMachine {
     bootrom_services: BTreeMap<u32, u32>,
     native_bootrom: bool,
     ppb: ArmPpbHandle,
-    io_bank: RpIoBankHandle,
+    rp2040_io_bank: Option<Rp2040IoBankHandle>,
+    rp2350_io_bank: Option<RpIoBankHandle>,
     chip_timers: Vec<Rp2040TimerHandle>,
     i2c: Vec<RpI2cHandle>,
     spi: Vec<Rp2350SpiHandle>,
@@ -258,19 +259,17 @@ impl ArmMachine {
             0x200,
             Box::new(sio_device),
         )?;
-        let io_bank_base = if target == TargetId::Rp2040 {
-            0x4001_4000
+        let mut rp2040_io_bank = None;
+        let mut rp2350_io_bank = None;
+        if target == TargetId::Rp2040 {
+            let (device, handle) = Rp2040IoBank::new("rp2040.io-bank0", chip_gpio.clone());
+            bus.map_device("rp2040.io-bank0", 0x4001_4000, 0x4000, Box::new(device))?;
+            rp2040_io_bank = Some(handle);
         } else {
-            0x4002_8000
-        };
-        let (io_bank_device, io_bank) =
-            RpIoBank::new(format!("{target}.io-bank0"), chip_gpio.clone());
-        bus.map_device(
-            format!("{target}.io-bank0"),
-            io_bank_base,
-            0x4000,
-            Box::new(io_bank_device),
-        )?;
+            let (device, handle) = RpIoBank::new("rp2350.io-bank0", chip_gpio.clone(), 48);
+            bus.map_device("rp2350.io-bank0", 0x4002_8000, 0x4000, Box::new(device))?;
+            rp2350_io_bank = Some(handle);
+        }
         if target == TargetId::Rp2040 {
             let mut sysinfo_reset = vec![0; 8];
             // Production RP2040 B2: revision 2, RP2 part 2, Raspberry Pi
@@ -677,7 +676,8 @@ impl ArmMachine {
             gpio,
             chip_gpio,
             sio,
-            io_bank,
+            rp2040_io_bank,
+            rp2350_io_bank,
             uart,
             chip_uart,
             chip_uart1,
@@ -1286,7 +1286,9 @@ impl ArmMachine {
         self.gpio.set_input(pin, value, self.now)?;
         if usize::from(pin) < self.chip_gpio.pin_count() {
             self.chip_gpio.set_input(pin, value, self.now)?;
-            self.io_bank.record_input(pin)?;
+            if let Some(io_bank) = &self.rp2040_io_bank {
+                io_bank.record_input(pin)?;
+            }
         }
         Ok(())
     }
@@ -1341,6 +1343,7 @@ impl ArmMachine {
         };
         let mut timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
+        let mut rp2350_io_bank_was_pending = false;
         let reason = loop {
             self.sio.select_core(0);
             control.apply_stimuli(self.now, &mut stats, |stimulus| {
@@ -1371,6 +1374,14 @@ impl ArmMachine {
                 (chip_timer_pending & !chip_timer_was_pending).count_ones(),
             ));
             chip_timer_was_pending = chip_timer_pending;
+            if let Some(io_bank) = &self.rp2350_io_bank {
+                let pending = io_bank.poll(self.now)?;
+                if pending && !rp2350_io_bank_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                rp2350_io_bank_was_pending = pending;
+                self.cpu.set_interrupt(21, pending)?;
+            }
             for (index, handle) in self.i2c.iter().enumerate() {
                 self.cpu.set_interrupt(
                     36_u16 + u16::try_from(index).expect("RP2350 I²C index fits u16"),

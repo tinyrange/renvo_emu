@@ -134,6 +134,7 @@ impl RiscVMachine {
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
+        let mut io_bank_was_pending = false;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
         let mut esp_timer_was_pending = [[false; 2]; 2];
@@ -206,6 +207,7 @@ impl RiscVMachine {
                     .set_qingke_external_interrupt(TIM2_INTERRUPT, deliver)?;
             }
             if self.target == TargetId::Rp2350 {
+                rp_io::poll(self, &mut stats, &mut io_bank_was_pending)?;
                 let chip_timer_pending =
                     self.chip_timers
                         .iter()

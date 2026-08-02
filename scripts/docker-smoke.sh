@@ -117,6 +117,10 @@ build_case rp2350-arm-native-timer toolchains/arm-gcc-cortex-m33.toml corpus/smo
     -DTIMER_BASE=0x400b0000 -DTIMER_INTR_OFFSET=0x3c -DTIMER_INTE_OFFSET=0x40 start.S
 run_case rp2350-arm-native-timer rp2350 "$artifact_root/rp2350-arm-native-timer/smoke.elf"
 
+build_case rp2350-arm-io toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-sio rp2350 \
+    -O2 start.S io.c
+run_case rp2350-arm-io rp2350 "$artifact_root/rp2350-arm-io/smoke.elf"
+
 build_case rp2350-arm-i2c toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-i2c-arm rp2350 \
     -O2 start.S main.c
 run_case rp2350-arm-i2c rp2350 "$artifact_root/rp2350-arm-i2c/smoke.elf"
@@ -161,6 +165,10 @@ run_case rp2350-riscv-spi rp2350 "$artifact_root/rp2350-riscv-spi/smoke.elf"
 build_case rp2350-riscv-native-timer toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-native-timer-riscv rp2350 \
     start.S
 run_case rp2350-riscv-native-timer rp2350 "$artifact_root/rp2350-riscv-native-timer/smoke.elf"
+
+build_case rp2350-riscv-io toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
+    -O2 start.S io.c
+run_case rp2350-riscv-io rp2350 "$artifact_root/rp2350-riscv-io/smoke.elf"
 
 build_case rp2350-riscv-i2c toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-i2c-riscv rp2350 \
     -O2 start.S main.c
@@ -247,12 +255,16 @@ jq -e '.exit_code == 0' "$artifact_root/esp32s3-peripherals-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2040-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-arm-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-riscv-native-timer-run.json" >/dev/null
+jq -e '.exit_code == 0' "$artifact_root/rp2350-arm-io-run.json" >/dev/null
+jq -e '.exit_code == 0' "$artifact_root/rp2350-riscv-io-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2350-arm-i2c-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2350-riscv-i2c-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2040-arm-i2c-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2040-pio-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2350-arm-pio-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2350-riscv-pio-run.json" >/dev/null
+grep -q 'rp2350.io-bank0' "$artifact_root/rp2350-arm-io-bus.json"
+grep -q 'rp2350.io-bank0' "$artifact_root/rp2350-riscv-io-bus.json"
 grep -q '\$scope module pio0 ' "$artifact_root/rp2040-pio.vcd"
 grep -q '\$scope module pio0 ' "$artifact_root/rp2350-arm-pio.vcd"
 grep -q '\$scope module pio0 ' "$artifact_root/rp2350-riscv-pio.vcd"

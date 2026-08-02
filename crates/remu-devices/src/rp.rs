@@ -688,21 +688,21 @@ pub struct Rp2040RegisterBank {
 /// the APB-side per-pin status/control registers and the processor interrupt
 /// enable/force/status windows. The machine-facing handle records external
 /// input transitions so edge events become visible to firmware deterministically.
-pub struct RpIoBank {
+pub struct Rp2040IoBank {
     name: String,
     pins: usize,
     gpio: GpioHandle,
-    state: Arc<Mutex<RpIoBankState>>,
+    state: Arc<Mutex<Rp2040IoBankState>>,
 }
 
 /// Host-facing input-transition handle for an RP IO_BANK block.
 #[derive(Clone)]
-pub struct RpIoBankHandle {
+pub struct Rp2040IoBankHandle {
     gpio: GpioHandle,
-    state: Arc<Mutex<RpIoBankState>>,
+    state: Arc<Mutex<Rp2040IoBankState>>,
 }
 
-struct RpIoBankState {
+struct Rp2040IoBankState {
     control: Vec<u32>,
     last_input: u32,
     raw_interrupt: [u32; 4],
@@ -712,11 +712,11 @@ struct RpIoBankState {
     proc1_force: [u32; 4],
 }
 
-impl RpIoBank {
+impl Rp2040IoBank {
     /// Creates an IO_BANK0 block sharing the SIO GPIO input net.
-    pub fn new(name: impl Into<String>, gpio: GpioHandle) -> (Self, RpIoBankHandle) {
+    pub fn new(name: impl Into<String>, gpio: GpioHandle) -> (Self, Rp2040IoBankHandle) {
         let pins = gpio.pin_count().min(32);
-        let state = Arc::new(Mutex::new(RpIoBankState {
+        let state = Arc::new(Mutex::new(Rp2040IoBankState {
             control: vec![0; pins],
             last_input: 0,
             raw_interrupt: [0; 4],
@@ -725,7 +725,7 @@ impl RpIoBank {
             proc1_enable: [0; 4],
             proc1_force: [0; 4],
         }));
-        let handle = RpIoBankHandle {
+        let handle = Rp2040IoBankHandle {
             gpio: gpio.clone(),
             state: state.clone(),
         };
@@ -763,7 +763,7 @@ impl RpIoBank {
     }
 }
 
-impl RpIoBankHandle {
+impl Rp2040IoBankHandle {
     /// Records the current resolved value after an external pin stimulus.
     pub fn record_input(&self, pin: u8) -> Result<(), DeviceError> {
         let value = self.gpio.resolved(pin)?;
@@ -776,7 +776,7 @@ impl RpIoBankHandle {
         let was_high = state.last_input & mask != 0;
         let is_high = value == Logic::One;
         if was_high != is_high {
-            let (bank, event_mask) = RpIoBank::event_bank(index);
+            let (bank, event_mask) = Rp2040IoBank::event_bank(index);
             let edge_mask = if is_high {
                 event_mask << 3
             } else {
@@ -793,7 +793,7 @@ impl RpIoBankHandle {
     }
 }
 
-impl Device for RpIoBank {
+impl Device for Rp2040IoBank {
     fn name(&self) -> &str {
         &self.name
     }

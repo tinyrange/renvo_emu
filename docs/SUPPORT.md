@@ -11,7 +11,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0; PL011 UART1; native TIMER→NVIC; DW SSI SPI0/SPI1; DW I²C0/I²C1; native PIO0/1 |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, PL011 UART1, TIMER, SPI0/SPI1, I²C0/I²C1, and native PIO0/1/2 register slices in both CPU modes |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO; IO_BANK0 status, overrides, and interrupts; UART0/1; TIMER; SPI0/1; I²C0/1; and native PIO0/1/2 in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
@@ -107,6 +107,13 @@ deterministic host-provided read bytes. `scripts/docker-smoke.sh` runs a
 native-address Cortex-M0+ firmware proof on both controllers. As with RP2350,
 pin-level SDA/SCL behavior, arbitration, slave mode, DMA handshakes, interrupt
 controller delivery, and exact bus timing are intentionally not claimed.
+
+RP2350's IO_BANK0 model covers the SDK-facing per-pin STATUS and CTRL
+registers, input/output/enable overrides, packed raw edge/level events, and
+PROC0/PROC1 enable, force, and status registers. Both Cortex-M33 and Hazard3
+modes route PROC0 pending state to IO IRQ line 21. This is a functional
+first-32-GPIO slice: pad electrical muxing, secure/non-secure bank routing, and
+the GPIO32-47 electrical connections are not yet modeled.
 
 The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
 connection control surface. They start connected for existing console fixtures;

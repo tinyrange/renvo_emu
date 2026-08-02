@@ -433,6 +433,7 @@ const MANIFESTS: &[TargetManifest] = &[
         sources: &["https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"],
         limitations: &[
             "Cortex-M33 and Hazard3 direct-ELF modes implement compiler-facing ISA subsets",
+            "RP2350 IO_BANK0 provides functional STATUS/CTRL overrides and PROC0/PROC1 interrupt registers for the active first 32 GPIOs; pad electrical muxing, secure routing, and GPIO32-47 connections are deferred",
             "TrustZone, HSTX, USB, NVIC priority/preemption, and exact QMI timing are deferred",
             "SPI0/SPI1 use deterministic PrimeCell FIFO transfers without serial-clock, DMA, or exact slave timing",
         ],
