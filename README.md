@@ -320,6 +320,8 @@ front-end concerns:
 
 - `remu-core`, `remu-bus`, `remu-signals`, and `remu-trace` provide abstract
   time, events, address spaces, resolved nets, and deterministic artifacts.
+  `remu-core::Scheduler` owns monotonic time and typed due-event dispatch over
+  the stable event queue; target/device migration is intentionally incremental.
 - `remu-cpu-*` crates implement RISC-V, Arm, Xtensa, AVR, MSP430, PIC16, and
   MCS-51 execution.
 - `remu-devices` provides reusable chip and board components.
