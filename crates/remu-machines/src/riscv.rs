@@ -19,9 +19,10 @@ use remu_devices::{
     FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
     Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
     Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
-    Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2cHandle, RpIoBankHandle, RpPio,
-    RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle,
-    UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
+    Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant,
+    RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
+    WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -284,6 +285,7 @@ pub struct RiscVMachine {
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
+    trng: Option<Rp2350TrngHandle>,
     esp_usb_serial_jtag: Option<EspUsbSerialJtagHandle>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
@@ -318,6 +320,7 @@ impl RiscVMachine {
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
+        let mut trng = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
         let mut esp_c6_plic = None;
@@ -522,6 +525,9 @@ impl RiscVMachine {
                     vec![0; 0x1000 / 4],
                 )),
             )?;
+            let (device, handle) = Rp2350Trng::new("rp2350.trng");
+            bus.map_device("rp2350.trng", 0x400f_0000, 0x4000, Box::new(device))?;
+            trng = Some(handle);
             for (name, base) in [("rp2350.uart1", 0x4007_8000), ("rp2350.dma", 0x5000_0000)] {
                 bus.map_device(
                     name,
@@ -852,6 +858,7 @@ impl RiscVMachine {
             usb,
             usb_dpram,
             usb_host,
+            trng,
             esp_usb_serial_jtag,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),

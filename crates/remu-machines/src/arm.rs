@@ -19,10 +19,10 @@ use remu_devices::{
     PwmHandle, Rp2040Clocks, Rp2040IoBank, Rp2040IoBankHandle, Rp2040Pll, Rp2040Psm,
     Rp2040RegisterBank, Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040Ssi, Rp2040Timer,
     Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle, Rp2350XipMaintenance,
-    RpAdc, RpAdcHandle, RpAdcVariant, RpI2c, RpI2cEvent, RpI2cHandle, RpIoBank, RpIoBankHandle,
-    RpPio, RpPioHandle, RpPioVersion, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout,
-    SignalHub, SpiHandle, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle, Rp2350Trng,
+    Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2c, RpI2cEvent,
+    RpI2cHandle, RpIoBank, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -72,6 +72,7 @@ pub struct ArmMachine {
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
+    trng: Option<Rp2350TrngHandle>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
@@ -141,6 +142,7 @@ impl ArmMachine {
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
+        let mut trng = None;
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
@@ -536,6 +538,9 @@ impl ArmMachine {
                     vec![0; 0x1000 / 4],
                 )),
             )?;
+            let (device, handle) = Rp2350Trng::new("rp2350.trng");
+            bus.map_device("rp2350.trng", 0x400f_0000, 0x4000, Box::new(device))?;
+            trng = Some(handle);
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
                 ("rp2350.timer1", 0x400b_8000),
@@ -695,6 +700,7 @@ impl ArmMachine {
             usb,
             usb_dpram,
             usb_host,
+            trng,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
@@ -1337,6 +1343,7 @@ impl ArmMachine {
         let mut timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
         let mut rp2350_io_bank_was_pending = false;
+        let mut trng_was_pending = false;
         let reason = loop {
             self.sio.select_core(0);
             control.apply_stimuli(self.now, &mut stats, |stimulus| {
@@ -1374,6 +1381,14 @@ impl ArmMachine {
                 }
                 rp2350_io_bank_was_pending = pending;
                 self.cpu.set_interrupt(21, pending)?;
+            }
+            if let Some(trng) = &self.trng {
+                let pending = trng.interrupt_pending() && self.ppb.interrupt_enabled(39);
+                if pending && !trng_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                trng_was_pending = pending;
+                self.cpu.set_interrupt(39, pending)?;
             }
             for (index, handle) in self.i2c.iter().enumerate() {
                 self.cpu.set_interrupt(

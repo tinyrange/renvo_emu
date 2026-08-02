@@ -41,6 +41,8 @@ mod rp_adc;
 pub use rp_adc::*;
 mod rp_power;
 pub use rp_power::*;
+mod rp_trng;
+pub use rp_trng::*;
 mod esp;
 pub use esp::*;
 mod esp_spi;

@@ -26,6 +26,15 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+### RP2350 TRNG subset
+
+Both RP2350 CPU modes map the official TRNG block at `0x400f0000`. Firmware
+can configure the source and sample counter, enable generation, poll status,
+consume all six result words, clear status, and receive external interrupt 39.
+Generation is immediate and reproducible for deterministic CI and replay. It
+is not a security entropy source and does not claim the analogue TRNG's
+statistical properties or variable completion latency.
+
 ### RP2040 power and oscillator subset
 
 The RP2040 map includes deterministic functional models for the official

@@ -135,6 +135,7 @@ impl RiscVMachine {
         let mut wch_timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
         let mut io_bank_was_pending = false;
+        let mut trng_was_pending = false;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
         let mut esp_timer_was_pending = [[false; 2]; 2];
@@ -208,6 +209,14 @@ impl RiscVMachine {
             }
             if self.target == TargetId::Rp2350 {
                 rp_io::poll(self, &mut stats, &mut io_bank_was_pending)?;
+                if let Some(trng) = &self.trng {
+                    let pending = trng.interrupt_pending();
+                    if pending && !trng_was_pending {
+                        stats.events = stats.events.saturating_add(1);
+                    }
+                    trng_was_pending = pending;
+                    self.cpu.set_hazard3_external_interrupt(39, pending)?;
+                }
                 let chip_timer_pending =
                     self.chip_timers
                         .iter()
