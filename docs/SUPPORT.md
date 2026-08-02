@@ -11,7 +11,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, PIO0 waveform, and deterministic TRNG proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
@@ -25,6 +25,22 @@ All targets also expose a stable compiler-test block:
 This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
+
+### RP2350 TRNG subset
+
+The RP2350 map includes the official TRNG register block at `0x400f0000` for
+both the Cortex-M33 and Hazard3 machine modes. Firmware can configure the
+random-source selector and sample counter, enable generation, poll
+`RNG_ISR`/`TRNG_VALID`, consume all six `EHR_DATA` words, clear status through
+`RNG_ICR`, and receive the deterministic external interrupt on source 39.
+The debug, software-reset, busy, version, and BIST register paths are also
+represented with their documented masks and reset values.
+
+Generation is intentionally immediate and reproducible: the six words come
+from a stable host-side mixer so CI can compare traces and replay runs. It is
+not a security entropy source and does not claim the analogue TRNG's statistical
+properties, variable completion latency, or SHA/OTP/security-controller
+behavior.
 
 ## Official MicroPython milestone
 

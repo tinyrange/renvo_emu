@@ -108,6 +108,44 @@ fn rp2350_timer_uses_shifted_interrupt_registers() {
 }
 
 #[test]
+fn rp2350_trng_generates_deterministic_words_and_interrupts() {
+    let (mut trng, handle) = Rp2350Trng::new("trng");
+    assert_eq!(
+        trng.read(0x100, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xf
+    );
+    assert_eq!(
+        trng.read(0x130, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xffff
+    );
+    trng.write(0x12c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.result_ready());
+    assert!(!handle.interrupt_pending());
+    assert_eq!(
+        trng.read(0x110, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1
+    );
+    trng.write(0x100, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.interrupt_pending());
+    let first = trng.read(0x114, AccessWidth::Word, SimTime::ZERO).unwrap();
+    let last = trng.read(0x128, AccessWidth::Word, SimTime::ZERO).unwrap();
+    assert_ne!(first, last);
+    assert!(!handle.result_ready());
+    assert_eq!(
+        trng.read(0x104, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+    trng.write(0x12c, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    trng.write(0x12c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    let repeated = trng.read(0x114, AccessWidth::Word, SimTime::ZERO).unwrap();
+    assert_ne!(first, repeated);
+}
+
+#[test]
 fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
     let hub = SignalHub::new();
     let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio0.gpio", hub.clone()).unwrap();

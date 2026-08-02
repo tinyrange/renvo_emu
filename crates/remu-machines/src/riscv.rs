@@ -17,9 +17,9 @@ use remu_devices::{
     EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    Rp2040Xosc, Rp2350BootRam, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -206,6 +206,7 @@ pub struct RiscVMachine {
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
+    trng: Option<Rp2350TrngHandle>,
     esp_usb_serial_jtag: Option<EspUsbSerialJtagHandle>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
@@ -239,6 +240,7 @@ impl RiscVMachine {
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
+        let mut trng = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
@@ -430,6 +432,9 @@ impl RiscVMachine {
                     vec![0; 0x1000 / 4],
                 )),
             )?;
+            let (trng_device, trng_handle) = Rp2350Trng::new("rp2350.trng");
+            bus.map_device("rp2350.trng", 0x400f_0000, 0x4000, Box::new(trng_device))?;
+            trng = Some(trng_handle);
             for (name, base) in [
                 ("rp2350.uart1", 0x4007_8000),
                 ("rp2350.spi0", 0x4008_0000),
@@ -805,13 +810,13 @@ impl RiscVMachine {
             usb,
             usb_dpram,
             usb_host,
+            trng,
             esp_usb_serial_jtag,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
         })
     }
-
     fn service_functional_bootrom(&mut self) -> Result<bool, String> {
         if self.target == TargetId::Esp32c6 {
             let pc = self.cpu.pc();
@@ -826,7 +831,6 @@ impl RiscVMachine {
         }
         self.service_rp2350_bootrom()
     }
-
     /// Selected target.
     pub const fn target(&self) -> TargetId {
         self.target
@@ -1084,6 +1088,11 @@ impl RiscVMachine {
                     self.cpu
                         .set_hazard3_external_interrupt(14, usb.interrupt_pending())?;
                 }
+                if let Some(trng) = &self.trng {
+                    let pending = trng.interrupt_pending();
+                    stats.events = stats.events.saturating_add(u64::from(pending));
+                    self.cpu.set_hazard3_external_interrupt(39, pending)?;
+                }
             }
             if self.target == TargetId::Esp32c6 {
                 // ESP-IDF starts the first FreeRTOS task by raising the
@@ -1320,7 +1329,6 @@ impl RiscVMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| MachineError::TimeOverflow)?;
             stats.time = self.now;
-
             let mut signal_stop = None;
             for change in self.signals.drain_changes() {
                 signal_stop =
@@ -1339,13 +1347,11 @@ impl RiscVMachine {
                     access: hit.kind,
                 };
             }
-
             match outcome.reason {
                 StepReason::Advanced | StepReason::WaitForInterrupt => {}
                 StepReason::Halted => break StopReason::Halted,
                 StepReason::Breakpoint => break StopReason::Breakpoint,
             }
-
             if let Some(launch) = self.sio.as_ref().and_then(RpSioHandle::take_core1_launch) {
                 if let Err(error) = self.cpu1.set_trap_vector(launch.vector_table) {
                     break StopReason::Fault(format!("RISC-V hart 1 launch: {error}"));
@@ -1460,7 +1466,6 @@ impl RiscVMachine {
                 }
             }
         };
-
         if let Some(sink) = trace {
             sink.finish()?;
         }

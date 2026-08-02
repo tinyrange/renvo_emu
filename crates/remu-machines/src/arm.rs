@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance,
+    RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -59,6 +59,7 @@ pub struct ArmMachine {
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
+    trng: Option<Rp2350TrngHandle>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
@@ -122,6 +123,7 @@ impl ArmMachine {
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
+        let mut trng = None;
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
@@ -535,6 +537,9 @@ impl ArmMachine {
                     vec![0; 0x1000 / 4],
                 )),
             )?;
+            let (trng_device, trng_handle) = Rp2350Trng::new("rp2350.trng");
+            bus.map_device("rp2350.trng", 0x400f_0000, 0x4000, Box::new(trng_device))?;
+            trng = Some(trng_handle);
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
                 ("rp2350.timer1", 0x400b_8000),
@@ -611,6 +616,7 @@ impl ArmMachine {
             usb,
             usb_dpram,
             usb_host,
+            trng,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
@@ -1206,6 +1212,7 @@ impl ArmMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
+        let mut trng_was_pending = false;
         let reason = loop {
             self.sio.select_core(0);
             while stimuli
@@ -1277,6 +1284,14 @@ impl ArmMachine {
                     u16::from(usb_irq),
                     usb.interrupt_pending() && self.ppb.interrupt_enabled(u16::from(usb_irq)),
                 )?;
+            }
+            if let Some(trng) = &self.trng {
+                let pending = trng.interrupt_pending() && self.ppb.interrupt_enabled(39);
+                if pending && !trng_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                trng_was_pending = pending;
+                self.cpu.set_interrupt(39, pending)?;
             }
             if self.ppb.take_systick_pending(self.now) {
                 self.cpu.set_systick_interrupt(true);
