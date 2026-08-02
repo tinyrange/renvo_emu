@@ -6,17 +6,17 @@
     {
       "name": "riscv_cpu",
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "93719a6e0e0c501f770ae8016f9c0f5409d190fe240c04ab9888ea81779d87cc"
     },
     {
       "name": "arm_cpu",
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "075b3da61348e0e1838fe07d759a435a4ad97a58475ce802acc3633079724623"
     },
     {
       "name": "xtensa_cpu",
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "3fbe96f10f70322cb0861881c316d573448614f96cb9b25f3c24eb817a249874"
     },
     {
       "name": "reduction",

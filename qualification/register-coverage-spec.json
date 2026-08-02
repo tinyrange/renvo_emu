@@ -41,18 +41,20 @@
     },
     "rp2040": {
       "cpu_profiles": ["Cortex-M0+"],
-      "proofs": ["rp2040", "rp2040-uart", "rp2040-native-timer", "rp2040-pio"],
+      "proofs": ["rp2040", "rp2040-uart", "rp2040-usb", "rp2040-native-timer", "rp2040-pio"],
       "required_covered_regions": [
         "rp2040.pio0",
         "rp2040.sio",
         "rp2040.timer",
-        "rp2040.uart0"
+        "rp2040.uart0",
+        "rp2040.usbctrl"
       ],
       "additional_evidence": ["scripts/qualify-micropython.sh", "scripts/qualify-coremark.sh"],
       "known_deviations": [
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.",
         "UART0 is a transmit-focused PL011 slice without physical baud timing.",
+        "USB covers deterministic VBUS, bus-reset, setup/buffer status and write-clear interrupt semantics; PHY signaling, packet timing, DMA and complete protocol classes are absent.",
         "TIMER alarm routing is functional and deterministic, not clock accurate.",
         "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
       ]

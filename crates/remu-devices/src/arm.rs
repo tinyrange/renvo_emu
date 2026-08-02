@@ -409,6 +409,98 @@ impl Device for ArmPrivatePeripheralBus {
 ///
 /// Endpoint-buffer ownership and host transactions can be layered on this state; this initial
 /// model keeps register writes deterministic and presents an attached VBUS source.
+///
+/// The values are offsets within the USB controller's 4 KiB register window. The controller
+/// also accepts the RP2040 atomic aliases at `offset + 0x1000`, `+0x2000`, and `+0x3000`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rp2040UsbRegister {
+    /// Main controller mode and enable.
+    MainCtrl = 0x40,
+    /// Host SOF frame number write register.
+    SofWr = 0x44,
+    /// Last observed SOF frame number.
+    SofRd = 0x48,
+    /// Serial interface engine control.
+    SieCtrl = 0x4c,
+    /// Serial interface engine status and write-clear events.
+    SieStatus = 0x50,
+    /// Host interrupt endpoint control.
+    IntEpCtrl = 0x54,
+    /// Endpoint buffer completion status and write-clear events.
+    BuffStatus = 0x58,
+    /// Double-buffer CPU ownership indication.
+    BuffCpuShouldHandle = 0x5c,
+    /// Endpoint abort control.
+    EpAbort = 0x60,
+    /// Endpoint abort completion status.
+    EpAbortDone = 0x64,
+    /// Endpoint zero stall arm control.
+    EpStallArm = 0x68,
+    /// Host NAK polling intervals.
+    NakPoll = 0x6c,
+    /// Endpoint stall/NAK status.
+    EpStatusStallNak = 0x70,
+    /// USB controller-to-PHY muxing.
+    UsbMuxing = 0x74,
+    /// VBUS and over-current power controls.
+    UsbPwr = 0x78,
+    /// Direct USB PHY controls.
+    UsbPhyDirect = 0x7c,
+    /// Direct USB PHY override enables.
+    UsbPhyDirectOverride = 0x80,
+    /// USB PHY trim values.
+    UsbPhyTrim = 0x84,
+    /// Raw interrupt status.
+    Intr = 0x8c,
+    /// Interrupt enable.
+    Inte = 0x90,
+    /// Interrupt force.
+    Intf = 0x94,
+    /// Masked and forced interrupt status.
+    Ints = 0x98,
+}
+
+impl Rp2040UsbRegister {
+    /// Converts a controller-relative register offset into a typed register ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x40 => Self::MainCtrl,
+            0x44 => Self::SofWr,
+            0x48 => Self::SofRd,
+            0x4c => Self::SieCtrl,
+            0x50 => Self::SieStatus,
+            0x54 => Self::IntEpCtrl,
+            0x58 => Self::BuffStatus,
+            0x5c => Self::BuffCpuShouldHandle,
+            0x60 => Self::EpAbort,
+            0x64 => Self::EpAbortDone,
+            0x68 => Self::EpStallArm,
+            0x6c => Self::NakPoll,
+            0x70 => Self::EpStatusStallNak,
+            0x74 => Self::UsbMuxing,
+            0x78 => Self::UsbPwr,
+            0x7c => Self::UsbPhyDirect,
+            0x80 => Self::UsbPhyDirectOverride,
+            0x84 => Self::UsbPhyTrim,
+            0x8c => Self::Intr,
+            0x90 => Self::Inte,
+            0x94 => Self::Intf,
+            0x98 => Self::Ints,
+            _ => return None,
+        })
+    }
+
+    /// Returns the controller-relative byte offset for this register.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    const fn index(self) -> usize {
+        self.offset() as usize / 4
+    }
+}
+
+/// Functional RP2040 USB controller register slice.
 pub struct Rp2040UsbController {
     name: String,
     state: Arc<Mutex<Rp2040UsbState>>,
@@ -425,11 +517,31 @@ pub struct Rp2040UsbHandle {
 }
 
 impl Rp2040UsbState {
+    const SIE_STATUS_READ_ONLY: u32 = (1 << 10) | (0b11 << 2) | 1;
+
     fn raw_interrupts(&self) -> u32 {
-        let sie_status = self.registers[0x50 / 4];
+        let sie_status = self.registers[Rp2040UsbRegister::SieStatus.index()];
         let mut interrupts = 0;
-        if self.registers[0x58 / 4] != 0 {
+        if self.registers[Rp2040UsbRegister::BuffStatus.index()] != 0 {
             interrupts |= 1 << 4;
+        }
+        if sie_status & (1 << 31) != 0 {
+            interrupts |= 1 << 5;
+        }
+        if sie_status & (1 << 27) != 0 {
+            interrupts |= 1 << 6;
+        }
+        if sie_status & (1 << 26) != 0 {
+            interrupts |= 1 << 7;
+        }
+        if sie_status & (1 << 25) != 0 {
+            interrupts |= 1 << 8;
+        }
+        if sie_status & (1 << 24) != 0 {
+            interrupts |= 1 << 9;
+        }
+        if sie_status & (1 << 29) != 0 {
+            interrupts |= 1 << 10;
         }
         if sie_status & (1 << 19) != 0 {
             interrupts |= 1 << 12;
@@ -437,14 +549,30 @@ impl Rp2040UsbState {
         if sie_status & (1 << 0) != 0 {
             interrupts |= 1 << 11;
         }
+        if sie_status & (1 << 16) != 0 {
+            interrupts |= 1 << 13;
+        }
+        if sie_status & (1 << 4) != 0 {
+            interrupts |= 1 << 14;
+        }
+        if sie_status & (1 << 11) != 0 {
+            interrupts |= 1 << 15;
+        }
         if sie_status & (1 << 17) != 0 {
             interrupts |= 1 << 16;
+        }
+        if sie_status & (1 << 18) != 0 {
+            interrupts |= 1 << 3;
+        }
+        if sie_status & (0b11 << 8) != 0 {
+            interrupts |= 1;
         }
         interrupts
     }
 
     fn masked_interrupts(&self) -> u32 {
-        (self.raw_interrupts() & self.registers[0x90 / 4]) | self.registers[0x94 / 4]
+        (self.raw_interrupts() & self.registers[Rp2040UsbRegister::Inte.index()])
+            | self.registers[Rp2040UsbRegister::Intf.index()]
     }
 }
 
@@ -452,15 +580,15 @@ impl Rp2040UsbHandle {
     /// Returns true after firmware enables the controller and device pull-up.
     pub fn device_connected(&self) -> bool {
         let state = self.state.lock().expect("RP2040 USB lock poisoned");
-        state.registers[0x40 / 4] & 1 != 0
-            && state.registers[0x4c / 4] & (1 << 16) != 0
-            && state.registers[0x74 / 4] & 1 != 0
+        state.registers[Rp2040UsbRegister::MainCtrl.index()] & 1 != 0
+            && state.registers[Rp2040UsbRegister::SieCtrl.index()] & (1 << 16) != 0
+            && state.registers[Rp2040UsbRegister::UsbMuxing.index()] & 1 != 0
     }
 
     /// Reports a host bus reset to device firmware.
     pub fn inject_bus_reset(&self) {
         let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
-        state.registers[0x50 / 4] |= (1 << 19) | (1 << 16) | 1;
+        state.registers[Rp2040UsbRegister::SieStatus.index()] |= (1 << 19) | (1 << 16) | 1;
     }
 
     /// Reports a SETUP packet already placed in USB DPRAM.
@@ -468,7 +596,7 @@ impl Rp2040UsbHandle {
         self.state
             .lock()
             .expect("RP2040 USB lock poisoned")
-            .registers[0x50 / 4] |= 1 << 17;
+            .registers[Rp2040UsbRegister::SieStatus.index()] |= 1 << 17;
     }
 
     /// Reports completion of one endpoint buffer.
@@ -477,7 +605,7 @@ impl Rp2040UsbHandle {
         self.state
             .lock()
             .expect("RP2040 USB lock poisoned")
-            .registers[0x58 / 4] |= 1 << bit;
+            .registers[Rp2040UsbRegister::BuffStatus.index()] |= 1 << bit;
     }
 
     /// Returns whether the controller currently asserts its interrupt output.
@@ -651,7 +779,7 @@ impl Rp2040UsbController {
     /// Creates a USB controller and its functional-host handle.
     pub fn new_with_handle(name: impl Into<String>) -> (Self, Rp2040UsbHandle) {
         let mut registers = [0; 64];
-        registers[0x50 / 4] = 1;
+        registers[Rp2040UsbRegister::SieStatus.index()] = 1;
         let state = Arc::new(Mutex::new(Rp2040UsbState { registers }));
         (
             Self {
@@ -672,6 +800,22 @@ impl Rp2040UsbController {
         }
         Ok(())
     }
+
+    fn update_write_clear(
+        register: &mut u32,
+        alias: u64,
+        value: u32,
+        read_only: u32,
+    ) -> Result<(), DeviceError> {
+        let preserved = *register & read_only;
+        if alias == 0 || alias == 3 {
+            *register &= !value;
+        } else {
+            Self::update(register, alias, value)?;
+        }
+        *register = (*register & !read_only) | preserved;
+        Ok(())
+    }
 }
 
 impl Device for Rp2040UsbController {
@@ -689,8 +833,8 @@ impl Device for Rp2040UsbController {
         let index = usize::try_from(register_offset / 4).expect("small USB offset fits");
         let state = self.state.lock().expect("RP2040 USB lock poisoned");
         let value = match register_offset {
-            0x8c => Some(state.raw_interrupts()),
-            0x98 => Some(state.masked_interrupts()),
+            offset if offset == Rp2040UsbRegister::Intr.offset() => Some(state.raw_interrupts()),
+            offset if offset == Rp2040UsbRegister::Ints.offset() => Some(state.masked_interrupts()),
             _ => state.registers.get(index).copied(),
         };
         value.map(u64::from).ok_or_else(|| {
@@ -716,23 +860,37 @@ impl Device for Rp2040UsbController {
         let register_offset = offset & 0x0fff;
         let index = usize::try_from(register_offset / 4).expect("small USB offset fits");
         let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
+        let value =
+            u32::try_from(value & u64::from(u32::MAX)).expect("masked USB register value fits");
         let register = state.registers.get_mut(index).ok_or_else(|| {
             DeviceError::new(format!(
                 "unmodeled RP2040 USB write at offset {register_offset:#x}"
             ))
         })?;
-        let value =
-            u32::try_from(value & u64::from(u32::MAX)).expect("masked USB register value fits");
-        Self::update(register, alias, value)?;
+        match register_offset {
+            // SIE_STATUS and BUFF_STATUS are write-clear event registers in the
+            // RP2040 USB block. The atomic clear alias is equivalent to a base
+            // write for these registers; status bits are never assigned raw.
+            offset if offset == Rp2040UsbRegister::SieStatus.offset() => Self::update_write_clear(
+                register,
+                alias,
+                value,
+                Rp2040UsbState::SIE_STATUS_READ_ONLY,
+            )?,
+            offset if offset == Rp2040UsbRegister::BuffStatus.offset() => {
+                Self::update_write_clear(register, alias, value, 0)?
+            }
+            _ => Self::update(register, alias, value)?,
+        }
         // VBUS_DETECTED is driven by the functional host and remains asserted.
-        state.registers[0x50 / 4] |= 1;
+        state.registers[Rp2040UsbRegister::SieStatus.index()] |= 1;
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
         let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
         state.registers.fill(0);
-        state.registers[0x50 / 4] = 1;
+        state.registers[Rp2040UsbRegister::SieStatus.index()] = 1;
     }
 }
 
