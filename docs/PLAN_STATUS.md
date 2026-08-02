@@ -42,6 +42,26 @@ Status meanings:
 | Identical results across supported hosts | Proven | `scripts/qualify-host-determinism.sh` publishes the same canonical fake-multicore/timer digest on the supported Linux/amd64 and Linux/arm64 hosts |
 | Separate CPU/device/trace/script/CLI boundaries | Proven | CPU, machine, device, trace, corpus, GDB and Starlark crates remain separate; `remu script` evaluates explicit JSON, while the later board DSL builds immutable scenarios without owning kernel state |
 
+## ATSAMD21 analog-comparator functional slice
+
+The ATSAMD21E18 model maps the AC comparator pair at `0x4200_4400` and routes
+its comparator/window interrupt sources to Cortex-M0+ external line 24. The
+public `Samd21AcRegister` enum names the native control, event, interrupt,
+status, window, comparator-control, and scaler registers from section 34.7 of
+the Microchip data sheet.
+
+`Samd21AcHandle::inject_input` supplies deterministic digitalized AIN codes.
+Guest writes can enable the AC, select positive/negative inputs, configure
+single-shot or continuous mode and edge/EOC interrupt selection, start a
+comparison, observe ready/state status, and clear W1C flags. Comparator outputs
+are emitted as `board.atsamd21e18.ac.comp0` and `.comp1` signals for VCD. The
+bounded window state derives from the paired comparator outputs. Analog
+voltages, hysteresis/filter sampling, startup/propagation timing, Event System
+delivery, and package-level electrical routing remain deferred. The register
+map and IRQ assignment are sourced from Microchip SAM D21/DA1 Family Data Sheet
+[DS40001882E](https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf),
+section 34.
+
 ## Phase 5 closure
 
 Phase 5 now meets its complete exit gate. `remu corpus reduce` detects the
