@@ -108,8 +108,14 @@ firmware drivers communicate with the NanoC6 SGP30; that requires the separate
 I2C endpoint.
 
 The endpoint keeps all CPU, scheduler, peripheral, and electrical state in
-Rust: Starlark continues to describe topology and bounded actions only. A
-direct machine run uses the shared hub and polls the endpoint at the same
+Starlark continues to describe topology and bounded actions only.
+
+Each mounted GPIO component must claim a unique primary MCU pin. Attaching two
+components to the same pin fails with an explicit `GpioPinConflict` error rather
+than silently creating an electrical contention that this first endpoint slice
+cannot resolve.
+
+A direct machine run uses the shared hub and polls the endpoint at the same
 deterministic boundaries as execution:
 
 ```rust
