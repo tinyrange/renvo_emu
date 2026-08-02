@@ -17,6 +17,14 @@ pub enum BoardUartError {
         /// Declared connector protocol.
         actual: ConnectorProtocol,
     },
+    /// An endpoint operation moved backwards on the simulation timeline.
+    #[error("UART endpoint time regressed from {previous} to {next}")]
+    TimeRegression {
+        /// Previous endpoint timestamp.
+        previous: SimTime,
+        /// New endpoint timestamp.
+        next: SimTime,
+    },
     /// Signal declaration or update failed.
     #[error(transparent)]
     Signal(#[from] SignalError),
@@ -39,6 +47,7 @@ pub struct BoardUartEndpoint {
     observed_tx: usize,
     tx_strobe_level: bool,
     rx_strobe_level: bool,
+    last_at: Option<SimTime>,
 }
 
 impl BoardUartEndpoint {
@@ -87,7 +96,18 @@ impl BoardUartEndpoint {
             observed_tx: 0,
             tx_strobe_level: false,
             rx_strobe_level: false,
+            last_at: None,
         })
+    }
+
+    fn check_time(&mut self, at: SimTime) -> Result<(), BoardUartError> {
+        if let Some(previous) = self.last_at {
+            if at < previous {
+                return Err(BoardUartError::TimeRegression { previous, next: at });
+            }
+        }
+        self.last_at = Some(at);
+        Ok(())
     }
 
     /// Connector name used in signal paths and diagnostics.
@@ -97,6 +117,7 @@ impl BoardUartEndpoint {
 
     /// Queues bytes for the guest's UART receive register and emits RX signals.
     pub fn host_write(&mut self, bytes: &[u8], at: SimTime) -> Result<(), BoardUartError> {
+        self.check_time(at)?;
         self.uart.feed_rx(bytes);
         for byte in bytes {
             self.rx_strobe_level = !self.rx_strobe_level;
@@ -116,6 +137,7 @@ impl BoardUartEndpoint {
 
     /// Returns newly transmitted guest bytes and emits TX signals for them.
     pub fn poll_tx(&mut self, at: SimTime) -> Result<Vec<u8>, BoardUartError> {
+        self.check_time(at)?;
         let bytes = self.uart.bytes();
         if self.observed_tx > bytes.len() {
             self.observed_tx = 0;
@@ -213,5 +235,22 @@ mod tests {
             SignalHub::new(),
         );
         assert!(matches!(result, Err(BoardUartError::Protocol { .. })));
+    }
+
+    #[test]
+    fn rejects_endpoint_time_regression() {
+        let (_, handle) = FunctionalUart::new("uart", 0, 4, 1);
+        let mut endpoint = BoardUartEndpoint::new(
+            "teaching",
+            &connector(ConnectorProtocol::Uart),
+            handle,
+            SignalHub::new(),
+        )
+        .unwrap();
+        endpoint.host_write(b"R", SimTime::from_ticks(5)).unwrap();
+        assert!(matches!(
+            endpoint.poll_tx(SimTime::from_ticks(4)),
+            Err(BoardUartError::TimeRegression { .. })
+        ));
     }
 }
