@@ -354,6 +354,8 @@ impl Mcs51McuMachine {
         if let Some(sink) = trace {
             sink.finish()?;
         }
+        let mut uart = self.peripherals.uart_bytes();
+        uart.extend(self.peripherals.uart1_bytes());
         Ok(RunResult {
             target: TargetId::Efm8bb52f32g,
             reason,
@@ -361,7 +363,7 @@ impl Mcs51McuMachine {
             cpu: self.cpu.snapshot(),
             secondary_cpu: None,
             exit_code: Some(self.cpu.register(Mcs51Register::A) as u32),
-            uart: self.peripherals.uart_bytes(),
+            uart,
             usb: Vec::new(),
             trace_digest: digest.finish(),
         })
