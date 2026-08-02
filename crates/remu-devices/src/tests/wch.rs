@@ -3,6 +3,14 @@ use super::*;
 #[test]
 fn wch_touch_key_runs_the_documented_adc_sequence() {
     assert_eq!(
+        WchTouchKeyRegister::from_offset(0x10),
+        Some(WchTouchKeyRegister::SampleTime2)
+    );
+    assert_eq!(
+        WchTouchKeyRegister::from_offset(0x2c),
+        Some(WchTouchKeyRegister::RuleSequence1)
+    );
+    assert_eq!(
         WchTouchKeyRegister::from_offset(0x3c),
         Some(WchTouchKeyRegister::TouchCharge)
     );
@@ -48,6 +56,104 @@ fn wch_touch_key_runs_the_documented_adc_sequence() {
         0
     );
     assert!(!handle.pending(SimTime::from_ticks(22)));
+}
+
+#[test]
+fn wch_touch_key_masks_adc_register_fields_and_preserves_aliases() {
+    let (mut touch, _handle) = WchTouchKey::new("adc-tkey");
+    for (offset, expected) in [
+        (0x04, 0x07c0_ffff),
+        (0x08, 0x007e_f933),
+        (0x10, 0x3fff_ffff),
+        (0x2c, 0x00ff_ffff),
+        (0x34, 0x3fff_ffff),
+        (0x50, 0x00ff_007f),
+    ] {
+        touch
+            .write(
+                offset,
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            touch
+                .read(offset, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            expected
+        );
+    }
+    touch
+        .write(0x3c, AccessWidth::Word, 0x7ff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        touch.read(0x3c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+}
+
+#[test]
+fn wch_touch_key_honors_single_mode_and_data_alignment() {
+    let (mut touch, handle) = WchTouchKey::new("adc-tkey");
+    handle.set_channel_value(3, 0x0a5a);
+    touch
+        .write(0x08, AccessWidth::Word, (1 << 11) | 1, SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x04, AccessWidth::Word, 1 << 24, SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x34, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x3c, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    touch
+        .write(0x4c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        touch
+            .read(0x00, AccessWidth::Word, SimTime::from_ticks(15))
+            .unwrap()
+            & 0x1f,
+        1 << 4
+    );
+    assert_eq!(
+        touch
+            .read(0x4c, AccessWidth::Word, SimTime::from_ticks(16))
+            .unwrap(),
+        0xa5a0
+    );
+
+    for (control1, control2, sequence1) in [
+        (1 << 24 | 1 << 8, 1, 0),
+        (1 << 24, 1 | 1 << 1, 0),
+        (1 << 24, 1, 1 << 20),
+    ] {
+        touch
+            .write(0x00, AccessWidth::Word, 0, SimTime::from_ticks(16))
+            .unwrap();
+        touch
+            .write(0x04, AccessWidth::Word, control1, SimTime::from_ticks(16))
+            .unwrap();
+        touch
+            .write(0x08, AccessWidth::Word, control2, SimTime::from_ticks(16))
+            .unwrap();
+        touch
+            .write(0x2c, AccessWidth::Word, sequence1, SimTime::from_ticks(16))
+            .unwrap();
+        touch
+            .write(0x4c, AccessWidth::Word, 1, SimTime::from_ticks(16))
+            .unwrap();
+        assert_eq!(
+            touch
+                .read(0x00, AccessWidth::Word, SimTime::from_ticks(100))
+                .unwrap()
+                & 0x1f,
+            0
+        );
+    }
 }
 
 #[test]
