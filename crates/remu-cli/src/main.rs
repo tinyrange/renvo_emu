@@ -48,7 +48,7 @@ use run_command::{
 #[derive(Debug, Parser)]
 #[command(
     name = "remu",
-    version,
+    version = env!("REMU_BUILD_VERSION"),
     about = "Renvo Emulator: deterministic microcontroller emulation and compiler testing"
 )]
 struct Cli {
