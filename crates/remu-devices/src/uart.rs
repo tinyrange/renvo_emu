@@ -4,6 +4,7 @@ use super::*;
 #[derive(Clone, Default)]
 pub struct UartHandle {
     bytes: Arc<Mutex<Vec<u8>>>,
+    rx: Arc<Mutex<VecDeque<u8>>>,
 }
 
 impl UartHandle {
@@ -20,6 +21,25 @@ impl UartHandle {
     /// Clears captured output.
     pub fn clear(&self) {
         self.bytes.lock().expect("UART lock poisoned").clear();
+        self.rx.lock().expect("UART RX lock poisoned").clear();
+    }
+
+    /// Queues bytes supplied by an external UART peer.
+    pub fn feed_rx(&self, bytes: &[u8]) {
+        self.rx
+            .lock()
+            .expect("UART RX lock poisoned")
+            .extend(bytes.iter().copied());
+    }
+
+    /// Consumes one byte waiting for the guest to receive.
+    pub fn receive(&self) -> Option<u8> {
+        self.rx.lock().expect("UART RX lock poisoned").pop_front()
+    }
+
+    /// Returns the number of bytes waiting for the guest to receive.
+    pub fn rx_len(&self) -> usize {
+        self.rx.lock().expect("UART RX lock poisoned").len()
     }
 
     /// Appends bytes transmitted by a functional ROM or peripheral service.
@@ -85,7 +105,9 @@ impl Device for FunctionalUart {
     fn read(&mut self, offset: u64, _width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         if offset == self.status_offset {
             Ok(u64::from(self.tx_ready_mask))
-        } else if offset == self.data_offset || self.lenient_registers {
+        } else if offset == self.data_offset {
+            Ok(u64::from(self.handle.receive().unwrap_or(0)))
+        } else if self.lenient_registers {
             Ok(0)
         } else {
             Err(DeviceError::new(format!(
