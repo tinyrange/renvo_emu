@@ -12,27 +12,27 @@
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "39b8465a817b6e14dff52c083fdcf90e93cc9d438475b2864b479ef3f7cb6804"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "8bb68870137cde6ee5ae9389c53d5049087f83053262720805a2cb8b6becfa9d"
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "7664050616ab60b6a53b1a1049233e85b29902ad7448a10921480d750bf0cfa6"
+      "sha256": "bc308c3abb08408e48a9f6cb0a9c7fcf5622d451aa68495e328b64c26157b1d5"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "f7dde1520d959d650c5a78a027f7388df279d2233e0d228a77f8982260e5fe97"
+      "sha256": "0d96f0583dae57e0461a425edafa0cd061c848ca7272ab831797a762efa75acd"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+      "sha256": "e42d0e7035e4fbd2c9adbcf64a104d210c153c01ad506ed0f96c6a34f52e80d2"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "57ea568cc423f1b2779833a88fabd909edecdc9a1a1cff807b48abc531fb1d7f"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+      "sha256": "33ef6176ef4e42a373fc5e5c9a4dfd6a889aa28d07669326ccb74a1646d52699"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -315,7 +315,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4",
+        "manifest_sha256": "0a5ff6ab5ba7f7c37203dead0c8a90a694029492ba9b6fd7b5634c6aaa82d6f4",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"

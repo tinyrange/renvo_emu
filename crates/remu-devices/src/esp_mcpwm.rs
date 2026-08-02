@@ -15,6 +15,151 @@ const UPDATE_CFG: u64 = 0x10c;
 const CLK_CFG: u64 = 0x00;
 const CLK: u64 = 0x120;
 const VERSION: u64 = 0x124;
+const TIMER_SYNC_INPUT_CFG: u64 = 0x34;
+const OP_TIMER_SEL: u64 = 0x38;
+const CLOCK_CFG_MASK: u32 = 0x0000_00ff;
+const TIMER_CFG0_MASK: u32 = 0x03ff_ffff;
+const TIMER_CFG1_MASK: u32 = 0x0000_001f;
+const TIMER_SYNC_MASK: u32 = 0x001f_ffff;
+const TIMER_STATUS_MASK: u32 = 0x0001_ffff;
+const TIMER_SYNC_INPUT_MASK: u32 = 0x0000_0fff;
+const OP_TIMER_SEL_MASK: u32 = 0x0000_003f;
+const GEN_STMP_CFG_MASK: u32 = 0x0000_03ff;
+const GEN_TIMESTAMP_MASK: u32 = 0x0000_ffff;
+const GEN_CFG0_MASK: u32 = 0x0000_03ff;
+const GEN_FORCE_MASK: u32 = 0x0000_ffff;
+const GEN_ACTION_MASK: u32 = 0x00ff_ffff;
+const UPDATE_CFG_MASK: u32 = 0x0000_00ff;
+const UPDATE_CFG_RESET: u32 = 0x0000_0055;
+const INTERRUPT_MASK: u32 = 0x3fff_ffff;
+const CLOCK_MASK: u32 = 0x0000_0001;
+const VERSION_MASK: u32 = 0x0fff_ffff;
+const VERSION_RESET: u32 = 0x0210_7230;
+
+/// Named ESP32-S3 MCPWM register IDs covered by the functional model.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Esp32s3McpwmRegister {
+    /// MCPWM clock prescaler.
+    ClockCfg,
+    /// Timer period/prescaler/update configuration.
+    TimerCfg0(usize),
+    /// Timer start/stop and counting-mode configuration.
+    TimerCfg1(usize),
+    /// Timer synchronisation and phase configuration.
+    TimerSync(usize),
+    /// Timer counter and direction status.
+    TimerStatus(usize),
+    /// Shared timer synchronisation input selection.
+    TimerSyncInputCfg,
+    /// Operator-to-timer selectors.
+    OperatorTimerSel,
+    /// Generator timestamp shadow-transfer configuration.
+    GeneratorStmpCfg(usize),
+    /// Generator A timestamp shadow register.
+    GeneratorTimestampA(usize),
+    /// Generator B timestamp shadow register.
+    GeneratorTimestampB(usize),
+    /// Generator event configuration.
+    GeneratorCfg0(usize),
+    /// Generator software-force configuration.
+    GeneratorForce(usize),
+    /// Generator A event actions.
+    GeneratorA(usize),
+    /// Generator B event actions.
+    GeneratorB(usize),
+    /// Global and per-operator active-register update enables.
+    UpdateCfg,
+    /// Interrupt enables.
+    IntEna,
+    /// Raw interrupt status.
+    IntRaw,
+    /// Masked interrupt status.
+    IntSt,
+    /// Write-one-to-clear interrupt status.
+    IntClr,
+    /// Register-file clock gate.
+    Clock,
+    /// MCPWM version/date register.
+    Version,
+}
+
+impl Esp32s3McpwmRegister {
+    /// Returns the native byte offset of this register ID.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::ClockCfg => CLK_CFG,
+            Self::TimerCfg0(timer) => TIMER_BASE + (timer as u64) * TIMER_STRIDE,
+            Self::TimerCfg1(timer) => TIMER_BASE + (timer as u64) * TIMER_STRIDE + 0x04,
+            Self::TimerSync(timer) => TIMER_BASE + (timer as u64) * TIMER_STRIDE + 0x08,
+            Self::TimerStatus(timer) => 0x10 + (timer as u64) * TIMER_STRIDE,
+            Self::TimerSyncInputCfg => TIMER_SYNC_INPUT_CFG,
+            Self::OperatorTimerSel => OP_TIMER_SEL,
+            Self::GeneratorStmpCfg(operator) => OP_BASE + (operator as u64) * OP_STRIDE,
+            Self::GeneratorTimestampA(operator) => OP_BASE + (operator as u64) * OP_STRIDE + 0x04,
+            Self::GeneratorTimestampB(operator) => OP_BASE + (operator as u64) * OP_STRIDE + 0x08,
+            Self::GeneratorCfg0(operator) => OP_BASE + (operator as u64) * OP_STRIDE + 0x0c,
+            Self::GeneratorForce(operator) => OP_BASE + (operator as u64) * OP_STRIDE + 0x10,
+            Self::GeneratorA(operator) => OP_BASE + (operator as u64) * OP_STRIDE + 0x14,
+            Self::GeneratorB(operator) => OP_BASE + (operator as u64) * OP_STRIDE + 0x18,
+            Self::UpdateCfg => UPDATE_CFG,
+            Self::IntEna => INT_ENA,
+            Self::IntRaw => INT_RAW,
+            Self::IntSt => INT_ST,
+            Self::IntClr => INT_CLR,
+            Self::Clock => CLK,
+            Self::Version => VERSION,
+        }
+    }
+
+    /// Converts a modeled native offset into a named register ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        if offset == CLK_CFG {
+            return Some(Self::ClockCfg);
+        }
+        if offset >= TIMER_BASE && offset <= 0x30 {
+            let timer = (offset - TIMER_BASE) / TIMER_STRIDE;
+            let register = (offset - TIMER_BASE) % TIMER_STRIDE;
+            if timer < TIMERS as u64 {
+                return Some(match register {
+                    0x00 => Self::TimerCfg0(timer as usize),
+                    0x04 => Self::TimerCfg1(timer as usize),
+                    0x08 => Self::TimerSync(timer as usize),
+                    0x0c => Self::TimerStatus(timer as usize),
+                    _ => return None,
+                });
+            }
+        }
+        Some(match offset {
+            TIMER_SYNC_INPUT_CFG => Self::TimerSyncInputCfg,
+            OP_TIMER_SEL => Self::OperatorTimerSel,
+            UPDATE_CFG => Self::UpdateCfg,
+            INT_ENA => Self::IntEna,
+            INT_RAW => Self::IntRaw,
+            INT_ST => Self::IntSt,
+            INT_CLR => Self::IntClr,
+            CLK => Self::Clock,
+            VERSION => Self::Version,
+            _ if offset >= OP_BASE && offset < UPDATE_CFG => {
+                let operator = (offset - OP_BASE) / OP_STRIDE;
+                let register = (offset - OP_BASE) % OP_STRIDE;
+                if operator >= OPERATORS as u64 {
+                    return None;
+                }
+                match register {
+                    0x00 => Self::GeneratorStmpCfg(operator as usize),
+                    0x04 => Self::GeneratorTimestampA(operator as usize),
+                    0x08 => Self::GeneratorTimestampB(operator as usize),
+                    0x0c => Self::GeneratorCfg0(operator as usize),
+                    0x10 => Self::GeneratorForce(operator as usize),
+                    0x14 => Self::GeneratorA(operator as usize),
+                    0x18 => Self::GeneratorB(operator as usize),
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        })
+    }
+}
 
 #[derive(Clone, Copy)]
 struct McpwmTimer {
@@ -54,6 +199,7 @@ impl McpwmTimer {
 
 #[derive(Clone, Copy)]
 struct McpwmOperator {
+    stmp_cfg: u32,
     timestamp_a: u16,
     timestamp_b: u16,
     cfg0: u32,
@@ -65,6 +211,7 @@ struct McpwmOperator {
 impl McpwmOperator {
     const fn reset() -> Self {
         Self {
+            stmp_cfg: 0,
             timestamp_a: 0,
             timestamp_b: 0,
             cfg0: 0,
@@ -77,6 +224,7 @@ impl McpwmOperator {
 
 struct McpwmState {
     clock_cfg: u32,
+    timer_sync_input_cfg: u32,
     timers: [McpwmTimer; TIMERS],
     operators: [McpwmOperator; OPERATORS],
     operator_timer_sel: u32,
@@ -85,20 +233,23 @@ struct McpwmState {
     int_ena: u32,
     int_raw: u32,
     outputs: [bool; OUTPUTS],
+    version: u32,
 }
 
 impl McpwmState {
     const fn reset() -> Self {
         Self {
             clock_cfg: 0,
+            timer_sync_input_cfg: 0,
             timers: [McpwmTimer::reset(); TIMERS],
             operators: [McpwmOperator::reset(); OPERATORS],
             operator_timer_sel: 0,
-            update_cfg: 0x1fc,
+            update_cfg: UPDATE_CFG_RESET,
             clock: 0,
             int_ena: 0,
             int_raw: 0,
             outputs: [false; OUTPUTS],
+            version: VERSION_RESET,
         }
     }
 
@@ -155,7 +306,12 @@ impl McpwmState {
             timer.direction_down = direction_down;
             timer.last_time = now;
             if wrapped {
-                self.int_raw |= 1 << index;
+                let interrupt = match mode {
+                    1 => 6 + index,
+                    2 | 3 => 3 + index,
+                    _ => unreachable!(),
+                };
+                self.int_raw |= 1 << interrupt;
             }
         }
     }
@@ -282,60 +438,67 @@ impl Esp32S3Mcpwm {
 
     fn read_register(&self, offset: u64) -> Result<u32, DeviceError> {
         let state = self.state.borrow();
-        if offset == CLK_CFG {
-            return Ok(state.clock_cfg);
-        }
-        if let Some((timer, register)) = timer_register(offset) {
-            let timer_state = state.timers[timer];
-            return Ok(match register {
-                0 => timer_state.cfg0,
-                4 => timer_state.cfg1,
-                8 => timer_state.sync,
-                12 => u32::from(timer_state.value) | (u32::from(timer_state.direction_down) << 16),
-                _ => unreachable!(),
-            });
-        }
-        if offset == 0x38 {
-            return Ok(state.operator_timer_sel);
-        }
-        if let Some((operator, register)) = operator_register(offset) {
-            let op = state.operators[operator];
-            return Ok(match register {
-                0x04 => u32::from(op.timestamp_a),
-                0x08 => u32::from(op.timestamp_b),
-                0x10 => op.cfg0,
-                0x14 => op.force,
-                0x18 => op.generator_a,
-                0x1c => op.generator_b,
-                _ => 0,
-            });
-        }
-        match offset {
-            UPDATE_CFG => Ok(state.update_cfg),
-            INT_ENA => Ok(state.int_ena),
-            INT_RAW => Ok(state.int_raw),
-            INT_ST => Ok(state.int_raw & state.int_ena),
-            CLK => Ok(state.clock),
-            VERSION => Ok(0x0100_0000),
-            _ => Err(DeviceError::new(format!(
+        match Esp32s3McpwmRegister::from_offset(offset) {
+            Some(Esp32s3McpwmRegister::ClockCfg) => Ok(state.clock_cfg & CLOCK_CFG_MASK),
+            Some(Esp32s3McpwmRegister::TimerCfg0(timer)) => {
+                Ok(state.timers[timer].cfg0 & TIMER_CFG0_MASK)
+            }
+            Some(Esp32s3McpwmRegister::TimerCfg1(timer)) => {
+                Ok(state.timers[timer].cfg1 & TIMER_CFG1_MASK)
+            }
+            Some(Esp32s3McpwmRegister::TimerSync(timer)) => {
+                Ok(state.timers[timer].sync & TIMER_SYNC_MASK)
+            }
+            Some(Esp32s3McpwmRegister::TimerStatus(timer)) => {
+                let timer_state = state.timers[timer];
+                Ok(
+                    (u32::from(timer_state.value) | (u32::from(timer_state.direction_down) << 16))
+                        & TIMER_STATUS_MASK,
+                )
+            }
+            Some(Esp32s3McpwmRegister::TimerSyncInputCfg) => {
+                Ok(state.timer_sync_input_cfg & TIMER_SYNC_INPUT_MASK)
+            }
+            Some(Esp32s3McpwmRegister::OperatorTimerSel) => {
+                Ok(state.operator_timer_sel & OP_TIMER_SEL_MASK)
+            }
+            Some(Esp32s3McpwmRegister::GeneratorStmpCfg(operator)) => {
+                Ok(state.operators[operator].stmp_cfg & GEN_STMP_CFG_MASK)
+            }
+            Some(Esp32s3McpwmRegister::GeneratorTimestampA(operator)) => {
+                Ok(u32::from(state.operators[operator].timestamp_a))
+            }
+            Some(Esp32s3McpwmRegister::GeneratorTimestampB(operator)) => {
+                Ok(u32::from(state.operators[operator].timestamp_b))
+            }
+            Some(Esp32s3McpwmRegister::GeneratorCfg0(operator)) => {
+                Ok(state.operators[operator].cfg0 & GEN_CFG0_MASK)
+            }
+            Some(Esp32s3McpwmRegister::GeneratorForce(operator)) => {
+                Ok(state.operators[operator].force & GEN_FORCE_MASK)
+            }
+            Some(Esp32s3McpwmRegister::GeneratorA(operator)) => {
+                Ok(state.operators[operator].generator_a & GEN_ACTION_MASK)
+            }
+            Some(Esp32s3McpwmRegister::GeneratorB(operator)) => {
+                Ok(state.operators[operator].generator_b & GEN_ACTION_MASK)
+            }
+            Some(Esp32s3McpwmRegister::UpdateCfg) => Ok(state.update_cfg & UPDATE_CFG_MASK),
+            Some(Esp32s3McpwmRegister::IntEna) => Ok(state.int_ena & INTERRUPT_MASK),
+            Some(Esp32s3McpwmRegister::IntRaw) => Ok(state.int_raw & INTERRUPT_MASK),
+            Some(Esp32s3McpwmRegister::IntSt) => {
+                Ok((state.int_raw & state.int_ena) & INTERRUPT_MASK)
+            }
+            Some(Esp32s3McpwmRegister::IntClr) => {
+                Err(DeviceError::new("ESP32-S3 MCPWM INT_CLR is write-only"))
+            }
+            Some(Esp32s3McpwmRegister::Clock) => Ok(state.clock & CLOCK_MASK),
+            Some(Esp32s3McpwmRegister::Version) => Ok(state.version & VERSION_MASK),
+            None => Err(DeviceError::new(format!(
                 "unmodeled ESP32-S3 MCPWM read at offset {offset:#x}"
             ))),
         }
     }
-}
-
-fn timer_register(offset: u64) -> Option<(usize, u64)> {
-    let adjusted = offset.checked_sub(TIMER_BASE)?;
-    let timer = usize::try_from(adjusted / TIMER_STRIDE).ok()?;
-    let register = adjusted % TIMER_STRIDE;
-    (timer < TIMERS && register.is_multiple_of(4)).then_some((timer, register))
-}
-
-fn operator_register(offset: u64) -> Option<(usize, u64)> {
-    let adjusted = offset.checked_sub(OP_BASE)?;
-    let operator = usize::try_from(adjusted / OP_STRIDE).ok()?;
-    let register = adjusted % OP_STRIDE;
-    (operator < OPERATORS && register.is_multiple_of(4)).then_some((operator, register))
 }
 
 impl Device for Esp32S3Mcpwm {
@@ -370,53 +533,74 @@ impl Device for Esp32S3Mcpwm {
         self.handle()
             .poll(at)
             .map_err(|error| DeviceError::new(error.to_string()))?;
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("MCPWM value fits u32");
+        let value = u32::try_from(value)
+            .map_err(|_| DeviceError::new("ESP32-S3 MCPWM value exceeds u32"))?;
         let mut state = self.state.borrow_mut();
-        if offset == CLK_CFG {
-            state.clock_cfg = value & 0xff;
-        } else if let Some((timer, register)) = timer_register(offset) {
-            let timer_state = &mut state.timers[timer];
-            match register {
-                0 => timer_state.cfg0 = value & 0x03ff_ffff,
-                4 => timer_state.cfg1 = value & 0x1f,
-                8 => {
-                    timer_state.sync = value & 0x001f_ffff;
-                    if value & 2 != 0 {
-                        timer_state.value =
-                            u16::try_from((value >> 4) & 0xffff).expect("MCPWM phase fits u16");
-                        timer_state.last_time = at;
-                    }
-                }
-                12 => return Err(DeviceError::new("MCPWM timer STATUS is read-only")),
-                _ => unreachable!(),
+        match Esp32s3McpwmRegister::from_offset(offset) {
+            Some(Esp32s3McpwmRegister::ClockCfg) => state.clock_cfg = value & CLOCK_CFG_MASK,
+            Some(Esp32s3McpwmRegister::TimerCfg0(timer)) => {
+                state.timers[timer].cfg0 = value & TIMER_CFG0_MASK
             }
-        } else if offset == 0x38 {
-            state.operator_timer_sel = value & 0x3f;
-        } else if let Some((operator, register)) = operator_register(offset) {
-            let op = &mut state.operators[operator];
-            match register {
-                0x04 => op.timestamp_a = u16::try_from(value & 0xffff).expect("timestamp fits"),
-                0x08 => op.timestamp_b = u16::try_from(value & 0xffff).expect("timestamp fits"),
-                0x10 => op.cfg0 = value,
-                0x14 => op.force = value,
-                0x18 => op.generator_a = value,
-                0x1c => op.generator_b = value,
-                _ => {}
+            Some(Esp32s3McpwmRegister::TimerCfg1(timer)) => {
+                state.timers[timer].cfg1 = value & TIMER_CFG1_MASK
             }
-        } else {
-            match offset {
-                UPDATE_CFG => state.update_cfg = value & 0xfff,
-                INT_ENA => state.int_ena = value & 0x7,
-                INT_CLR => state.int_raw &= !value,
-                CLK => state.clock = value & 1,
-                INT_RAW | INT_ST | VERSION => {
-                    return Err(DeviceError::new("MCPWM register is read-only"));
+            Some(Esp32s3McpwmRegister::TimerSync(timer)) => {
+                let timer_state = &mut state.timers[timer];
+                timer_state.sync = value & TIMER_SYNC_MASK;
+                if value & (1 << 1) != 0 {
+                    timer_state.value =
+                        u16::try_from((value >> 4) & 0xffff).expect("MCPWM phase fits u16");
+                    timer_state.direction_down = value & (1 << 20) != 0;
+                    timer_state.last_time = at;
                 }
-                _ => {
-                    return Err(DeviceError::new(format!(
-                        "unmodeled ESP32-S3 MCPWM write at offset {offset:#x}"
-                    )));
-                }
+            }
+            Some(Esp32s3McpwmRegister::TimerStatus(timer)) => {
+                return Err(DeviceError::new(format!(
+                    "ESP32-S3 MCPWM timer {timer} STATUS is read-only"
+                )));
+            }
+            Some(Esp32s3McpwmRegister::TimerSyncInputCfg) => {
+                state.timer_sync_input_cfg = value & TIMER_SYNC_INPUT_MASK
+            }
+            Some(Esp32s3McpwmRegister::OperatorTimerSel) => {
+                state.operator_timer_sel = value & OP_TIMER_SEL_MASK
+            }
+            Some(Esp32s3McpwmRegister::GeneratorStmpCfg(operator)) => {
+                state.operators[operator].stmp_cfg = value & GEN_STMP_CFG_MASK
+            }
+            Some(Esp32s3McpwmRegister::GeneratorTimestampA(operator)) => {
+                state.operators[operator].timestamp_a =
+                    u16::try_from(value & GEN_TIMESTAMP_MASK).expect("timestamp fits")
+            }
+            Some(Esp32s3McpwmRegister::GeneratorTimestampB(operator)) => {
+                state.operators[operator].timestamp_b =
+                    u16::try_from(value & GEN_TIMESTAMP_MASK).expect("timestamp fits")
+            }
+            Some(Esp32s3McpwmRegister::GeneratorCfg0(operator)) => {
+                state.operators[operator].cfg0 = value & GEN_CFG0_MASK
+            }
+            Some(Esp32s3McpwmRegister::GeneratorForce(operator)) => {
+                state.operators[operator].force = value & GEN_FORCE_MASK
+            }
+            Some(Esp32s3McpwmRegister::GeneratorA(operator)) => {
+                state.operators[operator].generator_a = value & GEN_ACTION_MASK
+            }
+            Some(Esp32s3McpwmRegister::GeneratorB(operator)) => {
+                state.operators[operator].generator_b = value & GEN_ACTION_MASK
+            }
+            Some(Esp32s3McpwmRegister::UpdateCfg) => state.update_cfg = value & UPDATE_CFG_MASK,
+            Some(Esp32s3McpwmRegister::IntEna) => state.int_ena = value & INTERRUPT_MASK,
+            Some(Esp32s3McpwmRegister::IntRaw) => state.int_raw &= !(value & INTERRUPT_MASK),
+            Some(Esp32s3McpwmRegister::IntClr) => state.int_raw &= !(value & INTERRUPT_MASK),
+            Some(Esp32s3McpwmRegister::Clock) => state.clock = value & CLOCK_MASK,
+            Some(Esp32s3McpwmRegister::IntSt) => {
+                return Err(DeviceError::new("ESP32-S3 MCPWM INT_ST is read-only"));
+            }
+            Some(Esp32s3McpwmRegister::Version) => state.version = value & VERSION_MASK,
+            None => {
+                return Err(DeviceError::new(format!(
+                    "unmodeled ESP32-S3 MCPWM write at offset {offset:#x}"
+                )));
             }
         }
         drop(state);
@@ -428,12 +612,135 @@ impl Device for Esp32S3Mcpwm {
 
     fn reset(&mut self, _kind: ResetKind) {
         *self.state.borrow_mut() = McpwmState::reset();
+        for signal in &self.output_signals {
+            self.hub
+                .set(
+                    *signal,
+                    SignalValue::from_u64(0, 1).expect("MCPWM output signal is one bit"),
+                    SimTime::ZERO,
+                )
+                .expect("MCPWM output signals remain declared");
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn register_ids_match_native_timer_and_generator_windows() {
+        let expected = [
+            (Esp32s3McpwmRegister::ClockCfg, 0x00),
+            (Esp32s3McpwmRegister::TimerCfg0(0), 0x04),
+            (Esp32s3McpwmRegister::TimerCfg1(2), 0x28),
+            (Esp32s3McpwmRegister::TimerSync(1), 0x1c),
+            (Esp32s3McpwmRegister::TimerStatus(0), 0x10),
+            (Esp32s3McpwmRegister::TimerStatus(2), 0x30),
+            (Esp32s3McpwmRegister::TimerSyncInputCfg, 0x34),
+            (Esp32s3McpwmRegister::OperatorTimerSel, 0x38),
+            (Esp32s3McpwmRegister::GeneratorStmpCfg(0), 0x3c),
+            (Esp32s3McpwmRegister::GeneratorTimestampA(2), 0xb0),
+            (Esp32s3McpwmRegister::GeneratorCfg0(1), 0x80),
+            (Esp32s3McpwmRegister::GeneratorForce(1), 0x84),
+            (Esp32s3McpwmRegister::GeneratorA(1), 0x88),
+            (Esp32s3McpwmRegister::GeneratorB(1), 0x8c),
+            (Esp32s3McpwmRegister::UpdateCfg, 0x10c),
+            (Esp32s3McpwmRegister::IntEna, 0x110),
+            (Esp32s3McpwmRegister::IntRaw, 0x114),
+            (Esp32s3McpwmRegister::IntSt, 0x118),
+            (Esp32s3McpwmRegister::IntClr, 0x11c),
+            (Esp32s3McpwmRegister::Clock, 0x120),
+            (Esp32s3McpwmRegister::Version, 0x124),
+        ];
+        for (register, offset) in expected {
+            assert_eq!(register.offset(), offset);
+            assert_eq!(Esp32s3McpwmRegister::from_offset(offset), Some(register));
+        }
+        assert_eq!(Esp32s3McpwmRegister::from_offset(OP_BASE + 0x1c), None);
+        assert_eq!(Esp32s3McpwmRegister::from_offset(0x128), None);
+    }
+
+    #[test]
+    fn register_masks_reset_values_and_access_modes_follow_vendor_layout() {
+        let hub = SignalHub::new();
+        let (mut mcpwm, _) = Esp32S3Mcpwm::new("mcpwm", "board.esp32s3.mcpwm", hub).unwrap();
+        assert_eq!(
+            mcpwm.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            255 << 8
+        );
+        assert_eq!(
+            mcpwm
+                .read(UPDATE_CFG, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(UPDATE_CFG_RESET)
+        );
+        assert_eq!(
+            mcpwm
+                .read(VERSION, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(VERSION_RESET)
+        );
+
+        for (offset, expected) in [
+            (CLK_CFG, CLOCK_CFG_MASK),
+            (0x04, TIMER_CFG0_MASK),
+            (0x08, TIMER_CFG1_MASK),
+            (0x0c, TIMER_SYNC_MASK),
+            (TIMER_SYNC_INPUT_CFG, TIMER_SYNC_INPUT_MASK),
+            (OP_TIMER_SEL, OP_TIMER_SEL_MASK),
+            (OP_BASE, GEN_STMP_CFG_MASK),
+            (OP_BASE + 0x04, GEN_TIMESTAMP_MASK),
+            (OP_BASE + 0x0c, GEN_CFG0_MASK),
+            (OP_BASE + 0x10, GEN_FORCE_MASK),
+            (OP_BASE + 0x14, GEN_ACTION_MASK),
+            (OP_BASE + 0x18, GEN_ACTION_MASK),
+            (UPDATE_CFG, UPDATE_CFG_MASK),
+            (INT_ENA, INTERRUPT_MASK),
+            (CLK, CLOCK_MASK),
+            (VERSION, VERSION_MASK),
+        ] {
+            mcpwm
+                .write(
+                    offset,
+                    AccessWidth::Word,
+                    u64::from(u32::MAX),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            assert_eq!(
+                mcpwm
+                    .read(offset, AccessWidth::Word, SimTime::ZERO)
+                    .unwrap(),
+                u64::from(expected)
+            );
+        }
+        assert!(
+            mcpwm
+                .write(0x10, AccessWidth::Word, 0, SimTime::ZERO)
+                .is_err()
+        );
+        assert!(
+            mcpwm
+                .write(INT_ST, AccessWidth::Word, 0, SimTime::ZERO)
+                .is_err()
+        );
+        assert!(
+            mcpwm
+                .read(INT_CLR, AccessWidth::Word, SimTime::ZERO)
+                .is_err()
+        );
+        assert!(
+            mcpwm
+                .write(
+                    CLK_CFG,
+                    AccessWidth::Word,
+                    u64::from(u32::MAX) + 1,
+                    SimTime::ZERO
+                )
+                .is_err()
+        );
+    }
 
     #[test]
     fn timer_compare_and_force_outputs_are_deterministic() {
@@ -460,7 +767,7 @@ mod tests {
         assert!(!handle.output_level(0));
         mcpwm
             .write(
-                OP_BASE + 0x14,
+                OP_BASE + 0x10,
                 AccessWidth::Word,
                 2 << 6,
                 SimTime::from_ticks(3),
@@ -491,17 +798,17 @@ mod tests {
             )
             .unwrap();
         mcpwm
-            .write(INT_ENA, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(INT_ENA, AccessWidth::Word, 1 << 6, SimTime::ZERO)
             .unwrap();
         handle.poll(SimTime::from_ticks(3)).unwrap();
         assert_eq!(
             mcpwm
                 .read(INT_ST, AccessWidth::Word, SimTime::from_ticks(3))
                 .unwrap(),
-            1
+            1 << 6
         );
         mcpwm
-            .write(INT_CLR, AccessWidth::Word, 1, SimTime::from_ticks(3))
+            .write(INT_CLR, AccessWidth::Word, 1 << 6, SimTime::from_ticks(3))
             .unwrap();
         assert_eq!(
             mcpwm
