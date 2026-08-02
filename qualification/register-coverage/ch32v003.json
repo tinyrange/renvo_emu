@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "8beba283939b16c5cc44773e9a7bf8ed04aa966957c40e5d3513d5c632b0a2fa"
+    "sha256": "7b11ec73177181b46ab4f10380f658ea06e2dee960e936a3b3e49a6fcb16a246"
   },
   "proofs": [
     {

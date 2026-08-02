@@ -9,7 +9,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "8beba283939b16c5cc44773e9a7bf8ed04aa966957c40e5d3513d5c632b0a2fa"
+    "sha256": "7b11ec73177181b46ab4f10380f658ea06e2dee960e936a3b3e49a6fcb16a246"
   },
   "proofs": [
     {
@@ -84,15 +84,15 @@
       "id": "rp2350-arm-i2c",
       "result": ".remu/portfolio-smoke/rp2350-arm-i2c-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-i2c-bus.json",
-      "result_sha256": "775944cf5e10f1f107d2e04ba53206eb85d2c2c0b81be2f76939a063d5b19707",
-      "bus_log_sha256": "f9b7df0dee28372db961e3bd31dce250f71f75a4cb1cc8b20a3e34593b89b4a9",
+      "result_sha256": "3de91a120c24ff6fff554933a8a454e64bb79c625d9619790d4c6797480bbab2",
+      "bus_log_sha256": "bec0a273d863fa03c0afc0d392b2e6ce9c04cbeed4c550d98b15afe148db5b10",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "b43986cc571d2cffe135e0e3a4a082a746d862643dc4fc47c702fd6c9f491496",
+        "trace_digest": "ebf70687d889a4e6d07f451cc7a47e09788759a2ca0608adb97739718a03a3c0",
         "stats": {
-          "instructions": 30,
-          "time": 30,
+          "instructions": 33,
+          "time": 33,
           "events": 0
         }
       }
@@ -169,15 +169,15 @@
       "id": "rp2350-riscv-i2c",
       "result": ".remu/portfolio-smoke/rp2350-riscv-i2c-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-i2c-bus.json",
-      "result_sha256": "7b0d400a8c08bbc96d9165c7887ce985c9ff08bd2e50f5539ea6d79842fe7c42",
-      "bus_log_sha256": "1219c5c2e729098414eef47abfd702e6b5a3dc056c450622d8dc06df638f2535",
+      "result_sha256": "b4686f40dae18bcc50a46e1a978bebad8023c157fb7c2f9cdc4cb5fb94bd291d",
+      "bus_log_sha256": "dc70d26a50898df4054b9a43ee980ff2a03c21862a4104315c2d8216248e6ae3",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "b006ef919611af8dd97799e50f9637be82f0ab3bdd4da0d8e873fb702f2906f5",
+        "trace_digest": "0240ce0eb9a4afc5b5d3e8b9510ccbb5aa8567ade4df415039b542825dd87f1d",
         "stats": {
-          "instructions": 34,
-          "time": 34,
+          "instructions": 38,
+          "time": 38,
           "events": 0
         }
       }
@@ -191,7 +191,7 @@
     "rp2350.i2c0",
     "rp2350.i2c1"
   ],
-  "covered_register_count": 20,
+  "covered_register_count": 22,
   "covered_registers": [
     {
       "region": "rp2350.i2c0",
@@ -215,6 +215,17 @@
         "Word"
       ],
       "access_count": 6
+    },
+    {
+      "region": "rp2350.i2c0",
+      "address": 1074331696,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     },
     {
       "region": "rp2350.i2c0",
@@ -260,6 +271,17 @@
         "Word"
       ],
       "access_count": 4
+    },
+    {
+      "region": "rp2350.i2c1",
+      "address": 1074364464,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     },
     {
       "region": "rp2350.i2c1",
@@ -425,7 +447,7 @@
     "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
     "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
     "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
-    "I²C0/I²C1 cover functional host commands and FIFO/interrupt status without pin-level arbitration, slave mode, DMA, or exact SCL/SDA timing.",
+    "I²C0/I²C1 cover the documented functional host command path, reset/configuration registers, sixteen-entry FIFO status, read-clear interrupt behavior, component IDs, and VCD bytes; pin-level arbitration, slave mode, DMA handshakes, and exact SCL/SDA timing remain outside the contract.",
     "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
   ]
 }

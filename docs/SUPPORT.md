@@ -46,9 +46,13 @@ This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
 The RP2350 I²C slice exposes the documented DW_apb_i2c register/FIFO command
-path, deterministic host-provided read bytes, interrupt latches, and VCD byte
-and strobe signals. It is a functional host model; electrical SDA/SCL
-resolution, arbitration, slave mode, DMA, and exact bus timing remain outside
+path, including reset values, disabled-only configuration writes, sixteen-entry
+TX/RX FIFO status, read-clear interrupt registers, component identification,
+RP2350 atomic XOR/set/clear write aliases, RP2350 narrow-write replication,
+deterministic host-provided read bytes, and VCD byte/strobe signals. The
+`IC_INTR_MASK` bits follow the silicon contract: zero masks a source and one
+unmasks it. It is a functional host model; electrical SDA/SCL resolution,
+arbitration, slave mode, DMA handshakes, and exact bus timing remain outside
 the current support contract.
 
 ## Implemented CPU surface

@@ -85,7 +85,7 @@
         "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
         "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
-        "I²C0/I²C1 cover functional host commands and FIFO/interrupt status without pin-level arbitration, slave mode, DMA, or exact SCL/SDA timing.",
+        "I²C0/I²C1 cover the documented functional host command path, reset/configuration registers, sixteen-entry FIFO status, read-clear interrupt behavior, component IDs, and VCD bytes; pin-level arbitration, slave mode, DMA handshakes, and exact SCL/SDA timing remain outside the contract.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
       ]
     },
