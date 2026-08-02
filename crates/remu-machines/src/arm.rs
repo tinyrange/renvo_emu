@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Otp, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -534,6 +534,12 @@ impl ArmMachine {
                     "rp2350.powman",
                     vec![0; 0x1000 / 4],
                 )),
+            )?;
+            bus.map_device(
+                "rp2350.otp",
+                0x4012_0000,
+                0x2_0000,
+                Box::new(Rp2350Otp::new("rp2350.otp")),
             )?;
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),

@@ -108,6 +108,55 @@ fn rp2350_timer_uses_shifted_interrupt_registers() {
 }
 
 #[test]
+fn rp2350_otp_exposes_read_aliases_and_monotonic_locks() {
+    let mut otp = Rp2350Otp::with_words("otp", &[0x00c0_ffee, 0x0012_3456]);
+    assert_eq!(
+        otp.read(0x14000, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x00c0_ffee
+    );
+    assert_eq!(
+        otp.read(0x10000, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x00c0_ffee
+    );
+    assert_eq!(
+        otp.read(0x1c000, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x00c0_ffee
+    );
+
+    otp.write(0x000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    otp.write(0x3000, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(otp.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 3);
+    otp.write(0x3000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(otp.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 3);
+
+    otp.write(0x128, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert!(otp.read(0x14000, AccessWidth::Word, SimTime::ZERO).is_err());
+    otp.write(0x2128, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        otp.read(0x1c000, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x00c0_ffee
+    );
+
+    otp.write(0x158, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        otp.read(0x15c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        2
+    );
+    otp.write(0x100, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        otp.read(0x124, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 4),
+        1 << 4
+    );
+}
+
+#[test]
 fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
     let hub = SignalHub::new();
     let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio0.gpio", hub.clone()).unwrap();
