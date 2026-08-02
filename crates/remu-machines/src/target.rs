@@ -394,7 +394,8 @@ const MANIFESTS: &[TargetManifest] = &[
         limitations: &[
             "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
             "windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy",
-            "exact SMP timing, wireless, ULP, and full USB are deferred",
+            "exact SMP timing, wireless, and ULP are deferred",
+            "USB-OTG is a deterministic full-speed reset/setup FIFO/control-bulk functional slice; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes are deferred",
         ],
     },
     TargetManifest {

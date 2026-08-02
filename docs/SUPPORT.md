@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and USB-OTG full-speed device reset/setup FIFO/control-bulk proof |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -44,6 +44,15 @@ See `scripts/qualify-micropython.sh` and
 
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+
+The ESP32-S3 USB-OTG model now has a bounded DWC2 functional slice: device
+reset and enumeration status, setup-packet receive status/FIFO ordering,
+endpoint completion and FIFO enable/disable semantics, plus deterministic
+host control/bulk exchanges. It intentionally does not claim PHY edge timing,
+DMA scatter/gather, host-channel scheduling, or complete USB class coverage.
+The evidence is the `esp32s3-usb` Docker fixture and the focused
+`remu-devices` protocol test; these are protocol-level checks rather than a
+claim that arbitrary USB firmware is supported.
 
 ## Implemented CPU surface
 
