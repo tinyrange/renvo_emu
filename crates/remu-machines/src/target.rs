@@ -539,12 +539,21 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 49,
         fidelity: Fidelity::Functional,
-        baseline: &["IOPORT/ICU", "GPT0 interrupt", "SCI9 UART", "VCD"],
+        baseline: &[
+            "IOPORT/ICU",
+            "GPT0 interrupt",
+            "ADC140 scan",
+            "SCI9 UART",
+            "VCD",
+        ],
         sources: &[
             "https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware",
             "https://github.com/arduino/ArduinoCore-renesas",
         ],
-        limitations: &["USB, CAN, analog, LCD, and Wi-Fi-board bridge behavior are deferred"],
+        limitations: &[
+            "USB, CAN, LCD, and Wi-Fi-board bridge behavior are deferred",
+            "ADC140 continuous/group/window/compare modes and analog timing are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,

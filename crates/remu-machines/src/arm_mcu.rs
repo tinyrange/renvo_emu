@@ -13,11 +13,12 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    FunctionalUart, GpioHandle, RA4M1_EVENT_ADC0_SCAN_END, RA4M1_EVENT_GPT0_OVERFLOW,
+    RA4M1_EVENT_SCI9_TXI, RaAdc, RaAdcHandle, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIoPort,
+    RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic, Samd21EicHandle, Samd21Port,
+    Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21Wdt,
+    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -78,6 +79,7 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    ra_adc: Option<RaAdcHandle>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -88,6 +90,7 @@ pub struct ArmMcuMachine {
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     interrupt_signal: SignalId,
+    ra_adc_signal: Option<SignalId>,
     traced_uart_len: usize,
     uart_strobe: bool,
     now: SimTime,
@@ -183,6 +186,15 @@ impl ArmMcuMachine {
             SignalValue::from_u64(0, 1)?,
             Some("selected routed interrupt request".to_owned()),
         )?;
+        let ra_adc_signal = if target == TargetId::R7fa4m1ab3cfm {
+            Some(signals.declare(
+                "board.r7fa4m1ab3cfm.adc0.irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("ADC140 group-A scan-end request".to_owned()),
+            )?)
+        } else {
+            None
+        };
         let (compiler_gpio_device, compiler_gpio) = FunctionalGpio::new(
             format!("{target}.compiler-gpio"),
             manifest.gpio_count.min(32),
@@ -230,7 +242,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, ra_adc, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -254,6 +266,7 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    None,
                     Some(eic),
                     None,
                     Some(watchdog),
@@ -295,6 +308,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -311,13 +325,23 @@ impl ArmMcuMachine {
                 }
                 let pfs = RaPfs::new("r7fa4m1ab3cfm.pfs", &ports);
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
+                let (adc_device, adc) = RaAdc::new("r7fa4m1ab3cfm.adc0");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
-                Self::map_ra4m1(&mut bus, ports, pfs, icu_device, gpt0_device, sci9_device)?;
+                Self::map_ra4m1(
+                    &mut bus,
+                    ports,
+                    pfs,
+                    icu_device,
+                    gpt0_device,
+                    adc_device,
+                    sci9_device,
+                )?;
                 (
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
+                    Some(adc),
                     None,
                     Some(icu),
                     None,
@@ -336,6 +360,7 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            ra_adc,
             eic,
             ra_icu,
             watchdog,
@@ -346,6 +371,7 @@ impl ArmMcuMachine {
             uart_byte_signal,
             uart_strobe_signal,
             interrupt_signal,
+            ra_adc_signal,
             traced_uart_len: 0,
             uart_strobe: false,
             now: SimTime::ZERO,
@@ -488,6 +514,7 @@ impl ArmMcuMachine {
         pfs: RaPfs,
         icu: RaIcu,
         gpt0: RaGpt,
+        adc: RaAdc,
         sci9: RaSci,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
@@ -509,6 +536,7 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
         bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
+        bus.map_device("r7fa4m1ab3cfm.adc0", 0x4005_c000, 0x200, Box::new(adc))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
@@ -649,6 +677,14 @@ impl ArmMcuMachine {
         Ok(())
     }
 
+    /// Drives one RA4M1 ADC140 channel in native 14-bit units.
+    pub fn set_adc_input(&self, channel: u8, value: u16) -> Result<(), String> {
+        self.ra_adc
+            .as_ref()
+            .ok_or_else(|| "ADC input is only available on the RA4M1 target".to_owned())?
+            .set_input(channel, value)
+    }
+
     /// Current vendor GPIO output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio.output()
@@ -761,7 +797,8 @@ impl ArmMcuMachine {
 
             let (timer_line, timer_pending) = self.timer.poll(self.now);
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending;
+            let adc_pending = self.ra_adc.as_ref().is_some_and(|adc| adc.poll(self.now));
+            let mut interrupt_requested = timer_pending || adc_pending;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -780,6 +817,14 @@ impl ArmMcuMachine {
             } else if timer_pending {
                 if let Some(icu) = &self.ra_icu {
                     for line in icu.route_event(RA4M1_EVENT_GPT0_OVERFLOW) {
+                        self.cpu
+                            .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+            }
+            if adc_pending {
+                if let Some(icu) = &self.ra_icu {
+                    for line in icu.route_event(RA4M1_EVENT_ADC0_SCAN_END) {
                         self.cpu
                             .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
                     }
@@ -816,6 +861,13 @@ impl ArmMcuMachine {
                 SignalValue::from_u64(u64::from(timer_pending), 1)?,
                 self.now,
             )?;
+            if let Some(signal) = self.ra_adc_signal {
+                self.signals.set(
+                    signal,
+                    SignalValue::from_u64(u64::from(adc_pending), 1)?,
+                    self.now,
+                )?;
+            }
             self.signals.set(
                 self.interrupt_signal,
                 SignalValue::from_u64(u64::from(interrupt_requested), 1)?,
@@ -981,5 +1033,34 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
+        machine.set_adc_input(0, 0x1234).unwrap();
+        machine
+            .bus
+            .write(0x4005_c004, AccessWidth::HalfWord, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(
+                0x4005_c000,
+                AccessWidth::HalfWord,
+                (1 << 15) | (1 << 12),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        let adc = machine.ra_adc.as_ref().expect("RA ADC handle");
+        assert!(!adc.poll(SimTime::from_ticks(7)));
+        assert!(adc.poll(SimTime::from_ticks(8)));
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4005_c020,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x1234
+        );
     }
 }

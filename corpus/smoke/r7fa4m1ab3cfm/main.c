@@ -2,6 +2,7 @@ typedef unsigned char u8;
 typedef unsigned int u32;
 
 #define REG8(address) (*(volatile u8 *)(address))
+#define REG16(address) (*(volatile unsigned short *)(address))
 #define REG32(address) (*(volatile u32 *)(address))
 
 #define SYSTEM_SCKSCR REG8(0x4001e026u)
@@ -11,6 +12,7 @@ typedef unsigned int u32;
 #define PORT1_PCNTR3 REG32(0x40040028u)
 #define P111PFS REG32(0x4004086cu)
 #define ICU_IELSR7 REG32(0x4000631cu)
+#define ICU_IELSR8 REG32(0x40006320u)
 #define GPT0_GTCR REG32(0x4007802cu)
 #define GPT0_GTINTAD REG32(0x40078038u)
 #define GPT0_GTST REG32(0x4007803cu)
@@ -19,8 +21,13 @@ typedef unsigned int u32;
 #define SCI9_TDR REG8(0x40070123u)
 #define SCI9_SSR REG8(0x40070124u)
 #define NVIC_ISER0 REG32(0xe000e100u)
+#define ADC_ADCSR REG16(0x4005c000u)
+#define ADC_ADREF REG8(0x4005c002u)
+#define ADC_ADANSA0 REG16(0x4005c004u)
+#define ADC_ADDR0 REG16(0x4005c020u)
 
 static volatile u32 timer_interrupts;
+static volatile u32 adc_interrupts;
 static volatile u32 dividend = 100000u;
 static volatile u32 switch_input = 7u;
 
@@ -56,6 +63,12 @@ void gpt0_handler(void)
     GPT0_GTST = 0u;
     GPT0_GTCR = 0u;
     ++timer_interrupts;
+}
+
+void adc_handler(void)
+{
+    ADC_ADREF = 0u;
+    ++adc_interrupts;
 }
 
 static void uart_write(const char *text)
@@ -109,6 +122,14 @@ int main(void)
     GPT0_GTCR = 1u;
     while (timer_interrupts == 0u) {
     }
+
+    ICU_IELSR8 = 0x29u;
+    NVIC_ISER0 = 1u << 8;
+    ADC_ADANSA0 = 1u;
+    ADC_ADCSR = (1u << 15) | (1u << 12);
+    while (adc_interrupts == 0u) {
+    }
+    failures |= (u32)((ADC_ADDR0 != 0u) << 13);
 
     while ((PORT1_PCNTR2 & (1u << 3)) == 0u) {
     }
