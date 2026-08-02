@@ -86,9 +86,12 @@ instruction per abstract tick and intentionally ignores divider and delay
 timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
 
-The ESP32-S3 RTC/ULP slice uses native `RTC_CNTL` register offsets for the
-abstract RTC counter latch, ULP timer enable/start/reset, timer period, and
-ULP interrupt enable/raw/status/clear path (`0xfc`, `0x100`, `0x134`, and
+The ESP32-S3 RTC/ULP slice uses a typed `Esp32S3RtcRegister` enum covering the
+native `RTC_CNTL` register map (including the shared SAR control aliases) and
+enforces the documented read/write masks, reserved holes, write-one-to-clear
+interrupt paths, and 32-bit access width. The functional path models the
+abstract RTC counter latch, ULP timer enable/start/reset, timer period, and ULP
+interrupt enable/raw/status/clear path (`0xfc`, `0x100`, `0x134`, and
 `0x40`–`0x4c`). A configured period advances in abstract ticks, raises the
 `board.esp32s3.ulp.interrupt` signal, and routes through the RTC-core interrupt
 source. RTC slow and fast memory remain mapped at their native addresses. The
@@ -217,6 +220,7 @@ the target manifests and `PLAN.html`, principally:
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
 - Espressif’s official [ESP32-S3 RTC control register definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/register/soc/rtc_cntl_reg.h)
+- Espressif’s official [ESP32-S3 SAR register definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/register/soc/sens_reg.h)
 - Espressif’s official [ESP32-S3 ULP FSM programming guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/ulp-fsm.html)
 - Espressif’s official tool package index and crosstool-NG releases
 

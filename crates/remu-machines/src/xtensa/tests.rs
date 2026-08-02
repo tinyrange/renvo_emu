@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3RtcRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -39,19 +40,39 @@ fn esp32s3_ulp_timer_and_rtc_memory_are_deterministic() {
 
     machine
         .bus
-        .write(rtc + 0x134, AccessWidth::Word, period, SimTime::ZERO)
+        .write(
+            rtc + Esp32S3RtcRegister::UlpCpTimer1.offset(),
+            AccessWidth::Word,
+            period,
+            SimTime::ZERO,
+        )
         .unwrap();
     machine
         .bus
-        .write(rtc + 0x40, AccessWidth::Word, ulp_interrupt, SimTime::ZERO)
+        .write(
+            rtc + Esp32S3RtcRegister::IntEna.offset(),
+            AccessWidth::Word,
+            ulp_interrupt,
+            SimTime::ZERO,
+        )
         .unwrap();
     machine
         .bus
-        .write(rtc + 0x100, AccessWidth::Word, 1_u64 << 31, SimTime::ZERO)
+        .write(
+            rtc + Esp32S3RtcRegister::UlpCpCtrl.offset(),
+            AccessWidth::Word,
+            1_u64 << 31,
+            SimTime::ZERO,
+        )
         .unwrap();
     machine
         .bus
-        .write(rtc + 0xfc, AccessWidth::Word, 1_u64 << 31, SimTime::ZERO)
+        .write(
+            rtc + Esp32S3RtcRegister::UlpCpTimer.offset(),
+            AccessWidth::Word,
+            1_u64 << 31,
+            SimTime::ZERO,
+        )
         .unwrap();
 
     machine
@@ -76,7 +97,7 @@ fn esp32s3_ulp_timer_and_rtc_memory_are_deterministic() {
         machine
             .bus
             .read(
-                rtc + 0x44,
+                rtc + Esp32S3RtcRegister::IntRaw.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -88,7 +109,12 @@ fn esp32s3_ulp_timer_and_rtc_memory_are_deterministic() {
 
     machine
         .bus
-        .write(rtc + 0x4c, AccessWidth::Word, ulp_interrupt, SimTime::ZERO)
+        .write(
+            rtc + Esp32S3RtcRegister::IntClr.offset(),
+            AccessWidth::Word,
+            ulp_interrupt,
+            SimTime::ZERO,
+        )
         .unwrap();
     assert!(!machine.rtc_control().ulp_pending(SimTime::from_ticks(4)));
 }
