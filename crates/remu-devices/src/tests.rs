@@ -571,6 +571,41 @@ fn rp2350_hstx_serializes_fifo_words_and_reports_overflow() {
 }
 
 #[test]
+fn rp2350_otp_exposes_read_aliases_and_monotonic_locks() {
+    let mut otp = Rp2350Otp::with_words("otp", &[0x00c0_ffee, 0x0012_3456]);
+    for offset in [0x10000, 0x14000, 0x1c000] {
+        assert_eq!(
+            otp.read(offset, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x00c0_ffee
+        );
+    }
+    otp.write(0x000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    otp.write(0x3000, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(otp.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 3);
+    otp.write(0x3000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(otp.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 3);
+
+    otp.write(0x128, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert!(otp.read(0x14000, AccessWidth::Word, SimTime::ZERO).is_err());
+    otp.write(0x2128, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        otp.read(0x1c000, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x00c0_ffee
+    );
+    otp.write(0x158, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        otp.read(0x15c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        2
+    );
+}
+
+#[test]
 fn rp2040_psm_exposes_power_state_masks_and_atomic_aliases() {
     let mut psm = Rp2040Psm::new("psm");
     assert_eq!(

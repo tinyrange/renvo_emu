@@ -52,6 +52,14 @@ aliases, deterministic word consumption, and VCD-visible positive/negative
 lane values. Clock-divider latency, DMA pacing, TMDS encoding, and physical
 GPIO muxing are not modeled.
 
+### RP2350 OTP subset
+
+Both RP2350 CPU modes map OTP at `0x40120000`. The model exposes page locks,
+SBPI status/control, the user data gate, interrupt windows, and ECC/raw/guarded
+read aliases over a deterministic read-only image. Lock bits are monotonic
+until reset. Fuse programming, security-domain filtering, and ECC fault
+injection are deliberately not simulated.
+
 ### RP2040 power and oscillator subset
 
 The RP2040 map includes deterministic functional models for the official

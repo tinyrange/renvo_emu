@@ -47,6 +47,8 @@ mod rp_sha;
 pub use rp_sha::*;
 mod rp_hstx;
 pub use rp_hstx::*;
+mod rp_otp;
+pub use rp_otp::*;
 mod esp;
 pub use esp::*;
 mod esp_spi;

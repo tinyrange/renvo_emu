@@ -18,10 +18,10 @@ use remu_devices::{
     EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
     Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
-    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350Sha256, Rp2350Spi,
-    Rp2350SpiHandle, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle,
-    RpAdcVariant, RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350Otp, Rp2350Sha256,
+    Rp2350Spi, Rp2350SpiHandle, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
+    RpAdcHandle, RpAdcVariant, RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
     WchPficHandle, WchTimer, WchTimerHandle, WchUsart, new_rp2350_hstx,
 };
 use remu_image::{
@@ -533,6 +533,12 @@ impl RiscVMachine {
                 0x400f_8000,
                 0x4000,
                 Box::new(Rp2350Sha256::new("rp2350.sha256")),
+            )?;
+            bus.map_device(
+                "rp2350.otp",
+                0x4012_0000,
+                0x2_0000,
+                Box::new(Rp2350Otp::new("rp2350.otp")),
             )?;
             for (name, base) in [("rp2350.uart1", 0x4007_8000), ("rp2350.dma", 0x5000_0000)] {
                 bus.map_device(

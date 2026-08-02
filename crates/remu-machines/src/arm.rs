@@ -19,7 +19,7 @@ use remu_devices::{
     PwmHandle, Rp2040Clocks, Rp2040IoBank, Rp2040IoBankHandle, Rp2040Pll, Rp2040Psm,
     Rp2040RegisterBank, Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040Ssi, Rp2040Timer,
     Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Otp, Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle,
     Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2c,
     RpI2cEvent, RpI2cHandle, RpIoBank, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion,
     RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle,
@@ -547,6 +547,12 @@ impl ArmMachine {
                 0x400f_8000,
                 0x4000,
                 Box::new(Rp2350Sha256::new("rp2350.sha256")),
+            )?;
+            bus.map_device(
+                "rp2350.otp",
+                0x4012_0000,
+                0x2_0000,
+                Box::new(Rp2350Otp::new("rp2350.otp")),
             )?;
             let (hstx_ctrl, hstx_fifo, _hstx_handle) =
                 new_rp2350_hstx("rp2350.hstx", "board.rp2350.hstx", signals.clone())?;
