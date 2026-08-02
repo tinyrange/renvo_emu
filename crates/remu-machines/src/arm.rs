@@ -18,7 +18,7 @@ use remu_devices::{
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
-    RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    RpAdc, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -305,7 +305,6 @@ impl ArmMachine {
                 ("rp2040.spi1", 0x4004_0000),
                 ("rp2040.i2c0", 0x4004_4000),
                 ("rp2040.i2c1", 0x4004_8000),
-                ("rp2040.adc", 0x4004_c000),
                 ("rp2040.pwm", 0x4005_0000),
                 ("rp2040.dma", 0x5000_0000),
                 ("rp2040.pio1", 0x5030_0000),
@@ -417,7 +416,6 @@ impl ArmMachine {
                 ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
-                ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
                 ("rp2350.pio1", 0x5030_0000),
@@ -595,6 +593,13 @@ impl ArmMachine {
             Box::new(pio0),
         )?;
         pio.push(handle);
+        let (adc_name, adc_base) = match target {
+            TargetId::Rp2040 => ("rp2040.adc", 0x4004_c000),
+            TargetId::Rp2350 => ("rp2350.adc", 0x400a_0000),
+            _ => unreachable!(),
+        };
+        let (adc, _) = RpAdc::new(adc_name);
+        bus.map_device(adc_name, adc_base, 0x1000, Box::new(adc))?;
         Ok(Self {
             target,
             cpu: ArmCpu::new(profile),

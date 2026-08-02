@@ -341,6 +341,12 @@ manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
+The RP2040 and RP2350 ADC blocks are mapped at `0x4004c000` and `0x400a0000`.
+They implement deterministic channel selection, host-provided 12-bit samples,
+temperature-sensor enable, ready/result, FIFO-status, divider, and interrupt
+registers. Analog noise, conversion latency, calibration trim, and DMA pacing
+are intentionally outside this functional CI slice.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification
