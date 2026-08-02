@@ -26,6 +26,18 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+## WCH USART fidelity
+
+The shared CH32V00X USART model uses named register IDs for both USART1 and
+CH32V006 USART2. It applies the documented masks for `STATR`, `BRR`,
+`CTLR1/2/3`, and `GPR`, preserves the native `TXE` reset state, implements
+RW0 clearing for the modeled status flags, and emits an immediate byte-oriented
+transmit event when `UE|TE` are enabled. The [official CH32V00X reference
+manual](https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF)
+defines a nine-bit data register; the current host terminal intentionally
+exposes only its low byte and does not model receive, DMA, line timing, or
+USART interrupt delivery.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
