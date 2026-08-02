@@ -9,12 +9,14 @@ uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
 state, PORT A, EIC, TC3, SERCOM0 USART, AC comparator pair and watchdog. The AC
 exposes native control/input/status/interrupt registers, deterministic
-host-supplied AIN codes, single-shot and continuous comparison, edge/EOC flags,
-window state, and VCD-visible digital comparator outputs. Clock synchronization
-and timing are deterministic approximations; analog voltages, comparator
-filtering/startup behavior, exact window electrical behavior, USB and DMA are
-unsupported. VCD exposes PORT, timer, UART, comparator and interrupt hierarchy
-and the gate compares two runs byte-for-byte.
+host-supplied first-pair AIN codes, single-shot and continuous comparison,
+edge/EOC flags, window state, and VCD-visible digital comparator outputs. The
+model follows the vendor masks, raw interrupt alias semantics, CTRLA low-power
+bits, and SWAP behavior; clock synchronization and timing are deterministic
+approximations. Analog voltages, comparator filtering/startup behavior, exact
+window electrical behavior, USB and DMA are unsupported. VCD exposes PORT,
+timer, UART, comparator and interrupt hierarchy and the gate compares two runs
+byte-for-byte.
 
 The vendor lane builds the pinned Microchip Harmony
 `port_led_on_off_polling` main source unchanged. Tracked startup, declarations

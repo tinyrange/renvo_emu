@@ -478,6 +478,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.microchip.com/en-us/product/ATSAMD21E18",
             "https://packs.download.microchip.com/Microchip.SAMD21_DFP.3.8.270.atpack",
             "https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf",
+            "https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/ac.h",
         ],
         limitations: &[
             "ADC and AC inputs are deterministic host codes rather than analog voltages",
