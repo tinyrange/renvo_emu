@@ -11,7 +11,7 @@
     {
       "name": "arm_cpu",
       "path": "qualification/arm-cpu.json",
-      "sha256": "bca7e88525cc6d6320077bc71093aff06cab71345d04a700855fde3c35529e9e"
+      "sha256": "f474a42ff54223bb4517d7700142156ac9d1baabf04b383d96e43f99f22680d4"
     },
     {
       "name": "xtensa_cpu",
