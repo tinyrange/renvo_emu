@@ -16,15 +16,25 @@ const TX1STA: usize = 0x11e;
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
+const NCO1ACCL: usize = 0x58c;
+const NCO1ACCH: usize = 0x58d;
+const NCO1ACCU: usize = 0x58e;
+const NCO1INCL: usize = 0x58f;
+const NCO1INCH: usize = 0x590;
+const NCO1INCU: usize = 0x591;
+const NCO1CON: usize = 0x592;
+const NCO1CLK: usize = 0x593;
 const TMR0L: usize = 0x59c;
 const TMR0H: usize = 0x59d;
 const T0CON0: usize = 0x59e;
 const PIR0: usize = 0x70c;
 const PIR3: usize = 0x70f;
 const PIR4: usize = 0x710;
+const PIR7: usize = 0x713;
 const PIE0: usize = 0x716;
 const PIE3: usize = 0x719;
 const PIE4: usize = 0x71a;
+const PIE7: usize = 0x71d;
 const WDTCON0: usize = 0x80c;
 const OSCSTAT: usize = 0x890;
 const PPSLOCK: usize = 0x1e8f;
@@ -41,6 +51,13 @@ const TX1IF: u8 = 1 << 4;
 const RC1IF: u8 = 1 << 5;
 const TXEN: u8 = 1 << 5;
 const SPEN: u8 = 1 << 7;
+const NCO1IF: u8 = 1 << 4;
+const NCO1IE: u8 = 1 << 4;
+const NCO1EN: u8 = 1 << 7;
+const NCO1OUT: u8 = 1 << 5;
+const NCO1POL: u8 = 1 << 4;
+const NCO1PFM: u8 = 1;
+const NCO_ACC_MASK: u32 = 0x0f_ffff;
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -50,12 +67,14 @@ struct Pic16State {
     uart: Vec<u8>,
     timer0_epoch: u64,
     timer1_epoch: u64,
+    nco_epoch: u64,
     watchdog_epoch: u64,
     watchdog_reset: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
+    nco1_output_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -82,6 +101,54 @@ impl Pic16State {
                 value | (u8::from(net.resolved() == Logic::One) << pin)
             })
             & PORT_MASKS[port]
+    }
+
+    fn nco_accumulator(&self) -> u32 {
+        u32::from(self.registers[NCO1ACCL])
+            | (u32::from(self.registers[NCO1ACCH]) << 8)
+            | (u32::from(self.registers[NCO1ACCU] & 0x0f) << 16)
+    }
+
+    fn nco_increment(&self) -> u32 {
+        u32::from(self.registers[NCO1INCL])
+            | (u32::from(self.registers[NCO1INCH]) << 8)
+            | (u32::from(self.registers[NCO1INCU] & 0x0f) << 16)
+    }
+
+    fn nco_output(&self) -> bool {
+        let output = self.registers[NCO1CON] & NCO1OUT != 0;
+        if self.registers[NCO1CON] & NCO1POL != 0 {
+            !output
+        } else {
+            output
+        }
+    }
+
+    fn update_nco(&mut self, now: SimTime) {
+        let elapsed = now.ticks().saturating_sub(self.nco_epoch);
+        self.nco_epoch = now.ticks();
+        if self.registers[NCO1CON] & NCO1EN == 0 || elapsed == 0 {
+            let output = self.registers[NCO1CON] & NCO1EN != 0 && self.nco_output();
+            self.set_signal(self.nco1_output_signal, u64::from(output), 1, now);
+            return;
+        }
+        let increment = u64::from(self.nco_increment());
+        let total = u64::from(self.nco_accumulator()) + increment.saturating_mul(elapsed);
+        let overflows = total >> 20;
+        let accumulator = (total as u32) & NCO_ACC_MASK;
+        self.registers[NCO1ACCL] = accumulator as u8;
+        self.registers[NCO1ACCH] = (accumulator >> 8) as u8;
+        self.registers[NCO1ACCU] = (accumulator >> 16) as u8 & 0x0f;
+        if overflows != 0 {
+            self.registers[PIR7] |= NCO1IF;
+            if self.registers[NCO1CON] & NCO1PFM == 0 && overflows & 1 != 0 {
+                self.registers[NCO1CON] ^= NCO1OUT;
+            }
+        }
+        let output = self.registers[NCO1CON] & NCO1EN != 0 && self.nco_output();
+        self.registers[NCO1CON] = (self.registers[NCO1CON] & !NCO1OUT)
+            | (u8::from(output ^ (self.registers[NCO1CON] & NCO1POL != 0)) * NCO1OUT);
+        self.set_signal(self.nco1_output_signal, u64::from(output), 1, now);
     }
 
     fn refresh_port(&mut self, port: usize, at: SimTime) -> Result<(), DeviceError> {
@@ -117,11 +184,13 @@ impl Pic16State {
         self.uart.clear();
         self.timer0_epoch = at.ticks();
         self.timer1_epoch = at.ticks();
+        self.nco_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.set_signal(self.uart_strobe_signal, 0, 1, at);
         self.set_signal(self.timer0_irq_signal, 0, 1, at);
         self.set_signal(self.timer1_irq_signal, 0, 1, at);
+        self.set_signal(self.nco1_output_signal, 0, 1, at);
         self.set_signal(self.interrupt_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
         for port in 0..5 {
@@ -133,6 +202,7 @@ impl Pic16State {
         let peripheral = self.registers[INTCON] & INTCON_PEIE != 0
             && ((self.registers[PIR0] & self.registers[PIE0] & TMR0IF != 0)
                 || (self.registers[PIR4] & self.registers[PIE4] & TMR1IF != 0)
+                || (self.registers[PIR7] & self.registers[PIE7] & NCO1IF != 0)
                 || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
     }
@@ -150,6 +220,12 @@ impl Pic16PeripheralsHandle {
             .expect("PIC16 peripheral lock poisoned")
             .uart
             .clone()
+    }
+
+    /// Returns the current logical NCO1 output.
+    pub fn nco1_output(&self) -> bool {
+        let state = self.0.lock().expect("PIC16 peripheral lock poisoned");
+        state.registers[NCO1CON] & NCO1EN != 0 && state.nco_output()
     }
 
     /// Advances functional timers and returns the combined interrupt request.
@@ -182,6 +258,7 @@ impl Pic16PeripheralsHandle {
                 state.set_signal(state.timer1_irq_signal, 1, 1, now);
             }
         }
+        state.update_nco(now);
         if state.registers[WDTCON0] & 1 != 0 {
             let exponent = u32::from((state.registers[WDTCON0] >> 1) & 0x1f).min(20);
             let period = 32_u64.checked_shl(exponent).unwrap_or(u64::MAX);
@@ -252,6 +329,11 @@ impl Pic16Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("functional Timer1 interrupt flag".to_owned()),
         )?;
+        let nco1_output_signal = hub.declare(
+            "board.pic16f15376.nco1.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional NCO1 output".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.pic16f15376.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -270,12 +352,14 @@ impl Pic16Peripherals {
             uart: Vec::new(),
             timer0_epoch: 0,
             timer1_epoch: 0,
+            nco_epoch: 0,
             watchdog_epoch: 0,
             watchdog_reset: false,
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
             timer1_irq_signal,
+            nco1_output_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -428,6 +512,34 @@ impl Device for Pic16Peripherals {
                 }
                 state.registers[address] = value;
             }
+            NCO1ACCL | NCO1ACCH | NCO1ACCU | NCO1INCL | NCO1INCH | NCO1INCU => {
+                state.update_nco(at);
+                state.registers[address] = if address == NCO1ACCU || address == NCO1INCU {
+                    value & 0x0f
+                } else {
+                    value
+                };
+            }
+            NCO1CON => {
+                let was_enabled = state.registers[NCO1CON] & NCO1EN != 0;
+                state.update_nco(at);
+                let output = state.registers[NCO1CON] & NCO1OUT;
+                state.registers[NCO1CON] = (value & (NCO1EN | NCO1POL | NCO1PFM)) | output;
+                if !was_enabled && state.registers[NCO1CON] & NCO1EN != 0 {
+                    state.nco_epoch = at.ticks();
+                }
+                state.update_nco(at);
+            }
+            NCO1CLK => {
+                state.update_nco(at);
+                state.registers[address] = value & 0xef;
+            }
+            PIR7 => {
+                state.registers[address] = value;
+            }
+            PIE7 => {
+                state.registers[address] = value & NCO1IE;
+            }
             WDTCON0 => {
                 state.registers[address] = value & 0x3f;
                 state.watchdog_epoch = at.ticks();
@@ -502,5 +614,50 @@ mod tests {
             .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn nco1_accumulates_and_routes_overflow_interrupt() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        device
+            .write(NCO1INCU as u64, AccessWidth::Byte, 0x0f, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(NCO1INCH as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(NCO1INCL as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(PIE7 as u64, AccessWidth::Byte, NCO1IE.into(), SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                INTCON as u64,
+                AccessWidth::Byte,
+                (INTCON_GIE | INTCON_PEIE).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                NCO1CON as u64,
+                AccessWidth::Byte,
+                NCO1EN.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+
+        assert!(!handle.nco1_output());
+        assert!(handle.poll(SimTime::from_ticks(2)));
+        assert!(handle.nco1_output());
+        assert_eq!(
+            device
+                .read(PIR7 as u64, AccessWidth::Byte, SimTime::from_ticks(2))
+                .unwrap() as u8
+                & NCO1IF,
+            NCO1IF
+        );
     }
 }

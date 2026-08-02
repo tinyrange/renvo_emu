@@ -114,11 +114,15 @@ TARGETS = {
         "repeat": "run-O2-repeat/result.json",
         "vcd": "run-O2/signals.vcd",
         "repeat_vcd": "run-O2-repeat/signals.vcd",
-        "vendor_builds": ["register-timer0-build.json"],
-        "vendor_runs": ["register-timer0-run/result.json"],
+        "vendor_builds": ["register-timer0-build.json", "register-nco-build.json"],
+        "vendor_runs": [
+            "register-timer0-run/result.json",
+            "register-nco-run/result.json",
+        ],
         "edges": {
             "remu.board.pic16f15376.porta.pin0": ["0", "1"],
             "remu.board.pic16f15376.timer0.irq": ["0", "1"],
+            "remu.board.pic16f15376.nco1.output": ["0", "1"],
             "remu.board.pic16f15376.eusart1.tx_strobe": ["0", "1"],
             "remu.board.pic16f15376.interrupt.request": ["0", "1"],
         },
