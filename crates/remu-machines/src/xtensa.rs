@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, EspGdma, EspGdmaHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -379,6 +380,7 @@ pub struct XtensaMachine {
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
+    gdma: EspGdmaHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -499,7 +501,6 @@ impl XtensaMachine {
             ("rsa", 0x6003_c000),
             ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
-            ("gdma", 0x6003_f000),
             ("saradc", 0x6004_0000),
             ("lcd-cam", 0x6004_1000),
             ("sensitive", 0x600c_1000),
@@ -595,6 +596,9 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (gdma_device, gdma) =
+            EspGdma::new("esp32s3.gdma", "board.esp32s3.gdma", signals.clone())?;
+        bus.map_device("esp32s3.gdma", 0x6003_f000, 0x1000, Box::new(gdma_device))?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -716,6 +720,7 @@ impl XtensaMachine {
             system,
             systimer,
             timer_groups,
+            gdma,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -993,6 +998,11 @@ impl XtensaMachine {
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
     pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
         self.stop_on_usb_input_complete = enabled;
+    }
+
+    /// Returns the host-facing native ESP32-S3 GDMA channel-zero endpoint.
+    pub fn gdma(&self) -> EspGdmaHandle {
+        self.gdma.clone()
     }
 
     /// Drives or releases one low GPIO bank pin.

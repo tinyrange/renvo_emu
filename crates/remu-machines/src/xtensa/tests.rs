@@ -29,3 +29,43 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_gdma_native_channel_zero_has_fifo_and_status_paths() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6003_f000;
+    machine.gdma().queue_input_words(&[0x5aa]);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x1c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x5aa
+    );
+    machine
+        .bus
+        .write(base + 0x10, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x0c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        1
+    );
+    machine
+        .bus
+        .write(base + 0x7c, AccessWidth::Word, 0x200 | 0x155, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.gdma().take_output_words(), vec![0x155]);
+}
