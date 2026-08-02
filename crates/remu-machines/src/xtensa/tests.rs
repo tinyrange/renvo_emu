@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3EfuseRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -13,20 +14,25 @@ fn direct_load_starts_with_appcpu_reset_and_parked() {
 fn esp32s3_efuse_native_window_models_otp_programming_and_interrupts() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let base = 0x6000_7000;
-    let write = |machine: &mut XtensaMachine, offset: u64, value: u64| {
+    let write = |machine: &mut XtensaMachine, register: Esp32S3EfuseRegister, value: u64| {
         machine
             .bus
-            .write(base + offset, AccessWidth::Word, value, SimTime::ZERO)
+            .write(
+                base + register.offset(),
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
             .unwrap();
     };
-    write(&mut machine, 0x00, 1 << 7);
-    write(&mut machine, 0x1d4, 1 << 1);
-    write(&mut machine, 0x1e0, 1 << 1);
+    write(&mut machine, Esp32S3EfuseRegister::PgmData0, 1 << 7);
+    write(&mut machine, Esp32S3EfuseRegister::Cmd, 1 << 1);
+    write(&mut machine, Esp32S3EfuseRegister::IntEna, 1 << 1);
     assert_eq!(
         machine
             .bus
             .read(
-                base + 0x30,
+                base + Esp32S3EfuseRegister::RdRepeatData0.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -38,7 +44,7 @@ fn esp32s3_efuse_native_window_models_otp_programming_and_interrupts() {
         machine
             .bus
             .read(
-                base + 0x1dc,
+                base + Esp32S3EfuseRegister::IntSt.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -46,12 +52,12 @@ fn esp32s3_efuse_native_window_models_otp_programming_and_interrupts() {
             .unwrap(),
         1 << 1
     );
-    write(&mut machine, 0x1e4, 1 << 1);
+    write(&mut machine, Esp32S3EfuseRegister::IntClr, 1 << 1);
     assert_eq!(
         machine
             .bus
             .read(
-                base + 0x1dc,
+                base + Esp32S3EfuseRegister::IntSt.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
