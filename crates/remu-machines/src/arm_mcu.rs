@@ -760,7 +760,7 @@ impl ArmMcuMachine {
         bus.map_device(
             "stm32l432kc.syscfg",
             0x4001_0000,
-            0x400,
+            0x200,
             Box::new(RegisterBank::new(
                 "stm32l432kc.syscfg",
                 [
