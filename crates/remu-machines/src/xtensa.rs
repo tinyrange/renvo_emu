@@ -1164,6 +1164,8 @@ impl XtensaMachine {
             for core in 0..2_u32 {
                 // IDF maps every unused source to CPU interrupt 6, the
                 // architecture's disabled/reserved matrix sink.
+                self.interrupt_matrix
+                    .set_source_pending(core as usize, 38, usb_pending);
                 let interrupt = self.interrupt_matrix.route(core as usize, 38);
                 if interrupt != u8::MAX && interrupt != 6 {
                     if core == 0 {
@@ -1181,6 +1183,11 @@ impl XtensaMachine {
                 }
                 crosscore_was_pending[core as usize] = crosscore_pending;
                 let source = 79 + core;
+                self.interrupt_matrix.set_source_pending(
+                    core as usize,
+                    source as usize,
+                    crosscore_pending,
+                );
                 let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
                 if interrupt != u8::MAX {
                     if newly_pending && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some() {
@@ -1211,6 +1218,8 @@ impl XtensaMachine {
                 systimer_was_pending[target] = pending;
                 let source = 57 + u32::try_from(target).expect("three timer targets fit u32");
                 let core = u32::try_from(target).expect("three timer targets fit u32");
+                self.interrupt_matrix
+                    .set_source_pending(core as usize, source as usize, pending);
                 let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
                 if interrupt != u8::MAX {
                     if pending
@@ -1252,6 +1261,11 @@ impl XtensaMachine {
                     }
                     timer_group_was_pending[group][timer] = pending;
                     for core in 0..2_u32 {
+                        self.interrupt_matrix.set_source_pending(
+                            core as usize,
+                            source as usize,
+                            pending,
+                        );
                         let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
                         if interrupt == u8::MAX || interrupt == 6 {
                             continue;
