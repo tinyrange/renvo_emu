@@ -32,7 +32,8 @@ SPI receiver-enable behavior. Clock synchronization and timing are deterministic
 approximations. The ADC exposes its native control/reference/input/sequence
 surface and deterministic host samples for software-triggered conversion,
 including bounded positive-input scan advancement; result-ready, overrun, and
-window flags route to IRQ 23. Full USB packet protocol and USB descriptor DMA, linked DMAC
+window flags route to IRQ 23. It follows vendor masks and raw write-one
+interrupt alias semantics. Full USB packet protocol and USB descriptor DMA, linked DMAC
 descriptors, peripheral/event trigger routing, CRC execution, analog behavior,
 ADC averaging/event-DMA coupling, I2S serial timing/framing/pin waveforms/DMAC coupling, and live peripheral
 event-generator/user routing are unsupported.

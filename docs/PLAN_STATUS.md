@@ -103,14 +103,16 @@ debug control.
 
 Writing `SWTRIG.START` performs one deterministic functional conversion using
 the sample supplied by `Samd21AdcHandle::inject_sample`; `RESULT` read-clear,
-W1C interrupt flags, unread-result overrun, resolution/left-adjust selection,
-and window modes are covered by unit tests and the Docker smoke. This is a
-firmware-facing digital model, not an analog simulator: electrical voltages,
-reference impedance, averaging/scan timing, Event System and DMAC coupling,
-and exact conversion clocks remain deferred. The register map and interrupt
-assignment are sourced from Microchip SAM D21/DA1 Family Data Sheet
+raw-payload W1C/alias semantics, unread-result overrun, resolution/left-adjust
+selection, and window modes are covered by unit tests and the Docker smoke.
+The model enforces the vendor masks, including the reserved-bit gaps in
+`INPUTCTRL` and `EVCTRL`. This is a firmware-facing digital model, not an
+analog simulator: electrical voltages, reference impedance, averaging/scan
+timing, Event System and DMAC coupling, and exact conversion clocks remain
+deferred. The register map and interrupt assignment are sourced from the
+Microchip SAM D21/DA1 Family Data Sheet
 [DS40001882E](https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf),
-section 33.
+section 33, and the [SAM D21 CMSIS ADC definitions](https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/adc.h).
 
 ## Phase 5 closure
 

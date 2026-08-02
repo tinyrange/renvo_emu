@@ -583,6 +583,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf",
             "https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/sercom.h",
             "https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/instance/sercom0.h",
+            "https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/adc.h",
         ],
         limitations: &[
             "ADC input values are deterministic host samples rather than analog voltages",
