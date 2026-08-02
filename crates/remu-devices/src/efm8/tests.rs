@@ -1236,3 +1236,46 @@ fn flash_program_erase_and_key_protection_are_functional() {
         0x43
     );
 }
+
+#[test]
+fn crossbar_assigns_fixed_uart_and_priority_skips_pins() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(super::P0SKIP as u64, AccessWidth::Byte, 0x01, SimTime::ZERO)
+        .unwrap();
+    device
+        .write(
+            XBR0 as u64,
+            AccessWidth::Byte,
+            (XBR0_URT0E | 0x02).into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(
+            XBR2 as u64,
+            AccessWidth::Byte,
+            XBR2_XBARE.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert!(handle.crossbar_enabled());
+    assert_eq!(
+        handle.crossbar_pin(super::Efm8CrossbarFunction::Uart0Tx),
+        Some(super::Efm8CrossbarPin { port: 0, pin: 4 })
+    );
+    assert_eq!(
+        handle.crossbar_pin(super::Efm8CrossbarFunction::Uart0Rx),
+        Some(super::Efm8CrossbarPin { port: 0, pin: 5 })
+    );
+    assert_eq!(
+        handle.crossbar_pin(super::Efm8CrossbarFunction::Spi0Sck),
+        Some(super::Efm8CrossbarPin { port: 0, pin: 1 })
+    );
+    assert_eq!(
+        handle.crossbar_pin(super::Efm8CrossbarFunction::Spi0Nss),
+        Some(super::Efm8CrossbarPin { port: 0, pin: 6 })
+    );
+}

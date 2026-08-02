@@ -22,6 +22,8 @@ register declarations in a runnable fixture.
 documented Port Match interrupt with a host-provided low pin stimulus.
 `remu_flash.c` performs the documented two-write `FLKEY` authorization and
 uses firmware MOVX stores to erase and program code flash through `PSCTL`.
+`remu_crossbar.c` combines fixed UART0 routes, SPI0 allocation, and a skipped
+P0 pin so the priority allocator's decisions are visible in VCD.
 The small declaration and startup adapters expose only the documented register
 surface needed by these fixtures.
 

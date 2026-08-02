@@ -47,6 +47,16 @@ impl Efm8PeripheralsHandle {
         self.0.lock().expect("EFM8 lock poisoned").uart1.clone()
     }
 
+    /// Returns the physical pin currently assigned to a crossbar function.
+    pub fn crossbar_pin(&self, function: Efm8CrossbarFunction) -> Option<Efm8CrossbarPin> {
+        self.0.lock().expect("EFM8 lock poisoned").crossbar_routes[function.index()]
+    }
+
+    /// Reports whether the port crossbar output drivers are enabled.
+    pub fn crossbar_enabled(&self) -> bool {
+        self.0.lock().expect("EFM8 lock poisoned").registers[XBR2] & XBR2_XBARE != 0
+    }
+
     /// Copies an Intel HEX code segment into the functional flash image.
     pub fn load_flash(&self, address: u32, bytes: &[u8]) -> Result<(), DeviceError> {
         self.0.lock().expect("EFM8 lock poisoned").load_flash(

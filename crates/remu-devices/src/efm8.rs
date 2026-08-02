@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 mod adc;
 mod clu;
 mod comparator;
+mod crossbar;
 mod dac;
 mod flash;
 mod interrupts;
@@ -11,6 +12,8 @@ mod timers;
 use adc::*;
 use clu::*;
 use comparator::*;
+use crossbar::*;
+pub use crossbar::{Efm8CrossbarFunction, Efm8CrossbarPin};
 use dac::*;
 use flash::*;
 use port_match::*;
@@ -187,6 +190,7 @@ fn reverse_bits(value: u8) -> u8 {
 struct Efm8State {
     registers: Box<[u8]>,
     flash: Box<[u8]>,
+    crossbar_routes: [Option<Efm8CrossbarPin>; Efm8CrossbarFunction::COUNT],
     ports: [Arc<Mutex<GpioState>>; 4],
     port_signals: [Vec<SignalId>; 4],
     hub: SignalHub,
@@ -240,6 +244,10 @@ struct Efm8State {
     timer5_irq_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
+    crossbar_enabled_signal: SignalId,
+    crossbar_assigned_signal: SignalId,
+    crossbar_uart0_tx_signal: SignalId,
+    crossbar_uart0_rx_signal: SignalId,
     dac_output_signal: SignalId,
     dac_enabled_signal: SignalId,
     comparator_output_signals: [SignalId; 2],
@@ -441,6 +449,7 @@ impl Efm8State {
         }
         self.refresh_clu(at);
         self.refresh_port_match(at);
+        self.refresh_crossbar(at);
     }
 
     fn canonical(raw: usize) -> usize {
@@ -912,6 +921,26 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("functional watchdog reset request".to_owned()),
         )?;
+        let crossbar_enabled_signal = hub.declare(
+            "board.efm8bb52f32g.crossbar.enabled",
+            SignalValue::from_u64(0, 1)?,
+            Some("priority crossbar output-driver enable".to_owned()),
+        )?;
+        let crossbar_assigned_signal = hub.declare(
+            "board.efm8bb52f32g.crossbar.assigned_count",
+            SignalValue::from_u64(0, 8)?,
+            Some("number of functions assigned to physical pins".to_owned()),
+        )?;
+        let crossbar_uart0_tx_signal = hub.declare(
+            "board.efm8bb52f32g.crossbar.uart0.tx_pin",
+            SignalValue::from_u64(0xff, 8)?,
+            Some("UART0 TX physical pin index, or 0xff when disabled".to_owned()),
+        )?;
+        let crossbar_uart0_rx_signal = hub.declare(
+            "board.efm8bb52f32g.crossbar.uart0.rx_pin",
+            SignalValue::from_u64(0xff, 8)?,
+            Some("UART0 RX physical pin index, or 0xff when disabled".to_owned()),
+        )?;
         let pca_output_signals = [
             hub.declare(
                 "board.efm8bb52f32g.pca0.cex0",
@@ -937,6 +966,7 @@ impl Efm8Peripherals {
         let state = Arc::new(Mutex::new(Efm8State {
             registers: vec![0; SFR_BYTES].into_boxed_slice(),
             flash: vec![0xff; FLASH_BYTES].into_boxed_slice(),
+            crossbar_routes: [None; Efm8CrossbarFunction::COUNT],
             ports: [port0, port1, port2, port3],
             port_signals: [signals0, signals1, signals2, signals3],
             hub,
@@ -990,6 +1020,10 @@ impl Efm8Peripherals {
             timer5_irq_signal,
             interrupt_signal,
             watchdog_reset_signal,
+            crossbar_enabled_signal,
+            crossbar_assigned_signal,
+            crossbar_uart0_tx_signal,
+            crossbar_uart0_rx_signal,
             dac_output_signal,
             dac_enabled_signal,
             comparator_output_signals: [comparator0_output_signal, comparator1_output_signal],
@@ -1418,6 +1452,9 @@ impl Device for Efm8Peripherals {
         }
         state.update_smbus0_signals(at);
         state.refresh_port_match(at);
+        if matches!(address, XBR0 | XBR1 | XBR2 | P0SKIP | P1SKIP | P2SKIP) {
+            state.refresh_crossbar(at);
+        }
         state.update_interrupt_signals(at);
         Ok(())
     }

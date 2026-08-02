@@ -13,8 +13,13 @@ baseline, size-optimized and speed-optimized
 lanes and emits `EFM8BB52:OK\nIRQ\n` after reading an externally stimulated
 P0.1 input.
 
+The crossbar fixture checks UART0's fixed P0.4/P0.5 priority, `P0SKIP`
+handling, and first-free SPI0 assignment. Route decisions and the global
+crossbar enable are observable in VCD without implying peripheral waveform
+behavior that belongs to the individual peripheral models.
+
 The exact functional register surface is RSTSRC, CLKSEL, WDTCN, Ports 0–3,
-port modes and crossbar, Timer0/2, UART0, SMBus0 control/data/FIFO status,
+port modes and XBR0/XBR1/XBR2 priority allocation with PnSKIP masks, Timer0/2, UART0, SMBus0 control/data/FIFO status,
 PCA0 and IE/IP/EIE1/EIP1 routing. PCA0
 models the 16-bit timebase, SYSCLK divider selection, edge-aligned 8–11/16-bit
 PWM, output polarity, compare flags, capture on sampled rising/falling edges,

@@ -810,6 +810,7 @@ const MANIFESTS: &[TargetManifest] = &[
         support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
             "crossbar GPIO",
+            "crossbar priority/skip assignment",
             "Timer0/1/2/3/4/5",
             "UART0/1",
             "SPI0 functional transfers",

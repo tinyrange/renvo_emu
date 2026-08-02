@@ -438,6 +438,13 @@ operation and does not weaken the firmware-visible write controls. Programming
 voltage physics, timing, endurance, lock-byte policy, and hardware debug access
 are outside this deterministic functional model.
 
+The EFM8 priority crossbar gives UART0 its fixed P0.4/P0.5 routes, excludes
+pins selected by `P0SKIP` through `P2SKIP`, and assigns enabled XBR0/XBR1/XBR2
+resources to the remaining P0-P2 pins in priority order. Typed accessors and
+VCD signals expose the selected routes and global driver-enable state.
+Peripheral waveform generation remains the responsibility of each peripheral
+model; selecting a route alone does not claim electrical or timing fidelity.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
