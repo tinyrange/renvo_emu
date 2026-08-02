@@ -26,6 +26,12 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The STM32L432KC model additionally maps the native bxCAN controller at
+`0x40006400`. Its functional slice supports initialization state, loopback
+bit-timing selection, one transmit mailbox, receive FIFO 0, standard/extended
+identifier fields, payload words, completion/error flags, and maskable status
+interrupts. It does not claim bit-level arbitration or a physical CAN bus.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
