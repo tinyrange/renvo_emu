@@ -8,7 +8,8 @@ The gate covers all legal base MCS-51 opcodes, SDCC startup/calling convention,
 native 16-bit `int` and three-byte generic pointers, recursion, generated
 arithmetic helpers, split memory spaces, interrupt prologues, paged SFRs,
 GPIO/crossbar, Timer0/2, UART0, deterministic replay, coverage and hierarchical
-VCD signals. The smoke builds baseline, size-optimized and speed-optimized
+VCD signals, and firmware-side keyed flash page erase/byte programming through
+XDATA. The smoke builds baseline, size-optimized and speed-optimized
 lanes and emits `EFM8BB52:OK\nIRQ\n` after reading an externally stimulated
 P0.1 input.
 
