@@ -24,3 +24,10 @@ BSD-3-Clause, and the expected result is a rising PB3 edge. Run:
 ```sh
 scripts/qualify-stm32l432kc.sh
 ```
+
+The machine also exposes the STM32L432 QUADSPI register block at
+`0xA0001000` and a deterministic 16 MiB external NOR window at `0x90000000`.
+Indirect reads and one-to-zero NOR programming through `DR`, transfer/status
+flags, the IRQ 71 route, and memory-mapped reads are covered by the
+`remu-machines` unit gate. Dual-flash, DMA, and serial timing remain outside
+this functional slice.

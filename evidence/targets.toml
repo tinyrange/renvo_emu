@@ -64,7 +64,7 @@ toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
 compiler_flags = ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16"]
 peripherals = ["RCC", "FLASH", "PWR", "GPIOA", "GPIOB", "GPIOC", "GPIOH", "SYSCFG", "EXTI", "TIM2", "USART1", "USART2", "LPUART1"]
 image_formats = ["ELF32 little-endian Arm executable"]
-memory_map = ["flash 0x08000000..0x0803ffff with boot alias at 0x00000000", "SRAM 0x20000000..0x2000ffff", "documented MMIO windows for the selected peripheral slice"]
+memory_map = ["flash 0x08000000..0x0803ffff with boot alias at 0x00000000", "SRAM 0x20000000..0x2000ffff", "QUADSPI registers 0xA0001000..0xA00013ff and external flash window 0x90000000..0x90ffffff", "documented MMIO windows for the selected peripheral slice"]
 reset_assumptions = "Power-on reset reads MSP and Thumb reset PC through the flash alias; RCC/FLASH/PWR readiness is represented only where startup code polls it"
 vectors = ["reset exception 1", "TIM2 external IRQ 28", "USART1 external IRQ 37", "USART2 external IRQ 38", "LPUART1 external IRQ 70"]
 selected_pins = ["PA03 external digital input", "PA05 GPIO output", "PB03 STM32Cube GPIO oracle output"]
