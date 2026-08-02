@@ -51,11 +51,19 @@ traversal and cyclic imports are rejected. The script's final expression must
 be a board instance.
 
 The current board runner is a protocol/component qualification layer. It does
-not yet route ESP32-C6 firmware MMIO activity into the assembled board, so its
-results prove topology, device protocols, deterministic external behavior and
-waveforms—not execution of a firmware driver against the SGP30. That coupling
-can be added at the machine pin/bus boundary without moving CPU or scheduler
-state into Starlark.
+not yet route ESP32-C6 firmware MMIO activity into the Starlark-assembled board,
+so its results prove topology, device protocols, deterministic external behavior
+and waveforms—not execution of a firmware driver against that board's SGP30.
+The standalone ESP32-C6 machine now exposes a functional I2C0 register block at
+`0x6000_4000`: firmware can program the documented command/FIFO registers and
+run the default SGP30 model at `0x58`. The machine emits the transaction on
+`board.esp32c6.i2c0.sda` and `.scl` and reports completion/NACK status. It is
+still intentionally approximate: the controller completes a command list as a
+single functional operation, does not route through Starlark connector nets,
+and does not yet inject a device interrupt into the ESP32-C6 interrupt matrix.
+The next coupling step can attach the machine's I2C endpoint to
+`board.connect("grove", sensor)` without moving CPU or scheduler state into
+Starlark.
 
 Run the deterministic qualification, including byte-identical JSON and VCD
 replay, with:
@@ -68,4 +76,6 @@ Hardware and protocol references:
 
 - [M5Stack NanoC6 pin map](https://docs.m5stack.com/en/core/M5NanoC6)
 - [M5Stack NanoC6 RGB control guide](https://docs.m5stack.com/en/arduino/m5nanoc6/program)
+- [ESP32-C6 I2C peripheral API](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c6/api-reference/peripherals/i2c.html)
+- [ESP32-C6 I2C register definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32c6/register/soc/i2c_reg.h)
 - [Sensirion SGP30 datasheet](https://sensirion.com/media/documents/984E0DD5/61644B8B/Sensirion_Gas_Sensors_Datasheet_SGP30.pdf)
