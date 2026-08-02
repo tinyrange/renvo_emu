@@ -239,6 +239,9 @@ sensor with `board.connect("grove", sensor)`.
 The current board/component scenario validates topology and digital protocol
 models independently. Live ESP32-C6 firmware MMIO is not yet routed into the
 assembled board graph, so this is not yet an end-to-end firmware-driver model.
+The RISC-V, Arm RP, and Xtensa machine APIs now expose named `Compiler` and
+`Native` UART endpoints for the transport-coupling work that follows; vendor
+UART adapters remain target-specific for now.
 See [board simulation](docs/BOARD_SIMULATION.md) for the exact boundary.
 
 ## Architecture
