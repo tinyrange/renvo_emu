@@ -127,10 +127,47 @@ impl Device for FunctionalUart {
 /// enable are set in `CTLR1`, writing `DATAR` appends one byte to the host
 /// terminal while `TXE` and `TC` remain asserted. Receive and line timing are
 /// deliberately outside the six-chip baseline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WchUsartRegister {
+    /// Status register (`STATR`).
+    Status = 0x00,
+    /// Data register (`DATAR`).
+    Data = 0x04,
+    /// Baud-rate register (`BRR`).
+    BaudRate = 0x08,
+    /// Control register 1 (`CTLR1`).
+    Control1 = 0x0c,
+    /// Control register 2 (`CTLR2`).
+    Control2 = 0x10,
+    /// Control register 3 (`CTLR3`).
+    Control3 = 0x14,
+    /// Guard-time and prescaler register (`GPR`).
+    GuardPrescaler = 0x18,
+}
+
+impl WchUsartRegister {
+    fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Status),
+            0x04 => Some(Self::Data),
+            0x08 => Some(Self::BaudRate),
+            0x0c => Some(Self::Control1),
+            0x10 => Some(Self::Control2),
+            0x14 => Some(Self::Control3),
+            0x18 => Some(Self::GuardPrescaler),
+            _ => None,
+        }
+    }
+}
+
+/// Functional WCH USART register bank shared by USART1 and USART2.
 pub struct WchUsart {
     name: String,
     baud_rate: u32,
-    control: [u32; 3],
+    control1: u32,
+    control2: u32,
+    control3: u32,
     guard_prescaler: u32,
     handle: UartHandle,
 }
@@ -148,7 +185,9 @@ impl WchUsart {
             Self {
                 name: name.into(),
                 baud_rate: 0,
-                control: [0; 3],
+                control1: 0,
+                control2: 0,
+                control3: 0,
                 guard_prescaler: 0,
                 handle: handle.clone(),
             },
@@ -158,7 +197,9 @@ impl WchUsart {
 
     fn reset_registers(&mut self) {
         self.baud_rate = 0;
-        self.control = [0; 3];
+        self.control1 = 0;
+        self.control2 = 0;
+        self.control3 = 0;
         self.guard_prescaler = 0;
     }
 }
@@ -172,15 +213,15 @@ impl Device for WchUsart {
         if width != AccessWidth::Word {
             return Err(DeviceError::new("WCH USART requires word access"));
         }
-        let value = match offset {
-            0x00 => Self::TXE | Self::TC,
-            0x04 => 0,
-            0x08 => self.baud_rate,
-            0x0c => self.control[0],
-            0x10 => self.control[1],
-            0x14 => self.control[2],
-            0x18 => self.guard_prescaler,
-            _ => {
+        let value = match WchUsartRegister::from_offset(offset) {
+            Some(WchUsartRegister::Status) => Self::TXE | Self::TC,
+            Some(WchUsartRegister::Data) => 0,
+            Some(WchUsartRegister::BaudRate) => self.baud_rate,
+            Some(WchUsartRegister::Control1) => self.control1,
+            Some(WchUsartRegister::Control2) => self.control2,
+            Some(WchUsartRegister::Control3) => self.control3,
+            Some(WchUsartRegister::GuardPrescaler) => self.guard_prescaler,
+            None => {
                 return Err(DeviceError::new(format!(
                     "unmodeled WCH USART read at offset {offset:#x}"
                 )));
@@ -201,19 +242,19 @@ impl Device for WchUsart {
         }
         let value = u32::try_from(value & u64::from(u32::MAX))
             .expect("masked USART register value fits u32");
-        match offset {
-            0x00 => {}
-            0x04 => {
-                if self.control[0] & (Self::UE | Self::TE) == (Self::UE | Self::TE) {
+        match WchUsartRegister::from_offset(offset) {
+            Some(WchUsartRegister::Status) => {}
+            Some(WchUsartRegister::Data) => {
+                if self.control1 & (Self::UE | Self::TE) == (Self::UE | Self::TE) {
                     self.handle.transmit(&[value as u8]);
                 }
             }
-            0x08 => self.baud_rate = value & 0x0000_ffff,
-            0x0c => self.control[0] = value,
-            0x10 => self.control[1] = value,
-            0x14 => self.control[2] = value,
-            0x18 => self.guard_prescaler = value,
-            _ => {
+            Some(WchUsartRegister::BaudRate) => self.baud_rate = value & 0x0000_ffff,
+            Some(WchUsartRegister::Control1) => self.control1 = value,
+            Some(WchUsartRegister::Control2) => self.control2 = value,
+            Some(WchUsartRegister::Control3) => self.control3 = value,
+            Some(WchUsartRegister::GuardPrescaler) => self.guard_prescaler = value,
+            None => {
                 return Err(DeviceError::new(format!(
                     "unmodeled WCH USART write at offset {offset:#x}"
                 )));
