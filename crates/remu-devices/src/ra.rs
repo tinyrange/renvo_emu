@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 
 /// RA4M1 ELC event number for GPT0 counter overflow.
 pub const RA4M1_EVENT_GPT0_OVERFLOW: u16 = 0x05d;
+/// RA4M1 ELC event number for GPT2 counter overflow.
+pub const RA4M1_EVENT_GPT2_OVERFLOW: u16 = 0x06d;
 /// RA4M1 ELC event number for SCI9 transmit-data-empty.
 pub const RA4M1_EVENT_SCI9_TXI: u16 = 0x0a9;
 
