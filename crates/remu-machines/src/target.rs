@@ -832,23 +832,78 @@ mod tests {
     }
 
     #[test]
-    fn compiler_support_evidence_matches_declared_cpu_architecture() {
+    fn support_tiers_are_unique_and_progressive() {
+        let tier_order = [
+            "compiler-execution",
+            "firmware-functional-slice",
+            "board-or-sdk-workflow",
+        ];
         for manifest in target_manifests() {
-            let expected: &[&str] = match manifest.id {
-                TargetId::Ch32v003 | TargetId::Ch32v006 | TargetId::Esp32c6 => {
-                    &["riscv-cpu.json", "rust-abi.json"]
-                }
-                TargetId::Rp2040 => &["arm-cpu.json", "rust-abi.json"],
-                TargetId::Rp2350 => &["riscv-cpu.json", "arm-cpu.json", "rust-abi.json"],
-                TargetId::Esp32s3 => &["xtensa-cpu.json", "rust-abi.json"],
-                _ => &["expansion/summary.json"],
-            };
+            let mut previous_rank = None;
+            for tier in manifest.support_tiers {
+                assert!(
+                    manifest.support_tiers[..]
+                        .iter()
+                        .filter(|other| other.name == tier.name)
+                        .count()
+                        == 1,
+                    "{} declares support tier {} more than once",
+                    manifest.id,
+                    tier.name
+                );
+                let rank = tier_order
+                    .iter()
+                    .position(|name| *name == tier.name)
+                    .unwrap_or_else(|| {
+                        panic!("{} has unknown support tier {}", manifest.id, tier.name)
+                    });
+                assert!(
+                    previous_rank.is_none_or(|previous| previous < rank),
+                    "{} support tiers are not in progressive order",
+                    manifest.id
+                );
+                previous_rank = Some(rank);
+            }
+        }
+    }
+
+    #[test]
+    fn compiler_support_evidence_matches_declared_cpu_architecture() {
+        let architecture_evidence = [
+            ("riscv-cpu.json", FirmwareArchitecture::RiscV32),
+            ("arm-cpu.json", FirmwareArchitecture::Arm),
+            ("xtensa-cpu.json", FirmwareArchitecture::Xtensa),
+        ];
+        for manifest in target_manifests() {
             let compiler_tier = manifest
                 .support_tiers
                 .iter()
                 .find(|tier| tier.name == "compiler-execution")
                 .expect("every target declares a compiler-execution tier");
-            assert_eq!(compiler_tier.evidence, expected, "{}", manifest.id);
+            let uses_expansion_evidence =
+                compiler_tier.evidence.contains(&"expansion/summary.json");
+            if uses_expansion_evidence {
+                assert_eq!(compiler_tier.evidence, &["expansion/summary.json"]);
+                continue;
+            }
+
+            for (path, architecture) in architecture_evidence {
+                let evidence_present = compiler_tier.evidence.contains(&path);
+                let architecture_present = manifest
+                    .cpus
+                    .iter()
+                    .any(|cpu| cpu.architecture == architecture);
+                assert_eq!(
+                    evidence_present, architecture_present,
+                    "{} compiler evidence {} does not match its CPU profiles",
+                    manifest.id, path
+                );
+            }
+            assert!(
+                compiler_tier.evidence.contains(&"rust-abi.json"),
+                "{} compiler evidence is missing rust ABI coverage",
+                manifest.id
+            );
         }
     }
 

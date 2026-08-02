@@ -1,7 +1,7 @@
 {
   "generator": {
     "path": "scripts/generate-dashboard.py",
-    "sha256": "65a1d185d62e94173df0b59fd3666cee11317c0210f0095eb623bcc335e0dc73",
+    "sha256": "b8bd561d1fa3802d5708037aeb269e1e2a59f0e78115f38a565437164f9b41b3",
     "spec": "qualification/dashboard-spec.json",
     "spec_sha256": "246d1781c1dd8b28a9f9bdb6a34e617c67928c5be811a2315e19adbbf194d9c6"
   },
@@ -12,11 +12,11 @@
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "d2ae4acdf5233eac511a2ffeebb1915915fc39d6249b3424b89e02ae79aacd10"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "b03c6ce12c777d73ea6ecb0e8b444346a106b12e76206237196b03e5b95edc65"
     },
     {
       "path": "qualification/reduction.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "f787806a9eabef20f01f7ceabbf805822d4abd83cd83065348d137c24d94cdb8"
     },
     {
       "path": "qualification/rust-abi.json",
