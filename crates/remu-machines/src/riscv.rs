@@ -38,6 +38,8 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
+mod uart;
+use uart::map_esp32c6_uarts;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -618,10 +620,10 @@ impl RiscVMachine {
                 bus.map_device(
                     "esp32c6.lp-aon",
                     0x600b_1000,
-                    0x1000,
+                    0x400,
                     Box::new(Rp2040RegisterBank::new(
                         "esp32c6.lp-aon",
-                        vec![0; 0x1000 / 4],
+                        vec![0; 0x400 / 4],
                     )),
                 )?;
                 bus.map_device(
@@ -725,9 +727,7 @@ impl RiscVMachine {
                 )?;
                 bus.map_device("esp32c6.gpio", 0x6009_1000, 0x1000, Box::new(device))?;
                 chip_gpio.push(handle);
-                let (uart0, handle) = FunctionalUart::new_lenient("esp32c6.uart0", 0x00, 0x1c, 0);
-                bus.map_device("esp32c6.uart0", 0x6000_0000, 0x1000, Box::new(uart0))?;
-                chip_uarts.push(handle);
+                map_esp32c6_uarts(&mut bus, &mut chip_uarts)?;
             }
             TargetId::Rp2350 => {
                 let (device, handle, multicore) = RpSioGpio::new_rp2350_with_multicore(

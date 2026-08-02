@@ -166,6 +166,75 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_uart1_and_lp_uart_native_transmit_slices_capture_bytes() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let uart1 = machine.chip_uarts[1].clone();
+    let lp_uart = machine.chip_uarts[2].clone();
+
+    machine
+        .bus
+        .write(0x6000_1014, AccessWidth::Word, 694, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_1020, AccessWidth::Word, 3 << 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6000_1000,
+            AccessWidth::Word,
+            u64::from(b'1'),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600b_1414, AccessWidth::Word, 694, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600b_1420, AccessWidth::Word, 3 << 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600b_1400,
+            AccessWidth::Word,
+            u64::from(b'L'),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(uart1.bytes(), b"1");
+    assert_eq!(lp_uart.bytes(), b"L");
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6000_101c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0xe000_c000
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x600b_141c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0xe000_c000
+    );
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]

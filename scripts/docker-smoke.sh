@@ -154,6 +154,10 @@ build_case esp32c6-uart toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 
     -O2 start.S uart.c
 run_case esp32c6-uart esp32c6 "$artifact_root/esp32c6-uart/smoke.elf"
 
+build_case esp32c6-uarts toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
+    -O2 start.S uart-multi.c
+run_case esp32c6-uarts esp32c6 "$artifact_root/esp32c6-uarts/smoke.elf"
+
 build_case esp32c6-privilege toolchains/riscv-gcc-rv32imac.toml corpus/smoke/esp32c6 esp32c6 \
     privilege.S
 run_case esp32c6-privilege esp32c6 "$artifact_root/esp32c6-privilege/smoke.elf"
@@ -205,6 +209,7 @@ jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-arm-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-riscv-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-ESP\n")' "$artifact_root/esp32c6-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "U0\nU1\nLP\n")' "$artifact_root/esp32c6-uarts-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-ESP\n")' "$artifact_root/esp32s3-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2040-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-arm-native-timer-run.json" >/dev/null

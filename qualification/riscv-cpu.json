@@ -1,6 +1,6 @@
 {
   "schema": "remu.riscv-cpu.v1",
-  "source_sha256": "bcad8a5e89292e10eae123444179519d82fb4679b7aa6d55ee0a4d3532c212c3",
+  "source_sha256": "fc50885a3d7e61194bcc2929905bf8be0f3cbba91032751374c77e7c344b015b",
   "primary_sources": [
     "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
     "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
@@ -122,7 +122,7 @@
       "cpu": "esp-rv32imac-hp",
       "feature": "user-traps-and-pmp-visibility",
       "build_artifact": ".remu/portfolio-smoke/esp32c6-privilege-build.json",
-      "build_provenance_sha256": "7bce95bdc1e83b5ee73b77294fef981904f6facd44133d91ef5dfa2380e20887",
+      "build_provenance_sha256": "493ae63e550a0ba99a93ed547530dc630f03891e823a925e7332f0e7ecd5426d",
       "elf": ".remu/portfolio-smoke/esp32c6-privilege/smoke.elf",
       "elf_sha256": "1937ae2fbc3964056eb6f10814d32c718ff43c18cfd10275f305cc9dd015e5c0",
       "result_artifact": ".remu/portfolio-smoke/esp32c6-privilege-run.json",

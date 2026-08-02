@@ -103,13 +103,15 @@
     },
     "esp32c6": {
       "cpu_profiles": ["RV32IMAC"],
-      "proofs": ["esp32c6", "esp32c6-uart"],
+      "proofs": ["esp32c6", "esp32c6-uart", "esp32c6-uarts"],
       "required_covered_regions": [
         "esp32c6.gpio",
         "esp32c6.interrupt-controller-cpu0",
         "esp32c6.interrupt-priority",
         "esp32c6.systimer",
-        "esp32c6.uart0"
+        "esp32c6.uart0",
+        "esp32c6.uart1",
+        "esp32c6.lp-uart"
       ],
       "additional_evidence": [
         "scripts/qualify-micropython.sh",
@@ -119,7 +121,7 @@
       "known_deviations": [
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
-        "UART0 is transmit-focused and does not model physical baud timing.",
+        "UART0, UART1 and LP UART are transmit-focused and do not model physical baud timing or receive FIFO injection.",
         "SYSTIMER and interrupt routing are functional subsets; timer-group behavior is additionally exercised by official MicroPython qualification.",
         "Radio, analogue and security peripherals are outside the six-chip baseline."
       ]
