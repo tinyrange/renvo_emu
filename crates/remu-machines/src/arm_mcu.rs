@@ -16,8 +16,8 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Dma, Stm32DmaHandle, Stm32Gpio,
+    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -81,6 +81,8 @@ pub struct ArmMcuMachine {
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
+    dma1: Option<Stm32DmaHandle>,
+    dma2: Option<Stm32DmaHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -230,7 +232,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, ra_icu, watchdog, dma1, dma2) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -257,6 +259,8 @@ impl ArmMcuMachine {
                     Some(eic),
                     None,
                     Some(watchdog),
+                    None,
+                    None,
                 )
             }
             TargetId::Stm32l432kc => {
@@ -282,11 +286,15 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (dma1_device, dma1) = Stm32Dma::new("stm32l432kc.dma1");
+                let (dma2_device, dma2) = Stm32Dma::new("stm32l432kc.dma2");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    dma1_device,
+                    dma2_device,
                 )?;
                 (
                     gpio,
@@ -295,6 +303,8 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    Some(dma1),
+                    Some(dma2),
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -321,6 +331,8 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     None,
+                    None,
+                    None,
                 )
             }
             _ => unreachable!(),
@@ -339,6 +351,8 @@ impl ArmMcuMachine {
             eic,
             ra_icu,
             watchdog,
+            dma1,
+            dma2,
             compiler_timer,
             exit,
             ppb,
@@ -410,6 +424,8 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        dma1: Stm32Dma,
+        dma2: Stm32Dma,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -474,6 +490,8 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device("stm32l432kc.dma1", 0x4002_0000, 0x100, Box::new(dma1))?;
+        bus.map_device("stm32l432kc.dma2", 0x4002_0400, 0x100, Box::new(dma2))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -686,6 +704,22 @@ impl ArmMcuMachine {
         Ok(())
     }
 
+    /// Services one deterministic transfer unit on each active STM32 DMA channel.
+    ///
+    /// Normal `run` calls invoke this automatically. The explicit helper is
+    /// useful for host-driven peripheral tests that do not need to boot a
+    /// firmware image merely to exercise a memory transfer.
+    pub fn service_stm32_dma(&mut self) -> Result<usize, ArmMachineError> {
+        let mut serviced: usize = 0;
+        if let Some(dma) = &self.dma1 {
+            serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
+        }
+        if let Some(dma) = &self.dma2 {
+            serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
+        }
+        Ok(serviced)
+    }
+
     /// Runs without externally scheduled stimuli.
     pub fn run(
         &mut self,
@@ -759,9 +793,27 @@ impl ArmMcuMachine {
                 continue;
             }
 
+            stats.events = stats
+                .events
+                .saturating_add(u64::try_from(self.service_stm32_dma()?).unwrap_or(u64::MAX));
+
             let (timer_line, timer_pending) = self.timer.poll(self.now);
             let compiler_pending = self.compiler_timer.poll(self.now);
             let mut interrupt_requested = timer_pending;
+            let mut dma_pending = false;
+            const DMA1_IRQS: [u16; 7] = [11, 12, 13, 14, 15, 16, 17];
+            const DMA2_IRQS: [u16; 7] = [56, 57, 58, 59, 60, 68, 69];
+            for (dma, lines) in [(&self.dma1, &DMA1_IRQS), (&self.dma2, &DMA2_IRQS)] {
+                if let Some(dma) = dma {
+                    for (index, line) in lines.iter().copied().enumerate() {
+                        let pending = dma.channel_pending(index);
+                        dma_pending |= pending;
+                        self.cpu
+                            .set_interrupt(line, pending && self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+            }
+            interrupt_requested |= dma_pending;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -907,6 +959,13 @@ mod tests {
     use super::*;
     use remu_image::FirmwareSegment;
 
+    const DMA_CCR_ENABLE: u32 = 1 << 0;
+    const DMA_CCR_TCIE: u32 = 1 << 1;
+    const DMA_CCR_HTIE: u32 = 1 << 2;
+    const DMA_CCR_PINC: u32 = 1 << 6;
+    const DMA_CCR_MINC: u32 = 1 << 7;
+    const DMA_CCR_MEM2MEM: u32 = 1 << 14;
+
     #[test]
     fn samd21_firmware_drives_porta_and_produces_a_trace() {
         let mut code = vec![
@@ -957,6 +1016,69 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_dma1_copies_memory_and_sets_completion_flags() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine
+            .debug_write_memory(0x2000_0000, &0x1234_5678_u32.to_le_bytes())
+            .unwrap();
+        machine
+            .debug_write_memory(0x2000_0004, &0x9abc_def0_u32.to_le_bytes())
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_0010, AccessWidth::Word, 0x2000_0000, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_0014, AccessWidth::Word, 0x2000_0008, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_000c, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_00a8, AccessWidth::Word, 5, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(
+                0x4002_0008,
+                AccessWidth::Word,
+                u64::from(
+                    DMA_CCR_ENABLE
+                        | DMA_CCR_TCIE
+                        | DMA_CCR_HTIE
+                        | DMA_CCR_PINC
+                        | DMA_CCR_MINC
+                        | DMA_CCR_MEM2MEM
+                        | (2 << 8)
+                        | (2 << 10),
+                ),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(machine.service_stm32_dma().unwrap(), 1);
+        assert_eq!(machine.service_stm32_dma().unwrap(), 1);
+        assert_eq!(machine.debug_read_memory(0x2000_0008, 8).unwrap(), {
+            let mut expected = Vec::new();
+            expected.extend_from_slice(&0x1234_5678_u32.to_le_bytes());
+            expected.extend_from_slice(&0x9abc_def0_u32.to_le_bytes());
+            expected
+        });
+        let flags = machine
+            .bus
+            .read(
+                0x4002_0000,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(flags & 0x7, 0x7);
     }
 
     #[test]
