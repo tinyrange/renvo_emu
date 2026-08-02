@@ -26,6 +26,13 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The STM32L432KC model additionally maps the native EXTI block at `0x40010400`.
+Its GPIO-edge slice supports IMR/RTSR/FTSR/SWIER/PR configuration, deterministic
+rising and falling edge latching for GPIO lines 0-15, grouped NVIC requests,
+and a VCD-visible aggregate interrupt signal. SYSCFG port selection, event-only
+routing, and internal wake sources remain outside this slice; alternate-function
+pin routing is tracked separately.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw

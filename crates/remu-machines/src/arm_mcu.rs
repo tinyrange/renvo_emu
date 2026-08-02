@@ -16,8 +16,8 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Exti, Stm32ExtiHandle,
+    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -78,6 +78,7 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    stm32_exti: Option<Stm32ExtiHandle>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -230,7 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, ra_icu, watchdog, stm32_exti) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -257,6 +258,7 @@ impl ArmMcuMachine {
                     Some(eic),
                     None,
                     Some(watchdog),
+                    None,
                 )
             }
             TargetId::Stm32l432kc => {
@@ -282,11 +284,14 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (exti_device, exti) =
+                    Stm32Exti::new("board.stm32l432kc.exti", signals.clone())?;
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    exti_device,
                 )?;
                 (
                     gpio,
@@ -295,6 +300,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    Some(exti),
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -321,6 +327,7 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     None,
+                    None,
                 )
             }
             _ => unreachable!(),
@@ -336,6 +343,7 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            stm32_exti,
             eic,
             ra_icu,
             watchdog,
@@ -410,6 +418,7 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        exti: Stm32Exti,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -458,20 +467,7 @@ impl ArmMcuMachine {
                 ],
             )),
         )?;
-        bus.map_device(
-            "stm32l432kc.exti",
-            0x4001_0400,
-            0x400,
-            Box::new(RegisterBank::new(
-                "stm32l432kc.exti",
-                [
-                    (0x00, 0, u32::MAX),
-                    (0x08, 0, u32::MAX),
-                    (0x0c, 0, u32::MAX),
-                    (0x14, 0, u32::MAX),
-                ],
-            )),
-        )?;
+        bus.map_device("stm32l432kc.exti", 0x4001_0400, 0x400, Box::new(exti))?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
@@ -772,6 +768,24 @@ impl ArmMcuMachine {
                 self.cpu
                     .set_interrupt(4, eic_pending && self.ppb.interrupt_enabled(4))?;
             }
+            if let Some(exti) = &self.stm32_exti {
+                let exti_pending = exti.poll(package_inputs, self.now);
+                interrupt_requested |= exti_pending != 0;
+                for line in 0..5_u32 {
+                    let irq = 6 + line as u16;
+                    let pending = exti_pending & (1 << line) != 0;
+                    self.cpu
+                        .set_interrupt(irq, pending && self.ppb.interrupt_enabled(irq))?;
+                }
+                self.cpu.set_interrupt(
+                    23,
+                    exti_pending & 0x03e0 != 0 && self.ppb.interrupt_enabled(23),
+                )?;
+                self.cpu.set_interrupt(
+                    40,
+                    exti_pending & 0xfc00 != 0 && self.ppb.interrupt_enabled(40),
+                )?;
+            }
             if let Some(timer_line) = timer_line {
                 self.cpu.set_interrupt(
                     timer_line,
@@ -957,6 +971,33 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_native_exti_window_latches_gpioa_edges() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        let base = 0x4001_0400;
+        machine
+            .bus
+            .write(base, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x08, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+            .unwrap();
+        let exti = machine.stm32_exti.as_ref().expect("STM32 machine has EXTI");
+        assert_eq!(exti.poll(0, SimTime::ZERO), 0);
+        machine.set_pin(3, Logic::One).unwrap();
+        assert_eq!(exti.poll(1 << 3, SimTime::from_ticks(1)), 1 << 3);
+        assert_eq!(
+            machine.bus.read(
+                base + 0x14,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(1 << 3)
+        );
     }
 
     #[test]
