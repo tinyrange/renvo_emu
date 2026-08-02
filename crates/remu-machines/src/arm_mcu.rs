@@ -15,9 +15,9 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21EicHandle, Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc,
+    Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub,
+    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -79,6 +79,7 @@ pub struct ArmMcuMachine {
     compiler_uart: UartHandle,
     timer: VendorTimer,
     eic: Option<Samd21EicHandle>,
+    i2s: Option<Samd21I2sHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
@@ -230,7 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, i2s, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -242,6 +243,7 @@ impl ArmMcuMachine {
                 let (eic_device, eic) = Samd21Eic::new("atsamd21e18.eic");
                 let (watchdog_device, watchdog) = Samd21Wdt::new("atsamd21e18.wdt");
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
+                let (i2s_device, i2s) = Samd21I2s::new("atsamd21e18.i2s");
                 Self::map_samd21(
                     &mut bus,
                     port_device,
@@ -249,12 +251,14 @@ impl ArmMcuMachine {
                     watchdog_device,
                     tc3_device,
                     sercom0_device,
+                    i2s_device,
                 )?;
                 (
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
                     Some(eic),
+                    Some(i2s),
                     None,
                     Some(watchdog),
                 )
@@ -295,6 +299,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -319,6 +324,7 @@ impl ArmMcuMachine {
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -337,6 +343,7 @@ impl ArmMcuMachine {
             compiler_uart,
             timer,
             eic,
+            i2s,
             ra_icu,
             watchdog,
             compiler_timer,
@@ -362,6 +369,7 @@ impl ArmMcuMachine {
         watchdog: Samd21Wdt,
         tc3: Samd21Tc,
         sercom0: Samd21Usart,
+        i2s: Samd21I2s,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "atsamd21e18.pm",
@@ -390,6 +398,7 @@ impl ArmMcuMachine {
         bus.map_device("atsamd21e18.eic", 0x4000_1800, 0x100, Box::new(eic))?;
         bus.map_device("atsamd21e18.sercom0", 0x4200_0800, 0x40, Box::new(sercom0))?;
         bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
+        bus.map_device("atsamd21e18.i2s", 0x4200_5000, 0x100, Box::new(i2s))?;
         // NVMCTRL.INTFLAG.READY is set after reset.
         bus.map_device(
             "atsamd21e18.nvmctrl",
@@ -771,6 +780,12 @@ impl ArmMcuMachine {
                 interrupt_requested |= eic_pending;
                 self.cpu
                     .set_interrupt(4, eic_pending && self.ppb.interrupt_enabled(4))?;
+            }
+            if let Some(i2s) = &self.i2s {
+                let i2s_pending = i2s.interrupt_pending();
+                interrupt_requested |= i2s_pending;
+                self.cpu
+                    .set_interrupt(27, i2s_pending && self.ppb.interrupt_enabled(27))?;
             }
             if let Some(timer_line) = timer_line {
                 self.cpu.set_interrupt(
