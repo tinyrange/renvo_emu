@@ -1,5 +1,8 @@
 use super::*;
 
+/// The register map and field descriptions follow Chapter 13 of the
+/// [CH32V00X Reference Manual](https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF).
+
 /// Register offsets for the CH32V006 streamlined TIM3 block.
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -87,8 +90,14 @@ struct WchSltmState {
 
 impl WchSltmState {
     const CEN: u16 = 1 << 0;
+    const UDIS: u16 = 1 << 1;
     const DIR: u16 = 1 << 4;
+    const CMS_MASK: u16 = 0x0060;
+    const ARPE: u16 = 1 << 7;
     const SMS_MASK: u16 = 0x0700;
+    const CONTROL_MASK: u16 =
+        Self::CEN | Self::UDIS | Self::DIR | Self::CMS_MASK | Self::ARPE | Self::SMS_MASK;
+    const DMA_INT_ENABLE_MASK: u16 = 0x000f | (1 << 11) | (1 << 12);
 
     fn reset() -> Self {
         Self {
@@ -133,6 +142,29 @@ impl WchSltmState {
         first
     }
 
+    fn crossed_update(&self, start: u64, end: u64) -> bool {
+        if end <= start {
+            return false;
+        }
+        let period = self.period();
+        let counter = u64::from(self.start_counter) % period;
+        let first = if self.control & Self::DIR == 0 {
+            if counter == 0 {
+                period
+            } else {
+                period - counter
+            }
+        } else {
+            counter + 1
+        };
+        let next = if start < first {
+            first
+        } else {
+            first + ((start - first) / period + 1) * period
+        };
+        next <= end
+    }
+
     fn has_hit(&self, target: u16, end_elapsed: u64) -> bool {
         if end_elapsed <= self.last_elapsed {
             return false;
@@ -159,10 +191,9 @@ impl WchSltmState {
             self.counter = self.counter_at(elapsed);
             return 0;
         }
-        let period = self.period();
-        let wraps = elapsed / period > self.last_elapsed / period;
+        let wraps = self.crossed_update(self.last_elapsed, elapsed);
         let mut events = 0;
-        if wraps && self.control & (1 << 1) == 0 {
+        if wraps && self.control & Self::UDIS == 0 {
             events |= wch_sltm_events::UPDATE;
         }
         for (index, compare) in self.compare.into_iter().enumerate() {
@@ -259,12 +290,22 @@ impl Device for WchSltm {
         match register {
             WchSltmRegister::Control => {
                 let was_running = state.running();
-                state.control = value;
+                let mut next = value & WchSltmState::CONTROL_MASK;
+                // The reference manual forbids switching center-alignment mode while
+                // CEN is set. Preserve CMS in that case instead of accepting a
+                // configuration that silicon would reject.
+                if was_running {
+                    next =
+                        (next & !WchSltmState::CMS_MASK) | (state.control & WchSltmState::CMS_MASK);
+                }
+                state.control = next;
                 if !was_running && state.running() {
                     state.restart(at);
                 }
             }
-            WchSltmRegister::DmaIntEnable => state.dma_int_enable = value,
+            WchSltmRegister::DmaIntEnable => {
+                state.dma_int_enable = value & WchSltmState::DMA_INT_ENABLE_MASK
+            }
             WchSltmRegister::Counter => {
                 state.counter = value;
                 state.restart(at);

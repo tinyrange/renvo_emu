@@ -133,6 +133,109 @@ fn wch_sltm_dma_compare_events_follow_documented_enable_bits() {
 }
 
 #[test]
+fn wch_sltm_masks_reserved_fields_and_honors_center_mode_lock() {
+    let (mut timer, handle) = WchSltm::new("tim3");
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            u64::from(u16::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        timer
+            .read(
+                WchSltmRegister::Control.offset(),
+                AccessWidth::HalfWord,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x07f3
+    );
+    timer
+        .write(
+            WchSltmRegister::DmaIntEnable.offset(),
+            AccessWidth::HalfWord,
+            u64::from(u16::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        timer
+            .read(
+                WchSltmRegister::DmaIntEnable.offset(),
+                AccessWidth::HalfWord,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x180f
+    );
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            1 | (1 << 5),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            1 | (2 << 5),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+    assert_eq!(
+        timer
+            .read(
+                WchSltmRegister::Control.offset(),
+                AccessWidth::HalfWord,
+                SimTime::from_ticks(1),
+            )
+            .unwrap()
+            & 0x0060,
+        1 << 5
+    );
+    assert_eq!(handle.poll(SimTime::from_ticks(1)), 0);
+}
+
+#[test]
+fn wch_sltm_update_event_uses_the_programmed_counter_phase() {
+    let (mut timer, handle) = WchSltm::new("tim3");
+    timer
+        .write(
+            WchSltmRegister::AutoReload.offset(),
+            AccessWidth::HalfWord,
+            4,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Counter.offset(),
+            AccessWidth::HalfWord,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    timer
+        .write(
+            WchSltmRegister::Control.offset(),
+            AccessWidth::HalfWord,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(handle.poll(SimTime::from_ticks(1)), 0);
+    assert_eq!(
+        handle.poll(SimTime::from_ticks(2)) & wch_sltm_events::UPDATE,
+        wch_sltm_events::UPDATE
+    );
+}
+
+#[test]
 fn wch_usart_masks_documented_fields_and_clears_rw0_status_flags() {
     let (mut usart, handle) = WchUsart::new("usart2");
     for (offset, expected) in [
