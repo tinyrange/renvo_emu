@@ -72,9 +72,11 @@ grep -q '^\$scope module atmega328pb \$end$' "$artifact_root/run-a/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-a/signals.vcd"
 grep -q '^\$scope module usart0 \$end$' "$artifact_root/run-a/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-a/signals.vcd"
+grep -q '^\$scope module analog_comparator \$end$' "$artifact_root/run-a/signals.vcd"
 grep -q 'timer0' "$artifact_root/run-a/signals.vcd"
 grep -q 'usart0' "$artifact_root/run-a/signals.vcd"
 grep -q 'pcint0' "$artifact_root/run-a/signals.vcd"
+grep -q 'analog_comparator' "$artifact_root/run-a/signals.vcd"
 
 upstream_root="$repo_root/.remu/upstream/avr-libc"
 upstream_revision=3b40a25de8948396d0055565b791d80fbd02cab7

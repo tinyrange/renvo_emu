@@ -213,10 +213,17 @@ impl AvrMcuMachine {
         self.gpio[port].set_input(local_pin, value, self.now)?;
         Ok(())
     }
-
     /// Supplies the next byte returned by the ATmega328PB SPI0 master.
     pub fn inject_spi_rx(&self, value: u8) {
         self.io.inject_spi_rx(value);
+    }
+
+    /// Drives the functional ATmega328PB analog-comparator inputs.
+    ///
+    /// This is a deterministic boolean abstraction of AIN0/AIN1. It does not
+    /// model analog voltages, noise, propagation delay, or the bandgap input.
+    pub fn set_comparator_inputs(&self, positive: bool, negative: bool) {
+        self.io.set_comparator_inputs(positive, negative, self.now);
     }
     /// Current PORTB output latch.
     pub fn gpio_output(&self) -> u32 {
@@ -442,5 +449,16 @@ mod tests {
                 .unwrap(),
             0x55
         );
+    }
+
+    #[test]
+    fn atmega_comparator_host_input_updates_acsr() {
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        // ACSR: ACIE plus rising-output edge mode.
+        machine.debug_write_memory(0x50, &[0x0b]).unwrap();
+        machine.set_comparator_inputs(true, false);
+        let status = machine.debug_read_memory(0x50, 1).unwrap()[0];
+        assert_ne!(status & 0x20, 0, "ACO should reflect AIN0 > AIN1");
+        assert_ne!(status & 0x10, 0, "rising output should latch ACI");
     }
 }

@@ -10,13 +10,17 @@ bits), startup/data initialization, calls and recursion, switch lowering,
 16-bit division helpers, volatile MMIO and interrupt prologues. Timer0 overflow
 and a PORTB pin-change interrupt each toggle PB0. USART0 emits `AVR8-PB\n`, and
 an EEPROM byte is written and read back. VCD contains PORT B/C/D plus explicit
-Timer0, Timer1, USART0, pin-change, external-interrupt and watchdog signals.
+Timer0, Timer1, USART0, pin-change, external-interrupt, watchdog, and
+analog-comparator output signals.
 
 Implemented functionally: clock/power register storage, PORT B/C/D, INT0 and
 pin-change group 0, Timer0 overflow, Timer1 compare A, USART0 transmit, EEPROM,
-watchdog reset, reset/vectors and AVR Harvard program/data separation. Timer
-prescalers and serial bit timing are deterministic approximations. Analog,
-touch, SPI and TWI are outside this acceptance slice.
+watchdog reset, reset/vectors and AVR Harvard program/data separation. The
+analog comparator exposes deterministic boolean AIN0/AIN1 host inputs, ACO
+state, selectable toggle/falling/rising ACI interrupt modes, and a VCD output.
+It does not model analog voltages, the bandgap reference, synchronization
+delay, ADC coupling, touch, SPI or TWI. Timer prescalers and serial bit timing
+are deterministic approximations.
 
 Run from the repository root:
 
