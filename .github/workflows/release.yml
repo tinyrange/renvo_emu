@@ -27,18 +27,58 @@ jobs:
       - name: Build CLI for both release architectures
         run: |
           set -eu
+          release_version="${GITHUB_REF_NAME#v}"
           rustup target add aarch64-unknown-linux-gnu
-          cargo build --release --locked -p remu-cli
+          REMU_RELEASE_VERSION="$release_version" cargo build --release --locked -p remu-cli
           mkdir -p dist/amd64 dist/arm64
           cp target/release/remu dist/amd64/remu
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+            REMU_RELEASE_VERSION="$release_version" \
             cargo build --release --locked -p remu-cli \
               --target aarch64-unknown-linux-gnu
           cp target/aarch64-unknown-linux-gnu/release/remu dist/arm64/remu
-          sha256sum dist/*/remu > dist/remu-${GITHUB_REF_NAME}-sha256sums.txt
+          test "$(dist/amd64/remu --version)" = "remu $release_version"
 
-      - name: Create quick-start source archive
-        run: tar -C examples -czf dist/remu-quickstart-${GITHUB_REF_NAME}.tar.gz quickstart
+      - name: Build terminating quick-start artifact
+        run: |
+          set -eu
+          # Build only the RISC-V compiler image needed by the example. The
+          # CLI resolves its pinned image ID first and uses this local tag only
+          # as the documented fallback.
+          docker build --pull=false --tag remu/cross-gcc:local toolchains/cross-gcc
+          mkdir -p dist/quickstart/build
+          cp -a examples/quickstart/. dist/quickstart/
+          target/release/remu corpus build \
+            --toolchain toolchains/riscv-gcc-rv32ec.toml \
+            --source examples/quickstart \
+            --output dist/quickstart/build \
+            --target ch32v003 \
+            --artifact dist/quickstart/build.json \
+            -- -O2 start.S main.c -Wl,-T,link.ld -o /workspace/out/quickstart.elf
+          target/release/remu run \
+            --target ch32v003 \
+            --elf dist/quickstart/build/quickstart.elf \
+            --max-instructions 10000 \
+            --result dist/quickstart/run.json \
+            --vcd dist/quickstart/run.vcd
+          (cd dist/quickstart && sha256sum \
+            build/quickstart.elf \
+            build.json \
+            run.json \
+            run.vcd \
+            ) > dist/quickstart/SHA256SUMS
+
+      - name: Create reproducible quick-start archive and checksums
+        run: |
+          set -eu
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 \
+            --numeric-owner -C dist -czf \
+            dist/remu-quickstart-${GITHUB_REF_NAME}.tar.gz quickstart
+          {
+            sha256sum dist/amd64/remu | awk -v name="remu-${GITHUB_REF_NAME}-linux-amd64" '{print $1 "  " name}'
+            sha256sum dist/arm64/remu | awk -v name="remu-${GITHUB_REF_NAME}-linux-arm64" '{print $1 "  " name}'
+            sha256sum "dist/remu-quickstart-${GITHUB_REF_NAME}.tar.gz" | awk -v name="remu-quickstart-${GITHUB_REF_NAME}.tar.gz" '{print $1 "  " name}'
+          } > "dist/remu-${GITHUB_REF_NAME}-sha256sums.txt"
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
@@ -46,13 +86,14 @@ jobs:
       - name: Build and publish runtime images
         run: |
           set -eu
+          release_version="${GITHUB_REF_NAME#v}"
           docker buildx create --name remu-release --use
           for arch in amd64 arm64; do
             platform="linux/${arch}"
             docker buildx build \
               --platform "$platform" \
               --build-arg REMU_SOURCE_COMMIT="$GITHUB_SHA" \
-              --build-arg REMU_VERSION="$GITHUB_REF_NAME" \
+              --build-arg REMU_VERSION="$release_version" \
               --tag "$IMAGE:${GITHUB_REF_NAME}-${arch}" \
               --tag "$IMAGE:sha-${GITHUB_SHA}-${arch}" \
               --file runtime/Dockerfile \

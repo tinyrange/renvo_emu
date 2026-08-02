@@ -4,13 +4,24 @@ This example is a small CH32V003 GPIO program. It is deliberately kept as
 source so the example can be rebuilt with the same Docker-only compiler
 workflow as the qualification corpus.
 
+The tagged release archive also contains `build/quickstart.elf`,
+`build.json`, `run.json`, `run.vcd`, and `SHA256SUMS`. Those files are generated
+by the release workflow from this source and can be run without a compiler:
+
+```sh
+docker run --rm -v "$PWD:/work:ro" -w /work \
+  ghcr.io/tinyrange/renvo_emu:latest \
+  run --target ch32v003 --elf build/quickstart.elf \
+  --max-instructions 10000 --result container-run.json
+```
+
 From a checkout, build the ELF with the pinned RISC-V container:
 
 ```sh
 mkdir -p .remu/quickstart
 ./target/release/remu corpus build \
   --toolchain toolchains/riscv-gcc-rv32ec.toml \
-  --source corpus/smoke/wch-gpio \
+  --source examples/quickstart \
   --output .remu/quickstart/build \
   --target ch32v003 \
   --artifact .remu/quickstart/build.json \
