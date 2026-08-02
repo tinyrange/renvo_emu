@@ -45,6 +45,8 @@ run_once "$artifact_root/run-b"
 cmp "$artifact_root/run-a/result.json" "$artifact_root/run-b/result.json"
 cmp "$artifact_root/run-a/gpio.vcd" "$artifact_root/run-b/gpio.vcd"
 jq -e '.target == "atsamd21e18" and .reason == "Halted" and .exit_code == 0 and (.uart == [83,65,77,68,50,49,10])' "$artifact_root/run-a/result.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.usb")] | length >= 12' \
+    "$artifact_root/run-a/bus.json" >/dev/null
 grep -q '^\$scope module atsamd21e18 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module porta \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module tc3 \$end$' "$artifact_root/run-a/gpio.vcd"

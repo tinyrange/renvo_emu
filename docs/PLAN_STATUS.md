@@ -42,6 +42,24 @@ Status meanings:
 | Identical results across supported hosts | Proven | `scripts/qualify-host-determinism.sh` publishes the same canonical fake-multicore/timer digest on the supported Linux/amd64 and Linux/arm64 hosts |
 | Separate CPU/device/trace/script/CLI boundaries | Proven | CPU, machine, device, trace, corpus, GDB and Starlark crates remain separate; `remu script` evaluates explicit JSON, while the later board DSL builds immutable scenarios without owning kernel state |
 
+## ATSAMD21 USB device expansion slice
+
+The ATSAMD21E18 expansion qualification now maps the documented USB device
+block at `0x41005000`. The functional model exposes named common control,
+address, status, finite-state-machine, frame, interrupt, descriptor, and
+pad-calibration registers, plus the eight endpoint configuration/status/
+interrupt windows. Its register masks and access widths follow the official
+SAM D21 CMSIS definitions, including the split endpoint status/interrupt masks
+and write-one-to-clear common and endpoint flags. It implements deterministic
+enable/detach/address behavior, endpoint status aliases, interrupt enable and
+W1C flags, endpoint interrupt summaries, software bus reset, SOF, and
+control-endpoint SETUP stimuli through a host-facing handle. The Docker fixture
+checks the device control and endpoint register paths at native addresses.
+
+USB packet encoding/decoding, descriptor/DMA transfers through system RAM,
+physical DP/DM signaling, and NVIC routing for host stimuli remain explicitly
+deferred.
+
 ## Phase 5 closure
 
 Phase 5 now meets its complete exit gate. `remu corpus reduce` detects the
