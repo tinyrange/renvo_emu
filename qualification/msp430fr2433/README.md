@@ -19,9 +19,15 @@ SRAM, PM5 GPIO lock behavior, Ports 1–3, Port 1 edge interrupts, Timer0_A CCR0
 eUSCI_A0 UART transmit/receive loopback, a functional 7-bit eUSCI_B0 I²C host,
 WDT_A reset and persistent FRAM. Clock-tree, timer prescaling, UART bit timing,
 and electrical SCL/SDA behavior are deterministic approximations. The I²C host
-accepts START/repeated-START, address/data writes, queued reads, STOP, and
-interrupt flags; arbitration, slave mode, 10-bit addresses, ACK timing, and
-pin-level bus resolution remain outside this acceptance slice. Analog
+models the TI register slice at `UCB0CTLW0`/`CTLW1`, `BRW`, `STATW`, `TBCNT`,
+`RXBUF`, `TXBUF`, `I2CSA`, `IE`, `IFG`, and `IV`: reset-only configuration
+writes, reserved-bit masks, `UCBBUSY`/byte-counter status, manual and
+automatic STOP modes, START/repeated-START, address/data writes, queued reads,
+configurable ACK/NACK, and the documented prioritized interrupt-vector values.
+Reading `RXBUF` clears `UCRXIFG`; reading or writing `IV` clears the highest
+pending source, and writing `IV` clears all flags. Arbitration, slave mode,
+10-bit addresses, electrical ACK timing, and pin-level bus resolution remain
+outside this acceptance slice. Analog
 peripherals and other unlisted serial modes are also outside the acceptance
 slice.
 
