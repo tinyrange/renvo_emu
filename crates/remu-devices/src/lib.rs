@@ -205,6 +205,8 @@ mod samd_i2s;
 pub use samd_i2s::*;
 mod samd_adc;
 pub use samd_adc::*;
+mod samd_ac;
+pub use samd_ac::*;
 mod stm32;
 pub use stm32::*;
 mod ra;

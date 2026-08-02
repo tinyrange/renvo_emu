@@ -575,6 +575,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "DMAC software-triggered descriptor transfer",
             "I2S clock/serializer/data slice",
             "ADC software-triggered conversion",
+            "AC comparator pair",
             "VCD",
         ],
         sources: &[
@@ -586,8 +587,8 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/adc.h",
         ],
         limitations: &[
-            "ADC input values are deterministic host samples rather than analog voltages",
-            "full USB packet protocol and USB descriptor DMA, DMAC linked descriptors/peripheral/event trigger routing/CRC, I2S serial timing/framing/pin waveforms/DMAC coupling, ADC averaging/event-DMA coupling, live peripheral event-generator/user routing, and exact clock timing are outside this tranche",
+            "ADC and AC inputs are deterministic host codes rather than analog voltages",
+            "full USB packet protocol and USB descriptor DMA, DMAC linked descriptors/peripheral/event trigger routing/CRC, I2S serial timing/framing/pin waveforms/DMAC coupling, ADC averaging/event-DMA coupling, AC filtering/window electrical behavior, live peripheral event-generator/user routing, and exact clock timing are outside this tranche",
             "SERCOM transfers are functional and deterministic; pin-level bus timing and full slave behavior remain deferred",
         ],
     },

@@ -14,11 +14,12 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Adc,
-    Samd21AdcHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys,
-    Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle,
-    Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub,
-    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Ac,
+    Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic,
+    Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock,
+    Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
+    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -83,6 +84,7 @@ pub struct ArmMcuMachine {
     dmac: Option<Samd21DmacHandle>,
     i2s: Option<Samd21I2sHandle>,
     adc: Option<Samd21AdcHandle>,
+    ac: Option<Samd21AcHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
@@ -234,7 +236,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, dmac, i2s, adc, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, dmac, i2s, adc, ac, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -245,6 +247,8 @@ impl ArmMcuMachine {
                 let (tc3_device, timer) = Samd21Tc::new("atsamd21e18.tc3");
                 let (eic_device, eic) = Samd21Eic::new("atsamd21e18.eic");
                 let (adc_device, adc) = Samd21Adc::new("atsamd21e18.adc");
+                let (ac_device, ac) =
+                    Samd21Ac::new("atsamd21e18.ac", "board.atsamd21e18.ac", signals.clone())?;
                 let (watchdog_device, watchdog) = Samd21Wdt::new("atsamd21e18.wdt");
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
                 let (evsys_device, _evsys) = Samd21Evsys::new("atsamd21e18.evsys");
@@ -263,6 +267,7 @@ impl ArmMcuMachine {
                     dmac_device,
                     i2s_device,
                     adc_device,
+                    ac_device,
                 )?;
                 (
                     gpio,
@@ -272,6 +277,7 @@ impl ArmMcuMachine {
                     Some(dmac),
                     Some(i2s),
                     Some(adc),
+                    Some(ac),
                     None,
                     Some(watchdog),
                 )
@@ -315,6 +321,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -342,6 +349,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -363,6 +371,7 @@ impl ArmMcuMachine {
             dmac,
             i2s,
             adc,
+            ac,
             ra_icu,
             watchdog,
             compiler_timer,
@@ -393,6 +402,7 @@ impl ArmMcuMachine {
         dmac: Samd21Dmac,
         i2s: Samd21I2s,
         adc: Samd21Adc,
+        ac: Samd21Ac,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "atsamd21e18.pm",
@@ -421,6 +431,7 @@ impl ArmMcuMachine {
         bus.map_device("atsamd21e18.eic", 0x4000_1800, 0x100, Box::new(eic))?;
         bus.map_device("atsamd21e18.evsys", 0x4200_0400, 0x20, Box::new(evsys))?;
         bus.map_device("atsamd21e18.usb", 0x4100_5000, 0x200, Box::new(usb))?;
+        bus.map_device("atsamd21e18.ac", 0x4200_4400, 0x100, Box::new(ac))?;
         bus.map_device("atsamd21e18.sercom0", 0x4200_0800, 0x40, Box::new(sercom0))?;
         bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
         bus.map_device("atsamd21e18.dmac", 0x4100_4800, 0x100, Box::new(dmac))?;
@@ -698,6 +709,15 @@ impl ArmMcuMachine {
         Ok(())
     }
 
+    /// Supplies one deterministic host-side analog code to the ATSAMD21 AC.
+    pub fn set_ac_input(&self, input: u8, value: u16) -> Result<(), ArmMachineError> {
+        let Some(ac) = &self.ac else {
+            return Err(ArmMachineError::UnsupportedTarget(self.target));
+        };
+        ac.inject_input(input, value)?;
+        Ok(())
+    }
+
     /// Current vendor GPIO output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio.output()
@@ -838,6 +858,12 @@ impl ArmMcuMachine {
                 interrupt_requested |= adc_pending;
                 self.cpu
                     .set_interrupt(23, adc_pending && self.ppb.interrupt_enabled(23))?;
+            }
+            if let Some(ac) = &self.ac {
+                let ac_pending = ac.poll(self.now)?;
+                interrupt_requested |= ac_pending;
+                self.cpu
+                    .set_interrupt(24, ac_pending && self.ppb.interrupt_enabled(24))?;
             }
             if let Some(timer_line) = timer_line {
                 self.cpu.set_interrupt(
@@ -1104,6 +1130,41 @@ mod tests {
                 )
                 .unwrap(),
             0x0abc
+        );
+    }
+
+    #[test]
+    fn samd21_ac_latches_a_host_comparison_through_native_registers() {
+        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
+        machine.set_ac_input(0, 0x0900).unwrap();
+        machine
+            .bus
+            .write(0x4200_4400, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(
+                0x4200_4410,
+                AccessWidth::Word,
+                (1 << 5) | (1 << 1) | (4 << 8) | 1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(0x4200_4401, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4200_4408,
+                    AccessWidth::Byte,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            1
         );
     }
 

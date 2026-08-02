@@ -50,7 +50,10 @@ jq -e '[.[] | select(.region == "atsamd21e18.evsys")] | length >= 10' \
 jq -e '[.[] | select(.region == "atsamd21e18.usb")] | length >= 12' \
     "$artifact_root/run-a/bus.json" >/dev/null
 jq -e '[.[] | select(.region == "atsamd21e18.adc")] | length >= 8' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.ac")] | length >= 5' "$artifact_root/run-a/bus.json" >/dev/null
 grep -q '^\$scope module atsamd21e18 \$end$' "$artifact_root/run-a/gpio.vcd"
+grep -q '^\$scope module ac \$end$' "$artifact_root/run-a/gpio.vcd"
+grep -q '^\$var wire 1 Y comp0 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module porta \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module tc3 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module sercom0 \$end$' "$artifact_root/run-a/gpio.vcd"

@@ -15,7 +15,7 @@ uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
 state, PORT A, EIC, TC3, SERCOM0 USART, SPI host, I²C host, EVSYS, USB, I2S,
-ADC, and watchdog, plus the DMAC common/channel registers. The DMAC model follows the
+ADC, AC, and watchdog, plus the DMAC common/channel registers. The DMAC model follows the
 vendor masks and direct/W1C access semantics, including the reserved gap
 between DBGCTRL and SWTRIGCTRL. It executes one valid
 software-triggered descriptor for memory-to-memory byte/halfword/word
@@ -37,8 +37,12 @@ interrupt alias semantics. Full USB packet protocol and USB descriptor DMA, link
 descriptors, peripheral/event trigger routing, CRC execution, analog behavior,
 ADC averaging/event-DMA coupling, I2S serial timing/framing/pin waveforms/DMAC coupling, and live peripheral
 event-generator/user routing are unsupported.
-VCD exposes PORT, timer, UART and interrupt hierarchy and the gate compares two
-runs byte-for-byte.
+The AC exposes native control/input/status/interrupt registers, deterministic
+host-supplied AIN codes, single-shot and continuous comparison, edge/EOC flags,
+window state, and VCD-visible digital comparator outputs. Comparator filtering,
+startup behavior, and exact window electrical behavior remain unsupported.
+VCD exposes PORT, timer, UART, comparator, and interrupt hierarchy, and the gate
+compares two runs byte-for-byte.
 
 The vendor lane builds the pinned Microchip Harmony
 `port_led_on_off_polling` main source unchanged. Tracked startup, declarations
