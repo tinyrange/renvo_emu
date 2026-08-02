@@ -18,8 +18,8 @@ use remu_devices::{
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchDma, WchDmaHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -38,6 +38,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
+mod wch_dma;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -162,7 +163,6 @@ pub struct RunResult {
     /// Canonical digest over signal declarations and changes.
     pub trace_digest: String,
 }
-
 /// Runnable direct-ELF RISC-V vertical slice.
 pub struct RiscVMachine {
     target: TargetId,
@@ -201,6 +201,7 @@ pub struct RiscVMachine {
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
+    wch_dma: Option<WchDmaHandle>,
     wch_timer: Option<WchTimerHandle>,
     wch_pfic: Option<WchPficHandle>,
     usb: Option<Rp2040UsbHandle>,
@@ -211,7 +212,6 @@ pub struct RiscVMachine {
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
 }
-
 impl RiscVMachine {
     /// Builds a RISC-V mode for WCH, ESP32-C6, or RP2350 Hazard3.
     pub fn new(target: TargetId) -> Result<Self, MachineError> {
@@ -241,6 +241,7 @@ impl RiscVMachine {
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
+        let mut wch_dma = None;
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
@@ -478,7 +479,6 @@ impl RiscVMachine {
             usb = Some(usb_handle);
             usb_host = Some(Rp2040UsbHost::new());
         }
-
         let signals = SignalHub::new();
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
@@ -571,6 +571,9 @@ impl RiscVMachine {
                     Box::new(pfic),
                 )?;
                 wch_pfic = Some(handle);
+                let (dma, handle) = WchDma::new(format!("{target}.dma"));
+                bus.map_device(format!("{target}.dma"), 0x4002_0000, 0x100, Box::new(dma))?;
+                wch_dma = Some(handle);
             }
             TargetId::Esp32c6 => {
                 bus.map_device(
@@ -800,6 +803,7 @@ impl RiscVMachine {
             flash_storage,
             chip_timers,
             pio,
+            wch_dma,
             wch_timer,
             wch_pfic,
             usb,
@@ -1054,6 +1058,7 @@ impl RiscVMachine {
                 self.cpu
                     .set_qingke_external_interrupt(TIM2_INTERRUPT, deliver)?;
             }
+            self.poll_wch_dma(&mut stats.events)?;
             if self.target == TargetId::Rp2350 {
                 let chip_timer_pending =
                     self.chip_timers

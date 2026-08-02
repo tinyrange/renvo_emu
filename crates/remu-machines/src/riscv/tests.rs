@@ -199,6 +199,55 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 }
 
 #[test]
+fn wch_dma_moves_a_memory_word_and_latches_channel_completion() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    machine
+        .bus
+        .write(0x2000_0000, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4002_0010, AccessWidth::Word, 0x2000_0004, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4002_0014, AccessWidth::Word, 0x2000_0000, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4002_000c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x4002_0008,
+            AccessWidth::Word,
+            u64::from(1_u32 | (1 << 1) | (1 << 4) | (1 << 6) | (2 << 8) | (2 << 10)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    let dma = machine
+        .wch_dma
+        .as_ref()
+        .expect("WCH target has DMA")
+        .clone();
+    assert_eq!(dma.service(&mut machine.bus, SimTime::ZERO).unwrap(), 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x2000_0004,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x1234_5678
+    );
+    assert!(dma.channel_pending(0));
+}
+
+#[test]
 fn gpio_facade_streams_valid_vcd() {
     // lui x1,0xffff0; addi x2,x0,1; sw x2,0(x1); sw x2,4(x1); ebreak
     let program = [
