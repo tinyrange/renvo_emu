@@ -72,6 +72,7 @@ mod wch_dma;
 mod wch_exti;
 mod wch_flash;
 mod wch_touch;
+mod wch_usart2;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -692,6 +693,9 @@ impl RiscVMachine {
                     Box::new(wch_uart),
                 )?;
                 chip_uarts.push(handle);
+                if target == TargetId::Ch32v006 {
+                    chip_uarts.push(wch_usart2::map(&mut bus, target)?);
+                }
                 let (spi, spi_handle) = WchSpi::new(format!("{target}.spi1"), signals.clone())?;
                 bus.map_device(format!("{target}.spi1"), 0x4001_3000, 0x400, Box::new(spi))?;
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));

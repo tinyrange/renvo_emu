@@ -1,6 +1,44 @@
 use super::*;
 
 #[test]
+fn ch32v006_usart2_maps_the_native_transmit_slice() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v006).unwrap();
+    let base = 0x4000_4400;
+    machine
+        .bus
+        .write(base + 0x08, AccessWidth::Word, 0x01a1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            base + 0x0c,
+            AccessWidth::Word,
+            (1 << 13) | (1 << 3),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    for byte in b"USART2\n" {
+        machine
+            .bus
+            .write(
+                base + 0x04,
+                AccessWidth::Word,
+                u64::from(*byte),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    assert_eq!(machine.chip_uarts[1].text_lossy(), "USART2\n");
+    assert_eq!(
+        machine
+            .bus
+            .read(base, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
+            .unwrap(),
+        u64::from((1u32 << 7) | (1u32 << 6))
+    );
+}
+
+#[test]
 fn ch32v006_touch_key_maps_the_adc_register_sequence() {
     let mut machine = RiscVMachine::new(TargetId::Ch32v006).unwrap();
     machine.set_touch_key(2, 0x0bcd).unwrap();

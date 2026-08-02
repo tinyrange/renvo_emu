@@ -9,7 +9,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, SPI1, TIM2, ADC, I2C1, PWR, AFIO/EXTI, PFIC and table-mode interrupt proofs; no native TKEY block |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/SPI1/TIM2/I2C1/PWR/AFIO/EXTI/PFIC plus ADC/TKEY single-channel conversion slice |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/USART2/SPI1/TIM2/I2C1/PWR/AFIO/EXTI/PFIC plus ADC/TKEY single-channel conversion slice |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1; USB; watchdog/RTC; and ROSC/PSM/VREG controls |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER0/1; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1/2; USB; and deterministic accelerator/control slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
@@ -71,6 +71,18 @@ groups, or silicon clock timing.
 The CH32V003 has no native TKEY peripheral in the official WCH selection table;
 its ADC-aided capacitive-touch technique is therefore not claimed as native
 TKEY support here.
+
+### WCH USART fidelity
+
+The shared CH32V00X USART model uses named register IDs for both USART1 and
+CH32V006 USART2. It applies the documented masks for `STATR`, `BRR`,
+`CTLR1/2/3`, and `GPR`, preserves the native `TXE` reset state, implements
+RW0 clearing for the modeled status flags, and emits an immediate byte-oriented
+transmit event when `UE|TE` are enabled. The [official CH32V00X reference
+manual](https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF)
+defines a nine-bit data register; the current host terminal intentionally
+exposes only its low byte and does not model receive, DMA, line timing, or
+USART interrupt delivery.
 
 ### WCH I2C1 functional slice
 

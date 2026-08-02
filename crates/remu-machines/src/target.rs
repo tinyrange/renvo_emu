@@ -393,6 +393,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         limitations: &[
             "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
+            "USART1 and USART2 are transmit-focused slices without physical baud timing or a complete receive path",
             "TKEY uses deterministic host-provided samples rather than analogue capacitance physics",
             "ADC DMA, scan/injection groups, watchdogs and exact HBCLK timing remain outside the baseline",
         ],

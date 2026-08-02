@@ -406,3 +406,14 @@ native-address firmware still proves deterministic host-supplied channel data
 and PFIC interrupt delivery. Electrode capacitance, DMA, multi-channel
 scan/injection behavior, and exact HBCLK timing remain explicit
 functional-model gaps.
+
+CH32V006 now also maps the reference-manual USART2 instance at `0x40004400`.
+The bounded transmit proof enables the documented APB2 clock bit, writes the
+native `BRR` and `CTLR1` registers, and verifies an exact `REMU-WCH2\n`
+transcript. CH32V003 remains limited to its single USART1 instance.
+
+The shared USART register model audits the official field masks and reset
+contract for both instances, exposes typed offset conversion, and implements
+RW0 clearing for the modeled `STATR` flags while retaining immediate
+byte-oriented transmission. Nine-bit data, receive state, DMA, baud timing,
+and USART interrupt routing remain explicit gaps.
