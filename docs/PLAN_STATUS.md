@@ -97,14 +97,18 @@ deferred.
 
 The ATSAMD21 model now maps the documented DMAC block at `0x41004800` and
 uses named register and descriptor-field enums rather than numeric register
-identifiers. All twelve channel selectors, enable/reset and trigger/event
-configuration fields, software-trigger bitmap, base/write-back addresses,
-pending/busy/active summaries, interrupt enable/flag/status paths, and
-write-one-to-clear behavior are modeled. A valid software-triggered descriptor
-can transfer a bounded single block through the shared bus for byte, halfword,
-or word memory-to-memory traffic; source/destination incrementing and the
-descriptor write-back layout are deterministic. Invalid descriptors and bus
-faults latch fetch/transfer errors and interrupt flags.
+identifiers. The register masks and access behavior follow the official SAM
+D21 definitions: the reserved `0x0e` slot is not fabricated as QOSCTRL,
+CTRL/PRICTRL0/CHCTRLB masks are bounded, direct writes can disable DMA and
+channels, and software-trigger/INTPEND/CHINTEN/CHINTFLAG payloads retain their
+documented write semantics. All twelve channel selectors, enable/reset and
+trigger/event configuration fields, software-trigger bitmap, base/write-back
+addresses, pending/busy/active summaries, interrupt enable/flag/status paths,
+and write-one-to-clear behavior are modeled. A valid software-triggered
+descriptor can transfer a bounded single block through the shared bus for byte,
+halfword, or word memory-to-memory traffic; source/destination incrementing and
+the descriptor write-back layout are deterministic. Invalid descriptors and
+bus faults latch fetch/transfer errors and interrupt flags.
 
 The Docker ATSAMD21 smoke now programs a native-address descriptor, verifies
 the copied bytes and completion state, and requires DMAC bus evidence. The

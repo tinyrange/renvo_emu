@@ -14,7 +14,9 @@ uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
 state, PORT A, EIC, TC3, SERCOM0 USART, SPI host, I²C host, EVSYS, USB, and
-watchdog, plus the DMAC common/channel registers. The DMAC executes one valid
+watchdog, plus the DMAC common/channel registers. The DMAC model follows the
+vendor masks and direct/W1C access semantics, including the reserved gap
+between DBGCTRL and SWTRIGCTRL. It executes one valid
 software-triggered descriptor for memory-to-memory byte/halfword/word
 transfers, records write-back state, and latches completion/fetch-error flags.
 SERCOM
