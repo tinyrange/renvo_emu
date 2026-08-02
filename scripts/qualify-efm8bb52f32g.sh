@@ -64,6 +64,10 @@ grep -q '^\$scope module efm8bb52f32g \$end$' "$artifact_root/run-speed/signals.
 grep -q '^\$scope module port0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer2 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu1 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu2 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu3 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module uart0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-speed/signals.vcd"
 jq -e '.architecture == "Mcs51" and .fetch_accesses > 100 and .unique_addresses > 100' \
@@ -125,6 +129,45 @@ mkdir -p "$uart_build"
     --artifact "$artifact_root/register-uart-build.json" \
     -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
+
+clu_build="$artifact_root/register-clu-build"
+clu_run="$artifact_root/register-clu-run"
+mkdir -p "$clu_build" "$clu_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-build.json" \
+    -- -I. -c remu_clu.c -o /workspace/out/clu.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-link.json" \
+    -- /workspace/out/clu.rel /workspace/out/adapter.rel -o /workspace/out/clu.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$clu_build/clu.ihx" \
+    --max-instructions 10000 \
+    --pin 0=1@0 \
+    --pin 1=1@0 \
+    --stop-signal board.efm8bb52f32g.port1.pin4=rising \
+    --vcd "$clu_run/signals.vcd" \
+    --result "$clu_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.port1.pin4"}' \
+    "$clu_run/result.json" >/dev/null
+grep -q '^\$scope module clu0 \$end$' "$clu_run/signals.vcd"
+test -s "$clu_build/clu.rel"
 
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"

@@ -150,6 +150,7 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
     cpu.load_code(0, &[0x00]).unwrap();
     cpu.load_code(0x0b, &[0x32]).unwrap();
     cpu.load_code(0x23, &[0x32]).unwrap();
+    cpu.load_code(0x9b, &[0x32]).unwrap();
     cpu.set_interrupt(0, true).unwrap();
     run(&mut cpu, &mut bus, 1);
     assert_eq!(cpu.pc, 0x0b);
@@ -161,6 +162,20 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
     run(&mut cpu, &mut bus, 2);
     assert_eq!(cpu.pc, 0);
     assert_eq!(cpu.active_priority, None);
+}
+
+#[test]
+fn configurable_logic_interrupt_enters_documented_vector() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0, &[0x00]).unwrap();
+    cpu.load_code(0x9b, &[0x32]).unwrap();
+    cpu.set_interrupt(6, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x9b);
+    cpu.set_interrupt(6, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
 }
 
 #[test]
