@@ -540,6 +540,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                     Some(icu),
                     None,
                     Vec::new(),
