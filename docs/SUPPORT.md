@@ -390,6 +390,12 @@ the native `0x007b` interrupt vector with automatic SFR-page save/restore.
 FIFO threshold timing, LIN, CTS/RTS, parity framing, and exact historical 8051
 timing remain outside this slice.
 
+Timer3, Timer4, and Timer5 provide functional 16-bit system-clock, reload,
+low/high overflow, enable/priority, and interrupt paths through their page-0
+and page-`0x10` registers. Their native vectors are `0x0073`, `0x008b`, and
+`0x0093`; split, capture, external-clock, and cycle-accurate timing modes remain
+outside this slice.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

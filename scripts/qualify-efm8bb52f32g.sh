@@ -64,6 +64,9 @@ grep -q '^\$scope module efm8bb52f32g \$end$' "$artifact_root/run-speed/signals.
 grep -q '^\$scope module port0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer2 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module timer3 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module timer4 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module timer5 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module uart0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module pca0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-speed/signals.vcd"
@@ -87,6 +90,14 @@ mkdir -p "$fixture" "$fixture_run"
     --target efm8bb52f32g \
     --artifact "$artifact_root/register-isr-build.json" \
     -- -I. -c remu_timer2_irq.c -o /workspace/out/interrupts.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$fixture" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-timer345-build.json" \
+    -- -I. -c remu_timer345_irq.c -o /workspace/out/timer345.rel
+test -s "$fixture/timer345.rel"
 "$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/efm8bb52f32g/silabs \

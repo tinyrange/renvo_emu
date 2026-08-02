@@ -49,6 +49,24 @@ const TMR2RLL: usize = 0xca;
 const TMR2RLH: usize = 0xcb;
 const TMR2L: usize = 0xce;
 const TMR2H: usize = 0xcf;
+const TMR3CN0: usize = 0x91;
+const TMR3RLL: usize = 0x92;
+const TMR3RLH: usize = 0x93;
+const TMR3L: usize = 0x94;
+const TMR3H: usize = 0x95;
+const TMR3CN1: usize = (0x10 << 8) | 0xfe;
+const TMR4RLL: usize = (0x10 << 8) | 0xa2;
+const TMR4RLH: usize = (0x10 << 8) | 0xa3;
+const TMR4L: usize = (0x10 << 8) | 0xa4;
+const TMR4H: usize = (0x10 << 8) | 0xa5;
+const TMR4CN0: usize = (0x10 << 8) | 0x98;
+const TMR4CN1: usize = (0x10 << 8) | 0xff;
+const TMR5RLL: usize = (0x10 << 8) | 0xd2;
+const TMR5RLH: usize = (0x10 << 8) | 0xd3;
+const TMR5L: usize = (0x10 << 8) | 0xd4;
+const TMR5H: usize = (0x10 << 8) | 0xd5;
+const TMR5CN0: usize = (0x10 << 8) | 0xc0;
+const TMR5CN1: usize = (0x10 << 8) | 0xf1;
 const CRC0IN: usize = (PAGE3 << 8) | 0xca;
 const CRC0DAT: usize = (PAGE3 << 8) | 0xcb;
 const CRC0CN0: usize = (PAGE3 << 8) | 0xce;
@@ -106,6 +124,24 @@ const TCON_TR1: u8 = 0x40;
 const TCON_TF1: u8 = 0x80;
 const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
+const TMR3_TR3: u8 = 0x04;
+const TMR3_TF3L: u8 = 0x40;
+const TMR3_TF3H: u8 = 0x80;
+const TMR3_TF3LEN: u8 = 0x20;
+const TMR3_TF3CEN: u8 = 0x10;
+const TMR4_TR4: u8 = 0x04;
+const TMR4_TF4L: u8 = 0x40;
+const TMR4_TF4H: u8 = 0x80;
+const TMR4_TF4LEN: u8 = 0x20;
+const TMR4_TF4CEN: u8 = 0x10;
+const TMR5_TR5: u8 = 0x04;
+const TMR5_TF5L: u8 = 0x40;
+const TMR5_TF5H: u8 = 0x80;
+const TMR5_TF5LEN: u8 = 0x20;
+const TMR5_TF5CEN: u8 = 0x10;
+const EIE1_ET3: u8 = 0x80;
+const EIE2_ET4: u8 = 0x04;
+const EIE2_ET5: u8 = 0x08;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const SCON1_RI: u8 = 0x01;
@@ -184,6 +220,9 @@ struct Efm8State {
     timer0_epoch: u64,
     timer1_epoch: u64,
     timer2_epoch: u64,
+    timer3_epoch: u64,
+    timer4_epoch: u64,
+    timer5_epoch: u64,
     crc_result: u16,
     watchdog_epoch: u64,
     watchdog_key: u8,
@@ -202,6 +241,9 @@ struct Efm8State {
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
+    timer3_irq_signal: SignalId,
+    timer4_irq_signal: SignalId,
+    timer5_irq_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
     pca_epoch: u64,
@@ -325,6 +367,9 @@ impl Efm8State {
         self.timer0_epoch = at.ticks();
         self.timer1_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
+        self.timer3_epoch = at.ticks();
+        self.timer4_epoch = at.ticks();
+        self.timer5_epoch = at.ticks();
         self.crc_result = 0;
         self.watchdog_epoch = at.ticks();
         self.watchdog_key = 0;
@@ -343,6 +388,9 @@ impl Efm8State {
             self.timer0_irq_signal,
             self.timer1_irq_signal,
             self.timer2_irq_signal,
+            self.timer3_irq_signal,
+            self.timer4_irq_signal,
+            self.timer5_irq_signal,
             self.interrupt_signal,
             self.watchdog_reset_signal,
             self.pca_output_signals[0],
@@ -365,6 +413,29 @@ impl Efm8State {
         }
         let page = raw >> 8;
         let address = raw & 0xff;
+        if page == 0x10 {
+            if (0x91..=0x95).contains(&address) {
+                return address;
+            }
+            if matches!(
+                raw,
+                TMR3CN1
+                    | TMR4CN0
+                    | TMR4RLL
+                    | TMR4RLH
+                    | TMR4L
+                    | TMR4H
+                    | TMR4CN1
+                    | TMR5RLL
+                    | TMR5RLH
+                    | TMR5L
+                    | TMR5H
+                    | TMR5CN0
+                    | TMR5CN1
+            ) {
+                return raw;
+            }
+        }
         if page == (UART1_PAGE >> 8) && matches!(address, 0x92 | 0x94 | 0x9d | 0xc8 | 0xd8 | 0xfa) {
             return raw;
         }
@@ -380,6 +451,7 @@ impl Efm8State {
             0x80
             | 0x88..=0x8e
             | 0x90
+            | 0x91..=0x95
             | SPI0CFG
             | 0x97..=0x99
             | 0xa0
@@ -405,10 +477,10 @@ impl Efm8State {
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 14] {
+    fn interrupt_levels(&self) -> [bool; 20] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 14];
+            return [false; 20];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
@@ -431,7 +503,7 @@ impl Efm8State {
         ];
         const LOW_LINES: [usize; 6] = [0, 1, 2, 6, 8, 10];
         const HIGH_LINES: [usize; 6] = [3, 4, 5, 7, 9, 11];
-        let mut levels = [false; 14];
+        let mut levels = [false; 20];
         for source in 0..active.len() {
             if active[source] {
                 levels[if priorities[source] {
@@ -449,6 +521,33 @@ impl Efm8State {
         if uart1_pending && uart1_enabled {
             let high = self.registers[EIP2] & 1 != 0 || self.registers[EIP2H] & 1 != 0;
             levels[12 + usize::from(high)] = true;
+        }
+        let timer3 = self.registers[EIE1] & EIE1_ET3 != 0
+            && ((self.registers[TMR3CN0] & TMR3_TF3H != 0
+                && self.registers[TMR3CN0] & TMR3_TF3CEN != 0)
+                || (self.registers[TMR3CN0] & TMR3_TF3L != 0
+                    && self.registers[TMR3CN0] & TMR3_TF3LEN != 0));
+        let timer4 = self.registers[EIE2] & EIE2_ET4 != 0
+            && ((self.registers[TMR4CN0] & TMR4_TF4H != 0
+                && self.registers[TMR4CN0] & TMR4_TF4CEN != 0)
+                || (self.registers[TMR4CN0] & TMR4_TF4L != 0
+                    && self.registers[TMR4CN0] & TMR4_TF4LEN != 0));
+        let timer5 = self.registers[EIE2] & EIE2_ET5 != 0
+            && ((self.registers[TMR5CN0] & TMR5_TF5H != 0
+                && self.registers[TMR5CN0] & TMR5_TF5CEN != 0)
+                || (self.registers[TMR5CN0] & TMR5_TF5L != 0
+                    && self.registers[TMR5CN0] & TMR5_TF5LEN != 0));
+        let timer3_high = self.registers[EIP1] & 0x80 != 0 || self.registers[EIP1H] & 0x80 != 0;
+        let timer4_high = self.registers[EIP2] & 0x04 != 0 || self.registers[EIP2H] & 0x04 != 0;
+        let timer5_high = self.registers[EIP2] & 0x08 != 0 || self.registers[EIP2H] & 0x08 != 0;
+        if timer3 {
+            levels[14 + usize::from(timer3_high)] = true;
+        }
+        if timer4 {
+            levels[16 + usize::from(timer4_high)] = true;
+        }
+        if timer5 {
+            levels[18 + usize::from(timer5_high)] = true;
         }
         levels
     }
@@ -469,6 +568,24 @@ impl Efm8State {
         self.set_signal(
             self.timer2_irq_signal,
             u64::from(self.registers[TMR2CN0] & TMR2_TF2H != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.timer3_irq_signal,
+            u64::from(self.registers[TMR3CN0] & (TMR3_TF3L | TMR3_TF3H) != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.timer4_irq_signal,
+            u64::from(self.registers[TMR4CN0] & (TMR4_TF4L | TMR4_TF4H) != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.timer5_irq_signal,
+            u64::from(self.registers[TMR5CN0] & (TMR5_TF5L | TMR5_TF5H) != 0),
             1,
             at,
         );
@@ -668,248 +785,47 @@ impl Efm8State {
     }
 }
 
+fn advance_16bit_timer(
+    state: &mut Efm8State,
+    now: u64,
+    epoch: u64,
+    control: usize,
+    current_low: usize,
+    current_high: usize,
+    reload_low: usize,
+    reload_high: usize,
+    run_bit: u8,
+    low_flag: u8,
+    high_flag: u8,
+) -> u64 {
+    if state.registers[control] & run_bit == 0 {
+        return epoch;
+    }
+    let initial = u16::from_le_bytes([state.registers[current_low], state.registers[current_high]]);
+    let elapsed = now.saturating_sub(epoch);
+    let low_until_overflow = u64::from(0x100_u16 - (initial & 0xff));
+    let until_overflow = u64::from(u16::MAX - initial) + 1;
+    if elapsed >= until_overflow {
+        state.registers[control] |= high_flag | low_flag;
+        state.registers[current_low] = state.registers[reload_low];
+        state.registers[current_high] = state.registers[reload_high];
+    } else {
+        if elapsed >= low_until_overflow {
+            state.registers[control] |= low_flag;
+        }
+        let value = initial.wrapping_add((elapsed & u64::from(u16::MAX)) as u16);
+        let [low, high] = value.to_le_bytes();
+        state.registers[current_low] = low;
+        state.registers[current_high] = high;
+    }
+    now
+}
+
 /// Machine-facing EFM8BB52F32G peripheral state.
 #[derive(Clone)]
 pub struct Efm8PeripheralsHandle(Arc<Mutex<Efm8State>>);
 
-impl Efm8PeripheralsHandle {
-    /// Captured UART0 transmit bytes.
-    pub fn uart_bytes(&self) -> Vec<u8> {
-        self.0.lock().expect("EFM8 lock poisoned").uart.clone()
-    }
-
-    /// Captured UART1 transmit bytes.
-    pub fn uart1_bytes(&self) -> Vec<u8> {
-        self.0.lock().expect("EFM8 lock poisoned").uart1.clone()
-    }
-
-    /// Returns the resolved PCA CEX output for a channel.
-    pub fn pca_output(&self, channel: usize) -> Logic {
-        self.0
-            .lock()
-            .expect("EFM8 lock poisoned")
-            .pca_outputs
-            .get(channel)
-            .copied()
-            .unwrap_or(Logic::X)
-    }
-
-    /// Returns the current 16-bit PCA counter.
-    pub fn pca_counter(&self) -> u16 {
-        self.0.lock().expect("EFM8 lock poisoned").pca_counter()
-    }
-
-    /// Supplies a sampled CEX input edge for a capture channel.
-    pub fn set_pca_input(
-        &self,
-        channel: usize,
-        value: Logic,
-        at: SimTime,
-    ) -> Result<(), DeviceError> {
-        self.0
-            .lock()
-            .expect("EFM8 lock poisoned")
-            .capture_pca_input(channel, value, at)
-    }
-
-    /// Returns the currently asserted PCA interrupt request.
-    pub fn pca_interrupt_pending(&self) -> bool {
-        self.0
-            .lock()
-            .expect("EFM8 lock poisoned")
-            .pca_interrupt_pending()
-    }
-
-    /// Captured SMBus 0 bytes written by the guest to the transmit FIFO.
-    pub fn smbus0_tx_bytes(&self) -> Vec<u8> {
-        self.0.lock().expect("EFM8 lock poisoned").smbus0_tx.clone()
-    }
-
-    /// Returns whether the functional SMBus 0 state machine owns the bus.
-    pub fn smbus0_busy(&self) -> bool {
-        let state = self.0.lock().expect("EFM8 lock poisoned");
-        state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_BUSY != 0
-    }
-
-    /// Returns whether SMBus 0 has an enabled service request pending.
-    pub fn smbus0_interrupt(&self) -> bool {
-        let state = self.0.lock().expect("EFM8 lock poisoned");
-        state.registers[Efm8SmbusRegister::Eie1.offset()] & EIE1_ESMB0 != 0
-            && state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_SI != 0
-            && (state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_MASTER != 0
-                || state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_INH == 0)
-    }
-
-    /// Queues bytes as a deterministic follower-side SMBus 0 receive event.
-    pub fn inject_smbus0_rx(&self, bytes: &[u8], at: SimTime) {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        if state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_ENSMB == 0 {
-            return;
-        }
-        state.smbus0_rx.extend(bytes.iter().copied());
-        if let Some(&first) = state.smbus0_rx.front() {
-            state.registers[Efm8SmbusRegister::Smb0Dat.offset()] = first;
-            state.registers[Efm8SmbusRegister::Smb0Cf.offset()] |= SMB0CF_BUSY;
-            state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &=
-                !(SMB0CN0_MASTER | SMB0CN0_TXMODE);
-            state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] |= SMB0CN0_ACKRQ | SMB0CN0_SI;
-        }
-        state.update_smbus0_signals(at);
-        state.update_interrupt_signals(at);
-    }
-
-    /// Supplies one received UART0 byte and raises RI.
-    pub fn inject_uart_rx(&self, value: u8, at: SimTime) {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        state.registers[SBUF0] = value;
-        state.registers[SCON0] |= SCON0_RI;
-        state.update_interrupt_signals(at);
-    }
-
-    /// Supplies one received UART1 byte when its receiver and baud generator
-    /// are enabled. The bounded FIFO raises the documented overrun flag when full.
-    pub fn inject_uart1_rx(&self, value: u8, at: SimTime) {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        if state.registers[SBCON1] & SBCON1_BREN == 0 || state.registers[SCON1] & SCON1_REN == 0 {
-            return;
-        }
-        if state.uart1_rx.len() >= 16 {
-            state.registers[SCON1] |= 0x80;
-        } else {
-            state.uart1_rx.push_back(value);
-            state.uart1_last_rx = value;
-            state.registers[SCON1] |= SCON1_RI;
-        }
-        state.update_interrupt_signals(at);
-    }
-
-    /// Supplies the next byte returned by a functional SPI0 master transfer.
-    pub fn inject_spi_rx(&self, value: u8) {
-        self.0
-            .lock()
-            .expect("EFM8 lock poisoned")
-            .spi_rx
-            .push(value);
-    }
-
-    /// Captured bytes written to SPI0DAT.
-    pub fn spi_bytes(&self) -> Vec<u8> {
-        self.0.lock().expect("EFM8 lock poisoned").spi_tx.clone()
-    }
-
-    /// Applies the native Timer1 side effect of vectoring to its interrupt.
-    ///
-    /// EFM8 hardware clears TF1 when the core acknowledges the Timer1
-    /// interrupt. The machine calls this only after the MCS-51 core has
-    /// actually selected the Timer1 vector, so a masked flag remains visible
-    /// until it is serviced or explicitly cleared by firmware.
-    pub fn acknowledge_timer1_interrupt(&self, at: SimTime) {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        state.registers[TCON] &= !TCON_TF1;
-        state.update_interrupt_signals(at);
-    }
-
-    /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 14] {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        for port in 0..4 {
-            let _ = state.refresh_port(port, now);
-        }
-        if state.registers[TCON] & TCON_TR0 != 0 {
-            let initial = u16::from_be_bytes([state.registers[TH0], state.registers[TL0]]);
-            let elapsed = now.ticks().saturating_sub(state.timer0_epoch);
-            let total = u64::from(initial).saturating_add(elapsed);
-            let mode = state.registers[TMOD] & 3;
-            if mode == 2 {
-                let reload = state.registers[TH0];
-                let period = u64::from(256_u16 - u16::from(reload)).max(1);
-                state.registers[TL0] = reload.wrapping_add((elapsed % period).to_le_bytes()[0]);
-                if elapsed >= period {
-                    state.registers[TCON] |= TCON_TF0;
-                    state.timer0_epoch = now.ticks();
-                }
-            } else {
-                let bytes = total.to_le_bytes();
-                state.registers[TL0] = bytes[0];
-                state.registers[TH0] = bytes[1];
-                state.timer0_epoch = now.ticks();
-                if total > u64::from(u16::MAX) {
-                    state.registers[TCON] |= TCON_TF0;
-                }
-            }
-        }
-        if state.registers[TCON] & TCON_TR1 != 0 {
-            let mode = (state.registers[TMOD] >> 4) & 3;
-            let elapsed = now.ticks().saturating_sub(state.timer1_epoch);
-            match mode {
-                1 => {
-                    let initial = u16::from_be_bytes([state.registers[TH1], state.registers[TL1]]);
-                    let total = u64::from(initial).saturating_add(elapsed);
-                    let [low, high] = (total as u16).to_le_bytes();
-                    state.registers[TL1] = low;
-                    state.registers[TH1] = high;
-                    if total > u64::from(u16::MAX) {
-                        state.registers[TCON] |= TCON_TF1;
-                    }
-                    state.timer1_epoch = now.ticks();
-                }
-                2 => {
-                    // In auto-reload mode the first overflow depends on the
-                    // current TL1 value. Subsequent overflows reload TH1.
-                    let initial = u64::from(state.registers[TL1]);
-                    let total = initial.saturating_add(elapsed);
-                    let reload = state.registers[TH1];
-                    let period = u64::from(256_u16 - u16::from(reload)).max(1);
-                    if total >= 256 {
-                        let after_first = total - 256;
-                        state.registers[TL1] = reload.wrapping_add((after_first % period) as u8);
-                        state.registers[TCON] |= TCON_TF1;
-                    } else {
-                        state.registers[TL1] = total as u8;
-                    }
-                    state.timer1_epoch = now.ticks();
-                }
-                // Mode 0 is the legacy 13-bit form and mode 3 leaves Timer1
-                // inactive on the EFM8. Neither mode is part of this
-                // functional slice; rebase time so changing modes while the
-                // timer is running cannot count the unsupported interval.
-                _ => state.timer1_epoch = now.ticks(),
-            }
-        }
-        if state.registers[TMR2CN0] & TMR2_TR2 != 0 {
-            let initial = u16::from_le_bytes([state.registers[TMR2L], state.registers[TMR2H]]);
-            let elapsed = now.ticks().saturating_sub(state.timer2_epoch);
-            let until_overflow = u64::from(u16::MAX - initial) + 1;
-            if elapsed >= until_overflow {
-                state.registers[TMR2CN0] |= TMR2_TF2H;
-                state.registers[TMR2L] = state.registers[TMR2RLL];
-                state.registers[TMR2H] = state.registers[TMR2RLH];
-                state.timer2_epoch = now.ticks();
-            } else {
-                let elapsed = u16::try_from(elapsed)
-                    .expect("non-overflowing Timer2 elapsed value fits in 16 bits");
-                let value = initial.wrapping_add(elapsed);
-                let [low, high] = value.to_le_bytes();
-                state.registers[TMR2L] = low;
-                state.registers[TMR2H] = high;
-                state.timer2_epoch = now.ticks();
-            }
-        }
-        if state.watchdog_enabled && now.ticks().saturating_sub(state.watchdog_epoch) >= 65_536 {
-            state.watchdog_reset = true;
-            state.set_signal(state.watchdog_reset_signal, 1, 1, now);
-        }
-        let _ = state.advance_pca(now);
-        state.update_smbus0_signals(now);
-        state.update_interrupt_signals(now);
-        state.interrupt_levels()
-    }
-
-    /// Consumes a watchdog reset request.
-    pub fn take_watchdog_reset(&self) -> bool {
-        std::mem::take(&mut self.0.lock().expect("EFM8 lock poisoned").watchdog_reset)
-    }
-}
+mod handle;
 
 /// EFM8BB52F32G paged SFR peripheral window.
 pub struct Efm8Peripherals {
@@ -982,6 +898,21 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer2 high-byte overflow request".to_owned()),
         )?;
+        let timer3_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer3.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer3 overflow request".to_owned()),
+        )?;
+        let timer4_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer4.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer4 overflow request".to_owned()),
+        )?;
+        let timer5_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer5.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer5 overflow request".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -1029,6 +960,9 @@ impl Efm8Peripherals {
             timer0_epoch: 0,
             timer1_epoch: 0,
             timer2_epoch: 0,
+            timer3_epoch: 0,
+            timer4_epoch: 0,
+            timer5_epoch: 0,
             crc_result: 0,
             watchdog_epoch: 0,
             watchdog_key: 0,
@@ -1047,6 +981,9 @@ impl Efm8Peripherals {
             timer0_irq_signal,
             timer1_irq_signal,
             timer2_irq_signal,
+            timer3_irq_signal,
+            timer4_irq_signal,
+            timer5_irq_signal,
             interrupt_signal,
             watchdog_reset_signal,
             pca_epoch: 0,
@@ -1432,6 +1369,15 @@ impl Device for Efm8Peripherals {
             } else if address == TMR2CN0 && value & TMR2_TR2 != 0 {
                 state.registers[address] = value;
                 state.timer2_epoch = at.ticks();
+            } else if address == TMR3CN0 && value & TMR3_TR3 != 0 {
+                state.registers[address] = value;
+                state.timer3_epoch = at.ticks();
+            } else if address == TMR4CN0 && value & TMR4_TR4 != 0 {
+                state.registers[address] = value;
+                state.timer4_epoch = at.ticks();
+            } else if address == TMR5CN0 && value & TMR5_TR5 != 0 {
+                state.registers[address] = value;
+                state.timer5_epoch = at.ticks();
             } else {
                 state.registers[address] = value;
             }

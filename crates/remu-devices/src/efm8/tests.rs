@@ -133,6 +133,105 @@ fn uart1_paged_fifo_and_interrupt_slice_is_functional() {
 }
 
 #[test]
+fn timer345_reload_flags_and_interrupts_are_functional() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(
+            Efm8SmbusRegister::Eie1.offset() as u64,
+            AccessWidth::Byte,
+            super::EIE1_ET3.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(
+            super::EIE2 as u64,
+            AccessWidth::Byte,
+            (super::EIE2_ET4 | super::EIE2_ET5).into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+        .unwrap();
+
+    for (reload_low, reload_high, current_low, current_high, control, run, cen) in [
+        (
+            super::TMR3RLL,
+            super::TMR3RLH,
+            super::TMR3L,
+            super::TMR3H,
+            super::TMR3CN0,
+            super::TMR3_TR3,
+            super::TMR3_TF3CEN,
+        ),
+        (
+            super::TMR4RLL,
+            super::TMR4RLH,
+            super::TMR4L,
+            super::TMR4H,
+            super::TMR4CN0,
+            super::TMR4_TR4,
+            super::TMR4_TF4CEN,
+        ),
+        (
+            super::TMR5RLL,
+            super::TMR5RLH,
+            super::TMR5L,
+            super::TMR5H,
+            super::TMR5CN0,
+            super::TMR5_TR5,
+            super::TMR5_TF5CEN,
+        ),
+    ] {
+        device
+            .write(reload_low as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(reload_high as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(current_low as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(current_high as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                control as u64,
+                AccessWidth::Byte,
+                (run | cen).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+
+    for address in [super::TMR3CN1, super::TMR4CN1, super::TMR5CN1] {
+        device
+            .write(address as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+    }
+    let levels = handle.poll(SimTime::from_ticks(4));
+    assert!(levels[14]);
+    assert!(levels[16]);
+    assert!(levels[18]);
+    for (control, flag) in [
+        (super::TMR3CN0, super::TMR3_TF3H),
+        (super::TMR4CN0, super::TMR4_TF4H),
+        (super::TMR5CN0, super::TMR5_TF5H),
+    ] {
+        assert_ne!(
+            device
+                .read(control as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & u64::from(flag),
+            0
+        );
+    }
+}
+
+#[test]
 fn spi0_master_transfer_exposes_injected_miso_and_interrupt() {
     let hub = super::SignalHub::new();
     let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
