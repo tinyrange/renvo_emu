@@ -17,7 +17,8 @@ use remu_devices::{
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
     Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Stm32TimerHandle, Stm32Tsc, Stm32TscHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -81,6 +82,7 @@ pub struct ArmMcuMachine {
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
+    tsc: Option<Stm32TscHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -230,7 +232,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, ra_icu, watchdog, tsc) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -257,6 +259,7 @@ impl ArmMcuMachine {
                     Some(eic),
                     None,
                     Some(watchdog),
+                    None,
                 )
             }
             TargetId::Stm32l432kc => {
@@ -282,11 +285,13 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (tsc_device, tsc) = Stm32Tsc::new("stm32l432kc.tsc");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    tsc_device,
                 )?;
                 (
                     gpio,
@@ -295,6 +300,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    Some(tsc),
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -321,6 +327,7 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     None,
+                    None,
                 )
             }
             _ => unreachable!(),
@@ -339,6 +346,7 @@ impl ArmMcuMachine {
             eic,
             ra_icu,
             watchdog,
+            tsc,
             compiler_timer,
             exit,
             ppb,
@@ -410,6 +418,7 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        tsc: Stm32Tsc,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -474,6 +483,7 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device("stm32l432kc.tsc", 0x4002_4000, 0x100, Box::new(tsc))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -686,6 +696,26 @@ impl ArmMcuMachine {
         Ok(())
     }
 
+    /// Supplies a deterministic touch-acquisition count to the STM32 TSC host.
+    pub fn set_stm32_tsc_group_count(
+        &self,
+        group: usize,
+        count: u32,
+    ) -> Result<(), ArmMachineError> {
+        let Some(tsc) = &self.tsc else {
+            return Err(ArmMachineError::Device(remu_bus::DeviceError::new(
+                "STM32 TSC is not available on this target",
+            )));
+        };
+        if tsc.set_group_count(group, count) {
+            Ok(())
+        } else {
+            Err(ArmMachineError::Device(remu_bus::DeviceError::new(
+                "STM32 TSC group index is outside 0..7",
+            )))
+        }
+    }
+
     /// Runs without externally scheduled stimuli.
     pub fn run(
         &mut self,
@@ -810,6 +840,12 @@ impl ArmMcuMachine {
                 }
                 TargetId::R7fa4m1ab3cfm => {}
                 _ => unreachable!(),
+            }
+            if let Some(tsc) = &self.tsc {
+                let tsc_pending = tsc.interrupt_pending();
+                interrupt_requested |= tsc_pending;
+                self.cpu
+                    .set_interrupt(77, tsc_pending && self.ppb.interrupt_enabled(77))?;
             }
             self.signals.set(
                 self.timer_irq_signal,
@@ -957,6 +993,42 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_tsc_host_count_is_visible_and_interruptible() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine.set_stm32_tsc_group_count(0, 0x321).unwrap();
+        machine
+            .bus
+            .write(0x4002_4030, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_4004, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(
+                0x4002_4000,
+                AccessWidth::Word,
+                1 | 2 | (3 << 5),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4002_4034,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x321
+        );
+        assert!(machine.tsc.as_ref().unwrap().interrupt_pending());
     }
 
     #[test]
