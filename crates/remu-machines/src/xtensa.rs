@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3Sha, Esp32S3ShaHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -376,6 +377,7 @@ pub struct XtensaMachine {
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
     usb_host: EspDwc2Host,
+    sha: Esp32S3ShaHandle,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
@@ -495,7 +497,6 @@ impl XtensaMachine {
             ("uart2", 0x6002_e000),
             ("usb-wrap", 0x6003_9000),
             ("aes", 0x6003_a000),
-            ("sha", 0x6003_b000),
             ("rsa", 0x6003_c000),
             ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
@@ -595,6 +596,8 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (sha_device, sha) = Esp32S3Sha::new("esp32s3.sha", signals.clone())?;
+        bus.map_device("esp32s3.sha", 0x6003_b000, 0x1000, Box::new(sha_device))?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -713,6 +716,7 @@ impl XtensaMachine {
             usb_serial_jtag,
             usb_otg,
             usb_host: EspDwc2Host::new(),
+            sha,
             system,
             systimer,
             timer_groups,
@@ -1000,6 +1004,11 @@ impl XtensaMachine {
         self.gpio.set_input(pin, value, self.now)?;
         self.chip_gpio.set_input(pin, value, self.now)?;
         Ok(())
+    }
+
+    /// Returns the host-side ESP32-S3 SHA accelerator endpoint.
+    pub fn sha(&self) -> Esp32S3ShaHandle {
+        self.sha.clone()
     }
 
     fn set_systimer_interrupt(
