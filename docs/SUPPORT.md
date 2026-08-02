@@ -77,6 +77,14 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52F32G model also exposes its 32 KiB code flash through the firmware
+XDATA path. `FLKEY=0xa5,0xf1` unlocks one operation; `PSCTL.PSWE` performs a
+NOR byte program and `PSCTL.PSEE` erases the addressed 2 KiB page. Intel HEX
+loading populates both the executable CODE view and this flash store, so the
+SDCC fixture checks firmware-side program/erase rather than only a host API.
+Flash security/lock bytes, C2 programming, voltage-monitor timing, and other
+unlisted controller details remain deferred.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

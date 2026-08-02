@@ -5,6 +5,8 @@ use remu_signals::{Logic, SignalId, SignalValue};
 use std::sync::{Arc, Mutex};
 
 const SFR_BYTES: usize = 0x1_0000;
+const FLASH_BYTES: usize = 32 * 1024;
+const FLASH_PAGE_BYTES: usize = 2048;
 const PAGE3: usize = 0x20;
 const P0: usize = 0x80;
 const TCON: usize = 0x88;
@@ -36,6 +38,8 @@ const P0MDIN: usize = 0xf1;
 const P1MDIN: usize = 0xf2;
 const P2MDIN: usize = 0xf3;
 const P3MDIN: usize = (PAGE3 << 8) | 0xf4;
+const PSCTL: usize = 0x8f;
+const FLKEY: usize = 0xb7;
 
 const PORTS: [usize; 4] = [P0, P1, P2, P3];
 const PORT_WIDTHS: [u8; 4] = [8, 8, 8, 5];
@@ -55,9 +59,14 @@ const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const XBR0_URT0E: u8 = 0x01;
 const XBR2_XBARE: u8 = 0x40;
+const PSCTL_OKVDDF: u8 = 0x40;
+const PSCTL_PERRF: u8 = 0x08;
+const PSCTL_PSEE: u8 = 0x02;
+const PSCTL_PSWE: u8 = 0x01;
 
 struct Efm8State {
     registers: Box<[u8]>,
+    flash: Box<[u8]>,
     ports: [Arc<Mutex<GpioState>>; 4],
     port_signals: [Vec<SignalId>; 4],
     hub: SignalHub,
@@ -68,6 +77,9 @@ struct Efm8State {
     watchdog_key: u8,
     watchdog_enabled: bool,
     watchdog_reset: bool,
+    flash_key_stage: u8,
+    flash_locked_out: bool,
+    flash_unlocked: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
@@ -125,6 +137,69 @@ impl Efm8State {
         ((latch & push_pull) | (input & !push_pull)) & PORT_MASKS[port]
     }
 
+    fn flash_read(&self, address: usize) -> Result<u8, DeviceError> {
+        self.flash.get(address).copied().ok_or_else(|| {
+            DeviceError::new(format!("EFM8 flash address outside 32 KiB: {address:#x}"))
+        })
+    }
+
+    fn flash_key_write(&mut self, value: u8) {
+        if self.flash_locked_out {
+            return;
+        }
+        match (self.flash_key_stage, value) {
+            (0, 0xa5) => self.flash_key_stage = 1,
+            (1, 0xf1) => {
+                self.flash_key_stage = 2;
+                self.flash_unlocked = true;
+            }
+            _ => {
+                self.flash_key_stage = 0;
+                self.flash_unlocked = false;
+                self.flash_locked_out = true;
+            }
+        }
+    }
+
+    fn flash_write(&mut self, address: usize, value: u8) -> Result<(), DeviceError> {
+        if address >= FLASH_BYTES {
+            return Err(DeviceError::new(format!(
+                "EFM8 flash address outside 32 KiB: {address:#x}"
+            )));
+        }
+        let controls = self.registers[PSCTL];
+        if controls & PSCTL_PSWE == 0
+            || controls & PSCTL_OKVDDF == 0
+            || !self.flash_unlocked
+            || self.flash_locked_out
+        {
+            self.registers[PSCTL] |= PSCTL_PERRF;
+            return Ok(());
+        }
+        if controls & PSCTL_PSEE != 0 {
+            let page_start = address / FLASH_PAGE_BYTES * FLASH_PAGE_BYTES;
+            let page_end = (page_start + FLASH_PAGE_BYTES).min(FLASH_BYTES);
+            self.flash[page_start..page_end].fill(0xff);
+        } else {
+            self.flash[address] &= value;
+        }
+        self.flash_key_stage = 0;
+        self.flash_unlocked = false;
+        Ok(())
+    }
+
+    fn load_flash(&mut self, address: usize, bytes: &[u8]) -> Result<(), DeviceError> {
+        let end = address
+            .checked_add(bytes.len())
+            .ok_or_else(|| DeviceError::new("EFM8 flash image range overflow"))?;
+        let destination = self
+            .flash
+            .get_mut(address..end)
+            .ok_or_else(|| DeviceError::new("EFM8 flash image exceeds 32 KiB"))?;
+        destination.copy_from_slice(bytes);
+        Ok(())
+    }
+
     fn reset_registers(&mut self, at: SimTime, kind: ResetKind) {
         self.registers.fill(0);
         for port in 0..4 {
@@ -132,6 +207,7 @@ impl Efm8State {
             self.registers[PORT_MDIN[port]] = PORT_MASKS[port];
         }
         self.registers[CLKSEL] = 0x80;
+        self.registers[PSCTL] = PSCTL_OKVDDF;
         self.registers[RSTSRC] = match kind {
             ResetKind::PowerOn => 0x02,
             ResetKind::External => 0x01,
@@ -145,6 +221,9 @@ impl Efm8State {
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
         self.watchdog_reset = false;
+        self.flash_key_stage = 0;
+        self.flash_locked_out = false;
+        self.flash_unlocked = false;
         for signal in [
             self.uart_strobe_signal,
             self.timer0_irq_signal,
@@ -165,12 +244,14 @@ impl Efm8State {
         match address {
             0x80
             | 0x88..=0x8e
+            | 0x8f
             | 0x90
             | 0x97..=0x99
             | 0xa0
             | 0xa4..=0xa6
             | 0xa8..=0xa9
             | 0xb0
+            | 0xb7
             | 0xb8
             | 0xc8
             | 0xca..=0xcf
@@ -234,6 +315,37 @@ impl Efm8PeripheralsHandle {
     /// Captured UART0 transmit bytes.
     pub fn uart_bytes(&self) -> Vec<u8> {
         self.0.lock().expect("EFM8 lock poisoned").uart.clone()
+    }
+
+    /// Copies an Intel HEX code segment into the functional flash image.
+    pub fn load_flash(&self, address: u32, bytes: &[u8]) -> Result<(), DeviceError> {
+        self.0.lock().expect("EFM8 lock poisoned").load_flash(
+            usize::try_from(address).map_err(|_| {
+                DeviceError::new("EFM8 flash image address does not fit host usize")
+            })?,
+            bytes,
+        )
+    }
+
+    /// Reads a byte from the functional flash image for XDATA/debug access.
+    pub fn flash_read(&self, address: u16) -> Result<u8, DeviceError> {
+        self.0
+            .lock()
+            .expect("EFM8 lock poisoned")
+            .flash_read(usize::from(address))
+    }
+
+    /// Applies one firmware MOVX flash program/erase request.
+    pub fn flash_write(&self, address: u16, value: u8) -> Result<(), DeviceError> {
+        self.0
+            .lock()
+            .expect("EFM8 lock poisoned")
+            .flash_write(usize::from(address), value)
+    }
+
+    /// Reports whether PSWE currently redirects MOVX writes into flash.
+    pub fn flash_write_enabled(&self) -> bool {
+        self.0.lock().expect("EFM8 lock poisoned").registers[PSCTL] & PSCTL_PSWE != 0
     }
 
     /// Supplies one received UART0 byte and raises RI.
@@ -354,6 +466,7 @@ impl Efm8Peripherals {
         )?;
         let state = Arc::new(Mutex::new(Efm8State {
             registers: vec![0; SFR_BYTES].into_boxed_slice(),
+            flash: vec![0xff; FLASH_BYTES].into_boxed_slice(),
             ports: [port0, port1, port2, port3],
             port_signals: [signals0, signals1, signals2, signals3],
             hub,
@@ -364,6 +477,9 @@ impl Efm8Peripherals {
             watchdog_key: 0,
             watchdog_enabled: true,
             watchdog_reset: false,
+            flash_key_stage: 0,
+            flash_locked_out: false,
+            flash_unlocked: false,
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
@@ -436,7 +552,12 @@ impl Device for Efm8Peripherals {
             )));
         }
         state.registers[address] = value;
-        if let Some(port) = Self::port_index(address) {
+        if address == PSCTL {
+            state.registers[address] = PSCTL_OKVDDF | (value & 0x0f);
+        } else if address == FLKEY {
+            state.registers[address] = 0;
+            state.flash_key_write(value);
+        } else if let Some(port) = Self::port_index(address) {
             state.registers[address] &= PORT_MASKS[port];
             state.refresh_port(port, at)?;
         } else if let Some(port) = PORT_MDOUT.iter().position(|item| *item == address) {
@@ -481,8 +602,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, Efm8Peripherals, FLKEY, IE, IE_EA, IE_ET0, P0, P0MDOUT, PSCTL, SBUF0, SimTime,
+        TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +663,44 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn flash_keyed_program_and_page_erase_follow_nor_rules() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        handle.load_flash(0x1000, &[0xff]).unwrap();
+        device
+            .write(FLKEY as u64, AccessWidth::Byte, 0xa5, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(FLKEY as u64, AccessWidth::Byte, 0xf1, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(PSCTL as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        handle.flash_write(0x1000, 0x5a).unwrap();
+        assert_eq!(handle.flash_read(0x1000).unwrap(), 0x5a);
+
+        // A second write requires a new key sequence and cannot set erased
+        // NOR bits back to one.
+        handle.flash_write(0x1000, 0xff).unwrap();
+        assert_eq!(handle.flash_read(0x1000).unwrap(), 0x5a);
+
+        device
+            .write(FLKEY as u64, AccessWidth::Byte, 0xa5, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(FLKEY as u64, AccessWidth::Byte, 0xf1, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(PSCTL as u64, AccessWidth::Byte, 3, SimTime::ZERO)
+            .unwrap();
+        handle.flash_write(0x1000, 0).unwrap();
+        assert_eq!(handle.flash_read(0x1000).unwrap(), 0xff);
+        assert_eq!(
+            device.read(PSCTL as u64, AccessWidth::Byte, SimTime::ZERO),
+            Ok(0x43)
+        );
     }
 }
