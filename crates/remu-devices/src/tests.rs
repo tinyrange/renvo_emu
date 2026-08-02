@@ -108,6 +108,99 @@ fn rp2350_timer_uses_shifted_interrupt_registers() {
 }
 
 #[test]
+fn rp2350_powman_keeps_scratch_and_runs_aon_timer_and_wake_configuration() {
+    let mut powman = Rp2350Powman::new("powman");
+    assert_eq!(
+        powman.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x8050
+    );
+    assert_eq!(
+        powman.read(0x38, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xf
+    );
+    assert_eq!(
+        powman.read(0x8c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x3f
+    );
+
+    powman
+        .write(0xb0, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+        .unwrap();
+    powman
+        .write(0xd0, AccessWidth::Word, 0xfeed_cafe, SimTime::ZERO)
+        .unwrap();
+    powman
+        .write(0x6c, AccessWidth::Word, 100, SimTime::ZERO)
+        .unwrap();
+    powman
+        .write(0x84, AccessWidth::Word, 110, SimTime::ZERO)
+        .unwrap();
+    powman
+        .write(
+            0x88,
+            AccessWidth::Word,
+            (1 << 8) | (1 << 4) | (1 << 1),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(powman.aon_time(SimTime::from_ticks(7)), 107);
+    assert!(!powman.alarm_pending(SimTime::from_ticks(7)));
+    assert!(powman.alarm_pending(SimTime::from_ticks(10)));
+    assert_eq!(
+        powman
+            .read(0x74, AccessWidth::Word, SimTime::from_ticks(7))
+            .unwrap(),
+        107
+    );
+    assert_ne!(
+        powman
+            .read(0x88, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap()
+            & (1 << 6),
+        0
+    );
+    powman
+        .write(0xe4, AccessWidth::Word, 1 << 1, SimTime::from_ticks(10))
+        .unwrap();
+    assert_ne!(
+        powman
+            .read(0xe0, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap()
+            & (1 << 1),
+        0
+    );
+    assert_ne!(
+        powman
+            .read(0xec, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap()
+            & (1 << 1),
+        0
+    );
+
+    powman
+        .write(
+            0x8c,
+            AccessWidth::Word,
+            (1 << 6) | 3,
+            SimTime::from_ticks(10),
+        )
+        .unwrap();
+    assert_eq!(
+        powman.read(0x8c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x43
+    );
+    powman.reset(ResetKind::Watchdog);
+    assert_eq!(
+        powman.read(0xb0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x1234_5678
+    );
+    assert_eq!(
+        powman.read(0xd0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xfeed_cafe
+    );
+}
+
+#[test]
 fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
     let hub = SignalHub::new();
     let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio0.gpio", hub.clone()).unwrap();
