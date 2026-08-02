@@ -70,6 +70,8 @@ jq -e '.target == "atmega328pb" and .reason == "Halted" and .exit_code == 0 and 
     "$artifact_root/run-a/result.json" >/dev/null
 grep -q '^\$scope module atmega328pb \$end$' "$artifact_root/run-a/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-a/signals.vcd"
+grep -q '^\$scope module timer3 \$end$' "$artifact_root/run-a/signals.vcd"
+grep -q '^\$scope module timer4 \$end$' "$artifact_root/run-a/signals.vcd"
 grep -q '^\$scope module usart0 \$end$' "$artifact_root/run-a/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-a/signals.vcd"
 grep -q '^\$scope module analog_comparator \$end$' "$artifact_root/run-a/signals.vcd"

@@ -7,20 +7,19 @@ compiled as the older ATmega328P.
 
 The smoke firmware checks the native AVR ABI (`int` and data pointers are 16
 bits), startup/data initialization, calls and recursion, switch lowering,
-16-bit division helpers, volatile MMIO and interrupt prologues. Timer0 overflow
-and a PORTB pin-change interrupt each toggle PB0. USART0 emits `AVR8-PB\n`, and
-an EEPROM byte is written and read back. VCD contains PORT B/C/D plus explicit
-Timer0, Timer1, USART0, pin-change, external-interrupt, watchdog, and
-analog-comparator output signals.
+16-bit division helpers, volatile MMIO and interrupt prologues. Timer0 overflow,
+Timer3 compare-A, Timer4 compare-A and a PORTB pin-change interrupt are serviced;
+USART0 emits `AVR8-PB\n`, and an EEPROM byte is written and read back. VCD
+contains PORT B/C/D plus explicit Timer0, Timer1, Timer2, Timer3, Timer4, USART0,
+pin-change, external-interrupt, watchdog, ADC, and analog-comparator signals.
 
 Implemented functionally: clock/power register storage, PORT B/C/D, INT0 and
-pin-change group 0, Timer0 overflow, Timer1 compare A, USART0 transmit, EEPROM,
-watchdog reset, reset/vectors and AVR Harvard program/data separation. The
-analog comparator exposes deterministic boolean AIN0/AIN1 host inputs, ACO
-state, selectable toggle/falling/rising ACI interrupt modes, and a VCD output.
-It does not model analog voltages, the bandgap reference, synchronization
-delay, ADC coupling, touch, SPI or TWI. Timer prescalers and serial bit timing
-are deterministic approximations.
+pin-change groups, Timer0/1/2, Timer3/4 compare A and overflow, USART0/1 transmit,
+SPI0, TWI0, ADC, EEPROM, watchdog reset, reset/vectors and AVR Harvard
+program/data separation. The comparator exposes deterministic boolean AIN0/AIN1
+host inputs, ACO state and selectable edge interrupts. Analog voltage/noise,
+touch, Timer3/4 PWM and capture waveforms, second SPI/TWI controllers, and
+cycle-accurate prescalers/serial timing remain outside this functional slice.
 
 Run from the repository root:
 

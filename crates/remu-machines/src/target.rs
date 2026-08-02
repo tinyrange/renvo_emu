@@ -688,7 +688,7 @@ const MANIFESTS: &[TargetManifest] = &[
         support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
             "PORT/interrupt GPIO",
-            "Timer0/1",
+            "Timer0/1/2/3/4",
             "USART0",
             "EEPROM",
             "analog comparator",
@@ -699,8 +699,8 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://packs.download.microchip.com/Microchip.ATmega_DFP.3.6.299.atpack",
         ],
         limitations: &[
-            "analog voltage, bandgap, ADC, touch, SPI, and TWI are outside the acceptance slice",
             "comparator timing is functional rather than clock-accurate",
+            "Timer3/4 PWM and input-capture waveform fidelity are deferred",
         ],
     },
     TargetManifest {
