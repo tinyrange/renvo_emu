@@ -201,6 +201,8 @@ mod samd_usb;
 pub use samd_usb::*;
 mod samd_dmac;
 pub use samd_dmac::*;
+mod samd_i2s;
+pub use samd_i2s::*;
 mod stm32;
 pub use stm32::*;
 mod ra;

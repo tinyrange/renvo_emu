@@ -573,6 +573,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "EVSYS channel/user mux and software event",
             "USB device control and endpoint register slice",
             "DMAC software-triggered descriptor transfer",
+            "I2S clock/serializer/data slice",
             "VCD",
         ],
         sources: &[
@@ -583,7 +584,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/instance/sercom0.h",
         ],
         limitations: &[
-            "full USB packet protocol and USB descriptor DMA, DMAC linked descriptors/peripheral/event trigger routing/CRC, analog behavior, live peripheral event-generator/user routing, and exact clock timing are outside this tranche",
+            "full USB packet protocol and USB descriptor DMA, DMAC linked descriptors/peripheral/event trigger routing/CRC, I2S serial timing/framing/pin waveforms/DMAC coupling, analog behavior, live peripheral event-generator/user routing, and exact clock timing are outside this tranche",
             "SERCOM transfers are functional and deterministic; pin-level bus timing and full slave behavior remain deferred",
         ],
     },

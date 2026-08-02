@@ -53,6 +53,13 @@ typedef unsigned int u32;
 #define DMAC_CHINTENSET REG8(0x4100484du)
 #define DMAC_CHINTFLAG REG8(0x4100484eu)
 #define DMAC_CHSTATUS REG8(0x4100484fu)
+#define I2S_CTRLA REG8(0x42005000u)
+#define I2S_CLKCTRL0 REG32(0x42005004u)
+#define I2S_INTENSET REG16(0x42005010u)
+#define I2S_INTFLAG REG16(0x42005014u)
+#define I2S_SYNCBUSY REG16(0x42005018u)
+#define I2S_SERCTRL0 REG32(0x42005020u)
+#define I2S_DATA0 REG32(0x42005030u)
 #define NVIC_ISER0 REG32(0xe000e100u)
 
 static volatile u32 timer_interrupts;
@@ -139,6 +146,7 @@ int main(void)
     failures |= (u32)(((int)state != 300) << 10);
 
     PM_APBCMASK |= (1u << 2) | (1u << 11);
+    PM_APBCMASK |= 1u << 20;
     GCLK_CLKCTRL = (u16)((0x14u << 8) | 0u | (1u << 14));
 
     EVSYS_CTRL = 1u << 4;
@@ -199,6 +207,16 @@ int main(void)
     failures |= (u32)((dmac_destination[0] != 0xd4u || dmac_destination[1] != 0xc3u ||
                        dmac_destination[2] != 0xb2u || dmac_destination[3] != 0xa1u) << 21);
     failures |= (u32)((DMAC_CHSTATUS & 0x06u) != 0u) << 22;
+
+    I2S_CLKCTRL0 = (1u << 7) | (1u << 5) | (1u << 2) | 1u;
+    I2S_SERCTRL0 = (4u << 8) | 1u;
+    I2S_CTRLA = (1u << 4) | (1u << 2) | (1u << 1);
+    I2S_INTENSET = 1u << 8;
+    failures |= (u32)((I2S_SYNCBUSY != 0u) << 23);
+    failures |= (u32)((I2S_INTFLAG & (1u << 8)) == 0u) << 24;
+    I2S_DATA0 = 0x12345678u;
+    failures |= (u32)((I2S_DATA0 != 0x12345678u) << 25);
+    I2S_INTFLAG = 1u << 8;
 
     PORT_DIRSET = 1u << 7;
     PORT_OUTSET = 1u << 7;
