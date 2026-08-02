@@ -29,3 +29,36 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_sha_native_window_hashes_a_host_message() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6003_b000;
+    machine.sha().queue_dma_message(b"abc");
+    machine
+        .bus
+        .write(base + 0x28, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x1c, AccessWidth::Word, 1, SimTime::from_ticks(2))
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x40,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0xba78_16bf
+    );
+    assert!(machine.sha().interrupt_pending());
+    machine
+        .bus
+        .write(base + 0x24, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert!(!machine.sha().interrupt_pending());
+}
