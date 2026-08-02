@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpIoBank, RpIoBankHandle,
+    RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -54,6 +54,7 @@ pub struct ArmMachine {
     bootrom_services: BTreeMap<u32, u32>,
     native_bootrom: bool,
     ppb: ArmPpbHandle,
+    io_bank: Option<RpIoBankHandle>,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
@@ -118,6 +119,7 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut io_bank = None;
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -463,15 +465,9 @@ impl ArmMachine {
             // aliases; the electrical slew/drive details do not affect functional execution.
             let mut qspi_pad_reset = vec![0x56; 0x1000 / 4];
             qspi_pad_reset[0] = 0;
-            bus.map_device(
-                "rp2350.io-bank0",
-                0x4002_8000,
-                0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2350.io-bank0",
-                    vec![0; 0x1000 / 4],
-                )),
-            )?;
+            let (io_device, io_handle) = RpIoBank::new("rp2350.io-bank0", chip_gpio.clone(), 48);
+            bus.map_device("rp2350.io-bank0", 0x4002_8000, 0x4000, Box::new(io_device))?;
+            io_bank = Some(io_handle);
             let mut io_qspi_reset = vec![0; 0x1000 / 4];
             for offset in (0..=0x28).step_by(8) {
                 // The functional flash path begins with each QSPI output deasserted high.
@@ -606,6 +602,7 @@ impl ArmMachine {
             bootrom_services: BTreeMap::new(),
             native_bootrom: false,
             ppb,
+            io_bank,
             chip_timers,
             pio,
             usb,
@@ -1206,6 +1203,7 @@ impl ArmMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
+        let mut io_bank_was_pending = false;
         let reason = loop {
             self.sio.select_core(0);
             while stimuli
@@ -1252,6 +1250,14 @@ impl ArmMachine {
                 if pio.poll(self.now)? {
                     stats.events = stats.events.saturating_add(1);
                 }
+            }
+            if let Some(io_bank) = &self.io_bank {
+                let pending = io_bank.poll(self.now)?;
+                if pending && !io_bank_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                io_bank_was_pending = pending;
+                self.cpu.set_interrupt(21, pending)?;
             }
             self.cpu
                 .set_interrupt(0, timer_pending || chip_timer_pending & 1 != 0)?;
