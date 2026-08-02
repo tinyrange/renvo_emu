@@ -255,6 +255,9 @@ impl Pic16ComparatorRegister {
         }
     }
 }
+const PPS_OUTPUT_TX1: u8 = 0x0f;
+const PPS_OUTPUT_TMR0: u8 = 0x19;
+const PPS_OUTPUT_MASK: u8 = 0x1f;
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -397,9 +400,35 @@ impl Pic16State {
         self.set_signal(self.comparator1_output_signal, u64::from(output), 1, at);
     }
 
+    fn signal_level(&self, signal: SignalId) -> Logic {
+        self.hub.with_registry(|registry| {
+            registry
+                .value(signal)
+                .and_then(|value| value.bit(0))
+                .unwrap_or(Logic::Zero)
+        })
+    }
+
+    fn pps_output_level(&self, source: u8) -> Logic {
+        match source {
+            0 => Logic::Zero,
+            PPS_OUTPUT_TX1 => self.signal_level(self.uart_strobe_signal),
+            PPS_OUTPUT_TMR0 => self.signal_level(self.timer0_irq_signal),
+            _ => Logic::Zero,
+        }
+    }
+
     fn refresh_port(&mut self, port: usize, at: SimTime) -> Result<(), DeviceError> {
         let direction = (!self.registers[TRIS_BASE + port]) & PORT_MASKS[port];
-        let output = self.registers[LAT_BASE + port] & PORT_MASKS[port];
+        let latch = self.registers[LAT_BASE + port] & PORT_MASKS[port];
+        let mut output = latch;
+        for pin in 0..usize::from(PORT_WIDTHS[port]) {
+            let source = self.registers[PPS_OUTPUT_BASES[port] + pin] & PPS_OUTPUT_MASK;
+            if source != 0 {
+                output = (output & !(1 << pin))
+                    | (u8::from(self.pps_output_level(source) == Logic::One) << pin);
+            }
+        }
         {
             let mut gpio = self.ports[port].lock().expect("PIC16 GPIO lock poisoned");
             gpio.direction = u32::from(direction);
@@ -431,7 +460,7 @@ impl Pic16State {
         self.registers[Pic16Timer2Register::T2Pr.index()] = u8::MAX;
         self.registers[TX1STA] = 1 << 1; // TRMT
         self.registers[OSCSTAT] = 1 << 6; // internal HF oscillator ready
-        self.registers[PPSLOCK] = 1;
+        self.registers[PPSLOCK] = 0;
         self.uart.clear();
         self.spi.clear();
         self.spi_incoming.clear();
@@ -640,6 +669,9 @@ impl Pic16PeripheralsHandle {
                 state.registers[PIR1] |= ADIF;
                 state.adc_started = None;
             }
+        }
+        for port in 0..5 {
+            let _ = state.refresh_port(port, now);
         }
         let pending = state.interrupt_pending();
         state.update_interrupt_signals(now);
@@ -1033,10 +1065,10 @@ impl Device for Pic16Peripherals {
                 if let Some(port) = Self::port_for(address, &ANSEL) {
                     state.refresh_port(port, at)?;
                 }
-                // PPS output registers are retained verbatim so firmware can read them back.
-                let _is_output_pps = PPS_OUTPUT_BASES
-                    .iter()
-                    .any(|base| (*base..*base + 8).contains(&address));
+                if let Some(port) = Self::port_for(address, &PPS_OUTPUT_BASES) {
+                    state.registers[address] &= PPS_OUTPUT_MASK;
+                    state.refresh_port(port, at)?;
+                }
             }
         }
         state.update_interrupt_signals(at);
@@ -1486,5 +1518,69 @@ mod tests {
             )
             .unwrap();
         assert!(handle.comparator1_output());
+    }
+
+    #[test]
+    fn pps_routes_timer0_and_eusart_strobes_to_gpio_outputs() {
+        let hub = SignalHub::new();
+        let (mut device, handle, ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        device
+            .write(ANSEL[0] as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(TRIS_BASE as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                PPS_OUTPUT_BASES[0] as u64,
+                AccessWidth::Byte,
+                PPS_OUTPUT_TMR0.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(TMR0H as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(ports[0].output() & 1, 0);
+        handle.poll(SimTime::from_ticks(2));
+        assert_eq!(ports[0].output() & 1, 1);
+
+        device
+            .write(
+                PPS_OUTPUT_BASES[0] as u64,
+                AccessWidth::Byte,
+                PPS_OUTPUT_TX1.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                RC1STA as u64,
+                AccessWidth::Byte,
+                SPEN.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                TX1STA as u64,
+                AccessWidth::Byte,
+                TXEN.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                TX1REG as u64,
+                AccessWidth::Byte,
+                b'P'.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        handle.poll(SimTime::from_ticks(2));
+        assert_eq!(ports[0].output() & 1, 1);
     }
 }

@@ -114,8 +114,8 @@ TARGETS = {
         "repeat": "run-O2-repeat/result.json",
         "vcd": "run-O2/signals.vcd",
         "repeat_vcd": "run-O2-repeat/signals.vcd",
-        "vendor_builds": ["register-timer0-build.json", "register-timer2-build.json", "register-dac-build.json", "register-comparator-build.json"],
-        "vendor_runs": ["register-timer0-run/result.json", "register-timer2-run/result.json", "register-dac-run/result.json", "register-comparator-run/result.json"],
+        "vendor_builds": ["register-timer0-build.json", "register-timer2-build.json", "register-dac-build.json", "register-comparator-build.json", "register-pps-build.json"],
+        "vendor_runs": ["register-timer0-run/result.json", "register-timer2-run/result.json", "register-dac-run/result.json", "register-comparator-run/result.json", "register-pps-run/result.json"],
         "edges": {
             "remu.board.pic16f15376.porta.pin0": ["0", "1"],
             "remu.board.pic16f15376.timer0.irq": ["0", "1"],

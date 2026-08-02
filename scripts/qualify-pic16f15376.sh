@@ -208,6 +208,35 @@ jq -e '.target == "pic16f15376" and
     "$comparator_run/result.json" >/dev/null
 grep -q 'comparator1' "$comparator_run/signals.vcd"
 
+pps_build="$artifact_root/register-pps-build"
+pps_run="$artifact_root/register-pps-run"
+mkdir -p "$pps_build" "$pps_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$pps_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-pps-build.json" \
+    -- -Os remu_pps.c \
+    -Wl,-Map=/workspace/out/pps.map \
+    -o /workspace/out/pps.elf
+docker run --rm --network=none \
+    -v "$repo_root/$pps_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/pps.elf \
+    >"$pps_build/pps.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$pps_build/pps.hex" \
+    --max-instructions 30000 \
+    --stop-signal board.pic16f15376.porta.pin0=rising \
+    --vcd "$pps_run/signals.vcd" \
+    --bus-log "$pps_run/bus.json" \
+    --result "$pps_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.porta.pin0"}' \
+    "$pps_run/result.json" >/dev/null
+grep -q 'porta' "$pps_run/signals.vcd"
+
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \
     >"$artifact_root/SHA256SUMS"
 

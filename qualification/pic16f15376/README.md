@@ -16,7 +16,8 @@ Every smoke build must emit
 Implemented functionally: all 49 enhanced mid-range instruction families,
 14-bit word program memory, banked/common/linear RAM, the 16-level hardware
 stack, reset and interrupt vectors, oscillator-ready state, PORT/LAT/TRIS/
-ANSEL A–E, PPS register storage, PIR/PIE routing, Timer0/1, Timer2 period
+ANSEL A–E, PPS register storage plus functional TMR0/TX1 output-source routing,
+PIR/PIE routing, Timer0/1, Timer2 period
 matching with its prescaler/postscaler, EUSART1 transmit, MSSP1 SPI master byte
 transfers, the normalized DAC1 code and enable/output controls, the C1
 comparator GPIO input/polarity/output and edge-flag slice, and watchdog reset.
@@ -33,8 +34,8 @@ scripts/qualify-pic16f15376.sh
 ```
 
 That command also assembles the complete 49-instruction fixture and compiles
-and runs the original register-level Timer0, Timer2, DAC1, and comparator
+and runs the original register-level Timer0, Timer2, DAC1, comparator, and PPS
 programs described under [`fixture`](fixture/README.md). They are written from
 the public PIC16F15376 data sheet and must produce the expected timer, DAC
-enable, and C1 output edges without incorporating Microchip application-note or
-SDK source.
+enable, C1 output, and routed RA0 edges without incorporating Microchip
+application-note or SDK source.
