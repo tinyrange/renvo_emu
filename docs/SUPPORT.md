@@ -77,6 +77,16 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52F32G model provides a functional MCS-51 compiler boundary with
+crossbar GPIO, Timer0/2, UART0, and the documented port-match comparator. P0,
+P1, and P2 mask/match registers compare resolved input pins, expose a stable
+`board.efm8bb52f32g.port_match.event` VCD signal, and route the mismatch event
+through the EIE1/EIP1/EIP1H enable/priority bits to vector `0x0043`. The event
+is modelled as a deterministic level while a masked pin differs from its
+match value; wake-state flags, electrical synchronization, and historical
+8051 clock timing are not claimed. Register choices are based on the [official
+EFM8BB52 reference manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

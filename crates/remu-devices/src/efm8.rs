@@ -36,6 +36,15 @@ const P0MDIN: usize = 0xf1;
 const P1MDIN: usize = 0xf2;
 const P2MDIN: usize = 0xf3;
 const P3MDIN: usize = (PAGE3 << 8) | 0xf4;
+const P0MAT: usize = 0xfd;
+const P0MASK: usize = 0xfe;
+const P1MAT: usize = 0xed;
+const P1MASK: usize = 0xee;
+const P2MAT: usize = (PAGE3 << 8) | 0xfb;
+const P2MASK: usize = (PAGE3 << 8) | 0xfc;
+const EIE1: usize = 0xe6;
+const EIP1: usize = (0x10 << 8) | 0xbb;
+const EIP1H: usize = (0x10 << 8) | 0xee;
 
 const PORTS: [usize; 4] = [P0, P1, P2, P3];
 const PORT_WIDTHS: [u8; 4] = [8, 8, 8, 5];
@@ -55,6 +64,7 @@ const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const XBR0_URT0E: u8 = 0x01;
 const XBR2_XBARE: u8 = 0x40;
+const EIE1_EMAT: u8 = 0x02;
 
 struct Efm8State {
     registers: Box<[u8]>,
@@ -68,10 +78,12 @@ struct Efm8State {
     watchdog_key: u8,
     watchdog_enabled: bool,
     watchdog_reset: bool,
+    port_match_event: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
+    port_match_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -125,6 +137,30 @@ impl Efm8State {
         ((latch & push_pull) | (input & !push_pull)) & PORT_MASKS[port]
     }
 
+    fn refresh_port_match(&mut self, at: SimTime) {
+        let masks = [
+            self.registers[P0MASK],
+            self.registers[P1MASK],
+            self.registers[P2MASK],
+        ];
+        let matches = [
+            self.registers[P0MAT],
+            self.registers[P1MAT],
+            self.registers[P2MAT],
+        ];
+        self.port_match_event = (0..3).any(|port| {
+            let mask = masks[port] & PORT_MASKS[port];
+            let input = self.resolved_port(port);
+            (input & mask) != (matches[port] & mask)
+        });
+        self.set_signal(
+            self.port_match_signal,
+            u64::from(self.port_match_event),
+            1,
+            at,
+        );
+    }
+
     fn reset_registers(&mut self, at: SimTime, kind: ResetKind) {
         self.registers.fill(0);
         for port in 0..4 {
@@ -132,6 +168,9 @@ impl Efm8State {
             self.registers[PORT_MDIN[port]] = PORT_MASKS[port];
         }
         self.registers[CLKSEL] = 0x80;
+        self.registers[P0MAT] = 0xff;
+        self.registers[P1MAT] = 0xff;
+        self.registers[P2MAT] = 0xff;
         self.registers[RSTSRC] = match kind {
             ResetKind::PowerOn => 0x02,
             ResetKind::External => 0x01,
@@ -145,10 +184,12 @@ impl Efm8State {
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
         self.watchdog_reset = false;
+        self.port_match_event = false;
         for signal in [
             self.uart_strobe_signal,
             self.timer0_irq_signal,
             self.timer2_irq_signal,
+            self.port_match_signal,
             self.interrupt_signal,
             self.watchdog_reset_signal,
         ] {
@@ -157,12 +198,16 @@ impl Efm8State {
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
         }
+        self.refresh_port_match(at);
     }
 
     fn canonical(raw: usize) -> usize {
         let page = raw >> 8;
         let address = raw & 0xff;
         match address {
+            0xed | 0xee if page == 0x10 => (0x10 << 8) | address,
+            0xed | 0xee | 0xfd | 0xfe if page == PAGE3 => address,
+            0xfb | 0xfc if page == PAGE3 => (PAGE3 << 8) | address,
             0x80
             | 0x88..=0x8e
             | 0x90
@@ -176,41 +221,51 @@ impl Efm8State {
             | 0xca..=0xcf
             | 0xd4..=0xd5
             | 0xe1..=0xe3
+            | 0xe6
+            | 0xed..=0xee
             | 0xef
+            | 0xfd..=0xfe
             | 0xf1..=0xf3 => address,
             0x9c | 0xf4 if page == PAGE3 => (PAGE3 << 8) | address,
             _ => raw,
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 6] {
+    fn interrupt_levels(&self) -> [bool; 8] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 6];
+            return [false; 8];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
             enabled & IE_ES0 != 0 && self.registers[SCON0] & (SCON0_RI | SCON0_TI) != 0,
             enabled & IE_ET2 != 0 && self.registers[TMR2CN0] & TMR2_TF2H != 0,
+            self.registers[EIE1] & EIE1_EMAT != 0 && self.port_match_event,
         ];
         let priorities = [IE_ET0, IE_ES0, IE_ET2];
-        let mut levels = [false; 6];
+        let mut levels = [false; 8];
         for source in 0..3 {
             if active[source] {
                 let high = self.registers[IP] & priorities[source] != 0;
                 levels[source + if high { 3 } else { 0 }] = true;
             }
         }
+        if active[3] {
+            let high =
+                self.registers[EIP1] & EIE1_EMAT != 0 || self.registers[EIP1H] & EIE1_EMAT != 0;
+            levels[6 + usize::from(high)] = true;
+        }
         levels
     }
 
-    fn update_interrupt_signals(&self, at: SimTime) {
+    fn update_interrupt_signals(&mut self, at: SimTime) {
         self.set_signal(
             self.timer0_irq_signal,
             u64::from(self.registers[TCON] & TCON_TF0 != 0),
             1,
             at,
         );
+        self.refresh_port_match(at);
         self.set_signal(
             self.timer2_irq_signal,
             u64::from(self.registers[TMR2CN0] & TMR2_TF2H != 0),
@@ -236,6 +291,11 @@ impl Efm8PeripheralsHandle {
         self.0.lock().expect("EFM8 lock poisoned").uart.clone()
     }
 
+    /// Returns whether any masked port currently differs from its PnMAT value.
+    pub fn port_match_event(&self) -> bool {
+        self.0.lock().expect("EFM8 lock poisoned").port_match_event
+    }
+
     /// Supplies one received UART0 byte and raises RI.
     pub fn inject_uart_rx(&self, value: u8, at: SimTime) {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
@@ -245,7 +305,7 @@ impl Efm8PeripheralsHandle {
     }
 
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 6] {
+    pub fn poll(&self, now: SimTime) -> [bool; 8] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -342,6 +402,11 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer2 high-byte overflow request".to_owned()),
         )?;
+        let port_match_signal = hub.declare(
+            "board.efm8bb52f32g.port_match.event",
+            SignalValue::from_u64(0, 1)?,
+            Some("Port Match mismatch event".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -364,10 +429,12 @@ impl Efm8Peripherals {
             watchdog_key: 0,
             watchdog_enabled: true,
             watchdog_reset: false,
+            port_match_event: false,
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
             timer2_irq_signal,
+            port_match_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -481,8 +548,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, EIE1, EIE1_EMAT, EIP1, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MASK, P0MAT,
+        P0MDOUT, SBUF0, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +609,48 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn port_match_tracks_masked_pin_mismatch_and_interrupt_priority() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, ports) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(P0MAT as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(P0MASK as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                EIE1 as u64,
+                AccessWidth::Byte,
+                EIE1_EMAT.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+            .unwrap();
+        ports[0]
+            .set_input(0, super::Logic::Zero, SimTime::from_ticks(1))
+            .unwrap();
+        assert!(handle.port_match_event());
+        assert!(handle.poll(SimTime::from_ticks(1))[6]);
+
+        device
+            .write(
+                EIP1 as u64,
+                AccessWidth::Byte,
+                EIE1_EMAT.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(1))[7]);
+        ports[0]
+            .set_input(0, super::Logic::One, SimTime::from_ticks(2))
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(2))[6]);
+        assert!(!handle.port_match_event());
     }
 }

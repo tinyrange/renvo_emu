@@ -40,10 +40,14 @@ __sfr __at (0xe1) XBR0;
 __sfr __at (0xe3) XBR2;
 __sfr __at (0xf1) P0MDIN;
 __sfr __at (0xf2) P1MDIN;
+__sfr __at (0xe6) EIE1;
+__sfr __at (0xfd) P0MAT;
+__sfr __at (0xfe) P0MASK;
 
 __sbit __at (0xaf) IE_EA;
 __sbit __at (0x98) SCON0_RI;
 __sbit __at (0x99) SCON0_TI;
 __sbit __at (0xcf) TMR2CN0_TF2H;
+#define EIE1_EMAT 0x02
 
 #endif
