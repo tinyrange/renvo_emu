@@ -126,6 +126,44 @@ mkdir -p "$uart_build"
     -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
 
+crossbar_build="$artifact_root/crossbar-build"
+crossbar_run="$artifact_root/crossbar-run"
+mkdir -p "$crossbar_build" "$crossbar_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$crossbar_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-crossbar-build.json" \
+    -- -I. -c remu_crossbar.c -o /workspace/out/crossbar.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$crossbar_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-crossbar-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$crossbar_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-crossbar-link.json" \
+    -- /workspace/out/crossbar.rel /workspace/out/adapter.rel -o /workspace/out/crossbar.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$crossbar_build/crossbar.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.crossbar.uart0.tx_pin=change \
+    --vcd "$crossbar_run/signals.vcd" \
+    --result "$crossbar_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.crossbar.uart0.tx_pin"} and
+       .exit_code == 0' \
+    "$crossbar_run/result.json" >/dev/null
+grep -q '^$scope module crossbar $end$' "$crossbar_run/signals.vcd"
+grep -q 'uart0' "$crossbar_run/signals.vcd"
+
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \

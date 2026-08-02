@@ -77,6 +77,13 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52F32G model implements the documented priority crossbar allocator:
+UART0 retains fixed P0.4/P0.5 priority, `PnSKIP` masks reserve pins, and the
+XBR0/XBR1/XBR2 resource enables consume the remaining P0–P2 pins in priority
+order. The selected routes and crossbar enable state are available through
+typed Rust accessors and VCD signals. Peripheral waveform generation remains
+owned by each peripheral model rather than being implied by a route alone.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

@@ -7,8 +7,10 @@ from the Silicon Labs 8051 SDK.
 `remu_blinky.c` and `remu_timer2_irq.c` configure the modeled watchdog,
 crossbar, GPIO, Timer2, and interrupt path and stop on a P1.4 transition.
 `remu_uart_irq.c` separately proves SDCC's declaration and interrupt ABI for
-UART0. The small declaration and startup adapters expose only the documented
-register surface needed by these fixtures.
+UART0. `remu_crossbar.c` configures UART0, SPI0, and a skipped P0 pin so the
+priority allocator's fixed and first-free assignments are emitted into VCD.
+The small declaration and startup adapters expose only the documented register
+surface needed by these fixtures.
 
 All files in this directory are licensed under Renvo Emulator's `MIT OR Apache-2.0`
 terms.
