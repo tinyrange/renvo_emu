@@ -13,11 +13,12 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_GPT1_OVERFLOW,
+    RA4M1_EVENT_SCI9_TXI, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci,
+    RaSciHandle, RegisterBank, Samd21Eic, Samd21EicHandle, Samd21Port, Samd21RegisterBlock,
+    Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle,
+    SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -78,6 +79,7 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    ra_gpt1: Option<RaGptHandle>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -85,6 +87,7 @@ pub struct ArmMcuMachine {
     exit: ExitHandle,
     ppb: ArmPpbHandle,
     timer_irq_signal: SignalId,
+    gpt1_irq_signal: Option<SignalId>,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     interrupt_signal: SignalId,
@@ -168,6 +171,15 @@ impl ArmMcuMachine {
             SignalValue::from_u64(0, 1)?,
             Some("selected timer interrupt request".to_owned()),
         )?;
+        let gpt1_irq_signal = if target == TargetId::R7fa4m1ab3cfm {
+            Some(signals.declare(
+                "board.r7fa4m1ab3cfm.gpt1.irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("GPT1 interrupt request".to_owned()),
+            )?)
+        } else {
+            None
+        };
         let uart_byte_signal = signals.declare(
             format!("{uart_path}.tx_byte"),
             SignalValue::from_u64(0, 8)?,
@@ -230,7 +242,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, ra_gpt1, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -254,6 +266,7 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    None,
                     Some(eic),
                     None,
                     Some(watchdog),
@@ -295,6 +308,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -311,13 +325,23 @@ impl ArmMcuMachine {
                 }
                 let pfs = RaPfs::new("r7fa4m1ab3cfm.pfs", &ports);
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
+                let (gpt1_device, gpt1) = RaGpt::new("r7fa4m1ab3cfm.gpt1");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
-                Self::map_ra4m1(&mut bus, ports, pfs, icu_device, gpt0_device, sci9_device)?;
+                Self::map_ra4m1(
+                    &mut bus,
+                    ports,
+                    pfs,
+                    icu_device,
+                    gpt0_device,
+                    gpt1_device,
+                    sci9_device,
+                )?;
                 (
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
+                    Some(gpt1),
                     None,
                     Some(icu),
                     None,
@@ -336,6 +360,7 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            ra_gpt1,
             eic,
             ra_icu,
             watchdog,
@@ -343,6 +368,7 @@ impl ArmMcuMachine {
             exit,
             ppb,
             timer_irq_signal,
+            gpt1_irq_signal,
             uart_byte_signal,
             uart_strobe_signal,
             interrupt_signal,
@@ -488,6 +514,7 @@ impl ArmMcuMachine {
         pfs: RaPfs,
         icu: RaIcu,
         gpt0: RaGpt,
+        gpt1: RaGpt,
         sci9: RaSci,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
@@ -509,6 +536,7 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
         bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
+        bus.map_device("r7fa4m1ab3cfm.gpt1", 0x4007_8100, 0x100, Box::new(gpt1))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
@@ -760,8 +788,12 @@ impl ArmMcuMachine {
             }
 
             let (timer_line, timer_pending) = self.timer.poll(self.now);
+            let gpt1_pending = self
+                .ra_gpt1
+                .as_ref()
+                .is_some_and(|gpt1| gpt1.poll(self.now));
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending;
+            let mut interrupt_requested = timer_pending || gpt1_pending;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -780,6 +812,14 @@ impl ArmMcuMachine {
             } else if timer_pending {
                 if let Some(icu) = &self.ra_icu {
                     for line in icu.route_event(RA4M1_EVENT_GPT0_OVERFLOW) {
+                        self.cpu
+                            .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+            }
+            if gpt1_pending {
+                if let Some(icu) = &self.ra_icu {
+                    for line in icu.route_event(RA4M1_EVENT_GPT1_OVERFLOW) {
                         self.cpu
                             .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
                     }
@@ -816,6 +856,13 @@ impl ArmMcuMachine {
                 SignalValue::from_u64(u64::from(timer_pending), 1)?,
                 self.now,
             )?;
+            if let Some(signal) = self.gpt1_irq_signal {
+                self.signals.set(
+                    signal,
+                    SignalValue::from_u64(u64::from(gpt1_pending), 1)?,
+                    self.now,
+                )?;
+            }
             self.signals.set(
                 self.interrupt_signal,
                 SignalValue::from_u64(u64::from(interrupt_requested), 1)?,
@@ -981,5 +1028,38 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
+        machine
+            .bus
+            .write(0x4007_8164, AccessWidth::Word, 3, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4007_8164,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            3
+        );
+        machine
+            .bus
+            .write(
+                0x4000_6320,
+                AccessWidth::Word,
+                u64::from(RA4M1_EVENT_GPT1_OVERFLOW),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            machine
+                .ra_icu
+                .as_ref()
+                .expect("RA machine has an ICU")
+                .route_event(RA4M1_EVENT_GPT1_OVERFLOW),
+            vec![8]
+        );
     }
 }

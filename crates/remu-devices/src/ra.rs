@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 
 /// RA4M1 ELC event number for GPT0 counter overflow.
 pub const RA4M1_EVENT_GPT0_OVERFLOW: u16 = 0x05d;
+/// RA4M1 ELC event number for GPT1 counter overflow.
+pub const RA4M1_EVENT_GPT1_OVERFLOW: u16 = 0x065;
 /// RA4M1 ELC event number for SCI9 transmit-data-empty.
 pub const RA4M1_EVENT_SCI9_TXI: u16 = 0x0a9;
 
@@ -252,12 +254,12 @@ struct GptState {
     divider: u8,
 }
 
-/// Host-facing RA4M1 GPT0 state.
+/// Host-facing RA4M1 GPT state.
 #[derive(Clone)]
 pub struct RaGptHandle(Arc<Mutex<GptState>>);
 
 impl RaGptHandle {
-    /// Advances GPT0 and reports an overflow event pulse/level.
+    /// Advances the GPT channel and reports an overflow event pulse/level.
     pub fn poll(&self, now: SimTime) -> bool {
         let mut state = self.0.lock().expect("RA GPT lock poisoned");
         let divider = 1_u64 << state.divider.min(7);
@@ -272,7 +274,7 @@ impl RaGptHandle {
     }
 }
 
-/// Functional RA4M1 GPT0 counter/overflow slice.
+/// Functional RA4M1 GPT counter/overflow slice.
 pub struct RaGpt {
     name: String,
     state: Arc<Mutex<GptState>>,
@@ -280,7 +282,7 @@ pub struct RaGpt {
 }
 
 impl RaGpt {
-    /// Creates GPT0 and its event handle.
+    /// Creates one GPT channel and its event handle.
     pub fn new(name: impl Into<String>) -> (Self, RaGptHandle) {
         let state = Arc::new(Mutex::new(GptState {
             period: u32::MAX,
@@ -590,5 +592,37 @@ mod tests {
         sci.write(3, AccessWidth::Byte, b'R'.into(), SimTime::ZERO)
             .unwrap();
         assert_eq!(sci_handle.bytes(), b"R");
+    }
+
+    #[test]
+    fn gpt1_has_an_independent_counter_and_icu_event() {
+        let (mut icu, handle) = RaIcu::new("icu");
+        icu.write(
+            0x300 + 8 * 4,
+            AccessWidth::Word,
+            u64::from(RA4M1_EVENT_GPT1_OVERFLOW),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(handle.route_event(RA4M1_EVENT_GPT1_OVERFLOW), vec![8]);
+
+        let (mut gpt0, gpt0_handle) = RaGpt::new("gpt0");
+        let (mut gpt1, gpt1_handle) = RaGpt::new("gpt1");
+        for gpt in [&mut gpt0, &mut gpt1] {
+            gpt.write(0x38, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+                .unwrap();
+            gpt.write(0x2c, AccessWidth::Word, 1, SimTime::ZERO)
+                .unwrap();
+        }
+        gpt0.write(0x64, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        gpt1.write(0x64, AccessWidth::Word, 4, SimTime::ZERO)
+            .unwrap();
+
+        assert!(!gpt0_handle.poll(SimTime::from_ticks(2)));
+        assert!(!gpt1_handle.poll(SimTime::from_ticks(2)));
+        assert!(gpt0_handle.poll(SimTime::from_ticks(3)));
+        assert!(!gpt1_handle.poll(SimTime::from_ticks(3)));
+        assert!(gpt1_handle.poll(SimTime::from_ticks(5)));
     }
 }
