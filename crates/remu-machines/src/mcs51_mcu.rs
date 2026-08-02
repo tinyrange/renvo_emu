@@ -373,7 +373,9 @@ impl Mcs51McuMachine {
 
 #[cfg(test)]
 mod tests {
-    use super::{IntelHexImage, Mcs51McuMachine, RunLimits, StopReason, TargetId};
+    use super::{IntelHexImage, Mcs51McuMachine, PinStimulus, RunLimits, StopReason, TargetId};
+    use remu_core::SimTime;
+    use remu_signals::Logic;
 
     #[test]
     fn machine_executes_hex_and_drives_gpio_uart_and_vcd_signals() {
@@ -396,5 +398,36 @@ mod tests {
         assert_eq!(result.reason, StopReason::InstructionLimit);
         assert_eq!(machine.gpio_output() & 1, 1);
         assert_eq!(result.uart, b"M");
+    }
+
+    #[test]
+    fn equal_timestamp_stimuli_preserve_input_order() {
+        let image = IntelHexImage::parse(b":04000000000000FC00\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+        let result = machine
+            .run_with_stimuli(
+                RunLimits {
+                    instructions: Some(1),
+                    deadline: None,
+                },
+                &[
+                    PinStimulus {
+                        at: SimTime::ZERO,
+                        pin: 0,
+                        value: Logic::One,
+                    },
+                    PinStimulus {
+                        at: SimTime::ZERO,
+                        pin: 0,
+                        value: Logic::Zero,
+                    },
+                ],
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(result.stats.events, 2);
+        assert_eq!(machine.gpio[0].resolved(0).unwrap(), Logic::Zero);
     }
 }
