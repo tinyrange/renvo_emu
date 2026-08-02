@@ -108,7 +108,7 @@ firmware drivers communicate with the NanoC6 SGP30; that requires the separate
 I2C endpoint.
 
 The endpoint keeps all CPU, scheduler, peripheral, and electrical state in
-Starlark continues to describe topology and bounded actions only.
+Rust. Starlark continues to describe topology and bounded actions only.
 
 Each mounted GPIO component must claim a unique primary MCU pin. Attaching two
 components to the same pin fails with an explicit `GpioPinConflict` error rather
@@ -127,6 +127,30 @@ let endpoint = BoardGpioEndpoint::new(
 let stimuli = endpoint.button_stimuli(&scenario.actions)?;
 let result = machine.run_with_stimuli(limits, &stimuli, None)?;
 endpoint.poll(result.stats.time)?;
+```
+
+The typed `BoardI2cEndpoint` resolves an I2C connector against the same machine
+hub, creates `board.<name>.connector.<connector>.data/clock` signals, and routes
+host-side transfers through supported external models such as the SGP30. This
+makes Starlark's `connect("grove", sensor)` topology reusable at a machine signal
+boundary while keeping the implementation in Rust.
+
+The I2C endpoint intentionally remains a host-transfer slice: it emits the bus
+waveform and returns the model response, but it does not yet observe a firmware
+I2C controller's MMIO transaction or inject device ACK/data bits into that
+controller. The generic board runner and this endpoint therefore do not claim
+that an ESP32-C6 firmware driver talks to the SGP30.
+
+An external protocol transfer produces connector-level VCD changes:
+
+```rust
+let mut i2c = BoardI2cEndpoint::new(
+    &scenario,
+    machine.signal_hub(),
+    "board.esp32c6.chip_gpio",
+)?;
+let transfer = i2c.transfer("grove", 0x58, &[0x20, 0x03], 0, SimTime::ZERO)?;
+assert!(transfer.completed_at > transfer.at);
 ```
 
 Machine models also expose serial transport through the typed

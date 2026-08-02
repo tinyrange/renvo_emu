@@ -191,6 +191,7 @@ impl AvrMcuMachine {
     pub fn add_watchpoint(&mut self, address: u64) {
         self.bus.add_watchpoint(address);
     }
+
     /// Returns the machine's shared signal hub for board endpoint attachment.
     pub fn signal_hub(&self) -> SignalHub {
         self.signals.clone()
