@@ -1054,6 +1054,22 @@ impl ArmMcuMachine {
         Ok(())
     }
 
+    /// Services one deterministic transfer unit on each active STM32 DMA channel.
+    ///
+    /// Normal `run` calls invoke this automatically. The explicit helper is
+    /// useful for host-driven peripheral tests that do not need to boot a
+    /// firmware image merely to exercise a memory transfer.
+    pub fn service_stm32_dma(&mut self) -> Result<usize, ArmMachineError> {
+        let mut serviced: usize = 0;
+        if let Some(dma) = &self.dma1 {
+            serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
+        }
+        if let Some(dma) = &self.dma2 {
+            serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
+        }
+        Ok(serviced)
+    }
+
     /// Runs without externally scheduled stimuli.
     pub fn run(
         &mut self,
@@ -1453,6 +1469,13 @@ impl ArmMcuMachine {
 mod tests {
     use super::*;
     use remu_image::FirmwareSegment;
+
+    const DMA_CCR_ENABLE: u32 = 1 << 0;
+    const DMA_CCR_TCIE: u32 = 1 << 1;
+    const DMA_CCR_HTIE: u32 = 1 << 2;
+    const DMA_CCR_PINC: u32 = 1 << 6;
+    const DMA_CCR_MINC: u32 = 1 << 7;
+    const DMA_CCR_MEM2MEM: u32 = 1 << 14;
 
     #[test]
     fn samd21_firmware_drives_porta_and_produces_a_trace() {
