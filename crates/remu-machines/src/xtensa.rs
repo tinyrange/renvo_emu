@@ -16,9 +16,9 @@ use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
     DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
     EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -379,6 +379,7 @@ pub struct XtensaMachine {
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
+    twai: EspTwaiHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -489,7 +490,6 @@ impl XtensaMachine {
             ("i2c1", 0x6002_7000),
             ("sdmmc", 0x6002_8000),
             ("peripheral-backup", 0x6002_a000),
-            ("twai", 0x6002_b000),
             ("pwm1", 0x6002_c000),
             ("i2s1", 0x6002_d000),
             ("uart2", 0x6002_e000),
@@ -595,6 +595,9 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (twai_device, twai) =
+            EspTwai::new("esp32s3.twai", "board.esp32s3.twai", signals.clone())?;
+        bus.map_device("esp32s3.twai", 0x6002_b000, 0x1000, Box::new(twai_device))?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -716,6 +719,7 @@ impl XtensaMachine {
             system,
             systimer,
             timer_groups,
+            twai,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -993,6 +997,11 @@ impl XtensaMachine {
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
     pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
         self.stop_on_usb_input_complete = enabled;
+    }
+
+    /// Returns the host-facing native ESP32-S3 TWAI endpoint.
+    pub fn twai(&self) -> EspTwaiHandle {
+        self.twai.clone()
     }
 
     /// Drives or releases one low GPIO bank pin.

@@ -29,3 +29,47 @@ fn dwc2_host_completes_only_after_the_final_raw_prompt() {
         .extend_from_slice(b"__REMU_HOST_SCRIPT_COMPLETE__\r\n\x04\x04>");
     assert!(host.input_complete());
 }
+
+#[test]
+fn esp32s3_twai_native_window_loops_back_a_frame() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6002_b000;
+    for index in 0..13_u64 {
+        machine
+            .bus
+            .write(
+                base + 0x40 + index * 4,
+                AccessWidth::Word,
+                index + 1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(base + 0x04, AccessWidth::Word, 0x11, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine.twai().take_tx_frames(),
+        vec![(1..=13).collect::<Vec<_>>()]
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x08,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap()
+            & 1,
+        1
+    );
+    assert!(
+        machine
+            .signals
+            .with_registry(|registry| registry.find("board.esp32s3.twai.tx"))
+            .is_some()
+    );
+}
