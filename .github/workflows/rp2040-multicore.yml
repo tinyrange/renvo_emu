@@ -1,0 +1,47 @@
+name: RP2040 multicore qualification
+
+on:
+  schedule:
+    - cron: "59 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rp2040-multicore-qualification
+  cancel-in-progress: true
+
+jobs:
+  multicore:
+    name: Pinned Pico SDK multicore FIFO slice
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Build pinned public toolchain image
+        run: scripts/bootstrap-toolchains.sh
+
+      - name: Build release interpreter
+        run: cargo build --release -p remu-cli --locked
+
+      - name: Run multicore qualification
+        env:
+          REMU_BIN: target/release/remu
+        run: scripts/qualify-rp2040-multicore.sh
+
+      - name: Upload multicore evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rp2040-multicore-qualification
+          path: |
+            .remu/qualification/rp2040-multicore/
+            qualification/rp2040-multicore.json
+          if-no-files-found: warn

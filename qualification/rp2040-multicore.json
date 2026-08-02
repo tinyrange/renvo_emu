@@ -1,0 +1,23 @@
+{
+  "schema": "remu.rp2040-multicore-qualification.v1",
+  "generated_by": "scripts/qualify-rp2040-multicore.sh",
+  "result": "pass",
+  "source_sha256": "16325d1e676cc359a163e2cd86a8ec9cf30b893b41ee16d8f15a0e33406e7337",
+  "adapter_sha256": "a612f62e1801a53b100d90597edcaea8be10c1474381dd7a027fa55e5be7bf91",
+  "repository": "https://github.com/raspberrypi/pico-examples",
+  "commit": "c81c855ffdedc825975a40ba357723a71358ddf0",
+  "case": {
+    "name": "hello_multicore",
+    "path": "multicore/hello_multicore/multicore.c",
+    "source_sha256": "9432de60e2ea64e6f67d892719c580fc97af9918041c5300567b908c70d9a3a0",
+    "build": ".remu/qualification/rp2040-multicore/build.json",
+    "build_sha256": "2471233a3d3ed276ef214eb8489e4971615c2449c19a5b5c0f641aa9925294db",
+    "run": ".remu/qualification/rp2040-multicore/run.json",
+    "run_sha256": "e443bfa9543cd297315b2c01044e1c8830a243162fc7bc2a2eb9ea06facdd872",
+    "observables": [
+      "core-1 launch handshake",
+      "FIFO push/pop",
+      "core-0/core-1 UART"
+    ]
+  }
+}

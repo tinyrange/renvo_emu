@@ -507,6 +507,19 @@ logs and UART output are checked against the native addresses and recorded in
 `qualification/rp2040-sdk.json`. This is a narrow SDK evidence slice; it does
 not imply complete UART receive, PWM timing, or general Pico SDK compatibility.
 
+## RP2040 Pico SDK multicore regression slice
+
+`scripts/qualify-rp2040-multicore.sh` adds the upstream
+`multicore/hello_multicore/multicore.c` example. Its narrow adapter performs
+the documented six-word core-1 launch handshake, drains ROM acknowledgements,
+and routes FIFO push/pop traffic through the native SIO registers. The run
+asserts that both cores exchange `FLAG_VALUE`, both completion messages reach
+UART0, the expected character streams are present despite deterministic
+per-core UART interleaving, and the primary core terminates. Evidence is in
+`qualification/rp2040-multicore.json`; this remains a functional FIFO/launch
+proof rather than a claim of complete multicore, spinlock, or memory-ordering
+fidelity.
+
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five
 Docker-only ELF layouts and runs seven CPU/target combinations. The checked
