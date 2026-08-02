@@ -26,6 +26,13 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The STM32L432KC model maps SAI1 at its native `0x40015400` address. Its
+functional slice covers block A/B framing and slot registers, enable/flush,
+sample FIFO transmit/receive, deterministic host sample injection, the native
+`SAI1_IRQn` line (74), and VCD-visible sample/strobe signals. Exact audio clock
+generation, DMA pacing, codec synchronization, and physical serial timing are
+not claimed.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
