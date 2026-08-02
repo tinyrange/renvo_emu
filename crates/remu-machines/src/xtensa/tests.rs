@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::Esp32S3DigitalSignatureRegister;
 
 #[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
@@ -13,22 +14,31 @@ fn direct_load_starts_with_appcpu_reset_and_parked() {
 fn esp32s3_digital_signature_native_commands_report_deterministic_status() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let base = 0x6003_d000;
-    let write = |machine: &mut XtensaMachine, offset: u64, value: u64| {
-        machine
-            .bus
-            .write(base + offset, AccessWidth::Word, value, SimTime::ZERO)
-            .unwrap();
-    };
-    write(&mut machine, 0x000, 1);
-    write(&mut machine, 0x800, 0x0102_0304);
-    write(&mut machine, 0xe00, 1);
-    write(&mut machine, 0xe04, 1);
-    write(&mut machine, 0xe08, 1);
+    let write =
+        |machine: &mut XtensaMachine, register: Esp32S3DigitalSignatureRegister, value: u64| {
+            machine
+                .bus
+                .write(
+                    base + register.offset(),
+                    AccessWidth::Word,
+                    value,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        };
+    write(&mut machine, Esp32S3DigitalSignatureRegister::C(0), 1);
+    write(
+        &mut machine,
+        Esp32S3DigitalSignatureRegister::X(0),
+        0x0102_0304,
+    );
+    write(&mut machine, Esp32S3DigitalSignatureRegister::SetStart, 1);
+    write(&mut machine, Esp32S3DigitalSignatureRegister::SetMe, 1);
     assert_eq!(
         machine
             .bus
             .read(
-                base + 0xe0c,
+                base + Esp32S3DigitalSignatureRegister::QueryBusy.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -40,7 +50,7 @@ fn esp32s3_digital_signature_native_commands_report_deterministic_status() {
         machine
             .bus
             .read(
-                base + 0xe10,
+                base + Esp32S3DigitalSignatureRegister::QueryKeyWrong.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -52,7 +62,7 @@ fn esp32s3_digital_signature_native_commands_report_deterministic_status() {
         machine
             .bus
             .read(
-                base + 0xe14,
+                base + Esp32S3DigitalSignatureRegister::QueryCheck.offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
@@ -64,10 +74,23 @@ fn esp32s3_digital_signature_native_commands_report_deterministic_status() {
         machine
             .bus
             .read(
-                base + 0xa00,
+                base + Esp32S3DigitalSignatureRegister::Z(0).offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO
+            )
+            .unwrap(),
+        0
+    );
+    write(&mut machine, Esp32S3DigitalSignatureRegister::SetFinish, 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + Esp32S3DigitalSignatureRegister::Z(0).offset(),
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
             )
             .unwrap(),
         0

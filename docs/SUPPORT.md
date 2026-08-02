@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and digital-signature command/status slice |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -141,6 +141,16 @@ The same gate also runs the windowed Xtensa ABI, exception, atomic, FPU, memory
 view, and deterministic-repeat matrix recorded in
 `qualification/xtensa-cpu.json`.
 
+The ESP32-S3 digital-signature slice follows the native page layout: a
+contiguous 396-word C/Y/M/RB/BOX write-only window, four-word IV window, and
+128-word X write-only and Z read-only windows, followed by the SetStart,
+SetMe, SetFinish, QueryBusy, QueryKeyWrong, QueryCheck, and Date registers.
+`Esp32S3DigitalSignatureRegister` enforces the documented masks, reset date,
+reserved holes, aligned 32-bit accesses, and access directions. The functional
+operation uses a deterministic SHA-256 baseline for protocol testing; secure
+key provisioning, RSA-PSS padding and hardware timing remain outside this
+qualification slice. SetFinish clears the native data windows as documented.
+
 The final distillation gate adds four bounded capabilities:
 
 - `remu corpus reduce` minimizes source fragments, flags and numeric inputs,
@@ -207,6 +217,7 @@ the target manifests and `PLAN.html`, principally:
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif’s official [ESP32-S3 hardware-crypto register definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/include/soc/hwcrypto_reg.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either
