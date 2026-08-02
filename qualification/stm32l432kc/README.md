@@ -8,7 +8,10 @@ external GPIO and USART2 output (`STM32L432\n`) in the documented 256 KiB flash
 and 64 KiB SRAM map.
 
 The functional register surface is RCC, FLASH/PWR startup state, GPIO A/B/C/H,
-SYSCFG/EXTI, TIM2 and USART2. Analog, USB, DMA, exact clocks and low-power
+SYSCFG/EXTI, TIM2, USART2, and the TSC register block. Firmware can select
+enabled groups, start an acquisition, read deterministic host-supplied group
+counts, and handle end-of-acquisition or max-count IRQ 77. Electrical
+charge-transfer waveforms, analog noise, USB, DMA, exact clocks and low-power
 timing are unsupported. VCD records GPIO, timer, UART and interrupt signals.
 
 The official lane copies STM32CubeL4's pinned NUCLEO-L432KC
