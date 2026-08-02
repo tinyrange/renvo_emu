@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 const ENDPOINT_COUNT: usize = 8;
 const ENDPOINT_BASE: u64 = 0x100;
 const ENDPOINT_STRIDE: u64 = 0x20;
-const ENDPOINT_MASK: u8 = 0x77;
+const ENDPOINT_CONFIGURATION_MASK: u8 = 0xf7;
+const ENDPOINT_STATUS_MASK: u8 = 0xf7;
+const ENDPOINT_INTERRUPT_MASK: u8 = 0x7f;
 const DEVICE_FLAGS_MASK: u16 = 0x03ff;
 
 /// Named SAM D21 USB device common-register offsets.
@@ -18,14 +20,14 @@ pub enum Samd21UsbRegister {
     ControlA = 0x00,
     /// Synchronization status for control-A operations.
     SyncBusy = 0x02,
-    /// Quality-of-service control.
-    QosControl = 0x03,
     /// Device control, detach, and speed configuration.
     ControlB = 0x08,
     /// Device address and address-enable bit.
     DeviceAddress = 0x0a,
     /// Read-only line-state and speed status.
     Status = 0x0c,
+    /// Read-only USB finite-state-machine status.
+    FsmStatus = 0x0d,
     /// Device frame number.
     FrameNumber = 0x10,
     /// Device interrupt enable clear.
@@ -43,14 +45,15 @@ pub enum Samd21UsbRegister {
 }
 
 impl Samd21UsbRegister {
-    fn from_offset(offset: u64) -> Option<Self> {
+    /// Converts a documented USB common-register offset to its named ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
         match offset {
             0x00 => Some(Self::ControlA),
             0x02 => Some(Self::SyncBusy),
-            0x03 => Some(Self::QosControl),
             0x08 => Some(Self::ControlB),
             0x0a => Some(Self::DeviceAddress),
             0x0c => Some(Self::Status),
+            0x0d => Some(Self::FsmStatus),
             0x10 => Some(Self::FrameNumber),
             0x14 => Some(Self::InterruptEnableClear),
             0x18 => Some(Self::InterruptEnableSet),
@@ -60,6 +63,11 @@ impl Samd21UsbRegister {
             0x28 => Some(Self::PadCalibration),
             _ => None,
         }
+    }
+
+    /// Returns the documented byte offset for this register.
+    pub const fn offset(self) -> u64 {
+        self as u64
     }
 }
 
@@ -84,7 +92,8 @@ pub enum Samd21UsbEndpointRegister {
 }
 
 impl Samd21UsbEndpointRegister {
-    fn from_offset(offset: u64) -> Option<Self> {
+    /// Converts a documented endpoint-window offset to its named ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
         match offset {
             0x00 => Some(Self::Configuration),
             0x04 => Some(Self::StatusClear),
@@ -95,6 +104,11 @@ impl Samd21UsbEndpointRegister {
             0x09 => Some(Self::InterruptEnableSet),
             _ => None,
         }
+    }
+
+    /// Returns the documented byte offset within an endpoint window.
+    pub const fn offset(self) -> u64 {
+        self as u64
     }
 }
 
@@ -109,10 +123,10 @@ struct EndpointState {
 struct UsbState {
     control_a: u8,
     sync_busy: u8,
-    qos_control: u8,
     control_b: u16,
     device_address: u8,
     status: u8,
+    fsm_status: u8,
     frame_number: u16,
     interrupt_enable: u16,
     interrupt_flags: u16,
@@ -126,11 +140,12 @@ impl Default for UsbState {
         Self {
             control_a: 0,
             sync_busy: 0,
-            qos_control: 0,
             control_b: 1,
             device_address: 0,
             // The datasheet reset value is line-state J and full-speed.
             status: 0x40,
+            // The documented reset state is OFF/disconnected (FSMSTATE=1).
+            fsm_status: 1,
             frame_number: 0,
             interrupt_enable: 0,
             interrupt_flags: 0,
@@ -189,7 +204,10 @@ impl UsbState {
         let Some(state) = self.endpoints.get_mut(usize::from(endpoint)) else {
             return false;
         };
-        if state.configuration & 0x7 == 0 {
+        // RXSTP is generated for the OUT side of a configured control
+        // endpoint (EPTYPE0=CONTROL). Other endpoint types receive ordinary
+        // data packets and do not latch the SETUP flag.
+        if state.configuration & 0x7 != 1 {
             return false;
         }
         state.interrupt_flags |= 1 << 4;
@@ -292,10 +310,6 @@ impl Samd21UsbDevice {
                 Self::require(width, AccessWidth::Byte, "SYNCBUSY")?;
                 u64::from(state.sync_busy)
             }
-            Samd21UsbRegister::QosControl => {
-                Self::require(width, AccessWidth::Byte, "QOSCTRL")?;
-                u64::from(state.qos_control)
-            }
             Samd21UsbRegister::ControlB => {
                 Self::require(width, AccessWidth::HalfWord, "CTRLB")?;
                 u64::from(state.control_b)
@@ -307,6 +321,10 @@ impl Samd21UsbDevice {
             Samd21UsbRegister::Status => {
                 Self::require(width, AccessWidth::Byte, "STATUS")?;
                 u64::from(state.status)
+            }
+            Samd21UsbRegister::FsmStatus => {
+                Self::require(width, AccessWidth::Byte, "FSMSTATUS")?;
+                u64::from(state.fsm_status)
             }
             Samd21UsbRegister::FrameNumber => {
                 Self::require(width, AccessWidth::HalfWord, "FNUM")?;
@@ -355,13 +373,9 @@ impl Samd21UsbDevice {
             Samd21UsbRegister::SyncBusy => {
                 Self::require(width, AccessWidth::Byte, "SYNCBUSY")?;
             }
-            Samd21UsbRegister::QosControl => {
-                Self::require(width, AccessWidth::Byte, "QOSCTRL")?;
-                state.qos_control = value as u8 & 0x0f;
-            }
             Samd21UsbRegister::ControlB => {
                 Self::require(width, AccessWidth::HalfWord, "CTRLB")?;
-                state.control_b = value as u16 & 0x0f7f;
+                state.control_b = value as u16 & 0x0fff;
             }
             Samd21UsbRegister::DeviceAddress => {
                 Self::require(width, AccessWidth::Byte, "DADD")?;
@@ -369,6 +383,9 @@ impl Samd21UsbDevice {
             }
             Samd21UsbRegister::Status => {
                 Self::require(width, AccessWidth::Byte, "STATUS")?;
+            }
+            Samd21UsbRegister::FsmStatus => {
+                Self::require(width, AccessWidth::Byte, "FSMSTATUS")?;
             }
             Samd21UsbRegister::FrameNumber => {
                 Self::require(width, AccessWidth::HalfWord, "FNUM")?;
@@ -390,11 +407,11 @@ impl Samd21UsbDevice {
             }
             Samd21UsbRegister::DescriptorAddress => {
                 Self::require(width, AccessWidth::Word, "DESCADD")?;
-                state.descriptor_address = value as u32 & !3;
+                state.descriptor_address = value as u32;
             }
             Samd21UsbRegister::PadCalibration => {
                 Self::require(width, AccessWidth::HalfWord, "PADCAL")?;
-                state.pad_calibration = value as u16 & 0x5fff;
+                state.pad_calibration = value as u16 & 0x77df;
             }
         }
         Ok(())
@@ -431,20 +448,26 @@ impl Samd21UsbDevice {
         let endpoint_state = &mut state.endpoints[endpoint];
         match register {
             Samd21UsbEndpointRegister::Configuration => {
-                endpoint_state.configuration = value & ENDPOINT_MASK;
-                if endpoint_state.configuration & ENDPOINT_MASK == 0 {
+                endpoint_state.configuration = value & ENDPOINT_CONFIGURATION_MASK;
+                if endpoint_state.configuration & ENDPOINT_CONFIGURATION_MASK == 0 {
                     UsbState::clear_endpoint_after_disable(endpoint_state);
                 }
             }
-            Samd21UsbEndpointRegister::StatusClear => endpoint_state.status &= !value,
-            Samd21UsbEndpointRegister::StatusSet => endpoint_state.status |= value,
+            Samd21UsbEndpointRegister::StatusClear => {
+                endpoint_state.status &= !(value & ENDPOINT_STATUS_MASK)
+            }
+            Samd21UsbEndpointRegister::StatusSet => {
+                endpoint_state.status |= value & ENDPOINT_STATUS_MASK
+            }
             Samd21UsbEndpointRegister::Status => {}
-            Samd21UsbEndpointRegister::InterruptFlags => endpoint_state.interrupt_flags &= !value,
+            Samd21UsbEndpointRegister::InterruptFlags => {
+                endpoint_state.interrupt_flags &= !(value & ENDPOINT_INTERRUPT_MASK)
+            }
             Samd21UsbEndpointRegister::InterruptEnableClear => {
-                endpoint_state.interrupt_enable &= !value
+                endpoint_state.interrupt_enable &= !(value & ENDPOINT_INTERRUPT_MASK)
             }
             Samd21UsbEndpointRegister::InterruptEnableSet => {
-                endpoint_state.interrupt_enable |= value
+                endpoint_state.interrupt_enable |= value & ENDPOINT_INTERRUPT_MASK
             }
         }
         Ok(())
@@ -494,6 +517,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn register_ids_match_documented_offsets() {
+        assert_eq!(Samd21UsbRegister::FsmStatus.offset(), 0x0d);
+        assert_eq!(Samd21UsbRegister::from_offset(0x03), None);
+        assert_eq!(
+            Samd21UsbRegister::from_offset(0x0d),
+            Some(Samd21UsbRegister::FsmStatus)
+        );
+        assert_eq!(
+            Samd21UsbEndpointRegister::from_offset(0x09),
+            Some(Samd21UsbEndpointRegister::InterruptEnableSet)
+        );
+        assert_eq!(Samd21UsbEndpointRegister::StatusSet.offset(), 0x05);
+    }
+
+    #[test]
     fn device_control_address_and_endpoint_registers_are_functional() {
         let (mut usb, handle) = Samd21UsbDevice::new("usb");
         usb.write(0x00, AccessWidth::Byte, 2, SimTime::ZERO)
@@ -517,7 +555,7 @@ mod tests {
         );
         assert_eq!(
             usb.read(0x24, AccessWidth::Word, SimTime::ZERO).unwrap(),
-            0x2000_0100
+            0x2000_0103
         );
         assert_eq!(
             usb.read(0x126, AccessWidth::Byte, SimTime::ZERO).unwrap(),
@@ -572,5 +610,59 @@ mod tests {
         usb.write(0x1c, AccessWidth::HalfWord, 1 << 2, SimTime::ZERO)
             .unwrap();
         assert!(!handle.interrupt_pending());
+    }
+
+    #[test]
+    fn documented_masks_preserve_valid_control_and_endpoint_bits() {
+        let (mut usb, _) = Samd21UsbDevice::new("usb");
+        usb.write(0x08, AccessWidth::HalfWord, 0x0fff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            usb.read(0x08, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0x0fff
+        );
+        usb.write(0x28, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            usb.read(0x28, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0x77df
+        );
+        usb.write(0x100, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            usb.read(0x100, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xf7
+        );
+        usb.write(0x105, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            usb.read(0x106, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xf7
+        );
+        usb.write(0x107, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        usb.write(0x109, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            usb.read(0x107, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0
+        );
+        assert_eq!(
+            usb.read(0x109, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x7f
+        );
+    }
+
+    #[test]
+    fn setup_requires_out_control_endpoint() {
+        let (mut usb, handle) = Samd21UsbDevice::new("usb");
+        usb.write(0x120, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.receive_setup(1));
+        usb.write(0x120, AccessWidth::Byte, 0x11, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.receive_setup(1));
     }
 }
