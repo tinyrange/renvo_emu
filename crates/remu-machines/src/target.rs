@@ -811,7 +811,7 @@ const MANIFESTS: &[TargetManifest] = &[
         baseline: &[
             "crossbar GPIO",
             "Timer0/1/2",
-            "UART0",
+            "UART0/1",
             "SPI0 functional transfers",
             "SMBus0 functional transfers",
             "PCA0 PWM/capture/compare",
@@ -823,7 +823,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
         ],
         limitations: &[
-            "analog peripherals, additional serial modes, and historical 8051 machine timing are deferred",
+            "UART1 FIFO thresholds, LIN, flow control, analog peripherals, additional serial modes, and historical 8051 machine timing are deferred",
         ],
     },
 ];

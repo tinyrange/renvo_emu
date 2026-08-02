@@ -6,8 +6,9 @@ from the Silicon Labs 8051 SDK.
 
 `remu_blinky.c` and `remu_timer2_irq.c` configure the modeled watchdog,
 crossbar, GPIO, Timer2, and interrupt path and stop on a P1.4 transition.
-`remu_uart_irq.c` separately proves SDCC's declaration and interrupt ABI for
-UART0. `remu_pca.c` compiles the PCA0 three-channel PWM/compare declaration and
+`remu_uart_irq.c` and `remu_uart1_irq.c` separately prove SDCC's declaration
+and interrupt ABI for UART0 and the paged UART1 vector. `remu_pca.c` compiles
+the PCA0 three-channel PWM/compare declaration and
 interrupt vector against the same header. `remu_smbus.c` exercises the SMB0
 leader-start and data-register path.
 The small declaration and startup adapters expose only the documented register

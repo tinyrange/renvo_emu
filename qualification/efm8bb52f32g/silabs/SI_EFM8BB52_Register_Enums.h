@@ -14,6 +14,7 @@
 #define UART0_IRQn 4
 #define TIMER2_IRQn 5
 #define PCA0_IRQn 6
+#define UART1_IRQn 15
 #define SFR_P0 0x80
 #define SFR_P1 0x90
 #define SFR_P2 0xa0
@@ -31,6 +32,16 @@ __sfr __at (0x99) SBUF0;
 __sfr __at (0xc0) SMB0CN0;
 __sfr __at (0xc1) SMB0CF;
 __sfr __at (0xc2) SMB0DAT;
+/* UART1 is on SFR page 0x20; firmware selects that page through SFRPAGE. */
+__sfr __at (0x92) SBUF1;
+__sfr __at (0x93) SMOD1;
+__sfr __at (0x94) SBCON1;
+__sfr __at (0x95) SBRLL1;
+__sfr __at (0x96) SBRLH1;
+__sfr __at (0xc8) SCON1;
+__sfr __at (0x9d) UART1FCN0;
+__sfr __at (0xd8) UART1FCN1;
+__sfr __at (0xfa) UART1FCT;
 __sfr __at (0xa4) P0MDOUT;
 __sfr __at (0xa5) P1MDOUT;
 __sfr __at (0xa7) SFRPAGE;
@@ -68,5 +79,8 @@ __sbit __at (0xcf) TMR2CN0_TF2H;
 __sbit __at (0xd8) PCA0CN_CF;
 __sbit __at (0xd9) PCA0MD_ECF;
 __sbit __at (0xe6) EIE1_EPCA0;
+__sbit __at (0xc8) SCON1_RI;
+__sbit __at (0xc9) SCON1_TI;
+__sbit __at (0xcc) SCON1_REN;
 
 #endif

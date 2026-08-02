@@ -81,6 +81,58 @@ fn gpio_timer_uart_and_interrupt_slice_is_functional() {
 }
 
 #[test]
+fn uart1_paged_fifo_and_interrupt_slice_is_functional() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(
+            super::SBCON1 as u64,
+            AccessWidth::Byte,
+            super::SBCON1_BREN.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(
+            super::SCON1 as u64,
+            AccessWidth::Byte,
+            super::SCON1_REN.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(super::EIE2 as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+        .unwrap();
+    device
+        .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+        .unwrap();
+    device
+        .write(
+            super::SBUF1 as u64,
+            AccessWidth::Byte,
+            b'U'.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(handle.uart1_bytes(), b"U");
+    assert!(handle.poll(SimTime::ZERO)[12]);
+
+    handle.inject_uart1_rx(0xa5, SimTime::from_ticks(1));
+    assert_eq!(
+        device
+            .read(super::UART1FCT as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        device
+            .read(super::SBUF1 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0xa5
+    );
+}
+
+#[test]
 fn spi0_master_transfer_exposes_injected_miso_and_interrupt() {
     let hub = super::SignalHub::new();
     let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();

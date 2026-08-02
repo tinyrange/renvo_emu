@@ -24,6 +24,17 @@ const SPI0CFG: usize = 0xa1;
 const SPI0CKR: usize = 0xa2;
 const SPI0CN0: usize = 0xf8;
 const SPI0DAT: usize = 0xa3;
+const UART1_PAGE: usize = 0x20 << 8;
+const SCON1: usize = UART1_PAGE | 0xc8;
+const SBUF1: usize = UART1_PAGE | 0x92;
+const SBCON1: usize = UART1_PAGE | 0x94;
+const UART1FCN0: usize = UART1_PAGE | 0x9d;
+const UART1FCN1: usize = UART1_PAGE | 0xd8;
+const UART1FCT: usize = UART1_PAGE | 0xfa;
+const EIE2: usize = 0xf3;
+const EIE2_PAGE10: usize = (0x10 << 8) | 0xf3;
+const EIP2: usize = (0x10 << 8) | 0xed;
+const EIP2H: usize = (0x10 << 8) | 0xf6;
 const P3MDOUT: usize = (PAGE3 << 8) | 0x9c;
 const P2: usize = 0xa0;
 const P0MDOUT: usize = 0xa4;
@@ -97,6 +108,15 @@ const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
+const SCON1_RI: u8 = 0x01;
+const SCON1_TI: u8 = 0x02;
+const SCON1_REN: u8 = 0x10;
+const SBCON1_BREN: u8 = 0x40;
+const UART1FCN0_TFLSH: u8 = 0x40;
+const UART1FCN0_RFLSH: u8 = 0x04;
+const UART1FCN1_TFRQ: u8 = 0x80;
+const UART1FCN1_TXNF: u8 = 0x40;
+const UART1FCN1_RFRQ: u8 = 0x08;
 const SPI0_SPIF: u8 = 0x80;
 const SPI0_TXNF: u8 = 0x02;
 const SPI0_SPIEN: u8 = 0x01;
@@ -155,6 +175,9 @@ struct Efm8State {
     port_signals: [Vec<SignalId>; 4],
     hub: SignalHub,
     uart: Vec<u8>,
+    uart1: Vec<u8>,
+    uart1_rx: VecDeque<u8>,
+    uart1_last_rx: u8,
     smbus0_tx: Vec<u8>,
     smbus0_tx_fifo: VecDeque<u8>,
     smbus0_rx: VecDeque<u8>,
@@ -170,6 +193,8 @@ struct Efm8State {
     spi_rx: Vec<u8>,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
+    uart1_byte_signal: SignalId,
+    uart1_strobe_signal: SignalId,
     smbus0_tx_byte_signal: SignalId,
     smbus0_tx_strobe_signal: SignalId,
     smbus0_busy_signal: SignalId,
@@ -289,6 +314,10 @@ impl Efm8State {
             ResetKind::Watchdog => 0x08,
         };
         self.uart.clear();
+        self.uart1.clear();
+        self.uart1_rx.clear();
+        self.uart1_last_rx = 0;
+        self.registers[UART1FCN1] = UART1FCN1_TFRQ | UART1FCN1_TXNF | 0x10 | 0x01;
         self.smbus0_tx.clear();
         self.smbus0_tx_fifo.clear();
         self.smbus0_rx.clear();
@@ -309,6 +338,7 @@ impl Efm8State {
         self.pca_inputs = [Logic::Zero; 3];
         for signal in [
             self.uart_strobe_signal,
+            self.uart1_strobe_signal,
             self.smbus0_tx_strobe_signal,
             self.timer0_irq_signal,
             self.timer1_irq_signal,
@@ -335,6 +365,9 @@ impl Efm8State {
         }
         let page = raw >> 8;
         let address = raw & 0xff;
+        if page == (UART1_PAGE >> 8) && matches!(address, 0x92 | 0x94 | 0x9d | 0xc8 | 0xd8 | 0xfa) {
+            return raw;
+        }
         if page == PAGE3
             && matches!(
                 address,
@@ -372,10 +405,10 @@ impl Efm8State {
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 12] {
+    fn interrupt_levels(&self) -> [bool; 14] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 12];
+            return [false; 14];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
@@ -398,7 +431,7 @@ impl Efm8State {
         ];
         const LOW_LINES: [usize; 6] = [0, 1, 2, 6, 8, 10];
         const HIGH_LINES: [usize; 6] = [3, 4, 5, 7, 9, 11];
-        let mut levels = [false; 12];
+        let mut levels = [false; 14];
         for source in 0..active.len() {
             if active[source] {
                 levels[if priorities[source] {
@@ -410,6 +443,12 @@ impl Efm8State {
         }
         if self.pca_interrupt_pending() {
             levels[if self.pca_high_priority() { 7 } else { 6 }] = true;
+        }
+        let uart1_pending = self.registers[SCON1] & (SCON1_RI | SCON1_TI) != 0;
+        let uart1_enabled = self.registers[EIE2] & 1 != 0 || self.registers[EIE2_PAGE10] & 1 != 0;
+        if uart1_pending && uart1_enabled {
+            let high = self.registers[EIP2] & 1 != 0 || self.registers[EIP2H] & 1 != 0;
+            levels[12 + usize::from(high)] = true;
         }
         levels
     }
@@ -639,6 +678,11 @@ impl Efm8PeripheralsHandle {
         self.0.lock().expect("EFM8 lock poisoned").uart.clone()
     }
 
+    /// Captured UART1 transmit bytes.
+    pub fn uart1_bytes(&self) -> Vec<u8> {
+        self.0.lock().expect("EFM8 lock poisoned").uart1.clone()
+    }
+
     /// Returns the resolved PCA CEX output for a channel.
     pub fn pca_output(&self, channel: usize) -> Logic {
         self.0
@@ -722,6 +766,23 @@ impl Efm8PeripheralsHandle {
         state.update_interrupt_signals(at);
     }
 
+    /// Supplies one received UART1 byte when its receiver and baud generator
+    /// are enabled. The bounded FIFO raises the documented overrun flag when full.
+    pub fn inject_uart1_rx(&self, value: u8, at: SimTime) {
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        if state.registers[SBCON1] & SBCON1_BREN == 0 || state.registers[SCON1] & SCON1_REN == 0 {
+            return;
+        }
+        if state.uart1_rx.len() >= 16 {
+            state.registers[SCON1] |= 0x80;
+        } else {
+            state.uart1_rx.push_back(value);
+            state.uart1_last_rx = value;
+            state.registers[SCON1] |= SCON1_RI;
+        }
+        state.update_interrupt_signals(at);
+    }
+
     /// Supplies the next byte returned by a functional SPI0 master transfer.
     pub fn inject_spi_rx(&self, value: u8) {
         self.0
@@ -749,7 +810,7 @@ impl Efm8PeripheralsHandle {
     }
 
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 12] {
+    pub fn poll(&self, now: SimTime) -> [bool; 14] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -876,6 +937,16 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("toggles for every UART0 transmit byte".to_owned()),
         )?;
+        let uart1_byte_signal = hub.declare(
+            "board.efm8bb52f32g.uart1.tx_byte",
+            SignalValue::from_u64(0, 8)?,
+            Some("last UART1 transmit byte".to_owned()),
+        )?;
+        let uart1_strobe_signal = hub.declare(
+            "board.efm8bb52f32g.uart1.tx_strobe",
+            SignalValue::from_u64(0, 1)?,
+            Some("toggles for every UART1 transmit byte".to_owned()),
+        )?;
         let smbus0_tx_byte_signal = hub.declare(
             "board.efm8bb52f32g.smb0.tx_byte",
             SignalValue::from_u64(0, 8)?,
@@ -949,6 +1020,9 @@ impl Efm8Peripherals {
             port_signals: [signals0, signals1, signals2, signals3],
             hub,
             uart: Vec::new(),
+            uart1: Vec::new(),
+            uart1_rx: VecDeque::new(),
+            uart1_last_rx: 0,
             smbus0_tx: Vec::new(),
             smbus0_tx_fifo: VecDeque::new(),
             smbus0_rx: VecDeque::new(),
@@ -964,6 +1038,8 @@ impl Efm8Peripherals {
             spi_rx: Vec::new(),
             uart_byte_signal,
             uart_strobe_signal,
+            uart1_byte_signal,
+            uart1_strobe_signal,
             smbus0_tx_byte_signal,
             smbus0_tx_strobe_signal,
             smbus0_busy_signal,
@@ -1034,6 +1110,28 @@ impl Device for Efm8Peripherals {
         if let Some(port) = Self::port_index(address) {
             state.refresh_port(port, at)?;
             return Ok(u64::from(state.port_read(port)));
+        }
+        if address == SBUF1 {
+            let value = state.uart1_rx.pop_front().unwrap_or(state.uart1_last_rx);
+            state.uart1_last_rx = value;
+            if state.uart1_rx.is_empty() {
+                state.registers[SCON1] &= !SCON1_RI;
+            }
+            state.update_interrupt_signals(at);
+            return Ok(u64::from(value));
+        }
+        if address == UART1FCN1 {
+            let mut value = state.registers[UART1FCN1] & 0x37;
+            value |= UART1FCN1_TFRQ | UART1FCN1_TXNF;
+            if !state.uart1_rx.is_empty() {
+                value |= UART1FCN1_RFRQ;
+            }
+            return Ok(u64::from(value));
+        }
+        if address == UART1FCT {
+            let rx_count = u8::try_from(state.uart1_rx.len().min(7))
+                .expect("bounded UART1 receive FIFO count fits in three bits");
+            return Ok(u64::from(rx_count));
         }
         let mut value = if address == CRC0DAT {
             let value = if state.registers[CRC0CN0] & 1 == 0 {
@@ -1205,7 +1303,37 @@ impl Device for Efm8Peripherals {
             }
         }
         if smbus_register.is_none() {
-            if address == CRC0CN0 {
+            if address == SBUF1 {
+                if state.registers[SBCON1] & SBCON1_BREN != 0 {
+                    state.uart1.push(value);
+                    state.set_signal(state.uart1_byte_signal, u64::from(value), 8, at);
+                    let previous = state.hub.with_registry(|registry| {
+                        registry
+                            .value(state.uart1_strobe_signal)
+                            .and_then(|signal| signal.bit(0))
+                            .map_or(0, |logic| u64::from(logic == Logic::One))
+                    });
+                    state.set_signal(state.uart1_strobe_signal, previous ^ 1, 1, at);
+                    state.registers[SCON1] |= SCON1_TI;
+                }
+            } else if address == SCON1 {
+                state.registers[address] = value & !SCON1_RI;
+                if !state.uart1_rx.is_empty() {
+                    state.registers[address] |= SCON1_RI;
+                }
+            } else if address == UART1FCN0 {
+                if value & UART1FCN0_TFLSH != 0 {
+                    state.uart1.clear();
+                    state.registers[SCON1] &= !SCON1_TI;
+                }
+                if value & UART1FCN0_RFLSH != 0 {
+                    state.uart1_rx.clear();
+                    state.registers[SCON1] &= !SCON1_RI;
+                }
+                state.registers[address] = value & !0x44;
+            } else if address == UART1FCN1 {
+                state.registers[address] = value & 0x37;
+            } else if address == CRC0CN0 {
                 state.registers[address] = value & CRC0CN0_MASK;
                 if value & 0x08 != 0 {
                     state.crc_result = if value & 0x04 != 0 { u16::MAX } else { 0 };

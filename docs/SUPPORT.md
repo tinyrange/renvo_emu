@@ -383,6 +383,13 @@ emulator reports the pending `PS.CALLINC` and window depth when that prologue
 is absent. Direct ELF loading remains the intentionally weaker debugging mode
 with synthetic direct state.
 
+The EFM8BB52 MCS-51 model includes UART1 through its documented SFR page
+`0x20`. The functional slice supports baud-generator enable, transmit capture,
+bounded host receive injection, SCON1 status, FIFO count/status aliases, and
+the native `0x007b` interrupt vector with automatic SFR-page save/restore.
+FIFO threshold timing, LIN, CTS/RTS, parity framing, and exact historical 8051
+timing remain outside this slice.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
