@@ -134,6 +134,11 @@ peripheral may have address space reserved for startup compatibility, but it
 has no supported behavioral model until deterministic tests and documentation
 say otherwise.
 
+The ESP32-S3 I2S functional slice supports native I2S0/I2S1 register setup,
+single-data stereo-frame starts, TX/RX completion status, loopback samples, and
+deterministic MCLK/BCLK/WS/DOUT/DIN VCD signals. DMA audio streaming, PDM/TDM
+transforms, and clock-frequency fidelity remain outside this bounded model.
+
 ## Qualification and provenance
 
 The checked qualification suite covers more than workspace unit tests:
