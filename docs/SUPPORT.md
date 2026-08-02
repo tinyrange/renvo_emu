@@ -219,6 +219,11 @@ manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
+The RP2040 and RP2350 models expose native PWM slice control at `0x40050000`
+and `0x400a8000`, respectively. The deterministic block preserves the target's
+slice count, divider, counter, compare, wrap, enable, and interrupt registers;
+edge-level output scheduling and DMA pacing are intentionally not claimed.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification
