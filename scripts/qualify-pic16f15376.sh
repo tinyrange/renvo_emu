@@ -117,6 +117,37 @@ grep -q 'timer0' "$fixture_run/signals.vcd"
 grep -q 'interrupt' "$fixture_run/signals.vcd"
 grep -q 'porte' "$fixture_run/signals.vcd"
 
+timer2_build="$artifact_root/register-timer2-build"
+timer2_run="$artifact_root/register-timer2-run"
+mkdir -p "$timer2_build" "$timer2_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$timer2_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-timer2-build.json" \
+    -- -Os remu_timer2.c \
+    -Wl,-Map=/workspace/out/timer2.map \
+    -o /workspace/out/timer2.elf
+docker run --rm --network=none \
+    -v "$repo_root/$timer2_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/timer2.elf \
+    >"$timer2_build/timer2.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$timer2_build/timer2.hex" \
+    --max-instructions 30000 \
+    --stop-signal board.pic16f15376.porte.pin0=rising \
+    --vcd "$timer2_run/signals.vcd" \
+    --bus-log "$timer2_run/bus.json" \
+    --result "$timer2_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.porte.pin0"}' \
+    "$timer2_run/result.json" >/dev/null
+grep -q 'timer2' "$timer2_run/signals.vcd"
+grep -q 'interrupt' "$timer2_run/signals.vcd"
+grep -q 'porte' "$timer2_run/signals.vcd"
+
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \
     >"$artifact_root/SHA256SUMS"
 

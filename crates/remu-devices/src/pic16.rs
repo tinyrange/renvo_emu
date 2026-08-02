@@ -16,6 +16,9 @@ const TX1STA: usize = 0x11e;
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
+const T2TMR: usize = 0x28c;
+const T2PR: usize = 0x28d;
+const T2CON: usize = 0x28e;
 const TMR0L: usize = 0x59c;
 const TMR0H: usize = 0x59d;
 const T0CON0: usize = 0x59e;
@@ -37,10 +40,14 @@ const INTCON_GIE: u8 = 1 << 7;
 const INTCON_PEIE: u8 = 1 << 6;
 const TMR0IF: u8 = 1 << 5;
 const TMR1IF: u8 = 1;
+const TMR2IF: u8 = 1 << 1;
 const TX1IF: u8 = 1 << 4;
 const RC1IF: u8 = 1 << 5;
 const TXEN: u8 = 1 << 5;
 const SPEN: u8 = 1 << 7;
+const T2ON: u8 = 1 << 7;
+const T2CKPS_MASK: u8 = 0x70;
+const T2OUTPS_MASK: u8 = 0x0f;
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -50,12 +57,15 @@ struct Pic16State {
     uart: Vec<u8>,
     timer0_epoch: u64,
     timer1_epoch: u64,
+    timer2_epoch: u64,
+    timer2_postscale: u8,
     watchdog_epoch: u64,
     watchdog_reset: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
+    timer2_irq_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -111,17 +121,21 @@ impl Pic16State {
             self.registers[ANSEL[port]] = PORT_MASKS[port];
         }
         self.registers[PIR3] = TX1IF;
+        self.registers[T2PR] = u8::MAX;
         self.registers[TX1STA] = 1 << 1; // TRMT
         self.registers[OSCSTAT] = 1 << 6; // internal HF oscillator ready
         self.registers[PPSLOCK] = 1;
         self.uart.clear();
         self.timer0_epoch = at.ticks();
         self.timer1_epoch = at.ticks();
+        self.timer2_epoch = at.ticks();
+        self.timer2_postscale = 0;
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.set_signal(self.uart_strobe_signal, 0, 1, at);
         self.set_signal(self.timer0_irq_signal, 0, 1, at);
         self.set_signal(self.timer1_irq_signal, 0, 1, at);
+        self.set_signal(self.timer2_irq_signal, 0, 1, at);
         self.set_signal(self.interrupt_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
         for port in 0..5 {
@@ -133,6 +147,7 @@ impl Pic16State {
         let peripheral = self.registers[INTCON] & INTCON_PEIE != 0
             && ((self.registers[PIR0] & self.registers[PIE0] & TMR0IF != 0)
                 || (self.registers[PIR4] & self.registers[PIE4] & TMR1IF != 0)
+                || (self.registers[PIR4] & self.registers[PIE4] & TMR2IF != 0)
                 || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
     }
@@ -180,6 +195,29 @@ impl Pic16PeripheralsHandle {
             if total > u64::from(u16::MAX) {
                 state.registers[PIR4] |= TMR1IF;
                 state.set_signal(state.timer1_irq_signal, 1, 1, now);
+            }
+        }
+        if state.registers[T2CON] & T2ON != 0 {
+            let prescaler = 1_u64 << u32::from((state.registers[T2CON] & T2CKPS_MASK) >> 4);
+            let period = u64::from(state.registers[T2PR]).saturating_add(1).max(1);
+            let elapsed = now.ticks().saturating_sub(state.timer2_epoch);
+            let increments = elapsed / prescaler;
+            if increments != 0 {
+                let total = u64::from(state.registers[T2TMR]).saturating_add(increments);
+                let matches = total / period;
+                state.registers[T2TMR] = (total % period) as u8;
+                state.timer2_epoch = state
+                    .timer2_epoch
+                    .saturating_add(increments.saturating_mul(prescaler));
+                if matches != 0 {
+                    let postscaler = u64::from(state.registers[T2CON] & T2OUTPS_MASK) + 1;
+                    let accumulated = u64::from(state.timer2_postscale) + matches;
+                    if accumulated >= postscaler {
+                        state.registers[PIR4] |= TMR2IF;
+                        state.set_signal(state.timer2_irq_signal, 1, 1, now);
+                    }
+                    state.timer2_postscale = (accumulated % postscaler) as u8;
+                }
             }
         }
         if state.registers[WDTCON0] & 1 != 0 {
@@ -252,6 +290,11 @@ impl Pic16Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("functional Timer1 interrupt flag".to_owned()),
         )?;
+        let timer2_irq_signal = hub.declare(
+            "board.pic16f15376.timer2.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer2 period-match interrupt flag".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.pic16f15376.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -270,12 +313,15 @@ impl Pic16Peripherals {
             uart: Vec::new(),
             timer0_epoch: 0,
             timer1_epoch: 0,
+            timer2_epoch: 0,
+            timer2_postscale: 0,
             watchdog_epoch: 0,
             watchdog_reset: false,
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
             timer1_irq_signal,
+            timer2_irq_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -415,6 +461,12 @@ impl Device for Pic16Peripherals {
                     1,
                     at,
                 );
+                state.set_signal(
+                    state.timer2_irq_signal,
+                    u64::from(value & TMR2IF != 0),
+                    1,
+                    at,
+                );
             }
             T0CON0 => {
                 if state.registers[address] & 0x80 == 0 && value & 0x80 != 0 {
@@ -427,6 +479,16 @@ impl Device for Pic16Peripherals {
                     state.timer1_epoch = at.ticks();
                 }
                 state.registers[address] = value;
+            }
+            T2TMR => {
+                state.registers[address] = value;
+                state.timer2_epoch = at.ticks();
+                state.timer2_postscale = 0;
+            }
+            T2CON => {
+                state.registers[address] = value;
+                state.timer2_epoch = at.ticks();
+                state.timer2_postscale = 0;
             }
             WDTCON0 => {
                 state.registers[address] = value & 0x3f;
@@ -502,5 +564,42 @@ mod tests {
             .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn timer2_period_match_honors_prescaler_and_postscaler() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        device
+            .write(T2PR as u64, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(PIE4 as u64, AccessWidth::Byte, TMR2IF.into(), SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                INTCON as u64,
+                AccessWidth::Byte,
+                (INTCON_GIE | INTCON_PEIE).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        // CKPS=1:2 and OUTPS=1:2. A T2TMR-to-T2PR match occurs every
+        // (2 + 1) * 2 ticks, and the interrupt is raised on the second match.
+        device
+            .write(
+                T2CON as u64,
+                AccessWidth::Byte,
+                (T2ON | (1 << 4) | 1).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(5)));
+        assert!(!handle.poll(SimTime::from_ticks(11)));
+        assert!(handle.poll(SimTime::from_ticks(12)));
+        device
+            .write(PIR4 as u64, AccessWidth::Byte, 0, SimTime::from_ticks(12))
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(13)));
     }
 }
