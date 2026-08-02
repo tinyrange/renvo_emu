@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
+    "sha256": "02cec761bf16f5f6bb267e614d7e5b901a5abc9f7e5f1e4567f50f3d9d22559a"
   },
   "proofs": [
     {
@@ -46,6 +46,23 @@
       }
     },
     {
+      "id": "ch32v006-uart2",
+      "result": ".remu/portfolio-smoke/ch32v006-uart2-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-uart2-bus.json",
+      "result_sha256": "37dbc0a03e193d6060935941f4ebef7a8e55ef7c60b2e169c1e054b3d7a0d8b6",
+      "bus_log_sha256": "576e8900738f2fc37d1be6fc33a1c5b8adce3208a53b66a229eee8fead7dafb6",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
+        "stats": {
+          "instructions": 94,
+          "time": 94,
+          "events": 0
+        }
+      }
+    },
+    {
       "id": "ch32v006-timer",
       "result": ".remu/portfolio-smoke/ch32v006-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v006-timer-bus.json",
@@ -68,9 +85,10 @@
     "ch32v006.pfic",
     "ch32v006.rcc",
     "ch32v006.tim2",
-    "ch32v006.usart1"
+    "ch32v006.usart1",
+    "ch32v006.usart2"
   ],
-  "covered_register_count": 13,
+  "covered_register_count": 17,
   "covered_registers": [
     {
       "region": "ch32v006.gpioc",
@@ -116,7 +134,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 4
+      "access_count": 6
     },
     {
       "region": "ch32v006.tim2",
@@ -216,6 +234,50 @@
         "Word"
       ],
       "access_count": 1
+    },
+    {
+      "region": "ch32v006.usart2",
+      "address": 1073759232,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 10
+    },
+    {
+      "region": "ch32v006.usart2",
+      "address": 1073759236,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 10
+    },
+    {
+      "region": "ch32v006.usart2",
+      "address": 1073759240,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.usart2",
+      "address": 1073759244,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
     }
   ],
   "additional_evidence": [
@@ -226,7 +288,7 @@
     "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
     "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
     "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
-    "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
+    "USART1 and USART2 are transmit-focused functional slices without physical baud timing or a complete receive path.",
     "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
   ]
 }
