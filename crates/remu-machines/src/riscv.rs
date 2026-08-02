@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspC6Ieee802154, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks,
+    Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -677,7 +677,6 @@ impl RiscVMachine {
                     ("esp32c6.hp-apm", 0x6009_9000),
                     ("esp32c6.misc", 0x6009_f000),
                     ("esp32c6.power-detector", 0x600a_0000),
-                    ("esp32c6.ieee802154", 0x600a_3000),
                     ("esp32c6.modem-syscon", 0x600a_9800),
                     ("esp32c6.pmu-efuse-lp-timer", 0x600b_0000),
                     ("esp32c6.lp-io-analog", 0x600b_2000),
@@ -692,6 +691,12 @@ impl RiscVMachine {
                         Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                     )?;
                 }
+                bus.map_device(
+                    "esp32c6.ieee802154",
+                    0x600a_3000,
+                    0x1000,
+                    Box::new(EspC6Ieee802154::new("esp32c6.ieee802154")),
+                )?;
                 let (usb_serial_jtag, handle) = EspUsbSerialJtag::new("esp32c6.usb-serial-jtag");
                 bus.map_device(
                     "esp32c6.usb-serial-jtag",

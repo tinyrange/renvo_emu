@@ -135,6 +135,41 @@ fn esp32c6_direct_elf_leaves_the_bss_tail_poisoned() {
 }
 
 #[test]
+fn esp32c6_native_ieee802154_window_loops_back_a_frame() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let at = SimTime::ZERO;
+    let base = 0x600a_3000;
+    machine
+        .bus
+        .write(base, AccessWidth::Word, 0b11, at)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x0c, AccessWidth::Word, 4, at)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x100, AccessWidth::Word, 0x4433_2211, at)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x24, AccessWidth::Word, 1, at)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(base + 0x04, AccessWidth::Word, AccessKind::Read, at),
+        Ok(5)
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(base + 0x200, AccessWidth::Word, AccessKind::Read, at),
+        Ok(0x4433_2211)
+    );
+}
+
+#[test]
 fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine.cpu.set_pc(0x4000_03d8).unwrap();

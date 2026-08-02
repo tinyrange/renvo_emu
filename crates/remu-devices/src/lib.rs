@@ -18,6 +18,8 @@ mod wch;
 pub use wch::*;
 mod esp_usb_serial_jtag;
 pub use esp_usb_serial_jtag::*;
+mod esp_c6_ieee802154;
+pub use esp_c6_ieee802154::*;
 mod gpio;
 pub use gpio::*;
 mod rp;
