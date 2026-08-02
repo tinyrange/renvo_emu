@@ -18,6 +18,8 @@ update path. `remu_comparator.c` covers both comparator register declarations
 and interrupt-enable bits.
 `remu_clu.c` configures CLU0 as an external-input AND gate and proves its paged
 register declarations in a runnable fixture.
+`remu_port_match.c` masks P0.0 against a high match value and exercises the
+documented Port Match interrupt with a host-provided low pin stimulus.
 The small declaration and startup adapters expose only the documented register
 surface needed by these fixtures.
 

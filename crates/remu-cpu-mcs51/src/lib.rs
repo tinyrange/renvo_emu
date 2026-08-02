@@ -130,7 +130,7 @@ pub struct Mcs51Cpu {
     sp: u8,
     pc: u16,
     sfr_page: u8,
-    interrupts: [bool; 30],
+    interrupts: [bool; 32],
     last_interrupt_line: Option<u8>,
     active_priority: Option<bool>,
     priority_stack: Vec<Option<bool>>,
@@ -158,7 +158,7 @@ impl Mcs51Cpu {
             sp: 7,
             pc: 0,
             sfr_page: 0,
-            interrupts: [false; 30],
+            interrupts: [false; 32],
             last_interrupt_line: None,
             active_priority: None,
             priority_stack: Vec::new(),
@@ -471,7 +471,7 @@ impl Mcs51Cpu {
         self.sp = 7;
         self.pc = 0;
         self.sfr_page = 0;
-        self.interrupts = [false; 30];
+        self.interrupts = [false; 32];
         self.last_interrupt_line = None;
         self.active_priority = None;
         self.priority_stack.clear();
@@ -481,8 +481,8 @@ impl Mcs51Cpu {
     }
 
     fn pending_interrupt(&self) -> Option<(usize, bool)> {
-        const LOW_LINES: [usize; 15] = [0, 1, 2, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28];
-        const HIGH_LINES: [usize; 15] = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29];
+        const LOW_LINES: [usize; 16] = [0, 1, 2, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
+        const HIGH_LINES: [usize; 16] = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31];
         for high in [true, false] {
             if high && self.active_priority == Some(true) {
                 continue;
@@ -515,6 +515,7 @@ impl Mcs51Cpu {
             24 | 25 => 0x0063,
             26 | 27 => 0x006b,
             28 | 29 => 0x009b,
+            30 | 31 => 0x0043,
             _ => unreachable!("MCS-51 interrupt line is validated by pending_interrupt"),
         };
         self.push_pc();
@@ -564,7 +565,7 @@ impl Cpu for Mcs51Cpu {
             CpuFault::new(
                 CpuFaultKind::Architecture,
                 u64::from(self.pc),
-                format!("MCS-51 interrupt line {line} is outside 0..29"),
+                format!("MCS-51 interrupt line {line} is outside 0..31"),
             )
         })?;
         *slot = asserted;

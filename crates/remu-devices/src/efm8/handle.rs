@@ -47,6 +47,14 @@ impl Efm8PeripheralsHandle {
         self.0.lock().expect("EFM8 lock poisoned").uart1.clone()
     }
 
+    /// Returns whether a masked port differs from its configured match value.
+    pub fn port_match_event(&self) -> bool {
+        self.0
+            .lock()
+            .expect("EFM8 lock poisoned")
+            .port_match_active()
+    }
+
     /// Returns the resolved PCA CEX output for a channel.
     pub fn pca_output(&self, channel: usize) -> Logic {
         self.0
@@ -248,7 +256,7 @@ impl Efm8PeripheralsHandle {
     }
 
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 30] {
+    pub fn poll(&self, now: SimTime) -> [bool; 32] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -381,6 +389,7 @@ impl Efm8PeripheralsHandle {
         }
         let _ = state.advance_pca(now);
         state.refresh_clu(now);
+        state.refresh_port_match(now);
         state.update_smbus0_signals(now);
         state.update_interrupt_signals(now);
         state.interrupt_levels()

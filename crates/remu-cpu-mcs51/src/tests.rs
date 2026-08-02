@@ -331,6 +331,20 @@ fn configurable_logic_interrupt_enters_documented_vector() {
 }
 
 #[test]
+fn port_match_interrupt_enters_documented_vector() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0, &[0x00]).unwrap();
+    cpu.load_code(0x43, &[0x32]).unwrap();
+    cpu.set_interrupt(30, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x43);
+    cpu.set_interrupt(30, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+}
+
+#[test]
 fn every_base_opcode_except_reserved_a5_decodes() {
     for opcode in 0_u8..=u8::MAX {
         let mut cpu = Mcs51Cpu::new();

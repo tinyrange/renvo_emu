@@ -4,12 +4,14 @@ mod clu;
 mod comparator;
 mod dac;
 mod interrupts;
+mod port_match;
 mod registers;
 mod timers;
 use adc::*;
 use clu::*;
 use comparator::*;
 use dac::*;
+use port_match::*;
 pub use registers::{Efm8PcaRegister, Efm8SmbusRegister};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
@@ -210,6 +212,7 @@ struct Efm8State {
     clu_input_overrides: [Option<[bool; 2]>; 4],
     clu_ff: [bool; 4],
     clu_lut_outputs: [bool; 4],
+    port_match_event: bool,
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
     uart_byte_signal: SignalId,
@@ -235,6 +238,7 @@ struct Efm8State {
     dac_enabled_signal: SignalId,
     comparator_output_signals: [SignalId; 2],
     clu_output_signals: [SignalId; 4],
+    port_match_signal: SignalId,
     pca_epoch: u64,
     pca_outputs: [Logic; 3],
     pca_inputs: [Logic; 3],
@@ -375,6 +379,10 @@ impl Efm8State {
         self.clu_input_overrides = [None; 4];
         self.clu_ff = [false; 4];
         self.clu_lut_outputs = [false; 4];
+        self.port_match_event = false;
+        self.registers[P0MAT] = 0xff;
+        self.registers[P1MAT] = 0xff;
+        self.registers[P2MAT] = 0xff;
         self.registers[CMP0MD] = 0x02;
         self.registers[CMP1MD] = 0x02;
         self.registers[CMP0MX] = 0xff;
@@ -406,6 +414,7 @@ impl Efm8State {
             self.clu_output_signals[1],
             self.clu_output_signals[2],
             self.clu_output_signals[3],
+            self.port_match_signal,
             self.pca_output_signals[0],
             self.pca_output_signals[1],
             self.pca_output_signals[2],
@@ -421,6 +430,7 @@ impl Efm8State {
             let _ = self.refresh_port(port, at);
         }
         self.refresh_clu(at);
+        self.refresh_port_match(at);
     }
 
     fn canonical(raw: usize) -> usize {
@@ -444,6 +454,12 @@ impl Efm8State {
             || CLU_CF.contains(&raw)
         {
             return raw;
+        }
+        if matches!(raw, P0MAT | P0MASK | P1MAT | P1MASK | P2MAT | P2MASK) {
+            return raw;
+        }
+        if page == PAGE3 && matches!(address, 0xed | 0xee | 0xfd | 0xfe) {
+            return address;
         }
         if page == 0x10 {
             if (0x91..=0x95).contains(&address) {
@@ -860,6 +876,11 @@ impl Efm8Peripherals {
                 Some("CLU3 selected logic output".to_owned()),
             )?,
         ];
+        let port_match_signal = hub.declare(
+            "board.efm8bb52f32g.port_match.event",
+            SignalValue::from_u64(0, 1)?,
+            Some("Port Match mismatch event".to_owned()),
+        )?;
         let dac_output_signal = hub.declare(
             "board.efm8bb52f32g.dac0.output",
             SignalValue::from_u64(0, 10)?,
@@ -932,6 +953,7 @@ impl Efm8Peripherals {
             clu_input_overrides: [None; 4],
             clu_ff: [false; 4],
             clu_lut_outputs: [false; 4],
+            port_match_event: false,
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
             uart_byte_signal,
@@ -957,6 +979,7 @@ impl Efm8Peripherals {
             dac_enabled_signal,
             comparator_output_signals: [comparator0_output_signal, comparator1_output_signal],
             clu_output_signals,
+            port_match_signal,
             pca_epoch: 0,
             pca_outputs: [Logic::Zero; 3],
             pca_inputs: [Logic::Zero; 3],
@@ -1374,6 +1397,7 @@ impl Device for Efm8Peripherals {
             }
         }
         state.update_smbus0_signals(at);
+        state.refresh_port_match(at);
         state.update_interrupt_signals(at);
         Ok(())
     }

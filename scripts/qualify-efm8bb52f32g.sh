@@ -134,6 +134,44 @@ jq -e '.target == "efm8bb52f32g" and
 grep -q '^\$scope module timer2 \$end$' "$fixture_run/signals.vcd"
 grep -q '^\$scope module port1 \$end$' "$fixture_run/signals.vcd"
 
+port_match_build="$artifact_root/register-port-match-build"
+port_match_run="$artifact_root/register-port-match-run"
+mkdir -p "$port_match_build" "$port_match_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$port_match_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-port-match-build.json" \
+    -- -I. -c remu_port_match.c -o /workspace/out/port_match.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$port_match_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-port-match-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$port_match_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-port-match-link.json" \
+    -- /workspace/out/port_match.rel /workspace/out/adapter.rel -o /workspace/out/port_match.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$port_match_build/port_match.ihx" \
+    --max-instructions 10000 \
+    --pin 0=0@0 \
+    --stop-signal board.efm8bb52f32g.port_match.event=rising \
+    --vcd "$port_match_run/signals.vcd" \
+    --result "$port_match_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.port_match.event"}' \
+    "$port_match_run/result.json" >/dev/null
+grep -q '^\$scope module port_match \$end$' "$port_match_run/signals.vcd"
+test -s "$port_match_build/port_match.rel"
+
 uart_build="$artifact_root/register-uart-build"
 mkdir -p "$uart_build"
 "$remu" corpus build \

@@ -517,6 +517,47 @@ fn configurable_logic_lut_edges_and_interrupts_are_functional() {
 }
 
 #[test]
+fn port_match_tracks_masked_pin_mismatch_and_interrupt_priority() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, ports) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    for (address, value) in [
+        (super::P0MAT, 1),
+        (super::P0MASK, 1),
+        (Efm8SmbusRegister::Eie1.offset(), super::EIE1_EMAT),
+        (IE, IE_EA),
+    ] {
+        device
+            .write(
+                address as u64,
+                AccessWidth::Byte,
+                value.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    ports[0]
+        .set_input(0, Logic::Zero, SimTime::from_ticks(1))
+        .unwrap();
+    assert!(handle.port_match_event());
+    assert!(handle.poll(SimTime::from_ticks(1))[30]);
+
+    device
+        .write(
+            Efm8SmbusRegister::Eip1.offset() as u64,
+            AccessWidth::Byte,
+            super::EIE1_EMAT.into(),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+    assert!(handle.poll(SimTime::from_ticks(1))[31]);
+    ports[0]
+        .set_input(0, Logic::One, SimTime::from_ticks(2))
+        .unwrap();
+    assert!(!handle.port_match_event());
+    assert!(!handle.poll(SimTime::from_ticks(2))[30]);
+}
+
+#[test]
 fn spi0_master_transfer_exposes_injected_miso_and_interrupt() {
     let hub = super::SignalHub::new();
     let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();

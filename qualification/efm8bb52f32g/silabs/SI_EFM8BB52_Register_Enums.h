@@ -90,6 +90,9 @@ __sfr __at (0xd1) CLOUT0;
 __sfr __at (0x84) CLU0MX;
 __sfr __at (0xaf) CLU0FN;
 __sfr __at (0xb1) CLU0CF;
+__sfr __at (0xfd) P0MAT;
+__sfr __at (0xfe) P0MASK;
+#define EIE1_EMAT 0x02
 __sfr __at (0xf3) EIE2;
 __sfr __at (0xbb) EIP1;
 __sfr __at (0xee) EIP1H;

@@ -1,10 +1,10 @@
 use super::*;
 
 impl Efm8State {
-    pub(super) fn interrupt_levels(&self) -> [bool; 30] {
+    pub(super) fn interrupt_levels(&self) -> [bool; 32] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 30];
+            return [false; 32];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
@@ -27,7 +27,7 @@ impl Efm8State {
         ];
         const LOW_LINES: [usize; 6] = [0, 1, 2, 6, 8, 10];
         const HIGH_LINES: [usize; 6] = [3, 4, 5, 7, 9, 11];
-        let mut levels = [false; 30];
+        let mut levels = [false; 32];
         for source in 0..active.len() {
             if active[source] {
                 levels[if priorities[source] {
@@ -100,6 +100,11 @@ impl Efm8State {
             let high =
                 self.registers[EIP2] & EIE2_CL0 != 0 || self.registers[EIP2H] & EIE2_CL0 != 0;
             levels[28 + usize::from(high)] = true;
+        }
+        if self.registers[EIE1] & EIE1_EMAT != 0 && self.port_match_event {
+            let high =
+                self.registers[EIP1] & EIE1_EMAT != 0 || self.registers[EIP1H] & EIE1_EMAT != 0;
+            levels[30 + usize::from(high)] = true;
         }
         levels
     }

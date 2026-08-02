@@ -818,6 +818,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "DAC0 digital-code output",
             "CMP0/1 deterministic comparison",
             "CLU0-3 LUT and edge logic",
+            "P0/1/2 port-match interrupt",
             "PCA0 PWM/capture/compare",
             "interrupt priority",
             "VCD",

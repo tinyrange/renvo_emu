@@ -422,6 +422,12 @@ deterministic values for internal sources not otherwise modeled. Clock-source
 timing, complete internal peripheral routing, and electrical synchronization
 remain outside this functional slice.
 
+P0, P1, and P2 mask/match registers compare resolved input pins, expose a
+stable `board.efm8bb52f32g.port_match.event` signal, and route mismatches
+through EIE1/EIP1/EIP1H to vector `0x0043`. The event is a deterministic level
+while a masked input differs; wake-state flags and electrical synchronization
+are not modeled.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
