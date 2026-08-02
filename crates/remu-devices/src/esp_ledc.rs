@@ -11,6 +11,108 @@ const INT_ENA: u64 = 0xc8;
 const INT_CLR: u64 = 0xcc;
 const GLOBAL_CONF: u64 = 0xd0;
 const DATE: u64 = 0xfc;
+const CHANNEL_CONF0_MASK: u32 = 0x0001_ffff;
+const CHANNEL_CONF0_STROBES: u32 = (1 << 4) | (1 << 16);
+const CHANNEL_HPOINT_MASK: u32 = 0x0000_3fff;
+const CHANNEL_DUTY_MASK: u32 = 0x0007_ffff;
+const CHANNEL_CONF1_MASK: u32 = u32::MAX;
+const TIMER_CONF_MASK: u32 = 0x03ff_ffff;
+const TIMER_CONF_STROBES: u32 = 1 << 25;
+const TIMER_RESET: u32 = 1 << 23;
+const TIMER_VALUE_MASK: u32 = 0x0000_3fff;
+const INTERRUPT_MASK: u32 = 0x000f_ffff;
+const GLOBAL_CONF_MASK: u32 = 0x8000_0003;
+const DATE_RESET: u32 = 0x1904_0200;
+
+/// Named ESP32-S3 LEDC register IDs covered by the low-speed model.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Esp32s3LedcRegister {
+    /// Channel configuration register zero.
+    ChannelConf0(usize),
+    /// Channel phase/hpoint register.
+    ChannelHpoint(usize),
+    /// Channel duty shadow register.
+    ChannelDuty(usize),
+    /// Channel duty update configuration register.
+    ChannelConf1(usize),
+    /// Channel active duty readback register.
+    ChannelDutyR(usize),
+    /// Low-speed timer configuration register.
+    TimerConf(usize),
+    /// Low-speed timer counter readback register.
+    TimerValue(usize),
+    /// Raw interrupt status.
+    IntRaw,
+    /// Masked interrupt status.
+    IntSt,
+    /// Interrupt enables.
+    IntEna,
+    /// Write-one-to-clear interrupt bits.
+    IntClr,
+    /// Global clock configuration.
+    GlobalConf,
+    /// Version/date register.
+    Date,
+}
+
+impl Esp32s3LedcRegister {
+    /// Returns the native byte offset of this register ID.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::ChannelConf0(channel) => (channel as u64) * CHANNEL_STRIDE,
+            Self::ChannelHpoint(channel) => (channel as u64) * CHANNEL_STRIDE + 0x04,
+            Self::ChannelDuty(channel) => (channel as u64) * CHANNEL_STRIDE + 0x08,
+            Self::ChannelConf1(channel) => (channel as u64) * CHANNEL_STRIDE + 0x0c,
+            Self::ChannelDutyR(channel) => (channel as u64) * CHANNEL_STRIDE + 0x10,
+            Self::TimerConf(timer) => TIMER_BASE + (timer as u64) * TIMER_STRIDE,
+            Self::TimerValue(timer) => TIMER_BASE + (timer as u64) * TIMER_STRIDE + 0x04,
+            Self::IntRaw => INT_RAW,
+            Self::IntSt => INT_ST,
+            Self::IntEna => INT_ENA,
+            Self::IntClr => INT_CLR,
+            Self::GlobalConf => GLOBAL_CONF,
+            Self::Date => DATE,
+        }
+    }
+
+    /// Converts a modeled native offset into a named register ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        if offset < TIMER_BASE {
+            let channel = offset / CHANNEL_STRIDE;
+            let register = offset % CHANNEL_STRIDE;
+            if channel < CHANNELS as u64 {
+                return Some(match register {
+                    0x00 => Self::ChannelConf0(channel as usize),
+                    0x04 => Self::ChannelHpoint(channel as usize),
+                    0x08 => Self::ChannelDuty(channel as usize),
+                    0x0c => Self::ChannelConf1(channel as usize),
+                    0x10 => Self::ChannelDutyR(channel as usize),
+                    _ => return None,
+                });
+            }
+        }
+        if offset >= TIMER_BASE && offset < INT_RAW {
+            let timer = (offset - TIMER_BASE) / TIMER_STRIDE;
+            let register = (offset - TIMER_BASE) % TIMER_STRIDE;
+            if timer < TIMERS as u64 {
+                return Some(match register {
+                    0x00 => Self::TimerConf(timer as usize),
+                    0x04 => Self::TimerValue(timer as usize),
+                    _ => return None,
+                });
+            }
+        }
+        Some(match offset {
+            INT_RAW => Self::IntRaw,
+            INT_ST => Self::IntSt,
+            INT_ENA => Self::IntEna,
+            INT_CLR => Self::IntClr,
+            GLOBAL_CONF => Self::GlobalConf,
+            DATE => Self::Date,
+            _ => return None,
+        })
+    }
+}
 
 #[derive(Clone, Copy)]
 struct LedcChannel {
@@ -43,7 +145,7 @@ struct LedcTimer {
 impl LedcTimer {
     const fn reset() -> Self {
         Self {
-            conf: 0,
+            conf: TIMER_RESET,
             value: 0,
             last_time: SimTime::ZERO,
         }
@@ -68,6 +170,7 @@ struct LedcState {
     int_raw: u32,
     int_ena: u32,
     global_conf: u32,
+    date: u32,
     outputs: [bool; CHANNELS],
 }
 
@@ -79,6 +182,7 @@ impl LedcState {
             int_raw: 0,
             int_ena: 0,
             global_conf: 0,
+            date: DATE_RESET,
             outputs: [false; CHANNELS],
         }
     }
@@ -239,7 +343,7 @@ impl Esp32S3Ledc {
             let (timer, register) = timer;
             return match register {
                 0x00 => Ok(state.timers[timer].conf),
-                0x04 => Ok(state.timers[timer].value & 0x3fff),
+                0x04 => Ok(state.timers[timer].value & TIMER_VALUE_MASK),
                 _ => unreachable!(),
             };
         }
@@ -248,7 +352,7 @@ impl Esp32S3Ledc {
             INT_ST => Ok(state.int_raw & state.int_ena),
             INT_ENA => Ok(state.int_ena),
             GLOBAL_CONF => Ok(state.global_conf),
-            DATE => Ok(0x1904_0200),
+            DATE => Ok(state.date),
             _ => Err(DeviceError::new(format!(
                 "unmodeled ESP32-S3 LEDC read at offset {offset:#x}"
             ))),
@@ -303,18 +407,18 @@ impl Device for Esp32S3Ledc {
             ));
         }
         self.advance_and_refresh(at)?;
-        let value = u32::try_from(value & u64::from(u32::MAX)).expect("LEDC value fits u32");
+        let value = u32::try_from(value).map_err(|_| DeviceError::new("LEDC value exceeds u32"))?;
         let mut state = self.state.borrow_mut();
         if let Some((channel, register)) = channel_register(offset) {
             let channel_state = &mut state.channels[channel];
             match register {
-                0x00 => channel_state.conf0 = value & 0x0003_ffff,
-                0x04 => channel_state.hpoint = value & 0x3fff,
-                0x08 => channel_state.duty = value & 0x7ffff,
+                0x00 => channel_state.conf0 = value & CHANNEL_CONF0_MASK & !CHANNEL_CONF0_STROBES,
+                0x04 => channel_state.hpoint = value & CHANNEL_HPOINT_MASK,
+                0x08 => channel_state.duty = value & CHANNEL_DUTY_MASK,
                 0x0c => {
-                    channel_state.conf1 = value;
+                    channel_state.conf1 = value & CHANNEL_CONF1_MASK;
                     if value & (1 << 31) != 0 {
-                        channel_state.duty_r = channel_state.duty;
+                        channel_state.duty_r = channel_state.duty & CHANNEL_DUTY_MASK;
                         state.int_raw |= 1 << (4 + channel);
                     }
                 }
@@ -325,7 +429,7 @@ impl Device for Esp32S3Ledc {
             let timer_state = &mut state.timers[timer];
             match register {
                 0x00 => {
-                    timer_state.conf = value & 0x03ff_ffff;
+                    timer_state.conf = value & TIMER_CONF_MASK & !TIMER_CONF_STROBES;
                     if value & (1 << 23) != 0 {
                         timer_state.value = 0;
                     }
@@ -336,10 +440,10 @@ impl Device for Esp32S3Ledc {
             }
         } else {
             match offset {
-                INT_ENA => state.int_ena = value & 0x000f_ffff,
-                INT_CLR => state.int_raw &= !value,
-                GLOBAL_CONF => state.global_conf = value & 0x8000_0003,
-                DATE => return Err(DeviceError::new("LEDC DATE is read-only")),
+                INT_ENA => state.int_ena = value & INTERRUPT_MASK,
+                INT_CLR => state.int_raw &= !(value & INTERRUPT_MASK),
+                GLOBAL_CONF => state.global_conf = value & GLOBAL_CONF_MASK,
+                DATE => state.date = value,
                 INT_RAW | INT_ST => {
                     return Err(DeviceError::new("LEDC interrupt status is read-only"));
                 }
@@ -356,6 +460,15 @@ impl Device for Esp32S3Ledc {
 
     fn reset(&mut self, _kind: ResetKind) {
         *self.state.borrow_mut() = LedcState::reset();
+        for signal in &self.output_signals {
+            self.hub
+                .set(
+                    *signal,
+                    SignalValue::from_u64(0, 1).expect("one-bit LEDC output is valid"),
+                    SimTime::ZERO,
+                )
+                .expect("LEDC output signals remain declared");
+        }
     }
 }
 
@@ -417,12 +530,182 @@ mod tests {
                 & 1,
             0
         );
-        ledc.write(0xcc, AccessWidth::Word, u64::MAX, SimTime::from_ticks(2))
-            .unwrap();
+        ledc.write(
+            0xcc,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
         assert_eq!(
             ledc.read(0xc0, AccessWidth::Word, SimTime::from_ticks(2))
                 .unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn register_ids_masks_reset_values_and_access_rules_match_native_contract() {
+        for register in [
+            Esp32s3LedcRegister::ChannelConf0(0),
+            Esp32s3LedcRegister::ChannelHpoint(7),
+            Esp32s3LedcRegister::ChannelDuty(3),
+            Esp32s3LedcRegister::ChannelConf1(4),
+            Esp32s3LedcRegister::ChannelDutyR(6),
+            Esp32s3LedcRegister::TimerConf(0),
+            Esp32s3LedcRegister::TimerValue(3),
+            Esp32s3LedcRegister::IntRaw,
+            Esp32s3LedcRegister::IntSt,
+            Esp32s3LedcRegister::IntEna,
+            Esp32s3LedcRegister::IntClr,
+            Esp32s3LedcRegister::GlobalConf,
+            Esp32s3LedcRegister::Date,
+        ] {
+            assert_eq!(
+                Esp32s3LedcRegister::from_offset(register.offset()),
+                Some(register)
+            );
+        }
+
+        let hub = SignalHub::new();
+        let (mut ledc, _handle) = Esp32S3Ledc::new("ledc", "board.esp32s3.ledc", hub).unwrap();
+        assert_eq!(
+            ledc.read(
+                Esp32s3LedcRegister::TimerConf(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(TIMER_RESET)
+        );
+        assert_eq!(
+            ledc.read(
+                Esp32s3LedcRegister::Date.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(DATE_RESET)
+        );
+
+        let channel_value = u32::MAX & !CHANNEL_CONF0_STROBES;
+        ledc.write(
+            Esp32s3LedcRegister::ChannelConf0(0).offset(),
+            AccessWidth::Word,
+            u64::from(channel_value),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            ledc.read(
+                Esp32s3LedcRegister::ChannelConf0(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(channel_value & CHANNEL_CONF0_MASK)
+        );
+        ledc.write(
+            Esp32s3LedcRegister::ChannelHpoint(0).offset(),
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            ledc.read(
+                Esp32s3LedcRegister::ChannelHpoint(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(CHANNEL_HPOINT_MASK)
+        );
+        ledc.write(
+            Esp32s3LedcRegister::TimerConf(0).offset(),
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            ledc.read(
+                Esp32s3LedcRegister::TimerConf(0).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(TIMER_CONF_MASK & !TIMER_CONF_STROBES)
+        );
+        ledc.write(
+            INT_ENA,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            ledc.read(INT_ENA, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(INTERRUPT_MASK)
+        );
+        ledc.write(
+            GLOBAL_CONF,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            ledc.read(GLOBAL_CONF, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(GLOBAL_CONF_MASK)
+        );
+        ledc.write(DATE, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            ledc.read(DATE, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(u32::MAX)
+        );
+
+        assert!(
+            ledc.read(
+                Esp32s3LedcRegister::ChannelConf0(0).offset() + 1,
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .is_err()
+        );
+        assert!(
+            ledc.write(
+                Esp32s3LedcRegister::ChannelConf0(0).offset() + 1,
+                AccessWidth::Word,
+                0,
+                SimTime::ZERO,
+            )
+            .is_err()
+        );
+        assert!(
+            ledc.write(
+                Esp32s3LedcRegister::ChannelDutyR(0).offset(),
+                AccessWidth::Word,
+                0,
+                SimTime::ZERO
+            )
+            .is_err()
+        );
+        assert!(
+            ledc.write(
+                Esp32s3LedcRegister::TimerValue(0).offset(),
+                AccessWidth::Word,
+                0,
+                SimTime::ZERO
+            )
+            .is_err()
+        );
+        assert!(
+            ledc.write(DATE, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+                .is_err()
         );
     }
 }
