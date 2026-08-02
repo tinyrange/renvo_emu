@@ -13,9 +13,16 @@ const RC1REG: usize = 0x119;
 const TX1REG: usize = 0x11a;
 const RC1STA: usize = 0x11d;
 const TX1STA: usize = 0x11e;
+const PIR2: usize = 0x70e;
+const PIE2: usize = 0x718;
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
+const CMOUT: usize = 0x98f;
+const CM1CON0: usize = 0x990;
+const CM1CON1: usize = 0x991;
+const CM1NCH: usize = 0x992;
+const CM1PCH: usize = 0x993;
 const TMR0L: usize = 0x59c;
 const TMR0H: usize = 0x59d;
 const T0CON0: usize = 0x59e;
@@ -41,6 +48,13 @@ const TX1IF: u8 = 1 << 4;
 const RC1IF: u8 = 1 << 5;
 const TXEN: u8 = 1 << 5;
 const SPEN: u8 = 1 << 7;
+const C1IF: u8 = 1;
+const C1OUT: u8 = 1 << 6;
+const C1ON: u8 = 1 << 7;
+const C1POL: u8 = 1 << 4;
+const CM1CON0_WRITE_MASK: u8 = C1ON | C1POL | (1 << 1) | 1;
+const CM1CON1_MASK: u8 = 0x03;
+const CM1_CHANNEL_MASK: u8 = 0x07;
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -56,6 +70,7 @@ struct Pic16State {
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
+    comparator1_output_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -82,6 +97,68 @@ impl Pic16State {
                 value | (u8::from(net.resolved() == Logic::One) << pin)
             })
             & PORT_MASKS[port]
+    }
+
+    fn comparator_pin(&self, channel: u8, positive: bool) -> Option<Logic> {
+        let (port, pin) = if positive {
+            match channel {
+                0 => (0, 2), // C1IN0+
+                1 => (0, 3), // C1IN1+
+                _ => return None,
+            }
+        } else {
+            match channel {
+                0 => (0, 0), // C1IN0-
+                1 => (0, 1), // C1IN1-
+                2 => (3, 3), // C1IN2- on RB3
+                3 => (1, 1), // C1IN3- on RB1
+                _ => return None,
+            }
+        };
+        Some(
+            self.ports[port]
+                .lock()
+                .expect("PIC16 GPIO lock poisoned")
+                .nets[pin]
+                .resolved(),
+        )
+    }
+
+    fn comparator_input(&self, channel: u8, positive: bool) -> Logic {
+        match channel {
+            5 if positive => Logic::Zero, // DAC output is not part of this slice.
+            6 => Logic::One,              // FVR buffer 2 is a deterministic high reference.
+            7 => Logic::Zero,             // AVSS.
+            _ => self
+                .comparator_pin(channel, positive)
+                .unwrap_or(Logic::Zero),
+        }
+    }
+
+    fn update_comparator(&mut self, at: SimTime) {
+        let enabled = self.registers[CM1CON0] & C1ON != 0;
+        let previous = self.registers[CM1CON0] & C1OUT != 0;
+        let positive =
+            self.comparator_input(self.registers[CM1PCH] & CM1_CHANNEL_MASK, true) == Logic::One;
+        let negative =
+            self.comparator_input(self.registers[CM1NCH] & CM1_CHANNEL_MASK, false) == Logic::One;
+        let mut output = enabled && (positive != negative) && positive;
+        if self.registers[CM1CON0] & C1POL != 0 {
+            output = !output;
+        }
+        self.registers[CM1CON0] = (self.registers[CM1CON0] & !C1OUT) | (u8::from(output) * C1OUT);
+        self.registers[CMOUT] = (self.registers[CMOUT] & !C1IF) | u8::from(output);
+        if enabled && output != previous {
+            let edge_enable = if output {
+                self.registers[CM1CON1] & (1 << 1) != 0
+            } else {
+                self.registers[CM1CON1] & 1 != 0
+            };
+            if edge_enable {
+                self.registers[PIR2] |= C1IF;
+            }
+        }
+        self.set_signal(self.comparator1_output_signal, u64::from(output), 1, at);
     }
 
     fn refresh_port(&mut self, port: usize, at: SimTime) -> Result<(), DeviceError> {
@@ -122,6 +199,7 @@ impl Pic16State {
         self.set_signal(self.uart_strobe_signal, 0, 1, at);
         self.set_signal(self.timer0_irq_signal, 0, 1, at);
         self.set_signal(self.timer1_irq_signal, 0, 1, at);
+        self.set_signal(self.comparator1_output_signal, 0, 1, at);
         self.set_signal(self.interrupt_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
         for port in 0..5 {
@@ -133,6 +211,7 @@ impl Pic16State {
         let peripheral = self.registers[INTCON] & INTCON_PEIE != 0
             && ((self.registers[PIR0] & self.registers[PIE0] & TMR0IF != 0)
                 || (self.registers[PIR4] & self.registers[PIE4] & TMR1IF != 0)
+                || (self.registers[PIR2] & self.registers[PIE2] & C1IF != 0)
                 || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
     }
@@ -152,12 +231,23 @@ impl Pic16PeripheralsHandle {
             .clone()
     }
 
+    /// Returns the current logical C1 comparator output.
+    pub fn comparator1_output(&self) -> bool {
+        self.0
+            .lock()
+            .expect("PIC16 peripheral lock poisoned")
+            .registers[CM1CON0]
+            & C1OUT
+            != 0
+    }
+
     /// Advances functional timers and returns the combined interrupt request.
     pub fn poll(&self, now: SimTime) -> bool {
         let mut state = self.0.lock().expect("PIC16 peripheral lock poisoned");
         for port in 0..5 {
             let _ = state.refresh_port(port, now);
         }
+        state.update_comparator(now);
         if state.registers[T0CON0] & 0x80 != 0 {
             let period = u64::from(state.registers[TMR0H]).saturating_add(1).max(1);
             let elapsed = now.ticks().saturating_sub(state.timer0_epoch);
@@ -252,6 +342,11 @@ impl Pic16Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("functional Timer1 interrupt flag".to_owned()),
         )?;
+        let comparator1_output_signal = hub.declare(
+            "board.pic16f15376.comparator1.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional C1 comparator output".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.pic16f15376.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -276,6 +371,7 @@ impl Pic16Peripherals {
             uart_strobe_signal,
             timer0_irq_signal,
             timer1_irq_signal,
+            comparator1_output_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -428,6 +524,19 @@ impl Device for Pic16Peripherals {
                 }
                 state.registers[address] = value;
             }
+            CM1CON0 => {
+                state.registers[address] =
+                    (state.registers[address] & C1OUT) | (value & CM1CON0_WRITE_MASK);
+                state.update_comparator(at);
+            }
+            CM1CON1 => {
+                state.registers[address] = value & CM1CON1_MASK;
+                state.update_comparator(at);
+            }
+            CM1NCH | CM1PCH => {
+                state.registers[address] = value & CM1_CHANNEL_MASK;
+                state.update_comparator(at);
+            }
             WDTCON0 => {
                 state.registers[address] = value & 0x3f;
                 state.watchdog_epoch = at.ticks();
@@ -502,5 +611,46 @@ mod tests {
             .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn comparator1_selects_gpio_inputs_and_latches_edge_interrupts() {
+        let hub = SignalHub::new();
+        let (mut device, handle, ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        ports[0].set_input(0, Logic::Zero, SimTime::ZERO).unwrap(); // C1IN0-
+        ports[0].set_input(2, Logic::One, SimTime::ZERO).unwrap(); // C1IN0+
+        device
+            .write(PIE2 as u64, AccessWidth::Byte, C1IF.into(), SimTime::ZERO)
+            .unwrap();
+        device
+            .write(CM1CON1 as u64, AccessWidth::Byte, 0x02, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                INTCON as u64,
+                AccessWidth::Byte,
+                (INTCON_GIE | INTCON_PEIE).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                CM1CON0 as u64,
+                AccessWidth::Byte,
+                C1ON.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.comparator1_output());
+        assert!(handle.poll(SimTime::from_ticks(1)));
+
+        device
+            .write(PIR2 as u64, AccessWidth::Byte, 0, SimTime::from_ticks(1))
+            .unwrap();
+        ports[0]
+            .set_input(2, Logic::Zero, SimTime::from_ticks(2))
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(2)));
+        assert!(!handle.comparator1_output());
     }
 }
