@@ -77,6 +77,18 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+The EFM8BB52F32G model provides a functional MCS-51 compiler boundary with
+crossbar GPIO, Timer0/2, UART0, and four configurable logic units (CLU0-3).
+Each CLU implements the documented 8-bit, three-input LUT, CLUnMX external-pin
+selection, CLUnCF LUT/D-flip-flop output selection, CLOUT0 readback, edge flags,
+the CL0 interrupt enable/priority path, and VCD output signals. A host can also
+inject resolved A/B values for internal timer, PWM, serial, and analog sources
+that are not modelled yet. The functional scheduler treats a refresh as an
+abstract SYSCLK opportunity; clock-source timing, timer/PWM/serial CLU routing,
+direct-pin output crossbar routing, and electrical synchronization are not
+claimed. Register choices are based on the [official EFM8BB52 reference
+manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
