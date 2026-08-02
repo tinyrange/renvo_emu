@@ -241,6 +241,12 @@ models independently. Live ESP32-C6 firmware MMIO is not yet routed into the
 assembled board graph, so this is not yet an end-to-end firmware-driver model.
 See [board simulation](docs/BOARD_SIMULATION.md) for the exact boundary.
 
+The board layer also provides a typed UART transport endpoint: host bytes can
+be queued into a machine `UartHandle`, guest TX bytes can be polled, and both
+directions are exposed as deterministic byte/strobe signals. Machine-specific
+UART handle accessors and complete connector-to-machine assembly remain a
+follow-up integration step.
+
 ## Architecture
 
 The workspace keeps CPU interpreters independent from scripting, tracing, and
