@@ -5,7 +5,7 @@ use remu_core::{RunStats, SimTime};
 use remu_cpu_riscv::RiscVCpu;
 use remu_devices::{
     GpioHandle, WchAdcHandle, WchDmaHandle, WchExti, WchExtiHandle, WchI2cHandle, WchPficHandle,
-    WchPowerHandle, WchSpiHandle, WchTimerHandle, WchWatchdogHandle,
+    WchPowerHandle, WchSpiHandle, WchTimerHandle, WchTouchKeyHandle, WchWatchdogHandle,
 };
 use remu_signals::Logic;
 
@@ -23,7 +23,8 @@ pub(super) struct WchHandles {
     pub(super) exti: WchExtiHandle,
     pub(super) spi: WchSpiHandle,
     pub(super) watchdogs: [WchWatchdogHandle; 2],
-    pub(super) adc: WchAdcHandle,
+    pub(super) adc: Option<WchAdcHandle>,
+    pub(super) touch: Option<WchTouchKeyHandle>,
     pub(super) dma: WchDmaHandle,
     pub(super) i2c: WchI2cHandle,
     pub(super) power: WchPowerHandle,

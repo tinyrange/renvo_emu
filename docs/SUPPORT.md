@@ -8,8 +8,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
-| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, SPI1, TIM2, I2C1, PWR, AFIO/EXTI, PFIC and table-mode interrupt proofs |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/SPI1/TIM2/I2C1/PWR/AFIO/EXTI/PFIC slice with independently sized map |
+| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, SPI1, TIM2, ADC, I2C1, PWR, AFIO/EXTI, PFIC and table-mode interrupt proofs; no native TKEY block |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/SPI1/TIM2/I2C1/PWR/AFIO/EXTI/PFIC plus ADC/TKEY single-channel conversion slice |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1; USB; watchdog/RTC; and ROSC/PSM/VREG controls |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER0/1; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1/2; USB; and deterministic accelerator/control slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
@@ -50,6 +50,27 @@ lines 22–28. The scheduler services one transfer unit per abstract tick
 through the guest bus. Peripheral request mux details and exact arbitration or
 bus timing are intentionally omitted; memory-to-memory circular mode is
 disabled as on the hardware.
+
+### WCH touch-key fidelity
+
+The CH32V006 model maps the documented ADC/TKEY extension at `0x40012400`.
+Firmware can enable `ADC_CTLR1.TKENABLE`, select `ADC_RSQR3.SQ1`, configure
+the single-channel `ADC_RSQR1` sequence, configure `TKEY_CHG`, write
+`TKEY_DISCHG`, wait for `ADC_STATR.EOC`, and read `TKEY_DR`. The register model
+honors the documented ADC masks, write-only TKEY/ADC aliases, read-clear EOC,
+single-conversion mode restrictions, and `ADC_CTLR2.ALIGN` result alignment.
+The emulator supplies deterministic host-controlled 12-bit channel samples and
+routes the enabled conversion-complete source through PFIC interrupt 15.
+
+The register contract is based on the [official CH32V00X reference manual]
+(https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF),
+including its TKEY register aliases at offsets `0x3c` and `0x4c`. It does not
+simulate electrode capacitance, analogue charge curves, DMA, scan or injection
+groups, or silicon clock timing.
+
+The CH32V003 has no native TKEY peripheral in the official WCH selection table;
+its ADC-aided capacitive-touch technique is therefore not claimed as native
+TKEY support here.
 
 ### WCH I2C1 functional slice
 

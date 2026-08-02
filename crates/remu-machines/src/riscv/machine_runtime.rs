@@ -137,6 +137,7 @@ impl RiscVMachine {
         let mut wch_exti_was_pending = false;
         let mut wch_spi_was_pending = false;
         let mut wch_i2c_was_pending = [false; 2];
+        let mut wch_touch_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
         let mut io_bank_was_pending = false;
         let mut trng_was_pending = false;
@@ -218,6 +219,7 @@ impl RiscVMachine {
             }
             self.poll_wch_systick()?;
             self.poll_wch_adc()?;
+            self.poll_wch_touch_key(&mut stats, &mut wch_touch_was_pending)?;
             self.poll_wch_dma(&mut stats.events)?;
             if timer_was_pending || self.timer.active() {
                 let timer_pending = self.timer.poll(self.now);

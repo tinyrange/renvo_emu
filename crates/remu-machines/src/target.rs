@@ -248,6 +248,17 @@ const WCH_BASELINE: &[&str] = &[
     "VCD output",
 ];
 
+const WCH_V006_BASELINE: &[&str] = &[
+    WCH_BASELINE[0],
+    WCH_BASELINE[1],
+    WCH_BASELINE[2],
+    WCH_BASELINE[3],
+    WCH_BASELINE[4],
+    WCH_BASELINE[5],
+    WCH_BASELINE[6],
+    "native ADC/TKEY single-channel conversion sequence",
+];
+
 const BASELINE_RISCV_COMPILER_TIER: SupportTier = SupportTier {
     name: "compiler-execution",
     evidence: &["riscv-cpu.json", "rust-abi.json"],
@@ -346,7 +357,8 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         limitations: &[
             "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
-            "analog and debug-wire behavior is outside the baseline",
+            "CH32V003 has no native TKEY block; ADC-aided capacitive touch is outside the baseline",
+            "analog and debug-wire behavior is otherwise outside the baseline",
         ],
     },
     TargetManifest {
@@ -373,7 +385,7 @@ const MANIFESTS: &[TargetManifest] = &[
         gpio_count: 24,
         fidelity: Fidelity::Functional,
         support_tiers: BASELINE_RISCV_SUPPORT_TIERS,
-        baseline: WCH_BASELINE,
+        baseline: WCH_V006_BASELINE,
         sources: &[
             "https://www.wch-ic.com/downloads/CH32V006DS0_PDF.html",
             "https://www.wch-ic.com/downloads/CH32V00XRM_PDF.html",
@@ -381,7 +393,8 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         limitations: &[
             "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
-            "analog and touch peripherals are outside the baseline",
+            "TKEY uses deterministic host-provided samples rather than analogue capacitance physics",
+            "ADC DMA, scan/injection groups, watchdogs and exact HBCLK timing remain outside the baseline",
         ],
     },
     TargetManifest {

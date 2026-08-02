@@ -35,6 +35,8 @@ mod wch_i2c;
 pub use wch_i2c::*;
 mod wch_power;
 pub use wch_power::*;
+mod wch_touch;
+pub use wch_touch::*;
 mod esp_usb_serial_jtag;
 pub use esp_usb_serial_jtag::*;
 mod gpio;

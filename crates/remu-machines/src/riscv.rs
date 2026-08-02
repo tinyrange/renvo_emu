@@ -71,6 +71,7 @@ mod wch_adc;
 mod wch_dma;
 mod wch_exti;
 mod wch_flash;
+mod wch_touch;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -702,8 +703,13 @@ impl RiscVMachine {
                 bus.map_device(format!("{target}.iwdg"), 0x4000_3000, 0x400, Box::new(iwdg))?;
                 let (wwdg, wwdg_handle) = WchWatchdog::new_wwdg(format!("{target}.wwdg"));
                 bus.map_device(format!("{target}.wwdg"), 0x4000_2c00, 0x400, Box::new(wwdg))?;
-                let (adc, adc_handle) = WchAdc::new(format!("{target}.adc"));
-                bus.map_device(format!("{target}.adc"), 0x4001_2400, 0x400, Box::new(adc))?;
+                let (adc_handle, touch_handle) = if target == TargetId::Ch32v006 {
+                    (None, Some(wch_touch::map(&mut bus, target)?))
+                } else {
+                    let (adc, adc_handle) = WchAdc::new(format!("{target}.adc"));
+                    bus.map_device(format!("{target}.adc"), 0x4001_2400, 0x400, Box::new(adc))?;
+                    (Some(adc_handle), None)
+                };
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
@@ -731,6 +737,7 @@ impl RiscVMachine {
                     spi: spi_handle,
                     watchdogs: [iwdg_handle, wwdg_handle],
                     adc: adc_handle,
+                    touch: touch_handle,
                     dma: dma_handle,
                     i2c: i2c_handle,
                     power: power_handle,

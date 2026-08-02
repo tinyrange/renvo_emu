@@ -6,15 +6,20 @@ impl RiscVMachine {
         let Some(wch) = &self.wch else {
             return Err(MachineError::UnsupportedTarget(self.target));
         };
-        wch.adc.set_channel_sample(channel, value);
+        if let Some(adc) = &wch.adc {
+            adc.set_channel_sample(channel, value);
+        } else if let Some(touch) = &wch.touch {
+            touch.set_channel_value(channel, value);
+        }
         Ok(())
     }
 
     /// Routes a completed WCH ADC conversion to its native IRQ 29 line.
     pub(super) fn poll_wch_adc(&mut self) -> Result<(), MachineError> {
-        if let Some(wch) = &self.wch {
-            wch.pfic
-                .set_pending(29, wch.adc.interrupt_pending(self.now));
+        if let Some(wch) = &self.wch
+            && let Some(adc) = &wch.adc
+        {
+            wch.pfic.set_pending(29, adc.interrupt_pending(self.now));
             let pending = wch.pfic.next_pending() == Some(29);
             self.cpu.set_qingke_external_interrupt(29, pending)?;
         }
