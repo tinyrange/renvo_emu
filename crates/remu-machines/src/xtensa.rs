@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -376,6 +377,7 @@ pub struct XtensaMachine {
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
     usb_host: EspDwc2Host,
+    aes: Esp32S3AesHandle,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
@@ -494,7 +496,6 @@ impl XtensaMachine {
             ("i2s1", 0x6002_d000),
             ("uart2", 0x6002_e000),
             ("usb-wrap", 0x6003_9000),
-            ("aes", 0x6003_a000),
             ("sha", 0x6003_b000),
             ("rsa", 0x6003_c000),
             ("digital-signature", 0x6003_d000),
@@ -595,6 +596,8 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (aes_device, aes) = Esp32S3Aes::new("esp32s3.aes", signals.clone())?;
+        bus.map_device("esp32s3.aes", 0x6003_a000, 0x1000, Box::new(aes_device))?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -713,6 +716,7 @@ impl XtensaMachine {
             usb_serial_jtag,
             usb_otg,
             usb_host: EspDwc2Host::new(),
+            aes,
             system,
             systimer,
             timer_groups,
@@ -988,6 +992,11 @@ impl XtensaMachine {
     pub fn queue_usb_input(&mut self, bytes: &[u8]) {
         self.usb_serial_jtag.queue_input(bytes);
         self.usb_host.queue_input(bytes);
+    }
+
+    /// Returns the host-side ESP32-S3 AES accelerator endpoint.
+    pub fn aes(&self) -> Esp32S3AesHandle {
+        self.aes.clone()
     }
 
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
