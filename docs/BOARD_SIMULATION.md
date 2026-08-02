@@ -50,12 +50,35 @@ cargo run -p remu-cli -- board \
 traversal and cyclic imports are rejected. The script's final expression must
 be a board instance.
 
-The current board runner is a protocol/component qualification layer. It does
-not yet route ESP32-C6 firmware MMIO activity into the assembled board, so its
-results prove topology, device protocols, deterministic external behavior and
-waveforms—not execution of a firmware driver against the SGP30. That coupling
-can be added at the machine pin/bus boundary without moving CPU or scheduler
-state into Starlark.
+The current `remu board` command is a protocol/component qualification layer.
+The typed `BoardI2cEndpoint` now resolves an I2C connector against a machine
+`SignalHub`, creates `board.<name>.connector.<connector>.data/clock` signals,
+and routes host-side transfers through supported external models such as the
+SGP30. This makes Starlark's `connect("grove", sensor)` topology reusable at a
+machine signal boundary while keeping CPU, scheduler, and peripheral state in
+Rust.
+
+The endpoint intentionally remains a host-transfer slice: it emits the bus
+waveform and returns the model response, but it does not yet observe a
+firmware I2C controller's MMIO transaction or inject device ACK/data bits into
+that controller. Data/clock pin aliases are rejected, transfers must start at
+or after the previous transfer's stop time, and waveform timestamp overflow is
+reported instead of being saturated. The command-line board runner and this
+endpoint therefore do not yet claim that an ESP32-C6 firmware driver talks to
+the SGP30; that is the next machine-peripheral slice.
+
+An external protocol transfer uses the same machine hub and produces
+connector-level VCD changes:
+
+```rust
+let mut i2c = BoardI2cEndpoint::new(
+    &scenario,
+    machine.signal_hub(),
+    "board.esp32c6.chip_gpio",
+)?;
+let transfer = i2c.transfer("grove", 0x58, &[0x20, 0x03], 0, SimTime::ZERO)?;
+assert!(transfer.completed_at > transfer.at);
+```
 
 Run the deterministic qualification, including byte-identical JSON and VCD
 replay, with:

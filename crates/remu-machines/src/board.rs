@@ -11,6 +11,10 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
+#[path = "board_i2c.rs"]
+mod i2c;
+pub use i2c::*;
+
 /// Protocol inferred for a named physical connector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -369,6 +373,17 @@ pub enum BoardError {
         /// Requested address.
         address: u8,
     },
+    /// An I2C connector aliases its data and clock pin.
+    #[error("I2C connector {connector:?} aliases data and clock on GPIO pin {pin}")]
+    I2cPinAlias {
+        /// Connector name.
+        connector: String,
+        /// Aliased GPIO number.
+        pin: u8,
+    },
+    /// An I2C waveform would exceed the representable simulation timeline.
+    #[error("I2C waveform time overflow")]
+    I2cTimeOverflow,
     /// A model-specific SGP30 command failed.
     #[error(transparent)]
     Sgp30(#[from] Sgp30Error),
@@ -378,6 +393,14 @@ pub enum BoardError {
     /// Signal registration or update failed.
     #[error(transparent)]
     Signal(#[from] SignalError),
+    /// A board component is not an I2C device supported by the endpoint.
+    #[error("I2C endpoint does not support {kind} component {component:?}")]
+    I2cComponent {
+        /// Component name.
+        component: String,
+        /// Component kind.
+        kind: &'static str,
+    },
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
