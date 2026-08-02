@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3Sdmmc, Esp32S3SdmmcHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -376,6 +377,7 @@ pub struct XtensaMachine {
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
     usb_host: EspDwc2Host,
+    sdmmc: Esp32S3SdmmcHandle,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
@@ -487,7 +489,6 @@ impl XtensaMachine {
             ("spi3", 0x6002_5000),
             ("syscon", 0x6002_6000),
             ("i2c1", 0x6002_7000),
-            ("sdmmc", 0x6002_8000),
             ("peripheral-backup", 0x6002_a000),
             ("twai", 0x6002_b000),
             ("pwm1", 0x6002_c000),
@@ -595,6 +596,8 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (sdmmc_device, sdmmc) = Esp32S3Sdmmc::new("esp32s3.sdmmc", signals.clone())?;
+        bus.map_device("esp32s3.sdmmc", 0x6002_8000, 0x1000, Box::new(sdmmc_device))?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -713,6 +716,7 @@ impl XtensaMachine {
             usb_serial_jtag,
             usb_otg,
             usb_host: EspDwc2Host::new(),
+            sdmmc,
             system,
             systimer,
             timer_groups,
@@ -1000,6 +1004,11 @@ impl XtensaMachine {
         self.gpio.set_input(pin, value, self.now)?;
         self.chip_gpio.set_input(pin, value, self.now)?;
         Ok(())
+    }
+
+    /// Returns the host-side ESP32-S3 SD/MMC card endpoint.
+    pub fn sdmmc(&self) -> Esp32S3SdmmcHandle {
+        self.sdmmc.clone()
     }
 
     fn set_systimer_interrupt(
