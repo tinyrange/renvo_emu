@@ -785,7 +785,7 @@ impl ArmMcuMachine {
                 let i2s_pending = i2s.interrupt_pending();
                 interrupt_requested |= i2s_pending;
                 self.cpu
-                    .set_interrupt(41, i2s_pending && self.ppb.interrupt_enabled(41))?;
+                    .set_interrupt(27, i2s_pending && self.ppb.interrupt_enabled(27))?;
             }
             if let Some(timer_line) = timer_line {
                 self.cpu.set_interrupt(

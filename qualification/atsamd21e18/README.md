@@ -10,9 +10,10 @@ The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
 state, PORT A, EIC, TC3, SERCOM0 USART, watchdog, and the I2S two-clock/two-
 serializer control, interrupt, and sample-holding registers. Transmitted sample
 words are captured for host assertions and host-injected receive words latch
-ready/overrun flags. Clock synchronization and timing are deterministic
-approximations; serial bit timing, TDM/PDM framing, pin waveforms, DMA coupling,
-analog, and USB are unsupported.
+ready/overrun flags. The model uses the documented register masks and routes
+the shared I2S interrupt to Cortex-M0+ IRQ 27. Clock synchronization and timing
+are deterministic approximations; serial bit timing, TDM/PDM framing, pin
+waveforms, DMA coupling, analog, and USB are unsupported.
 VCD exposes PORT, timer, UART and interrupt hierarchy and the gate compares two
 runs byte-for-byte.
 
