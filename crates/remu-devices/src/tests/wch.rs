@@ -1,6 +1,85 @@
 use super::*;
 
 #[test]
+fn wch_i2c_models_master_write_read_and_interrupts() {
+    let (mut i2c, handle) = WchI2c::new("i2c1");
+    let at = SimTime::ZERO;
+    const PE: u64 = 1;
+    const START: u64 = 1 << 8;
+    const STOP: u64 = 1 << 9;
+    const EVENT_IRQ: u64 = 1 << 9;
+    const BUFFER_IRQ: u64 = 1 << 10;
+    const SB: u64 = 1;
+    const ADDR: u64 = 1 << 1;
+    const RXNE: u64 = 1 << 6;
+    const TXE: u64 = 1 << 7;
+
+    i2c.write(0x04, AccessWidth::HalfWord, EVENT_IRQ | BUFFER_IRQ, at)
+        .unwrap();
+    i2c.write(0x00, AccessWidth::HalfWord, PE | START, at)
+        .unwrap();
+    assert_eq!(i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & SB, SB);
+    assert_eq!(handle.interrupt_pending(), (true, false));
+
+    i2c.write(0x10, AccessWidth::HalfWord, 0xa0, at).unwrap();
+    assert_eq!(
+        i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & (ADDR | TXE),
+        ADDR | TXE
+    );
+    let _ = i2c.read(0x18, AccessWidth::HalfWord, at).unwrap();
+    i2c.write(0x10, AccessWidth::HalfWord, 0x12, at).unwrap();
+    i2c.write(0x10, AccessWidth::HalfWord, 0x34, at).unwrap();
+    assert_eq!(
+        handle.take_transmitted(),
+        vec![
+            WchI2cWrite {
+                address: 0x50,
+                value: 0x12,
+            },
+            WchI2cWrite {
+                address: 0x50,
+                value: 0x34,
+            },
+        ]
+    );
+
+    handle.queue_read(0x50, &[0xab, 0xcd]);
+    i2c.write(0x00, AccessWidth::HalfWord, PE | START, at)
+        .unwrap();
+    i2c.write(0x10, AccessWidth::HalfWord, 0xa1, at).unwrap();
+    let _ = i2c.read(0x14, AccessWidth::HalfWord, at).unwrap();
+    let _ = i2c.read(0x18, AccessWidth::HalfWord, at).unwrap();
+    assert_eq!(
+        i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & (ADDR | RXNE),
+        RXNE
+    );
+    assert_eq!(i2c.read(0x10, AccessWidth::HalfWord, at).unwrap(), 0xab);
+    assert_eq!(i2c.read(0x10, AccessWidth::HalfWord, at).unwrap(), 0xcd);
+    assert_eq!(i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & RXNE, 0);
+    i2c.write(0x00, AccessWidth::HalfWord, PE | STOP, at)
+        .unwrap();
+    assert_eq!(i2c.read(0x18, AccessWidth::HalfWord, at).unwrap(), 0);
+}
+
+#[test]
+fn wch_i2c_nack_raises_error_interrupt_and_can_be_configured() {
+    let (mut i2c, handle) = WchI2c::new("i2c1");
+    let at = SimTime::ZERO;
+    handle.set_address_ack(0x30, false);
+    i2c.write(0x04, AccessWidth::HalfWord, 0, at).unwrap();
+    i2c.write(0x00, AccessWidth::HalfWord, 1 | (1 << 8), at)
+        .unwrap();
+    i2c.write(0x10, AccessWidth::HalfWord, 0x60, at).unwrap();
+    assert_eq!(handle.interrupt_pending(), (false, false));
+    i2c.write(0x04, AccessWidth::HalfWord, (1 << 8) | (1 << 9), at)
+        .unwrap();
+    assert_eq!(handle.interrupt_pending(), (false, true));
+    i2c.write(0x14, AccessWidth::HalfWord, !(1 << 10), at)
+        .unwrap();
+    assert_eq!(handle.interrupt_pending(), (false, false));
+}
+
+#[test]
 fn exti_routes_afio_selected_edges_and_clears_flags() {
     let (mut exti, handle, mut afio) = WchExti::new("exti", "afio");
     // EXTICR line 2 selects PC (the WCH encoding is PA=0, PB=1, PC=2).

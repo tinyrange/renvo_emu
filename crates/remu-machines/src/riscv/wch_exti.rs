@@ -4,12 +4,14 @@ use remu_bus::AddressSpace;
 use remu_core::{RunStats, SimTime};
 use remu_cpu_riscv::RiscVCpu;
 use remu_devices::{
-    GpioHandle, WchAdcHandle, WchDmaHandle, WchExti, WchExtiHandle, WchPficHandle, WchSpiHandle,
-    WchTimerHandle, WchWatchdogHandle,
+    GpioHandle, WchAdcHandle, WchDmaHandle, WchExti, WchExtiHandle, WchI2cHandle, WchPficHandle,
+    WchSpiHandle, WchTimerHandle, WchWatchdogHandle,
 };
 use remu_signals::Logic;
 
 const WCH_EXTI7_0_INTERRUPT: u16 = 20;
+const WCH_I2C1_EVENT_INTERRUPT: u16 = 30;
+const WCH_I2C1_ERROR_INTERRUPT: u16 = 31;
 const WCH_SPI1_INTERRUPT: u16 = 33;
 const WCH_TIM1_UPDATE_INTERRUPT: u16 = 35;
 const WCH_TIM2_INTERRUPT: u16 = 38;
@@ -23,6 +25,7 @@ pub(super) struct WchHandles {
     pub(super) watchdogs: [WchWatchdogHandle; 2],
     pub(super) adc: WchAdcHandle,
     pub(super) dma: WchDmaHandle,
+    pub(super) i2c: WchI2cHandle,
 }
 
 impl super::RiscVMachine {
@@ -39,6 +42,11 @@ impl super::RiscVMachine {
             wch.spi.inject_rx(value);
         }
     }
+
+    /// Returns the host-facing WCH I2C1 handle for CH32V003/006 targets.
+    pub fn wch_i2c(&self) -> Option<WchI2cHandle> {
+        self.wch.as_ref().map(|wch| wch.i2c.clone())
+    }
 }
 
 /// Polls both WCH interrupt sources for one scheduler step.
@@ -50,6 +58,7 @@ pub(super) fn poll_wch(
     timer1_was_pending: &mut bool,
     exti_was_pending: &mut bool,
     spi_was_pending: &mut bool,
+    i2c_was_pending: &mut [bool; 2],
     stats: &mut RunStats,
     now: SimTime,
 ) -> Result<(), MachineError> {
@@ -79,7 +88,35 @@ pub(super) fn poll_wch(
         exti_was_pending,
         stats,
     )?;
-    poll_wch_spi(&handles.spi, &handles.pfic, cpu, spi_was_pending, stats)
+    poll_wch_spi(&handles.spi, &handles.pfic, cpu, spi_was_pending, stats)?;
+    poll_wch_i2c(&handles.i2c, &handles.pfic, cpu, i2c_was_pending, stats)
+}
+
+/// Routes I2C1 event and error conditions through their native PFIC lines.
+fn poll_wch_i2c(
+    i2c: &WchI2cHandle,
+    pfic: &WchPficHandle,
+    cpu: &mut RiscVCpu,
+    was_pending: &mut [bool; 2],
+    stats: &mut RunStats,
+) -> Result<(), MachineError> {
+    let (event, error) = i2c.interrupt_pending();
+    for (index, (interrupt, pending)) in [
+        (WCH_I2C1_EVENT_INTERRUPT, event),
+        (WCH_I2C1_ERROR_INTERRUPT, error),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        pfic.set_pending(interrupt, pending);
+        let deliver = pfic.next_pending() == Some(interrupt);
+        if deliver && !was_pending[index] {
+            stats.events = stats.events.saturating_add(1);
+        }
+        was_pending[index] = deliver;
+        cpu.set_qingke_external_interrupt(interrupt, deliver)?;
+    }
+    Ok(())
 }
 
 /// Forwards the SPI1 status request through its native PFIC line.

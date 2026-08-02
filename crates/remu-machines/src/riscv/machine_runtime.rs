@@ -136,6 +136,7 @@ impl RiscVMachine {
         let mut wch_timer1_was_pending = false;
         let mut wch_exti_was_pending = false;
         let mut wch_spi_was_pending = false;
+        let mut wch_i2c_was_pending = [false; 2];
         let mut chip_timer_was_pending = 0_u16;
         let mut io_bank_was_pending = false;
         let mut trng_was_pending = false;
@@ -235,6 +236,7 @@ impl RiscVMachine {
                     &mut wch_timer1_was_pending,
                     &mut wch_exti_was_pending,
                     &mut wch_spi_was_pending,
+                    &mut wch_i2c_was_pending,
                     &mut stats,
                     self.now,
                 )?;
