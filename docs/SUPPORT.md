@@ -445,6 +445,15 @@ VCD signals expose the selected routes and global driver-enable state.
 Peripheral waveform generation remains the responsibility of each peripheral
 model; selecting a route alone does not claim electrical or timing fidelity.
 
+The EFM8 clock/power slice names and masks `CLKSEL`, `CLKGRP0`, `HFO0CN`,
+`LFO0CN`, `PCON0`, `PCON1`, `REG0CN`, and `PSTAT0`. It reports the selected
+source, divider, and nominal SYSCLK, accepts an explicit host frequency for
+EXTOSC, and exposes clock and power state in VCD. IDLE and SNOOZE can wake from
+an enabled interrupt or an explicit host request; STOP and SHUTDOWN require
+reset. Oscillator settling, missing-clock detection, external pin waveforms,
+regulator physics, peripheral clock domains, and exact low-power timing are
+outside the deterministic functional boundary.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

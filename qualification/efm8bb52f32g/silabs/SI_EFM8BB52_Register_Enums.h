@@ -27,6 +27,7 @@
 #define SFR_P3 0xb0
 
 __sfr __at (0x80) P0;
+__sfr __at (0x87) PCON0;
 __sfr __at (0x88) TCON;
 __sfr __at (0x89) TMOD;
 __sfr __at (0x8a) TL0;
@@ -113,12 +114,15 @@ __sfr __at (0xa4) P0MDOUT;
 __sfr __at (0xa5) P1MDOUT;
 __sfr __at (0xa7) SFRPAGE;
 __sfr __at (0xa8) IE;
+__sfr __at (0xa9) CLKSEL;
 __sfr __at (0xb7) FLKEY;
 __sfr __at (0xc8) TMR2CN0;
+__sfr __at (0xc9) REG0CN;
 __sfr __at (0xca) TMR2RLL;
 __sfr __at (0xcb) TMR2RLH;
 __sfr __at (0xce) TMR2L;
 __sfr __at (0xcf) TMR2H;
+__sfr __at (0xcd) PCON1;
 __sfr __at (0xcc) P2SKIP;
 __sfr __at (0xd4) P0SKIP;
 __sfr __at (0xd5) P1SKIP;
