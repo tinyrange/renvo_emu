@@ -11,6 +11,7 @@ repository.workspace = true
 remu-bus.workspace = true
 remu-core.workspace = true
 remu-signals.workspace = true
+num-bigint.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

@@ -14,8 +14,8 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
+    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRsa, EspRtcControl, EspSpiMem,
+    EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
     EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
     ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
     Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
@@ -496,7 +496,6 @@ impl XtensaMachine {
             ("usb-wrap", 0x6003_9000),
             ("aes", 0x6003_a000),
             ("sha", 0x6003_b000),
-            ("rsa", 0x6003_c000),
             ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
             ("gdma", 0x6003_f000),
@@ -517,6 +516,12 @@ impl XtensaMachine {
                 )),
             )?;
         }
+        bus.map_device(
+            "esp32s3.rsa",
+            0x6003_c000,
+            0x1000,
+            Box::new(EspRsa::new("esp32s3.rsa")),
+        )?;
         bus.map_device(
             "esp32s3.rng",
             0x6003_5000,
