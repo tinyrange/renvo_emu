@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and SD/MMC host command/FIFO slice |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -89,6 +89,15 @@ a hardware timing claim.
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
+
+The ESP32-S3 SD/MMC host is mapped at `0x6002_8000` using Espressif's native
+`sdmmc_reg.h` layout. The functional slice provides configurable card detect,
+command/response registers, deterministic block reads and writes through the
+host-backed FIFO at `0x200`, transfer counts, status, and raw/masked command,
+FIFO, data-over, and timeout interrupts. VCD paths are
+`board.esp32s3.sdmmc.card` and `.data`. It intentionally does not claim SD
+electrical signaling, CRC timing, SDIO function protocol, multi-card
+arbitration, or descriptor-level IDMAC execution.
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
@@ -206,7 +215,9 @@ the target manifests and `PLAN.html`, principally:
   [OpenWCH CH32V003 EVT sources](https://github.com/openwch/ch32v003)
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
-- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals,
+  including the official
+  [ESP32-S3 SDMMC register header](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/register/soc/sdmmc_reg.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either
