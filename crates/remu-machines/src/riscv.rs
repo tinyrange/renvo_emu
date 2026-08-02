@@ -18,11 +18,11 @@ use remu_devices::{
     EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
     Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
-    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
-    Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant,
-    RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350Sha256, Rp2350Spi,
+    Rp2350SpiHandle, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle,
+    RpAdcVariant, RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpSioGpio,
+    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -528,6 +528,12 @@ impl RiscVMachine {
             let (device, handle) = Rp2350Trng::new("rp2350.trng");
             bus.map_device("rp2350.trng", 0x400f_0000, 0x4000, Box::new(device))?;
             trng = Some(handle);
+            bus.map_device(
+                "rp2350.sha256",
+                0x400f_8000,
+                0x4000,
+                Box::new(Rp2350Sha256::new("rp2350.sha256")),
+            )?;
             for (name, base) in [("rp2350.uart1", 0x4007_8000), ("rp2350.dma", 0x5000_0000)] {
                 bus.map_device(
                     name,

@@ -457,6 +457,50 @@ fn rp2350_trng_generates_deterministic_words_and_interrupts() {
 }
 
 #[test]
+fn rp2350_sha256_accepts_padded_byte_stream_and_matches_fips_digest() {
+    let mut sha = Rp2350Sha256::new("sha256");
+    assert_eq!(
+        sha.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x1206
+    );
+    sha.write(0x00, AccessWidth::Word, 0x1201, SimTime::ZERO)
+        .unwrap();
+    let mut padded = [0_u8; 64];
+    padded[..3].copy_from_slice(b"abc");
+    padded[3] = 0x80;
+    padded[63] = 24;
+    for byte in padded {
+        sha.write(0x04, AccessWidth::Byte, u64::from(byte), SimTime::ZERO)
+            .unwrap();
+    }
+    let expected: [u32; 8] = [
+        0xba78_16bf,
+        0x8f01_cfea,
+        0x4141_40de,
+        0x5dae_2223,
+        0xb003_61a3,
+        0x9617_7a9c,
+        0xb410_ff61,
+        0xf200_15ad,
+    ];
+    for (index, word) in expected.into_iter().enumerate() {
+        assert_eq!(
+            sha.read(
+                0x08 + u64::try_from(index * 4).expect("SHA result offset fits"),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            u64::from(word)
+        );
+    }
+    assert_ne!(
+        sha.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 2),
+        0
+    );
+}
+
+#[test]
 fn rp2040_psm_exposes_power_state_masks_and_atomic_aliases() {
     let mut psm = Rp2040Psm::new("psm");
     assert_eq!(

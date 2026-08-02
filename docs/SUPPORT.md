@@ -35,6 +35,14 @@ Generation is immediate and reproducible for deterministic CI and replay. It
 is not a security entropy source and does not claim the analogue TRNG's
 statistical properties or variable completion latency.
 
+### RP2350 SHA-256 subset
+
+Both RP2350 CPU modes map the SHA-256 accelerator at `0x400f8000`. The
+functional model accepts byte, halfword, and word input writes, implements CSR
+start/status and byte swapping, and exposes all eight read-only digest words.
+Complete 512-bit blocks are processed immediately; DMA handshakes, timing, and
+security-domain policy are outside this functional slice.
+
 ### RP2040 power and oscillator subset
 
 The RP2040 map includes deterministic functional models for the official
