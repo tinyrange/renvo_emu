@@ -321,6 +321,64 @@ fn adc_channel_conversion_window_and_interrupts_are_functional() {
 }
 
 #[test]
+fn dac_paged_registers_format_code_and_track_enable_state() {
+    let hub = super::SignalHub::new();
+    let trace_hub = hub.clone();
+    let (mut device, _, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+
+    for (address, value, at) in [
+        (super::DAC0CF0, 0x80, SimTime::ZERO),
+        (super::DAC0L, 0x5a, SimTime::ZERO),
+        (super::DAC0H, 0x02, SimTime::from_ticks(1)),
+    ] {
+        device
+            .write(address as u64, AccessWidth::Byte, value, at)
+            .unwrap();
+    }
+    assert_eq!(
+        device
+            .read(super::DAC0L as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x5a
+    );
+    let output_id = trace_hub
+        .with_registry(|registry| registry.find("board.efm8bb52f32g.dac0.output"))
+        .unwrap();
+    let enabled_id = trace_hub
+        .with_registry(|registry| registry.find("board.efm8bb52f32g.dac0.enabled"))
+        .unwrap();
+    assert_eq!(
+        trace_hub.with_registry(|registry| registry.value(output_id).unwrap().to_vcd_binary()),
+        "1001011010"
+    );
+    assert_eq!(
+        trace_hub.with_registry(|registry| registry.value(enabled_id).unwrap().to_vcd_binary()),
+        "1"
+    );
+
+    for (address, value, at) in [
+        (super::DAC0CF0, 0xa0, SimTime::from_ticks(2)),
+        (super::DAC0L, 0xc0, SimTime::from_ticks(2)),
+        (super::DAC0H, 0x55, SimTime::from_ticks(3)),
+        (super::DAC0CF1, 0xff, SimTime::from_ticks(4)),
+    ] {
+        device
+            .write(address as u64, AccessWidth::Byte, value, at)
+            .unwrap();
+    }
+    assert_eq!(
+        trace_hub.with_registry(|registry| registry.value(output_id).unwrap().to_vcd_binary()),
+        "0101010111"
+    );
+    assert_eq!(
+        device
+            .read(super::DAC0CF1 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x0f
+    );
+}
+
+#[test]
 fn spi0_master_transfer_exposes_injected_miso_and_interrupt() {
     let hub = super::SignalHub::new();
     let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();

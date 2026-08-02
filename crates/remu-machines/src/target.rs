@@ -815,6 +815,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "SPI0 functional transfers",
             "SMBus0 functional transfers",
             "ADC0 deterministic conversion",
+            "DAC0 digital-code output",
             "PCA0 PWM/capture/compare",
             "interrupt priority",
             "VCD",

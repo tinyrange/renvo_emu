@@ -403,6 +403,12 @@ latches end-of-conversion and window-comparison flags, routes native vectors
 timer triggers, reference/gain physics, and calibration remain outside this
 functional model.
 
+DAC0 exposes its page-`0x30` register path and latches right- or left-justified
+10-bit input data with the documented low-before-high update inhibit. Enable
+state and digital output code are observable through VCD and signal-stop
+workflows. Timer/CLU triggers, warm-up timing, and reference/gain voltage
+physics remain outside this model.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

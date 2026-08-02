@@ -199,6 +199,42 @@ jq -e '.target == "efm8bb52f32g" and
     "$smbus_run/result.json" >/dev/null
 grep -q 'smb0' "$smbus_run/signals.vcd"
 
+dac_build="$artifact_root/register-dac-build"
+dac_run="$artifact_root/register-dac-run"
+mkdir -p "$dac_build" "$dac_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$dac_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-dac-build.json" \
+    -- -I. -c remu_dac.c -o /workspace/out/dac.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$dac_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-dac-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$dac_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-dac-link.json" \
+    -- /workspace/out/dac.rel /workspace/out/adapter.rel -o /workspace/out/dac.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$dac_build/dac.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.dac0.output=change \
+    --vcd "$dac_run/signals.vcd" \
+    --result "$dac_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.dac0.output"}' \
+    "$dac_run/result.json" >/dev/null
+grep -q '^\$scope module dac0 \$end$' "$dac_run/signals.vcd"
+
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \

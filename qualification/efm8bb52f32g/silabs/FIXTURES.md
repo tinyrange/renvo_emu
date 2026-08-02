@@ -13,6 +13,8 @@ the PCA0 three-channel PWM/compare declaration and
 interrupt vector against the same header. `remu_smbus.c` exercises the SMB0
 leader-start and data-register path. `remu_adc_irq.c` proves the ADC window and
 conversion interrupt declarations.
+`remu_dac.c` exercises the DAC0 page-`0x30` register declarations and output
+update path.
 The small declaration and startup adapters expose only the documented register
 surface needed by these fixtures.
 

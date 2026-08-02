@@ -66,6 +66,12 @@ __sfr __at (0xc5) ADC0LTL;
 __sfr __at (0xc6) ADC0LTH;
 __sfr __at (0xdf) ADC0CF2;
 __sfr __at (0xe8) ADC0CN0;
+/* DAC0 is selected with SFRPAGE=0x30. */
+__sfr __at (0x84) DAC0L;
+__sfr __at (0x85) DAC0H;
+__sfr __at (0x8a) DAC0ALT;
+__sfr __at (0x91) DAC0CF0;
+__sfr __at (0x92) DAC0CF1;
 __sfr __at (0xf3) EIE2;
 __sfr __at (0xbb) EIP1;
 __sfr __at (0xee) EIP1H;

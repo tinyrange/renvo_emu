@@ -1,7 +1,9 @@
 use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 mod adc;
+mod dac;
 mod registers;
 use adc::*;
+use dac::*;
 pub use registers::{Efm8PcaRegister, Efm8SmbusRegister};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
@@ -231,6 +233,8 @@ struct Efm8State {
     watchdog_key: u8,
     watchdog_enabled: bool,
     watchdog_reset: bool,
+    dac_output: u16,
+    dac_update_inhibited: bool,
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
     uart_byte_signal: SignalId,
@@ -252,6 +256,8 @@ struct Efm8State {
     timer5_irq_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
+    dac_output_signal: SignalId,
+    dac_enabled_signal: SignalId,
     pca_epoch: u64,
     pca_outputs: [Logic; 3],
     pca_inputs: [Logic; 3],
@@ -386,6 +392,8 @@ impl Efm8State {
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
         self.watchdog_reset = false;
+        self.dac_output = 0;
+        self.dac_update_inhibited = false;
         self.spi_tx.clear();
         self.spi_rx.clear();
         self.registers[SPI0CN0] = SPI0_TXNF;
@@ -406,6 +414,7 @@ impl Efm8State {
             self.timer5_irq_signal,
             self.interrupt_signal,
             self.watchdog_reset_signal,
+            self.dac_enabled_signal,
             self.pca_output_signals[0],
             self.pca_output_signals[1],
             self.pca_output_signals[2],
@@ -415,6 +424,7 @@ impl Efm8State {
         }
         self.set_signal(self.smbus0_tx_byte_signal, 0, 8, at);
         self.set_signal(self.adc_result_signal, 0, 16, at);
+        self.set_signal(self.dac_output_signal, 0, 10, at);
         self.update_smbus0_signals(at);
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
@@ -427,6 +437,9 @@ impl Efm8State {
         }
         let page = raw >> 8;
         let address = raw & 0xff;
+        if matches!(raw, DAC0L | DAC0H | DAC0ALT | DAC0CF0 | DAC0CF1) {
+            return raw;
+        }
         if page == 0x10 {
             if (0x91..=0x95).contains(&address) {
                 return address;
@@ -961,6 +974,16 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("ADC0 window-comparison flag".to_owned()),
         )?;
+        let dac_output_signal = hub.declare(
+            "board.efm8bb52f32g.dac0.output",
+            SignalValue::from_u64(0, 10)?,
+            Some("last DAC0 digital output code".to_owned()),
+        )?;
+        let dac_enabled_signal = hub.declare(
+            "board.efm8bb52f32g.dac0.enabled",
+            SignalValue::from_u64(0, 1)?,
+            Some("DAC0 output buffer enable".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -1017,6 +1040,8 @@ impl Efm8Peripherals {
             watchdog_key: 0,
             watchdog_enabled: true,
             watchdog_reset: false,
+            dac_output: 0,
+            dac_update_inhibited: false,
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
             uart_byte_signal,
@@ -1038,6 +1063,8 @@ impl Efm8Peripherals {
             timer5_irq_signal,
             interrupt_signal,
             watchdog_reset_signal,
+            dac_output_signal,
+            dac_enabled_signal,
             pca_epoch: 0,
             pca_outputs: [Logic::Zero; 3],
             pca_inputs: [Logic::Zero; 3],
@@ -1305,6 +1332,8 @@ impl Device for Efm8Peripherals {
                     state.set_signal(state.uart1_strobe_signal, previous ^ 1, 1, at);
                     state.registers[SCON1] |= SCON1_TI;
                 }
+            } else if matches!(address, DAC0L | DAC0H | DAC0ALT | DAC0CF0 | DAC0CF1) {
+                state.write_dac_register(address, value, at);
             } else if address == ADC0CN0 && value & ADC0_ADBUSY != 0 {
                 if value & ADC0_ADEN != 0 && state.registers[ADC0CN2] & 0x0f == 0 {
                     state.complete_adc_conversion(at);
