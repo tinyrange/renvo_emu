@@ -29,6 +29,11 @@ const TMR2RLL: usize = 0xca;
 const TMR2RLH: usize = 0xcb;
 const TMR2L: usize = 0xce;
 const TMR2H: usize = 0xcf;
+const DAC0L: usize = 0x84;
+const DAC0H: usize = 0x85;
+const DAC0ALT: usize = 0x8a;
+const DAC0CF0: usize = 0x91;
+const DAC0CF1: usize = 0x92;
 const XBR0: usize = 0xe1;
 const XBR2: usize = 0xe3;
 const RSTSRC: usize = 0xef;
@@ -51,6 +56,9 @@ const TCON_TR0: u8 = 0x10;
 const TCON_TF0: u8 = 0x20;
 const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
+const DAC0_EN: u8 = 0x80;
+const DAC0_LJST: u8 = 0x20;
+const DAC0_UPDATE_MASK: u8 = 0x0f;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const XBR0_URT0E: u8 = 0x01;
@@ -68,10 +76,14 @@ struct Efm8State {
     watchdog_key: u8,
     watchdog_enabled: bool,
     watchdog_reset: bool,
+    dac_output: u16,
+    dac_update_inhibited: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
+    dac_output_signal: SignalId,
+    dac_enabled_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -145,23 +157,82 @@ impl Efm8State {
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
         self.watchdog_reset = false;
+        self.dac_output = 0;
+        self.dac_update_inhibited = false;
         for signal in [
             self.uart_strobe_signal,
             self.timer0_irq_signal,
             self.timer2_irq_signal,
+            self.dac_enabled_signal,
             self.interrupt_signal,
             self.watchdog_reset_signal,
         ] {
             self.set_signal(signal, 0, 1, at);
         }
+        self.set_signal(self.dac_output_signal, 0, 10, at);
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
+        }
+    }
+
+    fn dac_code(&self) -> u16 {
+        if self.registers[DAC0CF0] & DAC0_LJST != 0 {
+            (u16::from(self.registers[DAC0H]) << 2) | u16::from(self.registers[DAC0L] >> 6)
+        } else {
+            (u16::from(self.registers[DAC0H] & 0x03) << 8) | u16::from(self.registers[DAC0L])
+        }
+    }
+
+    fn update_dac_output(&mut self, at: SimTime) {
+        if self.registers[DAC0CF0] & DAC0_EN == 0 || self.dac_update_inhibited {
+            return;
+        }
+        self.dac_output = self.dac_code();
+        self.set_signal(self.dac_output_signal, u64::from(self.dac_output), 10, at);
+    }
+
+    fn write_dac_register(&mut self, address: usize, value: u8, at: SimTime) {
+        match address {
+            DAC0CF0 => {
+                self.registers[address] = value & (DAC0_EN | 0x40 | DAC0_LJST | DAC0_UPDATE_MASK);
+                self.set_signal(
+                    self.dac_enabled_signal,
+                    u64::from(self.registers[DAC0CF0] & DAC0_EN != 0),
+                    1,
+                    at,
+                );
+                if self.registers[DAC0CF0] & DAC0_UPDATE_MASK == 0 {
+                    self.update_dac_output(at);
+                }
+            }
+            DAC0CF1 => {
+                // Bits 7:4 are reserved and read back as zero. Reference and
+                // gain selection are retained for firmware inspection; the
+                // output remains a digital-code oracle rather than a voltage.
+                self.registers[address] = value & 0x0f;
+            }
+            DAC0ALT | DAC0L => {
+                self.registers[address] = value;
+                self.dac_update_inhibited = true;
+            }
+            DAC0H => {
+                self.registers[address] = value;
+                self.dac_update_inhibited = false;
+                if self.registers[DAC0CF0] & DAC0_UPDATE_MASK == 0 {
+                    self.update_dac_output(at);
+                }
+            }
+            _ => unreachable!("validated DAC0 register"),
         }
     }
 
     fn canonical(raw: usize) -> usize {
         let page = raw >> 8;
         let address = raw & 0xff;
+        if page == 0x30 && matches!(address, DAC0L | DAC0H | DAC0ALT | DAC0CF0 | DAC0CF1) {
+            // DAC0 is implemented on its documented SFR page-0x30 aliases.
+            return address;
+        }
         match address {
             0x80
             | 0x88..=0x8e
@@ -342,6 +413,16 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer2 high-byte overflow request".to_owned()),
         )?;
+        let dac_output_signal = hub.declare(
+            "board.efm8bb52f32g.dac0.output",
+            SignalValue::from_u64(0, 10)?,
+            Some("last DAC0 digital output code".to_owned()),
+        )?;
+        let dac_enabled_signal = hub.declare(
+            "board.efm8bb52f32g.dac0.enabled",
+            SignalValue::from_u64(0, 1)?,
+            Some("DAC0 output buffer enable".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -364,10 +445,14 @@ impl Efm8Peripherals {
             watchdog_key: 0,
             watchdog_enabled: true,
             watchdog_reset: false,
+            dac_output: 0,
+            dac_update_inhibited: false,
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
             timer2_irq_signal,
+            dac_output_signal,
+            dac_enabled_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -455,6 +540,8 @@ impl Device for Efm8Peripherals {
                 state.set_signal(state.uart_strobe_signal, previous ^ 1, 1, at);
             }
             state.registers[SCON0] |= SCON0_TI;
+        } else if matches!(address, DAC0L | DAC0H | DAC0ALT | DAC0CF0 | DAC0CF1) {
+            state.write_dac_register(address, value, at);
         } else if address == WDTCN {
             if state.watchdog_key == 0xde && value == 0xad {
                 state.watchdog_enabled = false;
@@ -481,8 +568,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, DAC0CF0, DAC0CF1, DAC0H, DAC0L, Efm8Peripherals, IE, IE_EA, IE_ET0, P0,
+        P0MDOUT, SBUF0, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +629,127 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn dac_page_alias_formats_code_and_tracks_enable_state() {
+        let hub = super::SignalHub::new();
+        let trace_hub = hub.clone();
+        let (mut device, _, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+
+        // The native firmware access sequence selects SFR page 0x30 and
+        // writes low before high to atomically release the update latch.
+        device
+            .write(
+                (0x30 << 8) | DAC0CF0 as u64,
+                AccessWidth::Byte,
+                0x80,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                (0x30 << 8) | DAC0L as u64,
+                AccessWidth::Byte,
+                0x5a,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                (0x30 << 8) | DAC0H as u64,
+                AccessWidth::Byte,
+                0x02,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read((0x30 << 8) | DAC0L as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x5a
+        );
+        assert_eq!(
+            device
+                .read((0x30 << 8) | DAC0H as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x02
+        );
+
+        let output_id = trace_hub
+            .with_registry(|registry| registry.find("board.efm8bb52f32g.dac0.output"))
+            .unwrap();
+        let enabled_id = trace_hub
+            .with_registry(|registry| registry.find("board.efm8bb52f32g.dac0.enabled"))
+            .unwrap();
+        assert_eq!(
+            trace_hub.with_registry(|registry| registry.value(output_id).unwrap().to_vcd_binary()),
+            "1001011010"
+        );
+        assert_eq!(
+            trace_hub.with_registry(|registry| registry.value(enabled_id).unwrap().bit(0)),
+            Some(super::Logic::One)
+        );
+
+        // Left-justified 10-bit input uses H[7:0]:L[7:6]. Reserved CF0/CF1
+        // bits are masked while the digital-code boundary remains explicit.
+        device
+            .write(
+                (0x30 << 8) | DAC0CF0 as u64,
+                AccessWidth::Byte,
+                0xa0,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                (0x30 << 8) | DAC0L as u64,
+                AccessWidth::Byte,
+                0xc0,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                (0x30 << 8) | DAC0H as u64,
+                AccessWidth::Byte,
+                0x55,
+                SimTime::from_ticks(3),
+            )
+            .unwrap();
+        assert_eq!(
+            trace_hub.with_registry(|registry| registry.value(output_id).unwrap().to_vcd_binary()),
+            "0101010111"
+        );
+        device
+            .write(
+                (0x30 << 8) | DAC0CF1 as u64,
+                AccessWidth::Byte,
+                0xff,
+                SimTime::from_ticks(4),
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    (0x30 << 8) | DAC0CF1 as u64,
+                    AccessWidth::Byte,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            0x0f
+        );
+        device
+            .write(
+                (0x30 << 8) | DAC0CF0 as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::from_ticks(5),
+            )
+            .unwrap();
+        assert_eq!(
+            trace_hub.with_registry(|registry| registry.value(enabled_id).unwrap().bit(0)),
+            Some(super::Logic::Zero)
+        );
     }
 }
