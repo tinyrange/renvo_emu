@@ -1630,6 +1630,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.route_event(RA4M1_EVENT_GPT0_OVERFLOW), vec![7]);
+        icu.write(
+            0x300 + 8 * 4,
+            AccessWidth::Word,
+            u64::from(super::super::RA4M1_EVENT_ADC0_SCAN_END),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            handle.route_event(super::super::RA4M1_EVENT_ADC0_SCAN_END),
+            vec![8]
+        );
 
         let (mut gpt, gpt_handle) = RaGpt::new("gpt0");
         gpt.write(0x64, AccessWidth::Word, 3, SimTime::ZERO)

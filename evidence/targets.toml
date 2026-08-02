@@ -113,7 +113,7 @@ selected_pins = ["P103 external digital input", "P111 GPIO/UNO R4 Minima LED out
 interrupt_routes = ["KINT event 0x045 -> configured ICU IELSR slot", "GPT0 overflow event 0x05d -> ICU IELSR7 -> NVIC line 7", "SCI9 TXI is routed through configured ICU event slots"]
 vcd_signals = ["board.r7fa4m1ab3cfm.port1", "board.r7fa4m1ab3cfm.kint.irq", "board.r7fa4m1ab3cfm.gpt0.irq", "board.r7fa4m1ab3cfm.sci9", "board.r7fa4m1ab3cfm.icu.request"]
 fidelity_tier = "functional Cortex-M4F and peripherals, deterministic, not cycle accurate"
-unsupported = ["USB", "CAN", "analog and LCD peripherals", "exact clock timing", "UNO R4 WiFi bridge"]
+unsupported = ["USB", "CAN", "LCD peripherals", "ADC140 continuous/group/window/compare modes and analog timing", "exact clock timing", "UNO R4 WiFi bridge"]
 vendor_sample_license = "Renesas FSP examples: BSD-3-Clause; ArduinoCore-renesas: MIT; Arduino sketches: CC0-1.0"
 
 [[target]]

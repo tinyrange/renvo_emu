@@ -685,7 +685,10 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware",
             "https://github.com/arduino/ArduinoCore-renesas",
         ],
-        limitations: &["USB, CAN, analog, LCD, and Wi-Fi-board bridge behavior are deferred"],
+        limitations: &[
+            "USB, CAN, LCD, and Wi-Fi-board bridge behavior are deferred",
+            "ADC140 continuous/group/window/compare modes and analog timing are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,

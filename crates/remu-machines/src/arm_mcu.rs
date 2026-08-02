@@ -118,6 +118,7 @@ pub struct ArmMcuMachine {
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     interrupt_signal: SignalId,
+    ra_adc_signal: Option<SignalId>,
     traced_uart_len: usize,
     uart_strobe: bool,
     elc_strobe: bool,
@@ -239,6 +240,15 @@ impl ArmMcuMachine {
             SignalValue::from_u64(0, 1)?,
             Some("selected routed interrupt request".to_owned()),
         )?;
+        let ra_adc_signal = if target == TargetId::R7fa4m1ab3cfm {
+            Some(signals.declare(
+                "board.r7fa4m1ab3cfm.adc0.irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("ADC140 group-A scan-end request".to_owned()),
+            )?)
+        } else {
+            None
+        };
         let (compiler_gpio_device, compiler_gpio) = FunctionalGpio::new(
             format!("{target}.compiler-gpio"),
             manifest.gpio_count.min(32),
@@ -465,6 +475,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -618,6 +629,7 @@ impl ArmMcuMachine {
             uart_byte_signal,
             uart_strobe_signal,
             interrupt_signal,
+            ra_adc_signal,
             traced_uart_len: 0,
             uart_strobe: false,
             elc_strobe: false,
