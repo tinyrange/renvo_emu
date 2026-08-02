@@ -527,6 +527,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                     Some(icu),
                     None,
                     Vec::new(),
@@ -1303,7 +1304,7 @@ impl ArmMcuMachine {
             }
             self.signals.set(
                 self.timer_irq_signal,
-                SignalValue::from_u64(u64::from(timer_pending), 1)?,
+                SignalValue::from_u64(u64::from(timer_pending || lptim_pending), 1)?,
                 self.now,
             )?;
             self.signals.set(
