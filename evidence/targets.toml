@@ -62,16 +62,16 @@ sample_url = "https://github.com/STMicroelectronics/STM32CubeL4"
 sample_revision = "a6fd67088a77dc546a00cef2aa67ac540abf9c9f"
 toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
 compiler_flags = ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16"]
-peripherals = ["RCC", "FLASH", "PWR", "GPIOA", "GPIOB", "GPIOC", "GPIOH", "SYSCFG", "EXTI", "TIM2", "USART2"]
+peripherals = ["RCC", "FLASH", "PWR", "GPIOA", "GPIOB", "GPIOC", "GPIOH", "SYSCFG", "EXTI", "TIM2", "USART2", "COMP1", "COMP2", "OPAMP1"]
 image_formats = ["ELF32 little-endian Arm executable"]
 memory_map = ["flash 0x08000000..0x0803ffff with boot alias at 0x00000000", "SRAM 0x20000000..0x2000ffff", "documented MMIO windows for the selected peripheral slice"]
 reset_assumptions = "Power-on reset reads MSP and Thumb reset PC through the flash alias; RCC/FLASH/PWR readiness is represented only where startup code polls it"
-vectors = ["reset exception 1", "TIM2 external IRQ 28", "USART2 external IRQ 38"]
+vectors = ["reset exception 1", "TIM2 external IRQ 28", "USART2 external IRQ 38", "COMP1/COMP2 external IRQ 64"]
 selected_pins = ["PA03 external digital input", "PA05 GPIO output", "PB03 STM32Cube GPIO oracle output"]
-interrupt_routes = ["TIM2 update -> NVIC line 28", "USART2 -> NVIC line 38", "SYSCFG/EXTI register surface retained for selected GPIO routing"]
+interrupt_routes = ["TIM2 update -> NVIC line 28", "USART2 -> NVIC line 38", "COMP1/COMP2 output changes -> NVIC line 64", "SYSCFG/EXTI register surface retained for selected GPIO routing"]
 vcd_signals = ["board.stm32l432kc.gpioa", "board.stm32l432kc.gpiob", "board.stm32l432kc.tim2.irq", "board.stm32l432kc.usart2", "board.stm32l432kc.interrupt.request"]
 fidelity_tier = "functional Cortex-M4F and peripherals, deterministic, not cycle accurate"
-unsupported = ["analog peripherals", "USB", "DMA", "exact clock tree and low-power timing"]
+unsupported = ["analog transfer characteristics and calibration", "USB", "DMA", "exact clock tree and low-power timing"]
 vendor_sample_license = "STM32CubeL4 GPIO example and HAL adapters: BSD-3-Clause"
 
 [[target]]

@@ -16,8 +16,9 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32ComparatorHandle,
+    Stm32Comparators, Stm32Gpio, Stm32Opamp, Stm32OpampHandle, Stm32Timer, Stm32TimerHandle,
+    Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -81,6 +82,8 @@ pub struct ArmMcuMachine {
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
+    comparators: Option<Stm32ComparatorHandle>,
+    opamp: Option<Stm32OpampHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -230,7 +233,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, ra_icu, watchdog, comparators, opamp) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -257,6 +260,8 @@ impl ArmMcuMachine {
                     Some(eic),
                     None,
                     Some(watchdog),
+                    None,
+                    None,
                 )
             }
             TargetId::Stm32l432kc => {
@@ -282,11 +287,15 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (comparators_device, comparators) = Stm32Comparators::new("stm32l432kc.comp");
+                let (opamp_device, opamp) = Stm32Opamp::new("stm32l432kc.opamp");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    comparators_device,
+                    opamp_device,
                 )?;
                 (
                     gpio,
@@ -295,6 +304,8 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    Some(comparators),
+                    Some(opamp),
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -321,6 +332,8 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     None,
+                    None,
+                    None,
                 )
             }
             _ => unreachable!(),
@@ -339,6 +352,8 @@ impl ArmMcuMachine {
             eic,
             ra_icu,
             watchdog,
+            comparators,
+            opamp,
             compiler_timer,
             exit,
             ppb,
@@ -410,6 +425,8 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        comparators: Stm32Comparators,
+        opamp: Stm32Opamp,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -448,7 +465,7 @@ impl ArmMcuMachine {
         bus.map_device(
             "stm32l432kc.syscfg",
             0x4001_0000,
-            0x400,
+            0x200,
             Box::new(RegisterBank::new(
                 "stm32l432kc.syscfg",
                 [
@@ -474,6 +491,13 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device(
+            "stm32l432kc.comp",
+            0x4001_0200,
+            0x100,
+            Box::new(comparators),
+        )?;
+        bus.map_device("stm32l432kc.opamp", 0x4000_7800, 0x100, Box::new(opamp))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -686,6 +710,38 @@ impl ArmMcuMachine {
         Ok(())
     }
 
+    /// Supplies host-side input levels to one STM32 comparator.
+    pub fn set_stm32_comparator_inputs(
+        &self,
+        comparator: usize,
+        plus: u16,
+        minus: u16,
+    ) -> Result<(), ArmMachineError> {
+        let Some(comparators) = &self.comparators else {
+            return Err(ArmMachineError::Device(remu_bus::DeviceError::new(
+                "STM32 comparators are not available on this target",
+            )));
+        };
+        if comparators.set_inputs(comparator, plus, minus) {
+            Ok(())
+        } else {
+            Err(ArmMachineError::Device(remu_bus::DeviceError::new(
+                "STM32 comparator index is outside 0..2",
+            )))
+        }
+    }
+
+    /// Supplies host-side input levels to the STM32 OPAMP.
+    pub fn set_stm32_opamp_inputs(&self, plus: u16, minus: u16) -> Result<(), ArmMachineError> {
+        let Some(opamp) = &self.opamp else {
+            return Err(ArmMachineError::Device(remu_bus::DeviceError::new(
+                "STM32 OPAMP is not available on this target",
+            )));
+        };
+        opamp.set_inputs(plus, minus);
+        Ok(())
+    }
+
     /// Runs without externally scheduled stimuli.
     pub fn run(
         &mut self,
@@ -810,6 +866,12 @@ impl ArmMcuMachine {
                 }
                 TargetId::R7fa4m1ab3cfm => {}
                 _ => unreachable!(),
+            }
+            if let Some(comparators) = &self.comparators {
+                let comparator_pending = comparators.interrupt_pending();
+                interrupt_requested |= comparator_pending;
+                self.cpu
+                    .set_interrupt(64, comparator_pending && self.ppb.interrupt_enabled(64))?;
             }
             self.signals.set(
                 self.timer_irq_signal,
@@ -957,6 +1019,30 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_comparator_and_opamp_host_inputs_are_observable() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        machine.set_stm32_comparator_inputs(0, 900, 400).unwrap();
+        machine
+            .bus
+            .write(0x4001_0200, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.comparators.as_ref().unwrap().output(0), Some(true));
+        assert!(machine.comparators.as_ref().unwrap().interrupt_pending());
+
+        machine.set_stm32_opamp_inputs(1200, 200).unwrap();
+        machine
+            .bus
+            .write(
+                0x4000_7800,
+                AccessWidth::Word,
+                1 | (3 << 2) | (3 << 4),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(machine.opamp.as_ref().unwrap().output(), 8200);
     }
 
     #[test]
