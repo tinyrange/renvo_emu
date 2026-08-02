@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform, native-address UART0 FIFO transcript, and RTC/ULP timer wakeup slice |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -85,6 +85,15 @@ model is not tied to target clock frequency. Baseline PIO executes one
 instruction per abstract tick and intentionally ignores divider and delay
 timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
+
+The ESP32-S3 RTC/ULP slice uses native `RTC_CNTL` register offsets for the
+abstract RTC counter latch, ULP timer enable/start/reset, timer period, and
+ULP interrupt enable/raw/status/clear path (`0xfc`, `0x100`, `0x134`, and
+`0x40`–`0x4c`). A configured period advances in abstract ticks, raises the
+`board.esp32s3.ulp.interrupt` signal, and routes through the RTC-core interrupt
+source. RTC slow and fast memory remain mapped at their native addresses. The
+slice does not execute ULP-FSM or ULP-RISC-V instructions and does not claim
+deep-sleep/power-analog fidelity, RTC-GPIO wake semantics, or cycle timing.
 
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
@@ -207,6 +216,8 @@ the target manifests and `PLAN.html`, principally:
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif’s official [ESP32-S3 RTC control register definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/register/soc/rtc_cntl_reg.h)
+- Espressif’s official [ESP32-S3 ULP FSM programming guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/ulp-fsm.html)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either
