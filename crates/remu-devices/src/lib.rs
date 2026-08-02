@@ -195,6 +195,8 @@ mod functional;
 pub use functional::*;
 mod samd;
 pub use samd::*;
+mod samd_evsys;
+pub use samd_evsys::*;
 mod stm32;
 pub use stm32::*;
 mod ra;

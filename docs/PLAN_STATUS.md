@@ -59,6 +59,20 @@ functional, non-cycle-accurate scope. PHY edge timing, DMA scatter/gather,
 host-channel scheduling, and complete USB class/device compatibility remain
 explicit limitations and are tracked separately.
 
+## ATSAMD21 EVSYS expansion slice
+
+The ATSAMD21E18 expansion qualification now exercises the mapped Event System
+at its documented `0x42000400` base. The functional model exposes named CTRL,
+CHANNEL, USER, CHSTATUS, INTENCLR, INTENSET, and INTFLAG registers, all twelve
+channel selectors, user-to-channel muxing, synchronous software events,
+event-detected flags, interrupt-enable semantics, and write-one-to-clear flag
+behavior. The Docker-built Cortex-M0+ fixture configures a channel and user,
+injects a software event with the required synchronous/rising-edge setup, and
+checks the flag and readback before clearing it.
+
+Peripheral generator wiring, DMA/interrupt delivery into the rest of the
+machine, and cycle-accurate synchronization remain explicitly deferred.
+
 ## Phase 5 closure
 
 Phase 5 now meets its complete exit gate. `remu corpus reduce` detects the
