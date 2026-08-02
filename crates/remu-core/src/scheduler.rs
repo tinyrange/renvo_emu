@@ -65,6 +65,12 @@ where
 
     /// Schedules a payload at an absolute timestamp.
     pub fn schedule_at(&mut self, at: SimTime, payload: T) -> Result<EventId, SchedulerError> {
+        if at < self.now {
+            return Err(SchedulerError::Rewind {
+                current: self.now,
+                requested: at,
+            });
+        }
         self.queue.schedule_at(at, payload).map_err(Into::into)
     }
 
@@ -194,6 +200,13 @@ mod tests {
         let mut scheduler = Scheduler::<u8>::new(SimTime::from_ticks(4));
         assert_eq!(
             scheduler.advance_to(SimTime::from_ticks(3)),
+            Err(SchedulerError::Rewind {
+                current: SimTime::from_ticks(4),
+                requested: SimTime::from_ticks(3),
+            })
+        );
+        assert_eq!(
+            scheduler.schedule_at(SimTime::from_ticks(3), 1),
             Err(SchedulerError::Rewind {
                 current: SimTime::from_ticks(4),
                 requested: SimTime::from_ticks(3),
