@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
+    "sha256": "5860dbacac85e42807491bddc326cf744bdae352934c186f82fda5a9041286c3"
   },
   "proofs": [
     {
@@ -61,6 +61,23 @@
           "events": 1
         }
       }
+    },
+    {
+      "id": "ch32v006-sltm",
+      "result": ".remu/portfolio-smoke/ch32v006-sltm-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-sltm-bus.json",
+      "result_sha256": "e6d5a261e0ad6448d21eaf9b96202e39093f7eda54cb3dcbd63c3e6136f1aecd",
+      "bus_log_sha256": "232e179b8c80887b56579dc416cc16a78fc779f1035ac6810db523ed404dd7df",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
+        "stats": {
+          "instructions": 49,
+          "time": 49,
+          "events": 0
+        }
+      }
     }
   ],
   "required_covered_regions": [
@@ -68,9 +85,10 @@
     "ch32v006.pfic",
     "ch32v006.rcc",
     "ch32v006.tim2",
+    "ch32v006.tim3",
     "ch32v006.usart1"
   ],
-  "covered_register_count": 13,
+  "covered_register_count": 19,
   "covered_registers": [
     {
       "region": "ch32v006.gpioc",
@@ -174,6 +192,74 @@
       "access_count": 1
     },
     {
+      "region": "ch32v006.tim3",
+      "address": 1073743872,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743876,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743880,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 8
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743884,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743888,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743896,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
       "region": "ch32v006.usart1",
       "address": 1073821696,
       "operations": [
@@ -227,6 +313,7 @@
     "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
     "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
     "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
-    "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
+    "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.",
+    "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, waveform pins, and exact clock timing remain outside the slice."
   ]
 }
