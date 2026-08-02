@@ -24,6 +24,8 @@ mod rp;
 pub use rp::*;
 mod esp;
 pub use esp::*;
+mod esp_saradc;
+pub use esp_saradc::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

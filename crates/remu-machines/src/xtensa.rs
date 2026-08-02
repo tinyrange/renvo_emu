@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3SarAdc, Esp32S3SarAdcHandle, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -376,6 +377,7 @@ pub struct XtensaMachine {
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
     usb_host: EspDwc2Host,
+    saradc: Esp32S3SarAdcHandle,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
@@ -500,7 +502,6 @@ impl XtensaMachine {
             ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
             ("gdma", 0x6003_f000),
-            ("saradc", 0x6004_0000),
             ("lcd-cam", 0x6004_1000),
             ("sensitive", 0x600c_1000),
             ("interrupt-matrix", 0x600c_2000),
@@ -595,6 +596,13 @@ impl XtensaMachine {
             Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
         )?;
         let signals = SignalHub::new();
+        let (saradc_device, saradc) = Esp32S3SarAdc::new("esp32s3.saradc", signals.clone())?;
+        bus.map_device(
+            "esp32s3.saradc",
+            0x6004_0000,
+            0x1000,
+            Box::new(saradc_device),
+        )?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -713,6 +721,7 @@ impl XtensaMachine {
             usb_serial_jtag,
             usb_otg,
             usb_host: EspDwc2Host::new(),
+            saradc,
             system,
             systimer,
             timer_groups,
@@ -1000,6 +1009,11 @@ impl XtensaMachine {
         self.gpio.set_input(pin, value, self.now)?;
         self.chip_gpio.set_input(pin, value, self.now)?;
         Ok(())
+    }
+
+    /// Returns the host-side ESP32-S3 SAR ADC input and observation handle.
+    pub fn saradc(&self) -> Esp32S3SarAdcHandle {
+        self.saradc.clone()
     }
 
     fn set_systimer_interrupt(
