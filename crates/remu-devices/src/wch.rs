@@ -268,6 +268,14 @@ impl WchPficHandle {
                 })
             })
     }
+
+    /// Advances the QingKe SysTick-compatible block and consumes one pending
+    /// system-timer pulse for the machine scheduler.
+    pub fn take_systick_pending(&self, now: SimTime) -> bool {
+        let mut state = self.state.borrow_mut();
+        WchPfic::advance_systick(&mut state, now);
+        std::mem::take(&mut state.systick_pending)
+    }
 }
 
 struct WchPficState {
@@ -278,6 +286,12 @@ struct WchPficState {
     config: u32,
     priorities: [u8; 256],
     system_control: u32,
+    systick_control: u32,
+    systick_reload: u32,
+    systick_current: u32,
+    systick_countflag: bool,
+    systick_pending: bool,
+    systick_last_tick: u64,
 }
 
 impl WchPficState {
@@ -290,6 +304,12 @@ impl WchPficState {
             config: 0,
             priorities: [0; 256],
             system_control: 0,
+            systick_control: 0,
+            systick_reload: 0,
+            systick_current: 0,
+            systick_countflag: false,
+            systick_pending: false,
+            systick_last_tick: 0,
         }
     }
 }
@@ -317,6 +337,38 @@ impl WchPfic {
         (offset >= base && offset < base + 0x20 && offset % 4 == 0)
             .then(|| usize::try_from((offset - base) / 4).expect("PFIC word index fits"))
     }
+
+    fn advance_systick(state: &mut WchPficState, now: SimTime) {
+        let mut elapsed = now.ticks().saturating_sub(state.systick_last_tick);
+        state.systick_last_tick = now.ticks();
+        if state.systick_control & 1 == 0 || elapsed == 0 {
+            return;
+        }
+        let reload = state.systick_reload & 0x00ff_ffff;
+        while elapsed != 0 {
+            if state.systick_current == 0 {
+                state.systick_current = reload;
+                elapsed -= 1;
+                if reload == 0 {
+                    state.systick_countflag = true;
+                    if state.systick_control & 2 != 0 {
+                        state.systick_pending = true;
+                    }
+                }
+            } else if elapsed >= u64::from(state.systick_current) {
+                elapsed -= u64::from(state.systick_current);
+                state.systick_current = 0;
+                state.systick_countflag = true;
+                if state.systick_control & 2 != 0 {
+                    state.systick_pending = true;
+                }
+            } else {
+                state.systick_current -=
+                    u32::try_from(elapsed).expect("elapsed SysTick ticks fit the current value");
+                elapsed = 0;
+            }
+        }
+    }
 }
 
 impl Device for WchPfic {
@@ -324,8 +376,9 @@ impl Device for WchPfic {
         &self.name
     }
 
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        let state = self.state.borrow();
+    fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
+        let mut state = self.state.borrow_mut();
+        Self::advance_systick(&mut state, at);
         if width == AccessWidth::Byte && (0x400..0x500).contains(&offset) {
             let index = usize::try_from(offset - 0x400).expect("PFIC priority index fits");
             return Ok(u64::from(state.priorities[index]));
@@ -333,7 +386,17 @@ impl Device for WchPfic {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("WCH PFIC requires aligned word access"));
         }
-        let value = if let Some(index) = Self::word_index(offset, 0x000) {
+        let value = if offset == 0x010 {
+            let value = state.systick_control | if state.systick_countflag { 1 << 16 } else { 0 };
+            state.systick_countflag = false;
+            value
+        } else if offset == 0x014 {
+            state.systick_reload
+        } else if offset == 0x018 {
+            state.systick_current
+        } else if offset == 0x01c {
+            0
+        } else if let Some(index) = Self::word_index(offset, 0x000) {
             state.enabled[index] & state.pending[index]
         } else if let Some(index) = Self::word_index(offset, 0x020) {
             state.pending[index]
@@ -389,7 +452,7 @@ impl Device for WchPfic {
         offset: u64,
         width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
         let mut state = self.state.borrow_mut();
         if width == AccessWidth::Byte && (0x400..0x500).contains(&offset) {
@@ -403,7 +466,17 @@ impl Device for WchPfic {
         }
         let value = u32::try_from(value & u64::from(u32::MAX))
             .expect("masked PFIC register value fits u32");
-        if let Some(index) = Self::word_index(offset, 0x100) {
+        Self::advance_systick(&mut state, at);
+        if offset == 0x010 {
+            state.systick_control = value & 7;
+        } else if offset == 0x014 {
+            state.systick_reload = value & 0x00ff_ffff;
+        } else if offset == 0x018 {
+            state.systick_current = 0;
+            state.systick_countflag = false;
+        } else if offset == 0x01c {
+            // The calibration value is read-only and intentionally zero.
+        } else if let Some(index) = Self::word_index(offset, 0x100) {
             state.enabled[index] |= value;
         } else if let Some(index) = Self::word_index(offset, 0x180) {
             state.enabled[index] &= !value;
