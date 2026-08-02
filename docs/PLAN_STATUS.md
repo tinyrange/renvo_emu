@@ -197,9 +197,12 @@ The preceding USART1 closure remains covered by the same gate: native
 
 The RP2040 USB controller now has a focused protocol-status proof. Its raw
 and masked interrupt views include bus reset, connection, setup, buffer,
-transaction-complete, and serial-error sources; `SIE_STATUS` and
-`BUFF_STATUS` implement the documented write-clear behavior while preserving
-read-only VBUS and line-state fields. A native-address Arm fixture connects
-the device, observes the host-supplied reset, clears it, and verifies VBUS
-remains asserted. This is still a deterministic functional slice rather than
-PHY, packet-timing, DMA, or complete class-protocol emulation.
+transaction-complete, and serial-error sources; `SIE_STATUS`, `BUFF_STATUS`,
+`EP_ABORT_DONE`, and `EP_STATUS_STALL_NAK` implement the documented write-clear
+behavior while preserving read-only VBUS and line-state fields. The control
+registers apply the official masks and reset values, self-clear SIE command
+bits, honor atomic aliases, and replicate byte/halfword writes as RP2040 I/O
+does. A native-address Arm fixture connects the device, observes the
+host-supplied reset, clears it, and verifies VBUS remains asserted. This is
+still a deterministic functional slice rather than PHY, packet-timing, DMA,
+or complete class-protocol emulation.
