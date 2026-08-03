@@ -266,20 +266,23 @@ impl McpwmState {
             }
             let steps = elapsed / timer.divider(self.clock_cfg);
             if steps == 0 {
-                timer.last_time = now;
                 continue;
             }
+            let consumed = steps.saturating_mul(timer.divider(self.clock_cfg));
+            timer.last_time = SimTime::from_ticks(timer.last_time.ticks().saturating_add(consumed));
             let period = u64::from(timer.period());
             let old = u64::from(timer.value);
             let mode = Self::timer_mode(*timer);
             let (value, direction_down, wrapped) = match mode {
                 1 => {
-                    let total = old + steps;
-                    (total % period, false, total >= period)
+                    let remainder = steps % period;
+                    let value = (old + remainder) % period;
+                    let wrapped = steps >= period.saturating_sub(old);
+                    (value, false, wrapped)
                 }
                 2 => {
-                    let steps = steps % period;
-                    let value = (old + period - steps) % period;
+                    let remainder = steps % period;
+                    let value = (old + period - remainder) % period;
                     (value, true, steps > old)
                 }
                 3 => {
@@ -304,7 +307,6 @@ impl McpwmState {
             };
             timer.value = u16::try_from(value.min(u64::from(u16::MAX))).expect("MCPWM value fits");
             timer.direction_down = direction_down;
-            timer.last_time = now;
             if wrapped {
                 let interrupt = match mode {
                     1 => 6 + index,
@@ -815,6 +817,55 @@ mod tests {
                 .read(INT_RAW, AccessWidth::Word, SimTime::from_ticks(3))
                 .unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn timer_divider_preserves_fractional_ticks_between_polls() {
+        let hub = SignalHub::new();
+        let (mut mcpwm, handle) = Esp32S3Mcpwm::new("mcpwm", "board.esp32s3.mcpwm", hub).unwrap();
+        // A prescale of two advances the timer once every three abstract ticks.
+        mcpwm
+            .write(TIMER_BASE, AccessWidth::Word, (2 << 8) | 2, SimTime::ZERO)
+            .unwrap();
+        mcpwm
+            .write(
+                TIMER_BASE + 4,
+                AccessWidth::Word,
+                2 | (1 << 3),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        handle.poll(SimTime::from_ticks(1)).unwrap();
+        assert_eq!(handle.timer_value(0), 0);
+        handle.poll(SimTime::from_ticks(2)).unwrap();
+        assert_eq!(handle.timer_value(0), 0);
+        handle.poll(SimTime::from_ticks(3)).unwrap();
+        assert_eq!(handle.timer_value(0), 1);
+    }
+
+    #[test]
+    fn decreasing_timer_latches_wrap_after_multiple_periods() {
+        let hub = SignalHub::new();
+        let (mut mcpwm, handle) = Esp32S3Mcpwm::new("mcpwm", "board.esp32s3.mcpwm", hub).unwrap();
+        mcpwm
+            .write(TIMER_BASE, AccessWidth::Word, 3 << 8, SimTime::ZERO)
+            .unwrap();
+        mcpwm
+            .write(
+                TIMER_BASE + 4,
+                AccessWidth::Word,
+                2 | (2 << 3),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        handle.poll(SimTime::from_ticks(7)).unwrap();
+        assert_eq!(handle.timer_value(0), 2);
+        assert_eq!(
+            mcpwm
+                .read(INT_RAW, AccessWidth::Word, SimTime::from_ticks(7))
+                .unwrap(),
+            1 << 3
         );
     }
 }
