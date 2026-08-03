@@ -161,6 +161,12 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
     run(&mut cpu, &mut bus, 2);
     assert_eq!(cpu.pc, 0);
     assert_eq!(cpu.active_priority, None);
+
+    cpu.load_code(0x1b, &[0x32]).unwrap();
+    cpu.set_interrupt(8, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x1b);
+    assert_eq!(cpu.last_interrupt_line(), Some(8));
 }
 
 #[test]
