@@ -1,6 +1,8 @@
 use super::*;
 
 const CTRL: usize = 0x00;
+const CTRL2: usize = 0x04;
+const FSM_WAIT: usize = 0x0c;
 const SAR1_STATUS: usize = 0x10;
 const SAR2_STATUS: usize = 0x14;
 const ONETIME_SAMPLE: usize = 0x20;
@@ -15,6 +17,8 @@ const TSENS_CTRL2: usize = 0x5c;
 const CALI: usize = 0x60;
 const TSENS_SAMPLE: usize = 0x68;
 const DATE: usize = 0x3fc;
+const ONETIME_CONFIG_MASK: u32 = 0xff80_0000;
+const DONE_INT_MASK: u32 = 0xc000_0000;
 
 /// Functional ESP32-C6 SAR ADC and temperature-sensor register block.
 pub struct EspSarAdc {
@@ -36,12 +40,12 @@ impl EspSarAdc {
         let signals = [
             hub.declare(
                 "board.esp32c6.saradc.adc1",
-                SignalValue::from_u64(0, 13)?,
+                SignalValue::from_u64(0, 12)?,
                 Some("ESP32-C6 SAR ADC1 sample".to_owned()),
             )?,
             hub.declare(
                 "board.esp32c6.saradc.adc2",
-                SignalValue::from_u64(0, 13)?,
+                SignalValue::from_u64(0, 12)?,
                 Some("ESP32-C6 SAR ADC2 sample".to_owned()),
             )?,
             hub.declare(
@@ -93,7 +97,9 @@ impl EspSarAdcState {
         let value = (2_048_u32
             .saturating_add(channel.saturating_mul(64))
             .saturating_add(attenuation.saturating_mul(512)))
-        .min(8_191) as u16;
+            // ESP32-C6 oneshot conversions are 12-bit; the wider data
+            // register is used by the continuous controller.
+            .min(4_095) as u16;
         self.samples[adc] = value;
         let data = if adc == 0 { SAR1_DATA } else { SAR2_DATA };
         let status = if adc == 0 { SAR1_STATUS } else { SAR2_STATUS };
@@ -101,10 +107,15 @@ impl EspSarAdcState {
         self.registers[status / 4] = u32::from(value);
         self.registers[INT_RAW / 4] |= 1 << (31 - adc);
         self.registers[INT_ST / 4] = self.registers[INT_RAW / 4] & self.registers[INT_ENA / 4];
-        self.publish(adc, u64::from(value), 13, at)
+        self.publish(adc, u64::from(value), 12, at)
     }
 
     fn trigger(&mut self, value: u32, at: SimTime) -> Result<(), DeviceError> {
+        // ONETIME_START is the conversion strobe.  Bits 30/31 select the
+        // enabled unit; setting an enable bit alone must not take a sample.
+        if value & (1 << 29) == 0 {
+            return Ok(());
+        }
         let channel = (value >> 25) & 0xf;
         let attenuation = (value >> 23) & 3;
         if value & (1 << 31) != 0 {
@@ -157,33 +168,25 @@ impl Device for EspSarAdc {
         match offset {
             CTRL => {
                 state.registers[CTRL / 4] = value;
-                if value & (1 << 1) != 0 {
-                    let sample_config = state.registers[ONETIME_SAMPLE / 4] | (1 << 31);
-                    state.trigger(sample_config, at)?;
-                }
             }
             ONETIME_SAMPLE => {
-                state.registers[offset / 4] = value & 0xe7ff_ffff;
-                if value & (1 << 29) != 0 {
-                    state.trigger(value | (1 << 31), at)?;
-                }
-                if value & (1 << 30) != 0 {
-                    state.trigger(value | (1 << 30), at)?;
-                }
+                state.registers[offset / 4] = value & ONETIME_CONFIG_MASK;
+                state.trigger(value, at)?;
             }
             INT_RAW | INT_ST => {}
             INT_ENA => {
-                state.registers[INT_ENA / 4] = value & 0xc000_0000;
+                state.registers[INT_ENA / 4] = value & DONE_INT_MASK;
                 state.registers[INT_ST / 4] =
                     state.registers[INT_RAW / 4] & state.registers[INT_ENA / 4];
             }
             INT_CLR => {
-                state.registers[INT_RAW / 4] &= !(value & 0xc000_0000);
+                state.registers[INT_RAW / 4] &= !(value & DONE_INT_MASK);
                 state.registers[INT_ST / 4] =
                     state.registers[INT_RAW / 4] & state.registers[INT_ENA / 4];
             }
             TSENS_CTRL => {
-                state.registers[offset / 4] = value & 0x00c0_3fff | u32::from(state.temperature);
+                let writable = (1 << 13) | (0xff << 14) | (1 << 22);
+                state.registers[offset / 4] = value & writable | u32::from(state.temperature);
             }
             DATE => {}
             _ => state.registers[offset / 4] = value,
@@ -196,13 +199,16 @@ impl Device for EspSarAdc {
         state.registers.fill(0);
         state.samples = [0; 2];
         state.temperature = 128;
+        state.registers[CTRL / 4] = (1 << 6) | (4 << 7) | (7 << 15) | (1 << 30);
+        state.registers[CTRL2 / 4] = (255 << 1) | (10 << 12);
+        state.registers[FSM_WAIT / 4] = 8 | (8 << 8) | (255 << 16);
         state.registers[SAR1_STATUS / 4] = 1 << 29;
         state.registers[SAR2_STATUS / 4] = 1 << 29;
         state.registers[0x18 / 4] = 0x00ff_ffff;
         state.registers[0x1c / 4] = 0x00ff_ffff;
         state.registers[ONETIME_SAMPLE / 4] = 13 << 25;
         state.registers[TSENS_CTRL / 4] = (6 << 14) | 128;
-        state.registers[TSENS_CTRL2 / 4] = 1 << 14;
+        state.registers[TSENS_CTRL2 / 4] = 2 | (1 << 14);
         state.registers[CALI / 4] = 32_768;
         state.registers[TSENS_SAMPLE / 4] = 20;
         state.registers[DATE / 4] = 35_676_736;
@@ -217,6 +223,20 @@ mod tests {
     fn one_shot_adc_sample_is_deterministic_and_interruptible() {
         let hub = SignalHub::new();
         let mut adc = EspSarAdc::new("saradc", hub).unwrap();
+        // Enabling a oneshot unit is not itself a conversion; the HAL pulses
+        // ONETIME_START after the channel/attenuation configuration is ready.
+        adc.write(
+            ONETIME_SAMPLE as u64,
+            AccessWidth::Word,
+            1 << 31,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            adc.read(SAR1_DATA as u64, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
         adc.write(INT_ENA as u64, AccessWidth::Word, 1 << 31, SimTime::ZERO)
             .unwrap();
         adc.write(
@@ -254,6 +274,21 @@ mod tests {
                 .unwrap()
                 & 0xff,
             128
+        );
+        assert_eq!(
+            adc.read(CTRL2 as u64, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            (255 << 1) | (10 << 12)
+        );
+        assert_eq!(
+            adc.read(FSM_WAIT as u64, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            8 | (8 << 8) | (255 << 16)
+        );
+        assert_eq!(
+            adc.read(TSENS_CTRL2 as u64, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            2 | (1 << 14)
         );
         assert_eq!(
             adc.read(DATE as u64, AccessWidth::Word, SimTime::ZERO)

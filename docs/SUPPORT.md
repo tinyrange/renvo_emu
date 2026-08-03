@@ -213,7 +213,7 @@ Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
 
 The ESP32-C6 SAR ADC window at `0x6000e000` models one-shot ADC1/ADC2
-conversion triggers, channel/attenuation selection, deterministic 13-bit data,
+conversion triggers, channel/attenuation selection, deterministic 12-bit data,
 done raw/status/enable/clear bits, the native temperature-sensor control slice,
 calibration/sample-rate registers, and VCD sample signals. DMA arbitration,
 continuous pattern timing, threshold monitors, calibration against analog
