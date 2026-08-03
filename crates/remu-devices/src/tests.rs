@@ -435,6 +435,25 @@ fn rp2350_trng_generates_deterministic_words_and_interrupts() {
         .unwrap();
     let repeated = trng.read(0x114, AccessWidth::Word, SimTime::ZERO).unwrap();
     assert_ne!(first, repeated);
+    assert!(
+        trng.write(0x1e0, AccessWidth::Word, 1, SimTime::ZERO)
+            .is_err()
+    );
+
+    trng.write(0x12c, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    trng.write(0x12c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    trng.write(0x108, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        trng.read(0x110, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+    assert_eq!(
+        trng.read(0x114, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
 }
 
 #[test]
