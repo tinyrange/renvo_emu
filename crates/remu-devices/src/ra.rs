@@ -551,7 +551,7 @@ impl Device for RaDac {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         let value = match offset {
-            0x00 if width == AccessWidth::HalfWord => {
+            0x00 if matches!(width, AccessWidth::HalfWord | AccessWidth::Word) => {
                 u64::from(self.state.lock().expect("RA DAC lock poisoned").data)
             }
             0x00 => u64::from(self.state.lock().expect("RA DAC lock poisoned").data & 0xff),
@@ -574,13 +574,17 @@ impl Device for RaDac {
     ) -> Result<(), DeviceError> {
         let mut state = self.state.lock().expect("RA DAC lock poisoned");
         match offset {
-            0x00 if width == AccessWidth::HalfWord => state.data = value as u16,
+            0x00 if matches!(width, AccessWidth::HalfWord | AccessWidth::Word) => {
+                state.data = value as u16
+            }
             0x00 => state.data = (state.data & 0xff00) | (value as u16 & 0xff),
             0x01 => state.data = (state.data & 0x00ff) | ((value as u16 & 0xff) << 8),
-            0x04 => state.control = value as u8,
-            0x05 => state.format = value as u8,
-            0x06 => state.sync = value as u8,
-            0x07 => state.vref = value as u8,
+            // DACR has read-as-one reserved bits 4:0 and read-as-zero
+            // reserved bits 7 and 5. Only DAOE0 is functional here.
+            0x04 => state.control = 0x1f | (value as u8 & (1 << 6)),
+            0x05 => state.format = value as u8 & (1 << 7),
+            0x06 => state.sync = value as u8 & (1 << 7),
+            0x07 => state.vref = value as u8 & 0x07,
             _ => return Ok(()),
         }
         drop(state);
@@ -751,7 +755,25 @@ mod tests {
         assert_eq!(handle.value(), 0x0abc);
         assert_eq!(
             dac.read(0x04, AccessWidth::Byte, SimTime::ZERO).unwrap(),
-            1 << 6
+            0x5f
+        );
+        dac.write(0x05, AccessWidth::Byte, 0xff, SimTime::from_ticks(4))
+            .unwrap();
+        dac.write(0x06, AccessWidth::Byte, 0xff, SimTime::from_ticks(5))
+            .unwrap();
+        dac.write(0x07, AccessWidth::Byte, 0xff, SimTime::from_ticks(6))
+            .unwrap();
+        assert_eq!(
+            dac.read(0x05, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x80
+        );
+        assert_eq!(
+            dac.read(0x06, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x80
+        );
+        assert_eq!(
+            dac.read(0x07, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x07
         );
     }
 }
