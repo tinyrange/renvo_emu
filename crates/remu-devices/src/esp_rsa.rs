@@ -213,6 +213,10 @@ impl EspRsaState {
 
     fn complete(&mut self, result: BigUint, words: usize) {
         Self::write_integer(&mut self.z[..words], &result);
+        self.finish();
+    }
+
+    fn finish(&mut self) {
         self.idle = true;
         if self.interrupt_enable {
             self.interrupt_pending = true;
@@ -226,7 +230,11 @@ impl EspRsaState {
                 let words = self.operand_words();
                 let modulus = Self::read_integer(&self.m[..words]);
                 if modulus == BigUint::from(0_u8) {
-                    self.idle = true;
+                    // There is no valid result, but the hardware still
+                    // reaches the completion/idle state for a started
+                    // operation. Keep the completion interrupt observable
+                    // rather than leaving firmware polling forever.
+                    self.finish();
                     return;
                 }
                 let x = Self::read_integer(&self.x[..words]);
@@ -243,7 +251,7 @@ impl EspRsaState {
                 // upper half of Z are the two half-length inputs.
                 let output_words = self.operand_words();
                 if output_words < 2 || output_words % 2 != 0 {
-                    self.idle = true;
+                    self.finish();
                     return;
                 }
                 let input_words = output_words / 2;
@@ -528,6 +536,35 @@ mod tests {
     }
 
     #[test]
+    fn started_invalid_operations_still_reach_idle_and_signal_completion() {
+        let mut device = EspRsa::new("rsa");
+        // A zero modulus cannot produce a modular result, but a started
+        // operation must not leave firmware waiting forever for idle/IRQ.
+        write_word(&mut device, Esp32S3RsaRegister::ModeExpStart, 1);
+        assert_eq!(
+            device.read(
+                Esp32S3RsaRegister::Idle.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(1)
+        );
+        assert!(device.state.interrupt_pending);
+
+        write_word(&mut device, Esp32S3RsaRegister::ClearInterrupt, 1);
+        write_word(&mut device, Esp32S3RsaRegister::MultStart, 1);
+        assert_eq!(
+            device.read(
+                Esp32S3RsaRegister::Idle.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(1)
+        );
+        assert!(device.state.interrupt_pending);
+    }
+
+    #[test]
     fn register_contract_rejects_holes_wide_access_and_reading_write_only_windows() {
         assert_eq!(
             Esp32S3RsaRegister::from_offset(0x830),
@@ -538,6 +575,30 @@ mod tests {
         assert_eq!(Esp32S3RsaRegister::SearchPos.write_mask(), 0x0fff);
 
         let mut device = EspRsa::new("rsa");
+        assert_eq!(
+            device.read(
+                Esp32S3RsaRegister::Date.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(u64::from(RSA_DATE_RESET))
+        );
+        assert_eq!(
+            device.read(
+                Esp32S3RsaRegister::Clean.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(1)
+        );
+        assert_eq!(
+            device.read(
+                Esp32S3RsaRegister::InterruptEna.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(1)
+        );
         assert!(
             device
                 .read(
