@@ -698,7 +698,7 @@ impl RiscVMachine {
                 bus.map_device(
                     format!("{target}.pfic"),
                     0xe000_e000,
-                    0x1000,
+                    0x2000,
                     Box::new(pfic),
                 )?;
                 wch = Some(wch_exti::WchHandles {

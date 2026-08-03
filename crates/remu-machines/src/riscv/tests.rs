@@ -1003,6 +1003,47 @@ fn wch_exti_uses_afio_mapping_and_external_gpio_stimulus() {
 }
 
 #[test]
+fn wch_stk_registers_are_mapped_at_the_core_private_base() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        machine
+            .bus
+            .write(0xe000_f010, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0xe000_f000, AccessWidth::Word, 0x0f, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0xe000_f000,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0f,
+            "{target} STK control"
+        );
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0xe000_f010,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            2,
+            "{target} STK compare"
+        );
+    }
+}
+
+#[test]
 fn wch_spi1_native_registers_are_mapped_for_both_targets() {
     for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
         let mut machine = RiscVMachine::new(target).unwrap();
