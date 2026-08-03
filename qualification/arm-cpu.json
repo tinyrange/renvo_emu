@@ -28,7 +28,7 @@
   },
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/arm-cpu-unit-tests.txt",
-    "sha256": "61a89a151ca4388b137a673761f9960ee3d12b96bccf016c399cbbb3f2f1a70d"
+    "sha256": "2319ad4f9452f6287a9a8f33a274367c779eeb2d81354ff82766a466b4cfde5f"
   },
   "cross_profile_computation": {
     "artifact": "qualification/rust-abi.json",
