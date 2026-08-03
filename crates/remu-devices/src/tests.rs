@@ -184,6 +184,116 @@ fn rp2040_spi_uses_native_dw_ssi_offsets_masks_and_identifiers() {
         .unwrap(),
         0x3430_312a
     );
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::SpiCtrlr0.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x0300_0000
+    );
+}
+
+#[test]
+fn rp2040_spi_latches_fifo_faults_and_clears_fifos_when_disabled() {
+    let (mut spi, _) = FunctionalSpi::new("spi");
+    // Keep the slave deselected so writes remain in the native sixteen-entry TX FIFO.
+    spi.write(
+        Rp2040SpiRegister::SsiEnr.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    for value in 0..16 {
+        spi.write(
+            Rp2040SpiRegister::Data(0).offset(),
+            AccessWidth::Word,
+            value,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    }
+    spi.write(
+        Rp2040SpiRegister::Data(0).offset(),
+        AccessWidth::Word,
+        0xff,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Txflr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        16
+    );
+    assert_ne!(
+        spi.read(
+            Rp2040SpiRegister::Risr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 1),
+        0
+    );
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Txoicr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Data(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Rxuicr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1
+    );
+
+    spi.write(
+        Rp2040SpiRegister::SsiEnr.offset(),
+        AccessWidth::Word,
+        0,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Txflr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Rxflr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
 }
 
 #[test]
