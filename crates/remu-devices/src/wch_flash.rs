@@ -19,6 +19,11 @@ const CONTROL_PAGE_PG: u32 = 1 << 16;
 const CONTROL_PAGE_ER: u32 = 1 << 17;
 const CONTROL_BUF_LOAD: u32 = 1 << 18;
 const CONTROL_BUF_RST: u32 = 1 << 19;
+const CONTROL_BER32: u32 = 1 << 23;
+const CONTROL_OBWRE: u32 = 1 << 9;
+const CONTROL_ERRIE: u32 = 1 << 10;
+const CONTROL_EOPIE: u32 = 1 << 12;
+const CONTROL_FWAKEIE: u32 = 1 << 13;
 const CONTROL_SUPPORTED: u32 = CONTROL_PG
     | CONTROL_PER
     | CONTROL_MER
@@ -30,9 +35,40 @@ const CONTROL_SUPPORTED: u32 = CONTROL_PG
     | CONTROL_PAGE_PG
     | CONTROL_PAGE_ER
     | CONTROL_BUF_LOAD
-    | CONTROL_BUF_RST;
+    | CONTROL_BUF_RST
+    | CONTROL_BER32
+    | CONTROL_OBWRE
+    | CONTROL_ERRIE
+    | CONTROL_EOPIE
+    | CONTROL_FWAKEIE;
+
+/// WCH flash-controller generations covered by the functional model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WchFlashVariant {
+    /// CH32V003 uses standard half-word programming and 64-byte fast pages.
+    Ch32v003,
+    /// CH32V006 uses 32-bit buffered programming and 256-byte fast pages.
+    Ch32v006,
+}
+
+impl WchFlashVariant {
+    fn status_reset(self) -> u32 {
+        match self {
+            Self::Ch32v003 => 1 << 15,
+            Self::Ch32v006 => 0x0000_b000,
+        }
+    }
+
+    fn fast_page_size(self) -> usize {
+        match self {
+            Self::Ch32v003 => 64,
+            Self::Ch32v006 => 256,
+        }
+    }
+}
 
 struct WchFlashState {
+    variant: WchFlashVariant,
     bytes: Vec<u8>,
     page_size: usize,
     actlr: u32,
@@ -42,21 +78,24 @@ struct WchFlashState {
     obr: u32,
     wpr: u32,
     key_stage: u8,
+    option_key_stage: u8,
     mode_key_stage: u8,
 }
 
 impl WchFlashState {
-    fn new(size: usize, page_size: usize) -> Self {
+    fn new(size: usize, page_size: usize, variant: WchFlashVariant) -> Self {
         Self {
+            variant,
             bytes: vec![0xff; size],
             page_size,
             actlr: 0,
-            statr: 0,
-            ctlr: CONTROL_LOCK,
+            statr: variant.status_reset(),
+            ctlr: CONTROL_LOCK | CONTROL_FLOCK,
             addr: 0,
             obr: 0x03ff_fffe,
             wpr: u32::MAX,
             key_stage: 0,
+            option_key_stage: 0,
             mode_key_stage: 0,
         }
     }
@@ -77,18 +116,31 @@ impl WchFlashState {
         self.ctlr &= !CONTROL_STRT;
     }
 
-    fn erase_page(&mut self) {
+    fn erase_page(&mut self, page_size: usize) {
         let Some(address) = self.normalize_address(self.addr) else {
             self.statr |= STATUS_WRPRTERR;
             return;
         };
-        let start = address / self.page_size * self.page_size;
-        let end = start.saturating_add(self.page_size).min(self.bytes.len());
+        let start = address / page_size * page_size;
+        let end = start.saturating_add(page_size).min(self.bytes.len());
         self.bytes[start..end].fill(0xff);
     }
 
     fn erase_all(&mut self) {
         self.bytes.fill(0xff);
+    }
+
+    fn erase_ber32(&mut self) {
+        let Some(address) = self.normalize_address(self.addr) else {
+            self.statr |= STATUS_WRPRTERR;
+            return;
+        };
+        if address >= 32 * 1024 {
+            self.statr |= STATUS_WRPRTERR;
+            return;
+        }
+        let end = (32 * 1024).min(self.bytes.len());
+        self.bytes[..end].fill(0xff);
     }
 
     fn start_operation(&mut self) {
@@ -99,18 +151,27 @@ impl WchFlashState {
         self.statr |= STATUS_BSY;
         if self.ctlr & CONTROL_MER != 0 {
             self.erase_all();
-        } else if self.ctlr & (CONTROL_PER | CONTROL_PAGE_ER) != 0 {
-            self.erase_page();
+        } else if self.variant == WchFlashVariant::Ch32v006 && self.ctlr & CONTROL_BER32 != 0 {
+            self.erase_ber32();
+        } else if self.ctlr & CONTROL_PER != 0 {
+            self.erase_page(self.page_size);
+        } else if self.ctlr & CONTROL_PAGE_ER != 0 && self.ctlr & CONTROL_FLOCK == 0 {
+            self.erase_page(self.variant.fast_page_size());
+        } else if self.ctlr & CONTROL_PAGE_PG != 0 && self.ctlr & CONTROL_FLOCK == 0 {
+            // Fast-page data is committed by the functional memory write path.
+        } else if self.ctlr & (CONTROL_PAGE_PG | CONTROL_PAGE_ER) != 0 {
+            self.statr |= STATUS_WRPRTERR;
         }
         self.complete();
     }
 
     fn reset_controller(&mut self) {
         self.actlr = 0;
-        self.statr = 0;
-        self.ctlr = CONTROL_LOCK;
+        self.statr = self.variant.status_reset();
+        self.ctlr = CONTROL_LOCK | CONTROL_FLOCK;
         self.addr = 0;
         self.key_stage = 0;
+        self.option_key_stage = 0;
         self.mode_key_stage = 0;
     }
 }
@@ -118,9 +179,10 @@ impl WchFlashState {
 /// Device-backed WCH program flash memory.
 ///
 /// Runtime writes are acknowledged only when the flash controller is unlocked
-/// and `PG` is set. Programming follows NOR semantics (`1` bits can become
-/// `0`, but not the reverse); image loading bypasses that rule so ELF and raw
-/// firmware artifacts can initialize the target.
+/// and the target's standard or fast programming mode is enabled. Programming
+/// follows NOR semantics (`1` bits can become `0`, but not the reverse); image
+/// loading bypasses that rule so ELF and raw firmware artifacts can initialize
+/// the target.
 pub struct WchFlashMemory {
     name: String,
     state: Rc<RefCell<WchFlashState>>,
@@ -133,9 +195,19 @@ impl WchFlashMemory {
         size: usize,
         page_size: usize,
     ) -> (Self, WchFlashController) {
+        Self::new_for_variant(name, size, page_size, WchFlashVariant::Ch32v003)
+    }
+
+    /// Creates a target-specific WCH flash memory and controller pair.
+    pub fn new_for_variant(
+        name: impl Into<String>,
+        size: usize,
+        page_size: usize,
+        variant: WchFlashVariant,
+    ) -> (Self, WchFlashController) {
         assert!(size > 0, "WCH flash must contain bytes");
         assert!(page_size > 0, "WCH flash pages must contain bytes");
-        let state = Rc::new(RefCell::new(WchFlashState::new(size, page_size)));
+        let state = Rc::new(RefCell::new(WchFlashState::new(size, page_size, variant)));
         let name = name.into();
         (
             Self {
@@ -169,6 +241,19 @@ impl WchFlashMemory {
         }
         Ok(bytes)
     }
+
+    fn program_nor(state: &mut WchFlashState, offset: usize, width: usize, value: u64) {
+        let Some(bytes) = state.bytes.get_mut(offset..offset.saturating_add(width)) else {
+            state.statr |= STATUS_WRPRTERR;
+            return;
+        };
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            let requested =
+                u8::try_from((value >> (index * 8)) & 0xff).expect("masked flash byte fits u8");
+            *byte &= requested;
+        }
+        state.statr |= STATUS_EOP;
+    }
 }
 
 impl Device for WchFlashMemory {
@@ -200,27 +285,24 @@ impl Device for WchFlashMemory {
         _at: SimTime,
     ) -> Result<(), DeviceError> {
         let width = Self::require_width(width)?;
-        if width == 1 || offset % u64::try_from(width).expect("flash width fits u64") != 0 {
-            return Err(DeviceError::new(
-                "WCH flash programming requires aligned halfword or word writes",
-            ));
-        }
         let offset = usize::try_from(offset)
             .map_err(|_| DeviceError::new("WCH flash address exceeds host size"))?;
         let mut state = self.state.borrow_mut();
-        if state.ctlr & (CONTROL_LOCK | CONTROL_PG) != CONTROL_PG {
+        let standard = state.variant == WchFlashVariant::Ch32v003
+            && state.ctlr & (CONTROL_LOCK | CONTROL_PG) == CONTROL_PG;
+        let fast = state.ctlr & (CONTROL_LOCK | CONTROL_FLOCK | CONTROL_PAGE_PG) == CONTROL_PAGE_PG;
+        if !standard && !fast {
             return Ok(());
         }
-        let Some(bytes) = state.bytes.get_mut(offset..offset.saturating_add(width)) else {
-            state.statr |= STATUS_WRPRTERR;
-            return Ok(());
+        let expected_width = if standard { 2 } else { 4 };
+        if width != expected_width || offset % expected_width != 0 {
+            return Err(DeviceError::new(if standard {
+                "CH32V003 standard flash programming requires aligned halfword writes"
+            } else {
+                "WCH fast flash programming requires aligned word writes"
+            }));
         };
-        for (index, byte) in bytes.iter_mut().enumerate() {
-            let requested =
-                u8::try_from((value >> (index * 8)) & 0xff).expect("masked flash byte fits u8");
-            *byte &= requested;
-        }
-        state.statr |= STATUS_EOP;
+        Self::program_nor(&mut state, offset, width, value);
         Ok(())
     }
 
@@ -259,23 +341,20 @@ impl WchFlashController {
         Ok(())
     }
 
-    fn unlock_key(state: &mut WchFlashState, value: u32, mode: bool) {
-        let stage = if mode {
-            &mut state.mode_key_stage
-        } else {
-            &mut state.key_stage
-        };
+    fn unlock_key(stage: &mut u8, value: u32) -> bool {
         match (*stage, value) {
-            (0, FLASH_KEY1) => *stage = 1,
+            (0, FLASH_KEY1) => {
+                *stage = 1;
+                false
+            }
             (1, FLASH_KEY2) => {
                 *stage = 0;
-                if mode {
-                    state.ctlr &= !CONTROL_FLOCK;
-                } else {
-                    state.ctlr &= !CONTROL_LOCK;
-                }
+                true
             }
-            _ => *stage = 0,
+            _ => {
+                *stage = 0;
+                false
+            }
         }
     }
 }
@@ -297,6 +376,7 @@ impl Device for WchFlashController {
             0x18 => 0,
             0x1c => state.obr,
             0x20 => state.wpr,
+            0x28 => 0,
             _ => {
                 return Err(DeviceError::new(format!(
                     "unmodeled WCH flash read at offset {offset:#x}"
@@ -318,12 +398,27 @@ impl Device for WchFlashController {
         let mut state = self.state.borrow_mut();
         match offset {
             0x00 => state.actlr = value,
-            0x04 => Self::unlock_key(&mut state, value, false),
-            0x08 => Self::unlock_key(&mut state, value, false),
+            0x04 => {
+                if Self::unlock_key(&mut state.key_stage, value) {
+                    state.ctlr &= !CONTROL_LOCK;
+                }
+            }
+            0x08 => {
+                if state.ctlr & CONTROL_LOCK == 0
+                    && Self::unlock_key(&mut state.option_key_stage, value)
+                {
+                    state.ctlr |= CONTROL_OBWRE;
+                }
+            }
             0x0c => state.statr &= !(value & (STATUS_EOP | STATUS_WRPRTERR)),
             0x10 => {
                 if state.ctlr & CONTROL_LOCK == 0 {
-                    state.ctlr = value & CONTROL_SUPPORTED;
+                    let mut supported = CONTROL_SUPPORTED;
+                    match state.variant {
+                        WchFlashVariant::Ch32v003 => supported &= !CONTROL_BER32,
+                        WchFlashVariant::Ch32v006 => supported &= !CONTROL_PG,
+                    }
+                    state.ctlr = value & supported;
                     if state.ctlr & CONTROL_STRT != 0 {
                         state.start_operation();
                     }
@@ -332,7 +427,14 @@ impl Device for WchFlashController {
             0x14 => state.addr = value,
             0x1c => state.obr = value,
             0x20 => state.wpr = value,
-            0x24 => Self::unlock_key(&mut state, value, true),
+            0x24 => {
+                if state.ctlr & CONTROL_LOCK == 0
+                    && Self::unlock_key(&mut state.mode_key_stage, value)
+                {
+                    state.ctlr &= !CONTROL_FLOCK;
+                }
+            }
+            0x28 => {}
             _ => {
                 return Err(DeviceError::new(format!(
                     "unmodeled WCH flash write at offset {offset:#x}"
@@ -451,6 +553,98 @@ mod tests {
                 .unwrap()
                 & u64::from(STATUS_EOP),
             0
+        );
+    }
+
+    #[test]
+    fn ch32v003_standard_programming_rejects_word_accesses() {
+        let (mut flash, mut controller) =
+            WchFlashMemory::new_for_variant("flash", 2048, 1024, WchFlashVariant::Ch32v003);
+        unlock(&mut controller);
+        controller
+            .write(
+                0x10,
+                AccessWidth::Word,
+                u64::from(CONTROL_PG),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(
+            flash
+                .write(0, AccessWidth::Word, 0x1234, SimTime::ZERO)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn ch32v006_uses_fast_word_programming_and_256_byte_erase() {
+        let (mut flash, mut controller) =
+            WchFlashMemory::new_for_variant("flash", 1024, 1024, WchFlashVariant::Ch32v006);
+        flash.load(0, &[0xff, 0xff, 0xff, 0xff]).unwrap();
+        flash.load(256, &[0, 0]).unwrap();
+        unlock(&mut controller);
+        controller
+            .write(
+                0x24,
+                AccessWidth::Word,
+                u64::from(FLASH_KEY1),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        controller
+            .write(
+                0x24,
+                AccessWidth::Word,
+                u64::from(FLASH_KEY2),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        controller
+            .write(
+                0x10,
+                AccessWidth::Word,
+                u64::from(CONTROL_PAGE_PG | CONTROL_BUF_RST),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        flash
+            .write(0, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+            .unwrap();
+        controller
+            .write(
+                0x10,
+                AccessWidth::Word,
+                u64::from(CONTROL_PAGE_PG | CONTROL_BUF_LOAD | CONTROL_STRT),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            flash.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x1234_5678
+        );
+
+        controller
+            .write(0x14, AccessWidth::Word, 256, SimTime::ZERO)
+            .unwrap();
+        controller
+            .write(
+                0x10,
+                AccessWidth::Word,
+                u64::from(CONTROL_PAGE_ER | CONTROL_STRT),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            flash
+                .read(256, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0xffff
+        );
+        assert_eq!(
+            flash
+                .read(512, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0xffff
         );
     }
 }

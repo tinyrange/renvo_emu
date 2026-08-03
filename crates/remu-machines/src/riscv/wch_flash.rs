@@ -1,5 +1,5 @@
 use remu_bus::{AddressSpace, MapError, Permissions};
-use remu_devices::WchFlashMemory;
+use remu_devices::{WchFlashMemory, WchFlashVariant};
 
 use crate::TargetId;
 
@@ -15,7 +15,13 @@ pub(crate) fn map_wch_flash(
     start: u64,
     size: usize,
 ) -> Result<(), MapError> {
-    let (flash, controller) = WchFlashMemory::new(format!("{target}.flash"), size, 1024);
+    let variant = match target {
+        TargetId::Ch32v003 => WchFlashVariant::Ch32v003,
+        TargetId::Ch32v006 => WchFlashVariant::Ch32v006,
+        _ => unreachable!("WCH flash mapping only accepts WCH targets"),
+    };
+    let (flash, controller) =
+        WchFlashMemory::new_for_variant(format!("{target}.flash"), size, 1024, variant);
     let alias = flash.alias(format!("{target}.flash-alias"));
     bus.map_device_with_permissions(
         format!("{target}.flash"),
