@@ -50,12 +50,32 @@ cargo run -p remu-cli -- board \
 traversal and cyclic imports are rejected. The script's final expression must
 be a board instance.
 
-The current board runner is a protocol/component qualification layer. It does
-not yet route ESP32-C6 firmware MMIO activity into the assembled board, so its
-results prove topology, device protocols, deterministic external behavior and
-waveforms—not execution of a firmware driver against the SGP30. That coupling
-can be added at the machine pin/bus boundary without moving CPU or scheduler
-state into Starlark.
+The current `remu board` command is a protocol/component qualification layer.
+The Rust `BoardGpioEndpoint` is the first machine-boundary slice: a scheduler
+can attach mounted buttons and LEDs to an existing machine `SignalHub`, turn
+button actions into `PinStimulus` values, and poll resolved MCU GPIO levels into
+`board.<name>.component.<component>.pin/state` signals. It deliberately rejects
+external protocol connections and WS2812 waveform mounts until their typed bus
+endpoints are implemented. The command-line board runner remains standalone,
+so these results still do not claim that an ESP32-C6 firmware driver talks to
+the SGP30; that is the next I²C endpoint slice.
+
+The endpoint keeps all CPU, scheduler, peripheral, and electrical state in Rust:
+Starlark continues to describe topology and bounded actions only.
+
+For a direct machine run, the machine exposes its shared hub and the caller
+keeps endpoint polling at the same deterministic boundaries as execution:
+
+```rust
+let endpoint = BoardGpioEndpoint::new(
+    &scenario,
+    machine.signal_hub(),
+    "board.esp32c6.chip_gpio",
+)?;
+let stimuli = endpoint.button_stimuli(&scenario.actions)?;
+let result = machine.run_with_stimuli(limits, &stimuli, None)?;
+endpoint.poll(result.stats.time)?;
+```
 
 Run the deterministic qualification, including byte-identical JSON and VCD
 replay, with:

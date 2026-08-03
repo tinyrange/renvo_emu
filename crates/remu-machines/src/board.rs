@@ -378,6 +378,17 @@ pub enum BoardError {
     /// Signal registration or update failed.
     #[error(transparent)]
     Signal(#[from] SignalError),
+    /// A board component is not part of the first live GPIO endpoint slice.
+    #[error("live GPIO endpoint does not support {kind} component {component:?}")]
+    GpioComponent {
+        /// Component name.
+        component: String,
+        /// Component kind.
+        kind: &'static str,
+    },
+    /// A GPIO action references a component that is not a mounted button.
+    #[error("GPIO endpoint action references unknown button {0:?}")]
+    GpioButton(String),
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
@@ -741,7 +752,7 @@ pub fn run_board_scenario(
     })
 }
 
-fn validate(scenario: &BoardScenario) -> Result<(), BoardError> {
+pub(crate) fn validate(scenario: &BoardScenario) -> Result<(), BoardError> {
     if scenario.name.is_empty() || scenario.target.is_empty() {
         return Err(BoardError::Identity);
     }
