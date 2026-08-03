@@ -569,12 +569,23 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 27,
         fidelity: Fidelity::Functional,
-        baseline: &["PORT/interrupt GPIO", "Timer0/1", "USART0", "EEPROM", "VCD"],
+        baseline: &[
+            "PORT/interrupt GPIO",
+            "Timer0/1",
+            "USART0",
+            "EEPROM",
+            "SMCR/CLKPR sleep and clock control",
+            "VCD",
+        ],
         sources: &[
             "https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip-AVR-Microcontroller-ATmega328PB-Data-Sheet-DS40001906.pdf",
+            "https://www.microchip.com/content/dam/mchp/documents/MCU08/ProductDocuments/DataSheets/40001906C.pdf",
             "https://packs.download.microchip.com/Microchip.ATmega_DFP.3.6.299.atpack",
         ],
-        limitations: &["analog, touch, SPI, and TWI are outside the acceptance slice"],
+        limitations: &[
+            "analog, touch, SPI, and TWI are outside the acceptance slice",
+            "peripheral clock domains, exact low-power wake behavior, and oscillator timing are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,
