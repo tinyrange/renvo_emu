@@ -23,6 +23,65 @@ pub struct Esp32s3I2c {
     hub: SignalHub,
 }
 
+/// Named ESP32-S3 I2C register offsets exposed by the functional model.
+///
+/// The enum keeps register identities explicit for bus observers and tests;
+/// [`Self::offset`] converts one identity to the byte offset used by the
+/// memory-mapped [`Device`] contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u64)]
+pub enum Esp32s3I2cRegister {
+    /// SCL low-period configuration.
+    SclLowPeriod = 0x00,
+    /// Controller control and transaction-start register.
+    Ctr = 0x04,
+    /// Read-only controller status.
+    Sr = 0x08,
+    /// Receive timeout configuration.
+    Timeout = 0x0c,
+    /// Local slave address configuration.
+    SlaveAddr = 0x10,
+    /// FIFO pointer status.
+    FifoStatus = 0x14,
+    /// FIFO configuration.
+    FifoConf = 0x18,
+    /// FIFO data register.
+    Data = 0x1c,
+    /// Raw interrupt status.
+    IntRaw = 0x20,
+    /// Write-one-to-clear interrupt register.
+    IntClear = 0x24,
+    /// Interrupt enable mask.
+    IntEnable = 0x28,
+    /// Masked interrupt status.
+    IntStatus = 0x2c,
+    /// Command slot zero.
+    Command0 = 0x58,
+    /// Command slot one.
+    Command1 = 0x5c,
+    /// Command slot two.
+    Command2 = 0x60,
+    /// Command slot three.
+    Command3 = 0x64,
+    /// Command slot four.
+    Command4 = 0x68,
+    /// Command slot five.
+    Command5 = 0x6c,
+    /// Command slot six.
+    Command6 = 0x70,
+    /// Command slot seven.
+    Command7 = 0x74,
+    /// Peripheral date/version register.
+    Date = 0xf8,
+}
+
+impl Esp32s3I2cRegister {
+    /// Returns the byte offset for this register identity.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+}
+
 /// ESP32-S3 I2C command-list opcodes defined by the vendor register block.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -51,33 +110,33 @@ impl TryFrom<u32> for CommandOpcode {
 
 impl Esp32s3I2c {
     /// SCL low-period register offset.
-    pub const SCL_LOW_PERIOD: u64 = 0x00;
+    pub const SCL_LOW_PERIOD: u64 = Esp32s3I2cRegister::SclLowPeriod.offset();
     /// Controller control register offset.
-    pub const CTR: u64 = 0x04;
+    pub const CTR: u64 = Esp32s3I2cRegister::Ctr.offset();
     /// Controller status register offset.
-    pub const SR: u64 = 0x08;
+    pub const SR: u64 = Esp32s3I2cRegister::Sr.offset();
     /// Timeout register offset.
-    pub const TIMEOUT: u64 = 0x0c;
+    pub const TIMEOUT: u64 = Esp32s3I2cRegister::Timeout.offset();
     /// Local slave-address register offset.
-    pub const SLAVE_ADDR: u64 = 0x10;
+    pub const SLAVE_ADDR: u64 = Esp32s3I2cRegister::SlaveAddr.offset();
     /// FIFO pointer status register offset.
-    pub const FIFO_STATUS: u64 = 0x14;
+    pub const FIFO_STATUS: u64 = Esp32s3I2cRegister::FifoStatus.offset();
     /// FIFO configuration register offset.
-    pub const FIFO_CONF: u64 = 0x18;
+    pub const FIFO_CONF: u64 = Esp32s3I2cRegister::FifoConf.offset();
     /// FIFO data register offset.
-    pub const DATA: u64 = 0x1c;
+    pub const DATA: u64 = Esp32s3I2cRegister::Data.offset();
     /// Raw interrupt status register offset.
-    pub const INT_RAW: u64 = 0x20;
+    pub const INT_RAW: u64 = Esp32s3I2cRegister::IntRaw.offset();
     /// Write-to-clear interrupt register offset.
-    pub const INT_CLEAR: u64 = 0x24;
+    pub const INT_CLEAR: u64 = Esp32s3I2cRegister::IntClear.offset();
     /// Interrupt-enable register offset.
-    pub const INT_ENABLE: u64 = 0x28;
+    pub const INT_ENABLE: u64 = Esp32s3I2cRegister::IntEnable.offset();
     /// Masked interrupt status register offset.
-    pub const INT_STATUS: u64 = 0x2c;
+    pub const INT_STATUS: u64 = Esp32s3I2cRegister::IntStatus.offset();
     /// First command register offset.
-    pub const COMMAND0: u64 = 0x58;
+    pub const COMMAND0: u64 = Esp32s3I2cRegister::Command0.offset();
     /// Date/version register offset.
-    pub const DATE: u64 = 0xf8;
+    pub const DATE: u64 = Esp32s3I2cRegister::Date.offset();
 
     const TRANS_START: u32 = 1 << 5;
     const FIFO_RX_RESET: u32 = 1 << 12;
@@ -90,7 +149,25 @@ impl Esp32s3I2c {
     const INT_RXFIFO_UDF: u32 = 1 << 12;
     const COMMAND_DONE: u32 = 1 << 31;
     const COMMAND_MASK: u32 = 0x3fff;
+    const BYTE_NUM_MASK: u32 = 0xff;
+    const ACK_CHECK_EN: u32 = 1 << 8;
+    const ACK_EXPECTED: u32 = 1 << 9;
+    const ACK_VALUE: u32 = 1 << 10;
     const FIFO_CAPACITY: usize = 32;
+    const WAVEFORM_HALF_TICKS: u64 = 1;
+
+    const fn command_shape_is_valid(word: u32, opcode: CommandOpcode) -> bool {
+        match opcode {
+            CommandOpcode::Restart | CommandOpcode::Stop | CommandOpcode::End => {
+                word & (Self::BYTE_NUM_MASK
+                    | Self::ACK_CHECK_EN
+                    | Self::ACK_EXPECTED
+                    | Self::ACK_VALUE)
+                    == 0
+            }
+            CommandOpcode::Write | CommandOpcode::Read => true,
+        }
+    }
 
     /// Creates an I2C controller with a deterministic SGP30 at address `0x58`.
     pub fn new(name: impl Into<String>, hub: SignalHub) -> Result<Self, SignalError> {
@@ -239,8 +316,14 @@ impl Esp32s3I2c {
         let command_count = self.commands.len();
         for (index, command) in self.commands.iter_mut().enumerate() {
             let word = *command;
-            let byte_count = (word & 0xff) as usize;
+            let byte_count = (word & Self::BYTE_NUM_MASK) as usize;
             let opcode = CommandOpcode::try_from((word >> 11) & 0x7);
+            if let Ok(opcode) = opcode
+                && !Self::command_shape_is_valid(word, opcode)
+            {
+                self.nack = true;
+                break;
+            }
             match opcode {
                 Ok(CommandOpcode::Restart) => awaiting_address = true,
                 Ok(CommandOpcode::Write) => {
@@ -263,6 +346,13 @@ impl Esp32s3I2c {
                         }
                     } else {
                         write_payload.extend_from_slice(bytes);
+                    }
+                    // A modeled SGP30 acknowledges accepted bytes with zero.
+                    // If firmware explicitly asks the controller to check for
+                    // a NACK, the command therefore fails deterministically.
+                    if word & Self::ACK_CHECK_EN != 0 && word & Self::ACK_EXPECTED != 0 {
+                        self.nack = true;
+                        break;
                     }
                 }
                 Ok(CommandOpcode::Read) => read_len = read_len.saturating_add(byte_count),
@@ -313,40 +403,150 @@ impl Esp32s3I2c {
                 self.int_raw |= Self::INT_RXFIFO_WM;
             }
         }
-        self.emit_waveform(&tx, at)?;
+        let response = self.rx_fifo.iter().copied().collect::<Vec<_>>();
+        self.emit_waveform(&tx, &response, at)?;
         Ok(())
     }
 
-    fn emit_waveform(&self, bytes: &[u8], at: SimTime) -> Result<(), DeviceError> {
-        let high = SignalValue::repeat(Logic::One, 1).expect("one-bit signal");
-        let low = SignalValue::repeat(Logic::Zero, 1).expect("one-bit signal");
-        self.hub
-            .set(self.sda, high.clone(), at)
-            .map_err(|error| DeviceError::new(error.to_string()))?;
-        self.hub
-            .set(self.scl, high.clone(), at)
-            .map_err(|error| DeviceError::new(error.to_string()))?;
-        for byte in bytes {
-            for bit in (0..8).rev() {
-                let value = if byte & (1 << bit) == 0 {
-                    low.clone()
-                } else {
-                    high.clone()
-                };
-                self.hub
-                    .set(self.sda, value, at)
-                    .map_err(|error| DeviceError::new(error.to_string()))?;
-                self.hub
-                    .set(self.scl, low.clone(), at)
-                    .map_err(|error| DeviceError::new(error.to_string()))?;
-                self.hub
-                    .set(self.scl, high.clone(), at)
-                    .map_err(|error| DeviceError::new(error.to_string()))?;
+    fn emit_waveform(&self, tx: &[u8], rx: &[u8], at: SimTime) -> Result<(), DeviceError> {
+        let mut now = at.ticks();
+        let mut tx_index = 0;
+        let mut rx_index = 0;
+        let mut started = false;
+        for command in self.commands {
+            let word = command & Self::COMMAND_MASK;
+            let byte_count = (word & Self::BYTE_NUM_MASK) as usize;
+            let opcode = CommandOpcode::try_from((word >> 11) & 0x7);
+            if let Ok(opcode) = opcode
+                && !Self::command_shape_is_valid(word, opcode)
+            {
+                break;
+            }
+            match opcode {
+                Ok(CommandOpcode::Restart) => {
+                    self.emit_start(&mut now)?;
+                    started = true;
+                }
+                Ok(CommandOpcode::Write) if started => {
+                    for _ in 0..byte_count {
+                        let byte = tx.get(tx_index).copied().unwrap_or(0xff);
+                        tx_index = tx_index.saturating_add(1);
+                        self.emit_write_byte(byte, &mut now)?;
+                    }
+                }
+                Ok(CommandOpcode::Read) if started => {
+                    let explicit_nack = word & Self::ACK_VALUE != 0;
+                    for index in 0..byte_count {
+                        let byte = rx.get(rx_index).copied().unwrap_or(0xff);
+                        rx_index = rx_index.saturating_add(1);
+                        let last = rx_index >= rx.len();
+                        let last_in_command = index + 1 == byte_count;
+                        let ack = if last_in_command && explicit_nack {
+                            false
+                        } else {
+                            !last
+                        };
+                        self.emit_read_byte(byte, ack, &mut now)?;
+                    }
+                }
+                Ok(CommandOpcode::Stop) if started => {
+                    self.emit_stop(&mut now)?;
+                    started = false;
+                }
+                Ok(CommandOpcode::End) => break,
+                Ok(CommandOpcode::Write | CommandOpcode::Read | CommandOpcode::Stop) => {}
+                Err(()) => break,
             }
         }
+        if started {
+            self.emit_stop(&mut now)?;
+        }
+        Ok(())
+    }
+
+    fn set_sda(&self, value: Logic, at: u64) -> Result<(), DeviceError> {
         self.hub
-            .set(self.sda, high, at)
-            .map_err(|error| DeviceError::new(error.to_string()))?;
+            .set(
+                self.sda,
+                SignalValue::repeat(value, 1).expect("one-bit signal"),
+                SimTime::from_ticks(at),
+            )
+            .map_err(|error| DeviceError::new(error.to_string()))
+    }
+
+    fn set_scl(&self, value: Logic, at: u64) -> Result<(), DeviceError> {
+        self.hub
+            .set(
+                self.scl,
+                SignalValue::repeat(value, 1).expect("one-bit signal"),
+                SimTime::from_ticks(at),
+            )
+            .map_err(|error| DeviceError::new(error.to_string()))
+    }
+
+    fn emit_start(&self, now: &mut u64) -> Result<(), DeviceError> {
+        self.set_scl(Logic::One, *now)?;
+        self.set_sda(Logic::One, *now)?;
+        self.set_sda(Logic::Zero, *now)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_scl(Logic::Zero, *now)
+    }
+
+    fn emit_stop(&self, now: &mut u64) -> Result<(), DeviceError> {
+        self.set_scl(Logic::Zero, *now)?;
+        self.set_sda(Logic::Zero, *now)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_scl(Logic::One, *now)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_sda(Logic::One, *now)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        Ok(())
+    }
+
+    fn emit_write_byte(&self, byte: u8, now: &mut u64) -> Result<(), DeviceError> {
+        for bit in (0..8).rev() {
+            self.set_scl(Logic::Zero, *now)?;
+            self.set_sda(
+                if byte & (1 << bit) == 0 {
+                    Logic::Zero
+                } else {
+                    Logic::One
+                },
+                *now,
+            )?;
+            *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+            self.set_scl(Logic::One, *now)?;
+            *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        }
+        // The modeled SGP30 acknowledges every accepted write byte.
+        self.set_scl(Logic::Zero, *now)?;
+        self.set_sda(Logic::Zero, *now)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_scl(Logic::One, *now)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        Ok(())
+    }
+
+    fn emit_read_byte(&self, byte: u8, ack: bool, now: &mut u64) -> Result<(), DeviceError> {
+        for bit in (0..8).rev() {
+            self.set_scl(Logic::Zero, *now)?;
+            self.set_sda(
+                if byte & (1 << bit) == 0 {
+                    Logic::Zero
+                } else {
+                    Logic::One
+                },
+                *now,
+            )?;
+            *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+            self.set_scl(Logic::One, *now)?;
+            *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        }
+        self.set_scl(Logic::Zero, *now)?;
+        self.set_sda(if ack { Logic::Zero } else { Logic::One }, *now)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_scl(Logic::One, *now)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
         Ok(())
     }
 
@@ -395,6 +595,11 @@ impl Device for Esp32s3I2c {
     fn reset(&mut self, _kind: ResetKind) {
         self.reset_registers();
         self.sensor = Sgp30::new(420, 8);
+        // Reset releases both open-drain lines to the idle high state. Signal
+        // identifiers are owned by this device, so a reset cannot fail unless
+        // the hub itself has been corrupted.
+        let _ = self.set_sda(Logic::One, SimTime::ZERO.ticks());
+        let _ = self.set_scl(Logic::One, SimTime::ZERO.ticks());
     }
 }
 
@@ -433,7 +638,8 @@ mod tests {
 
     #[test]
     fn executes_sgp30_init_and_measurement() {
-        let mut device = Esp32s3I2c::new("esp32s3.i2c0", SignalHub::new()).unwrap();
+        let hub = SignalHub::new();
+        let mut device = Esp32s3I2c::new("esp32s3.i2c0", hub.clone()).unwrap();
         let at = SimTime::from_ticks(Sgp30::WARMUP_TICKS);
         program(
             &mut device,
@@ -466,6 +672,39 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(measurement[0..2], [1, 164]);
         assert_eq!(device.sensor_snapshot().commands, 2);
+        let data = hub
+            .with_registry(|registry| registry.find("board.esp32s3.i2c0.sda"))
+            .unwrap();
+        let clock = hub
+            .with_registry(|registry| registry.find("board.esp32s3.i2c0.scl"))
+            .unwrap();
+        let mut clock_level = Logic::One;
+        let mut starts = 0;
+        let changes = hub.drain_changes();
+        for pair in changes.windows(2) {
+            assert!(pair[0].at <= pair[1].at);
+        }
+        for change in changes {
+            if change.signal == clock {
+                clock_level = change.value.bit(0).unwrap();
+            } else if change.signal == data
+                && change.value.bit(0) == Some(Logic::Zero)
+                && clock_level == Logic::One
+            {
+                starts += 1;
+            }
+        }
+        // The write-only initialization has one start; the read transaction
+        // has a start and a repeated start before its read address.
+        assert_eq!(starts, 3);
+        assert_eq!(
+            hub.with_registry(|registry| registry.value(data).unwrap().bit(0)),
+            Some(Logic::One)
+        );
+        assert_eq!(
+            hub.with_registry(|registry| registry.value(clock).unwrap().bit(0)),
+            Some(Logic::One)
+        );
     }
 
     #[test]
@@ -490,5 +729,56 @@ mod tests {
             read_word(&mut device, Esp32s3I2c::INT_RAW, SimTime::ZERO) & (1 << 10),
             0
         );
+    }
+
+    #[test]
+    fn rejects_reserved_opcode_and_unexpected_ack() {
+        let mut reserved = Esp32s3I2c::new("esp32s3.i2c0", SignalHub::new()).unwrap();
+        program(
+            &mut reserved,
+            &[0xb0],
+            &[1 | (5 << 11), command(0, CommandOpcode::End)],
+            SimTime::ZERO,
+        );
+        assert_ne!(
+            read_word(&mut reserved, Esp32s3I2c::INT_RAW, SimTime::ZERO) & (1 << 10),
+            0
+        );
+
+        let mut malformed_end = Esp32s3I2c::new("esp32s3.i2c2", SignalHub::new()).unwrap();
+        program(
+            &mut malformed_end,
+            &[],
+            &[command(1, CommandOpcode::End)],
+            SimTime::ZERO,
+        );
+        assert_ne!(
+            read_word(&mut malformed_end, Esp32s3I2c::INT_RAW, SimTime::ZERO) & (1 << 10),
+            0
+        );
+
+        let mut unexpected_ack = Esp32s3I2c::new("esp32s3.i2c1", SignalHub::new()).unwrap();
+        program(
+            &mut unexpected_ack,
+            &[0xb0],
+            &[
+                command(1, CommandOpcode::Write)
+                    | Esp32s3I2c::ACK_CHECK_EN
+                    | Esp32s3I2c::ACK_EXPECTED,
+                command(0, CommandOpcode::End),
+            ],
+            SimTime::ZERO,
+        );
+        assert_ne!(
+            read_word(&mut unexpected_ack, Esp32s3I2c::INT_RAW, SimTime::ZERO) & (1 << 10),
+            0
+        );
+    }
+
+    #[test]
+    fn register_enum_keeps_offsets_named() {
+        assert_eq!(Esp32s3I2cRegister::Data.offset(), Esp32s3I2c::DATA);
+        assert_eq!(Esp32s3I2cRegister::Command7.offset(), 0x74);
+        assert_eq!(Esp32s3I2cRegister::Date.offset(), Esp32s3I2c::DATE);
     }
 }
