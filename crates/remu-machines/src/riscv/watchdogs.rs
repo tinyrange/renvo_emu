@@ -18,7 +18,7 @@ impl RiscVMachine {
             .map_or(WchWatchdogEvent::default(), |watchdog| {
                 watchdog.poll(self.now)
             });
-        const WWDG_INTERRUPT: u16 = 0;
+        const WWDG_INTERRUPT: u16 = 16;
         pfic.set_pending(WWDG_INTERRUPT, wwdg_event.early_warning);
         let deliver = pfic.next_pending() == Some(WWDG_INTERRUPT);
         self.cpu

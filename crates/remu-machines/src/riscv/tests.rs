@@ -296,7 +296,10 @@ fn wch_independent_watchdog_timeout_resets_the_riscv_machine() {
     let result = machine
         .run(
             RunLimits {
-                instructions: Some(4),
+                // The CH32 independent watchdog uses a /4 prescaler.  Give the
+                // scheduler enough abstract instruction ticks to observe the
+                // reload=0 expiry before the bounded run stops.
+                instructions: Some(8),
                 deadline: None,
             },
             None,
