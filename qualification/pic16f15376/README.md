@@ -14,9 +14,12 @@ Implemented functionally: all 49 enhanced mid-range instruction families,
 14-bit word program memory, banked/common/linear RAM, the 16-level hardware
 stack, reset and interrupt vectors, oscillator-ready state, PORT/LAT/TRIS/
 ANSEL A–E, PPS register storage, PIR/PIE routing, Timer0/1, EUSART1 transmit and
-watchdog reset. Timer and serial timing are deterministic approximations.
-Analog modules, serial receive timing and unlisted peripherals remain
-unsupported and are not represented as hardware-accurate.
+watchdog reset, and the CLKR reference-clock register/output slice. Timer,
+serial, and CLKR source timing are deterministic approximations: the output
+signal uses the emulator's abstract timeline and supports FOSC/HFINTOSC,
+LFINTOSC, MFINTOSC, and SOSC source selections with coarse relative periods.
+NCO/CLC source generators, analog modules, serial receive timing, and unlisted
+peripherals remain unsupported and are not represented as hardware-accurate.
 
 Run from the repository root:
 
