@@ -19,7 +19,7 @@ use remu_devices::{
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
     RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    WchTimerHandle, WchUsart, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -751,6 +751,10 @@ impl RiscVMachine {
                 )?;
                 bus.map_device("rp2350.pio0", 0x5020_0000, 0x4000, Box::new(pio0))?;
                 pio.push(handle);
+                let (hstx_ctrl, hstx_fifo, _hstx_handle) =
+                    new_rp2350_hstx("rp2350.hstx", "board.rp2350.hstx", signals.clone())?;
+                bus.map_device("rp2350.hstx.ctrl", 0x400c_0000, 0x4000, Box::new(hstx_ctrl))?;
+                bus.map_device("rp2350.hstx.fifo", 0x5060_0000, 0x1000, Box::new(hstx_fifo))?;
             }
             TargetId::Rp2040
             | TargetId::Esp32s3

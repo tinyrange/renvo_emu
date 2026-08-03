@@ -11,7 +11,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, PIO0, and HSTX waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
@@ -25,6 +25,20 @@ All targets also expose a stable compiler-test block:
 This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
+
+### RP2350 HSTX subset
+
+Both RP2350 CPU modes map the documented HSTX control block at `0x400c0000`
+and FIFO at `0x50600000`. The functional model implements the control CSR,
+eight lane selectors/inverters, command-expander configuration registers, FIFO
+level/full/empty/overflow status, atomic control aliases, and deterministic
+word consumption when `CSR.EN` is set. Positive and negative half-cycle lane
+values plus the generated clock are emitted as VCD-visible signals under
+`board.rp2350.hstx.*`, and a host handle retains a bounded sample capture.
+
+The model is intentionally functional: it does not claim HSTX clock-divider
+latency, DMA pacing, command-expander/TMDS encoding, PIO coupling, or physical
+GPIO function-select routing. Those behaviors remain separate follow-up work.
 
 ## Official MicroPython milestone
 
