@@ -130,7 +130,7 @@ pub struct Mcs51Cpu {
     sp: u8,
     pc: u16,
     sfr_page: u8,
-    interrupts: [bool; 10],
+    interrupts: [bool; 12],
     last_interrupt_line: Option<u8>,
     active_priority: Option<bool>,
     priority_stack: Vec<Option<bool>>,
@@ -157,7 +157,7 @@ impl Mcs51Cpu {
             sp: 7,
             pc: 0,
             sfr_page: 0,
-            interrupts: [false; 10],
+            interrupts: [false; 12],
             last_interrupt_line: None,
             active_priority: None,
             priority_stack: Vec::new(),
@@ -469,7 +469,7 @@ impl Mcs51Cpu {
         self.sp = 7;
         self.pc = 0;
         self.sfr_page = 0;
-        self.interrupts = [false; 10];
+        self.interrupts = [false; 12];
         self.last_interrupt_line = None;
         self.active_priority = None;
         self.priority_stack.clear();
@@ -478,8 +478,8 @@ impl Mcs51Cpu {
     }
 
     fn pending_interrupt(&self) -> Option<(usize, bool)> {
-        const LOW_LINES: [usize; 5] = [0, 1, 2, 6, 8];
-        const HIGH_LINES: [usize; 5] = [3, 4, 5, 7, 9];
+        const LOW_LINES: [usize; 6] = [0, 1, 2, 6, 8, 10];
+        const HIGH_LINES: [usize; 6] = [3, 4, 5, 7, 9, 11];
         for high in [true, false] {
             if high && self.active_priority == Some(true) {
                 continue;
@@ -502,6 +502,7 @@ impl Mcs51Cpu {
             2 | 5 => 0x002b,
             6 | 7 => 0x0033,
             8 | 9 => 0x001b,
+            10 | 11 => 0x003b,
             _ => unreachable!("MCS-51 interrupt line is validated by pending_interrupt"),
         };
         self.push_pc();
@@ -547,7 +548,7 @@ impl Cpu for Mcs51Cpu {
             CpuFault::new(
                 CpuFaultKind::Architecture,
                 u64::from(self.pc),
-                format!("MCS-51 interrupt line {line} is outside 0..9"),
+                format!("MCS-51 interrupt line {line} is outside 0..11"),
             )
         })?;
         *slot = asserted;

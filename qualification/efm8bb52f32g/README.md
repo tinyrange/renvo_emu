@@ -14,14 +14,16 @@ lanes and emits `EFM8BB52:OK\nIRQ\n` after reading an externally stimulated
 P0.1 input.
 
 The exact functional register surface is RSTSRC, CLKSEL, WDTCN, Ports 0–3,
-port modes and crossbar, Timer0/2, UART0, SMBus0 data/control, PCA0 and
-IE/IP/EIE1 routing. PCA0
+port modes and crossbar, Timer0/2, UART0, SMBus0 control/data/FIFO status,
+PCA0 and IE/IP/EIE1/EIP1 routing. PCA0
 models the 16-bit timebase, SYSCLK divider selection, edge-aligned 8–11/16-bit
 PWM, output polarity, compare flags, capture on sampled rising/falling edges,
 and the shared PCA interrupt line. CEX0–CEX2 and the PCA request are exposed as
 hierarchical VCD signals. The SMBus slice provides deterministic register
-transactions, a host receive queue, service-flag behavior and VCD
-byte/busy/interrupt observability. The machine boots
+transactions, a host receive queue, service-flag behavior, FIFO status/flush
+semantics, the 0x003b interrupt route, and VCD byte/busy/interrupt
+observability. It intentionally does not model arbitration or clock-level
+waveforms. The machine boots
 from CODE address zero with 32 KiB flash, 256-byte IDATA and 2304-byte XRAM;
 CODE, IDATA, XDATA, paged SFR and bit-addressable accesses remain distinct.
 Timing, analog peripherals, SMBus arbitration/clock waveforms and SPI remain
