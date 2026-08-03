@@ -204,7 +204,7 @@ fn esp32c6_spi2_uses_native_register_window() {
     machine
         .bus
         .write(
-            0x6008_101c,
+            0x6008_1010,
             AccessWidth::Word,
             (1 << 27) | (1 << 28),
             SimTime::ZERO,
@@ -212,15 +212,11 @@ fn esp32c6_spi2_uses_native_register_window() {
         .unwrap();
     machine
         .bus
-        .write(0x6008_1028, AccessWidth::Word, 7, SimTime::ZERO)
+        .write(0x6008_101c, AccessWidth::Word, 7, SimTime::ZERO)
         .unwrap();
     machine
         .bus
-        .write(0x6008_102c, AccessWidth::Word, 7, SimTime::ZERO)
-        .unwrap();
-    machine
-        .bus
-        .write(0x6008_1080, AccessWidth::Word, 0x3412, SimTime::ZERO)
+        .write(0x6008_1098, AccessWidth::Word, 0x3412, SimTime::ZERO)
         .unwrap();
     machine
         .bus
@@ -230,7 +226,7 @@ fn esp32c6_spi2_uses_native_register_window() {
         machine
             .bus
             .read(
-                0x6008_1080,
+                0x6008_1098,
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO,
@@ -242,13 +238,13 @@ fn esp32c6_spi2_uses_native_register_window() {
         machine
             .bus
             .read(
-                0x6008_1054,
+                0x6008_103c,
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO,
             )
             .unwrap(),
-        1
+        1 << 12
     );
 }
 

@@ -26,14 +26,17 @@ struct EspSpiState {
 
 impl EspSpiState {
     const CMD: usize = 0x00;
-    const USER: usize = 0x1c;
-    const MOSI_DLEN: usize = 0x28;
-    const MISO_DLEN: usize = 0x2c;
-    const INT_RAW: usize = 0x54;
-    const W0: usize = 0x80;
+    // ESP32-C6 GP-SPI2 uses the C6 register layout.  These offsets differ
+    // from the older ESP32/S2/S3 SPI blocks, particularly for the user,
+    // transfer-length, interrupt and CPU data-window registers.
+    const USER: usize = 0x10;
+    const MS_DLEN: usize = 0x1c;
+    const INT_RAW: usize = 0x3c;
+    const W0: usize = 0x98;
     const CMD_USR: u32 = 1 << 24;
     const USER_MOSI: u32 = 1 << 27;
     const USER_MISO: u32 = 1 << 28;
+    const TRANS_DONE_INT_RAW: u32 = 1 << 12;
 
     fn new() -> Self {
         Self {
@@ -50,11 +53,12 @@ impl EspSpiState {
 
     fn transfer(&mut self) {
         let user = self.registers[Self::USER / 4];
-        let mosi_len = Self::words_for_bits(self.registers[Self::MOSI_DLEN / 4]);
-        let miso_len = Self::words_for_bits(self.registers[Self::MISO_DLEN / 4]);
+        // ESP32-C6 has one MS_DATA_BITLEN field shared by the CPU-controlled
+        // MOSI and MISO phases.  The value is bit_num - 1.
+        let data_len = Self::words_for_bits(self.registers[Self::MS_DLEN / 4]);
         let mut transmitted = Vec::new();
         if user & Self::USER_MOSI != 0 {
-            for index in 0..mosi_len {
+            for index in 0..data_len {
                 let word = Self::W0 / 4 + index / 4;
                 let byte = (self.registers[word] >> ((index % 4) * 8)) as u8;
                 transmitted.push(byte);
@@ -62,7 +66,7 @@ impl EspSpiState {
             self.tx.extend_from_slice(&transmitted);
         }
         if user & Self::USER_MISO != 0 {
-            let received = (0..miso_len)
+            let received = (0..data_len)
                 .map(|index| {
                     self.rx
                         .pop_front()
@@ -76,7 +80,7 @@ impl EspSpiState {
                     (self.registers[word] & !(0xff << shift)) | (u32::from(byte) << shift);
             }
         }
-        self.registers[Self::INT_RAW / 4] |= 1;
+        self.registers[Self::INT_RAW / 4] |= Self::TRANS_DONE_INT_RAW;
         self.registers[Self::CMD / 4] &= !Self::CMD_USR;
     }
 }

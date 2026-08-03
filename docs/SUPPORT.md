@@ -48,12 +48,13 @@ PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 ## ESP32-C6 SPI2 slice
 
 The ESP32-C6 model maps the native general-purpose SPI2 window at
-`0x60081000`. Its functional master subset implements the command/user/data
-registers, MOSI/MISO bit lengths, synchronous transfer completion, interrupt
-raw status, and deterministic host RX injection. When no host byte is queued,
-MISO echoes the transmitted byte, which keeps compiler and firmware tests
-reproducible without inventing external bus state. DMA, slave mode, command
-address phases, timing, and the interrupt matrix remain outside this slice.
+`0x60081000`. Its functional master subset implements the native command/user/
+data registers, the shared `SPI_MS_DATA_BITLEN` field, synchronous transfer
+completion, the `SPI_TRANS_DONE_INT_RAW` status bit, and deterministic host RX
+injection. When no host byte is queued, MISO echoes the transmitted byte, which
+keeps compiler and firmware tests reproducible without inventing external bus
+state. DMA, slave mode, command address phases, timing, and the interrupt matrix
+remain outside this slice.
 
 ## Implemented CPU surface
 
