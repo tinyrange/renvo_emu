@@ -573,6 +573,11 @@ fn rp2350_hstx_serializes_fifo_words_and_reports_overflow() {
 #[test]
 fn rp2350_otp_exposes_read_aliases_and_monotonic_locks() {
     let mut otp = Rp2350Otp::with_words("otp", &[0x00c0_ffee, 0x0012_3456]);
+    assert_eq!(
+        Rp2350OtpRegister::try_from(0x100).unwrap(),
+        Rp2350OtpRegister::SbpiInstr
+    );
+    assert!(Rp2350OtpRegister::try_from(0x130).is_err());
     for offset in [0x10000, 0x14000, 0x1c000] {
         assert_eq!(
             otp.read(offset, AccessWidth::Word, SimTime::ZERO).unwrap(),
@@ -602,6 +607,30 @@ fn rp2350_otp_exposes_read_aliases_and_monotonic_locks() {
     assert_eq!(
         otp.read(0x15c, AccessWidth::Word, SimTime::ZERO).unwrap(),
         2
+    );
+    otp.write(0x154, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    otp.write(0x3154, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        otp.read(0x154, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1
+    );
+    otp.write(0x100, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        otp.read(0x100, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 30),
+        0
+    );
+    assert_eq!(
+        otp.read(0x124, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 4),
+        1 << 4
+    );
+    otp.write(0x124, AccessWidth::Word, 1 << 4, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        otp.read(0x124, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 4),
+        0
     );
 }
 

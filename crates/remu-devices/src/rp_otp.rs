@@ -10,7 +10,110 @@ const DATA_WORDS: usize = DATA_SIZE / 4;
 const USR_DCTRL: u32 = 1;
 const SBPI_STATUS_RDATA_VALID: u32 = 1;
 const SBPI_STATUS_INSTR_DONE: u32 = 1 << 4;
+const SBPI_STATUS_INSTR_MISS: u32 = 1 << 8;
+const SBPI_STATUS_WC_MASK: u32 =
+    SBPI_STATUS_RDATA_VALID | SBPI_STATUS_INSTR_DONE | SBPI_STATUS_INSTR_MISS;
+const SBPI_INSTR_EXEC: u32 = 1 << 30;
+const SBPI_INSTR_CONFIG_MASK: u32 = 0x3fff_ffff;
+const BIST_CNT_CLR: u32 = 1 << 29;
+const BIST_CNT_ENA: u32 = 1 << 28;
+const BIST_CNT_MAX_MASK: u32 = 0x0fff_0000;
+const BIST_CONFIG_MASK: u32 = BIST_CNT_ENA | BIST_CNT_MAX_MASK;
+const BIST_COUNT_MASK: u32 = 0x0000_1fff;
+const DBG_ROSC_UP_SEEN: u32 = 1 << 2;
+const DEBUGEN_MASK: u32 = 0x10f;
+const BOOTDIS_NEXT: u32 = 1 << 1;
+const BOOTDIS_NOW: u32 = 1;
 const INTR_MASK: u32 = 0x1f;
+const INTR_WC_MASK: u32 = 0x1e;
+
+/// RP2350 OTP control-register offsets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rp2350OtpRegister {
+    /// Software lock register for one of the 64 OTP pages.
+    SwLock(u8),
+    /// SBPI instruction dispatch register.
+    SbpiInstr,
+    /// SBPI write-payload word.
+    SbpiWdata(u8),
+    /// SBPI read-payload word.
+    SbpiRdata(u8),
+    /// SBPI status register.
+    SbpiStatus,
+    /// User-interface power and data-read controls.
+    Usr,
+    /// OTP power-on state-machine debug register.
+    Dbg,
+    /// Built-in self-test control and counters.
+    Bist,
+    /// Certificate-key write-only word.
+    CrtKeyW(u8),
+    /// Read-only critical boot flags.
+    Critical,
+    /// Read-only enrolled-key status.
+    KeyValid,
+    /// Debug feature enables.
+    DebugEn,
+    /// Monotonic debug-enable locks.
+    DebugEnLock,
+    /// Architecture selection for the two cores.
+    ArchSel,
+    /// Sampled architecture-selection status.
+    ArchSelStatus,
+    /// Boot-vector disable controls.
+    BootDis,
+    /// Raw interrupt status.
+    Intr,
+    /// Interrupt enables.
+    Inte,
+    /// Interrupt force bits.
+    Intf,
+    /// Masked interrupt status.
+    Ints,
+}
+
+impl TryFrom<u64> for Rp2350OtpRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        let register = match offset {
+            0x000..=0x0fc if offset % 4 == 0 => {
+                Self::SwLock(u8::try_from(offset / 4).expect("OTP lock index fits"))
+            }
+            0x100 => Self::SbpiInstr,
+            0x104..=0x110 if (offset - 0x104) % 4 == 0 => {
+                Self::SbpiWdata(u8::try_from((offset - 0x104) / 4).expect("OTP word index fits"))
+            }
+            0x114..=0x120 if (offset - 0x114) % 4 == 0 => {
+                Self::SbpiRdata(u8::try_from((offset - 0x114) / 4).expect("OTP word index fits"))
+            }
+            0x124 => Self::SbpiStatus,
+            0x128 => Self::Usr,
+            0x12c => Self::Dbg,
+            0x134 => Self::Bist,
+            0x138..=0x144 if (offset - 0x138) % 4 == 0 => {
+                Self::CrtKeyW(u8::try_from((offset - 0x138) / 4).expect("OTP key index fits"))
+            }
+            0x148 => Self::Critical,
+            0x14c => Self::KeyValid,
+            0x150 => Self::DebugEn,
+            0x154 => Self::DebugEnLock,
+            0x158 => Self::ArchSel,
+            0x15c => Self::ArchSelStatus,
+            0x160 => Self::BootDis,
+            0x164 => Self::Intr,
+            0x168 => Self::Inte,
+            0x16c => Self::Intf,
+            0x170 => Self::Ints,
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "invalid RP2350 OTP register offset {offset:#x}"
+                )));
+            }
+        };
+        Ok(register)
+    }
+}
 
 fn atomic_update(current: u32, alias: u64, value: u32) -> Result<u32, DeviceError> {
     match alias {
@@ -98,16 +201,12 @@ impl Rp2350Otp {
     }
 
     fn read_control(&mut self, register: u64) -> Result<u32, DeviceError> {
-        let value = match register {
-            0x000..=0x0fc if register % 4 == 0 => {
-                self.locks[usize::try_from(register / 4).expect("OTP lock index fits")]
-            }
-            0x100 => self.sbpi_instr,
-            0x104..=0x110 if (register - 0x104) % 4 == 0 => {
-                self.sbpi_wdata[usize::try_from((register - 0x104) / 4).expect("OTP word fits")]
-            }
-            0x114..=0x120 if (register - 0x114) % 4 == 0 => {
-                let index = usize::try_from((register - 0x114) / 4).expect("OTP word fits");
+        let value = match Rp2350OtpRegister::try_from(register)? {
+            Rp2350OtpRegister::SwLock(index) => self.locks[usize::from(index)],
+            Rp2350OtpRegister::SbpiInstr => self.sbpi_instr,
+            Rp2350OtpRegister::SbpiWdata(index) => self.sbpi_wdata[usize::from(index)],
+            Rp2350OtpRegister::SbpiRdata(index) => {
+                let index = usize::from(index);
                 let value = self.sbpi_rdata[index];
                 self.sbpi_rdata[index] = 0;
                 if self.sbpi_rdata.iter().all(|word| *word == 0) {
@@ -115,83 +214,100 @@ impl Rp2350Otp {
                 }
                 value
             }
-            0x124 => self.sbpi_status,
-            0x128 => self.usr,
-            0x12c => self.dbg,
-            0x134 => self.bist,
-            0x138..=0x144 if (register - 0x138) % 4 == 0 => 0,
-            0x148 => self.critical,
-            0x14c => self.key_valid,
-            0x150 => self.debugen,
-            0x154 => self.debugen_lock,
-            0x158 => self.archsel,
-            0x15c => self.archsel_status,
-            0x160 => self.bootdis,
-            0x164 => self.intr,
-            0x168 => self.inte,
-            0x16c => self.intf,
-            0x170 => (self.intr | self.intf) & self.inte,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2350 OTP read at offset {register:#x}"
-                )));
-            }
+            Rp2350OtpRegister::SbpiStatus => self.sbpi_status,
+            Rp2350OtpRegister::Usr => self.usr,
+            Rp2350OtpRegister::Dbg => self.dbg,
+            Rp2350OtpRegister::Bist => self.bist,
+            Rp2350OtpRegister::CrtKeyW(_) => 0,
+            Rp2350OtpRegister::Critical => self.critical,
+            Rp2350OtpRegister::KeyValid => self.key_valid,
+            Rp2350OtpRegister::DebugEn => self.debugen,
+            Rp2350OtpRegister::DebugEnLock => self.debugen_lock,
+            Rp2350OtpRegister::ArchSel => self.archsel,
+            Rp2350OtpRegister::ArchSelStatus => self.archsel_status,
+            Rp2350OtpRegister::BootDis => self.bootdis,
+            Rp2350OtpRegister::Intr => self.intr,
+            Rp2350OtpRegister::Inte => self.inte,
+            Rp2350OtpRegister::Intf => self.intf,
+            Rp2350OtpRegister::Ints => (self.intr | self.intf) & self.inte,
         };
         Ok(value)
     }
 
     fn write_control(&mut self, register: u64, alias: u64, value: u32) -> Result<(), DeviceError> {
-        match register {
-            0x000..=0x0fc if register % 4 == 0 => {
-                let index = usize::try_from(register / 4).expect("OTP lock index fits");
+        match Rp2350OtpRegister::try_from(register)? {
+            Rp2350OtpRegister::SwLock(index) => {
+                let index = usize::from(index);
                 // Lock states only advance until reset. Atomic clear/XOR aliases cannot
                 // reopen a page, matching the fuse-backed lock shim.
                 self.locks[index] |= value & 0x0f;
             }
-            0x100 => {
-                self.sbpi_instr = atomic_update(self.sbpi_instr, alias, value)? & 0x7fff_ffff;
-                if value & (1 << 30) != 0 {
+            Rp2350OtpRegister::SbpiInstr => {
+                self.sbpi_instr =
+                    atomic_update(self.sbpi_instr, alias, value)? & SBPI_INSTR_CONFIG_MASK;
+                if value & SBPI_INSTR_EXEC != 0 {
                     self.sbpi_status |= SBPI_STATUS_INSTR_DONE;
                     self.sbpi_status &= !SBPI_STATUS_RDATA_VALID;
                 }
             }
-            0x104..=0x110 if (register - 0x104) % 4 == 0 => {
-                let index = usize::try_from((register - 0x104) / 4).expect("OTP word fits");
+            Rp2350OtpRegister::SbpiWdata(index) => {
+                let index = usize::from(index);
                 self.sbpi_wdata[index] = atomic_update(self.sbpi_wdata[index], alias, value)?;
             }
-            0x124 => {
-                self.sbpi_status &= !(value & (SBPI_STATUS_INSTR_DONE | 0x100));
+            Rp2350OtpRegister::SbpiRdata(_) => {
+                return Err(DeviceError::new("RP2350 OTP SBPI read data is read-only"));
             }
-            0x128 => {
+            Rp2350OtpRegister::SbpiStatus => {
+                self.sbpi_status &= !(value & SBPI_STATUS_WC_MASK);
+            }
+            Rp2350OtpRegister::Usr => {
                 self.usr = atomic_update(self.usr, alias, value)? & 0x11;
             }
-            0x12c => {
-                self.dbg = atomic_update(self.dbg, alias, value)? & 0x10ff;
+            Rp2350OtpRegister::Dbg => {
+                self.dbg &= !(value & DBG_ROSC_UP_SEEN);
             }
-            0x134 => {
-                self.bist = atomic_update(self.bist, alias, value)? & 0x7fff_1fff;
+            Rp2350OtpRegister::Bist => {
+                let config = atomic_update(
+                    self.bist & BIST_CONFIG_MASK,
+                    alias,
+                    value & BIST_CONFIG_MASK,
+                )?;
+                self.bist = (self.bist & !BIST_CONFIG_MASK) | (config & BIST_CONFIG_MASK);
+                if value & BIST_CNT_CLR != 0 {
+                    self.bist &= !BIST_COUNT_MASK;
+                }
             }
-            0x138..=0x144 if (register - 0x138) % 4 == 0 => {
+            Rp2350OtpRegister::CrtKeyW(_) => {
                 // Certificate key registers are write-only. Retain no secret material.
             }
-            0x150 => {
-                let updated = atomic_update(self.debugen, alias, value)? & 0x10f;
+            Rp2350OtpRegister::Critical | Rp2350OtpRegister::KeyValid => {
+                return Err(DeviceError::new("RP2350 OTP register is read-only"));
+            }
+            Rp2350OtpRegister::DebugEn => {
+                let updated = atomic_update(self.debugen, alias, value)? & DEBUGEN_MASK;
                 self.debugen = (self.debugen & self.debugen_lock) | (updated & !self.debugen_lock);
             }
-            0x154 => {
-                self.debugen_lock = atomic_update(self.debugen_lock, alias, value)? & 0x10f;
+            Rp2350OtpRegister::DebugEnLock => {
+                self.debugen_lock |= value & DEBUGEN_MASK;
             }
-            0x158 => self.archsel = atomic_update(self.archsel, alias, value)? & 3,
-            0x15c => {}
-            0x160 => self.bootdis = atomic_update(self.bootdis, alias, value)? & 3,
-            0x164 => self.intr &= !(value & INTR_MASK),
-            0x168 => self.inte = atomic_update(self.inte, alias, value)? & INTR_MASK,
-            0x16c => self.intf = atomic_update(self.intf, alias, value)? & INTR_MASK,
-            0x170 => self.intr &= !(value & INTR_MASK),
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2350 OTP write at offset {register:#x}"
-                )));
+            Rp2350OtpRegister::ArchSel => {
+                self.archsel = atomic_update(self.archsel, alias, value)? & 3;
+            }
+            Rp2350OtpRegister::ArchSelStatus | Rp2350OtpRegister::Ints => {
+                return Err(DeviceError::new("RP2350 OTP register is read-only"));
+            }
+            Rp2350OtpRegister::BootDis => {
+                self.bootdis |= value & BOOTDIS_NEXT;
+                if value & BOOTDIS_NOW != 0 {
+                    self.bootdis &= !BOOTDIS_NOW;
+                }
+            }
+            Rp2350OtpRegister::Intr => self.intr &= !(value & INTR_WC_MASK),
+            Rp2350OtpRegister::Inte => {
+                self.inte = atomic_update(self.inte, alias, value)? & INTR_MASK
+            }
+            Rp2350OtpRegister::Intf => {
+                self.intf = atomic_update(self.intf, alias, value)? & INTR_MASK
             }
         }
         self.archsel_status = self.archsel;
@@ -199,9 +315,9 @@ impl Rp2350Otp {
     }
 
     fn read_data(&self, offset: u64) -> Result<u32, DeviceError> {
-        if self.usr & USR_DCTRL == 0 {
+        if self.usr & (USR_DCTRL | (1 << 4)) != USR_DCTRL {
             return Err(DeviceError::new(
-                "RP2350 OTP data reads disabled by USR.DCTRL",
+                "RP2350 OTP data reads disabled by USR.DCTRL or USR.PD",
             ));
         }
         let alias = match offset & 0x1_ffff {
