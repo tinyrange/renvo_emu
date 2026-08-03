@@ -15,6 +15,8 @@ const INT_RAW: usize = 0x114;
 const INT_ST: usize = 0x118;
 const INT_CLR: usize = 0x11c;
 const VERSION: usize = 0x12c;
+const INT_MASK: u32 = (1 << 30) - 1;
+const GENERATOR_FORCE_RESET: u32 = 1 << 5;
 
 /// Native-address MCPWM register block with deterministic PWM observations.
 pub struct EspMcpwm {
@@ -76,7 +78,9 @@ impl EspMcpwmState {
 
     fn timer_running(&self, timer: usize) -> bool {
         let cfg = self.registers[Self::timer_offset(timer, 4) / 4];
-        (cfg & 7) != 0 && ((cfg >> 3) & 3) != 0
+        // TIMER_START is a command field: 0/1 stop at empty/full, while
+        // 2/3/4 start (with the latter two stopping at a boundary).
+        matches!(cfg & 7, 2..=4) && ((cfg >> 3) & 3) != 0
     }
 
     fn timer_mode(&self, timer: usize) -> u32 {
@@ -192,9 +196,9 @@ impl Device for EspMcpwm {
         state.advance(at)?;
         match offset {
             INT_RAW | INT_ST | VERSION => {}
-            INT_ENA => state.registers[INT_ENA / 4] = value as u32,
+            INT_ENA => state.registers[INT_ENA / 4] = value as u32 & INT_MASK,
             INT_CLR => {
-                state.registers[INT_RAW / 4] &= !(value as u32);
+                state.registers[INT_RAW / 4] &= !(value as u32 & INT_MASK);
                 state.registers[INT_ST / 4] =
                     state.registers[INT_RAW / 4] & state.registers[INT_ENA / 4];
             }
@@ -212,6 +216,7 @@ impl Device for EspMcpwm {
         state.outputs = [false; OPERATOR_COUNT * 2];
         for timer in 0..TIMER_COUNT {
             state.registers[EspMcpwmState::timer_offset(timer, 0) / 4] = 255 << 8;
+            state.registers[(GEN0_FORCE + timer * OPERATOR_STRIDE) / 4] = GENERATOR_FORCE_RESET;
         }
         state.registers[VERSION / 4] = 35_656_256;
     }
@@ -278,6 +283,39 @@ mod tests {
                 .read(VERSION as u64, AccessWidth::Word, SimTime::ZERO)
                 .unwrap(),
             35_656_256
+        );
+    }
+
+    #[test]
+    fn stop_commands_do_not_advance_and_generator_force_has_native_reset_value() {
+        let hub = SignalHub::new();
+        let mut mcpwm = EspMcpwm::new("mcpwm", hub).unwrap();
+        assert_eq!(
+            mcpwm
+                .read(GEN0_FORCE as u64, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(GENERATOR_FORCE_RESET)
+        );
+        mcpwm
+            .write(TIMER_CFG0 as u64, AccessWidth::Word, 9 << 8, SimTime::ZERO)
+            .unwrap();
+        mcpwm
+            .write(
+                (TIMER_CFG0 + 4) as u64,
+                AccessWidth::Word,
+                1 << 3,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            mcpwm
+                .read(
+                    TIMER_STATUS as u64,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(5)
+                )
+                .unwrap(),
+            0
         );
     }
 }
