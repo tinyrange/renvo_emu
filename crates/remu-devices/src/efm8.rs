@@ -15,10 +15,10 @@ const P1: usize = 0x90;
 const WDTCN: usize = 0x97;
 const SCON0: usize = 0x98;
 const SBUF0: usize = 0x99;
-const SPI0CFG: usize = 0x9a;
+const SPI0CFG: usize = 0xa1;
 const SPI0CKR: usize = 0xa2;
 const SPI0CN0: usize = 0xf8;
-const SPI0DAT: usize = 0xf9;
+const SPI0DAT: usize = 0xa3;
 const P3MDOUT: usize = (PAGE3 << 8) | 0x9c;
 const P2: usize = 0xa0;
 const P0MDOUT: usize = 0xa4;
@@ -59,7 +59,7 @@ const TMR2_TF2H: u8 = 0x80;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
 const SPI0_SPIF: u8 = 0x80;
-const SPI0_TXBMT: u8 = 0x02;
+const SPI0_TXNF: u8 = 0x02;
 const SPI0_SPIEN: u8 = 0x01;
 const XBR0_URT0E: u8 = 0x01;
 const XBR2_XBARE: u8 = 0x40;
@@ -157,7 +157,7 @@ impl Efm8State {
         self.watchdog_reset = false;
         self.spi_tx.clear();
         self.spi_rx.clear();
-        self.registers[SPI0CN0] = SPI0_TXBMT;
+        self.registers[SPI0CN0] = SPI0_TXNF;
         for signal in [
             self.uart_strobe_signal,
             self.timer0_irq_signal,
@@ -182,6 +182,7 @@ impl Efm8State {
             | SPI0CFG
             | 0x97..=0x99
             | 0xa0
+            | SPI0DAT
             | 0xa4..=0xa6
             | 0xa8..=0xa9
             | SPI0CKR
@@ -193,7 +194,7 @@ impl Efm8State {
             | 0xe1..=0xe3
             | 0xef
             | 0xf1..=0xf3
-            | 0xf8..=0xf9 => address,
+            | 0xf8 => address,
             0x9c | 0xf4 if page == PAGE3 => (PAGE3 << 8) | address,
             _ => raw,
         }
@@ -211,11 +212,18 @@ impl Efm8State {
             enabled & IE_ESPI0 != 0 && self.registers[SPI0CN0] & SPI0_SPIF != 0,
         ];
         let priorities = [IE_ET0, IE_ES0, IE_ET2, IE_ESPI0];
+        const LOW_LINES: [usize; 4] = [0, 1, 2, 6];
+        const HIGH_LINES: [usize; 4] = [3, 4, 5, 7];
         let mut levels = [false; 8];
         for source in 0..4 {
             if active[source] {
                 let high = self.registers[IP] & priorities[source] != 0;
-                levels[source + if high { 4 } else { 0 }] = true;
+                let line = if high {
+                    HIGH_LINES[source]
+                } else {
+                    LOW_LINES[source]
+                };
+                levels[line] = true;
             }
         }
         levels
@@ -441,7 +449,6 @@ impl Device for Efm8Peripherals {
         }
         if address == SPI0DAT {
             let value = state.registers[address];
-            state.registers[SPI0CN0] &= !SPI0_SPIF;
             return Ok(u64::from(value));
         }
         let mut value = *state
@@ -473,6 +480,7 @@ impl Device for Efm8Peripherals {
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
         }
+        let previous = state.registers[address];
         state.registers[address] = value;
         if let Some(port) = Self::port_index(address) {
             state.registers[address] &= PORT_MASKS[port];
@@ -493,6 +501,9 @@ impl Device for Efm8Peripherals {
                 state.set_signal(state.uart_strobe_signal, previous ^ 1, 1, at);
             }
             state.registers[SCON0] |= SCON0_TI;
+        } else if address == SPI0CN0 {
+            let tx_not_full = previous & SPI0_TXNF;
+            state.registers[SPI0CN0] = (value & !SPI0_TXNF) | tx_not_full;
         } else if address == SPI0DAT {
             if state.registers[SPI0CN0] & SPI0_SPIEN != 0 {
                 let received = if state.spi_rx.is_empty() {
@@ -502,7 +513,7 @@ impl Device for Efm8Peripherals {
                 };
                 state.spi_tx.push(value);
                 state.registers[SPI0DAT] = received;
-                state.registers[SPI0CN0] |= SPI0_SPIF | SPI0_TXBMT;
+                state.registers[SPI0CN0] |= SPI0_SPIF | SPI0_TXNF;
             }
         } else if address == WDTCN {
             if state.watchdog_key == 0xde && value == 0xad {
@@ -531,7 +542,7 @@ impl Device for Efm8Peripherals {
 mod tests {
     use super::{
         AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ESPI0, IE_ET0, P0, P0MDOUT, SBUF0, SPI0_SPIEN,
-        SPI0_SPIF, SPI0CN0, SPI0DAT, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2,
+        SPI0_TXNF, SPI0CN0, SPI0DAT, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2,
         XBR2_XBARE,
     };
     use remu_bus::Device;
@@ -603,7 +614,7 @@ mod tests {
             .write(
                 SPI0CN0 as u64,
                 AccessWidth::Byte,
-                (SPI0_SPIEN | SPI0_SPIF).into(),
+                SPI0_SPIEN.into(),
                 SimTime::ZERO,
             )
             .unwrap();
@@ -619,13 +630,35 @@ mod tests {
             .write(SPI0DAT as u64, AccessWidth::Byte, 0xa5, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.spi_bytes(), [0xa5]);
-        assert!(handle.poll(SimTime::from_ticks(1))[3]);
+        assert!(handle.poll(SimTime::from_ticks(1))[6]);
         assert_eq!(
             device
                 .read(SPI0DAT as u64, AccessWidth::Byte, SimTime::ZERO)
                 .unwrap(),
             0x3c
         );
-        assert!(!handle.poll(SimTime::from_ticks(1))[3]);
+        assert_eq!(
+            device
+                .read((0x20_00 | SPI0DAT) as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x3c
+        );
+        assert!(handle.poll(SimTime::from_ticks(1))[6]);
+        device
+            .write(
+                SPI0CN0 as u64,
+                AccessWidth::Byte,
+                SPI0_SPIEN.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(1))[6]);
+        assert_eq!(
+            device
+                .read(SPI0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & u64::from(SPI0_TXNF),
+            u64::from(SPI0_TXNF)
+        );
     }
 }
