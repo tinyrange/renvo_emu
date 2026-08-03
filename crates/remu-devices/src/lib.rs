@@ -36,6 +36,8 @@ mod stm32;
 pub use stm32::*;
 mod ra;
 pub use ra::*;
+mod ra_adc;
+pub use ra_adc::*;
 mod avr;
 pub use avr::*;
 mod msp430;

@@ -15,6 +15,7 @@ VECTOR(default_handler)
 VECTOR(default_handler)
 .endr
 VECTOR(gpt0_handler)
+VECTOR(adc_handler)
 
 .section .text.start
 .global _start
