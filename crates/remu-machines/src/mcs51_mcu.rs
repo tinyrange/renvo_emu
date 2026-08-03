@@ -327,6 +327,9 @@ impl Mcs51McuMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| Mcs51MachineError::TimeOverflow)?;
             stats.time = self.now;
+            if matches!(self.cpu.last_interrupt_line(), Some(6 | 7)) {
+                self.peripherals.acknowledge_timer1_interrupt(self.now);
+            }
             let mut signal_stop = None;
             for change in self.signals.drain_changes() {
                 signal_stop =
