@@ -12,6 +12,97 @@ const FIFO_EMPTY: u32 = 1 << 9;
 const FIFO_FULL: u32 = 1 << 8;
 const FIFO_CAPACITY: usize = 8;
 
+/// RP2350 HSTX control-register offsets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+pub enum Rp2350HstxControlRegister {
+    /// Control/status register.
+    Csr = 0x00,
+    /// Lane 0 crossbar configuration.
+    Bit0 = 0x04,
+    /// Lane 1 crossbar configuration.
+    Bit1 = 0x08,
+    /// Lane 2 crossbar configuration.
+    Bit2 = 0x0c,
+    /// Lane 3 crossbar configuration.
+    Bit3 = 0x10,
+    /// Lane 4 crossbar configuration.
+    Bit4 = 0x14,
+    /// Lane 5 crossbar configuration.
+    Bit5 = 0x18,
+    /// Lane 6 crossbar configuration.
+    Bit6 = 0x1c,
+    /// Lane 7 crossbar configuration.
+    Bit7 = 0x20,
+    /// Command-expander shift configuration.
+    ExpandShift = 0x24,
+    /// Command-expander TMDS configuration.
+    ExpandTmds = 0x28,
+}
+
+impl TryFrom<u64> for Rp2350HstxControlRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::Csr),
+            0x04 => Ok(Self::Bit0),
+            0x08 => Ok(Self::Bit1),
+            0x0c => Ok(Self::Bit2),
+            0x10 => Ok(Self::Bit3),
+            0x14 => Ok(Self::Bit4),
+            0x18 => Ok(Self::Bit5),
+            0x1c => Ok(Self::Bit6),
+            0x20 => Ok(Self::Bit7),
+            0x24 => Ok(Self::ExpandShift),
+            0x28 => Ok(Self::ExpandTmds),
+            _ => Err(DeviceError::new(format!(
+                "invalid RP2350 HSTX control register offset {offset:#x}"
+            ))),
+        }
+    }
+}
+
+impl Rp2350HstxControlRegister {
+    fn bit_index(self) -> Option<usize> {
+        match self {
+            Self::Bit0 => Some(0),
+            Self::Bit1 => Some(1),
+            Self::Bit2 => Some(2),
+            Self::Bit3 => Some(3),
+            Self::Bit4 => Some(4),
+            Self::Bit5 => Some(5),
+            Self::Bit6 => Some(6),
+            Self::Bit7 => Some(7),
+            Self::Csr | Self::ExpandShift | Self::ExpandTmds => None,
+        }
+    }
+}
+
+/// RP2350 HSTX FIFO-register offsets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+pub enum Rp2350HstxFifoRegister {
+    /// FIFO status register.
+    Stat = 0x00,
+    /// Write-only FIFO data register.
+    Fifo = 0x04,
+}
+
+impl TryFrom<u64> for Rp2350HstxFifoRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::Stat),
+            0x04 => Ok(Self::Fifo),
+            _ => Err(DeviceError::new(format!(
+                "invalid RP2350 HSTX FIFO register offset {offset:#x}"
+            ))),
+        }
+    }
+}
+
 fn atomic_update(current: u32, alias: u64, value: u32) -> Result<u32, DeviceError> {
     match alias {
         0 => Ok(value),
@@ -251,8 +342,8 @@ impl HstxState {
         value: u32,
         at: SimTime,
     ) -> Result<(), DeviceError> {
-        match register {
-            0x00 => {
+        match Rp2350HstxControlRegister::try_from(register)? {
+            Rp2350HstxControlRegister::Csr => {
                 let was_enabled = self.csr & CSR_EN != 0;
                 self.csr = atomic_update(self.csr, alias, value)? & CSR_MASK;
                 if self.csr & CSR_EN == 0 {
@@ -261,38 +352,49 @@ impl HstxState {
                     self.drain_fifo(at)?;
                 }
             }
-            0x04..=0x20 if (register - 0x04) % 4 == 0 => {
-                let index = usize::try_from((register - 0x04) / 4).expect("HSTX lane fits");
+            register @ (Rp2350HstxControlRegister::Bit0
+            | Rp2350HstxControlRegister::Bit1
+            | Rp2350HstxControlRegister::Bit2
+            | Rp2350HstxControlRegister::Bit3
+            | Rp2350HstxControlRegister::Bit4
+            | Rp2350HstxControlRegister::Bit5
+            | Rp2350HstxControlRegister::Bit6
+            | Rp2350HstxControlRegister::Bit7) => {
+                let index = register
+                    .bit_index()
+                    .expect("HSTX lane register has an index");
                 self.bit[index] = atomic_update(self.bit[index], alias, value)? & BIT_MASK;
             }
-            0x24 => {
+            Rp2350HstxControlRegister::ExpandShift => {
                 self.expand_shift =
                     atomic_update(self.expand_shift, alias, value)? & EXPAND_SHIFT_MASK;
             }
-            0x28 => {
+            Rp2350HstxControlRegister::ExpandTmds => {
                 self.expand_tmds =
                     atomic_update(self.expand_tmds, alias, value)? & EXPAND_TMDS_MASK;
-            }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2350 HSTX control write at offset {register:#x}"
-                )));
             }
         }
         Ok(())
     }
 
     fn read_control(&self, register: u64) -> Result<u32, DeviceError> {
-        match register {
-            0x00 => Ok(self.csr),
-            0x04..=0x20 if (register - 0x04) % 4 == 0 => {
-                Ok(self.bit[usize::try_from((register - 0x04) / 4).expect("HSTX lane fits")])
+        match Rp2350HstxControlRegister::try_from(register)? {
+            Rp2350HstxControlRegister::Csr => Ok(self.csr),
+            register @ (Rp2350HstxControlRegister::Bit0
+            | Rp2350HstxControlRegister::Bit1
+            | Rp2350HstxControlRegister::Bit2
+            | Rp2350HstxControlRegister::Bit3
+            | Rp2350HstxControlRegister::Bit4
+            | Rp2350HstxControlRegister::Bit5
+            | Rp2350HstxControlRegister::Bit6
+            | Rp2350HstxControlRegister::Bit7) => {
+                let index = register
+                    .bit_index()
+                    .expect("HSTX lane register has an index");
+                Ok(self.bit[index])
             }
-            0x24 => Ok(self.expand_shift),
-            0x28 => Ok(self.expand_tmds),
-            _ => Err(DeviceError::new(format!(
-                "unmodeled RP2350 HSTX control read at offset {register:#x}"
-            ))),
+            Rp2350HstxControlRegister::ExpandShift => Ok(self.expand_shift),
+            Rp2350HstxControlRegister::ExpandTmds => Ok(self.expand_tmds),
         }
     }
 }
@@ -370,13 +472,12 @@ impl Device for Rp2350HstxFifo {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         aligned_word(width, offset)?;
-        if offset & 0x0fff != 0 {
-            return Err(DeviceError::new(format!(
-                "unmodeled RP2350 HSTX FIFO read at offset {:#x}",
-                offset & 0x0fff
-            )));
+        match Rp2350HstxFifoRegister::try_from(offset & 0x0fff)? {
+            Rp2350HstxFifoRegister::Stat => Ok(u64::from(self.state.borrow().fifo_status())),
+            Rp2350HstxFifoRegister::Fifo => Err(DeviceError::new(
+                "RP2350 HSTX FIFO data register is write-only",
+            )),
         }
-        Ok(u64::from(self.state.borrow().fifo_status()))
     }
 
     fn write(
@@ -387,20 +488,14 @@ impl Device for Rp2350HstxFifo {
         at: SimTime,
     ) -> Result<(), DeviceError> {
         aligned_word(width, offset)?;
-        let register = offset & 0x0fff;
         let mut state = self.state.borrow_mut();
-        match register {
-            0x00 => {
+        match Rp2350HstxFifoRegister::try_from(offset & 0x0fff)? {
+            Rp2350HstxFifoRegister::Stat => {
                 if value as u32 & FIFO_WOF != 0 {
                     state.write_overflow = false;
                 }
             }
-            0x04 => state.push_fifo(value as u32, at)?,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2350 HSTX FIFO write at offset {register:#x}"
-                )));
-            }
+            Rp2350HstxFifoRegister::Fifo => state.push_fifo(value as u32, at)?,
         }
         Ok(())
     }

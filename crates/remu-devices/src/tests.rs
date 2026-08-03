@@ -113,6 +113,15 @@ fn rp2350_hstx_serializes_fifo_words_and_reports_overflow() {
     let (mut ctrl, mut fifo, handle) =
         new_rp2350_hstx("rp2350.hstx", "board.rp2350.hstx", hub.clone()).unwrap();
     assert_eq!(
+        Rp2350HstxControlRegister::try_from(0x20).unwrap(),
+        Rp2350HstxControlRegister::Bit7
+    );
+    assert!(Rp2350HstxControlRegister::try_from(0x2c).is_err());
+    assert_eq!(
+        Rp2350HstxFifoRegister::try_from(0x04).unwrap(),
+        Rp2350HstxFifoRegister::Fifo
+    );
+    assert_eq!(
         ctrl.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x1005_0600
     );
@@ -144,6 +153,7 @@ fn rp2350_hstx_serializes_fifo_words_and_reports_overflow() {
         fifo.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
         1 << 9
     );
+    assert!(fifo.read(0x04, AccessWidth::Word, SimTime::ZERO).is_err());
 
     ctrl.write(0, AccessWidth::Word, 0, SimTime::ZERO).unwrap();
     for word in 0..9 {
