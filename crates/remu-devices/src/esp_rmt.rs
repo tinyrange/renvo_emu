@@ -1,12 +1,14 @@
 use super::*;
 
-const CHANNEL_COUNT: usize = 4;
+// ESP32-C6 has four RMT channels in one block, but only channels 0 and 1 are
+// transmit-capable. Channels 2 and 3 are receive-only in the native register
+// layout.
+const TX_CHANNEL_COUNT: usize = 2;
 const INT_RAW: u64 = 0x38;
 const INT_STATUS: u64 = 0x3c;
 const INT_ENABLE: u64 = 0x40;
 const INT_CLEAR: u64 = 0x44;
 
-#[derive(Default)]
 struct RmtChannel {
     configuration: u32,
     fifo: Vec<u32>,
@@ -15,10 +17,24 @@ struct RmtChannel {
     active: bool,
 }
 
+impl Default for RmtChannel {
+    fn default() -> Self {
+        Self {
+            // Native reset values for the TX divider, one memory block, and
+            // carrier fields. Carrier synthesis remains outside this slice.
+            configuration: (2 << 8) | (1 << 16) | (1 << 20) | (1 << 21) | (1 << 22),
+            fifo: Vec::new(),
+            transmission: Vec::new(),
+            started_at: SimTime::ZERO,
+            active: false,
+        }
+    }
+}
+
 struct EspRmtState {
     registers: Vec<u32>,
-    channels: [RmtChannel; CHANNEL_COUNT],
-    outputs: [Logic; CHANNEL_COUNT],
+    channels: [RmtChannel; TX_CHANNEL_COUNT],
+    outputs: [Logic; TX_CHANNEL_COUNT],
 }
 
 impl EspRmtState {
@@ -26,7 +42,7 @@ impl EspRmtState {
         Self {
             registers: vec![0; 0x100 / 4],
             channels: core::array::from_fn(|_| RmtChannel::default()),
-            outputs: [Logic::Z; CHANNEL_COUNT],
+            outputs: [Logic::Z; TX_CHANNEL_COUNT],
         }
     }
 
@@ -44,7 +60,11 @@ impl EspRmtState {
         if !channel.active {
             return Self::idle_level(channel);
         }
-        let divider = u64::from((channel.configuration >> 8) as u8).max(1);
+        // The hardware encodes a divide-by-256 prescaler as zero.
+        let divider = match ((channel.configuration >> 8) & 0xff) as u8 {
+            0 => 256,
+            value => u64::from(value),
+        };
         let mut remaining = at.ticks().saturating_sub(channel.started_at.ticks());
         let mut total = 0_u64;
         for word in &channel.transmission {
@@ -94,12 +114,13 @@ pub struct EspRmtHandle {
 }
 
 impl EspRmtHandle {
-    /// Advances all four RMT output channels at an abstract simulation time.
+    /// Advances the two ESP32-C6 RMT transmitter channels at an abstract
+    /// simulation time.
     pub fn poll(&self, at: SimTime) -> Result<u8, DeviceError> {
         let mut transitions = Vec::new();
         {
             let mut state = self.state.borrow_mut();
-            for channel in 0..CHANNEL_COUNT {
+            for channel in 0..TX_CHANNEL_COUNT {
                 let value = EspRmtState::channel_output(&mut state.channels[channel], at);
                 if state.outputs[channel] != value {
                     state.outputs[channel] = value;
@@ -117,7 +138,7 @@ impl EspRmtHandle {
                 )
                 .map_err(|error| DeviceError::new(error.to_string()))?;
         }
-        Ok(u8::try_from(transitions.len()).expect("four RMT channels fit in u8"))
+        Ok(u8::try_from(transitions.len()).expect("two RMT channels fit in u8"))
     }
 
     /// Returns the latest resolved value for one RMT channel.
@@ -133,11 +154,12 @@ impl EspRmtHandle {
 
 /// Functional ESP32-C6 RMT transmitter/receiver register block.
 ///
-/// The model covers the four channel FIFO/config/status windows and decodes
-/// transmitter symbols written through the APB FIFO. A symbol uses the native
-/// 15-bit duration/one-bit level pairs, allowing WS2812 and IR-style pulse
-/// streams to be inspected as deterministic VCD output. Receiver DMA, carrier
-/// modulation, and exact interrupt timing are outside this functional slice.
+/// The model covers the two transmit-channel FIFO/config/status windows and
+/// decodes transmitter symbols written through the APB FIFO. A symbol uses the
+/// native 15-bit duration/one-bit level pairs, allowing WS2812 and IR-style
+/// pulse streams to be inspected as deterministic VCD output. The C6 channels
+/// 2 and 3 are receive-only and remain raw register windows; receiver DMA,
+/// carrier modulation, and exact interrupt timing are outside this slice.
 pub struct EspRmt {
     name: String,
     state: Rc<RefCell<EspRmtState>>,
@@ -151,8 +173,8 @@ impl EspRmt {
         path: &str,
         hub: SignalHub,
     ) -> Result<(Self, EspRmtHandle), SignalError> {
-        let mut signals = Vec::with_capacity(CHANNEL_COUNT);
-        for channel in 0..CHANNEL_COUNT {
+        let mut signals = Vec::with_capacity(TX_CHANNEL_COUNT);
+        for channel in 0..TX_CHANNEL_COUNT {
             signals.push(hub.declare(
                 format!("{path}.ch{channel}"),
                 SignalValue::repeat(Logic::Z, 1)?,
@@ -176,20 +198,20 @@ impl EspRmt {
     }
 
     fn channel_data(offset: u64) -> Option<usize> {
-        (offset < 0x10)
+        (offset < TX_CHANNEL_COUNT as u64 * 4)
             .then(|| usize::try_from(offset / 4).ok())
             .flatten()
     }
 
     fn channel_config(offset: u64) -> Option<usize> {
-        (0x10..0x20)
+        (0x10..0x10 + TX_CHANNEL_COUNT as u64 * 4)
             .contains(&offset)
             .then(|| usize::try_from((offset - 0x10) / 4).ok())
             .flatten()
     }
 
     fn channel_status(offset: u64) -> Option<usize> {
-        (0x28..0x38)
+        (0x28..0x28 + TX_CHANNEL_COUNT as u64 * 4)
             .contains(&offset)
             .then(|| usize::try_from((offset - 0x28) / 4).ok())
             .flatten()
@@ -285,7 +307,7 @@ impl Device for EspRmt {
         for channel in &mut state.channels {
             *channel = RmtChannel::default();
         }
-        state.outputs = [Logic::Z; CHANNEL_COUNT];
+        state.outputs = [Logic::Z; TX_CHANNEL_COUNT];
         drop(state);
         let _ = self.handle.poll(SimTime::ZERO);
     }
@@ -305,7 +327,7 @@ mod tests {
             .unwrap();
         rmt.write(0x00, AccessWidth::Word, symbol, SimTime::ZERO)
             .unwrap();
-        rmt.write(0x10, AccessWidth::Word, 1, SimTime::ZERO)
+        rmt.write(0x10, AccessWidth::Word, (1 << 8) | 1, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.output(0).unwrap(), Logic::One);
         handle.poll(SimTime::from_ticks(2)).unwrap();
@@ -321,7 +343,7 @@ mod tests {
         let (mut rmt, handle) = EspRmt::new("rmt", "board.rmt", hub).unwrap();
         rmt.write(0x00, AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
-        rmt.write(0x10, AccessWidth::Word, 1, SimTime::ZERO)
+        rmt.write(0x10, AccessWidth::Word, (1 << 8) | 1, SimTime::ZERO)
             .unwrap();
         handle.poll(SimTime::from_ticks(1)).unwrap();
         assert_ne!(
@@ -330,5 +352,40 @@ mod tests {
                 & (1 << 22),
             0
         );
+    }
+
+    #[test]
+    fn rmt_keeps_receive_only_windows_out_of_transmit_model() {
+        let hub = SignalHub::new();
+        let (mut rmt, handle) = EspRmt::new("rmt", "board.rmt", hub).unwrap();
+
+        // Native C6 channels 2/3 use RX configuration registers at 0x18 and
+        // 0x1c. They must not start a synthetic transmitter channel.
+        rmt.write(0x18, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        rmt.write(0x1c, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.output(0).unwrap(), Logic::Z);
+        assert_eq!(handle.output(1).unwrap(), Logic::Z);
+        assert_eq!(rmt.read(0x18, AccessWidth::Word, SimTime::ZERO).unwrap(), 1);
+        assert_eq!(rmt.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(), 1);
+    }
+
+    #[test]
+    fn rmt_zero_divider_uses_native_divide_by_256_encoding() {
+        let hub = SignalHub::new();
+        let (mut rmt, handle) = EspRmt::new("rmt", "board.rmt", hub).unwrap();
+        let symbol = 1 | (1 << 15) | (1 << 16);
+        rmt.write(0x10, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        rmt.write(0x00, AccessWidth::Word, symbol, SimTime::ZERO)
+            .unwrap();
+        rmt.write(0x10, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.output(0).unwrap(), Logic::One);
+        handle.poll(SimTime::from_ticks(255)).unwrap();
+        assert_eq!(handle.output(0).unwrap(), Logic::One);
+        handle.poll(SimTime::from_ticks(256)).unwrap();
+        assert_eq!(handle.output(0).unwrap(), Logic::Zero);
     }
 }

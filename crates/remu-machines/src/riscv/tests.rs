@@ -180,7 +180,7 @@ fn esp32c6_rmt_native_map_exposes_ws2812_style_symbols() {
         .unwrap();
     machine
         .bus
-        .write(0x6000_6010, AccessWidth::Word, 1, SimTime::ZERO)
+        .write(0x6000_6010, AccessWidth::Word, (1 << 8) | 1, SimTime::ZERO)
         .unwrap();
 
     let rmt = machine.esp_rmt.as_ref().unwrap();
