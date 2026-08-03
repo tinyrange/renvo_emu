@@ -168,6 +168,12 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 #[test]
 fn esp32c6_pcnt_native_map_counts_gpio_edges() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    // The native reset value holds every PCNT unit in reset.  Match the
+    // ESP-IDF HAL's explicit release before configuring edge actions.
+    machine
+        .bus
+        .write(0x6001_2060, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
     machine
         .bus
         .write(

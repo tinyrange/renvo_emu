@@ -106,12 +106,17 @@ impl EspPcntState {
             // PCNT reset enables the filter and the zero/limit comparators.
             self.registers[(base + CONF0) / 4] = (16 & 0x3ff) | (0xf << 10);
         }
-        self.registers[CTRL / 4] = 0;
-        self.registers[0xfc / 4] = 0x0100_0000;
+        // The native reset value holds every pulse counter in reset.  The
+        // ESP-IDF HAL releases a unit with a high-then-low pulse on its
+        // corresponding bit, so keep these bits as ordinary level-sensitive
+        // register state rather than treating them as write-only commands.
+        self.registers[CTRL / 4] = 0x55;
+        self.registers[0xfc / 4] = 0x1907_2601;
     }
 
     fn paused(&self, unit: usize) -> bool {
-        self.registers[CTRL / 4] & (1 << (unit * 2 + 1)) != 0
+        let mask = (1 << (unit * 2)) | (1 << (unit * 2 + 1));
+        self.registers[CTRL / 4] & mask != 0
     }
 
     fn mode(conf: u32, channel: usize, rising: bool) -> u32 {
@@ -246,7 +251,7 @@ impl Device for EspPcnt {
         offset: u64,
         width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("ESP PCNT requires aligned word access"));
@@ -282,13 +287,16 @@ impl Device for EspPcnt {
                             .set(
                                 state.signals[unit],
                                 SignalValue::from_u64(0, 16).expect("PCNT count signal width"),
-                                SimTime::ZERO,
+                                at,
                             )
                             .map_err(|error| DeviceError::new(error.to_string()))?;
                     }
                 }
-                state.registers[CTRL / 4] = value & 0x0001_00ff & !(0x55);
-                state.registers[CTRL / 4] |= value & 0xaa;
+                // Only the reset/pause controls and the clock-enable bit are
+                // implemented in this functional slice.  Reset bits remain
+                // asserted until software explicitly clears them, matching
+                // pcnt_ll_clear_count's write-high/write-low sequence.
+                state.registers[CTRL / 4] = value & (0x0000_00ff | (1 << 16));
             }
             offset if offset >= COUNT_BASE && offset < COUNT_BASE + UNIT_COUNT * 4 => {}
             _ => state.registers[offset / 4] = value,
@@ -310,6 +318,9 @@ mod tests {
         let hub = SignalHub::new();
         let (mut pcnt, handle) = EspPcnt::new("pcnt", hub).unwrap();
         handle.bind_input(0, 0, 9).unwrap();
+        // Native reset leaves the unit held in reset; release it before use.
+        pcnt.write(CTRL as u64, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
         // CH0 positive-edge mode = increment, threshold0 = 1, enable it.
         pcnt.write(
             CONF0 as u64,
@@ -347,6 +358,8 @@ mod tests {
         let hub = SignalHub::new();
         let (mut pcnt, handle) = EspPcnt::new("pcnt", hub).unwrap();
         handle.bind_input(1, 0, 3).unwrap();
+        pcnt.write(CTRL as u64, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
         pcnt.write(
             CONF0 as u64 + 0x0c,
             AccessWidth::Word,
@@ -374,6 +387,8 @@ mod tests {
             1
         );
         pcnt.write(CTRL as u64, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        pcnt.write(CTRL as u64, AccessWidth::Word, 0, SimTime::ZERO)
             .unwrap();
         assert_eq!(
             pcnt.read((COUNT_BASE + 4) as u64, AccessWidth::Word, SimTime::ZERO)
