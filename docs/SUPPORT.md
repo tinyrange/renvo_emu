@@ -16,7 +16,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 The STM32L432KC functional slice also maps I2C1 at `0x40005400` and I2C3 at
-`0x40005800`. Each controller supports deterministic master START/STOP,
+`0x40005C00`. Each controller supports deterministic master START/STOP,
 programmable transfer counts, TXDR/RXDR transactions, injected target bytes,
 BUSY/TC/STOPF status, and event-interrupt routing (I2C1 event line 31 and I2C3
 event line 72). This is a transaction-level model: alternate-function pin
