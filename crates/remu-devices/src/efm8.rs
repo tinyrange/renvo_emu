@@ -40,32 +40,169 @@ const CRC0DAT: usize = (PAGE3 << 8) | 0xcb;
 const CRC0CN0: usize = (PAGE3 << 8) | 0xce;
 const CRC0FLIP: usize = (PAGE3 << 8) | 0xcf;
 const CRC0CN0_MASK: u8 = 0x05;
-const PCA0CN: usize = 0xd8;
-const PCA0MD: usize = 0xd9;
-const PCA0CPM0: usize = 0xda;
-const PCA0CPM1: usize = 0xdb;
-const PCA0CPM2: usize = 0xdc;
-const EIE1: usize = 0xe6;
 const XBR0: usize = 0xe1;
 const XBR2: usize = 0xe3;
-const EIP1: usize = 0x10bb;
-const EIP1H: usize = 0x10ee;
-const PCA0POL: usize = 0x96;
-const PCA0PWM: usize = 0xf7;
-const PCA0CENT: usize = 0xf8;
-const PCA0L: usize = 0xf9;
-const PCA0H: usize = 0xfa;
-const PCA0CPL0: usize = 0xfb;
-const PCA0CPH0: usize = 0xfc;
-const PCA0CPL1: usize = 0xe9;
-const PCA0CPH1: usize = 0xea;
-const PCA0CPL2: usize = 0xeb;
-const PCA0CPH2: usize = 0xec;
 const RSTSRC: usize = 0xef;
 const P0MDIN: usize = 0xf1;
 const P1MDIN: usize = 0xf2;
 const P2MDIN: usize = 0xf3;
 const P3MDIN: usize = (PAGE3 << 8) | 0xf4;
+
+/// Named EFM8 PCA and interrupt-control register identifier.
+///
+/// The EFM8 exposes most PCA registers on SFR pages 0 and 0x10.  The
+/// identifier stores the canonical page-0 address (or the explicit extended
+/// address for the priority registers), so device code and callers do not
+/// have to pass unlabelled integer register IDs around.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(u16)]
+pub enum Efm8PcaRegister {
+    /// PCA control and status flags (PCA0CN0, address 0xd8).
+    Pca0Cn = 0xd8,
+    /// PCA clock source and overflow interrupt enable (PCA0MD, 0xd9).
+    Pca0Md = 0xd9,
+    /// PCA channel 0 mode (PCA0CPM0, 0xda).
+    Pca0Cpm0 = 0xda,
+    /// PCA channel 1 mode (PCA0CPM1, 0xdb).
+    Pca0Cpm1 = 0xdb,
+    /// PCA channel 2 mode (PCA0CPM2, 0xdc).
+    Pca0Cpm2 = 0xdc,
+    /// PCA channel output polarity (PCA0POL, 0x96).
+    Pca0Pol = 0x96,
+    /// PCA PWM cycle length and overflow flags (PCA0PWM, 0xf7).
+    Pca0Pwm = 0xf7,
+    /// PCA edge/center selection (PCA0CENT, 0xf8).
+    Pca0Cent = 0xf8,
+    /// PCA counter low byte (PCA0L, 0xf9).
+    Pca0L = 0xf9,
+    /// PCA counter high byte (PCA0H, 0xfa).
+    Pca0H = 0xfa,
+    /// PCA channel 0 compare low byte (PCA0CPL0, 0xfb).
+    Pca0Cpl0 = 0xfb,
+    /// PCA channel 0 compare high byte (PCA0CPH0, 0xfc).
+    Pca0Cph0 = 0xfc,
+    /// PCA channel 1 compare low byte (PCA0CPL1, 0xe9).
+    Pca0Cpl1 = 0xe9,
+    /// PCA channel 1 compare high byte (PCA0CPH1, 0xea).
+    Pca0Cph1 = 0xea,
+    /// PCA channel 2 compare low byte (PCA0CPL2, 0xeb).
+    Pca0Cpl2 = 0xeb,
+    /// PCA channel 2 compare high byte (PCA0CPH2, 0xec).
+    Pca0Cph2 = 0xec,
+    /// PCA interrupt enable (EIE1, 0xe6).
+    Eie1 = 0xe6,
+    /// PCA interrupt priority (EIP1, extended page address 0x10bb).
+    Eip1 = 0x10bb,
+    /// PCA high-priority interrupt priority (EIP1H, extended page address 0x10ee).
+    Eip1h = 0x10ee,
+}
+
+impl Efm8PcaRegister {
+    /// Stable list of modeled PCA register IDs.
+    pub const ALL: [Self; 19] = [
+        Self::Pca0Cn,
+        Self::Pca0Md,
+        Self::Pca0Cpm0,
+        Self::Pca0Cpm1,
+        Self::Pca0Cpm2,
+        Self::Pca0Pol,
+        Self::Pca0Pwm,
+        Self::Pca0Cent,
+        Self::Pca0L,
+        Self::Pca0H,
+        Self::Pca0Cpl0,
+        Self::Pca0Cph0,
+        Self::Pca0Cpl1,
+        Self::Pca0Cph1,
+        Self::Pca0Cpl2,
+        Self::Pca0Cph2,
+        Self::Eie1,
+        Self::Eip1,
+        Self::Eip1h,
+    ];
+
+    /// Returns the canonical register address used by the device bus.
+    pub const fn address(self) -> usize {
+        self as usize
+    }
+
+    /// Returns the stable debugger/script-facing register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Pca0Cn => "pca0cn",
+            Self::Pca0Md => "pca0md",
+            Self::Pca0Cpm0 => "pca0cpm0",
+            Self::Pca0Cpm1 => "pca0cpm1",
+            Self::Pca0Cpm2 => "pca0cpm2",
+            Self::Pca0Pol => "pca0pol",
+            Self::Pca0Pwm => "pca0pwm",
+            Self::Pca0Cent => "pca0cent",
+            Self::Pca0L => "pca0l",
+            Self::Pca0H => "pca0h",
+            Self::Pca0Cpl0 => "pca0cpl0",
+            Self::Pca0Cph0 => "pca0cph0",
+            Self::Pca0Cpl1 => "pca0cpl1",
+            Self::Pca0Cph1 => "pca0cph1",
+            Self::Pca0Cpl2 => "pca0cpl2",
+            Self::Pca0Cph2 => "pca0cph2",
+            Self::Eie1 => "eie1",
+            Self::Eip1 => "eip1",
+            Self::Eip1h => "eip1h",
+        }
+    }
+
+    /// Resolves a raw SFR address to a named register.
+    ///
+    /// PCA registers are mirrored on SFR pages 0 and 0x10.  The device's
+    /// canonicalisation already resolves those aliases; accepting either
+    /// form here makes the public helper useful before canonicalisation too.
+    pub fn from_address(address: usize) -> Option<Self> {
+        match address {
+            0x10bb => Some(Self::Eip1),
+            0x10ee => Some(Self::Eip1h),
+            _ => match address & 0xff {
+                0xd8 => Some(Self::Pca0Cn),
+                0xd9 => Some(Self::Pca0Md),
+                0xda => Some(Self::Pca0Cpm0),
+                0xdb => Some(Self::Pca0Cpm1),
+                0xdc => Some(Self::Pca0Cpm2),
+                0x96 => Some(Self::Pca0Pol),
+                0xf7 => Some(Self::Pca0Pwm),
+                0xf8 => Some(Self::Pca0Cent),
+                0xf9 => Some(Self::Pca0L),
+                0xfa => Some(Self::Pca0H),
+                0xfb => Some(Self::Pca0Cpl0),
+                0xfc => Some(Self::Pca0Cph0),
+                0xe9 => Some(Self::Pca0Cpl1),
+                0xea => Some(Self::Pca0Cph1),
+                0xeb => Some(Self::Pca0Cpl2),
+                0xec => Some(Self::Pca0Cph2),
+                0xe6 => Some(Self::Eie1),
+                _ => None,
+            },
+        }
+    }
+}
+
+const PCA0CN: usize = Efm8PcaRegister::Pca0Cn.address();
+const PCA0MD: usize = Efm8PcaRegister::Pca0Md.address();
+const PCA0CPM0: usize = Efm8PcaRegister::Pca0Cpm0.address();
+const PCA0CPM1: usize = Efm8PcaRegister::Pca0Cpm1.address();
+const PCA0CPM2: usize = Efm8PcaRegister::Pca0Cpm2.address();
+const EIE1: usize = Efm8PcaRegister::Eie1.address();
+const EIP1: usize = Efm8PcaRegister::Eip1.address();
+const EIP1H: usize = Efm8PcaRegister::Eip1h.address();
+const PCA0POL: usize = Efm8PcaRegister::Pca0Pol.address();
+const PCA0PWM: usize = Efm8PcaRegister::Pca0Pwm.address();
+const PCA0CENT: usize = Efm8PcaRegister::Pca0Cent.address();
+const PCA0L: usize = Efm8PcaRegister::Pca0L.address();
+const PCA0H: usize = Efm8PcaRegister::Pca0H.address();
+const PCA0CPL0: usize = Efm8PcaRegister::Pca0Cpl0.address();
+const PCA0CPH0: usize = Efm8PcaRegister::Pca0Cph0.address();
+const PCA0CPL1: usize = Efm8PcaRegister::Pca0Cpl1.address();
+const PCA0CPH1: usize = Efm8PcaRegister::Pca0Cph1.address();
+const PCA0CPL2: usize = Efm8PcaRegister::Pca0Cpl2.address();
+const PCA0CPH2: usize = Efm8PcaRegister::Pca0Cph2.address();
 
 const PORTS: [usize; 4] = [P0, P1, P2, P3];
 const PORT_WIDTHS: [u8; 4] = [8, 8, 8, 5];
@@ -370,13 +507,28 @@ impl Efm8State {
     }
 
     fn pca_divider(&self) -> u64 {
+        // PCA0MD.CPS is bits 3:1.  Timer0 overflow and ECI are external
+        // event sources that are represented by one functional simulation
+        // tick here; SYSCLK is the unscaled abstract tick.  The EFM8 manual
+        // defines the oscillator sources as divided by eight.
         match (self.registers[PCA0MD] >> 1) & 0x07 {
             0 => 12,
             1 => 4,
-            2 | 3 => 1,
-            4 => 1,
+            2..=4 => 1,
             5 | 6 => 8,
             _ => 1,
+        }
+    }
+
+    fn pca_cycle_bits(&self) -> u8 {
+        // CLSEL values 4..7 are reserved.  Treat an invalid value as the
+        // reset 8-bit mode instead of silently widening the cycle to 11 bits.
+        match self.registers[PCA0PWM] & PCA0PWM_CLSEL_MASK {
+            0 => 8,
+            1 => 9,
+            2 => 10,
+            3 => 11,
+            _ => 8,
         }
     }
 
@@ -400,7 +552,7 @@ impl Efm8State {
         if mode & PCA0CPM_PWM16 != 0 {
             16
         } else {
-            8 + (self.registers[PCA0PWM] & PCA0PWM_CLSEL_MASK).min(3)
+            self.pca_cycle_bits()
         }
         .min(if channel < 3 { 16 } else { 8 })
     }
@@ -454,7 +606,7 @@ impl Efm8State {
         if overflow {
             self.registers[PCA0CN] |= PCA0CN_CF;
         }
-        let cycle_bits = 8 + (self.registers[PCA0PWM] & PCA0PWM_CLSEL_MASK).min(3);
+        let cycle_bits = self.pca_cycle_bits();
         let cycle_modulus = 1_u64 << cycle_bits;
         if u64::from(start) + ticks >= cycle_modulus {
             self.registers[PCA0PWM] |= PCA0PWM_COVF;
@@ -1047,14 +1199,28 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, CRC0CN0, CRC0DAT, CRC0FLIP, CRC0IN, EIE1, EIE1_EPCA0, Efm8Peripherals, IE,
-        IE_EA, IE_ESPI0, IE_ET0, IE_ET1, P0, P0MDOUT, PCA0CN, PCA0CN_CR, PCA0CPH0, PCA0CPH1,
-        PCA0CPL0, PCA0CPL1, PCA0CPM0, PCA0CPM1, PCA0MD, PCA0PWM, SBUF0, SPI0_SPIEN, SPI0_TXNF,
-        SPI0CN0, SPI0DAT, SimTime, TCON, TCON_TF1, TCON_TR0, TCON_TR1, TH1, TL1, TMOD, XBR0,
-        XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, CRC0CN0, CRC0DAT, CRC0FLIP, CRC0IN, EIE1_EPCA0, Efm8PcaRegister,
+        Efm8Peripherals, IE, IE_EA, IE_ESPI0, IE_ET0, IE_ET1, P0, P0MDOUT, PCA0CN_CR, SBUF0,
+        SPI0_SPIEN, SPI0_TXNF, SPI0CN0, SPI0DAT, SimTime, TCON, TCON_TF1, TCON_TR0, TCON_TR1, TH1,
+        TL1, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
     use remu_signals::Logic;
+
+    #[test]
+    fn pca_register_ids_are_named_and_page_aliased() {
+        assert_eq!(Efm8PcaRegister::Pca0Cn.address(), 0xd8);
+        assert_eq!(Efm8PcaRegister::Pca0Cn.name(), "pca0cn");
+        assert_eq!(
+            Efm8PcaRegister::from_address(0x10d8),
+            Some(Efm8PcaRegister::Pca0Cn)
+        );
+        assert_eq!(
+            Efm8PcaRegister::from_address(Efm8PcaRegister::Eip1.address()),
+            Some(Efm8PcaRegister::Eip1)
+        );
+        assert_eq!(Efm8PcaRegister::ALL.len(), 19);
+    }
 
     #[test]
     fn gpio_timer_uart_and_interrupt_slice_is_functional() {
@@ -1416,23 +1582,48 @@ mod tests {
         let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
         // Select SYSCLK as the abstract PCA timebase and configure an 8-bit PWM.
         device
-            .write(PCA0MD as u64, AccessWidth::Byte, 0x08, SimTime::ZERO)
-            .unwrap();
-        device
-            .write(PCA0PWM as u64, AccessWidth::Byte, 0, SimTime::ZERO)
-            .unwrap();
-        device
-            .write(PCA0CPM0 as u64, AccessWidth::Byte, 0x02, SimTime::ZERO)
-            .unwrap();
-        device
-            .write(PCA0CPL0 as u64, AccessWidth::Byte, 0x40, SimTime::ZERO)
-            .unwrap();
-        device
-            .write(PCA0CPH0 as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+            .write(
+                Efm8PcaRegister::Pca0Md.address() as u64,
+                AccessWidth::Byte,
+                0x08,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
             .write(
-                PCA0CN as u64,
+                Efm8PcaRegister::Pca0Pwm.address() as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Efm8PcaRegister::Pca0Cpm0.address() as u64,
+                AccessWidth::Byte,
+                0x02,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Efm8PcaRegister::Pca0Cpl0.address() as u64,
+                AccessWidth::Byte,
+                0x40,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Efm8PcaRegister::Pca0Cph0.address() as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Efm8PcaRegister::Pca0Cn.address() as u64,
                 AccessWidth::Byte,
                 PCA0CN_CR.into(),
                 SimTime::ZERO,
@@ -1448,7 +1639,7 @@ mod tests {
         // A channel compare and an input capture share the PCA request line.
         device
             .write(
-                PCA0CPM0 as u64,
+                Efm8PcaRegister::Pca0Cpm0.address() as u64,
                 AccessWidth::Byte,
                 0x49,
                 SimTime::from_ticks(0x100),
@@ -1456,7 +1647,7 @@ mod tests {
             .unwrap();
         device
             .write(
-                PCA0CPL0 as u64,
+                Efm8PcaRegister::Pca0Cpl0.address() as u64,
                 AccessWidth::Byte,
                 2,
                 SimTime::from_ticks(0x100),
@@ -1464,7 +1655,7 @@ mod tests {
             .unwrap();
         device
             .write(
-                PCA0CPH0 as u64,
+                Efm8PcaRegister::Pca0Cph0.address() as u64,
                 AccessWidth::Byte,
                 1,
                 SimTime::from_ticks(0x100),
@@ -1472,7 +1663,7 @@ mod tests {
             .unwrap();
         device
             .write(
-                EIE1 as u64,
+                Efm8PcaRegister::Eie1.address() as u64,
                 AccessWidth::Byte,
                 EIE1_EPCA0.into(),
                 SimTime::from_ticks(0x100),
@@ -1492,7 +1683,7 @@ mod tests {
 
         device
             .write(
-                PCA0CPM1 as u64,
+                Efm8PcaRegister::Pca0Cpm1.address() as u64,
                 AccessWidth::Byte,
                 0x21,
                 SimTime::from_ticks(0x104),
@@ -1504,7 +1695,7 @@ mod tests {
         assert_eq!(
             device
                 .read(
-                    PCA0CPL1 as u64,
+                    Efm8PcaRegister::Pca0Cpl1.address() as u64,
                     AccessWidth::Byte,
                     SimTime::from_ticks(0x108)
                 )
@@ -1514,7 +1705,7 @@ mod tests {
         assert_eq!(
             device
                 .read(
-                    PCA0CPH1 as u64,
+                    Efm8PcaRegister::Pca0Cph1.address() as u64,
                     AccessWidth::Byte,
                     SimTime::from_ticks(0x108)
                 )
