@@ -156,7 +156,8 @@ impl Device for Stm32Adc {
                     state.cr |= ADEN;
                     state.isr |= ADRDY | LDORDY;
                 }
-                if value & ADSTART != 0 {
+                // ADSTART is ignored while the ADC is disabled.
+                if value & ADSTART != 0 && state.cr & ADEN != 0 {
                     state.cr |= ADSTART;
                     state.convert();
                 }
@@ -215,6 +216,17 @@ mod tests {
             .unwrap();
         assert_eq!(
             adc.read(ISR, AccessWidth::Word, SimTime::ZERO).unwrap() as u32 & EOCAL,
+            0
+        );
+    }
+
+    #[test]
+    fn start_is_ignored_until_adc_is_enabled() {
+        let (mut adc, _) = Stm32Adc::new("adc1");
+        adc.write(CR, AccessWidth::Word, ADSTART.into(), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            adc.read(CR, AccessWidth::Word, SimTime::ZERO).unwrap() as u32 & ADSTART,
             0
         );
     }

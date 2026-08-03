@@ -260,7 +260,7 @@ same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
 
-The STM32L432KC model includes ADC1 at `0x50000000`. It supports the native
+The STM32L432KC model includes ADC1 at its native AHB2 address `0x50040000`. It supports the native
 enable/calibration/start sequence, regular-rank channel selection, deterministic
 12-bit host-injected samples, end-of-conversion flags, and data-register reads;
 analog settling, calibration curves, and DMA/oversampling timing are outside
