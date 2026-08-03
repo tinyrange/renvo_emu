@@ -210,6 +210,22 @@ fn esp32s3_timer_group_exposes_second_timer_interrupt() {
 #[test]
 fn esp32c6_lp_i2c_executes_native_command_link_and_fifo_transfer() {
     let (mut i2c, handle) = EspLpI2c::new("lp-i2c");
+    assert_eq!(
+        i2c.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        (1 << 3) | (1 << 9)
+    );
+    assert_eq!(
+        i2c.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        16
+    );
+    assert_eq!(
+        i2c.read(0x78, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        16
+    );
+    assert_eq!(
+        i2c.read(0x7c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        16
+    );
     handle.queue_rx(&[0x34, 0x12]);
     // WRITE two bytes, READ two bytes, then STOP. The command encoding follows
     // lp_i2c_command_reg_t: byte count in bits 7:0 and opcode in bits 13:11.
@@ -248,6 +264,46 @@ fn esp32c6_lp_i2c_executes_native_command_link_and_fifo_transfer() {
     assert_eq!(
         i2c.read(0xf8, AccessWidth::Word, SimTime::ZERO).unwrap(),
         35_656_003
+    );
+}
+
+#[test]
+fn esp32c6_lp_i2c_masks_registers_and_reports_fifo_errors() {
+    let (mut i2c, _) = EspLpI2c::new("lp-i2c");
+    i2c.write(0x28, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        i2c.read(0x28, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xffff
+    );
+
+    i2c.write(0x20, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(i2c.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+
+    for byte in 0..16 {
+        i2c.write(0x1c, AccessWidth::Word, byte, SimTime::ZERO)
+            .unwrap();
+    }
+    i2c.write(0x1c, AccessWidth::Word, 0xff, SimTime::ZERO)
+        .unwrap();
+    assert_ne!(
+        i2c.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 11),
+        0
+    );
+
+    i2c.write(0x24, AccessWidth::Word, 1 << 11, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        i2c.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 11),
+        0
+    );
+    for _ in 0..17 {
+        assert_eq!(i2c.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+    }
+    assert_ne!(
+        i2c.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 12),
+        0
     );
 }
 

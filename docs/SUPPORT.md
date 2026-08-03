@@ -7,7 +7,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 ## ESP32-C6 LP-I2C slice
 
 The low-power I2C controller is mapped at its native `0x600b1800` window.
-Reset-visible timing/configuration registers, the 32-byte TX/RX FIFO contract,
+Reset-visible timing/configuration registers, the native 16-byte TX/RX FIFO contract,
 eight command-link entries, immediate START/WRITE/READ/STOP/END execution,
 watermark and completion interrupts, and the version/date register are
 functional. Electrical arbitration, clock stretching, LP pad routing, DMA,
@@ -215,7 +215,10 @@ the target manifests and `PLAN.html`, principally:
   [OpenWCH CH32V003 EVT sources](https://github.com/openwch/ch32v003)
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
-- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals,
+  including the official [ESP32-C6 LP-I2C register definitions](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/register/soc/lp_i2c_reg.h),
+  [LP-I2C register layout](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/register/soc/lp_i2c_struct.h),
+  and [I2C low-level helpers](https://github.com/espressif/esp-idf/blob/master/components/esp_hal_i2c/esp32c6/include/hal/i2c_ll.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either
