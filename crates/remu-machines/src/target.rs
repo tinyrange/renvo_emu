@@ -539,7 +539,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 49,
         fidelity: Fidelity::Functional,
-        baseline: &["IOPORT/ICU", "GPT0 interrupt", "SCI9 UART", "VCD"],
+        baseline: &["IOPORT/ICU/ELC", "GPT0 interrupt", "SCI9 UART", "VCD"],
         sources: &[
             "https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware",
             "https://github.com/arduino/ArduinoCore-renesas",
