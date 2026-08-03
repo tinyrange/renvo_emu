@@ -52,8 +52,8 @@ VCD exposes PORT, timer, UART, comparator, DAC, and interrupt hierarchy, and the
 two runs byte-for-byte.
 
 The DAC register map and bit definitions are sourced from Microchip
-DS40001882E, section 35:
-<https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf>.
+DS40001882H, section 35:
+<https://ww1.microchip.com/downloads/en/DeviceDoc/SAM-D21-DA1-Family-Data-Sheet-DS40001882H.pdf>.
 
 The vendor lane builds the pinned Microchip Harmony
 `port_led_on_off_polling` main source unchanged. Tracked startup, declarations

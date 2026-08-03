@@ -642,7 +642,7 @@ W1C, reset, and unresolved-private-source boundary is documented in
 
 The ATSAMD21E18 slice also maps the native DAC at `0x42004800`. Its
 functional boundary follows the typed register map from Microchip
-DS40001882E §35: enable/reset, reference and event-control register state,
+DS40001882H §35: enable/reset, reference and event-control register state,
 interrupt enable/flag semantics, 10-bit right/left-adjusted `DATA`/`DATABUF`
 latches, buffered start/EMPTY/UNDERRUN behavior, IRQ 25, and deterministic
 host/VCD output-code observation. Analog settling, voltage/reference accuracy,
