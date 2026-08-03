@@ -300,6 +300,12 @@ impl EspGdmaState {
         let out_raw = self.registers[index(Esp32s3GdmaRegister::OutIntRaw)] & 0xff;
         let out_enable = self.registers[index(Esp32s3GdmaRegister::OutIntEnable)] & 0xff;
         self.registers[index(Esp32s3GdmaRegister::OutIntStatus)] = out_raw & out_enable;
+        let external_raw =
+            self.registers[index(Esp32s3GdmaRegister::ExternalMemoryRejectIntRaw)] & 1;
+        let external_enable =
+            self.registers[index(Esp32s3GdmaRegister::ExternalMemoryRejectIntEnable)] & 1;
+        self.registers[index(Esp32s3GdmaRegister::ExternalMemoryRejectIntStatus)] =
+            external_raw & external_enable;
         self.registers[index(Esp32s3GdmaRegister::InFifoStatus)] = fifo_status_in(self.input.len());
         self.registers[index(Esp32s3GdmaRegister::OutFifoStatus)] =
             fifo_status_out(self.output.len());
@@ -530,6 +536,10 @@ impl Device for EspGdma {
             Esp32s3GdmaRegister::OutIntClear => {
                 state.registers[index(Esp32s3GdmaRegister::OutIntRaw)] &= !(value & write_mask);
             }
+            Esp32s3GdmaRegister::ExternalMemoryRejectIntClear => {
+                state.registers[index(Esp32s3GdmaRegister::ExternalMemoryRejectIntRaw)] &=
+                    !(value & write_mask);
+            }
             Esp32s3GdmaRegister::InConfig0 if value & 1 != 0 => {
                 state.input.clear();
                 state.registers[index(register)] = value & write_mask;
@@ -706,6 +716,54 @@ mod tests {
                 SimTime::ZERO
             )
             .is_err()
+        );
+        gdma.write(
+            Esp32s3GdmaRegister::ExternalMemoryRejectIntRaw.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        gdma.write(
+            Esp32s3GdmaRegister::ExternalMemoryRejectIntEnable.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            gdma.read(
+                Esp32s3GdmaRegister::ExternalMemoryRejectIntStatus.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            1
+        );
+        gdma.write(
+            Esp32s3GdmaRegister::ExternalMemoryRejectIntClear.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            gdma.read(
+                Esp32s3GdmaRegister::ExternalMemoryRejectIntStatus.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            gdma.read(
+                Esp32s3GdmaRegister::ExternalMemoryRejectIntClear.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            0
         );
         assert!(
             gdma.write(
