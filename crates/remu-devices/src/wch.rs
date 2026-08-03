@@ -268,6 +268,14 @@ impl WchPficHandle {
                 })
             })
     }
+
+    /// Advances the QingKe system-count block and reports its IRQ source.
+    pub fn take_systick_pending(&self, now: SimTime) -> bool {
+        let mut state = self.state.borrow_mut();
+        WchPfic::advance_stk(&mut state, now);
+        (state.stk_control & (1 << 31) != 0)
+            || (state.stk_control & (1 << 1) != 0 && state.stk_countflag)
+    }
 }
 
 struct WchPficState {
@@ -278,6 +286,12 @@ struct WchPficState {
     config: u32,
     priorities: [u8; 256],
     system_control: u32,
+    stk_control: u32,
+    stk_countflag: bool,
+    stk_counter: u32,
+    stk_compare: u32,
+    stk_last_tick: u64,
+    stk_clock_remainder: u64,
 }
 
 impl WchPficState {
@@ -290,6 +304,12 @@ impl WchPficState {
             config: 0,
             priorities: [0; 256],
             system_control: 0,
+            stk_control: 0,
+            stk_countflag: false,
+            stk_counter: 0,
+            stk_compare: 0,
+            stk_last_tick: 0,
+            stk_clock_remainder: 0,
         }
     }
 }
@@ -317,6 +337,56 @@ impl WchPfic {
         (offset >= base && offset < base + 0x20 && offset % 4 == 0)
             .then(|| usize::try_from((offset - base) / 4).expect("PFIC word index fits"))
     }
+
+    fn advance_stk(state: &mut WchPficState, now: SimTime) {
+        let elapsed = now.ticks().saturating_sub(state.stk_last_tick);
+        state.stk_last_tick = now.ticks();
+        if state.stk_control & 1 == 0 || elapsed == 0 {
+            return;
+        }
+        let divisor = if state.stk_control & (1 << 2) != 0 {
+            1
+        } else {
+            8
+        };
+        let clocks = state.stk_clock_remainder.saturating_add(elapsed);
+        let ticks = clocks / divisor;
+        state.stk_clock_remainder = clocks % divisor;
+        if ticks == 0 {
+            return;
+        }
+        let period = 1_u64 << 32;
+        let compare = u64::from(state.stk_compare);
+        if state.stk_control & (1 << 3) != 0 {
+            let period = compare + 1;
+            let counter = u64::from(state.stk_counter);
+            let first = if counter < compare {
+                compare - counter
+            } else {
+                period + compare - counter
+            };
+            if ticks >= first {
+                state.stk_countflag = true;
+            }
+            state.stk_counter = u32::try_from(((counter % period) + (ticks % period)) % period)
+                .expect("STK counter fits u32");
+        } else {
+            // The QingKe V2 manual describes a vendor-specific up/down path
+            // when STRE is clear. Keep the baseline deterministic and bounded
+            // with its 32-bit free-running counter semantics.
+            let increment = u32::try_from(ticks % period).expect("STK tick count fits u32");
+            let counter = u64::from(state.stk_counter);
+            let first = if counter < compare {
+                compare - counter
+            } else {
+                period + compare - counter
+            };
+            if ticks >= first {
+                state.stk_countflag = true;
+            }
+            state.stk_counter = state.stk_counter.wrapping_add(increment);
+        }
+    }
 }
 
 impl Device for WchPfic {
@@ -324,8 +394,9 @@ impl Device for WchPfic {
         &self.name
     }
 
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        let state = self.state.borrow();
+    fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
+        let mut state = self.state.borrow_mut();
+        Self::advance_stk(&mut state, at);
         if width == AccessWidth::Byte && (0x400..0x500).contains(&offset) {
             let index = usize::try_from(offset - 0x400).expect("PFIC priority index fits");
             return Ok(u64::from(state.priorities[index]));
@@ -365,6 +436,10 @@ impl Device for WchPfic {
                     })
                     .unwrap_or(u32::MAX),
                 0xd10 => state.system_control,
+                0x1000 => state.stk_control,
+                0x1004 => u32::from(state.stk_countflag),
+                0x1008 => state.stk_counter,
+                0x1010 => state.stk_compare,
                 _ if (0x400..0x500).contains(&offset) => {
                     let index = usize::try_from(offset - 0x400).expect("PFIC priority index fits");
                     u32::from_le_bytes([
@@ -389,7 +464,7 @@ impl Device for WchPfic {
         offset: u64,
         width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
         let mut state = self.state.borrow_mut();
         if width == AccessWidth::Byte && (0x400..0x500).contains(&offset) {
@@ -403,7 +478,18 @@ impl Device for WchPfic {
         }
         let value = u32::try_from(value & u64::from(u32::MAX))
             .expect("masked PFIC register value fits u32");
-        if let Some(index) = Self::word_index(offset, 0x100) {
+        Self::advance_stk(&mut state, at);
+        if offset == 0x1000 {
+            state.stk_control = value & ((1 << 31) | 0x0f);
+        } else if offset == 0x1004 {
+            if value & 1 == 0 {
+                state.stk_countflag = false;
+            }
+        } else if offset == 0x1008 {
+            state.stk_counter = value;
+        } else if offset == 0x1010 {
+            state.stk_compare = value;
+        } else if let Some(index) = Self::word_index(offset, 0x100) {
             state.enabled[index] |= value;
         } else if let Some(index) = Self::word_index(offset, 0x180) {
             state.enabled[index] &= !value;

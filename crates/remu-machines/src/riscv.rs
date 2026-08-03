@@ -38,6 +38,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
+mod systick;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -567,7 +568,7 @@ impl RiscVMachine {
                 bus.map_device(
                     format!("{target}.pfic"),
                     0xe000_e000,
-                    0x1000,
+                    0x2000,
                     Box::new(pfic),
                 )?;
                 wch_pfic = Some(handle);
@@ -1035,6 +1036,8 @@ impl RiscVMachine {
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }
+
+            self.poll_wch_systick()?;
 
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {

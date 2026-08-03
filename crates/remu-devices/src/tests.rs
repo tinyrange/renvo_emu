@@ -524,3 +524,42 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+
+#[test]
+fn wch_pfic_models_stk_counter_compare_clock_and_irq12() {
+    let (mut pfic, handle) = WchPfic::new("pfic");
+    pfic.write(0x1010, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    pfic.write(0x1008, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    pfic.write(0x1000, AccessWidth::Word, 0x0f, SimTime::ZERO)
+        .unwrap();
+
+    assert!(!handle.take_systick_pending(SimTime::from_ticks(1)));
+    assert!(handle.take_systick_pending(SimTime::from_ticks(2)));
+    assert_ne!(
+        pfic.read(0x1004, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap()
+            & 1,
+        0
+    );
+    assert_eq!(
+        pfic.read(0x1008, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap(),
+        2
+    );
+    assert!(handle.take_systick_pending(SimTime::from_ticks(2)));
+    pfic.write(0x1004, AccessWidth::Word, 0, SimTime::from_ticks(2))
+        .unwrap();
+    assert!(!handle.take_systick_pending(SimTime::from_ticks(2)));
+
+    let (mut prescaled, prescaled_handle) = WchPfic::new("prescaled-pfic");
+    prescaled
+        .write(0x1010, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    prescaled
+        .write(0x1000, AccessWidth::Word, 0x0b, SimTime::ZERO)
+        .unwrap();
+    assert!(!prescaled_handle.take_systick_pending(SimTime::from_ticks(7)));
+    assert!(prescaled_handle.take_systick_pending(SimTime::from_ticks(8)));
+}
