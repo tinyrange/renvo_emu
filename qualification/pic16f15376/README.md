@@ -14,11 +14,11 @@ Implemented functionally: all 49 enhanced mid-range instruction families,
 14-bit word program memory, banked/common/linear RAM, the 16-level hardware
 stack, reset and interrupt vectors, oscillator-ready state, PORT/LAT/TRIS/
 ANSEL A–E, PPS register storage, PIR/PIE routing, Timer0/1, NCO1 fixed-duty
-overflow/output, EUSART1 transmit and watchdog reset. Timer,
-NCO and serial timing are deterministic approximations. NCO pulse-frequency
-mode, pulse-width/clock-source fidelity, analog modules, serial receive timing
-and unlisted peripherals remain unsupported and are not represented as
-hardware-accurate.
+and pulse-frequency overflow/output, EUSART1 transmit and watchdog reset.
+Timer, NCO and serial timing are deterministic approximations; NCO clock-source
+selection and exact pulse-width timing are not hardware-accurate. Analog
+modules, serial receive timing and unlisted peripherals remain unsupported and
+are not represented as hardware-accurate.
 
 Run from the repository root:
 
