@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpPwm,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -306,7 +306,6 @@ impl ArmMachine {
                 ("rp2040.i2c0", 0x4004_4000),
                 ("rp2040.i2c1", 0x4004_8000),
                 ("rp2040.adc", 0x4004_c000),
-                ("rp2040.pwm", 0x4005_0000),
                 ("rp2040.dma", 0x5000_0000),
                 ("rp2040.pio1", 0x5030_0000),
             ] {
@@ -419,7 +418,6 @@ impl ArmMachine {
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.adc", 0x400a_0000),
-                ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
                 ("rp2350.pio1", 0x5030_0000),
                 ("rp2350.pio2", 0x5040_0000),
@@ -571,6 +569,17 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
+        let (pwm_name, pwm_base) = match target {
+            TargetId::Rp2040 => ("rp2040.pwm", 0x4005_0000),
+            TargetId::Rp2350 => ("rp2350.pwm", 0x400a_8000),
+            _ => unreachable!(),
+        };
+        let pwm = if target == TargetId::Rp2350 {
+            RpPwm::new_rp2350(pwm_name)
+        } else {
+            RpPwm::new(pwm_name)
+        };
+        bus.map_device(pwm_name, pwm_base, 0x4000, Box::new(pwm))?;
         let (pio0, handle) = RpPio::new(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
@@ -1462,12 +1471,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
