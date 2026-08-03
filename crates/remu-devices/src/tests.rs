@@ -216,6 +216,208 @@ fn uart_captures_low_byte() {
 }
 
 #[test]
+fn rp_pl011_uses_named_registers_and_reset_values() {
+    let (mut uart, _handle) = RpPl011Uart::new("rp.uart1");
+    assert_eq!(
+        RpPl011Register::from_offset(0x30),
+        Some(RpPl011Register::Control)
+    );
+    assert_eq!(RpPl011Register::Control.offset(), 0x30);
+    assert_eq!(
+        uart.read(
+            RpPl011Register::Control.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x300
+    );
+    assert_eq!(
+        uart.read(
+            RpPl011Register::Flags.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x90
+    );
+    assert_eq!(
+        uart.read(
+            RpPl011Register::InterruptFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x12
+    );
+    assert_eq!(
+        uart.read(
+            RpPl011Register::PeripheralId0.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x11
+    );
+    assert_eq!(
+        uart.read(
+            RpPl011Register::CellId3.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xb1
+    );
+    assert!(RpPl011Register::from_offset(0x01c).is_none());
+}
+
+#[test]
+fn rp_pl011_transmit_requires_uart_and_transmitter_enable() {
+    let (mut uart, handle) = RpPl011Uart::new("rp.uart1");
+    uart.write(
+        RpPl011Register::Data.offset(),
+        AccessWidth::Word,
+        b'X'.into(),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert!(handle.bytes().is_empty());
+
+    uart.write(
+        RpPl011Register::Control.offset(),
+        AccessWidth::Word,
+        0x301,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    uart.write(
+        RpPl011Register::Data.offset(),
+        AccessWidth::Word,
+        0x0000_0041,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(handle.bytes(), b"A");
+}
+
+#[test]
+fn rp_pl011_applies_register_masks_and_clear_semantics() {
+    let (mut uart, _handle) = RpPl011Uart::new("rp.uart1");
+    uart.write(
+        RpPl011Register::IntegerBaud.offset(),
+        AccessWidth::Word,
+        u64::MAX,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    uart.write(
+        RpPl011Register::FractionalBaud.offset(),
+        AccessWidth::Word,
+        u64::MAX,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    uart.write(
+        RpPl011Register::InterruptMask.offset(),
+        AccessWidth::Word,
+        u64::MAX,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        uart.read(
+            RpPl011Register::IntegerBaud.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xffff
+    );
+    assert_eq!(
+        uart.read(
+            RpPl011Register::FractionalBaud.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x3f
+    );
+    assert_eq!(
+        uart.read(
+            RpPl011Register::InterruptMask.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x7ff
+    );
+    uart.write(
+        RpPl011Register::Control.offset(),
+        AccessWidth::Word,
+        u64::MAX,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        uart.read(
+            RpPl011Register::Control.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xff87
+    );
+    assert!(
+        uart.read(
+            RpPl011Register::Data.offset(),
+            AccessWidth::Byte,
+            SimTime::ZERO,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn rp_pl011_rejects_reserved_fifo_level_encodings() {
+    let (mut uart, _handle) = RpPl011Uart::new("rp.uart1");
+    assert!(
+        uart.write(
+            RpPl011Register::InterruptFifoLevel.offset(),
+            AccessWidth::Word,
+            0x25,
+            SimTime::ZERO,
+        )
+        .is_err()
+    );
+    assert_eq!(
+        uart.read(
+            RpPl011Register::InterruptFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x12
+    );
+
+    uart.write(
+        RpPl011Register::InterruptFifoLevel.offset(),
+        AccessWidth::Word,
+        0x24,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        uart.read(
+            RpPl011Register::InterruptFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x24
+    );
+}
+
+#[test]
 fn wch_usart_requires_enable_and_preserves_configuration() {
     let (mut usart, handle) = WchUsart::new("usart1");
     assert_eq!(
