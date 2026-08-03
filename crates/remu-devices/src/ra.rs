@@ -396,33 +396,71 @@ struct IicState {
     iccr1: u8,
     iccr2: u8,
     registers: [u8; 0x12],
-    status: u8,
+    status1: u8,
+    status2: u8,
     interrupt_enable: u8,
+    transmit_data: u8,
+    receive_data: u8,
     transmitted: Vec<u8>,
     received: VecDeque<u8>,
 }
 
 impl IicState {
-    const ENABLE: u8 = 1 << 7;
-    const START: u8 = 1 << 2;
-    const STOP: u8 = 1;
-    const BUS_BUSY: u8 = 1 << 7;
+    const ICE: u8 = 1 << 7;
+    const IICRST: u8 = 1 << 6;
+    const SOWP: u8 = 1 << 4;
+    const BBSY: u8 = 1 << 7;
+    const MST: u8 = 1 << 6;
+    const TRS: u8 = 1 << 5;
+    const STOP_REQUEST: u8 = 1 << 3;
+    const RESTART: u8 = 1 << 2;
+    const START_REQUEST: u8 = 1 << 1;
     const TDRE: u8 = 1 << 7;
     const TEND: u8 = 1 << 6;
     const RDRF: u8 = 1 << 5;
     const NACKF: u8 = 1 << 4;
     const STOP_DETECTED: u8 = 1 << 3;
     const START_DETECTED: u8 = 1 << 2;
+    const ICSR2_WRITABLE: u8 = 0x7f;
 
     fn reset() -> Self {
+        let mut registers = [0; 0x12];
+        // Native reset values for ICMR1/2, ICFER, ICSER, ICBRL, and ICBRH.
+        registers[0x02] = 0x08;
+        registers[0x03] = 0x06;
+        registers[0x05] = 0x72;
+        registers[0x06] = 0x09;
+        registers[0x10] = 0xff;
+        registers[0x11] = 0xff;
         Self {
-            status: Self::TDRE | Self::TEND,
+            iccr1: 0x1f,
+            registers,
+            transmit_data: 0xff,
             ..Self::default()
         }
     }
 
     fn interrupt_pending(&self) -> bool {
-        self.status & self.interrupt_enable != 0
+        self.status2 & self.interrupt_enable != 0
+    }
+
+    fn read_register(&self, offset: u64) -> u8 {
+        match offset {
+            0x00 => self.iccr1 | Self::SOWP,
+            0x01 => self.iccr2,
+            0x02 => self.registers[2] | 1 << 3,
+            0x03 => self.registers[3] & 0xf7,
+            0x04 => self.registers[4],
+            0x05 => self.registers[5] & 0x7f,
+            0x06 => self.registers[6] & 0xaf,
+            0x07 => self.interrupt_enable,
+            0x08 => self.status1,
+            0x09 => self.status2,
+            0x0a..=0x0f => self.registers[offset as usize],
+            0x10 | 0x11 => self.registers[offset as usize] | 0xe0,
+            0x12 => self.transmit_data,
+            _ => 0,
+        }
     }
 }
 
@@ -444,12 +482,12 @@ impl RaIicHandle {
     pub fn enqueue_receive(&self, byte: u8) {
         let mut state = self.0.lock().expect("RA IIC lock poisoned");
         state.received.push_back(byte);
-        state.status |= IicState::RDRF;
+        state.status2 |= IicState::RDRF;
     }
 
     /// Injects a deterministic missing-acknowledgement condition.
     pub fn set_nack(&self) {
-        self.0.lock().expect("RA IIC lock poisoned").status |= IicState::NACKF;
+        self.0.lock().expect("RA IIC lock poisoned").status2 |= IicState::NACKF;
     }
 
     /// Whether an enabled IIC status bit requests service.
@@ -462,7 +500,7 @@ impl RaIicHandle {
 
     /// Whether the controller currently owns a started bus.
     pub fn bus_busy(&self) -> bool {
-        self.0.lock().expect("RA IIC lock poisoned").status & IicState::BUS_BUSY != 0
+        self.0.lock().expect("RA IIC lock poisoned").iccr2 & IicState::BBSY != 0
     }
 }
 
@@ -502,19 +540,15 @@ impl Device for RaIic {
         }
         let mut state = self.state.lock().expect("RA IIC lock poisoned");
         let value = match offset {
-            0x00 => state.iccr1,
-            0x01 => (state.iccr2 & !IicState::BUS_BUSY) | (state.status & IicState::BUS_BUSY),
-            0x02..=0x04 | 0x05..=0x07 => state.registers[offset as usize],
-            0x08 => state.status,
-            0x09 => 0,
-            0x0a..=0x11 => state.registers[offset as usize],
-            0x12 => 0,
+            0x00..=0x12 => state.read_register(offset),
             0x13 => {
-                let value = state.received.pop_front().unwrap_or(0xff);
-                if state.received.is_empty() {
-                    state.status &= !IicState::RDRF;
+                if let Some(value) = state.received.pop_front() {
+                    state.receive_data = value;
                 }
-                value
+                if state.received.is_empty() {
+                    state.status2 &= !IicState::RDRF;
+                }
+                state.receive_data
             }
             _ => 0,
         };
@@ -535,30 +569,65 @@ impl Device for RaIic {
         let mut state = self.state.lock().expect("RA IIC lock poisoned");
         match offset {
             0x00 => {
-                state.iccr1 = value;
-                if value & IicState::ENABLE == 0 {
-                    state.status &= !IicState::BUS_BUSY;
+                if value & IicState::IICRST != 0 {
+                    let ice = value & IicState::ICE;
+                    *state = IicState::reset();
+                    state.iccr1 = ice | IicState::IICRST | IicState::SOWP;
+                } else {
+                    state.iccr1 = value & 0xef;
+                    if value & IicState::ICE == 0 {
+                        state.iccr2 &= !IicState::BBSY;
+                    }
                 }
             }
             0x01 => {
-                state.iccr2 = value & !IicState::BUS_BUSY;
-                if value & IicState::START != 0 {
-                    state.status |= IicState::BUS_BUSY | IicState::START_DETECTED;
+                let busy = state.iccr2 & IicState::BBSY != 0;
+                let old_mode = state.iccr2 & (IicState::MST | IicState::TRS);
+                let requested_mode = value & (IicState::MST | IicState::TRS);
+                let mode = if requested_mode != 0 {
+                    requested_mode
+                } else {
+                    old_mode
+                };
+                state.iccr2 = (state.iccr2 & IicState::BBSY)
+                    | mode
+                    | (value
+                        & (IicState::STOP_REQUEST | IicState::RESTART | IicState::START_REQUEST));
+                if value & IicState::START_REQUEST != 0 && !busy && state.iccr1 & IicState::ICE != 0
+                {
+                    state.iccr2 |= IicState::BBSY | IicState::MST;
+                    state.iccr2 &= !IicState::START_REQUEST;
+                    state.status2 |= IicState::START_DETECTED;
                 }
-                if value & IicState::STOP != 0 {
-                    state.status &= !IicState::BUS_BUSY;
-                    state.status |= IicState::STOP_DETECTED;
+                if value & IicState::RESTART != 0 && busy && state.iccr2 & IicState::MST != 0 {
+                    state.iccr2 &= !IicState::RESTART;
+                    state.status2 |= IicState::START_DETECTED;
+                }
+                if value & IicState::STOP_REQUEST != 0 && busy && state.iccr2 & IicState::MST != 0 {
+                    state.iccr2 &=
+                        !(IicState::BBSY | IicState::MST | IicState::TRS | IicState::STOP_REQUEST);
+                    state.status2 |= IicState::STOP_DETECTED;
                 }
             }
+            0x02 => state.registers[2] = value,
+            0x03 => state.registers[3] = value & 0xf7,
+            0x04 => state.registers[4] = value,
+            0x05 => state.registers[5] = value & 0x7f,
+            0x06 => state.registers[6] = value & 0xaf,
             0x07 => state.interrupt_enable = value,
-            0x08 => state.status &= !value,
-            0x09 => state.registers[9] = value,
+            0x08 => state.status1 &= value,
+            0x09 => {
+                state.status2 =
+                    (state.status2 & !IicState::ICSR2_WRITABLE) | (state.status2 & value)
+            }
+            0x0a..=0x0f => state.registers[offset as usize] = value,
+            0x10 | 0x11 => state.registers[offset as usize] = value & 0x1f,
             0x12 => {
+                state.transmit_data = value;
                 state.transmitted.push(value);
-                state.status |= IicState::TDRE | IicState::TEND;
+                state.status2 |= IicState::TDRE | IicState::TEND;
             }
             0x13 => {}
-            0x02..=0x06 | 0x0a..=0x11 => state.registers[offset as usize] = value,
             _ => {}
         }
         Ok(())
@@ -774,17 +843,12 @@ mod tests {
     #[test]
     fn iic_start_transmit_receive_and_stop_are_deterministic() {
         let (mut iic, handle) = RaIic::new("iic0");
-        iic.write(
-            0x00,
-            AccessWidth::Byte,
-            IicState::ENABLE.into(),
-            SimTime::ZERO,
-        )
-        .unwrap();
+        iic.write(0x00, AccessWidth::Byte, IicState::ICE.into(), SimTime::ZERO)
+            .unwrap();
         iic.write(
             0x01,
             AccessWidth::Byte,
-            IicState::START.into(),
+            IicState::START_REQUEST.into(),
             SimTime::ZERO,
         )
         .unwrap();
@@ -810,21 +874,90 @@ mod tests {
         );
         handle.set_nack();
         assert_ne!(
-            iic.read(0x08, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8 & IicState::NACKF,
+            iic.read(0x09, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8 & IicState::NACKF,
             0
         );
         iic.write(
             0x01,
             AccessWidth::Byte,
-            IicState::STOP.into(),
+            IicState::STOP_REQUEST.into(),
             SimTime::ZERO,
         )
         .unwrap();
         assert!(!handle.bus_busy());
         assert_eq!(
-            iic.read(0x08, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8
+            iic.read(0x09, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8
                 & IicState::STOP_DETECTED,
             IicState::STOP_DETECTED
+        );
+    }
+
+    #[test]
+    fn iic_reset_defaults_and_zero_to_clear_status_match_native_registers() {
+        let (mut iic, _) = RaIic::new("iic0");
+        assert_eq!(
+            iic.read(0x00, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x1f
+        );
+        assert_eq!(
+            iic.read(0x02, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x08
+        );
+        assert_eq!(
+            iic.read(0x03, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x06
+        );
+        assert_eq!(
+            iic.read(0x05, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x72
+        );
+        assert_eq!(
+            iic.read(0x06, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x09
+        );
+        assert_eq!(
+            iic.read(0x10, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xff
+        );
+        assert_eq!(
+            iic.read(0x11, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xff
+        );
+        assert_eq!(
+            iic.read(0x12, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xff
+        );
+        assert_eq!(iic.read(0x13, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0);
+
+        iic.write(0x00, AccessWidth::Byte, IicState::ICE.into(), SimTime::ZERO)
+            .unwrap();
+        iic.write(
+            0x01,
+            AccessWidth::Byte,
+            IicState::START_REQUEST.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_ne!(
+            iic.read(0x09, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8
+                & IicState::START_DETECTED,
+            0
+        );
+        // ICSR2 flags are cleared by writing zero, while writing one leaves a
+        // latched flag set.
+        iic.write(0x09, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        assert_ne!(
+            iic.read(0x09, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8
+                & IicState::START_DETECTED,
+            0
+        );
+        iic.write(0x09, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            iic.read(0x09, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8
+                & IicState::START_DETECTED,
+            0
         );
     }
 }
