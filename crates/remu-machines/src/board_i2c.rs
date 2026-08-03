@@ -63,6 +63,12 @@ impl BoardI2cEndpoint {
             if connector.protocol != ConnectorProtocol::I2c {
                 continue;
             }
+            if connector.data_pin == connector.clock_pin {
+                return Err(BoardError::I2cPinAlias {
+                    connector: connector.name.clone(),
+                    pin: connector.data_pin,
+                });
+            }
             let data_path = format!("{source_prefix}.pin{}", connector.data_pin);
             let clock_path = format!("{source_prefix}.pin{}", connector.clock_pin);
             let data = find_signal(&hub, &data_path)?;
@@ -171,6 +177,9 @@ impl BoardI2cEndpoint {
                 actual: protocol,
             });
         }
+        if address > 0x7f {
+            return Err(BoardError::I2cAddressWidth { address });
+        }
         let pins = *self
             .connectors
             .get(connector)
@@ -243,52 +252,34 @@ fn emit_i2c(
 ) -> Result<SimTime, BoardError> {
     const HALF: u64 = 5_000;
     let mut now = start.ticks();
+    let start_at = SimTime::from_ticks(now);
+    // An I2C transaction begins from the released (high/high) bus state.
+    set_line(hub, pins.clock, pins.connector_clock, Logic::One, start_at)?;
+    set_line(hub, pins.data, pins.connector_data, Logic::One, start_at)?;
+    set_line(hub, pins.data, pins.connector_data, Logic::Zero, start_at)?;
+    now = now.saturating_add(HALF);
     set_line(
         hub,
-        pins.data,
-        pins.connector_data,
+        pins.clock,
+        pins.connector_clock,
         Logic::Zero,
         SimTime::from_ticks(now),
     )?;
-    now = now.saturating_add(HALF);
-    let mut bytes = vec![(address << 1, false)];
-    bytes.extend(write.iter().copied().map(|byte| (byte, false)));
-    if !read.is_empty() {
-        bytes.push(((address << 1) | 1, false));
-        bytes.extend(read.iter().copied().map(|byte| (byte, true)));
+
+    now = emit_byte(hub, pins, address << 1, true, now)?;
+    for byte in write {
+        now = emit_byte(hub, pins, *byte, true, now)?;
     }
-    for (byte, _) in bytes {
-        for bit in (0..8).rev() {
-            let at = SimTime::from_ticks(now);
-            set_line(hub, pins.clock, pins.connector_clock, Logic::Zero, at)?;
-            set_line(
-                hub,
-                pins.data,
-                pins.connector_data,
-                if byte & (1 << bit) == 0 {
-                    Logic::Zero
-                } else {
-                    Logic::One
-                },
-                at,
-            )?;
-            now = now.saturating_add(HALF);
-            set_line(
-                hub,
-                pins.clock,
-                pins.connector_clock,
-                Logic::One,
-                SimTime::from_ticks(now),
-            )?;
-            now = now.saturating_add(HALF);
-        }
+    if !read.is_empty() {
+        // Release SDA while SCL is high, then pull it low for a repeated start.
         set_line(
             hub,
-            pins.clock,
-            pins.connector_clock,
-            Logic::Zero,
+            pins.data,
+            pins.connector_data,
+            Logic::One,
             SimTime::from_ticks(now),
         )?;
+        now = now.saturating_add(HALF);
         set_line(
             hub,
             pins.data,
@@ -301,16 +292,22 @@ fn emit_i2c(
             hub,
             pins.clock,
             pins.connector_clock,
-            Logic::One,
+            Logic::Zero,
             SimTime::from_ticks(now),
         )?;
-        now = now.saturating_add(HALF);
+        now = emit_byte(hub, pins, (address << 1) | 1, true, now)?;
+        for (index, byte) in read.iter().copied().enumerate() {
+            let ack = index + 1 < read.len();
+            now = emit_byte(hub, pins, byte, ack, now)?;
+        }
     }
+
+    // A stop condition is SDA rising while SCL is high.
     set_line(
         hub,
         pins.clock,
         pins.connector_clock,
-        Logic::One,
+        Logic::Zero,
         SimTime::from_ticks(now),
     )?;
     set_line(
@@ -318,6 +315,14 @@ fn emit_i2c(
         pins.data,
         pins.connector_data,
         Logic::Zero,
+        SimTime::from_ticks(now),
+    )?;
+    now = now.saturating_add(HALF);
+    set_line(
+        hub,
+        pins.clock,
+        pins.connector_clock,
+        Logic::One,
         SimTime::from_ticks(now),
     )?;
     now = now.saturating_add(HALF);
@@ -331,33 +336,86 @@ fn emit_i2c(
     Ok(SimTime::from_ticks(now))
 }
 
+fn emit_byte(
+    hub: &SignalHub,
+    pins: ConnectorPins,
+    byte: u8,
+    ack: bool,
+    mut now: u64,
+) -> Result<u64, BoardError> {
+    const HALF: u64 = 5_000;
+    for bit in (0..8).rev() {
+        let at = SimTime::from_ticks(now);
+        set_line(hub, pins.clock, pins.connector_clock, Logic::Zero, at)?;
+        set_line(
+            hub,
+            pins.data,
+            pins.connector_data,
+            if byte & (1 << bit) == 0 {
+                Logic::Zero
+            } else {
+                Logic::One
+            },
+            at,
+        )?;
+        now = now.saturating_add(HALF);
+        set_line(
+            hub,
+            pins.clock,
+            pins.connector_clock,
+            Logic::One,
+            SimTime::from_ticks(now),
+        )?;
+        now = now.saturating_add(HALF);
+    }
+    let at = SimTime::from_ticks(now);
+    set_line(hub, pins.clock, pins.connector_clock, Logic::Zero, at)?;
+    set_line(
+        hub,
+        pins.data,
+        pins.connector_data,
+        if ack { Logic::Zero } else { Logic::One },
+        at,
+    )?;
+    now = now.saturating_add(HALF);
+    set_line(
+        hub,
+        pins.clock,
+        pins.connector_clock,
+        Logic::One,
+        SimTime::from_ticks(now),
+    )?;
+    Ok(now.saturating_add(HALF))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn routes_sgp30_transfer_through_machine_connector_signals() {
+    fn fixture(data_pin: u8, clock_pin: u8) -> (SignalHub, BoardScenario) {
         let hub = SignalHub::new();
         hub.declare(
-            "board.esp32c6.chip_gpio.pin2",
+            format!("board.esp32c6.chip_gpio.pin{data_pin}"),
             SignalValue::repeat(Logic::Z, 1).unwrap(),
             None,
         )
         .unwrap();
-        hub.declare(
-            "board.esp32c6.chip_gpio.pin1",
-            SignalValue::repeat(Logic::Z, 1).unwrap(),
-            None,
-        )
-        .unwrap();
+        if data_pin != clock_pin {
+            hub.declare(
+                format!("board.esp32c6.chip_gpio.pin{clock_pin}"),
+                SignalValue::repeat(Logic::Z, 1).unwrap(),
+                None,
+            )
+            .unwrap();
+        }
         let scenario = BoardScenario {
             name: "nanoc6".to_owned(),
             target: "esp32c6".to_owned(),
             connectors: vec![super::super::BoardConnector {
                 name: "grove".to_owned(),
                 protocol: ConnectorProtocol::I2c,
-                data_pin: 2,
-                clock_pin: 1,
+                data_pin,
+                clock_pin,
                 voltage_mv: 5_000,
             }],
             mounts: Vec::new(),
@@ -371,6 +429,12 @@ mod tests {
             actions: Vec::new(),
             duration: 1,
         };
+        (hub, scenario)
+    }
+
+    #[test]
+    fn routes_sgp30_transfer_through_machine_connector_signals() {
+        let (hub, scenario) = fixture(2, 1);
         let mut endpoint =
             BoardI2cEndpoint::new(&scenario, hub.clone(), "board.esp32c6.chip_gpio").unwrap();
         let transfer = endpoint
@@ -392,6 +456,64 @@ mod tests {
             hub.with_registry(|registry| registry.find("board.nanoc6.connector.grove.data"))
                 .is_some()
         );
-        assert!(!hub.drain_changes().is_empty());
+        let data = hub
+            .with_registry(|registry| registry.find("board.nanoc6.connector.grove.data"))
+            .unwrap();
+        let clock = hub
+            .with_registry(|registry| registry.find("board.nanoc6.connector.grove.clock"))
+            .unwrap();
+        let mut clock_level = Logic::Z;
+        let mut starts = 0;
+        for change in hub.drain_changes() {
+            if change.signal == clock {
+                clock_level = change.value.bit(0).unwrap();
+            } else if change.signal == data
+                && change.value.bit(0) == Some(Logic::Zero)
+                && clock_level == Logic::One
+            {
+                starts += 1;
+            }
+        }
+        // The initialization transfer has one start; the read transfer has a
+        // start plus a repeated start between its write and read phases.
+        assert_eq!(starts, 3);
+        assert_eq!(
+            hub.with_registry(|registry| registry.value(data).unwrap().bit(0)),
+            Some(Logic::One)
+        );
+        assert_eq!(
+            hub.with_registry(|registry| registry.value(clock).unwrap().bit(0)),
+            Some(Logic::One)
+        );
+    }
+
+    #[test]
+    fn rejects_non_seven_bit_address_before_target_lookup() {
+        let (hub, scenario) = fixture(2, 1);
+        let mut endpoint =
+            BoardI2cEndpoint::new(&scenario, hub, "board.esp32c6.chip_gpio").unwrap();
+        let error = endpoint
+            .transfer("grove", 0x80, &[], 0, SimTime::ZERO)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            BoardError::I2cAddressWidth { address: 0x80 }
+        ));
+    }
+
+    #[test]
+    fn rejects_sda_scl_pin_aliases() {
+        let (hub, mut scenario) = fixture(2, 1);
+        scenario.connectors[0].clock_pin = 2;
+        let error = BoardI2cEndpoint::new(&scenario, hub, "board.esp32c6.chip_gpio")
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            BoardError::I2cPinAlias {
+                connector,
+                pin: 2
+            } if connector == "grove"
+        ));
     }
 }

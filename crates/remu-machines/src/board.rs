@@ -373,6 +373,20 @@ pub enum BoardError {
         /// Requested address.
         address: u8,
     },
+    /// An I2C transfer used an address outside the seven-bit address space.
+    #[error("I2C address {address:#04x} is not a seven-bit address")]
+    I2cAddressWidth {
+        /// Requested address.
+        address: u8,
+    },
+    /// An I2C connector aliases SDA and SCL onto the same MCU pin.
+    #[error("I2C connector {connector:?} uses the same pin {pin} for SDA and SCL")]
+    I2cPinAlias {
+        /// Connector name.
+        connector: String,
+        /// Aliased MCU pin.
+        pin: u8,
+    },
     /// A model-specific SGP30 command failed.
     #[error(transparent)]
     Sgp30(#[from] Sgp30Error),

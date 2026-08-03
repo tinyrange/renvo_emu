@@ -61,9 +61,12 @@ Rust.
 The endpoint intentionally remains a host-transfer slice: it emits the bus
 waveform and returns the model response, but it does not yet observe a
 firmware I2C controller's MMIO transaction or inject device ACK/data bits into
-that controller. The command-line board runner and this endpoint therefore do
-not yet claim that an ESP32-C6 firmware driver talks to the SGP30; that is the
-next machine-peripheral slice.
+that controller. Its deterministic waveform includes released high/high bus
+idle, start and repeated-start conditions, target ACKs, a final read NACK, and
+the stop condition; aliased SDA/SCL wiring and addresses outside the seven-bit
+range are rejected. The command-line board runner and this endpoint therefore
+do not yet claim that an ESP32-C6 firmware driver talks to the SGP30; that is
+the next machine-peripheral slice.
 
 An external protocol transfer uses the same machine hub and produces
 connector-level VCD changes:
