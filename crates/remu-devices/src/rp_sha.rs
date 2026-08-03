@@ -7,6 +7,55 @@ const CSR_ERROR: u32 = 1 << 4;
 const CSR_SUM_VALID: u32 = 1 << 2;
 const CSR_DATA_READY: u32 = 1 << 1;
 const CSR_START: u32 = 1;
+const CSR_CONFIG_MASK: u32 = CSR_BSWAP | CSR_DMA_SIZE_MASK;
+
+/// Register offsets in the RP2350 SHA-256 accelerator.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum Rp2350ShaRegister {
+    /// Control and status register.
+    Csr = 0x00,
+    /// Write-only message data register.
+    Wdata = 0x04,
+    /// Digest result word 0.
+    Sum0 = 0x08,
+    /// Digest result word 1.
+    Sum1 = 0x0c,
+    /// Digest result word 2.
+    Sum2 = 0x10,
+    /// Digest result word 3.
+    Sum3 = 0x14,
+    /// Digest result word 4.
+    Sum4 = 0x18,
+    /// Digest result word 5.
+    Sum5 = 0x1c,
+    /// Digest result word 6.
+    Sum6 = 0x20,
+    /// Digest result word 7.
+    Sum7 = 0x24,
+}
+
+impl TryFrom<u64> for Rp2350ShaRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::Csr),
+            0x04 => Ok(Self::Wdata),
+            0x08 => Ok(Self::Sum0),
+            0x0c => Ok(Self::Sum1),
+            0x10 => Ok(Self::Sum2),
+            0x14 => Ok(Self::Sum3),
+            0x18 => Ok(Self::Sum4),
+            0x1c => Ok(Self::Sum5),
+            0x20 => Ok(Self::Sum6),
+            0x24 => Ok(Self::Sum7),
+            _ => Err(DeviceError::new(format!(
+                "unmodeled RP2350 SHA-256 register at offset {offset:#x}"
+            ))),
+        }
+    }
+}
 
 fn atomic_update(current: u32, alias: u64, value: u32) -> Result<u32, DeviceError> {
     match alias {
@@ -67,7 +116,7 @@ impl Rp2350Sha256 {
             sum_valid: true,
             data_ready: true,
             message: Vec::new(),
-            sum: INITIAL_STATE,
+            sum: [0; 8],
         }
     }
 
@@ -168,20 +217,36 @@ impl Device for Rp2350Sha256 {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        let register = offset & 0x0fff;
+        let register = Rp2350ShaRegister::try_from(offset & 0x0fff)?;
         let value = match register {
-            0x00 => {
+            Rp2350ShaRegister::Csr => {
                 aligned_word(width, offset)?;
                 self.csr()
             }
-            0x08..=0x24 if (register - 0x08) % 4 == 0 => {
+            Rp2350ShaRegister::Sum0
+            | Rp2350ShaRegister::Sum1
+            | Rp2350ShaRegister::Sum2
+            | Rp2350ShaRegister::Sum3
+            | Rp2350ShaRegister::Sum4
+            | Rp2350ShaRegister::Sum5
+            | Rp2350ShaRegister::Sum6
+            | Rp2350ShaRegister::Sum7 => {
                 aligned_word(width, offset)?;
-                self.sum[usize::try_from((register - 0x08) / 4).expect("SHA sum index fits")]
+                let index = match register {
+                    Rp2350ShaRegister::Sum0 => 0,
+                    Rp2350ShaRegister::Sum1 => 1,
+                    Rp2350ShaRegister::Sum2 => 2,
+                    Rp2350ShaRegister::Sum3 => 3,
+                    Rp2350ShaRegister::Sum4 => 4,
+                    Rp2350ShaRegister::Sum5 => 5,
+                    Rp2350ShaRegister::Sum6 => 6,
+                    Rp2350ShaRegister::Sum7 => 7,
+                    _ => unreachable!("matched SHA sum register"),
+                };
+                self.sum[index]
             }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2350 SHA-256 read at offset {register:#x}"
-                )));
+            Rp2350ShaRegister::Wdata => {
+                return Err(DeviceError::new("RP2350 SHA-256 WDATA is write-only"));
             }
         };
         Ok(u64::from(value))
@@ -194,32 +259,35 @@ impl Device for Rp2350Sha256 {
         value: u64,
         _at: SimTime,
     ) -> Result<(), DeviceError> {
-        let register = offset & 0x0fff;
+        let register = Rp2350ShaRegister::try_from(offset & 0x0fff)?;
         let alias = (offset >> 12) & 3;
         let value = value & u64::from(u32::MAX);
         match register {
-            0x00 => {
+            Rp2350ShaRegister::Csr => {
                 aligned_word(width, offset)?;
                 let current = (u32::from(self.bswap) * CSR_BSWAP) | (u32::from(self.dma_size) << 8);
                 let updated = atomic_update(current, alias, value as u32)?;
-                self.bswap = updated & CSR_BSWAP != 0;
-                self.dma_size = ((updated & CSR_DMA_SIZE_MASK) >> 8) as u8;
-                if alias == 0 && value as u32 & CSR_ERROR != 0 {
+                let config = updated & CSR_CONFIG_MASK;
+                self.bswap = config & CSR_BSWAP != 0;
+                self.dma_size = ((config & CSR_DMA_SIZE_MASK) >> 8) as u8;
+                if value as u32 & CSR_ERROR != 0 {
                     self.error = false;
                 }
                 if value as u32 & CSR_START != 0 {
                     self.start();
                 }
             }
-            0x04 => self.write_data(width, value)?,
-            0x08..=0x24 if (register - 0x08) % 4 == 0 => {
+            Rp2350ShaRegister::Wdata => self.write_data(width, value)?,
+            Rp2350ShaRegister::Sum0
+            | Rp2350ShaRegister::Sum1
+            | Rp2350ShaRegister::Sum2
+            | Rp2350ShaRegister::Sum3
+            | Rp2350ShaRegister::Sum4
+            | Rp2350ShaRegister::Sum5
+            | Rp2350ShaRegister::Sum6
+            | Rp2350ShaRegister::Sum7 => {
                 return Err(DeviceError::new(format!(
-                    "RP2350 SHA-256 result at offset {register:#x} is read-only"
-                )));
-            }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2350 SHA-256 write at offset {register:#x}"
+                    "RP2350 SHA-256 result {register:?} is read-only"
                 )));
             }
         }
