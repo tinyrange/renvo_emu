@@ -17,8 +17,8 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
+    RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -308,7 +308,6 @@ impl ArmMachine {
                 ("rp2040.adc", 0x4004_c000),
                 ("rp2040.pwm", 0x4005_0000),
                 ("rp2040.dma", 0x5000_0000),
-                ("rp2040.pio1", 0x5030_0000),
             ] {
                 bus.map_device(
                     name,
@@ -421,8 +420,6 @@ impl ArmMachine {
                 ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio1", 0x5030_0000),
-                ("rp2350.pio2", 0x5040_0000),
             ] {
                 bus.map_device(
                     name,
@@ -571,11 +568,17 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
-        let (pio0, handle) = RpPio::new(
+        let pio_version = if target == TargetId::Rp2350 {
+            RpPioVersion::Rp2350
+        } else {
+            RpPioVersion::Rp2040
+        };
+        let (pio0, handle) = RpPio::new_with_version(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
             &format!("board.{target}.pio0.gpio"),
             signals.clone(),
+            pio_version,
         )?;
         bus.map_device(
             format!("{target}.pio0"),
@@ -584,6 +587,20 @@ impl ArmMachine {
             Box::new(pio0),
         )?;
         pio.push(handle);
+        let pio_count = if target == TargetId::Rp2350 { 3 } else { 2 };
+        for index in 1..pio_count {
+            let name = format!("{target}.pio{index}");
+            let base = 0x5020_0000 + (index as u64 * 0x0010_0000);
+            let (device, handle) = RpPio::new_with_version(
+                &name,
+                u16::from(manifest.gpio_count.min(32)),
+                &format!("board.{target}.pio{index}.gpio"),
+                signals.clone(),
+                pio_version,
+            )?;
+            bus.map_device(name, base, 0x4000, Box::new(device))?;
+            pio.push(handle);
+        }
         Ok(Self {
             target,
             cpu: ArmCpu::new(profile),
@@ -1462,12 +1479,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;

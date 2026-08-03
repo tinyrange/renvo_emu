@@ -16,12 +16,12 @@
       "id": "rp2350-arm",
       "result": ".remu/portfolio-smoke/rp2350-arm-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-bus.json",
-      "result_sha256": "1320d631f1a64c42142f334214bb3edd6b9fd739c0bca801f00fb30bb85f4d6b",
+      "result_sha256": "a05dcc4e49025c559abeb5bcf8c39b8cb979bac7db8e1433b33b8448045a0106",
       "bus_log_sha256": "00d2274c37f89556005d4ae57837f5fbae2bbb44941834379bf6799798a4ac52",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "8fa5ca1eec4ae0c65a3bd24efe0fe84559cba19c780aa6e962ee8abfc59711e0",
         "stats": {
           "instructions": 11,
           "time": 11,
@@ -33,12 +33,12 @@
       "id": "rp2350-arm-uart",
       "result": ".remu/portfolio-smoke/rp2350-arm-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-uart-bus.json",
-      "result_sha256": "78d898158aba314770e2987b0f40bae79e12f162e74708831f80ab23fe298cca",
+      "result_sha256": "f83ce53a68939962d62d7a6cf9704af2e3a1ed9e11029d0bc6c97c88b4b056a8",
       "bus_log_sha256": "bdb245fe3749ae0ae5c4ea77bb575b73fd88dcefc3b5768899bf52cc7ace95c3",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "8fa5ca1eec4ae0c65a3bd24efe0fe84559cba19c780aa6e962ee8abfc59711e0",
         "stats": {
           "instructions": 63,
           "time": 63,
@@ -50,12 +50,12 @@
       "id": "rp2350-arm-native-timer",
       "result": ".remu/portfolio-smoke/rp2350-arm-native-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-native-timer-bus.json",
-      "result_sha256": "d250819b6e38f2f03322de0870118637f008281398cda12a2f4d557dc56793a0",
+      "result_sha256": "a19523f8a176e87ce71be14a4e0c9ac5e416649c719a3e360eea415f6efd783e",
       "bus_log_sha256": "e5c0d8cde9a41fb0af6f72ddef90417bda4f00d4c78038c7a760a035cf95216e",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "8fa5ca1eec4ae0c65a3bd24efe0fe84559cba19c780aa6e962ee8abfc59711e0",
         "stats": {
           "instructions": 33,
           "time": 33,
@@ -67,12 +67,12 @@
       "id": "rp2350-arm-pio",
       "result": ".remu/portfolio-smoke/rp2350-arm-pio-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-pio-bus.json",
-      "result_sha256": "5e718436867c392d94be889628bad4790b7cd3ea21ed16e87888e657b3a6c4ba",
+      "result_sha256": "4bcb17ab0fa8c7559d64710131ba52d0ff63c9876df465c972a1b3985ade67d9",
       "bus_log_sha256": "e4200b15d4b55de7228cf83fdcdeebb144f377c4c75ddb16cc8d27ee4a0b0d31",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "5acde27cdce6062e47f98c1bfcc320537da9268901a0bc80f34fd96df6c47df5",
+        "trace_digest": "4dc15c7a87f0c08fa44a285b2d92b4ad95f1f84d698804390cec7b655900ca6c",
         "stats": {
           "instructions": 127,
           "time": 127,
@@ -84,12 +84,12 @@
       "id": "rp2350-riscv",
       "result": ".remu/portfolio-smoke/rp2350-riscv-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-bus.json",
-      "result_sha256": "46bae4a67ffe114f8dc04c986480321c3e74fbbf671fd7e55b8696bce65d33bb",
+      "result_sha256": "14b34edd7d5c67b7f9d37be32b66fe08728b0356df715b90a0068d15e865ec22",
       "bus_log_sha256": "2e43c9e94c14d02d871e3632297e3aeba2a135314cece80c54622a1f63217a2e",
       "outcome": {
         "reason": "Halted",
         "exit_code": 12,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "8fa5ca1eec4ae0c65a3bd24efe0fe84559cba19c780aa6e962ee8abfc59711e0",
         "stats": {
           "instructions": 10,
           "time": 10,
@@ -101,12 +101,12 @@
       "id": "rp2350-riscv-uart",
       "result": ".remu/portfolio-smoke/rp2350-riscv-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-uart-bus.json",
-      "result_sha256": "ef0ccba123fb27e68a25b319f8a7967f89e13c0e71b99434a81703f2776213c2",
+      "result_sha256": "524987674d3a4853452c46d952fcda028d70e3b015bdc6bc52e76fc2c20d798d",
       "bus_log_sha256": "51064328974f528689936b25f1401836c174f5bd46efb94d049292d3823e13fe",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "8fa5ca1eec4ae0c65a3bd24efe0fe84559cba19c780aa6e962ee8abfc59711e0",
         "stats": {
           "instructions": 68,
           "time": 68,
@@ -118,12 +118,12 @@
       "id": "rp2350-riscv-native-timer",
       "result": ".remu/portfolio-smoke/rp2350-riscv-native-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-native-timer-bus.json",
-      "result_sha256": "b9ae0b15ab1f97f8cc588415aba513a68481166c5295175fcdf10e351becd79e",
+      "result_sha256": "6991b67f93b92a51b50cb83ff468471ee6616c89e54d9919e3cdaa519bfef7ea",
       "bus_log_sha256": "ef741aea1dd852fe2e103a63a5c5fc2c27fec95f0d3db07c75b581914f8b5041",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "8fa5ca1eec4ae0c65a3bd24efe0fe84559cba19c780aa6e962ee8abfc59711e0",
         "stats": {
           "instructions": 46,
           "time": 46,
@@ -135,12 +135,12 @@
       "id": "rp2350-riscv-pio",
       "result": ".remu/portfolio-smoke/rp2350-riscv-pio-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-pio-bus.json",
-      "result_sha256": "2f4acfe3db98031725d1a0b2b397fa647647254d6aecb3bfcc2bb590b7381475",
+      "result_sha256": "55737ba10b070768eecc13960ac414c9eec6298d84d4b018384eb669600f7583",
       "bus_log_sha256": "2350ce2175144de0a2cdb20261d1d0117efa147d6bfc9d82c75ac6d24d62f74b",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "f08fdc36f6105061e8af276213176886fcb74b2f868cb66df82ba898bb719cb4",
+        "trace_digest": "ece9f8f330260c0a61be87110fec8f0a5ec8939425505f964280bd6be704615c",
         "stats": {
           "instructions": 111,
           "time": 111,

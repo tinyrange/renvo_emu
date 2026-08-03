@@ -54,7 +54,7 @@
       "family": "arm",
       "target": "rp2040",
       "artifact": ".remu/qualification/reduction/arm.json",
-      "artifact_sha256": "bd95b85ea3cdb541de1aa7d2287808165d5d5e939d041e8972bcfd21bb2b010e",
+      "artifact_sha256": "8dd77f5e706e27258f97c8dabb34bb87ace798beda1a156bac02bb2289f28556",
       "seeded_expected": 0,
       "original": {
         "source": [

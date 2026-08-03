@@ -136,6 +136,200 @@ fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
 }
 
 #[test]
+fn rp_pio_named_registers_model_fifo_levels_and_irq_masks() {
+    let hub = SignalHub::new();
+    let (mut pio, handle) =
+        RpPio::new_with_version("pio1", 32, "board.rp.pio1.gpio", hub, RpPioVersion::Rp2350)
+            .unwrap();
+    let version = RpPioVersion::Rp2350;
+    let offset = |register: RpPioRegister| register.offset_for_version(version);
+
+    assert_eq!(RpPioRegister::Txf(2).offset(), 0x18);
+    assert_eq!(
+        RpPioRegister::try_from_offset_for_version(0x0d4, version),
+        Ok(RpPioRegister::StateMachine {
+            machine: 0,
+            register: RpPioStateMachineRegister::Addr,
+        })
+    );
+    assert_eq!(offset(RpPioRegister::Intr), 0x16c);
+    assert_eq!(offset(RpPioRegister::Irq0Inte), 0x170);
+    assert_eq!(offset(RpPioRegister::Irq1Ints), 0x184);
+    assert!(RpPioRegister::try_from_offset_for_version(0x12c, version).is_err());
+    assert_eq!(
+        pio.read(0x044, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x1020_0404
+    );
+    assert_eq!(
+        pio.read(0x004, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x0f00_0f00
+    );
+
+    for value in 0..4 {
+        pio.write(0x010, AccessWidth::Word, value, SimTime::ZERO)
+            .unwrap();
+    }
+    assert_eq!(
+        pio.read(0x00c, AccessWidth::Word, SimTime::ZERO).unwrap() & 0xf,
+        4
+    );
+    assert_eq!(
+        pio.read(0x004, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 16),
+        1 << 16
+    );
+    pio.write(0x010, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    assert_ne!(
+        pio.read(0x008, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 16),
+        0
+    );
+    pio.write(0x008, AccessWidth::Word, 1 << 16, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        pio.read(0x008, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 16),
+        0
+    );
+
+    assert!(handle.inject_rx(0, 0xdead_beef));
+    assert_eq!(
+        pio.read(0x020, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xdead_beef
+    );
+    assert!(handle.inject_rx(0, 0x1234));
+    pio.write(
+        offset(RpPioRegister::Irq0Inte),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_ne!(
+        pio.read(
+            offset(RpPioRegister::Irq0Ints),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap()
+            & 1,
+        0
+    );
+    pio.write(
+        offset(RpPioRegister::Irq0Intf),
+        AccessWidth::Word,
+        2,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        pio.read(
+            offset(RpPioRegister::Irq0Ints),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap()
+            & 3,
+        3
+    );
+    pio.write(
+        offset(RpPioRegister::Irq1Inte),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        pio.read(
+            offset(RpPioRegister::Irq1Ints),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap()
+            & 1,
+        1
+    );
+    pio.write(
+        offset(RpPioRegister::GpioBase),
+        AccessWidth::Word,
+        0x10,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        pio.read(
+            offset(RpPioRegister::GpioBase),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0x10
+    );
+    pio.write(
+        offset(RpPioRegister::StateMachine {
+            machine: 0,
+            register: RpPioStateMachineRegister::ExecCtrl,
+        }),
+        AccessWidth::Word,
+        0x60,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        pio.read(
+            offset(RpPioRegister::StateMachine {
+                machine: 0,
+                register: RpPioStateMachineRegister::ExecCtrl,
+            }),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap()
+            & 0x60,
+        0x60
+    );
+    assert!(pio.read(0x048, AccessWidth::Word, SimTime::ZERO).is_err());
+
+    // Empty RX reads set the RXUNDER W1C field (bits 8..11), not the
+    // RXSTALL low nibble. EXEC_STALLED is a read-only status bit.
+    assert_eq!(
+        pio.read(0x024, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+    assert_eq!(
+        pio.read(0x008, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 9),
+        1 << 9
+    );
+    pio.write(0x008, AccessWidth::Word, 1 << 9, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        pio.read(0x008, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 9),
+        0
+    );
+    pio.write(
+        offset(RpPioRegister::StateMachine {
+            machine: 0,
+            register: RpPioStateMachineRegister::ExecCtrl,
+        }),
+        AccessWidth::Word,
+        1 << 31,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        pio.read(
+            offset(RpPioRegister::StateMachine {
+                machine: 0,
+                register: RpPioStateMachineRegister::ExecCtrl,
+            }),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 31),
+        0
+    );
+}
+
+#[test]
 fn esp_timer_group_schedules_and_clears_alarm_interrupts() {
     let (mut group, handle) = EspTimerGroup::new("timer-group", EspTimerGroupKind::Esp32C6);
     group
