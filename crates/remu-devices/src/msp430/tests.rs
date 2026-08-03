@@ -1,4 +1,5 @@
 use super::*;
+use remu_bus::SharedMemory;
 #[test]
 fn eusci_b0_register_ids_match_ti_map() {
     assert_eq!(Msp430EusciB0Register::Ctlw0.address(), 0x0540);
@@ -202,6 +203,106 @@ fn pmm_software_resets_self_clear_and_classify_low_power_modes() {
         handle.low_power_mode((1 << 4) | (1 << 5) | (1 << 6) | (1 << 7)),
         Msp430LowPowerMode::Lpm4_5
     );
+}
+
+#[test]
+fn fram_controller_exposes_passwords_masks_and_puc_on_locked_write() {
+    let hub = SignalHub::new();
+    let (mut device, handle, _gpio) =
+        Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+    assert_eq!(
+        device.read(SYSCFG0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x9603)
+    );
+    assert_eq!(
+        device.read(FRCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x9600)
+    );
+    assert_eq!(
+        device.read(GCCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x0006)
+    );
+    device
+        .write(FRCTL0 as u64, AccessWidth::HalfWord, 0x0030, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.take_frctl_reset());
+    assert_eq!(handle.fram_wait_states(), 0);
+
+    device
+        .write(FRCTL0 as u64, AccessWidth::HalfWord, 0xa5f3, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.frctl_unlocked());
+    assert_eq!(handle.fram_wait_states(), 7);
+    assert_eq!(
+        device.read(FRCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x9670)
+    );
+    device
+        .write(GCCTL0 as u64, AccessWidth::HalfWord, 0x00c6, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        device.read(GCCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x0086)
+    );
+}
+
+#[test]
+fn fram_write_protection_is_per_region_and_unlockable() {
+    let hub = SignalHub::new();
+    let (mut registers, handle, _gpio) =
+        Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+    let program = SharedMemory::zeroed(4);
+    let information = SharedMemory::zeroed(4);
+    let mut program_device = Msp430Fram::new("program", program.clone(), handle.clone(), false);
+    let mut info_device = Msp430Fram::new("info", information.clone(), handle.clone(), true);
+
+    program_device
+        .write(0, AccessWidth::Byte, 0x5a, SimTime::ZERO)
+        .unwrap();
+    info_device
+        .write(0, AccessWidth::Byte, 0xa5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(program.to_vec(), [0, 0, 0, 0]);
+    assert_eq!(information.to_vec(), [0, 0, 0, 0]);
+    assert_eq!(handle.fram_write_ignored(), 2);
+
+    registers
+        .write(SYSCFG0 as u64, AccessWidth::HalfWord, 0xa500, SimTime::ZERO)
+        .unwrap();
+    program_device
+        .write(0, AccessWidth::Byte, 0x5a, SimTime::ZERO)
+        .unwrap();
+    info_device
+        .write(0, AccessWidth::Byte, 0xa5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(program.to_vec(), [0x5a, 0, 0, 0]);
+    assert_eq!(information.to_vec(), [0xa5, 0, 0, 0]);
+
+    registers
+        .write(SYSCFG0 as u64, AccessWidth::HalfWord, 0xa503, SimTime::ZERO)
+        .unwrap();
+    program_device
+        .write(0, AccessWidth::Byte, 0xff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(program.to_vec()[0], 0x5a);
+}
+
+#[test]
+fn fram_access_powers_array_after_fram_power_bit_is_cleared() {
+    let hub = SignalHub::new();
+    let (mut registers, handle, _gpio) =
+        Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+    let storage = SharedMemory::from_bytes(vec![0x42]);
+    let mut fram = Msp430Fram::new("program", storage, handle.clone(), false);
+    registers
+        .write(FRCTL0 as u64, AccessWidth::HalfWord, 0xa500, SimTime::ZERO)
+        .unwrap();
+    registers
+        .write(GCCTL0 as u64, AccessWidth::HalfWord, 0, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.fram_powered());
+    assert_eq!(fram.read(0, AccessWidth::Byte, SimTime::ZERO), Ok(0x42));
+    assert!(handle.fram_powered());
 }
 #[test]
 fn eusci_captures_a_transmitted_byte() {

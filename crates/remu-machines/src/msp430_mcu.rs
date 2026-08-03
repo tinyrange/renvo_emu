@@ -11,9 +11,10 @@ use remu_core::{
 };
 use remu_cpu_msp430::{Msp430Cpu, Msp430Register};
 use remu_devices::{
-    GpioHandle, MSP430_ADC_VECTOR, MSP430_PORT1_VECTOR, MSP430_RTC_VECTOR, MSP430_TIMER_A0_VECTORS,
-    MSP430_TIMER_A1_VECTORS, MSP430_USCI_A0_VECTOR, MSP430_USCI_A1_VECTOR, MSP430_USCI_B0_VECTOR,
-    Msp430Peripherals, Msp430PeripheralsHandle, SignalHub,
+    GpioHandle, MSP430_ADC_VECTOR, MSP430_INFO_FRAM_SIZE, MSP430_INFO_FRAM_START,
+    MSP430_PORT1_VECTOR, MSP430_PROGRAM_FRAM_SIZE, MSP430_PROGRAM_FRAM_START, MSP430_RTC_VECTOR,
+    MSP430_TIMER_A0_VECTORS, MSP430_TIMER_A1_VECTORS, MSP430_USCI_A0_VECTOR, MSP430_USCI_A1_VECTOR,
+    MSP430_USCI_B0_VECTOR, Msp430Fram, Msp430Peripherals, Msp430PeripheralsHandle, SignalHub,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::Logic;
@@ -21,8 +22,10 @@ use remu_trace::{TraceDigest, TraceSink};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
-const FRAM_START: u64 = 0xc000;
-const FRAM_SIZE: usize = 16 * 1024;
+const FRAM_START: u64 = MSP430_PROGRAM_FRAM_START;
+const FRAM_SIZE: usize = MSP430_PROGRAM_FRAM_SIZE;
+const INFO_FRAM_START: u64 = MSP430_INFO_FRAM_START;
+const INFO_FRAM_SIZE: usize = MSP430_INFO_FRAM_SIZE;
 
 /// MSP430FR2433 machine construction, loading, and execution error.
 #[derive(Debug, Error)]
@@ -74,6 +77,7 @@ pub struct Msp430McuMachine {
     cpu: Msp430Cpu,
     bus: AddressSpace,
     fram: SharedMemory,
+    info_fram: SharedMemory,
     signals: SignalHub,
     gpio: [GpioHandle; 3],
     peripherals: Msp430PeripheralsHandle,
@@ -92,6 +96,7 @@ impl Msp430McuMachine {
         let (peripheral_device, peripherals, gpio) =
             Msp430Peripherals::new("msp430fr2433.peripherals", signals.clone())?;
         let fram = SharedMemory::zeroed(FRAM_SIZE);
+        let info_fram = SharedMemory::zeroed(INFO_FRAM_SIZE);
         let mut bus = AddressSpace::new(Endianness::Little);
         bus.map_device(
             "msp430fr2433.peripherals",
@@ -100,18 +105,35 @@ impl Msp430McuMachine {
             Box::new(peripheral_device),
         )?;
         bus.map_ram("msp430fr2433.sram", 0x2000, 4 * 1024, true)?;
-        bus.map_shared(
+        bus.map_device_with_permissions(
             "msp430fr2433.fram",
             FRAM_START,
             FRAM_SIZE,
             Permissions::RWX,
-            fram.clone(),
-            0,
+            Box::new(Msp430Fram::new(
+                "msp430fr2433.fram",
+                fram.clone(),
+                peripherals.clone(),
+                false,
+            )),
+        )?;
+        bus.map_device_with_permissions(
+            "msp430fr2433.info_fram",
+            INFO_FRAM_START,
+            INFO_FRAM_SIZE,
+            Permissions::RWX,
+            Box::new(Msp430Fram::new(
+                "msp430fr2433.info_fram",
+                info_fram.clone(),
+                peripherals.clone(),
+                true,
+            )),
         )?;
         Ok(Self {
             cpu: Msp430Cpu::new(),
             bus,
             fram,
+            info_fram,
             signals,
             gpio,
             peripherals,
@@ -119,6 +141,50 @@ impl Msp430McuMachine {
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
         })
+    }
+
+    fn load_bytes(&mut self, address: u64, data: &[u8]) -> Result<(), Msp430MachineError> {
+        for (index, byte) in data.iter().copied().enumerate() {
+            let current = address
+                .checked_add(u64::try_from(index).map_err(|_| Msp430MachineError::Load {
+                    address,
+                    message: "firmware load offset does not fit guest address".to_owned(),
+                })?)
+                .ok_or_else(|| Msp430MachineError::Load {
+                    address,
+                    message: "firmware load address overflow".to_owned(),
+                })?;
+            if (FRAM_START..FRAM_START + FRAM_SIZE as u64).contains(&current) {
+                let offset = usize::try_from(current - FRAM_START).expect("FRAM offset fits");
+                if !self.fram.write_range(offset, std::slice::from_ref(&byte)) {
+                    return Err(Msp430MachineError::Load {
+                        address: current,
+                        message: "program FRAM backing range failed".to_owned(),
+                    });
+                }
+            } else if (INFO_FRAM_START..INFO_FRAM_START + INFO_FRAM_SIZE as u64).contains(&current)
+            {
+                let offset =
+                    usize::try_from(current - INFO_FRAM_START).expect("info FRAM offset fits");
+                if !self
+                    .info_fram
+                    .write_range(offset, std::slice::from_ref(&byte))
+                {
+                    return Err(Msp430MachineError::Load {
+                        address: current,
+                        message: "information FRAM backing range failed".to_owned(),
+                    });
+                }
+            } else {
+                self.bus
+                    .load(current, std::slice::from_ref(&byte))
+                    .map_err(|error| Msp430MachineError::Load {
+                        address: current,
+                        message: error.to_string(),
+                    })?;
+            }
+        }
+        Ok(())
     }
 
     /// Loads MSP430 ELF segments and enters the reset vector at `0xfffe`.
@@ -134,19 +200,9 @@ impl Msp430McuMachine {
                 .load_address
                 .filter(|load_address| *load_address != segment.address)
             {
-                self.bus
-                    .load(load_address, &segment.data)
-                    .map_err(|error| Msp430MachineError::Load {
-                        address: load_address,
-                        message: error.to_string(),
-                    })?;
+                self.load_bytes(load_address, &segment.data)?;
             }
-            self.bus
-                .load(segment.address, &segment.data)
-                .map_err(|error| Msp430MachineError::Load {
-                    address: segment.address,
-                    message: error.to_string(),
-                })?;
+            self.load_bytes(segment.address, &segment.data)?;
         }
         self.cpu.reset(ResetKind::PowerOn, &mut self.bus)?;
         self.now = SimTime::ZERO;
@@ -164,6 +220,11 @@ impl Msp430McuMachine {
     /// Returns an immutable copy of all 16 KiB of FRAM for persistence assertions.
     pub fn fram_snapshot(&self) -> Vec<u8> {
         self.fram.to_vec()
+    }
+
+    /// Returns an immutable copy of the 512-byte information FRAM window.
+    pub fn info_fram_snapshot(&self) -> Vec<u8> {
+        self.info_fram.to_vec()
     }
 
     /// Enables or disables completed bus-access recording.
@@ -337,6 +398,10 @@ impl Msp430McuMachine {
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }
+            if self.peripherals.take_frctl_reset() {
+                self.reset(ResetKind::Software)?;
+                stats.events = stats.events.saturating_add(1);
+            }
             if self.peripherals.take_watchdog_reset() {
                 self.reset(ResetKind::Watchdog)?;
                 stats.events = stats.events.saturating_add(1);
@@ -460,6 +525,10 @@ mod tests {
     #[test]
     fn fram_survives_watchdog_reset() {
         let mut machine = Msp430McuMachine::new(TargetId::Msp430fr2433).unwrap();
+        machine
+            .bus
+            .write(0x0160, AccessWidth::HalfWord, 0xa500, SimTime::ZERO)
+            .unwrap();
         machine.debug_write_memory(0xc123, &[0x5a]).unwrap();
         // Supply a valid reset vector before asking the CPU to reset.
         machine.debug_write_memory(0xfffe, &[0x00, 0xc4]).unwrap();
@@ -556,5 +625,25 @@ mod tests {
         assert_eq!(result.reason, StopReason::Halted);
         assert_eq!(result.stats.events, 1);
         assert_eq!(machine.debug_read_memory(0x012a, 2).unwrap(), [0x00, 0x04]);
+    }
+
+    #[test]
+    fn mapped_program_and_info_fram_enforce_runtime_protection() {
+        let mut machine = Msp430McuMachine::new(TargetId::Msp430fr2433).unwrap();
+        machine.debug_write_memory(0xc123, &[0x5a]).unwrap();
+        machine.debug_write_memory(0x1800, &[0xa5]).unwrap();
+        assert_eq!(machine.debug_read_memory(0xc123, 1).unwrap(), [0]);
+        assert_eq!(machine.debug_read_memory(0x1800, 1).unwrap(), [0]);
+
+        machine
+            .bus
+            .write(0x0160, AccessWidth::HalfWord, 0xa500, SimTime::ZERO)
+            .unwrap();
+        machine.debug_write_memory(0xc123, &[0x5a]).unwrap();
+        machine.debug_write_memory(0x1800, &[0xa5]).unwrap();
+        assert_eq!(machine.debug_read_memory(0xc123, 1).unwrap(), [0x5a]);
+        assert_eq!(machine.debug_read_memory(0x1800, 1).unwrap(), [0xa5]);
+        assert_eq!(machine.fram_snapshot()[0x123], 0x5a);
+        assert_eq!(machine.info_fram_snapshot()[0], 0xa5);
     }
 }

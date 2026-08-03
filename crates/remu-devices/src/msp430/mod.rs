@@ -6,9 +6,15 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 mod clock;
+mod fram;
 mod pmm;
 mod registers;
 use clock::*;
+use fram::*;
+pub use fram::{
+    MSP430_INFO_FRAM_SIZE, MSP430_INFO_FRAM_START, MSP430_PROGRAM_FRAM_SIZE,
+    MSP430_PROGRAM_FRAM_START, Msp430Fram,
+};
 pub use pmm::Msp430LowPowerMode;
 use pmm::*;
 use registers::*;
@@ -17,7 +23,6 @@ pub use registers::{Msp430EusciB0Register, Msp430I2cEvent};
 const REGISTER_BYTES: usize = 0x1000;
 
 const PM5CTL0: usize = 0x0130;
-const FRCTL0: usize = 0x01a0;
 const CRC16DI: usize = 0x01c0;
 const CRCDIRB: usize = 0x01c2;
 const CRCINIRES: usize = 0x01c4;
@@ -156,6 +161,9 @@ struct Msp430State {
     rtc_delivered: bool,
     watchdog_epoch: u64,
     watchdog_reset: bool,
+    frctl_reset: bool,
+    frctl_unlocked: bool,
+    fram_write_ignored: u64,
     pmm_unlocked: bool,
     pmm_reset: Option<ResetKind>,
     pmm_reset_flags: u16,
@@ -490,6 +498,7 @@ impl Msp430State {
     fn reset_registers(&mut self, at: SimTime) {
         self.registers.fill(0);
         self.reset_pmm(at);
+        self.reset_fram();
         self.set_word(CSCTL0, CSCTL0_RESET);
         self.set_word(CSCTL1, CSCTL1_RESET);
         self.set_word(CSCTL2, CSCTL2_RESET);
@@ -1015,6 +1024,9 @@ impl Msp430Peripherals {
             rtc_delivered: false,
             watchdog_epoch: 0,
             watchdog_reset: false,
+            frctl_reset: false,
+            frctl_unlocked: false,
+            fram_write_ignored: 0,
             pmm_unlocked: false,
             pmm_reset: None,
             pmm_reset_flags: 0,
@@ -1095,10 +1107,7 @@ impl Device for Msp430Peripherals {
         state.update_inputs();
         normalize_clock_registers(&mut state, start, length);
         normalize_pmm_read(&mut state, start, length);
-        if start == FRCTL0 && length >= 2 {
-            let low = state.word(FRCTL0) & 0x00ff;
-            state.set_word(FRCTL0, 0x9600 | low);
-        }
+        normalize_fram_read(&mut state, start, length);
         if start == P1IV && length >= 2 {
             let flags = state.registers[PAIFG];
             let vector = flags
@@ -1254,6 +1263,9 @@ impl Device for Msp430Peripherals {
         }
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
         if handle_pmm_write(&mut state, start, length, value, at) {
+            return Ok(());
+        }
+        if handle_fram_write(&mut state, start, length, value)? {
             return Ok(());
         }
         let input_value = value as u16;

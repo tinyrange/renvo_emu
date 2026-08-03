@@ -724,6 +724,13 @@ const MANIFESTS: &[TargetManifest] = &[
                 executable: true,
             },
             MemoryRegion {
+                name: "info-fram",
+                start: 0x0000_1800,
+                size: 512,
+                kind: MemoryKind::Flash,
+                executable: false,
+            },
+            MemoryRegion {
                 name: "sram",
                 start: 0x0000_2000,
                 size: 4 * 1024,
@@ -747,6 +754,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "eUSCI_B0 I²C host",
             "FRAM",
             "CSCTL clock/FLL control",
+            "FRAM controller wait-state/protection",
             "VCD",
         ],
         sources: &[
@@ -755,6 +763,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         limitations: &[
             "Timer_A capture pin routing, SVS voltage thresholds, PMM NMI routing, analog-reference readiness, ADC sequence/comparator/reference fidelity, capacitive touch, BSL, eUSCI_A1 IrDA/pin routing, pin-level/slave/10-bit I²C, FLL lock timing, oscillator faults, and exact clock accuracy are deferred",
+            "FRAM cache/ECC timing and physical endurance are functional approximations",
         ],
     },
     TargetManifest {

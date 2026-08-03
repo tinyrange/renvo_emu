@@ -40,6 +40,17 @@ comparator/reference fidelity, capacitive touch, FLL lock convergence,
 oscillator fault dynamics, exact oscillator frequency, and unlisted serial modes
 remain outside this acceptance slice.
 
+The FRAM controller slice also models the FR2433 reset values and protected
+access rules for `FRCTL0`, `GCCTL0`, `GCCTL1` and `SYSCFG0`: NWAITS masking,
+the `0xA5` controller password, FRPWR wake-up, write-zero-to-clear controller
+flags, mutually exclusive uncorrectable-bit actions, and independent program
+and information-FRAM write protection. Program FRAM (`0xC000` compatibility
+window) and information FRAM (`0x1800..0x19ff`) remain persistent across
+machine resets; firmware loading bypasses runtime protection as a hardware
+programmer would. FRAM cache/ECC timing and physical endurance exhaustion are
+functional approximations; writes are not aged toward a finite simulated
+silicon lifetime.
+
 Run from the repository root:
 
 ```sh
