@@ -147,7 +147,7 @@ impl Pic16State {
         let peripheral = self.registers[INTCON] & INTCON_PEIE != 0
             && ((self.registers[PIR0] & self.registers[PIE0] & TMR0IF != 0)
                 || (self.registers[PIR4] & self.registers[PIE4] & TMR1IF != 0)
-                || (self.registers[PIR1] & self.registers[PIE1] & ADIF != 0)
+                || (self.registers[PIR1] & ADIF != 0 && self.registers[PIE1] & ADIE != 0)
                 || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
     }
