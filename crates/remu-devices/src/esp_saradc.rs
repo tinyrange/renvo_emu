@@ -303,10 +303,10 @@ impl Esp32S3SarAdcState {
             let low = (config >> 18) & 0x1fff;
             let high = (config >> 5) & 0x1fff;
             if sample > high {
-                self.registers[index(Esp32s3SarAdcRegister::IntRaw)] |= 1 << (29 - slot * 2);
+                self.registers[index(Esp32s3SarAdcRegister::IntRaw)] |= 1 << (29 - slot);
             }
             if sample < low {
-                self.registers[index(Esp32s3SarAdcRegister::IntRaw)] |= 1 << (27 - slot * 2);
+                self.registers[index(Esp32s3SarAdcRegister::IntRaw)] |= 1 << (27 - slot);
             }
         }
     }
@@ -692,6 +692,39 @@ mod tests {
             )
             .unwrap()
                 & (1 << 27),
+            0
+        );
+
+        handle.set_input(0, 0x3fff).unwrap();
+        adc.write(
+            Esp32s3SarAdcRegister::Threshold1Ctrl.offset(),
+            AccessWidth::Word,
+            (0x200 << 18) | (0x1000 << 5) | 3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            Esp32s3SarAdcRegister::ThresholdCtrl.offset(),
+            AccessWidth::Word,
+            (1 << 31) | (1 << 30),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            Esp32s3SarAdcRegister::Ctrl.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_ne!(
+            adc.read(
+                Esp32s3SarAdcRegister::IntRaw.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+                & (1 << 28),
             0
         );
     }
