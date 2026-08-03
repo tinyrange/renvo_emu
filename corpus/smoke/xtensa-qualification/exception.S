@@ -6,7 +6,9 @@
 level_one_vector:
     movi    a2, 0x3fc
     slli    a2, a2, 20
-    movi    a3, 0x400
+    // ESP32-S3 DRAM starts at 0x3fc88000; construct the low address without
+    // relying on a literal that the Xtensa assembler cannot encode directly.
+    movi    a3, 0x440
     slli    a3, a3, 9
     add     a2, a2, a3
     addi    a2, a2, 16
