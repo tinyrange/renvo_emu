@@ -156,10 +156,14 @@ impl Esp32S3SdmmcRegister {
             | Self::Dbaddru => 0,
             Self::Intmask => SDMMC_INTERRUPT_MASK,
             Self::Rintsts => SDMMC_INTERRUPT_MASK,
-            Self::Pwren | Self::Clksrc | Self::Ctype => 0x3,
+            // The S3 exposes two card slots: card-width bits 0/1 and
+            // card-width-8 bits 16/17.  The remaining generic DesignWare
+            // slots are not implemented by this target.
+            Self::Ctype => 0x0003_0003,
+            Self::Pwren | Self::Clksrc => 0x3,
             Self::Blksiz => 0xffff,
-            Self::Fifoth => 0x03ff_03ff,
-            Self::RstN => 0x7,
+            Self::Fifoth => SDMMC_FIFOTH_MASK,
+            Self::RstN => 0x3,
             Self::Idinten => SDMMC_IDMAC_INTERRUPT_MASK,
             Self::Pldmnd => 1,
             _ => u32::MAX,
@@ -201,6 +205,9 @@ const INT_RXDR: u32 = 1 << 5;
 const INT_RTO: u32 = 1 << 8;
 const SDMMC_INTERRUPT_MASK: u32 = 0x0003_ffff;
 const SDMMC_IDMAC_INTERRUPT_MASK: u32 = 0x0000_0337;
+const SDMMC_FIFOTH_MASK: u32 = 0x7fff_0fff;
+const SDMMC_HCON_RESET: u32 =
+    (1 << 0) | (1 << 1) | (1 << 6) | (1 << 7) | (19 << 10) | (1 << 18) | (1 << 22) | (3 << 24);
 
 const BLOCK_BYTES: usize = 512;
 const DEFAULT_CARD_BYTES: usize = 128 * BLOCK_BYTES;
@@ -266,7 +273,7 @@ impl Esp32S3SdmmcState {
         registers.insert(BLKSIZ, BLOCK_BYTES as u32);
         registers.insert(CDETECT, 0);
         registers.insert(VERID, 0x3430_322a);
-        registers.insert(HCON, 0x0000_0001);
+        registers.insert(HCON, SDMMC_HCON_RESET);
         Self {
             registers,
             raw_interrupts: 0,
@@ -464,7 +471,7 @@ impl Esp32S3SdmmcState {
         self.registers
             .insert(CDETECT, if self.card_present { 0 } else { 1 });
         self.registers.insert(VERID, 0x3430_322a);
-        self.registers.insert(HCON, 0x0000_0001);
+        self.registers.insert(HCON, SDMMC_HCON_RESET);
         self.raw_interrupts = 0;
         self.clear_fifos();
     }
@@ -785,6 +792,52 @@ mod tests {
                 )
                 .unwrap(),
             0xffff
+        );
+        assert_eq!(
+            sdmmc
+                .read(
+                    Esp32S3SdmmcRegister::Hcon.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(SDMMC_HCON_RESET)
+        );
+        sdmmc
+            .write(
+                Esp32S3SdmmcRegister::Fifoth.offset(),
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            sdmmc
+                .read(
+                    Esp32S3SdmmcRegister::Fifoth.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(SDMMC_FIFOTH_MASK)
+        );
+        sdmmc
+            .write(
+                Esp32S3SdmmcRegister::Ctype.offset(),
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            sdmmc
+                .read(
+                    Esp32S3SdmmcRegister::Ctype.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0003_0003
         );
         sdmmc
             .write(
