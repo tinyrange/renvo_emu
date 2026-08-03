@@ -10,7 +10,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
-| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
+| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0/UART1 transmit transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
@@ -204,7 +204,8 @@ the target manifests and `PLAN.html`, principally:
 - WCH CH32V003/CH32V006 datasheets, CH32V00x reference material, QingKe V2
   processor manual, and the official
   [OpenWCH CH32V003 EVT sources](https://github.com/openwch/ch32v003)
-- Raspberry Pi RP2040 and RP2350 datasheets and the official
+- Raspberry Pi [RP2040](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
+  and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
 - Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
 - Espressif’s official tool package index and crosstool-NG releases
@@ -218,6 +219,12 @@ bus logs, verifies the portfolio, and regenerates all six manifests. The
 manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
+
+The RP2040 model exposes UART1 at its native `0x40038000` base. The accepted
+slice captures writes to `UARTDR` and reports the reset `UARTFR` flags (`TXFE`
+and `RXFE`, `0x90`) just like the existing UART0 facade. Receive injection,
+baud-rate timing, interrupt generation, DMA pacing, and modem-control pins
+remain outside this deterministic CI slice.
 
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
