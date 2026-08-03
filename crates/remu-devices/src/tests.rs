@@ -53,36 +53,190 @@ fn timer_latches_and_clears_interrupt() {
 #[test]
 fn spi_captures_transmit_and_provides_deterministic_loopback() {
     let (mut spi, handle) = FunctionalSpi::new("spi");
+    spi.write(
+        Rp2040SpiRegister::SsiEnr.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2040SpiRegister::Ser.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
     assert_eq!(
-        spi.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
-        0x03
+        spi.read(
+            Rp2040SpiRegister::Sr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x06
     );
-    spi.write(0x08, AccessWidth::Word, 0xa5, SimTime::ZERO)
-        .unwrap();
+    spi.write(
+        Rp2040SpiRegister::Data(0).offset(),
+        AccessWidth::Word,
+        0xa5,
+        SimTime::ZERO,
+    )
+    .unwrap();
     assert_eq!(handle.transmitted(), [0xa5]);
     assert_eq!(
-        spi.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
-        0x0b
+        spi.read(
+            Rp2040SpiRegister::Sr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x0e
     );
     assert_eq!(
-        spi.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        spi.read(
+            Rp2040SpiRegister::Data(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
         0xa5
     );
     assert_eq!(
-        spi.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
-        0x03
+        spi.read(
+            Rp2040SpiRegister::Sr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x06
     );
 }
 
 #[test]
 fn spi_consumes_queued_host_bytes_before_loopback() {
     let (mut spi, handle) = FunctionalSpi::new("spi");
+    spi.write(
+        Rp2040SpiRegister::SsiEnr.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2040SpiRegister::Ser.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
     handle.queue_received(&[0x5a]);
-    spi.write(0x08, AccessWidth::Word, 0x33, SimTime::ZERO)
-        .unwrap();
+    spi.write(
+        Rp2040SpiRegister::Data(0).offset(),
+        AccessWidth::Word,
+        0x33,
+        SimTime::ZERO,
+    )
+    .unwrap();
     assert_eq!(
-        spi.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        spi.read(
+            Rp2040SpiRegister::Data(0).offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
         0x5a
+    );
+}
+
+#[test]
+fn rp2040_spi_uses_native_dw_ssi_offsets_masks_and_identifiers() {
+    assert_eq!(
+        Rp2040SpiRegister::from_offset(0x28),
+        Some(Rp2040SpiRegister::Sr)
+    );
+    assert_eq!(
+        Rp2040SpiRegister::from_offset(0x60),
+        Some(Rp2040SpiRegister::Data(0))
+    );
+    assert_eq!(
+        Rp2040SpiRegister::from_offset(0xec),
+        Some(Rp2040SpiRegister::Data(35))
+    );
+    assert_eq!(Rp2040SpiRegister::from_offset(0x08 + 1), None);
+    assert_eq!(Rp2040SpiRegister::Idr.offset(), 0x58);
+    let (mut spi, _) = FunctionalSpi::new("spi");
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Idr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x5153_5049
+    );
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::SsiVersionId.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x3430_312a
+    );
+}
+
+#[test]
+fn rp2040_spi_requires_enable_and_reports_fifo_interrupts() {
+    let (mut spi, handle) = FunctionalSpi::new("spi");
+    spi.write(
+        Rp2040SpiRegister::Data(0).offset(),
+        AccessWidth::Word,
+        0x12,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert!(handle.transmitted().is_empty());
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Txflr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1
+    );
+    spi.write(
+        Rp2040SpiRegister::Ser.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    spi.write(
+        Rp2040SpiRegister::SsiEnr.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(handle.transmitted(), [0x12]);
+    spi.write(
+        Rp2040SpiRegister::Imr.offset(),
+        AccessWidth::Word,
+        1 << 4,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert!(handle.interrupt_pending());
+    assert_eq!(
+        spi.read(
+            Rp2040SpiRegister::Rxflr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1
     );
 }
 

@@ -601,16 +601,13 @@ impl ArmMachine {
             Box::new(pwm_device),
         )?;
         chip_pwm = pwm_handle;
-        let spi_bases = match target {
-            TargetId::Rp2040 => [0x4003_c000, 0x4004_0000],
-            TargetId::Rp2350 => [0x4008_0000, 0x4008_8000],
-            _ => unreachable!(),
-        };
-        for (index, base) in spi_bases.into_iter().enumerate() {
-            let name = format!("{target}.spi{index}");
-            let (device, handle) = FunctionalSpi::new(&name);
-            bus.map_device(name, base, 0x1000, Box::new(device))?;
-            chip_spis.push(handle);
+        if target == TargetId::Rp2040 {
+            for (index, base) in [0x4003_c000, 0x4004_0000].into_iter().enumerate() {
+                let name = format!("{target}.spi{index}");
+                let (device, handle) = FunctionalSpi::new(&name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                chip_spis.push(handle);
+            }
         }
         let pio_version = if target == TargetId::Rp2350 {
             RpPioVersion::Rp2350
@@ -1354,6 +1351,16 @@ impl ArmMachine {
                     u16::from(usb_irq),
                     usb.interrupt_pending() && self.ppb.interrupt_enabled(u16::from(usb_irq)),
                 )?;
+            }
+            if self.target == TargetId::Rp2040 {
+                for (index, spi) in self.chip_spis.iter().enumerate() {
+                    let line =
+                        10_u16 + u16::try_from(index).expect("RP2040 SPI index fits IRQ line");
+                    self.cpu.set_interrupt(
+                        line,
+                        spi.interrupt_pending() && self.ppb.interrupt_enabled(line),
+                    )?;
+                }
             }
             for (index, spi) in self.spi.iter().enumerate() {
                 let line = 31_u16 + u16::try_from(index).expect("RP2350 SPI index fits IRQ line");
