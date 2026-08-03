@@ -178,8 +178,10 @@ impl RpAdc {
     const FCS_THRESH_MASK: u32 = 0x0f00_0000;
     const FCS_OVER: u32 = 1 << 11;
     const FCS_UNDER: u32 = 1 << 10;
+    const FCS_ERR: u32 = 1 << 2;
     const FCS_SHIFT: u32 = 1 << 1;
     const FCS_EN: u32 = 1 << 0;
+    const FIFO_ERROR: u16 = 1 << 15;
 
     /// Creates the five-channel RP2040-compatible variant.
     pub fn new(name: impl Into<String>) -> (Self, RpAdcHandle) {
@@ -268,7 +270,12 @@ impl RpAdc {
             if state.fifo.len() == 8 {
                 state.fifo_over = true;
             } else {
-                state.fifo.push_back(state.result);
+                let error = if state.control & Self::CS_ERR != 0 {
+                    Self::FIFO_ERROR
+                } else {
+                    0
+                };
+                state.fifo.push_back(state.result | error);
             }
         }
         if let Some(next) = self.next_round_robin_channel(state, channel) {
@@ -296,10 +303,13 @@ impl Device for RpAdc {
                     state.fifo_under = true;
                     return Ok(0);
                 };
+                let error = sample & Self::FIFO_ERROR != 0;
+                let sample = sample & !Self::FIFO_ERROR;
+                let error = error && state.fifo_control & Self::FCS_ERR != 0;
                 if state.fifo_control & Self::FCS_SHIFT != 0 {
-                    u32::from(sample >> 4)
+                    u32::from(sample >> 4) | (u32::from(error) << 15)
                 } else {
-                    u32::from(sample)
+                    u32::from(sample) | (u32::from(error) << 15)
                 }
             }
             RpAdcRegister::Div => state.divider,
@@ -546,6 +556,36 @@ mod tests {
             .unwrap()
                 & u64::from(RpAdc::FCS_UNDER),
             0
+        );
+    }
+
+    #[test]
+    fn fifo_error_control_exposes_per_sample_conversion_errors() {
+        let (mut adc, _handle) = RpAdc::new("adc");
+        adc.write(
+            RpAdcRegister::Fcs.offset(),
+            AccessWidth::Word,
+            u64::from(RpAdc::FCS_EN | RpAdc::FCS_ERR),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        // Selecting the temperature channel without powering its bias source
+        // gives the functional model a deterministic conversion error.
+        adc.write(
+            RpAdcRegister::Cs.offset(),
+            AccessWidth::Word,
+            u64::from(RpAdc::CS_EN | RpAdc::CS_START_ONCE | (4 << 12)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            adc.read(
+                RpAdcRegister::Fifo.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            u64::from(RpAdc::FIFO_ERROR)
         );
     }
 

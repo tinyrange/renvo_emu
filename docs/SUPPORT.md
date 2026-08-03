@@ -344,9 +344,10 @@ either supported or unsupported.
 The RP2040 and RP2350 ADC blocks are mapped at `0x4004c000` and `0x400a0000`.
 They implement the named native register map, deterministic channel selection,
 host-provided 12-bit samples, temperature-sensor enable, ready/result,
-round-robin selection, an eight-entry FIFO, divider, and FIFO-level interrupt
-status. The five-channel package model covers RP2040 and RP2350 QFN-60; the
-device crate also exposes a nine-channel RP2350 QFN-80 variant. Analog noise,
+round-robin selection, an eight-entry FIFO, divider, FIFO-level interrupt
+status, and the optional per-sample conversion-error flag in `FIFO[15]`.
+The five-channel package model covers RP2040 and RP2350 QFN-60; the device
+crate also exposes a nine-channel RP2350 QFN-80 variant. Analog noise,
 conversion latency, calibration trim, DMA pacing, and package pin coupling are
 intentionally outside this functional CI slice. The register contract is based
 on the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
