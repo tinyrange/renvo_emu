@@ -201,21 +201,33 @@ impl LedcState {
             }
             let increments = elapsed / timer.divider();
             if increments != 0 {
+                let divider = timer.divider();
                 let period = u64::from(timer.period());
                 let total = u64::from(timer.value) + increments;
                 if total >= period {
                     self.int_raw |= 1 << index;
                 }
                 timer.value = u32::try_from(total % period).expect("LEDC counter fits u32");
+                // Keep the unconsumed fractional divider ticks.  Advancing
+                // `last_time` straight to `now` would discard them whenever
+                // a poll occurs between divider boundaries, effectively
+                // stopping every timer whose divider is greater than one.
+                let consumed = increments.saturating_mul(divider);
+                timer.last_time = SimTime::from_ticks(
+                    timer
+                        .last_time
+                        .ticks()
+                        .saturating_add(consumed)
+                        .min(now.ticks()),
+                );
             }
-            timer.last_time = now;
         }
     }
 
     fn channel_level(&self, channel: usize) -> bool {
         let channel_state = self.channels[channel];
         if channel_state.conf0 & (1 << 2) == 0 {
-            return false;
+            return channel_state.conf0 & (1 << 3) != 0;
         }
         let timer = usize::try_from(channel_state.conf0 & 3).expect("LEDC timer selector fits");
         let timer = self.timers[timer];
@@ -542,6 +554,33 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn timer_divider_preserves_fractional_ticks_between_polls() {
+        let hub = SignalHub::new();
+        let (mut ledc, handle) = Esp32S3Ledc::new("ledc", "board.esp32s3.ledc", hub).unwrap();
+        // Two abstract ticks per timer increment, one-bit duty resolution.
+        ledc.write(TIMER_BASE, AccessWidth::Word, 1 | (2 << 4), SimTime::ZERO)
+            .unwrap();
+
+        handle.poll(SimTime::from_ticks(1)).unwrap();
+        assert_eq!(handle.timer_value(0), 0);
+        handle.poll(SimTime::from_ticks(2)).unwrap();
+        assert_eq!(handle.timer_value(0), 1);
+        handle.poll(SimTime::from_ticks(3)).unwrap();
+        assert_eq!(handle.timer_value(0), 1);
+        handle.poll(SimTime::from_ticks(4)).unwrap();
+        assert_eq!(handle.timer_value(0), 0);
+    }
+
+    #[test]
+    fn disabled_channel_publishes_the_native_idle_level() {
+        let hub = SignalHub::new();
+        let (mut ledc, handle) = Esp32S3Ledc::new("ledc", "board.esp32s3.ledc", hub).unwrap();
+        ledc.write(0x00, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.channel_level(0));
     }
 
     #[test]
