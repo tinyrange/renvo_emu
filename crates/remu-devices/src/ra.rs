@@ -465,24 +465,33 @@ const RTC_WKCNT: u64 = 0x08;
 const RTC_DAYCNT: u64 = 0x0a;
 const RTC_MONCNT: u64 = 0x0c;
 const RTC_YRCNT: u64 = 0x0e;
-const RTC_YRCNT_HI: u64 = 0x0f;
 const RTC_SECAL: u64 = 0x10;
 const RTC_MINAL: u64 = 0x12;
 const RTC_HRAL: u64 = 0x14;
 const RTC_WKAL: u64 = 0x16;
 const RTC_DAYAL: u64 = 0x18;
 const RTC_MONAL: u64 = 0x1a;
+const RTC_YRAL: u64 = 0x1c;
+const RTC_YRAL_HI: u64 = 0x1d;
+const RTC_YRAREN: u64 = 0x1e;
 const RTC_RCR1: u64 = 0x22;
 const RTC_RCR2: u64 = 0x24;
 const RTC_RCR4: u64 = 0x28;
-const RTC_RCR1_AF: u8 = 1 << 0;
-const RTC_RCR1_AIE: u8 = 1 << 3;
-const RTC_RCR1_CIE: u8 = 1 << 4;
-const RTC_RCR1_CF: u8 = 1 << 7;
+const RTC_RCR1_AIE: u8 = 1 << 0;
+const RTC_RCR1_CIE: u8 = 1 << 1;
+const RTC_RCR1_PIE: u8 = 1 << 2;
+const RTC_RCR1_RTCOS: u8 = 1 << 3;
+const RTC_RCR1_PES_MASK: u8 = 0xf0;
 const RTC_RCR2_START: u8 = 1 << 0;
 const RTC_RCR2_RESET: u8 = 1 << 1;
-const RTC_RCR2_RTCEN: u8 = 1 << 3;
+const RTC_RCR2_ADJ30: u8 = 1 << 2;
+const RTC_RCR2_RTCOE: u8 = 1 << 3;
+const RTC_RCR2_AADJE: u8 = 1 << 4;
+const RTC_RCR2_AADJP: u8 = 1 << 5;
+const RTC_RCR2_HR24: u8 = 1 << 6;
+const RTC_RCR2_CNTMD: u8 = 1 << 7;
 const RTC_ALARM_ENABLE: u8 = 1 << 7;
+const RTC_YEAR_ALARM_ENABLE: u8 = 1;
 
 #[derive(Clone, Copy)]
 struct RtcCalendar {
@@ -593,7 +602,10 @@ struct RtcState {
     rcr2: u8,
     rcr4: u8,
     alarms: [u8; 6],
+    year_alarm: u16,
+    year_alarm_enable: bool,
     alarm_pending: bool,
+    alarm_request_sent: bool,
     last_alarm_second: Option<u64>,
 }
 
@@ -620,17 +632,53 @@ impl RtcState {
             calendar.month,
         ];
         let seconds = self.seconds(now);
-        if self.alarms.iter().zip(values).all(|(&alarm, value)| {
-            alarm & RTC_ALARM_ENABLE == 0 || from_bcd(alarm & !RTC_ALARM_ENABLE) == value
-        }) && self
+        let fields_match =
+            self.alarms
+                .iter()
+                .zip(values)
+                .enumerate()
+                .all(|(index, (&alarm, value))| {
+                    alarm & RTC_ALARM_ENABLE == 0
+                        || from_bcd(alarm & alarm_value_mask(index)) == value
+                });
+        let year_matches = !self.year_alarm_enable
+            || from_bcd(self.year_alarm as u8) == (calendar.year % 100) as u8;
+        let any_alarm_enabled = self
             .alarms
             .iter()
             .any(|alarm| alarm & RTC_ALARM_ENABLE != 0)
+            || self.year_alarm_enable;
+        if fields_match
+            && year_matches
+            && any_alarm_enabled
             && self.last_alarm_second != Some(seconds)
         {
             self.alarm_pending = true;
+            self.alarm_request_sent = false;
             self.last_alarm_second = Some(seconds);
         }
+    }
+
+    fn clear_alarm_latch(&mut self) {
+        self.alarm_pending = false;
+        self.alarm_request_sent = false;
+        self.last_alarm_second = None;
+    }
+}
+
+fn alarm_value_mask(index: usize) -> u8 {
+    match index {
+        // ENB is bit 7; the lower seven bits are BCD seconds/minutes.
+        0 | 1 => 0x7f,
+        // ENB is bit 7 and PM is ignored by the functional 24-hour model.
+        2 => 0x3f,
+        // ENB plus the three-bit weekday value.
+        3 => 0x07,
+        // ENB plus date bits (bit 6 is reserved).
+        4 => 0x3f,
+        // ENB plus month bits (bits 6 and 5 are reserved).
+        5 => 0x1f,
+        _ => 0x7f,
     }
 }
 
@@ -643,7 +691,15 @@ impl RaRtcHandle {
     pub fn poll(&self, now: SimTime) -> bool {
         let mut state = self.0.lock().expect("RA RTC lock poisoned");
         state.refresh(now);
-        state.alarm_pending && state.rcr1 & RTC_RCR1_AIE != 0
+        if state.alarm_pending && state.rcr1 & RTC_RCR1_AIE != 0 && !state.alarm_request_sent {
+            // The real alarm request is latched in the ICU IELSR IR bit. Emit
+            // one request per counter match; the machine/firmware clears the
+            // corresponding ICU pending bit before another match can occur.
+            state.alarm_request_sent = true;
+            true
+        } else {
+            false
+        }
     }
 
     /// Returns whether the alarm flag is latched.
@@ -679,7 +735,10 @@ impl RaRtc {
         let seconds = state.seconds(at);
         let calendar = calendar_from_seconds(seconds);
         match offset {
-            RTC_R64CNT => (at.ticks() % 64) as u8,
+            // The functional scheduler advances in whole RTC seconds, so no
+            // sub-second phase is represented yet. Bit 7 is reserved and
+            // reads as zero on the hardware.
+            RTC_R64CNT => 0,
             RTC_SECCNT => to_bcd(calendar.second),
             RTC_MINCNT => to_bcd(calendar.minute),
             RTC_HRCNT => to_bcd(calendar.hour),
@@ -687,12 +746,14 @@ impl RaRtc {
             RTC_DAYCNT => to_bcd(calendar.day),
             RTC_MONCNT => to_bcd(calendar.month),
             RTC_YRCNT => to_bcd((calendar.year % 100) as u8),
-            RTC_YRCNT_HI => to_bcd((calendar.year / 100) as u8),
             RTC_SECAL | RTC_MINAL | RTC_HRAL | RTC_WKAL | RTC_DAYAL | RTC_MONAL => {
                 let index = usize::try_from((offset - RTC_SECAL) / 2).unwrap_or(0);
                 state.alarms[index]
             }
-            RTC_RCR1 => state.rcr1 | (u8::from(state.alarm_pending) * RTC_RCR1_AF),
+            RTC_YRAL => state.year_alarm as u8,
+            RTC_YRAL_HI => 0,
+            RTC_YRAREN => u8::from(state.year_alarm_enable),
+            RTC_RCR1 => state.rcr1,
             RTC_RCR2 => state.rcr2,
             RTC_RCR4 => state.rcr4,
             _ => 0,
@@ -711,42 +772,94 @@ impl RaRtc {
             RTC_WKCNT => updated.weekday = from_bcd(value).min(6),
             RTC_DAYCNT => updated.day = from_bcd(value).clamp(1, 31),
             RTC_MONCNT => updated.month = from_bcd(value).clamp(1, 12),
+            // RYRCNT is a 16-bit register, but only the low byte is the
+            // BCD year (00..99); the high byte is reserved and ignored.
             RTC_YRCNT => updated.year = (updated.year / 100) * 100 + u16::from(from_bcd(value)),
-            RTC_YRCNT_HI => updated.year = (u16::from(from_bcd(value)) * 100) + updated.year % 100,
             RTC_SECAL | RTC_MINAL | RTC_HRAL | RTC_WKAL | RTC_DAYAL | RTC_MONAL => {
                 let index = usize::try_from((offset - RTC_SECAL) / 2).unwrap_or(0);
-                state.alarms[index] = value;
+                state.alarms[index] = match index {
+                    0 | 1 => value & 0x7f | (value & RTC_ALARM_ENABLE),
+                    2 => value & 0x7f | (value & RTC_ALARM_ENABLE),
+                    3 => value & 0x87,
+                    4 => value & 0xbf,
+                    5 => value & 0x9f,
+                    _ => value,
+                };
+                state.clear_alarm_latch();
+                return;
+            }
+            RTC_YRAL => {
+                state.year_alarm = u16::from(value & 0x7f);
+                state.clear_alarm_latch();
+                return;
+            }
+            RTC_YRAL_HI => return,
+            RTC_YRAREN => {
+                state.year_alarm_enable = value & RTC_YEAR_ALARM_ENABLE != 0;
+                state.clear_alarm_latch();
                 return;
             }
             RTC_RCR1 => {
-                state.rcr1 = (state.rcr1 & !(RTC_RCR1_AIE | RTC_RCR1_CIE))
-                    | (value & (RTC_RCR1_AIE | RTC_RCR1_CIE));
-                if value & RTC_RCR1_AF == 0 {
-                    state.alarm_pending = false;
-                }
-                if value & RTC_RCR1_CF == 0 {
-                    state.rcr1 &= !RTC_RCR1_CF;
-                }
+                state.rcr1 = value
+                    & (RTC_RCR1_AIE
+                        | RTC_RCR1_CIE
+                        | RTC_RCR1_PIE
+                        | RTC_RCR1_RTCOS
+                        | RTC_RCR1_PES_MASK);
                 return;
             }
             RTC_RCR2 => {
+                let previous_seconds = state.seconds(at);
                 if value & RTC_RCR2_RESET != 0 {
-                    state.base_seconds = 0;
+                    // An RTC software reset initializes the prescaler and
+                    // alarm/adjustment registers. The calendar counters are
+                    // battery-backed and are not reset by this operation.
+                    state.alarms = [0; 6];
+                    state.year_alarm = 0;
+                    state.year_alarm_enable = false;
+                    state.clear_alarm_latch();
+                    state.rcr1 &= !(RTC_RCR1_CIE | RTC_RCR1_RTCOS);
+                    state.rcr2 &=
+                        !(RTC_RCR2_ADJ30 | RTC_RCR2_AADJE | RTC_RCR2_AADJP | RTC_RCR2_RTCOE);
+                    state.base_seconds = previous_seconds;
                     state.base_tick = at.ticks();
                 }
-                state.rcr2 = value & (RTC_RCR2_START | RTC_RCR2_RESET | RTC_RCR2_RTCEN);
-                state.running =
-                    value & (RTC_RCR2_START | RTC_RCR2_RTCEN) == (RTC_RCR2_START | RTC_RCR2_RTCEN);
+                if value & RTC_RCR2_ADJ30 != 0 {
+                    let second = current.second;
+                    let adjustment = if second < 30 {
+                        -i64::from(second)
+                    } else {
+                        i64::from(60 - second)
+                    };
+                    state.base_seconds = if adjustment.is_negative() {
+                        previous_seconds.saturating_sub(adjustment.unsigned_abs())
+                    } else {
+                        previous_seconds.saturating_add(adjustment as u64)
+                    };
+                    state.base_tick = at.ticks();
+                }
+                // RESET and ADJ30 are command bits and clear when the
+                // operation completes. START is the only run/stop control;
+                // RTCOE (bit 3) is merely the RTCOUT pin enable.
+                state.rcr2 = value
+                    & (RTC_RCR2_START
+                        | RTC_RCR2_RTCOE
+                        | RTC_RCR2_AADJE
+                        | RTC_RCR2_AADJP
+                        | RTC_RCR2_HR24
+                        | RTC_RCR2_CNTMD);
+                state.running = value & RTC_RCR2_START != 0;
                 state.base_seconds = state.seconds(at);
                 state.base_tick = at.ticks();
                 return;
             }
             RTC_RCR4 => {
-                state.rcr4 = value;
+                state.rcr4 = value & 1;
                 return;
             }
             _ => return,
         }
+        state.clear_alarm_latch();
         state.base_seconds = days_from_calendar(updated)
             .saturating_mul(86_400)
             .saturating_add(u64::from(updated.hour) * 3_600)
@@ -799,7 +912,10 @@ impl Device for RaRtc {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        *self.state.lock().expect("RA RTC lock poisoned") = RtcState::default();
+        // The RA4M1 RTC is in the battery-backed domain and its counters are
+        // explicitly not initialized by MCU, watchdog, external, or software
+        // system resets. Construction provides the initial power-on state;
+        // RCR2.RESET models the separate RTC software-reset command.
     }
 }
 
@@ -823,7 +939,7 @@ impl RaIcuHandle {
         let mut state = self.0.lock().expect("RA ICU lock poisoned");
         let mut lines = Vec::new();
         for (line, register) in state.ielsr.iter_mut().enumerate() {
-            if *register & 0x1ff == u32::from(event) {
+            if *register & 0x1ff == u32::from(event) && *register & (1 << 16) == 0 {
                 *register |= 1 << 16;
                 lines.push(u16::try_from(line).expect("RA ICU line fits u16"));
             }
@@ -946,7 +1062,7 @@ mod tests {
         rtc.write(
             RTC_RCR2,
             AccessWidth::Byte,
-            u64::from(RTC_RCR2_START | RTC_RCR2_RTCEN),
+            u64::from(RTC_RCR2_START),
             SimTime::ZERO,
         )
         .unwrap();
@@ -973,12 +1089,16 @@ mod tests {
         assert_eq!(
             rtc.read(RTC_RCR1, AccessWidth::Byte, SimTime::from_ticks(2))
                 .unwrap(),
-            0x09
+            u64::from(RTC_RCR1_AIE)
         );
+        // Alarm requests are latched by the ICU event, not exposed as a
+        // status bit in RCR1. A second poll for the same matching second is
+        // therefore not a duplicate request.
+        assert!(!handle.poll(SimTime::from_ticks(2)));
         rtc.write(
-            RTC_RCR1,
+            RTC_SECAL,
             AccessWidth::Byte,
-            u64::from(RTC_RCR1_AIE),
+            u64::from(RTC_ALARM_ENABLE | 0x03),
             SimTime::from_ticks(2),
         )
         .unwrap();
@@ -1014,7 +1134,89 @@ mod tests {
         assert_eq!(
             rtc.read(RTC_YRCNT, AccessWidth::HalfWord, SimTime::ZERO)
                 .unwrap(),
-            0x2024
+            0x0024
+        );
+    }
+
+    #[test]
+    fn rtc_uses_native_start_and_year_alarm_registers() {
+        let (mut rtc, handle) = RaRtc::new("rtc");
+        // RTCOE is an output-enable bit, not a clock-enable gate.
+        rtc.write(
+            RTC_RCR2,
+            AccessWidth::Byte,
+            u64::from(RTC_RCR2_RTCOE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            rtc.read(RTC_SECCNT, AccessWidth::Byte, SimTime::from_ticks(3))
+                .unwrap(),
+            0
+        );
+        rtc.write(
+            RTC_RCR2,
+            AccessWidth::Byte,
+            u64::from(RTC_RCR2_START),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        rtc.write(RTC_YRAL, AccessWidth::HalfWord, 0x0000, SimTime::ZERO)
+            .unwrap();
+        rtc.write(RTC_YRAREN, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        rtc.write(
+            RTC_RCR1,
+            AccessWidth::Byte,
+            u64::from(RTC_RCR1_AIE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(1)));
+        assert_eq!(
+            rtc.read(RTC_YRAL, AccessWidth::HalfWord, SimTime::from_ticks(1))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn rtc_software_reset_does_not_erase_calendar_but_clears_alarms() {
+        let (mut rtc, handle) = RaRtc::new("rtc");
+        rtc.write(RTC_SECCNT, AccessWidth::Byte, 0x42, SimTime::ZERO)
+            .unwrap();
+        rtc.write(
+            RTC_SECAL,
+            AccessWidth::Byte,
+            RTC_ALARM_ENABLE.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        rtc.write(
+            RTC_RCR2,
+            AccessWidth::Byte,
+            u64::from(RTC_RCR2_START),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        rtc.write(
+            RTC_RCR2,
+            AccessWidth::Byte,
+            u64::from(RTC_RCR2_START | RTC_RCR2_RESET),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        assert_eq!(
+            rtc.read(RTC_SECCNT, AccessWidth::Byte, SimTime::from_ticks(1))
+                .unwrap(),
+            0x43
+        );
+        assert!(!handle.alarm_pending(SimTime::from_ticks(1)));
+        assert_eq!(
+            rtc.read(RTC_RCR2, AccessWidth::Byte, SimTime::from_ticks(1))
+                .unwrap()
+                & u64::from(RTC_RCR2_RESET),
+            0
         );
     }
 }

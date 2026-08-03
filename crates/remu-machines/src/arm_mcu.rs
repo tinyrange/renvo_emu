@@ -1015,7 +1015,7 @@ mod tests {
         let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
         machine
             .bus
-            .write(0x4004_4024, AccessWidth::Byte, 0x09, SimTime::ZERO)
+            .write(0x4004_4024, AccessWidth::Byte, 0x01, SimTime::ZERO)
             .unwrap();
         machine
             .bus
@@ -1023,7 +1023,7 @@ mod tests {
             .unwrap();
         machine
             .bus
-            .write(0x4004_4022, AccessWidth::Byte, 0x08, SimTime::ZERO)
+            .write(0x4004_4022, AccessWidth::Byte, 0x01, SimTime::ZERO)
             .unwrap();
         assert_eq!(
             machine
@@ -1047,7 +1047,7 @@ mod tests {
                     SimTime::from_ticks(2)
                 )
                 .unwrap(),
-            0x09
+            0x01
         );
     }
 }
