@@ -18,7 +18,8 @@ use remu_devices::{
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
-    RpAdc, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    RpAdc, RpAdcHandle, RpAdcVariant, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout,
+    SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -45,6 +46,7 @@ pub struct ArmMachine {
     pub(crate) uart: UartHandle,
     pub(crate) chip_uart: UartHandle,
     pub(crate) chip_uart1: UartHandle,
+    pub(crate) chip_adc: RpAdcHandle,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -120,6 +122,7 @@ impl ArmMachine {
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
         let mut pio = Vec::new();
+        let chip_adc;
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
@@ -598,8 +601,13 @@ impl ArmMachine {
             TargetId::Rp2350 => ("rp2350.adc", 0x400a_0000),
             _ => unreachable!(),
         };
-        let (adc, _) = RpAdc::new(adc_name);
+        let variant = match target {
+            TargetId::Rp2040 | TargetId::Rp2350 => RpAdcVariant::FiveChannel,
+            _ => unreachable!(),
+        };
+        let (adc, adc_handle) = RpAdc::new_for_variant(adc_name, variant);
         bus.map_device(adc_name, adc_base, 0x1000, Box::new(adc))?;
+        chip_adc = adc_handle;
         Ok(Self {
             target,
             cpu: ArmCpu::new(profile),
@@ -613,6 +621,7 @@ impl ArmMachine {
             uart,
             chip_uart,
             chip_uart1,
+            chip_adc,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1173,6 +1182,16 @@ impl ArmMachine {
             self.chip_gpio.set_input(pin, value, self.now)?;
         }
         Ok(())
+    }
+
+    /// Sets a deterministic sample for one RP ADC channel.
+    pub fn set_adc_sample(&self, channel: usize, value: u16) -> bool {
+        self.chip_adc.set_sample(channel, value)
+    }
+
+    /// Returns the most recent RP ADC conversion result.
+    pub fn adc_result(&self) -> u16 {
+        self.chip_adc.result()
     }
 
     /// Queues bytes for delivery through the enumerated USB bulk-OUT endpoint.

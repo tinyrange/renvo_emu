@@ -154,6 +154,22 @@ fn esp32c6_boot_validator_rejects_the_merged_descriptor_and_text_reproducer() {
 }
 
 #[test]
+fn rp2350_hazard3_adc_mapping_uses_the_correct_native_offsets() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    assert!(machine.set_adc_sample(1, 0x321));
+    machine
+        .bus
+        .write(
+            0x400a_0000,
+            AccessWidth::Word,
+            u64::from(1_u32 | (1 << 2) | (1 << 12)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(machine.adc_result(), Some(0x321));
+}
+
+#[test]
 fn esp32c6_direct_elf_materializes_the_zero_fill_tail() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let initialized = [0x13, 0, 0, 0];

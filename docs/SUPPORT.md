@@ -43,7 +43,7 @@ See `scripts/qualify-micropython.sh` and
 `qualification/acceptance-report.html`.
 
 This milestone does not yet cover the complete upstream MicroPython suite,
-PWM/ADC/serial buses, or watchdog resets. ESP radio qualification uses an
+complete PWM/serial-bus behavior or watchdog resets. ESP radio qualification uses an
 isolated deterministic RF medium; it deliberately does not connect firmware to
 a host network or claim physical-air fidelity.
 
@@ -342,10 +342,15 @@ known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
 The RP2040 and RP2350 ADC blocks are mapped at `0x4004c000` and `0x400a0000`.
-They implement deterministic channel selection, host-provided 12-bit samples,
-temperature-sensor enable, ready/result, FIFO-status, divider, and interrupt
-registers. Analog noise, conversion latency, calibration trim, and DMA pacing
-are intentionally outside this functional CI slice.
+They implement the named native register map, deterministic channel selection,
+host-provided 12-bit samples, temperature-sensor enable, ready/result,
+round-robin selection, an eight-entry FIFO, divider, and FIFO-level interrupt
+status. The five-channel package model covers RP2040 and RP2350 QFN-60; the
+device crate also exposes a nine-channel RP2350 QFN-80 variant. Analog noise,
+conversion latency, calibration trim, DMA pacing, and package pin coupling are
+intentionally outside this functional CI slice. The register contract is based
+on the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
+and [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf).
 
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
