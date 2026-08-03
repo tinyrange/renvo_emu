@@ -36,8 +36,12 @@ const OCR1AH: u16 = 0x89;
 const UCSR0A: u16 = 0xc0;
 const UCSR0B: u16 = 0xc1;
 const UDR0: u16 = 0xc6;
+const UDR1: u16 = 0xc7;
 const UCSR1A: u16 = 0xc8;
-const UDR1: u16 = 0xce;
+const UCSR1B: u16 = 0xc9;
+const UDRE1: u8 = 1 << 5;
+const TXC1: u8 = 1 << 6;
+const TXEN1: u8 = 1 << 3;
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -247,8 +251,10 @@ impl AtmegaIo {
             SignalValue::from_u64(0, 1)?,
             Some("functional watchdog reset request".to_owned()),
         )?;
+        let mut registers = [0; 224];
+        registers[usize::from(UCSR1A - IO_BASE)] = UDRE1;
         let state = Arc::new(Mutex::new(AtmegaState {
-            registers: [0; 224],
+            registers,
             ports: [portb, portc, portd],
             port_signals: [signals_b, signals_c, signals_d],
             hub,
@@ -333,7 +339,7 @@ impl Device for AtmegaIo {
         }
         let value = match address {
             UCSR0A => state.registers[usize::from(address - IO_BASE)] | (1 << 5) | (1 << 6),
-            UCSR1A => state.registers[usize::from(address - IO_BASE)] | (1 << 5) | (1 << 6),
+            UCSR1A => state.registers[usize::from(address - IO_BASE)],
             EEDR => state.registers[usize::from(EEDR - IO_BASE)],
             _ => state.registers[usize::from(address - IO_BASE)],
         };
@@ -364,6 +370,16 @@ impl Device for AtmegaIo {
             return Self::refresh_port(&state, port, at);
         }
         match address {
+            UCSR1A => {
+                let index = usize::from(UCSR1A - IO_BASE);
+                let current = state.registers[index];
+                // TXC1 is cleared by writing one. UDRE1 and the receiver
+                // status/error flags are read-only; U2X1 and MPCM1 are the
+                // writable configuration bits in this functional slice.
+                state.registers[index] = (current & UDRE1)
+                    | (if value & TXC1 == 0 { current & TXC1 } else { 0 })
+                    | (value & 0x03);
+            }
             TCCR0B if state.registers[usize::from(TCCR0B - IO_BASE)] & 7 == 0 && value & 7 != 0 => {
                 state.timer_started = at.ticks();
                 state.registers[usize::from(TCCR0B - IO_BASE)] = value;
@@ -411,16 +427,24 @@ impl Device for AtmegaIo {
                     .expect("ATmega USART signal identity and width are fixed");
             }
             UDR1 => {
-                state.uart1.push(value);
-                state
-                    .hub
-                    .set(
-                        state.uart1_tx_signal,
-                        SignalValue::from_u64(u64::from(value), 8)
-                            .expect("eight-bit signal is valid"),
-                        at,
-                    )
-                    .expect("ATmega USART1 signal identity and width are fixed");
+                let status = state.registers[usize::from(UCSR1A - IO_BASE)];
+                let control = state.registers[usize::from(UCSR1B - IO_BASE)];
+                if control & TXEN1 != 0 && status & UDRE1 != 0 {
+                    state.uart1.push(value);
+                    // The functional model completes the frame at the same
+                    // abstract timestamp, leaving both ready and complete
+                    // for the next polling iteration.
+                    state.registers[usize::from(UCSR1A - IO_BASE)] |= UDRE1 | TXC1;
+                    state
+                        .hub
+                        .set(
+                            state.uart1_tx_signal,
+                            SignalValue::from_u64(u64::from(value), 8)
+                                .expect("eight-bit signal is valid"),
+                            at,
+                        )
+                        .expect("ATmega USART1 signal identity and width are fixed");
+                }
             }
             EECR => {
                 let address = usize::from(state.registers[usize::from(EEARL - IO_BASE)])
@@ -445,6 +469,7 @@ impl Device for AtmegaIo {
     fn reset(&mut self, _kind: ResetKind) {
         let mut state = self.state.lock().expect("ATmega I/O lock poisoned");
         state.registers.fill(0);
+        state.registers[usize::from(UCSR1A - IO_BASE)] = UDRE1;
         state.uart.clear();
         state.uart1.clear();
         state.timer_pending = false;
@@ -523,6 +548,13 @@ mod tests {
         let hub = SignalHub::new();
         let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
         io.write(
+            u64::from(UCSR1B - IO_BASE),
+            AccessWidth::Byte,
+            u64::from(TXEN1),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
             u64::from(UDR1 - IO_BASE),
             AccessWidth::Byte,
             b'Z'.into(),
@@ -537,8 +569,8 @@ mod tests {
                 SimTime::ZERO
             )
             .unwrap() as u8
-                & (1 << 5),
-            1 << 5
+                & (UDRE1 | TXC1),
+            UDRE1 | TXC1
         );
     }
 }
