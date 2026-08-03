@@ -97,9 +97,20 @@ impl Device for Samd21RegisterBlock {
     }
 }
 
+const ADC_CTRLA_SWRST: u8 = 1 << 0;
+const ADC_CTRLA_ENABLE: u8 = 1 << 1;
+const ADC_CTRLA_RUNSTDBY: u8 = 1 << 2;
+const ADC_CTRLA_MASK: u8 = ADC_CTRLA_SWRST | ADC_CTRLA_ENABLE | ADC_CTRLA_RUNSTDBY;
+const ADC_SWTRIG_FLUSH: u8 = 1 << 0;
+const ADC_SWTRIG_START: u8 = 1 << 1;
+const ADC_INPUTCTRL_MASK: u32 = 0x0fff_1f1f;
+const ADC_INT_MASK: u8 = 0x0f;
+const ADC_INTFLAG_RESRDY: u8 = 1 << 0;
+const ADC_RESULT_OFFSET: u64 = 0x1a;
+
 #[derive(Default)]
 struct AdcState {
-    enabled: bool,
+    control: u8,
     muxpos: u8,
     result: u16,
     intflag: u8,
@@ -128,7 +139,7 @@ impl Samd21AdcHandle {
     /// Returns whether RESRDY is both latched and enabled.
     pub fn interrupt_pending(&self) -> bool {
         let state = self.0.lock().expect("ADC lock poisoned");
-        state.intflag & 1 != 0 && state.intenset & 1 != 0
+        state.intflag & ADC_INTFLAG_RESRDY != 0 && state.intenset & ADC_INTFLAG_RESRDY != 0
     }
 }
 
@@ -160,17 +171,31 @@ impl Device for Samd21Adc {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        let state = self.state.lock().expect("ADC lock poisoned");
+        let mut state = self.state.lock().expect("ADC lock poisoned");
         match offset {
-            0x00 => Ok(u64::from(state.enabled) << 1),
-            0x18 => Ok(u64::from(state.intflag)),
+            0x00 => Ok(u64::from(state.control & !ADC_CTRLA_SWRST)),
+            0x18 => Ok(u64::from(state.intflag & ADC_INT_MASK)),
             0x19 => Ok(0),
-            0x1c => {
-                if width != AccessWidth::HalfWord {
-                    return Err(DeviceError::new("ADC RESULT requires halfword access"));
-                }
-                Ok(u64::from(state.result))
+            ADC_RESULT_OFFSET => {
+                let value = match width {
+                    AccessWidth::Byte => u64::from(state.result as u8),
+                    AccessWidth::HalfWord => u64::from(state.result),
+                    _ => {
+                        return Err(DeviceError::new(
+                            "ADC RESULT requires byte or halfword access",
+                        ));
+                    }
+                };
+                state.intflag &= !ADC_INTFLAG_RESRDY;
+                return Ok(value);
             }
+            0x1b if width == AccessWidth::Byte => {
+                state.intflag &= !ADC_INTFLAG_RESRDY;
+                Ok(u64::from((state.result >> 8) as u8))
+            }
+            0x1b => Err(DeviceError::new(
+                "ADC RESULT high byte requires byte access",
+            )),
             _ => read_le(&self.registers, offset, width),
         }
     }
@@ -188,55 +213,68 @@ impl Device for Samd21Adc {
                 if width != AccessWidth::Byte {
                     return Err(DeviceError::new("ADC CTRLA requires byte access"));
                 }
-                let value = value as u8;
-                if value & 1 != 0 {
+                let value = value as u8 & ADC_CTRLA_MASK;
+                if value & ADC_CTRLA_SWRST != 0 {
                     let inputs = state.inputs;
                     *state = AdcState {
                         inputs,
                         ..AdcState::default()
                     };
+                    self.registers.fill(0);
                 } else {
-                    state.enabled = value & (1 << 1) != 0;
+                    state.control = value;
+                    self.registers[0] = value;
                 }
-                self.registers[0] = value & (1 << 1);
             }
             0x0c => {
                 if width != AccessWidth::Byte {
                     return Err(DeviceError::new("ADC SWTRIG requires byte access"));
                 }
-                if value & 1 != 0 && state.enabled {
+                let value = value as u8;
+                if value & ADC_SWTRIG_START != 0 && state.control & ADC_CTRLA_ENABLE != 0 {
                     state.result = state.inputs[usize::from(state.muxpos)];
-                    state.intflag |= 1;
-                    self.registers[0x1c..0x1e].copy_from_slice(&state.result.to_le_bytes());
+                    state.intflag |= ADC_INTFLAG_RESRDY;
+                    self.registers[ADC_RESULT_OFFSET as usize..ADC_RESULT_OFFSET as usize + 2]
+                        .copy_from_slice(&state.result.to_le_bytes());
                 }
+                // START and FLUSH are write-triggered, self-clearing commands.
+                let _flush_requested = value & ADC_SWTRIG_FLUSH != 0;
+                self.registers[0x0c] = 0;
             }
-            0x10 => {
+            0x10..=0x13 => {
                 write_le(&mut self.registers, offset, width, value)?;
-                state.muxpos = (value as u8) & 0x1f;
+                let inputctrl = u32::from_le_bytes(
+                    self.registers[0x10..0x14]
+                        .try_into()
+                        .expect("ADC INPUTCTRL is four bytes"),
+                ) & ADC_INPUTCTRL_MASK;
+                self.registers[0x10..0x14].copy_from_slice(&inputctrl.to_le_bytes());
+                state.muxpos = (inputctrl as u8) & 0x1f;
             }
             0x16 => {
                 if width != AccessWidth::Byte {
                     return Err(DeviceError::new("ADC INTENCLR requires byte access"));
                 }
-                state.intenset &= !(value as u8);
+                state.intenset &= !(value as u8 & ADC_INT_MASK);
                 self.registers[0x17] = state.intenset;
             }
             0x17 => {
                 if width != AccessWidth::Byte {
                     return Err(DeviceError::new("ADC INTENSET requires byte access"));
                 }
-                state.intenset |= value as u8;
+                state.intenset |= value as u8 & ADC_INT_MASK;
                 self.registers[0x17] = state.intenset;
             }
             0x18 => {
                 if width != AccessWidth::Byte {
                     return Err(DeviceError::new("ADC INTFLAG requires byte access"));
                 }
-                state.intflag &= !(value as u8);
+                state.intflag &= !(value as u8 & ADC_INT_MASK);
+                self.registers[0x18] = state.intflag;
             }
-            0x1c => {
-                if width != AccessWidth::HalfWord {
-                    return Err(DeviceError::new("ADC RESULT is read-only halfword"));
+            ADC_RESULT_OFFSET | 0x1b => {
+                if !matches!(width, AccessWidth::Byte | AccessWidth::HalfWord) {
+                    return Err(DeviceError::new("ADC RESULT is read-only byte or halfword"));
                 }
             }
             _ => write_le(&mut self.registers, offset, width, value)?,
@@ -245,8 +283,9 @@ impl Device for Samd21Adc {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        let inputs = self.state.lock().expect("ADC lock poisoned").inputs;
-        *self.state.lock().expect("ADC lock poisoned") = AdcState {
+        let mut state = self.state.lock().expect("ADC lock poisoned");
+        let inputs = state.inputs;
+        *state = AdcState {
             inputs,
             ..AdcState::default()
         };
@@ -912,16 +951,75 @@ mod tests {
             .unwrap();
         adc.write(0x17, AccessWidth::Byte, 1, SimTime::ZERO)
             .unwrap();
-        adc.write(0x0c, AccessWidth::Byte, 1, SimTime::ZERO)
-            .unwrap();
+        // FLUSH is bit 0; it must not be mistaken for START (bit 1).
+        adc.write(
+            0x0c,
+            AccessWidth::Byte,
+            u64::from(ADC_SWTRIG_FLUSH),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(!handle.interrupt_pending());
+        adc.write(
+            0x0c,
+            AccessWidth::Byte,
+            u64::from(ADC_SWTRIG_START),
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert!(handle.interrupt_pending());
         assert_eq!(
-            adc.read(0x1c, AccessWidth::HalfWord, SimTime::ZERO)
+            adc.read(ADC_RESULT_OFFSET, AccessWidth::HalfWord, SimTime::ZERO)
                 .unwrap(),
             0x0abc
         );
+        assert!(!handle.interrupt_pending());
         adc.write(0x18, AccessWidth::Byte, 1, SimTime::ZERO)
             .unwrap();
         assert!(!handle.interrupt_pending());
+    }
+
+    #[test]
+    fn adc_uses_native_result_offset_and_masks_control_registers() {
+        let (mut adc, handle) = Samd21Adc::new("adc");
+        handle.set_input(2, 0x0345);
+        adc.write(0x00, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(adc.read(0x00, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0);
+        adc.write(
+            0x00,
+            AccessWidth::Byte,
+            u64::from(ADC_CTRLA_ENABLE | ADC_CTRLA_RUNSTDBY),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            adc.read(0x00, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            u64::from(ADC_CTRLA_ENABLE | ADC_CTRLA_RUNSTDBY)
+        );
+        adc.write(0x10, AccessWidth::Word, 0xffff_ffff, SimTime::ZERO)
+            .unwrap();
+        adc.write(0x10, AccessWidth::HalfWord, 2, SimTime::ZERO)
+            .unwrap();
+        adc.write(0x17, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        adc.write(
+            0x0c,
+            AccessWidth::Byte,
+            u64::from(ADC_SWTRIG_START),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            adc.read(ADC_RESULT_OFFSET, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x45
+        );
+        assert_eq!(
+            adc.read(ADC_RESULT_OFFSET + 1, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x03
+        );
+        assert!(adc.read(0x1c, AccessWidth::HalfWord, SimTime::ZERO).is_ok());
     }
 }
