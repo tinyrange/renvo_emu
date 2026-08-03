@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 const CRCCR0: u64 = 0x00;
 const CRCCR1: u64 = 0x01;
 const CRCDIR: u64 = 0x04;
+const CRCDIR_END: u64 = 0x07;
 const CRCDOR: u64 = 0x08;
 const CRCDOR_END: u64 = 0x0b;
 const CRCSAR: u64 = 0x0c;
@@ -14,12 +15,16 @@ const CRCSAR_HI: u64 = 0x0d;
 const GPS_MASK: u8 = 0x07;
 const LMS: u8 = 1 << 6;
 const DORCLR: u8 = 1 << 7;
+const CRCCR0_MASK: u8 = GPS_MASK | LMS;
+const CRCCR1_MASK: u8 = 0xc0;
+const CRCSAR_MASK: u16 = 0x3fff;
 
 #[derive(Default)]
 struct CrcState {
     control0: u8,
     control1: u8,
     snoop_address: u16,
+    input: u32,
     value: u32,
 }
 
@@ -135,6 +140,7 @@ impl RaCrc {
         match offset {
             CRCCR0 => state.control0,
             CRCCR1 => state.control1,
+            CRCDIR..=CRCDIR_END => (state.input >> ((offset - CRCDIR) * 8)) as u8,
             CRCDOR..=CRCDOR_END => (state.output() >> ((offset - CRCDOR) * 8)) as u8,
             CRCSAR => state.snoop_address as u8,
             CRCSAR_HI => (state.snoop_address >> 8) as u8,
@@ -180,16 +186,21 @@ impl Device for RaCrc {
                 if value & DORCLR != 0 {
                     state.value = 0;
                 }
-                state.control0 = value & !DORCLR;
+                // DORCLR is write-only and bits 5:3 are reserved/read zero.
+                state.control0 = value & CRCCR0_MASK;
             }
-            CRCCR1 => state.control1 = value as u8,
+            CRCCR1 => state.control1 = value as u8 & CRCCR1_MASK,
             CRCDIR => {
+                state.input = value as u32;
                 for byte in 0..width.bytes() {
                     state.feed((value >> (u64::from(byte) * 8)) as u8);
                 }
             }
             CRCDOR => state.value = value as u32,
-            CRCSAR => state.snoop_address = value as u16,
+            CRCSAR => state.snoop_address = value as u16 & CRCSAR_MASK,
+            CRCSAR_HI => {
+                state.snoop_address = (state.snoop_address & 0x00ff) | ((value as u16 & 0x3f) << 8);
+            }
             _ => {}
         }
         Ok(())
@@ -239,5 +250,52 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.value(), 0);
+    }
+
+    #[test]
+    fn crc_manual_ccitt_vectors_match_both_bit_orders() {
+        let (mut crc, handle) = RaCrc::new("crc");
+        // Renesas manual section 32.3.1: F0 with CCITT and a cleared output.
+        crc.write(CRCCR0, AccessWidth::Byte, 0xc3, SimTime::ZERO)
+            .unwrap();
+        crc.write(CRCDIR, AccessWidth::Byte, 0xf0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.value(), 0xef1f);
+
+        crc.write(CRCCR0, AccessWidth::Byte, 0x83, SimTime::ZERO)
+            .unwrap();
+        crc.write(CRCDIR, AccessWidth::Byte, 0xf0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.value(), 0xf78f);
+    }
+
+    #[test]
+    fn crc_reserved_controls_and_snoop_address_are_masked() {
+        let (mut crc, _) = RaCrc::new("crc");
+        crc.write(CRCCR0, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        crc.write(CRCCR1, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        crc.write(CRCSAR, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            crc.read(CRCCR0, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x47
+        );
+        assert_eq!(
+            crc.read(CRCCR1, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xc0
+        );
+        assert_eq!(
+            crc.read(CRCSAR, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0x3fff
+        );
+        crc.write(CRCDIR, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            crc.read(CRCDIR, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x1234_5678
+        );
     }
 }
