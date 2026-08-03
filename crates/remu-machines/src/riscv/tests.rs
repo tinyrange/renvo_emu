@@ -237,3 +237,24 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn rp2350_hazard3_adc_maps_native_register_offsets() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    machine
+        .bus
+        .write(0x400a_0018, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x400a_0020,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+}

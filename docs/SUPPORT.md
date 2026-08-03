@@ -219,6 +219,16 @@ manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
+The RP2040 and RP2350 ADC blocks are mapped at `0x4004c000` and `0x400a0000`.
+The RP2040 model exposes four external channels plus temperature sensor; the
+RP2350 model exposes eight external channels plus temperature sensor. Both
+implement the native CS/RESULT/FCS/FIFO/DIV/INTR/INTE/INTF/INTS offsets, an
+eight-entry deterministic FIFO, host-provided 12-bit samples, round-robin
+channel selection, temperature-sensor enable, ready/result state, divider, and
+FIFO interrupt status. Conversion completes functionally at the start request;
+analog noise, conversion latency, calibration trim, and DMA pacing are
+intentionally outside this CI slice.
+
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification
