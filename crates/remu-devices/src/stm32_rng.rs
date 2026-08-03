@@ -1,7 +1,7 @@
 //! STM32L4 deterministic RNG register subset.
 
 use remu_bus::{Device, DeviceError};
-use remu_core::{AccessWidth, ResetKind, SimTime};
+use remu_core::{AccessWidth, ResetKind, SimDuration, SimTime};
 use std::sync::{Arc, Mutex};
 
 const CR: u64 = 0x00;
@@ -12,12 +12,17 @@ const IE: u32 = 1 << 3;
 const DRDY: u32 = 1;
 const CECS: u32 = 1 << 1;
 const SECS: u32 = 1 << 2;
+const CEIS: u32 = 1 << 5;
+const SEIS: u32 = 1 << 6;
 
 #[derive(Default)]
 struct RngState {
     control: u32,
     seed: u32,
     last: u32,
+    ready_at: Option<SimTime>,
+    clock_error: bool,
+    seed_error: bool,
 }
 
 impl RngState {
@@ -89,17 +94,34 @@ impl Device for Stm32Rng {
         let value = match offset {
             CR => state.control,
             SR => {
-                if state.control & RNGEN != 0 {
-                    DRDY
-                } else {
-                    0
+                let mut status = 0;
+                if state.control & RNGEN != 0
+                    && state.ready_at.is_some_and(|ready_at| ready_at <= _at)
+                {
+                    status |= DRDY;
                 }
+                if state.clock_error {
+                    status |= CECS | CEIS;
+                }
+                if state.seed_error {
+                    status |= SECS | SEIS;
+                }
+                status
             }
             DR => {
                 if state.control & RNGEN == 0 {
                     return Err(DeviceError::new("STM32 RNG data read while disabled"));
                 }
-                state.next()
+                if !state.ready_at.is_some_and(|ready_at| ready_at <= _at) {
+                    return Err(DeviceError::new("STM32 RNG data read while not ready"));
+                }
+                let value = state.next();
+                // The real peripheral clears DRDY when DR is read and refills
+                // its conditioning FIFO asynchronously. One abstract tick is
+                // enough to preserve that observable ordering without adding
+                // cycle-level timing to the functional model.
+                state.ready_at = _at.checked_add(SimDuration::TICK).ok();
+                value
             }
             _ => {
                 return Err(DeviceError::new(format!(
@@ -122,12 +144,25 @@ impl Device for Stm32Rng {
         }
         let mut state = self.state.lock().expect("STM32 RNG lock poisoned");
         match offset {
-            CR => state.control = value as u32 & (RNGEN | IE),
+            CR => {
+                let previous = state.control;
+                state.control = value as u32 & (RNGEN | IE);
+                match (previous & RNGEN != 0, state.control & RNGEN != 0) {
+                    (false, true) => state.ready_at = Some(_at),
+                    (true, false) => state.ready_at = None,
+                    _ => {}
+                }
+            }
             SR => {
                 let value = value as u32;
-                if value & CECS != 0 || value & SECS != 0 {
-                    // Error flags are synthesized only for a host-forced error write.
-                    state.control &= !RNGEN;
+                // CEIS and SEIS are the only writable SR bits. They are
+                // cleared by writing zero; DRDY and the current-status bits
+                // are read-only on STM32L4.
+                if value & CEIS == 0 {
+                    state.clock_error = false;
+                }
+                if value & SEIS == 0 {
+                    state.seed_error = false;
                 }
             }
             DR => return Err(DeviceError::new("STM32 RNG data register is read-only")),
@@ -160,10 +195,26 @@ mod tests {
         assert_eq!(rng.read(SR, AccessWidth::Word, SimTime::ZERO).unwrap(), 1);
         handle.seed(0x1234_5678);
         let first = rng.read(DR, AccessWidth::Word, SimTime::ZERO).unwrap() as u32;
+        assert_eq!(rng.read(SR, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
         handle.seed(0x1234_5678);
-        let replay = rng.read(DR, AccessWidth::Word, SimTime::ZERO).unwrap() as u32;
+        let replay = rng
+            .read(DR, AccessWidth::Word, SimTime::from_ticks(1))
+            .unwrap() as u32;
         assert_eq!(first, replay);
         assert_eq!(handle.last(), first);
+    }
+
+    #[test]
+    fn status_error_bits_are_read_only_and_clearable() {
+        let (mut rng, _) = Stm32Rng::new("rng");
+        rng.write(
+            SR,
+            AccessWidth::Word,
+            (CECS | SECS | CEIS | SEIS).into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(rng.read(SR, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
     }
 
     #[test]
