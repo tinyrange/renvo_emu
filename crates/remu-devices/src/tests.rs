@@ -754,6 +754,11 @@ fn rp2350_ticks_expose_independent_running_and_countdown_state() {
 fn rp2350_powman_keeps_scratch_and_runs_aon_timer_and_wake_configuration() {
     let mut powman = Rp2350Powman::new("powman");
     assert_eq!(
+        Rp2350PowmanRegister::try_from(0xec).unwrap(),
+        Rp2350PowmanRegister::Ints
+    );
+    assert!(Rp2350PowmanRegister::try_from(0xee).is_err());
+    assert_eq!(
         powman.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x8050
     );
@@ -802,6 +807,60 @@ fn rp2350_powman_keeps_scratch_and_runs_aon_timer_and_wake_configuration() {
     assert_eq!(
         powman.read(0xd0, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0xfeed_cafe
+    );
+}
+
+#[test]
+fn rp2350_powman_timer_commands_are_self_clearing_and_set_time_is_gated() {
+    let mut powman = Rp2350Powman::new("powman");
+    powman
+        .write(0x6c, AccessWidth::Word, 25, SimTime::ZERO)
+        .unwrap();
+    powman
+        .write(0x88, AccessWidth::Word, 1 << 1, SimTime::ZERO)
+        .unwrap();
+    powman
+        .write(0x6c, AccessWidth::Word, 99, SimTime::from_ticks(5))
+        .unwrap();
+    assert_eq!(powman.aon_time(SimTime::from_ticks(5)), 30);
+    powman
+        .write(0x88, AccessWidth::Word, 1 << 2, SimTime::from_ticks(5))
+        .unwrap();
+    assert_eq!(powman.aon_time(SimTime::from_ticks(6)), 1);
+    assert_eq!(
+        powman
+            .read(0x88, AccessWidth::Word, SimTime::from_ticks(6))
+            .unwrap()
+            & (1 << 2),
+        0
+    );
+}
+
+#[test]
+fn rp2350_powman_writes_respect_read_only_and_write_clear_fields() {
+    let mut powman = Rp2350Powman::new("powman");
+    for (offset, expected) in [(0x0c, 0x1f2), (0x8c, 0x1ff), (0x38, 0xff), (0xa8, 2)] {
+        powman
+            .write(
+                offset,
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            powman
+                .read(offset, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            expected
+        );
+    }
+    powman
+        .write(0xe0, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        powman.read(0xe0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
     );
 }
 
