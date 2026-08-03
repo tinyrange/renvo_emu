@@ -273,9 +273,10 @@ fn wch_i2c_models_master_write_read_and_interrupts() {
     i2c.write(0x10, AccessWidth::HalfWord, 0xa0, at).unwrap();
     assert_eq!(
         i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & (ADDR | TXE),
-        ADDR | TXE
+        ADDR
     );
     let _ = i2c.read(0x18, AccessWidth::HalfWord, at).unwrap();
+    assert_ne!(i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & TXE, 0);
     i2c.write(0x10, AccessWidth::HalfWord, 0x12, at).unwrap();
     i2c.write(0x10, AccessWidth::HalfWord, 0x34, at).unwrap();
     assert_eq!(
@@ -326,6 +327,48 @@ fn wch_i2c_nack_raises_error_interrupt_and_can_be_configured() {
     i2c.write(0x14, AccessWidth::HalfWord, !(1 << 10), at)
         .unwrap();
     assert_eq!(handle.interrupt_pending(), (false, false));
+}
+
+#[test]
+fn wch_i2c_masks_registers_and_only_clears_rw0_errors() {
+    let (mut i2c, handle) = WchI2c::new("i2c1");
+    let at = SimTime::ZERO;
+
+    i2c.write(0x00, AccessWidth::HalfWord, 0x7fff, at).unwrap();
+    assert_eq!(
+        i2c.read(0x00, AccessWidth::HalfWord, at).unwrap(),
+        0x7fff & 0x9fe1 & !(1 << 8) & !(1 << 9)
+    );
+    i2c.write(0x04, AccessWidth::HalfWord, u16::MAX.into(), at)
+        .unwrap();
+    assert_eq!(i2c.read(0x04, AccessWidth::HalfWord, at).unwrap(), 0x1f3f);
+    i2c.write(0x08, AccessWidth::HalfWord, u16::MAX.into(), at)
+        .unwrap();
+    assert_eq!(i2c.read(0x08, AccessWidth::HalfWord, at).unwrap(), 0x83ff);
+    i2c.write(0x0c, AccessWidth::HalfWord, u16::MAX.into(), at)
+        .unwrap();
+    assert_eq!(i2c.read(0x0c, AccessWidth::HalfWord, at).unwrap(), 0x00ff);
+    i2c.write(0x1c, AccessWidth::HalfWord, u16::MAX.into(), at)
+        .unwrap();
+    assert_eq!(i2c.read(0x1c, AccessWidth::HalfWord, at).unwrap(), 0xcfff);
+
+    // SB is read-only and survives a status-register write; AF is RW0 and is
+    // cleared by the vendor SDK's write-the-complement sequence.
+    i2c.write(0x00, AccessWidth::HalfWord, 1 | (1 << 8), at)
+        .unwrap();
+    assert_ne!(i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & 1, 0);
+    handle.set_address_ack(0x30, false);
+    i2c.write(0x10, AccessWidth::HalfWord, 0x60, at).unwrap();
+    assert_ne!(
+        i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & (1 << 10),
+        0
+    );
+    i2c.write(0x14, AccessWidth::HalfWord, !(1 << 10), at)
+        .unwrap();
+    assert_eq!(
+        i2c.read(0x14, AccessWidth::HalfWord, at).unwrap() & (1 << 10),
+        0
+    );
 }
 
 #[test]
