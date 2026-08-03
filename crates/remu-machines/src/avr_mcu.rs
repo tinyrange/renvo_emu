@@ -374,6 +374,7 @@ impl AvrMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::AtmegaComparatorRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -418,9 +419,13 @@ mod tests {
     fn atmega_comparator_host_input_updates_acsr() {
         let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
         // ACSR: ACIE plus rising-output edge mode.
-        machine.debug_write_memory(0x50, &[0x0b]).unwrap();
+        machine
+            .debug_write_memory(u64::from(AtmegaComparatorRegister::Acsr.offset()), &[0x0b])
+            .unwrap();
         machine.set_comparator_inputs(true, false);
-        let status = machine.debug_read_memory(0x50, 1).unwrap()[0];
+        let status = machine
+            .debug_read_memory(u64::from(AtmegaComparatorRegister::Acsr.offset()), 1)
+            .unwrap()[0];
         assert_ne!(status & 0x20, 0, "ACO should reflect AIN0 > AIN1");
         assert_ne!(status & 0x10, 0, "rising output should latch ACI");
     }

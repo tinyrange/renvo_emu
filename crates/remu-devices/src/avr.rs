@@ -23,7 +23,6 @@ const TCNT0: u16 = 0x46;
 const OCR0A: u16 = 0x47;
 const PCIFR: u16 = 0x3b;
 const WDTCSR: u16 = 0x60;
-const ACSR: u16 = 0x50;
 const PCICR: u16 = 0x68;
 const EICRA: u16 = 0x69;
 const PCMSK0: u16 = 0x6b;
@@ -41,6 +40,48 @@ const ACSR_ACI: u8 = 1 << 4;
 const ACSR_ACO: u8 = 1 << 5;
 const ACSR_ACIE: u8 = 1 << 3;
 const ACSR_ACIS_MASK: u8 = 0x03;
+
+/// Named ATmega328PB analog-comparator register identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(u16)]
+pub enum AtmegaComparatorRegister {
+    /// Analog Comparator Control and Status Register (ACSR).
+    Acsr = 0x50,
+}
+
+impl AtmegaComparatorRegister {
+    /// Stable list of modeled comparator register IDs.
+    pub const ALL: [Self; 1] = [Self::Acsr];
+
+    /// Returns the native data-space address.
+    pub const fn offset(self) -> u16 {
+        self as u16
+    }
+
+    /// Returns the I/O-device offset used by `AtmegaIo`.
+    pub const fn io_offset(self) -> u16 {
+        self.offset() - IO_BASE
+    }
+
+    /// Returns the vendor register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Acsr => "acsr",
+        }
+    }
+
+    /// Resolves a native data-space address to a named register.
+    pub const fn from_data_address(address: u16) -> Option<Self> {
+        match address {
+            0x50 => Some(Self::Acsr),
+            _ => None,
+        }
+    }
+}
+
+fn comparator_index() -> usize {
+    usize::from(AtmegaComparatorRegister::Acsr.io_offset())
+}
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -132,8 +173,8 @@ impl AtmegaIoHandle {
             lines.push(18);
         }
         state.update_comparator(now);
-        if state.registers[usize::from(ACSR - IO_BASE)] & ACSR_ACI != 0
-            && state.registers[usize::from(ACSR - IO_BASE)] & ACSR_ACIE != 0
+        if state.registers[comparator_index()] & ACSR_ACI != 0
+            && state.registers[comparator_index()] & ACSR_ACIE != 0
         {
             // ANALOG_COMP is vector 23, represented by AVR line 22.
             lines.push(22);
@@ -198,7 +239,7 @@ fn set_bit_signal(state: &AtmegaState, signal: SignalId, value: bool, at: SimTim
 
 impl AtmegaState {
     fn update_comparator(&mut self, at: SimTime) {
-        let acsr = self.registers[usize::from(ACSR - IO_BASE)];
+        let acsr = self.registers[comparator_index()];
         // The host supplies boolean levels for AIN0/AIN1.  ACO is high when
         // AIN0 is above AIN1, unless the comparator is disabled with ACD.
         let output = acsr & (1 << 7) == 0 && self.comparator_positive && !self.comparator_negative;
@@ -222,7 +263,7 @@ impl AtmegaState {
                 updated |= ACSR_ACI;
             }
         }
-        self.registers[usize::from(ACSR - IO_BASE)] = updated;
+        self.registers[comparator_index()] = updated;
         set_bit_signal(self, self.comparator_signal, output, at);
     }
 }
@@ -406,6 +447,18 @@ impl Device for AtmegaIo {
             drop(gpio);
             return Self::refresh_port(&state, port, at);
         }
+        if address == AtmegaComparatorRegister::Acsr.offset() {
+            let current = state.registers[comparator_index()];
+            let mut updated = value & !ACSR_ACO;
+            if value & ACSR_ACI == 0 && current & ACSR_ACI != 0 {
+                updated |= ACSR_ACI;
+            } else {
+                updated &= !ACSR_ACI;
+            }
+            state.registers[comparator_index()] = updated;
+            state.update_comparator(at);
+            return Ok(());
+        }
         match address {
             TCCR0B if state.registers[usize::from(TCCR0B - IO_BASE)] & 7 == 0 && value & 7 != 0 => {
                 state.timer_started = at.ticks();
@@ -452,17 +505,6 @@ impl Device for AtmegaIo {
                         at,
                     )
                     .expect("ATmega USART signal identity and width are fixed");
-            }
-            ACSR => {
-                let current = state.registers[usize::from(ACSR - IO_BASE)];
-                let mut updated = value & !ACSR_ACO;
-                if value & ACSR_ACI == 0 && current & ACSR_ACI != 0 {
-                    updated |= ACSR_ACI;
-                } else {
-                    updated &= !ACSR_ACI;
-                }
-                state.registers[usize::from(ACSR - IO_BASE)] = updated;
-                state.update_comparator(at);
             }
             EECR => {
                 let address = usize::from(state.registers[usize::from(EEARL - IO_BASE)])
@@ -511,6 +553,19 @@ impl Device for AtmegaIo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comparator_register_ids_are_named_and_native() {
+        assert_eq!(AtmegaComparatorRegister::ALL.len(), 1);
+        assert_eq!(AtmegaComparatorRegister::Acsr.offset(), 0x50);
+        assert_eq!(AtmegaComparatorRegister::Acsr.io_offset(), 0x30);
+        assert_eq!(AtmegaComparatorRegister::Acsr.name(), "acsr");
+        assert_eq!(
+            AtmegaComparatorRegister::from_data_address(0x50),
+            Some(AtmegaComparatorRegister::Acsr)
+        );
+        assert_eq!(AtmegaComparatorRegister::from_data_address(0x51), None);
+    }
 
     #[test]
     fn pb_ports_uart_timer_and_persistent_eeprom_are_functional() {
@@ -567,7 +622,7 @@ mod tests {
     fn analog_comparator_reports_output_and_selected_edges() {
         let hub = SignalHub::new();
         let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        let acsr = u64::from(ACSR - IO_BASE);
+        let acsr = u64::from(AtmegaComparatorRegister::Acsr.io_offset());
 
         // Rising-output interrupt mode, with the comparator interrupt enabled.
         io.write(
