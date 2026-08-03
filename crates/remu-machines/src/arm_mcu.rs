@@ -956,6 +956,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::RaKintRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -1034,11 +1035,21 @@ mod tests {
             .unwrap();
         machine
             .bus
-            .write(0x4008_0000, AccessWidth::Byte, 0x81, SimTime::ZERO)
+            .write(
+                0x4008_0000 + RaKintRegister::Krctl.offset(),
+                AccessWidth::Byte,
+                0x81,
+                SimTime::ZERO,
+            )
             .unwrap();
         machine
             .bus
-            .write(0x4008_0008, AccessWidth::Byte, 1, SimTime::ZERO)
+            .write(
+                0x4008_0000 + RaKintRegister::Krm.offset(),
+                AccessWidth::Byte,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         machine
             .bus

@@ -11,6 +11,47 @@ pub const RA4M1_EVENT_KINT: u16 = 0x045;
 /// RA4M1 ELC event number for SCI9 transmit-data-empty.
 pub const RA4M1_EVENT_SCI9_TXI: u16 = 0x0a9;
 
+/// Named RA4M1 KINT register identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(u8)]
+pub enum RaKintRegister {
+    /// Key-return edge/flag mode control (KRCTL).
+    Krctl = 0x00,
+    /// Key-return interrupt flags (KRF).
+    Krf = 0x04,
+    /// Per-channel key-return enable mask (KRM).
+    Krm = 0x08,
+}
+
+impl RaKintRegister {
+    /// Stable list of modeled KINT register IDs.
+    pub const ALL: [Self; 3] = [Self::Krctl, Self::Krf, Self::Krm];
+
+    /// Returns the native KINT byte offset.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Returns the vendor register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Krctl => "krctl",
+            Self::Krf => "krf",
+            Self::Krm => "krm",
+        }
+    }
+
+    /// Resolves a native KINT offset to a named register.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Krctl),
+            0x04 => Some(Self::Krf),
+            0x08 => Some(Self::Krm),
+            _ => None,
+        }
+    }
+}
+
 fn input_bits(state: &Arc<Mutex<GpioState>>) -> u16 {
     state
         .lock()
@@ -437,11 +478,11 @@ impl Device for RaKint {
             return Err(DeviceError::new("RA KINT requires byte accesses"));
         }
         let state = self.state.lock().expect("RA KINT lock poisoned");
-        let value = match offset {
-            0x00 => state.krctl,
-            0x04 => state.krf,
-            0x08 => state.krm,
-            _ => 0,
+        let value = match RaKintRegister::from_offset(offset) {
+            Some(RaKintRegister::Krctl) => state.krctl,
+            Some(RaKintRegister::Krf) => state.krf,
+            Some(RaKintRegister::Krm) => state.krm,
+            None => 0,
         };
         Ok(u64::from(value))
     }
@@ -457,12 +498,12 @@ impl Device for RaKint {
             return Err(DeviceError::new("RA KINT requires byte accesses"));
         }
         let mut state = self.state.lock().expect("RA KINT lock poisoned");
-        match offset {
-            0x00 => state.krctl = (value as u8) & 0x81,
+        match RaKintRegister::from_offset(offset) {
+            Some(RaKintRegister::Krctl) => state.krctl = (value as u8) & 0x81,
             // KRF bits clear when written as zero; ones preserve their flags.
-            0x04 => state.krf &= value as u8,
-            0x08 => state.krm = value as u8,
-            _ => {}
+            Some(RaKintRegister::Krf) => state.krf &= value as u8,
+            Some(RaKintRegister::Krm) => state.krm = value as u8,
+            None => {}
         }
         Ok(())
     }
@@ -664,6 +705,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn kint_register_ids_are_named_and_native() {
+        assert_eq!(RaKintRegister::ALL.len(), 3);
+        assert_eq!(RaKintRegister::Krctl.offset(), 0x00);
+        assert_eq!(RaKintRegister::Krf.name(), "krf");
+        assert_eq!(
+            RaKintRegister::from_offset(RaKintRegister::Krm.offset()),
+            Some(RaKintRegister::Krm)
+        );
+        assert_eq!(RaKintRegister::from_offset(0x0c), None);
+    }
+
+    #[test]
     fn ioport_atomic_output_and_pfs_direction_are_visible() {
         let hub = SignalHub::new();
         let (mut port, handle) = RaIoPort::new("port1", "board.ra.port1", hub).unwrap();
@@ -705,22 +758,42 @@ mod tests {
     #[test]
     fn kint_detects_selected_edges_and_clears_latched_flags() {
         let (mut kint, handle) = RaKint::new("kint");
-        kint.write(0x00, AccessWidth::Byte, 0x81, SimTime::ZERO)
-            .unwrap();
-        kint.write(0x08, AccessWidth::Byte, 1, SimTime::ZERO)
-            .unwrap();
+        kint.write(
+            RaKintRegister::Krctl.offset(),
+            AccessWidth::Byte,
+            0x81,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        kint.write(
+            RaKintRegister::Krm.offset(),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert!(!handle.poll(0));
         assert!(handle.poll(1));
         assert_eq!(handle.flags(), 1);
         assert!(handle.poll(1));
 
-        kint.write(0x04, AccessWidth::Byte, 0xfe, SimTime::ZERO)
-            .unwrap();
+        kint.write(
+            RaKintRegister::Krf.offset(),
+            AccessWidth::Byte,
+            0xfe,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert_eq!(handle.flags(), 0);
         assert!(!handle.poll(1));
 
-        kint.write(0x00, AccessWidth::Byte, 0, SimTime::ZERO)
-            .unwrap();
+        kint.write(
+            RaKintRegister::Krctl.offset(),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert!(handle.poll(0));
     }
 }
