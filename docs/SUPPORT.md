@@ -43,7 +43,21 @@ See `scripts/qualify-micropython.sh` and
 `qualification/acceptance-report.html`.
 
 This milestone does not yet cover the complete upstream MicroPython suite,
-PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+ADC/serial-bus firmware integration, watchdog resets, or virtual ESP radio
+connectivity.
+
+RP2040 and RP2350 PWM blocks are mapped at their native addresses and use
+named register IDs. The functional model covers per-slice CSR/DIV/CTR/CC/TOP
+registers, channel-enable aliases, compare outputs, self-clearing phase
+advance/retard commands, wrap interrupt status, write-one-to-clear raw status,
+and both RP2350 interrupt banks. It uses the
+RP2040 eight-slice global layout (`EN` at `0xa0`) and RP2350's twelve-slice
+layout (`EN` at `0xf0`, with the second IRQ bank through `0x10c`). Abstract
+time advances enabled counters deterministically; exact divider and
+phase-correct edge timing, GPIO pin muxing, DMA pacing, and interrupt
+controller delivery remain outside this functional slice. The register
+layout is checked against the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
+and [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf).
 
 ## Implemented CPU surface
 

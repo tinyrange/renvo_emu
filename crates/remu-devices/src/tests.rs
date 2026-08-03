@@ -524,3 +524,61 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
         0
     );
 }
+#[test]
+fn pwm_advances_counter_and_reports_compare_outputs() {
+    let (mut pwm, handle) = FunctionalPwm::new("pwm", 2);
+    pwm.write(0x0c, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    pwm.write(0x10, AccessWidth::Word, 9, SimTime::ZERO)
+        .unwrap();
+    pwm.write(0x00, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    pwm.write(
+        RpPwmRegister::En.global_offset(2).unwrap(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    pwm.write(
+        RpPwmRegister::Inte0.global_offset(2).unwrap(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(handle.counter(0), Some(0));
+    assert_eq!(handle.outputs(0), Some([true, false]));
+    assert_eq!(
+        pwm.read(0x08, AccessWidth::Word, SimTime::from_ticks(5))
+            .unwrap(),
+        5
+    );
+    assert_eq!(handle.outputs(0), Some([false, false]));
+    assert_eq!(handle.pending_interrupts(), 0);
+    assert_eq!(
+        pwm.read(0x08, AccessWidth::Word, SimTime::from_ticks(12))
+            .unwrap(),
+        2
+    );
+    assert_ne!(handle.pending_interrupts(), 0);
+}
+
+#[test]
+fn pwm_phase_commands_adjust_counter_and_self_clear() {
+    let (mut pwm, handle) = FunctionalPwm::new("pwm", 1);
+    pwm.write(0x10, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    pwm.write(0x08, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+
+    pwm.write(0x00, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.counter(0), Some(0));
+    assert_eq!(pwm.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+
+    pwm.write(0x00, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.counter(0), Some(3));
+    assert_eq!(pwm.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+}
