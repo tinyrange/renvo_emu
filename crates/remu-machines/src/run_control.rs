@@ -21,7 +21,10 @@ pub(crate) struct RunControl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SignalEdge;
+    use remu_devices::SignalHub;
     use remu_signals::Logic;
+    use remu_signals::SignalValue;
 
     #[test]
     fn equal_timestamp_stimuli_keep_insertion_order() {
@@ -156,6 +159,40 @@ mod tests {
             control.limit_reason(stats.time, &stats),
             Some(StopReason::InstructionLimit)
         );
+    }
+
+    #[test]
+    fn signal_recording_returns_the_first_matching_stop_and_drains_all_changes() {
+        let signals = SignalHub::new();
+        let signal = signals
+            .declare(
+                "board.led",
+                SignalValue::repeat(Logic::Zero, 1).unwrap(),
+                None,
+            )
+            .unwrap();
+        let mut control = RunControl::new(RunLimits::default(), &[]);
+        let mut trace: Option<&mut dyn TraceSink> = None;
+        control.begin_trace(&signals, &mut trace).unwrap();
+        signals
+            .set(
+                signal,
+                SignalValue::repeat(Logic::One, 1).unwrap(),
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        let stops = [SignalStop {
+            signal,
+            path: "board.led".to_owned(),
+            edge: SignalEdge::Rising,
+        }];
+        assert_eq!(
+            control
+                .record_signals(&signals, &stops, &mut trace)
+                .unwrap(),
+            Some("board.led".to_owned())
+        );
+        assert!(signals.drain_changes().is_empty());
     }
 }
 
