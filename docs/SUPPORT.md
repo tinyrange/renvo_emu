@@ -354,7 +354,7 @@ The functional slice covers `CR1`, `CR2`, `SR`, and `DR`: an enabled master
 (`SPE|MSTR`) completes a deterministic full-duplex byte transfer, captures MOSI,
 and returns an injected MISO byte (or an echo when no external byte is queued).
 `RXNE`/`TXE` status and `RXNEIE`/`TXEIE` interrupt requests route through the
-WCH PFIC SPI1 line 35.
+WCH PFIC SPI1 line 33.
 
 VCD exposes `board.ch32v003.spi1.tx_byte`, `.rx_byte`, and `.tx_strobe` (with
 the corresponding `ch32v006` paths). This is a behavioral transfer model;
@@ -800,8 +800,9 @@ on the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2
 and [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf).
 
 The WCH CH32V003/CH32V006 models also map the advanced TIM1 register block at
-`0x40012c00`, using the same deterministic counter, update-event,
-capture/compare-latch, and PWM-control register subset as TIM2.
+`0x40012c00`, using the deterministic counter, update-event, capture/compare
+register, and PWM-control subset shared with TIM2. TIM1 update and TIM2 update
+sources are routed to their native PFIC lines (35 and 38 respectively).
 Exact center-aligned waveform timing, break/dead-time outputs, and DMA request
 sequencing remain outside this slice.
 

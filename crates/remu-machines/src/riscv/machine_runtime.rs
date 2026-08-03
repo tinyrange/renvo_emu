@@ -133,6 +133,7 @@ impl RiscVMachine {
             .set_interrupt(TIMER_INTERRUPT, self.timer.pending())?;
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
+        let mut wch_timer1_was_pending = false;
         let mut wch_exti_was_pending = false;
         let mut wch_spi_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
@@ -222,6 +223,7 @@ impl RiscVMachine {
                     &self.chip_gpio,
                     &mut self.cpu,
                     &mut wch_timer_was_pending,
+                    &mut wch_timer1_was_pending,
                     &mut wch_exti_was_pending,
                     &mut wch_spi_was_pending,
                     &mut stats,

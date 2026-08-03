@@ -9,11 +9,13 @@ use remu_devices::{
 use remu_signals::Logic;
 
 const WCH_EXTI7_0_INTERRUPT: u16 = 20;
-const WCH_SPI1_INTERRUPT: u16 = 35;
-const WCH_TIMER_INTERRUPT: u16 = 38;
+const WCH_SPI1_INTERRUPT: u16 = 33;
+const WCH_TIM1_UPDATE_INTERRUPT: u16 = 35;
+const WCH_TIM2_INTERRUPT: u16 = 38;
 
 pub(super) struct WchHandles {
     pub(super) timer: WchTimerHandle,
+    pub(super) timer1: WchTimerHandle,
     pub(super) pfic: WchPficHandle,
     pub(super) exti: WchExtiHandle,
     pub(super) spi: WchSpiHandle,
@@ -41,6 +43,7 @@ pub(super) fn poll_wch(
     gpios: &[GpioHandle],
     cpu: &mut RiscVCpu,
     timer_was_pending: &mut bool,
+    timer1_was_pending: &mut bool,
     exti_was_pending: &mut bool,
     spi_was_pending: &mut bool,
     stats: &mut RunStats,
@@ -53,6 +56,16 @@ pub(super) fn poll_wch(
         timer_was_pending,
         stats,
         now,
+        WCH_TIM2_INTERRUPT,
+    )?;
+    poll_wch_timer(
+        &handles.timer1,
+        &handles.pfic,
+        cpu,
+        timer1_was_pending,
+        stats,
+        now,
+        WCH_TIM1_UPDATE_INTERRUPT,
     )?;
     poll_wch_exti(
         &handles.exti,
@@ -103,15 +116,16 @@ pub(super) fn poll_wch_timer(
     was_pending: &mut bool,
     stats: &mut RunStats,
     now: SimTime,
+    interrupt: u16,
 ) -> Result<(), MachineError> {
     let pending = timer.pending(now);
-    pfic.set_pending(WCH_TIMER_INTERRUPT, pending);
-    let deliver = pfic.next_pending() == Some(WCH_TIMER_INTERRUPT);
+    pfic.set_pending(interrupt, pending);
+    let deliver = pfic.next_pending() == Some(interrupt);
     if deliver && !*was_pending {
         stats.events = stats.events.saturating_add(1);
     }
     *was_pending = deliver;
-    cpu.set_qingke_external_interrupt(WCH_TIMER_INTERRUPT, deliver)?;
+    cpu.set_qingke_external_interrupt(interrupt, deliver)?;
     Ok(())
 }
 

@@ -686,7 +686,7 @@ impl RiscVMachine {
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 let timer = handle;
-                let (tim1, _) = WchTimer::new(format!("{target}.tim1"));
+                let (tim1, timer1) = WchTimer::new(format!("{target}.tim1"));
                 bus.map_device(format!("{target}.tim1"), 0x4001_2c00, 0x400, Box::new(tim1))?;
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
@@ -697,6 +697,7 @@ impl RiscVMachine {
                 )?;
                 wch = Some(wch_exti::WchHandles {
                     timer,
+                    timer1,
                     pfic: handle,
                     exti,
                     spi: spi_handle,

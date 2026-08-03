@@ -101,3 +101,44 @@ fn exti_reserved_port_selection_does_not_alias_pa() {
         0
     );
 }
+
+#[test]
+fn advanced_timer_honors_update_disable_and_native_capture_width() {
+    let (mut timer, handle) = WchTimer::new("tim1");
+    timer
+        .write(0x2c, AccessWidth::HalfWord, 2, SimTime::ZERO)
+        .unwrap();
+    timer
+        .write(0x28, AccessWidth::HalfWord, 0, SimTime::ZERO)
+        .unwrap();
+    timer
+        .write(0x0c, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+    // UDIS suppresses the update event while the counter continues to run.
+    timer
+        .write(0x00, AccessWidth::HalfWord, 1 | (1 << 1), SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.pending(SimTime::from_ticks(3)));
+    assert_eq!(
+        timer
+            .read(0x10, AccessWidth::HalfWord, SimTime::from_ticks(3))
+            .unwrap(),
+        0
+    );
+
+    timer
+        .write(0x00, AccessWidth::HalfWord, 1, SimTime::from_ticks(3))
+        .unwrap();
+    assert!(handle.pending(SimTime::from_ticks(6)));
+
+    // CHxCVR is a 32-bit register, but only the low 16-bit value is writable.
+    timer
+        .write(0x34, AccessWidth::Word, 0xabcd_1234, SimTime::from_ticks(6))
+        .unwrap();
+    assert_eq!(
+        timer
+            .read(0x34, AccessWidth::Word, SimTime::from_ticks(6))
+            .unwrap(),
+        0x1234
+    );
+}
