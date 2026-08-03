@@ -1153,3 +1153,22 @@ fn pwm_advances_counter_and_reports_compare_outputs() {
     );
     assert_ne!(handle.pending_interrupts(), 0);
 }
+
+#[test]
+fn pwm_phase_commands_adjust_counter_and_self_clear() {
+    let (mut pwm, handle) = FunctionalPwm::new("pwm", 1);
+    pwm.write(0x10, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    pwm.write(0x08, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+
+    pwm.write(0x00, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.counter(0), Some(0));
+    assert_eq!(pwm.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+
+    pwm.write(0x00, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.counter(0), Some(3));
+    assert_eq!(pwm.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+}
