@@ -201,16 +201,20 @@ fn append_button_edge(
         });
         return;
     }
-    let interval = (button.bounce_ticks / 4).max(1);
-    for (index, value) in [final_level, old_level, final_level, old_level, final_level]
-        .into_iter()
-        .enumerate()
+    let offsets = [
+        0,
+        button.bounce_ticks / 4,
+        button.bounce_ticks / 2,
+        button.bounce_ticks.saturating_mul(3) / 4,
+        button.bounce_ticks,
+    ];
+    for (offset, value) in
+        offsets
+            .into_iter()
+            .zip([final_level, old_level, final_level, old_level, final_level])
     {
         stimuli.push(PinStimulus {
-            at: SimTime::from_ticks(
-                at.ticks()
-                    .saturating_add(interval.saturating_mul(index as u64)),
-            ),
+            at: SimTime::from_ticks(at.ticks().saturating_add(offset)),
             pin: button.pin,
             value,
         });

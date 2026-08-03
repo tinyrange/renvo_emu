@@ -1236,11 +1236,11 @@ mod tests {
         assert_eq!(stimuli.len(), 10);
         assert_eq!(stimuli[0].pin, 9);
         assert_eq!(stimuli[0].value, Logic::Zero);
-        assert_eq!(stimuli[4].at, SimTime::from_ticks(108));
+        assert_eq!(stimuli[4].at, SimTime::from_ticks(110));
         assert_eq!(stimuli[4].value, Logic::Zero);
         assert_eq!(stimuli[5].at, SimTime::from_ticks(150));
         assert_eq!(stimuli[5].value, Logic::One);
-        assert_eq!(stimuli[9].at, SimTime::from_ticks(158));
+        assert_eq!(stimuli[9].at, SimTime::from_ticks(160));
         assert_eq!(stimuli[9].value, Logic::One);
 
         hub.set(
@@ -1341,5 +1341,52 @@ mod tests {
                 second,
             } if first == "blue_led" && second == "status_led"
         ));
+    }
+
+    #[test]
+    fn gpio_endpoint_keeps_short_bounce_inside_configured_window() {
+        let hub = SignalHub::new();
+        hub.declare(
+            "board.esp32c6.chip_gpio.pin9",
+            SignalValue::repeat(Logic::One, 1).unwrap(),
+            None,
+        )
+        .unwrap();
+        let scenario = BoardScenario {
+            name: "nanoc6".to_owned(),
+            target: "esp32c6".to_owned(),
+            connectors: Vec::new(),
+            mounts: vec![BoardMount {
+                component: BoardComponent {
+                    name: "button".to_owned(),
+                    kind: BoardComponentKind::PushButton {
+                        active_low: true,
+                        bounce_ticks: 1,
+                    },
+                },
+                pin: 9,
+                enable_pin: None,
+            }],
+            connections: Vec::new(),
+            actions: vec![BoardAction::Press {
+                component: "button".to_owned(),
+                at: 10,
+                duration: 2,
+            }],
+            duration: 12,
+        };
+        let endpoint = BoardGpioEndpoint::new(&scenario, hub, "board.esp32c6.chip_gpio").unwrap();
+        let stimuli = endpoint.button_stimuli(&scenario.actions).unwrap();
+        assert_eq!(stimuli.len(), 10);
+        assert!(
+            stimuli[..5]
+                .iter()
+                .all(|stimulus| stimulus.at <= SimTime::from_ticks(11))
+        );
+        assert!(
+            stimuli[5..]
+                .iter()
+                .all(|stimulus| stimulus.at <= SimTime::from_ticks(13))
+        );
     }
 }
