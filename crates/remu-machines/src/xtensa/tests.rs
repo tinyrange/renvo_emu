@@ -25,7 +25,8 @@ fn esp32s3_efuse_native_window_models_otp_programming_and_interrupts() {
             )
             .unwrap();
     };
-    write(&mut machine, Esp32S3EfuseRegister::PgmData0, 1 << 7);
+    write(&mut machine, Esp32S3EfuseRegister::PgmData1, 1 << 7);
+    write(&mut machine, Esp32S3EfuseRegister::Conf, 0x5a5a);
     write(&mut machine, Esp32S3EfuseRegister::Cmd, 1 << 1);
     write(&mut machine, Esp32S3EfuseRegister::IntEna, 1 << 1);
     assert_eq!(

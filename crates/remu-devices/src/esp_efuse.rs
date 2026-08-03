@@ -4,6 +4,8 @@ const EFUSE_PGM_DATA_WORDS: usize = 8;
 const EFUSE_READ_CMD: u32 = 1 << 0;
 const EFUSE_PROGRAM_CMD: u32 = 1 << 1;
 const EFUSE_INTERRUPT_MASK: u32 = 0x3;
+const EFUSE_READ_OPCODE: u32 = 0x5aa5;
+const EFUSE_PROGRAM_OPCODE: u32 = 0x5a5a;
 
 /// Native ESP32-S3 eFuse register identifiers from Espressif's
 /// `efuse_reg.h` map.
@@ -164,7 +166,9 @@ impl Esp32S3EfuseRegister {
             Self::Clk => 0x0001_0007,
             Self::Conf => 0x0000_ffff,
             Self::Status => 0x0003_ffff,
-            Self::Cmd => 0x0000_003c,
+            // BLK_NUM remains readable while READ_CMD and PGM_CMD are
+            // command strobes that self-clear after the operation.
+            Self::Cmd => 0x0000_003f,
             Self::IntRaw | Self::IntSt | Self::IntEna => 0x3,
             Self::IntClr => 0,
             Self::DacConf => 0x0003_ffff,
@@ -295,8 +299,9 @@ impl EspEfuseState {
 
     fn program_destination(block: u32) -> Option<(Esp32S3EfuseRegister, usize)> {
         match block {
-            0 => Some((Esp32S3EfuseRegister::RdRepeatData0, 5)),
-            1 => Some((Esp32S3EfuseRegister::RdMac0, 6)),
+            // BLOCK0 has a special layout: PGM_DATA0 is WR_DIS and
+            // PGM_DATA1..5 are the repeat-data words.  BLOCK1 is factory
+            // programmed and cannot be written by user firmware.
             2 => Some((Esp32S3EfuseRegister::RdSysPart1Data0, 8)),
             3 => Some((Esp32S3EfuseRegister::RdUsrData0, 8)),
             4..=9 => Some((KEY_BASES[(block - 4) as usize], 8)),
@@ -305,23 +310,65 @@ impl EspEfuseState {
         }
     }
 
-    fn register_value(&self, register: Esp32S3EfuseRegister) -> u32 {
-        self.registers.get(&register).copied().unwrap_or_default()
+    fn clear_program_staging(&mut self) {
+        self.program_data = [0; EFUSE_PGM_DATA_WORDS];
+        for index in 0..EFUSE_PGM_DATA_WORDS {
+            let register = Esp32S3EfuseRegister::from_offset(index as u64 * 4)
+                .expect("eFuse programming register exists");
+            self.registers.insert(register, 0);
+        }
+        for index in 0..3 {
+            let register = Esp32S3EfuseRegister::from_offset(0x20 + index as u64 * 4)
+                .expect("eFuse check-value register exists");
+            self.registers.insert(register, 0);
+        }
+    }
+
+    fn program_block0(&mut self) {
+        // EFUSE_PGM_DATA0 stores EFUSE_WR_DIS.  The repeat-data words start
+        // at PGM_DATA1, as specified by the ESP32-S3 TRM.
+        let write_disable =
+            self.register_value(Esp32S3EfuseRegister::RdWrDis) | self.program_data[0];
+        self.registers
+            .insert(Esp32S3EfuseRegister::RdWrDis, write_disable);
+        for index in 0..5 {
+            let destination = Esp32S3EfuseRegister::from_offset(0x30 + index as u64 * 4)
+                .expect("eFuse repeat-data register exists");
+            let current = self.register_value(destination);
+            self.registers
+                .insert(destination, current | self.program_data[index + 1]);
+        }
+        self.set_interrupt(1 << 1);
     }
 
     fn program(&mut self, block: u32) {
-        if let Some((destination, words)) = Self::program_destination(block) {
+        if block == 0 {
+            self.program_block0();
+        } else if let Some((destination, words)) = Self::program_destination(block) {
+            // BLOCK2..10 are one-time programmable.  Keep the functional
+            // model one-way and reject a second command once any bit in the
+            // destination block is already set.
+            let already_programmed = (0..words).any(|index| {
+                let register =
+                    Esp32S3EfuseRegister::from_offset(destination.offset() + index as u64 * 4)
+                        .expect("eFuse programming destination is contiguous");
+                self.register_value(register) != 0
+            });
+            if already_programmed {
+                return;
+            }
             for (index, value) in self.program_data.iter().copied().enumerate().take(words) {
                 let register =
                     Esp32S3EfuseRegister::from_offset(destination.offset() + index as u64 * 4)
                         .expect("eFuse programming destination is contiguous");
-                let current = self.register_value(register);
-                self.registers.insert(register, current | value);
+                self.registers.insert(register, value);
             }
             self.set_interrupt(1 << 1);
-        } else {
-            self.status |= 1 << 18;
         }
+    }
+
+    fn register_value(&self, register: Esp32S3EfuseRegister) -> u32 {
+        self.registers.get(&register).copied().unwrap_or_default()
     }
 
     fn key_is_read_disabled(&self, key: usize) -> bool {
@@ -434,10 +481,19 @@ impl Device for EspEfuse {
                 let value = value & write_mask;
                 self.state.command_block = (value >> 2) & 0xf;
                 if value & EFUSE_READ_CMD != 0 {
-                    self.state.set_interrupt(1 << 0);
+                    if self.state.register_value(Esp32S3EfuseRegister::Conf) == EFUSE_READ_OPCODE {
+                        self.state.set_interrupt(1 << 0);
+                    }
                 }
                 if value & EFUSE_PROGRAM_CMD != 0 {
-                    self.state.program(self.state.command_block);
+                    if self.state.register_value(Esp32S3EfuseRegister::Conf) == EFUSE_PROGRAM_OPCODE
+                    {
+                        self.state.program(self.state.command_block);
+                        // The TRM requires staging registers to be cleared
+                        // after every programming attempt to avoid leaking
+                        // sensitive key material.
+                        self.state.clear_program_staging();
+                    }
                 }
             }
             Esp32S3EfuseRegister::IntRaw => {
@@ -482,9 +538,17 @@ mod tests {
         );
         device
             .write(
-                Esp32S3EfuseRegister::PgmData0.offset(),
+                Esp32S3EfuseRegister::PgmData1.offset(),
                 AccessWidth::Word,
                 1 << 7,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3EfuseRegister::Conf.offset(),
+                AccessWidth::Word,
+                u64::from(EFUSE_PROGRAM_OPCODE),
                 SimTime::ZERO,
             )
             .unwrap();
@@ -503,6 +567,14 @@ mod tests {
                 SimTime::ZERO,
             ),
             Ok(1 << 7)
+        );
+        assert_eq!(
+            device.read(
+                Esp32S3EfuseRegister::PgmData1.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(0)
         );
         device
             .write(
@@ -551,6 +623,14 @@ mod tests {
             .unwrap();
         device
             .write(
+                Esp32S3EfuseRegister::Conf.offset(),
+                AccessWidth::Word,
+                u64::from(EFUSE_PROGRAM_OPCODE),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
                 Esp32S3EfuseRegister::Cmd.offset(),
                 AccessWidth::Word,
                 u64::from(EFUSE_PROGRAM_CMD | (4 << 2)),
@@ -559,7 +639,7 @@ mod tests {
             .unwrap();
         device
             .write(
-                Esp32S3EfuseRegister::PgmData0.offset(),
+                Esp32S3EfuseRegister::PgmData1.offset(),
                 AccessWidth::Word,
                 1,
                 SimTime::ZERO,
@@ -584,6 +664,94 @@ mod tests {
     }
 
     #[test]
+    fn command_strobes_require_native_opcodes_and_read_completion() {
+        let mut device = EspEfuse::new("efuse");
+        device
+            .write(
+                Esp32S3EfuseRegister::PgmData1.offset(),
+                AccessWidth::Word,
+                0x55,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        // A command with the wrong opcode must not alter the fuse bank.
+        device
+            .write(
+                Esp32S3EfuseRegister::Conf.offset(),
+                AccessWidth::Word,
+                u64::from(EFUSE_READ_OPCODE),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3EfuseRegister::Cmd.offset(),
+                AccessWidth::Word,
+                u64::from(EFUSE_PROGRAM_CMD),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(
+                Esp32S3EfuseRegister::RdRepeatData0.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(0)
+        );
+
+        device
+            .write(
+                Esp32S3EfuseRegister::Conf.offset(),
+                AccessWidth::Word,
+                u64::from(EFUSE_PROGRAM_OPCODE),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3EfuseRegister::Cmd.offset(),
+                AccessWidth::Word,
+                u64::from(EFUSE_PROGRAM_CMD),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(
+                Esp32S3EfuseRegister::RdRepeatData0.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(0x55)
+        );
+
+        device
+            .write(
+                Esp32S3EfuseRegister::Conf.offset(),
+                AccessWidth::Word,
+                u64::from(EFUSE_READ_OPCODE),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3EfuseRegister::Cmd.offset(),
+                AccessWidth::Word,
+                u64::from(EFUSE_READ_CMD),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(
+                Esp32S3EfuseRegister::IntRaw.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(3)
+        );
+    }
+
+    #[test]
     fn enum_masks_defaults_and_reserved_holes_match_native_map() {
         assert_eq!(
             Esp32S3EfuseRegister::from_offset(0x1c8),
@@ -591,7 +759,7 @@ mod tests {
         );
         assert_eq!(Esp32S3EfuseRegister::from_offset(0x194), None);
         assert_eq!(Esp32S3EfuseRegister::RdRepeatErr4.read_mask(), 0x00ff_ffff);
-        assert_eq!(Esp32S3EfuseRegister::Cmd.read_mask(), 0x3c);
+        assert_eq!(Esp32S3EfuseRegister::Cmd.read_mask(), 0x3f);
         assert_eq!(Esp32S3EfuseRegister::Cmd.write_mask(), 0x3f);
 
         let mut device = EspEfuse::new("efuse");
