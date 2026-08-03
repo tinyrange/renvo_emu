@@ -966,6 +966,11 @@ impl XtensaMachine {
         self.bus.add_watchpoint(address);
     }
 
+    /// Returns the machine's shared signal hub for board endpoint attachment.
+    pub fn signal_hub(&self) -> SignalHub {
+        self.signals.clone()
+    }
+
     /// Stops when the named signal satisfies `edge`.
     pub fn add_signal_stop(
         &mut self,
