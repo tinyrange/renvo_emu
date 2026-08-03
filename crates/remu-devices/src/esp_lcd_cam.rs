@@ -399,7 +399,10 @@ impl Device for Esp32S3LcdCam {
         let mut state = self.state.borrow_mut();
         match register {
             Esp32S3LcdCamRegister::LcdUser => {
-                state.write_register(register, value & !(LCD_START | LCD_UPDATE | LCD_RESET));
+                // LCD_START is a native R/W level.  Only UPDATE and RESET are
+                // hardware strobes; preserve the requested start level for
+                // firmware that polls or clears it explicitly.
+                state.write_register(register, value & !(LCD_UPDATE | LCD_RESET));
                 if value & LCD_RESET != 0 {
                     state.reset_lcd_fifo();
                 }
@@ -411,7 +414,9 @@ impl Device for Esp32S3LcdCam {
                 state.write_register(register, value & !CAM_UPDATE);
             }
             Esp32S3LcdCamRegister::CamCtrl1 => {
-                state.write_register(register, value & !(CAM_START | CAM_RESET | CAM_AFIFO_RESET));
+                // CAM_START is a native R/W level.  RESET and AFIFO_RESET are
+                // write-only strobes and must not be retained.
+                state.write_register(register, value & !(CAM_RESET | CAM_AFIFO_RESET));
                 if value & (CAM_RESET | CAM_AFIFO_RESET) != 0 {
                     state.reset_camera_fifo();
                 }
@@ -499,7 +504,7 @@ mod tests {
             u64::from(u32::MAX),
         )
         .unwrap();
-        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcdUser), 0xe7e8_3fff);
+        assert_eq!(read(&mut lcd, Esp32S3LcdCamRegister::LcdUser), 0xefe8_3fff);
         assert!(
             write(
                 &mut lcd,
@@ -511,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn lcd_and_camera_strobes_are_self_clearing_and_fifo_resettable() {
+    fn lcd_and_camera_start_levels_and_fifo_resets_follow_native_semantics() {
         let hub = SignalHub::new();
         let (mut lcd, handle) = Esp32S3LcdCam::new("lcd-cam", hub).unwrap();
         handle.queue_lcd_words([0x11, 0x22]);
@@ -524,7 +529,7 @@ mod tests {
         assert_eq!(handle.take_lcd_words(), vec![0, 0x11, 0x22]);
         assert_eq!(
             read(&mut lcd, Esp32S3LcdCamRegister::LcdUser) & u64::from(LCD_START),
-            0
+            u64::from(LCD_START)
         );
         handle.queue_camera_words([0x33]);
         write(
@@ -536,7 +541,7 @@ mod tests {
         assert!(handle.take_camera_words().is_empty());
         assert_eq!(
             read(&mut lcd, Esp32S3LcdCamRegister::CamCtrl1) & u64::from(CAM_START),
-            0
+            u64::from(CAM_START)
         );
     }
 
