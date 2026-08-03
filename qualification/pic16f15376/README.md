@@ -16,7 +16,8 @@ Every smoke build must emit
 Implemented functionally: all 49 enhanced mid-range instruction families,
 14-bit word program memory, banked/common/linear RAM, the 16-level hardware
 stack, reset and interrupt vectors, oscillator-ready state, PORT/LAT/TRIS/
-ANSEL A–E, PPS register storage plus functional TMR0/TX1 output-source routing,
+ANSEL A–E, named PPS RxyPPS/PPSLOCK registers with functional lock behavior and
+TMR0/TX1 output-source routing,
 PIR/PIE routing, Timer0/1, Timer2 period
 matching with its prescaler/postscaler, EUSART1 transmit, MSSP1 SPI master byte
 transfers, the normalized DAC1 code and enable/output controls, the C1
@@ -24,7 +25,8 @@ comparator GPIO input/polarity/output and edge-flag slice, and watchdog reset.
 Timer, serial, SPI, and comparator timing are deterministic approximations.
 MSSP1 I²C/slave operation remains unsupported. The comparator is a logic-level
 model; it does not simulate analog voltage, propagation delay, or the complete
-C2/zero-cross path. Serial receive timing and unlisted peripherals also remain
+C2/zero-cross path. PPS unlock-sequence and serial receive timing, plus unlisted
+peripherals, also remain
 unsupported and are not represented as hardware-accurate.
 
 Run from the repository root:
