@@ -2,7 +2,11 @@ use super::*;
 
 const ADC_STATUS_EOC: u32 = 1 << 1;
 const ADC_CONTROL1_EOCIE: u32 = 1 << 5;
+const ADC_CONTROL1_SCAN: u32 = 1 << 8;
 const ADC_CONTROL2_ADON: u32 = 1;
+const ADC_CONTROL2_CAL: u32 = 1 << 2;
+const ADC_CONTROL2_RSTCAL: u32 = 1 << 3;
+const ADC_CONTROL2_ALIGN: u32 = 1 << 11;
 const ADC_CONTROL2_SWSTART: u32 = 1 << 22;
 
 /// Scheduler-facing handle for deterministic ADC channel stimuli and EOC state.
@@ -29,7 +33,6 @@ impl WchAdcHandle {
         let state = self.state.borrow();
         state.status & ADC_STATUS_EOC != 0
             && state.control1 & ADC_CONTROL1_EOCIE != 0
-            && state.control2 & ADC_CONTROL2_ADON != 0
             && now.ticks() >= state.last_conversion
     }
 }
@@ -65,19 +68,39 @@ impl WchAdcState {
         }
     }
 
-    fn selected_channel(&self) -> usize {
-        usize::try_from(self.sequence3 & 0x1f)
+    fn sequence_channel(&self, rank: usize) -> usize {
+        let (register, shift) = match rank {
+            0..=5 => (self.sequence3, rank * 5),
+            6..=11 => (self.sequence2, (rank - 6) * 5),
+            12..=15 => (self.sequence1, (rank - 12) * 5),
+            _ => return 0,
+        };
+        usize::try_from((register >> shift) & 0x1f)
             .expect("WCH ADC channel selector fits usize")
             .min(self.samples.len() - 1)
     }
 
-    fn start_conversion(&mut self, at: SimTime) {
+    fn start_conversion(&mut self, at: SimTime) -> bool {
         if self.control2 & ADC_CONTROL2_ADON == 0 {
-            return;
+            return false;
         }
-        self.data = self.samples[self.selected_channel()];
+        let sequence_length = if self.control1 & ADC_CONTROL1_SCAN != 0 {
+            ((self.sequence1 >> 20) & 0x0f) as usize + 1
+        } else {
+            1
+        };
+        let mut sample = 0;
+        for rank in 0..sequence_length {
+            sample = self.samples[self.sequence_channel(rank)];
+        }
+        self.data = if self.control2 & ADC_CONTROL2_ALIGN != 0 {
+            (sample & 0x03ff) << 6
+        } else {
+            sample & 0x03ff
+        };
         self.status |= ADC_STATUS_EOC;
         self.last_conversion = at.ticks();
+        true
     }
 }
 
@@ -86,8 +109,9 @@ impl WchAdcState {
 /// A conversion is deterministic and completes when software sets ADON and
 /// SWSTART. Host-side channel samples can be supplied through [`WchAdcHandle`]
 /// and the model exposes EOC/DR and the regular-sequence registers used by
-/// WCH HAL code. Analog settling, sample-clock timing, injected sequences, and
-/// touch-key behavior remain outside this functional slice.
+/// WCH HAL code. Calibration requests complete immediately because this model
+/// has no analogue error source. Analog settling, sample-clock timing, injected
+/// sequences, and touch-key behavior remain outside this functional slice.
 pub struct WchAdc {
     name: String,
     state: Rc<RefCell<WchAdcState>>,
@@ -156,13 +180,19 @@ impl Device for WchAdc {
             .expect("masked WCH ADC register value fits u32");
         let mut state = self.state.borrow_mut();
         match offset {
-            0x00 => state.status &= !value,
+            // STATR flags are RW0: WCH's ADC_ClearFlag writes `~flag`, so a
+            // zero in the written word clears the corresponding status bit.
+            0x00 => state.status &= value,
             0x04 => state.control1 = value & 0x00ff_ffff,
             0x08 => {
                 state.control2 = value & 0x00ff_ffff;
+                // Calibration is a functional no-op in the deterministic model.
+                // Clear the request bits so vendor HAL polling loops terminate.
+                state.control2 &= !(ADC_CONTROL2_CAL | ADC_CONTROL2_RSTCAL);
                 if value & ADC_CONTROL2_SWSTART != 0 {
-                    state.start_conversion(at);
-                    state.control2 &= !ADC_CONTROL2_SWSTART;
+                    if state.start_conversion(at) {
+                        state.control2 &= !ADC_CONTROL2_SWSTART;
+                    }
                 }
             }
             0x0c => state.sample_time1 = value,
@@ -227,6 +257,84 @@ mod tests {
     }
 
     #[test]
+    fn adc_scan_uses_sequence_length_and_left_alignment() {
+        let (mut adc, handle) = WchAdc::new("adc");
+        handle.set_channel_sample(1, 0x111);
+        handle.set_channel_sample(2, 0x2aa);
+        // Two regular ranks: SQ1=1, SQ2=2, L=2, SCAN=1, ALIGN=1.
+        adc.write(0x34, AccessWidth::Word, 1 | (2 << 5), SimTime::ZERO)
+            .unwrap();
+        adc.write(0x2c, AccessWidth::Word, 1 << 20, SimTime::ZERO)
+            .unwrap();
+        adc.write(
+            0x08,
+            AccessWidth::Word,
+            ADC_CONTROL2_ADON as u64,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            0x04,
+            AccessWidth::Word,
+            ADC_CONTROL1_SCAN as u64,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            0x08,
+            AccessWidth::Word,
+            u64::from(ADC_CONTROL2_ADON | ADC_CONTROL2_ALIGN | ADC_CONTROL2_SWSTART),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            adc.read(0x4c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x2aa << 6
+        );
+    }
+
+    #[test]
+    fn adc_status_flags_use_documented_write_zero_clear() {
+        let (mut adc, _) = WchAdc::new("adc");
+        adc.write(
+            0x08,
+            AccessWidth::Word,
+            ADC_CONTROL2_ADON as u64,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            0x08,
+            AccessWidth::Word,
+            u64::from(ADC_CONTROL2_ADON | ADC_CONTROL2_SWSTART),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            0x00,
+            AccessWidth::Word,
+            u64::from(ADC_STATUS_EOC),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_ne!(
+            adc.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap() & u64::from(ADC_STATUS_EOC),
+            0
+        );
+        adc.write(
+            0x00,
+            AccessWidth::Word,
+            u64::from(!ADC_STATUS_EOC),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            adc.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap() & u64::from(ADC_STATUS_EOC),
+            0
+        );
+    }
+
+    #[test]
     fn adc_eoc_interrupt_requires_control_enable_and_power() {
         let (mut adc, handle) = WchAdc::new("adc");
         handle.set_channel_sample(0, 77);
@@ -260,5 +368,33 @@ mod tests {
         )
         .unwrap();
         assert!(handle.interrupt_pending(SimTime::ZERO));
+    }
+
+    #[test]
+    fn adc_calibration_requests_complete_immediately() {
+        let (mut adc, _) = WchAdc::new("adc");
+        adc.write(
+            0x08,
+            AccessWidth::Word,
+            u64::from(ADC_CONTROL2_RSTCAL),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            adc.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap()
+                & u64::from(ADC_CONTROL2_RSTCAL),
+            0
+        );
+        adc.write(
+            0x08,
+            AccessWidth::Word,
+            u64::from(ADC_CONTROL2_CAL),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            adc.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap() & u64::from(ADC_CONTROL2_CAL),
+            0
+        );
     }
 }
