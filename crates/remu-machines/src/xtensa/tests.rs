@@ -66,6 +66,29 @@ fn esp32s3_sha_native_window_hashes_a_host_message() {
             .unwrap(),
         0xba78_16bf
     );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + Esp32S3ShaRegister::Date.offset(),
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x2019_0402
+    );
+    assert!(
+        machine
+            .bus
+            .read(
+                base + 0x30,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .is_err()
+    );
     assert!(machine.sha().interrupt_pending());
     machine
         .bus
