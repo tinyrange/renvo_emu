@@ -12,6 +12,24 @@ struct IwdgState {
     reload: u16,
 }
 
+const IWDG_KEY_START: u32 = 0xcccc;
+const IWDG_KEY_REFRESH: u32 = 0xaaaa;
+const IWDG_KEY_UNLOCK: u32 = 0x5555;
+const IWDG_PR_MASK: u32 = 0x07;
+const IWDG_RLR_MASK: u32 = 0x0fff;
+
+fn iwdg_prescaler_divider(value: u8) -> u64 {
+    match value & 0x07 {
+        0 => 4,
+        1 => 8,
+        2 => 16,
+        3 => 32,
+        4 => 64,
+        5 => 128,
+        _ => 256,
+    }
+}
+
 /// Machine handle for STM32 independent-watchdog reset requests.
 #[derive(Clone)]
 pub struct Stm32WatchdogHandle(Arc<Mutex<IwdgState>>);
@@ -20,7 +38,8 @@ impl Stm32WatchdogHandle {
     /// Advances the functional watchdog and consumes one reset request.
     pub fn take_reset(&self, now: SimTime) -> bool {
         let mut state = self.0.lock().expect("IWDG lock poisoned");
-        let period = (u64::from(state.reload) + 1).saturating_mul(1_u64 << state.prescaler.min(7));
+        let period =
+            (u64::from(state.reload) + 1).saturating_mul(iwdg_prescaler_divider(state.prescaler));
         if state.enabled && now.ticks().saturating_sub(state.started) >= period {
             state.pending = true;
             state.started = now.ticks();
@@ -87,19 +106,19 @@ impl Device for Stm32Watchdog {
         let mut state = self.state.lock().expect("IWDG lock poisoned");
         match offset {
             0x00 => match value {
-                0xcccc => {
+                IWDG_KEY_START => {
                     state.enabled = true;
                     state.started = at.ticks();
                 }
-                0xaaaa => {
+                IWDG_KEY_REFRESH if state.enabled => {
                     state.started = at.ticks();
                     state.pending = false;
                 }
-                0x5555 => state.unlocked = true,
+                IWDG_KEY_UNLOCK => state.unlocked = true,
                 _ => {}
             },
-            0x04 if state.unlocked => state.prescaler = (value & 7) as u8,
-            0x08 if state.unlocked => state.reload = (value & 0x0fff) as u16,
+            0x04 if state.unlocked => state.prescaler = (value & IWDG_PR_MASK) as u8,
+            0x08 if state.unlocked => state.reload = (value & IWDG_RLR_MASK) as u16,
             _ => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(3)] = value,
         }
         Ok(())
@@ -121,6 +140,27 @@ mod tests {
     #[test]
     fn unlock_reload_and_timeout_are_deterministic() {
         let (mut watchdog, handle) = Stm32Watchdog::new("iwdg");
+        assert_eq!(
+            watchdog
+                .read(0x04, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            watchdog
+                .read(0x08, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(IWDG_RLR_MASK)
+        );
+        watchdog
+            .write(0x08, AccessWidth::Word, 3, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            watchdog
+                .read(0x08, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(IWDG_RLR_MASK)
+        );
         watchdog
             .write(0x00, AccessWidth::Word, 0x5555, SimTime::ZERO)
             .unwrap();
@@ -130,11 +170,11 @@ mod tests {
         watchdog
             .write(0x00, AccessWidth::Word, 0xcccc, SimTime::ZERO)
             .unwrap();
-        assert!(!handle.take_reset(SimTime::from_ticks(3)));
-        assert!(handle.take_reset(SimTime::from_ticks(4)));
+        assert!(!handle.take_reset(SimTime::from_ticks(15)));
+        assert!(handle.take_reset(SimTime::from_ticks(16)));
         watchdog
-            .write(0x00, AccessWidth::Word, 0xaaaa, SimTime::from_ticks(4))
+            .write(0x00, AccessWidth::Word, 0xaaaa, SimTime::from_ticks(16))
             .unwrap();
-        assert!(!handle.take_reset(SimTime::from_ticks(7)));
+        assert!(!handle.take_reset(SimTime::from_ticks(31)));
     }
 }

@@ -1023,5 +1023,7 @@ are outside this functional boundary.
 The STM32L432KC slice includes the native independent-watchdog window at
 `0x40003000`: key unlock/start/reload commands, prescaler and reload state,
 deterministic timeout reset requests, and integration with the Arm machine's
-watchdog reset path. Window watchdog timing and low-power clock behavior remain
-outside this functional boundary.
+watchdog reset path. The key values, prescaler encoding, reload width, and
+register offsets follow ST's [STM32L41/42/43/44 reference manual](https://www.st.com/resource/en/reference_manual/dm00151940-stm32l4x1-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf).
+Window watchdog timing and low-power clock behavior remain outside this
+functional boundary.
