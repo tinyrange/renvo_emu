@@ -11,7 +11,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, PIO0 waveform, and OTP alias proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
@@ -25,6 +25,21 @@ All targets also expose a stable compiler-test block:
 This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
+
+### RP2350 OTP subset
+
+Both RP2350 CPU modes map the documented OTP region at `0x40120000`. The
+functional model exposes the 64 software page-lock registers, SBPI payload and
+status controls, `USR.DCTRL` data-read gate, debug/architecture/boot controls,
+interrupt enable/force/status windows, and the ECC, raw, guarded, and raw-
+guarded data aliases in the first 8 KiB of the OTP space. The reset image is
+blank and deterministic; test fixtures can provide a read-only word image.
+
+SBPI programming is deliberately not simulated: execute requests complete as
+bounded functional operations without changing fuse data. Lock bits only move
+forward until reset, and disabling `USR.DCTRL` returns a deterministic bus
+error for all data aliases. Security-domain filtering, ECC fault injection, and
+irreversible fuse timing remain separate work.
 
 ## Official MicroPython milestone
 
