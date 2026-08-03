@@ -1386,7 +1386,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remu_devices::RA4M1_EVENT_ELC_SOFTWARE0;
+    use remu_devices::{RA4M1_EVENT_ELC_SOFTWARE0, RaElcRegister};
     use remu_image::FirmwareSegment;
 
     #[test]
