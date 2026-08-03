@@ -171,10 +171,10 @@ fn esp32c6_i2c_mmio_executes_the_default_sgp30_driver_sequence() {
     const DATA: u64 = 0x1c;
     const CTR: u64 = 0x04;
     const COMMAND0: u64 = 0x58;
-    const RESTART: u32 = 0;
+    const RESTART: u32 = 6;
     const WRITE: u32 = 1;
-    const READ: u32 = 2;
-    const STOP: u32 = 3;
+    const READ: u32 = 3;
+    const STOP: u32 = 2;
     const END: u32 = 4;
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let init_at = SimTime::ZERO;

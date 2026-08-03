@@ -126,7 +126,7 @@
       "elf": ".remu/portfolio-smoke/esp32c6-privilege/smoke.elf",
       "elf_sha256": "1937ae2fbc3964056eb6f10814d32c718ff43c18cfd10275f305cc9dd015e5c0",
       "result_artifact": ".remu/portfolio-smoke/esp32c6-privilege-run.json",
-      "result_sha256": "0bb721ffe71583260450d98d7287be9c128891691d4476b19ea2f9d73693a9f5",
+      "result_sha256": "0eb1a0d710b0b50a44682b14c1dd734a6e541bc5c36aab64fda67efcbd4750b3",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -134,7 +134,7 @@
         "time": 27,
         "events": 0
       },
-      "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
+      "trace_digest": "e04a518d7f8eeb5aec6565ed0395b277c67da48af4439219db76d248b65ae9d5",
       "result": "pass"
     },
     {

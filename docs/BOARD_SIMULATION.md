@@ -61,6 +61,8 @@ run the default SGP30 model at `0x58`. The machine emits the transaction on
 still intentionally approximate: the controller completes a command list as a
 single functional operation, does not route through Starlark connector nets,
 and does not yet inject a device interrupt into the ESP32-C6 interrupt matrix.
+The command decoder follows the executable ESP-IDF C6 HAL values
+RSTART=6, WRITE=1, READ=3, STOP=2, END=4; reserved encodings are rejected.
 The next coupling step can attach the machine's I2C endpoint to
 `board.connect("grove", sensor)` without moving CPU or scheduler state into
 Starlark.

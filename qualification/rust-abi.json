@@ -70,7 +70,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-esp32c6-o0.json",
       "build_provenance_sha256": "9570b06ab9094a4f0f7a597f89155c13e28b4b8b46df80c71456572a52017b07",
       "result_artifact": ".remu/rust-abi-qualification-v2/esp32c6-o0-run.json",
-      "result_sha256": "242f79f5701c238318340e767c221869d4686f062083decc7b9050f8b804d146",
+      "result_sha256": "c193d017aef175acb396a1ee7f1fbdb6ce5fb9d1cf13e1ff66bb3bae112553d8",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -78,7 +78,7 @@
         "time": 884,
         "events": 0
       },
-      "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
+      "trace_digest": "e04a518d7f8eeb5aec6565ed0395b277c67da48af4439219db76d248b65ae9d5",
       "deterministic_repeat": true,
       "result": "pass"
     },
@@ -208,7 +208,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-esp32c6-o2.json",
       "build_provenance_sha256": "570ed4e2ddb8a67843aef660b9401cb5085560e72b9852872c144fbc21188228",
       "result_artifact": ".remu/rust-abi-qualification-v2/esp32c6-o2-run.json",
-      "result_sha256": "e2e479d9e2b2adcb0d6d900df70e532c74319d85c5c691fa02d7b0bffb79e172",
+      "result_sha256": "fe301ef68d342203ad269022ff109ff44ccc154282b1d2f3626040b8027a6002",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -216,7 +216,7 @@
         "time": 207,
         "events": 0
       },
-      "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
+      "trace_digest": "e04a518d7f8eeb5aec6565ed0395b277c67da48af4439219db76d248b65ae9d5",
       "deterministic_repeat": true,
       "result": "pass"
     },
@@ -346,7 +346,7 @@
       "build_artifact": ".remu/rust-abi-qualification-v2/build-esp32c6-os.json",
       "build_provenance_sha256": "0b413cd9ad259adb1357f150bb1551dd30bdef50ddc3ba933f4d679a2da8fa7a",
       "result_artifact": ".remu/rust-abi-qualification-v2/esp32c6-os-run.json",
-      "result_sha256": "99cee17643306d24d20d32dcab31478876e9303315ec13f74f7990646973a370",
+      "result_sha256": "b8ef48f27c3d5300f436f39ab2cd57730cce5c706a74458662d35012efac81d3",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -354,7 +354,7 @@
         "time": 254,
         "events": 0
       },
-      "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
+      "trace_digest": "e04a518d7f8eeb5aec6565ed0395b277c67da48af4439219db76d248b65ae9d5",
       "deterministic_repeat": true,
       "result": "pass"
     },

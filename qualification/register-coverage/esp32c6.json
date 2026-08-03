@@ -15,12 +15,12 @@
       "id": "esp32c6",
       "result": ".remu/portfolio-smoke/esp32c6-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32c6-bus.json",
-      "result_sha256": "8b5520556136966e026d4e33e4354edc66178025283a2dd71375c2ef07637cd2",
+      "result_sha256": "0f3a9abb90b54949c5aad9e2a2e015d21175f63a55a2893f8e2b16766abb564d",
       "bus_log_sha256": "02445220648ec3f972c060c34110ef1a39d42071d4ed695826d5b5e1469fe862",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "cfe2b0394818d6dc9884894858625d53c909d90df7c370108e7d9be5c0a42931",
+        "trace_digest": "1c2929da22c0ee06d8c85fb82393f10e0c551e8d5da47a159e2f93f5fca30763",
         "stats": {
           "instructions": 11,
           "time": 11,
@@ -32,12 +32,12 @@
       "id": "esp32c6-uart",
       "result": ".remu/portfolio-smoke/esp32c6-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32c6-uart-bus.json",
-      "result_sha256": "db66b0a08ebb33a60c58fd0a8a41214f6da21d2c4d46d8e55d324fb7d3a9c9ad",
+      "result_sha256": "e64c5dc9ed8ba300e5b67de7198de73e2ef75340f8c410006aa5076ec8a58473",
       "bus_log_sha256": "643d34d4c31ec4c4fbf9fb1cd03bf2bd75721b1c1c3aff74c1e6bf85218aeea2",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
+        "trace_digest": "e04a518d7f8eeb5aec6565ed0395b277c67da48af4439219db76d248b65ae9d5",
         "stats": {
           "instructions": 24,
           "time": 24,

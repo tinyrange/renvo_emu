@@ -51,7 +51,9 @@ port, completion/NACK interrupt status, and reset/configuration accesses. A
 deterministic SGP30 model responds at address `0x58`, and SDA/SCL transitions
 are available to VCD as `board.esp32c6.i2c0.sda` and `.scl`. Clock divider,
 electrical open-drain resolution, interrupt-matrix routing, and arbitrary
-external I2C devices are not yet claimed.
+external I2C devices are not yet claimed. The command decoder uses the
+executable ESP-IDF C6 HAL encoding (RSTART=6, WRITE=1, READ=3, STOP=2,
+END=4); reserved encodings are rejected.
 
 ## Implemented CPU surface
 

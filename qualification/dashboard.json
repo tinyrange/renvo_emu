@@ -8,15 +8,15 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "bd16fb6f8294135ee1ada68684f918e3d3fcad9398b6a48d14cbcb7959be8ab7"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "e0f5235da59957a7262b916ad0b577282dfad121a498ec3b996ff002dc103067"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "50e96f217c9919785634f18c4a1e1f9f9f4897b2fa6c82c3faa8b637b6fd71a0"
     },
     {
       "path": "qualification/reduction.json",
@@ -24,23 +24,23 @@
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "f7dde1520d959d650c5a78a027f7388df279d2233e0d228a77f8982260e5fe97"
+      "sha256": "2f3a80cfa2f6e9a8be18104e3c99364d2f17a3847589ccb1ec249517e91e129f"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+      "sha256": "ce00287426f7c5bb99cce5a12edd438a2d61c2e1e0d39e2578243aadc14eaf05"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "d54dc9a48f4c7c54dbc2c124efb76d252a6e293a78bbd6a19d5cd469527fb367"
     },
     {
       "path": "qualification/rust-abi.json",
-      "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+      "sha256": "5bc1c2be2cc322f525f54096b1440d9b4d6e3b4af07a1cb1982ef48a6deb6975"
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+      "sha256": "77003052ec40e11cf4ede316ed895666cae2bf64b5092a55a1548394276f4a47"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -360,7 +360,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf",
+        "manifest_sha256": "ce7040ac77c467145bdccd04d2af4697f4257a32d58817a1dce82e8a74f40157",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

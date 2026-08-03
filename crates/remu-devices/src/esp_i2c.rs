@@ -23,13 +23,18 @@ pub struct Esp32c6I2c {
 }
 
 /// Command opcodes encoded in the ESP32-C6 I2C command registers.
+///
+/// The executable ESP-IDF C6 HAL defines restart as `6`, write as `1`, read
+/// as `3`, stop as `2`, and end as `4`.  The generated register commentary
+/// currently describes a conflicting compact `0..=4` sequence; the HAL values
+/// are the compatibility contract used by real C6 firmware.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 enum CommandOpcode {
-    Restart = 0,
+    Restart = 6,
     Write = 1,
-    Read = 2,
-    Stop = 3,
+    Read = 3,
+    Stop = 2,
     End = 4,
 }
 
@@ -38,11 +43,11 @@ impl TryFrom<u32> for CommandOpcode {
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::Restart),
             1 => Ok(Self::Write),
-            2 => Ok(Self::Read),
-            3 => Ok(Self::Stop),
+            2 => Ok(Self::Stop),
+            3 => Ok(Self::Read),
             4 => Ok(Self::End),
+            6 => Ok(Self::Restart),
             _ => Err(()),
         }
     }
@@ -510,5 +515,31 @@ mod tests {
             read_word(&mut device, Esp32c6I2c::INT_RAW, now) & (1 << 10),
             0
         );
+    }
+
+    #[test]
+    fn uses_the_esp_idf_c6_command_opcode_encoding() {
+        assert_eq!(CommandOpcode::Restart as u32, 6);
+        assert_eq!(CommandOpcode::Write as u32, 1);
+        assert_eq!(CommandOpcode::Read as u32, 3);
+        assert_eq!(CommandOpcode::Stop as u32, 2);
+        assert_eq!(CommandOpcode::End as u32, 4);
+        assert!(CommandOpcode::try_from(0).is_err());
+        assert!(CommandOpcode::try_from(5).is_err());
+        assert!(CommandOpcode::try_from(7).is_err());
+    }
+
+    #[test]
+    fn rejects_reserved_command_opcode_before_sensor_transaction() {
+        let mut device = Esp32c6I2c::new("esp32c6.i2c0", SignalHub::new()).unwrap();
+        let now = SimTime::ZERO;
+        write_word(&mut device, Esp32c6I2c::DATA, 0xb0, now);
+        write_word(&mut device, Esp32c6I2c::COMMAND0, 0 << 11, now);
+        write_word(&mut device, Esp32c6I2c::CTR, Esp32c6I2c::TRANS_START, now);
+        assert_ne!(
+            read_word(&mut device, Esp32c6I2c::INT_RAW, now) & Esp32c6I2c::INT_NACK,
+            0
+        );
+        assert_eq!(device.sensor_snapshot().commands, 0);
     }
 }
