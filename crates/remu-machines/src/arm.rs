@@ -587,7 +587,11 @@ impl ArmMachine {
             TargetId::Rp2350 => ("rp2350.adc", 0x400a_0000),
             _ => unreachable!(),
         };
-        let (adc, _) = RpAdc::new(adc_name);
+        let (adc, _) = if target == TargetId::Rp2350 {
+            RpAdc::new_rp2350(adc_name)
+        } else {
+            RpAdc::new(adc_name)
+        };
         bus.map_device(adc_name, adc_base, 0x1000, Box::new(adc))?;
         Ok(Self {
             target,
@@ -1467,12 +1471,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;

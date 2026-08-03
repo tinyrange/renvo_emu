@@ -448,7 +448,7 @@ impl RiscVMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
-            let (adc, _) = RpAdc::new("rp2350.adc");
+            let (adc, _) = RpAdc::new_rp2350("rp2350.adc");
             bus.map_device("rp2350.adc", 0x400a_0000, 0x1000, Box::new(adc))?;
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
