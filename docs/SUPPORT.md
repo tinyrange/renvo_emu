@@ -206,7 +206,10 @@ the target manifests and `PLAN.html`, principally:
   [OpenWCH CH32V003 EVT sources](https://github.com/openwch/ch32v003)
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
-- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals,
+  including the official [ESP32-C6 LP UART register definitions](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/register/soc/lp_uart_reg.h),
+  [UART low-level HAL](https://github.com/espressif/esp-idf/blob/master/components/esp_hal_uart/esp32c6/include/hal/uart_ll.h),
+  and [ESP32-C6 technical reference manual](https://documentation.espressif.com/esp32-c6_technical_reference_manual_en.pdf)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either

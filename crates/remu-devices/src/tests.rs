@@ -572,3 +572,70 @@ fn esp_lp_uart_models_fifo_status_interrupts_and_vcd_bytes() {
         1
     );
 }
+
+#[test]
+fn esp_lp_uart_matches_native_defaults_and_access_types() {
+    let hub = SignalHub::new();
+    let (mut uart, _output, handle) =
+        EspLpUart::new("lp-uart", "board.esp32c6.lp_uart", hub.clone()).unwrap();
+
+    assert_eq!(
+        uart.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 1),
+        1 << 1
+    );
+    assert_eq!(
+        uart.read(0x88, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        (1 << 24) | (1 << 25)
+    );
+    assert_eq!(
+        uart.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        (1 << 14) | (1 << 15) | (1 << 29) | (1 << 30) | (1 << 31)
+    );
+
+    // INT_RAW is write-one-to-clear and INT_STATUS/STATUS are read-only.
+    uart.write(0x04, AccessWidth::Word, 1 << 1, SimTime::ZERO)
+        .unwrap();
+    uart.write(0x08, AccessWidth::Word, 1 << 14, SimTime::ZERO)
+        .unwrap();
+    uart.write(0x1c, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        uart.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+
+    // REG_UPDATE is self-clearing, and reserved bits are masked from the
+    // configuration registers.
+    uart.write(0x98, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        uart.read(0x98, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+    uart.write(0x24, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        uart.read(0x24, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x003f_f8f8
+    );
+
+    // The native full interrupt is generated only after the configured
+    // threshold is exceeded.
+    uart.write(
+        0x24,
+        AccessWidth::Word,
+        (12 << 3) | (12 << 11),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    handle.queue_rx(&[0; 12]);
+    assert_eq!(
+        uart.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap() & 1,
+        0
+    );
+    handle.queue_rx(&[0]);
+    assert_ne!(
+        uart.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap() & 1,
+        0
+    );
+}
