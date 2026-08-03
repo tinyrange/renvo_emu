@@ -2,6 +2,97 @@ use super::*;
 
 const EHR_VALID: u32 = 1;
 const STATUS_MASK: u32 = 0x0f;
+const ICR_CLEARABLE: u32 = 0x0d;
+const AUTOCORR_STATISTIC_MASK: u32 = 0x003f_ffff;
+const BIST_COUNTER_MASK: u32 = 0x003f_ffff;
+const VERSION_MASK: u32 = 0x0000_00ff;
+
+/// Register offsets in the RP2350 TRNG block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum Rp2350TrngRegister {
+    /// Interrupt mask.
+    InterruptMask = 0x100,
+    /// Read-only interrupt/status register.
+    InterruptStatus = 0x104,
+    /// Write-one-to-clear interrupt/status register.
+    InterruptClear = 0x108,
+    /// Ring-oscillator source selection.
+    Config = 0x10c,
+    /// Read-only 192-bit collection indication.
+    Valid = 0x110,
+    /// Entropy holding register word 0.
+    EhrData0 = 0x114,
+    /// Entropy holding register word 1.
+    EhrData1 = 0x118,
+    /// Entropy holding register word 2.
+    EhrData2 = 0x11c,
+    /// Entropy holding register word 3.
+    EhrData3 = 0x120,
+    /// Entropy holding register word 4.
+    EhrData4 = 0x124,
+    /// Entropy holding register word 5; reading it consumes the result.
+    EhrData5 = 0x128,
+    /// Entropy-source enable.
+    SourceEnable = 0x12c,
+    /// Sampling period.
+    SampleCount = 0x130,
+    /// Autocorrelation statistics.
+    Autocorrelation = 0x134,
+    /// Test bypass controls.
+    DebugControl = 0x138,
+    /// Software reset.
+    SoftwareReset = 0x140,
+    /// Debug-mode enable.
+    DebugEnable = 0x1b4,
+    /// Read-only busy status.
+    Busy = 0x1b8,
+    /// Reset the collected-bits counter.
+    ResetBitsCounter = 0x1bc,
+    /// Read-only TRNG feature version.
+    Version = 0x1c0,
+    /// Read-only BIST counter 0.
+    BistCounter0 = 0x1e0,
+    /// Read-only BIST counter 1.
+    BistCounter1 = 0x1e4,
+    /// Read-only BIST counter 2.
+    BistCounter2 = 0x1e8,
+}
+
+impl TryFrom<u64> for Rp2350TrngRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x100 => Ok(Self::InterruptMask),
+            0x104 => Ok(Self::InterruptStatus),
+            0x108 => Ok(Self::InterruptClear),
+            0x10c => Ok(Self::Config),
+            0x110 => Ok(Self::Valid),
+            0x114 => Ok(Self::EhrData0),
+            0x118 => Ok(Self::EhrData1),
+            0x11c => Ok(Self::EhrData2),
+            0x120 => Ok(Self::EhrData3),
+            0x124 => Ok(Self::EhrData4),
+            0x128 => Ok(Self::EhrData5),
+            0x12c => Ok(Self::SourceEnable),
+            0x130 => Ok(Self::SampleCount),
+            0x134 => Ok(Self::Autocorrelation),
+            0x138 => Ok(Self::DebugControl),
+            0x140 => Ok(Self::SoftwareReset),
+            0x1b4 => Ok(Self::DebugEnable),
+            0x1b8 => Ok(Self::Busy),
+            0x1bc => Ok(Self::ResetBitsCounter),
+            0x1c0 => Ok(Self::Version),
+            0x1e0 => Ok(Self::BistCounter0),
+            0x1e4 => Ok(Self::BistCounter1),
+            0x1e8 => Ok(Self::BistCounter2),
+            _ => Err(DeviceError::new(format!(
+                "unmodeled RP2350 TRNG register at offset {offset:#x}"
+            ))),
+        }
+    }
+}
 
 fn atomic_update(current: u32, alias: u64, value: u32) -> Result<u32, DeviceError> {
     match alias {
@@ -62,6 +153,11 @@ impl Rp2350TrngState {
         self.valid = false;
         self.interrupt_status &= !EHR_VALID;
         self.entropy = [0; 6];
+    }
+
+    fn clear_valid_status(&mut self) {
+        self.valid = false;
+        self.interrupt_status &= !EHR_VALID;
     }
 
     fn generate(&mut self) {
@@ -138,33 +234,43 @@ impl Device for Rp2350Trng {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         word_access(width, offset)?;
-        let register = offset & 0x0fff;
+        let register = Rp2350TrngRegister::try_from(offset & 0x0fff)?;
         let mut state = self.state.borrow_mut();
         let value = match register {
-            0x100 => state.interrupt_mask,
-            0x104 => state.interrupt_status & STATUS_MASK,
-            0x10c => state.config,
-            0x110 => u32::from(state.valid),
-            0x114..=0x128 if (register - 0x114) % 4 == 0 => {
-                let index = usize::try_from((register - 0x114) / 4).expect("TRNG data index fits");
+            Rp2350TrngRegister::InterruptMask => state.interrupt_mask,
+            Rp2350TrngRegister::InterruptStatus => state.interrupt_status & STATUS_MASK,
+            Rp2350TrngRegister::Config => state.config,
+            Rp2350TrngRegister::Valid => u32::from(state.valid),
+            Rp2350TrngRegister::EhrData0
+            | Rp2350TrngRegister::EhrData1
+            | Rp2350TrngRegister::EhrData2
+            | Rp2350TrngRegister::EhrData3
+            | Rp2350TrngRegister::EhrData4
+            | Rp2350TrngRegister::EhrData5 => {
+                let index = match register {
+                    Rp2350TrngRegister::EhrData0 => 0,
+                    Rp2350TrngRegister::EhrData1 => 1,
+                    Rp2350TrngRegister::EhrData2 => 2,
+                    Rp2350TrngRegister::EhrData3 => 3,
+                    Rp2350TrngRegister::EhrData4 => 4,
+                    Rp2350TrngRegister::EhrData5 => 5,
+                    _ => unreachable!("matched EHR data register"),
+                };
                 Rp2350Trng::read_entropy(&mut state, index)
             }
-            0x12c => state.source_enable,
-            0x130 => state.sample_count,
-            0x134 => state.autocorrelation,
-            0x138 => state.debug_control,
-            0x1b4 => state.debug_enable,
-            0x1b8 => u32::from(state.busy),
-            0x1c0 => state.version,
-            0x1e0..=0x1e8 if (register - 0x1e0) % 4 == 0 => {
-                let index = usize::try_from((register - 0x1e0) / 4).expect("TRNG BIST index fits");
-                state.bist[index]
-            }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2350 TRNG read at offset {register:#x}"
-                )));
-            }
+            Rp2350TrngRegister::SourceEnable => state.source_enable,
+            Rp2350TrngRegister::SampleCount => state.sample_count,
+            Rp2350TrngRegister::Autocorrelation => state.autocorrelation & AUTOCORR_STATISTIC_MASK,
+            Rp2350TrngRegister::DebugControl => state.debug_control,
+            Rp2350TrngRegister::SoftwareReset => 0,
+            Rp2350TrngRegister::DebugEnable => state.debug_enable,
+            Rp2350TrngRegister::Busy => u32::from(state.busy),
+            Rp2350TrngRegister::ResetBitsCounter => 0,
+            Rp2350TrngRegister::Version => state.version & VERSION_MASK,
+            Rp2350TrngRegister::BistCounter0 => state.bist[0] & BIST_COUNTER_MASK,
+            Rp2350TrngRegister::BistCounter1 => state.bist[1] & BIST_COUNTER_MASK,
+            Rp2350TrngRegister::BistCounter2 => state.bist[2] & BIST_COUNTER_MASK,
+            Rp2350TrngRegister::InterruptClear => 0,
         };
         Ok(u64::from(value))
     }
@@ -178,53 +284,64 @@ impl Device for Rp2350Trng {
     ) -> Result<(), DeviceError> {
         word_access(width, offset)?;
         let alias = (offset >> 12) & 3;
-        let register = offset & 0x0fff;
+        let register = Rp2350TrngRegister::try_from(offset & 0x0fff)?;
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked TRNG value fits");
         let mut state = self.state.borrow_mut();
         match register {
-            0x100 => {
+            Rp2350TrngRegister::InterruptMask => {
                 state.interrupt_mask = atomic_update(state.interrupt_mask, alias, value)? & 0xf
             }
-            0x108 => {
-                state.interrupt_status &= !(value & STATUS_MASK);
+            Rp2350TrngRegister::InterruptClear => {
+                state.interrupt_status &= !(value & ICR_CLEARABLE);
                 if value & EHR_VALID != 0 {
-                    state.clear_result();
+                    state.clear_valid_status();
                 }
             }
-            0x10c => state.config = atomic_update(state.config, alias, value)? & 3,
-            0x12c => {
+            Rp2350TrngRegister::Config => {
+                state.config = atomic_update(state.config, alias, value)? & 3
+            }
+            Rp2350TrngRegister::SourceEnable => {
                 let before = state.source_enable;
                 state.source_enable = atomic_update(state.source_enable, alias, value)? & 1;
                 if before == 0 && state.source_enable != 0 {
                     state.generate();
                 }
             }
-            0x130 => state.sample_count = atomic_update(state.sample_count, alias, value)?,
-            0x134 => state.autocorrelation = 0,
-            0x138 => state.debug_control = atomic_update(state.debug_control, alias, value)? & 0xe,
-            0x140 => {
+            Rp2350TrngRegister::SampleCount => {
+                state.sample_count = atomic_update(state.sample_count, alias, value)?
+            }
+            Rp2350TrngRegister::Autocorrelation => state.autocorrelation = 0,
+            Rp2350TrngRegister::DebugControl => {
+                state.debug_control = atomic_update(state.debug_control, alias, value)? & 0xe
+            }
+            Rp2350TrngRegister::SoftwareReset => {
                 if value & 1 != 0 {
                     *state = Rp2350TrngState::reset();
                 }
             }
-            0x1b4 => state.debug_enable = atomic_update(state.debug_enable, alias, value)? & 1,
-            0x1bc => {
+            Rp2350TrngRegister::DebugEnable => {
+                state.debug_enable = atomic_update(state.debug_enable, alias, value)? & 1
+            }
+            Rp2350TrngRegister::ResetBitsCounter => {
                 if state.source_enable == 0 {
                     state.clear_result();
                 }
             }
-            0x1e0..=0x1e8 if (register - 0x1e0) % 4 == 0 => {
-                let index = usize::try_from((register - 0x1e0) / 4).expect("TRNG BIST index fits");
-                state.bist[index] = value & 0x003f_ffff;
-            }
-            0x104 | 0x110 | 0x114..=0x128 | 0x1b8 | 0x1c0 => {
+            Rp2350TrngRegister::InterruptStatus
+            | Rp2350TrngRegister::Valid
+            | Rp2350TrngRegister::EhrData0
+            | Rp2350TrngRegister::EhrData1
+            | Rp2350TrngRegister::EhrData2
+            | Rp2350TrngRegister::EhrData3
+            | Rp2350TrngRegister::EhrData4
+            | Rp2350TrngRegister::EhrData5
+            | Rp2350TrngRegister::Busy
+            | Rp2350TrngRegister::Version
+            | Rp2350TrngRegister::BistCounter0
+            | Rp2350TrngRegister::BistCounter1
+            | Rp2350TrngRegister::BistCounter2 => {
                 return Err(DeviceError::new(format!(
-                    "RP2350 TRNG register at offset {register:#x} is read-only"
-                )));
-            }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2350 TRNG write at offset {register:#x}"
+                    "RP2350 TRNG register {register:?} is read-only"
                 )));
             }
         }
