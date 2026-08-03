@@ -12,7 +12,7 @@ pub enum WchWatchdogKind {
 /// A level reported by a WCH watchdog scheduler handle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WchWatchdogEvent {
-    /// The window watchdog early-warning flag became set.
+    /// The enabled window watchdog early-warning interrupt is asserted.
     pub early_warning: bool,
     /// The watchdog reached its reset condition.
     pub reset: bool,
@@ -34,7 +34,7 @@ impl WchWatchdogHandle {
         let mut state = self.state.borrow_mut();
         state.update(now);
         WchWatchdogEvent {
-            early_warning: state.early_warning,
+            early_warning: state.early_warning && state.early_warning_enabled,
             reset: state.reset_requested,
         }
     }
@@ -70,13 +70,17 @@ struct WchWatchdogState {
 
 impl WchWatchdogState {
     fn reset(kind: WchWatchdogKind) -> Self {
+        let counter = match kind {
+            WchWatchdogKind::Independent => 0x0fff,
+            WchWatchdogKind::Windowed => 0x007f,
+        };
         Self {
             kind,
             enabled: false,
             unlocked: false,
             prescaler: 0,
             reload: 0x0fff,
-            counter: 0x0fff,
+            counter,
             window: 0x007f,
             early_warning_enabled: false,
             early_warning: false,
@@ -86,24 +90,15 @@ impl WchWatchdogState {
     }
 
     fn independent_divider(&self) -> u64 {
-        match self.prescaler & 7 {
-            0 => 1,
-            1 => 2,
-            2 => 4,
-            3 => 8,
-            4 => 16,
-            5 => 32,
-            6 => 64,
-            _ => 128,
-        }
+        4_u64 << u32::from((self.prescaler & 7).min(6))
     }
 
     fn window_divider(&self) -> u64 {
-        1_u64 << u32::from((self.prescaler & 3) + 1)
+        1_u64 << u32::from(self.prescaler & 3)
     }
 
     fn update(&mut self, now: SimTime) {
-        if !self.enabled || self.reset_requested {
+        if self.reset_requested {
             return;
         }
         let divider = match self.kind {
@@ -118,29 +113,36 @@ impl WchWatchdogState {
         self.epoch = self.epoch.saturating_add(steps.saturating_mul(divider));
         match self.kind {
             WchWatchdogKind::Independent => {
-                let old = self.counter;
-                self.counter = old.saturating_sub(
-                    u16::try_from(steps.min(u64::from(u16::MAX)))
-                        .expect("clamped IWDG step count fits u16"),
-                );
-                if self.counter == 0 {
+                if !self.enabled {
+                    return;
+                }
+                let old = u64::from(self.counter);
+                if steps > old {
+                    self.counter = 0;
                     self.reset_requested = true;
+                } else {
+                    self.counter = u16::try_from(old - steps).expect("IWDG counter fits u16");
                 }
             }
             WchWatchdogKind::Windowed => {
-                let old = self.counter;
-                self.counter = old.saturating_sub(
-                    u16::try_from(steps.min(u64::from(u16::MAX)))
-                        .expect("clamped WWDG step count fits u16"),
-                );
-                if self.early_warning_enabled && old > 0x40 && self.counter <= 0x40 {
+                let old = u64::from(self.counter & 0x7f);
+                let to_early = Self::steps_until(old, 0x40, 128);
+                let to_reset = Self::steps_until(old, 0x3f, 128);
+                if steps >= to_early {
                     self.early_warning = true;
                 }
-                if self.counter < 0x40 {
+                if self.enabled && (old < 0x40 || steps >= to_reset) {
                     self.reset_requested = true;
                 }
+                self.counter =
+                    u16::try_from((old + 128 - steps % 128) % 128).expect("WWDG counter fits u16");
             }
         }
+    }
+
+    fn steps_until(current: u64, target: u64, modulo: u64) -> u64 {
+        let distance = (current + modulo - target) % modulo;
+        if distance == 0 { modulo } else { distance }
     }
 
     fn restart(&mut self, now: SimTime) {
@@ -249,8 +251,10 @@ impl Device for WchWatchdog {
                 0x00 => match value {
                     0x5555 => state.unlocked = true,
                     0xcccc => {
+                        if !state.enabled {
+                            state.counter = state.reload;
+                        }
                         state.enabled = true;
-                        state.counter = state.reload;
                         state.restart(at);
                     }
                     0xaaaa => {
@@ -262,8 +266,6 @@ impl Device for WchWatchdog {
                 0x04 if state.unlocked => state.prescaler = value & 7,
                 0x08 if state.unlocked => {
                     state.reload = value & 0x0fff;
-                    state.counter = state.reload;
-                    state.restart(at);
                 }
                 0x04 | 0x08 => {}
                 0x0c => {}
@@ -276,10 +278,14 @@ impl Device for WchWatchdog {
             WchWatchdogKind::Windowed => match offset {
                 0x00 => {
                     let next_counter = value & 0x7f;
-                    if state.enabled && state.window != 0 && next_counter > state.window {
+                    if state.enabled
+                        && (state.counter < 0x40
+                            || state.counter >= state.window
+                            || next_counter < 0x40)
+                    {
                         state.reset_requested = true;
                     } else {
-                        state.enabled = value & 0x80 != 0;
+                        state.enabled |= value & 0x80 != 0;
                         state.counter = next_counter;
                         state.restart(at);
                     }
@@ -287,7 +293,7 @@ impl Device for WchWatchdog {
                 0x04 => {
                     state.window = value & 0x7f;
                     state.prescaler = (value >> 7) & 3;
-                    state.early_warning_enabled = value & (1 << 9) != 0;
+                    state.early_warning_enabled |= value & (1 << 9) != 0;
                 }
                 0x08 => {
                     if value & 1 != 0 {
@@ -334,13 +340,13 @@ mod tests {
                 .unwrap(),
             3
         );
-        assert!(!handle.poll(SimTime::from_ticks(2)).reset);
+        assert!(!handle.poll(SimTime::from_ticks(11)).reset);
         device
-            .write(0x00, AccessWidth::HalfWord, 0xaaaa, SimTime::from_ticks(2))
+            .write(0x00, AccessWidth::HalfWord, 0xaaaa, SimTime::from_ticks(12))
             .unwrap();
-        assert!(!handle.poll(SimTime::from_ticks(4)).reset);
-        assert!(handle.poll(SimTime::from_ticks(5)).reset);
-        assert!(handle.take_reset(SimTime::from_ticks(5)));
+        assert!(!handle.poll(SimTime::from_ticks(23)).reset);
+        assert!(handle.poll(SimTime::from_ticks(28)).reset);
+        assert!(handle.take_reset(SimTime::from_ticks(28)));
     }
 
     #[test]
@@ -352,33 +358,66 @@ mod tests {
         device
             .write(0x00, AccessWidth::Word, 0xd0, SimTime::ZERO)
             .unwrap();
-        assert!(handle.poll(SimTime::from_ticks(32)).early_warning);
+        assert!(handle.poll(SimTime::from_ticks(16)).early_warning);
         assert_eq!(
             device
-                .read(0x08, AccessWidth::Word, SimTime::from_ticks(32))
+                .read(0x08, AccessWidth::Word, SimTime::from_ticks(16))
                 .unwrap(),
             1
         );
         device
-            .write(0x08, AccessWidth::Word, 1, SimTime::from_ticks(32))
+            .write(0x08, AccessWidth::Word, 1, SimTime::from_ticks(16))
             .unwrap();
         assert_eq!(
             device
-                .read(0x08, AccessWidth::Word, SimTime::from_ticks(32))
+                .read(0x08, AccessWidth::Word, SimTime::from_ticks(16))
                 .unwrap(),
             0
         );
 
+        let (mut early_device, early_handle) = WchWatchdog::new_wwdg("early-wwdg");
         device
-            .write(0x04, AccessWidth::Word, 0x240, SimTime::from_ticks(32))
+            .write(0x04, AccessWidth::Word, 0x260, SimTime::from_ticks(16))
             .unwrap();
         device
-            .write(0x00, AccessWidth::Word, 0xc0, SimTime::from_ticks(32))
+            .write(0x00, AccessWidth::Word, 0xc0, SimTime::from_ticks(16))
+            .unwrap();
+        assert!(!handle.take_reset(SimTime::from_ticks(16)));
+        early_device
+            .write(0x04, AccessWidth::Word, 0x260, SimTime::ZERO)
+            .unwrap();
+        early_device
+            .write(0x00, AccessWidth::Word, 0xf0, SimTime::ZERO)
+            .unwrap();
+        early_device
+            .write(0x00, AccessWidth::Word, 0xc0, SimTime::ZERO)
+            .unwrap();
+        assert!(early_handle.take_reset(SimTime::ZERO));
+    }
+
+    #[test]
+    fn window_counter_runs_when_disabled_and_ewi_stays_masked() {
+        let (mut device, handle) = WchWatchdog::new_wwdg("wwdg");
+        device
+            .write(0x04, AccessWidth::HalfWord, 0x60, SimTime::ZERO)
             .unwrap();
         device
-            .write(0x00, AccessWidth::Word, 0xff, SimTime::from_ticks(32))
+            .write(0x00, AccessWidth::HalfWord, 0x50, SimTime::ZERO)
             .unwrap();
-        assert!(handle.take_reset(SimTime::from_ticks(32)));
+        assert!(!handle.poll(SimTime::from_ticks(16)).early_warning);
+        assert_eq!(
+            device
+                .read(0x00, AccessWidth::HalfWord, SimTime::from_ticks(16))
+                .unwrap(),
+            0x40
+        );
+        assert_eq!(
+            device
+                .read(0x08, AccessWidth::HalfWord, SimTime::from_ticks(16))
+                .unwrap(),
+            1
+        );
+        assert!(!handle.poll(SimTime::from_ticks(17)).reset);
     }
 
     #[test]

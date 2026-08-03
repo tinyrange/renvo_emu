@@ -809,7 +809,8 @@ sequencing remain outside this slice.
 The CH32V003 and CH32V006 maps also include deterministic independent- and
 window-watchdog register slices. Key sequencing, reload/window configuration,
 early-warning status, and abstract countdown/reset events are modeled for
-firmware tests. The model does not claim the silicon LSI/APB frequencies or
+firmware tests; the WWDG early-warning signal is routed through the native PFIC
+vector 16. The model does not claim the silicon LSI/APB frequencies or
 cycle-accurate timeout values.
 
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
