@@ -590,6 +590,13 @@ const MANIFESTS: &[TargetManifest] = &[
                 executable: true,
             },
             MemoryRegion {
+                name: "info-fram",
+                start: 0x0000_1800,
+                size: 512,
+                kind: MemoryKind::Flash,
+                executable: false,
+            },
+            MemoryRegion {
                 name: "sram",
                 start: 0x0000_2000,
                 size: 4 * 1024,
@@ -604,13 +611,17 @@ const MANIFESTS: &[TargetManifest] = &[
             "Timer_A",
             "eUSCI_A0 UART",
             "FRAM",
+            "FRAM controller wait-state/protection",
             "VCD",
         ],
         sources: &[
             "https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf",
             "https://www.ti.com/lit/ug/slau445/slau445.pdf",
         ],
-        limitations: &["ADC, capacitive touch, BSL, and clock accuracy are deferred"],
+        limitations: &[
+            "ADC, capacitive touch, BSL, and clock accuracy are deferred",
+            "FRAM cache/ECC timing and physical endurance are functional approximations",
+        ],
     },
     TargetManifest {
         schema: 1,
