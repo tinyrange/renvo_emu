@@ -109,7 +109,9 @@ fn esp32s3_aes_native_text_window_matches_standard_vectors() {
         read_block(&mut machine, base, Esp32S3AesRegister::TextOut0),
         ciphertext
     );
-    assert!(machine.aes().interrupt_pending());
+    // Typical CPU-driven AES is polled through AES_STATE_REG; only DMA-AES
+    // completion raises the interrupt source.
+    assert!(!machine.aes().interrupt_pending());
 
     write_block(&mut machine, base, Esp32S3AesRegister::TextIn0, &ciphertext);
     machine

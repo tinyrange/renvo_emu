@@ -7,6 +7,9 @@ use aes::{
 };
 
 /// Native ESP32-S3 AES register identifiers from `hwcrypto_reg.h`.
+///
+/// The 0x60..=0x8f window is intentionally absent: it is reserved in the
+/// ESP32-S3 memory/register map rather than a GCM register window.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]
 #[allow(missing_docs)]
@@ -35,18 +38,6 @@ pub enum Esp32S3AesRegister {
     Iv1 = 0x54,
     Iv2 = 0x58,
     Iv3 = 0x5c,
-    H0 = 0x60,
-    H1 = 0x64,
-    H2 = 0x68,
-    H3 = 0x6c,
-    J0_0 = 0x70,
-    J0_1 = 0x74,
-    J0_2 = 0x78,
-    J0_3 = 0x7c,
-    T0 = 0x80,
-    T1 = 0x84,
-    T2 = 0x88,
-    T3 = 0x8c,
     DmaEnable = 0x90,
     BlockMode = 0x94,
     BlockNum = 0x98,
@@ -93,18 +84,6 @@ impl Esp32S3AesRegister {
             0x54 => Self::Iv1,
             0x58 => Self::Iv2,
             0x5c => Self::Iv3,
-            0x60 => Self::H0,
-            0x64 => Self::H1,
-            0x68 => Self::H2,
-            0x6c => Self::H3,
-            0x70 => Self::J0_0,
-            0x74 => Self::J0_1,
-            0x78 => Self::J0_2,
-            0x7c => Self::J0_3,
-            0x80 => Self::T0,
-            0x84 => Self::T1,
-            0x88 => Self::T2,
-            0x8c => Self::T3,
             0x90 => Self::DmaEnable,
             0x94 => Self::BlockMode,
             0x98 => Self::BlockNum,
@@ -157,7 +136,8 @@ impl Esp32S3AesRegister {
     const fn read_mask(self) -> u32 {
         match self {
             Self::Mode => 0x7,
-            Self::Endian | Self::State | Self::DmaEnable | Self::IncSel | Self::IntEna => 1,
+            Self::Endian | Self::DmaEnable | Self::IncSel | Self::IntEna => 1,
+            Self::State => 0x7,
             Self::BlockMode => 0x7,
             Self::Trigger | Self::Continue | Self::IntClear | Self::DmaExit => 0,
             _ => u32::MAX,
@@ -189,6 +169,10 @@ const AES_SUPPORTED_MODES: [u32; 4] = [
     AES_MODE_DECRYPT,
     AES_MODE_256 | AES_MODE_DECRYPT,
 ];
+const AES_DMA_BLOCK_MODE_MAX: u32 = 5;
+const AES_STATE_IDLE: u32 = 0;
+const AES_STATE_WORK: u32 = 1;
+const AES_STATE_DONE: u32 = 2;
 
 #[derive(Debug)]
 struct Esp32S3AesState {
@@ -196,7 +180,7 @@ struct Esp32S3AesState {
     text_in: [u32; 4],
     text_out: [u32; 4],
     mode: u32,
-    busy: bool,
+    status: u32,
     interrupt_enable: u32,
     interrupt_pending: bool,
     operation_supported: bool,
@@ -210,7 +194,7 @@ impl Default for Esp32S3AesState {
             text_in: [0; 4],
             text_out: [0; 4],
             mode: 0,
-            busy: false,
+            status: 0,
             interrupt_enable: 0,
             interrupt_pending: false,
             operation_supported: true,
@@ -281,10 +265,24 @@ impl Esp32S3Aes {
     fn process(&mut self, at: SimTime) {
         let output = {
             let mut state = self.state.lock().expect("ESP32-S3 AES lock poisoned");
-            state.busy = true;
+            let dma_enabled = state
+                .registers
+                .get(&Esp32S3AesRegister::DmaEnable)
+                .copied()
+                .unwrap_or_default()
+                & 1
+                != 0;
+            let block_mode = state
+                .registers
+                .get(&Esp32S3AesRegister::BlockMode)
+                .copied()
+                .unwrap_or_default()
+                & 0x7;
+            state.status = AES_STATE_WORK;
             let mode = state.mode;
             let mut output = [0_u8; 16];
-            let supported = AES_SUPPORTED_MODES.contains(&mode);
+            let supported = AES_SUPPORTED_MODES.contains(&mode)
+                && (!dma_enabled || block_mode <= AES_DMA_BLOCK_MODE_MAX);
             if supported {
                 let input = words_to_block(&state.text_in);
                 let key_bytes = words_to_key(&state.key);
@@ -314,8 +312,15 @@ impl Esp32S3Aes {
             }
             state.text_out = block_to_words(&output);
             state.operation_supported = supported;
-            state.busy = false;
-            state.interrupt_pending = true;
+            state.status = if dma_enabled {
+                AES_STATE_DONE
+            } else {
+                AES_STATE_IDLE
+            };
+            // The ESP32-S3 only raises AES completion interrupts for DMA-AES
+            // operations. Typical CPU-driven transforms are polled through
+            // AES_STATE_REG and must not leave a pending interrupt behind.
+            state.interrupt_pending = dma_enabled;
             output
         };
         let value = signal_value_from_block(&output);
@@ -339,7 +344,7 @@ impl Esp32S3Aes {
             Esp32S3AesRegister::Trigger
             | Esp32S3AesRegister::Continue
             | Esp32S3AesRegister::IntClear => 0,
-            Esp32S3AesRegister::State => u32::from(state.busy),
+            Esp32S3AesRegister::State => state.status & register.read_mask(),
             Esp32S3AesRegister::IntEna => state.interrupt_enable,
             Esp32S3AesRegister::Date => 0,
             _ => state.registers.get(&register).copied().unwrap_or_default() & register.read_mask(),
@@ -393,6 +398,7 @@ impl Device for Esp32S3Aes {
         })?;
         let mut trigger = false;
         let mut continue_operation = false;
+        let mut dma_exit = false;
         {
             let mut state = self.state.lock().expect("ESP32-S3 AES lock poisoned");
             if let Some(index) = register.key_index() {
@@ -418,6 +424,12 @@ impl Device for Esp32S3Aes {
                     Esp32S3AesRegister::IntEna => {
                         state.interrupt_enable = value & register.write_mask()
                     }
+                    Esp32S3AesRegister::DmaExit => {
+                        // Espressif's low-level driver writes zero to this
+                        // write-only strobe. Treat either value as a DMA
+                        // release, matching the native write-only behavior.
+                        dma_exit = true;
+                    }
                     Esp32S3AesRegister::State | Esp32S3AesRegister::Date => {
                         return Err(DeviceError::new("ESP32-S3 AES register is read-only"));
                     }
@@ -429,7 +441,31 @@ impl Device for Esp32S3Aes {
                 }
             }
         }
-        if trigger || continue_operation {
+        if dma_exit {
+            let mut state = self.state.lock().expect("ESP32-S3 AES lock poisoned");
+            if state
+                .registers
+                .get(&Esp32S3AesRegister::DmaEnable)
+                .copied()
+                .unwrap_or_default()
+                & 1
+                != 0
+            {
+                state.status = AES_STATE_IDLE;
+                state.interrupt_pending = false;
+            }
+        }
+        let dma_enabled = {
+            let state = self.state.lock().expect("ESP32-S3 AES lock poisoned");
+            state
+                .registers
+                .get(&Esp32S3AesRegister::DmaEnable)
+                .copied()
+                .unwrap_or_default()
+                & 1
+                != 0
+        };
+        if trigger || (continue_operation && dma_enabled) {
             self.process(at);
         }
         Ok(())
@@ -550,7 +586,19 @@ mod tests {
                 0xef, 0x97,
             ]
         );
-        assert!(handle.interrupt_pending());
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3AesRegister::State.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(AES_STATE_IDLE)
+        );
+        // Typical CPU-driven operations are polled through STATE and do not
+        // generate the DMA completion interrupt.
+        assert!(!handle.interrupt_pending());
         device
             .write(
                 Esp32S3AesRegister::IntClear.offset(),
@@ -579,6 +627,80 @@ mod tests {
             )
             .unwrap();
         assert_eq!(handle.text_out(), PLAINTEXT);
+    }
+
+    #[test]
+    fn dma_completion_reports_done_and_dma_exit_accepts_zero() {
+        let hub = SignalHub::new();
+        let (mut device, handle) = Esp32S3Aes::new("aes", hub).unwrap();
+        write_block(&mut device, Esp32S3AesRegister::Key0, &KEY128);
+        write_block(&mut device, Esp32S3AesRegister::TextIn0, &PLAINTEXT);
+        device
+            .write(
+                Esp32S3AesRegister::DmaEnable.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3AesRegister::IntEna.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3AesRegister::Trigger.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3AesRegister::State.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(AES_STATE_DONE)
+        );
+        assert!(handle.interrupt_pending());
+
+        device
+            .write(
+                Esp32S3AesRegister::IntClear.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.interrupt_pending());
+
+        // ESP-IDF's aes_ll_dma_exit() writes zero to this WO strobe.
+        device
+            .write(
+                Esp32S3AesRegister::DmaExit.offset(),
+                AccessWidth::Word,
+                0,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3AesRegister::State.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(AES_STATE_IDLE)
+        );
     }
 
     #[test]
@@ -637,6 +759,8 @@ mod tests {
         assert_eq!(Esp32S3AesRegister::TextOut3.offset(), 0x3c);
         assert_eq!(Esp32S3AesRegister::DmaExit.offset(), 0xb8);
         assert_eq!(Esp32S3AesRegister::from_offset(0x45), None);
+        assert_eq!(Esp32S3AesRegister::from_offset(0x60), None);
+        assert_eq!(Esp32S3AesRegister::from_offset(0x80), None);
 
         let hub = SignalHub::new();
         let (mut device, _) = Esp32S3Aes::new("aes", hub).unwrap();
@@ -679,5 +803,14 @@ mod tests {
                 .unwrap(),
             7
         );
+
+        device
+            .write(
+                Esp32S3AesRegister::State.offset(),
+                AccessWidth::Word,
+                0,
+                SimTime::ZERO,
+            )
+            .unwrap_err();
     }
 }
