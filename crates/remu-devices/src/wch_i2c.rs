@@ -10,13 +10,82 @@ use super::{
     AccessWidth, Arc, BTreeMap, BTreeSet, Device, DeviceError, Mutex, ResetKind, SimTime, VecDeque,
 };
 
+/// Register identifiers for the WCH `I2C1` block.
+///
+/// The hardware exposes these as 16-bit registers on four-byte boundaries.
+/// Keeping the identifiers named prevents the register protocol from being
+/// spread through the device implementation as unannotated offsets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u16)]
+pub enum WchI2cRegister {
+    /// Control register 1.
+    Ctlr1 = 0x00,
+    /// Control register 2.
+    Ctlr2 = 0x04,
+    /// Own address register 1.
+    Oaddr1 = 0x08,
+    /// Own address register 2.
+    Oaddr2 = 0x0c,
+    /// Data register.
+    Datar = 0x10,
+    /// Status register 1.
+    Star1 = 0x14,
+    /// Status register 2.
+    Star2 = 0x18,
+    /// Clock configuration register.
+    Ckcfgr = 0x1c,
+}
+
+impl TryFrom<u64> for WchI2cRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::Ctlr1),
+            0x04 => Ok(Self::Ctlr2),
+            0x08 => Ok(Self::Oaddr1),
+            0x0c => Ok(Self::Oaddr2),
+            0x10 => Ok(Self::Datar),
+            0x14 => Ok(Self::Star1),
+            0x18 => Ok(Self::Star2),
+            0x1c => Ok(Self::Ckcfgr),
+            _ => Err(DeviceError::new(format!(
+                "unmodeled WCH I2C register at offset {offset:#x}"
+            ))),
+        }
+    }
+}
+
 const CTLR1_PE: u16 = 1 << 0;
+const CTLR1_ENPEC: u16 = 1 << 5;
+const CTLR1_ENGC: u16 = 1 << 6;
+const CTLR1_NOSTRETCH: u16 = 1 << 7;
 const CTLR1_START: u16 = 1 << 8;
 const CTLR1_STOP: u16 = 1 << 9;
+const CTLR1_ACK: u16 = 1 << 10;
+const CTLR1_POS: u16 = 1 << 11;
+const CTLR1_PEC: u16 = 1 << 12;
 const CTLR1_SWRST: u16 = 1 << 15;
+const CTLR1_SUPPORTED: u16 = CTLR1_PE
+    | CTLR1_ENPEC
+    | CTLR1_ENGC
+    | CTLR1_NOSTRETCH
+    | CTLR1_START
+    | CTLR1_STOP
+    | CTLR1_ACK
+    | CTLR1_POS
+    | CTLR1_PEC
+    | CTLR1_SWRST;
 const CTLR2_ITERREN: u16 = 1 << 8;
 const CTLR2_ITEVTEN: u16 = 1 << 9;
 const CTLR2_ITBUFEN: u16 = 1 << 10;
+const CTLR2_DMAEN: u16 = 1 << 11;
+const CTLR2_LAST: u16 = 1 << 12;
+const CTLR2_SUPPORTED: u16 =
+    CTLR2_ITERREN | CTLR2_ITEVTEN | CTLR2_ITBUFEN | CTLR2_DMAEN | CTLR2_LAST | 0x003f;
+const OADDR1_SUPPORTED: u16 = 0x83ff;
+const OADDR2_SUPPORTED: u16 = 0x00ff;
+const CKCFGR_SUPPORTED: u16 = 0xcfff;
 
 const STAR1_SB: u16 = 1 << 0;
 const STAR1_ADDR: u16 = 1 << 1;
@@ -125,7 +194,10 @@ impl WchI2cState {
     }
 
     fn interrupt_pending(&self) -> (bool, bool) {
-        let event_flags = self.star1 & (STAR1_SB | STAR1_ADDR | STAR1_BTF | STAR1_STOPF) != 0;
+        // BTF is an event interrupt only when neither buffer event is active;
+        // the WCH manual lists TXE/RXNE under ITBUFEN in that case.
+        let event_flags = self.star1 & (STAR1_SB | STAR1_ADDR | STAR1_STOPF) != 0
+            || self.star1 & STAR1_BTF != 0 && self.star1 & (STAR1_TXE | STAR1_RXNE) == 0;
         let buffer_flags = self.star1 & (STAR1_RXNE | STAR1_TXE) != 0;
         let event = self.ctlr2 & CTLR2_ITEVTEN != 0 && event_flags
             || self.ctlr2 & CTLR2_ITBUFEN != 0 && buffer_flags;
@@ -133,11 +205,16 @@ impl WchI2cState {
         (event, error)
     }
 
-    fn clear_transaction(&mut self) {
+    fn clear_transaction(&mut self, preserve_errors: bool) {
         self.address = None;
         self.receiving = false;
-        self.star1 &= STAR1_ERRORS;
+        self.star1 = if preserve_errors {
+            self.star1 & STAR1_ERRORS
+        } else {
+            0
+        };
         self.star2 = 0;
+        self.star1_read_for_addr = false;
         self.rx_pending.clear();
     }
 
@@ -171,7 +248,8 @@ impl WchI2cState {
             self.rx_pending = self.queued_reads.remove(&address).unwrap_or_default();
         } else {
             self.star2 = STAR2_MSL | STAR2_BUSY | STAR2_TRA;
-            self.star1 |= STAR1_TXE | STAR1_BTF;
+            // TXE becomes actionable after the firmware clears ADDR by the
+            // required STAR1-then-STAR2 read sequence.
         }
     }
 
@@ -183,10 +261,13 @@ impl WchI2cState {
         self.star1_read_for_addr = false;
         if self.receiving {
             self.load_received_byte();
+        } else {
+            self.star1 |= STAR1_TXE;
         }
     }
 
     fn load_received_byte(&mut self) {
+        self.star1 &= !STAR1_TXE;
         if let Some(value) = self.rx_pending.front().copied() {
             self.datar = value;
             self.star1 |= STAR1_RXNE;
@@ -215,8 +296,13 @@ impl WchI2cState {
         }
         self.datar = value;
         if let Some(address) = self.address.filter(|_| !self.receiving) {
+            // Writing DATAR clears TXE/BTF.  The functional backend completes
+            // the byte immediately, so TXE is raised again before the next
+            // guest instruction while BTF remains clear until a later byte
+            // boundary is observable.
+            self.star1 &= !(STAR1_TXE | STAR1_BTF);
             self.transmitted.push(WchI2cWrite { address, value });
-            self.star1 |= STAR1_TXE | STAR1_BTF;
+            self.star1 |= STAR1_TXE;
         }
     }
 
@@ -224,7 +310,7 @@ impl WchI2cState {
         let was_enabled = self.ctlr1 & CTLR1_PE != 0;
         let start = value & CTLR1_START != 0;
         let stop = value & CTLR1_STOP != 0;
-        self.ctlr1 = value & !CTLR1_START & !CTLR1_STOP;
+        self.ctlr1 = value & CTLR1_SUPPORTED & !CTLR1_START & !CTLR1_STOP;
         if value & CTLR1_SWRST != 0 {
             let queued_reads = std::mem::take(&mut self.queued_reads);
             let nack_addresses = std::mem::take(&mut self.nack_addresses);
@@ -234,10 +320,10 @@ impl WchI2cState {
             return;
         }
         if was_enabled != (self.ctlr1 & CTLR1_PE != 0) {
-            self.clear_transaction();
+            self.clear_transaction(false);
         }
         if stop && self.ctlr1 & CTLR1_PE != 0 {
-            self.clear_transaction();
+            self.clear_transaction(true);
         }
         if start && self.ctlr1 & CTLR1_PE != 0 {
             self.start();
@@ -281,29 +367,25 @@ impl Device for WchI2c {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         Self::require_register_access(offset, width)?;
+        let register = WchI2cRegister::try_from(offset)?;
         let mut state = self.state.lock().expect("WCH I2C lock poisoned");
-        let value = match offset {
-            0x00 => state.ctlr1,
-            0x04 => state.ctlr2,
-            0x08 => state.oaddr1,
-            0x0c => state.oaddr2,
-            0x10 => u16::from(state.read_data()),
-            0x14 => {
+        let value = match register {
+            WchI2cRegister::Ctlr1 => state.ctlr1,
+            WchI2cRegister::Ctlr2 => state.ctlr2,
+            WchI2cRegister::Oaddr1 => state.oaddr1,
+            WchI2cRegister::Oaddr2 => state.oaddr2,
+            WchI2cRegister::Datar => u16::from(state.read_data()),
+            WchI2cRegister::Star1 => {
                 state.star1_read_for_addr = state.star1 & STAR1_ADDR != 0;
                 state.star1
             }
-            0x18 => {
+            WchI2cRegister::Star2 => {
                 if state.star1_read_for_addr {
                     state.clear_address();
                 }
                 state.star2
             }
-            0x1c => state.ckcfgr,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled WCH I2C read at offset {offset:#x}"
-                )));
-            }
+            WchI2cRegister::Ckcfgr => state.ckcfgr,
         };
         Ok(u64::from(value))
     }
@@ -316,27 +398,24 @@ impl Device for WchI2c {
         _at: SimTime,
     ) -> Result<(), DeviceError> {
         Self::require_register_access(offset, width)?;
+        let register = WchI2cRegister::try_from(offset)?;
         let value = u16::try_from(value & u64::from(u16::MAX))
             .expect("masked WCH I2C register value fits u16");
         let mut state = self.state.lock().expect("WCH I2C lock poisoned");
-        match offset {
-            0x00 => state.write_control(value),
-            0x04 => state.ctlr2 = value,
-            0x08 => state.oaddr1 = value,
-            0x0c => state.oaddr2 = value,
-            0x10 => state.write_data(
+        match register {
+            WchI2cRegister::Ctlr1 => state.write_control(value),
+            WchI2cRegister::Ctlr2 => state.ctlr2 = value & CTLR2_SUPPORTED,
+            WchI2cRegister::Oaddr1 => state.oaddr1 = value & OADDR1_SUPPORTED,
+            WchI2cRegister::Oaddr2 => state.oaddr2 = value & OADDR2_SUPPORTED,
+            WchI2cRegister::Datar => state.write_data(
                 u8::try_from(value & u16::from(u8::MAX)).expect("I2C DATAR is eight bits"),
             ),
-            // Vendor code clears STAR1 flags by writing the complement of the
-            // selected mask.  ANDing preserves all other status bits.
-            0x14 => state.star1 &= value,
-            0x18 => {}
-            0x1c => state.ckcfgr = value,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled WCH I2C write at offset {offset:#x}"
-                )));
-            }
+            // STAR1 error flags are RW0: writing zero clears a selected error,
+            // while read-only event/status flags are unaffected.  This also
+            // matches the vendor SDK's write-the-complement clear helpers.
+            WchI2cRegister::Star1 => state.star1 &= value | !STAR1_ERRORS,
+            WchI2cRegister::Star2 => {}
+            WchI2cRegister::Ckcfgr => state.ckcfgr = value & CKCFGR_SUPPORTED,
         }
         Ok(())
     }
