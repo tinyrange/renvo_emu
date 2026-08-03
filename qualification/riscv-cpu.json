@@ -1,6 +1,6 @@
 {
   "schema": "remu.riscv-cpu.v1",
-  "source_sha256": "bcad8a5e89292e10eae123444179519d82fb4679b7aa6d55ee0a4d3532c212c3",
+  "source_sha256": "11cec666c8f9d0bbefb758a3d2617b1a2d13486404f3630a58d64cf727642d2c",
   "primary_sources": [
     "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
     "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",

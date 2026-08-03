@@ -174,6 +174,38 @@ programs native TIMER alarm, interrupt-enable, and status registers. Each
 profile enters `WFI`, takes its NVIC or Hazard3-routed interrupt, clears the
 alarm, and exits with code 0 after exactly one recorded event.
 
+## RP2350 SPI closure
+
+RP2350 Arm and Hazard3 firmware now exercise both documented PrimeCell SSP instances at
+`0x4008_0000` and `0x4008_8000`. The model preserves the eight-word FIFO
+status contract, 4--16-bit data-size selection, enable and loopback controls,
+raw/masked FIFO interrupts, interrupt clears, and PrimeCell identification
+registers. APB byte/halfword lane reads, replicated narrow writes, and the
+RP2350 XOR/SET/CLEAR aliases are covered for writable control registers, with
+CPSDVSR constrained to its documented even `2..254` range. Transfers complete
+in one abstract operation and are observable through deterministic host
+input/output handles; serial clock waveforms, DMA, receive-timeout scheduling,
+and exact slave timing remain explicit deviations. The `rp2350-arm-spi` and
+`rp2350-riscv-spi` Docker fixtures cover both instances and contribute
+`rp2350.spi0` and `rp2350.spi1` to register-coverage evidence.
+
+## RP2040 SPI closure
+
+RP2040 Arm firmware and device tests now use the native Synopsys DW_apb_ssi
+layout at `0x4003_c000` and `0x4004_0000`, including typed `CTRLR0/1`,
+`SSIENR`, `SER`, FIFO level/threshold, status, data-window, interrupt,
+read-clear, DMA, ID/version, and atomic-alias registers. Transfers are
+deterministic and functional: an enabled selected controller consumes queued
+host input or loops back the transmitted frame, while the host handle records
+traffic and interrupt state. Serial-clock, DMA, pin-mux and exact serial timing
+remain explicit deviations. The model uses the documented sixteen-entry FIFOs
+and latches transmit-overflow, receive-overflow, and receive-underflow status
+through the native clear-on-read registers. The native offsets and reset values are sourced
+from the RP2040 datasheet and Raspberry Pi's generated `ssi.h`. The
+`rp2040-spi` Docker fixture programs both native instances and checks FIFO
+levels, status, masked receive interrupts, and loopback from compiled Arm
+firmware.
+
 ## Earlier UART closure
 
 Docker-built firmware now writes the chip UART0/FIFO addresses on RP2040,

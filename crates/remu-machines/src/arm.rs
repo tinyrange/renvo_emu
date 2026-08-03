@@ -14,23 +14,22 @@ use remu_core::{
 };
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
-    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
-    Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalSpi,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank,
+    Rp2040Resets, Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
+    Rp2040UsbHandle, Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
+    Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub,
+    SpiHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
 use remu_trace::{TraceDigest, TraceError, TraceSink};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
-
 mod error;
 pub use error::ArmMachineError;
 mod usb_host;
 pub(crate) use usb_host::Rp2040UsbHost;
-
 /// Runnable direct-ELF Arm vertical slice for RP2040 and RP2350.
 pub struct ArmMachine {
     target: TargetId,
@@ -44,6 +43,7 @@ pub struct ArmMachine {
     sio: RpSioHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
+    chip_spis: Vec<SpiHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -55,6 +55,7 @@ pub struct ArmMachine {
     native_bootrom: bool,
     ppb: ArmPpbHandle,
     chip_timers: Vec<Rp2040TimerHandle>,
+    spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -63,7 +64,6 @@ pub struct ArmMachine {
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
 }
-
 impl ArmMachine {
     /// Creates the selected Raspberry Pi Arm mode.
     pub fn new(target: TargetId) -> Result<Self, ArmMachineError> {
@@ -118,6 +118,8 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut chip_spis = Vec::new();
+        let mut spi = Vec::new();
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -301,8 +303,6 @@ impl ArmMachine {
             )?;
             for (name, base) in [
                 ("rp2040.uart1", 0x4003_8000),
-                ("rp2040.spi0", 0x4003_c000),
-                ("rp2040.spi1", 0x4004_0000),
                 ("rp2040.i2c0", 0x4004_4000),
                 ("rp2040.i2c1", 0x4004_8000),
                 ("rp2040.adc", 0x4004_c000),
@@ -414,8 +414,6 @@ impl ArmMachine {
             )?;
             for (name, base) in [
                 ("rp2350.uart1", 0x4007_8000),
-                ("rp2350.spi0", 0x4008_0000),
-                ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.adc", 0x400a_0000),
@@ -430,6 +428,11 @@ impl ArmMachine {
                     0x4000,
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
+            }
+            for (name, base) in [("rp2350.spi0", 0x4008_0000), ("rp2350.spi1", 0x4008_8000)] {
+                let (device, handle) = Rp2350Spi::new(name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                spi.push(handle);
             }
             bus.map_device(
                 "rp2350.xosc",
@@ -571,6 +574,14 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
+        if target == TargetId::Rp2040 {
+            for (index, base) in [0x4003_c000, 0x4004_0000].into_iter().enumerate() {
+                let name = format!("{target}.spi{index}");
+                let (device, handle) = FunctionalSpi::new(&name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                chip_spis.push(handle);
+            }
+        }
         let (pio0, handle) = RpPio::new(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
@@ -596,6 +607,7 @@ impl ArmMachine {
             sio,
             uart,
             chip_uart,
+            chip_spis,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -607,6 +619,7 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            spi,
             pio,
             usb,
             usb_dpram,
@@ -1142,6 +1155,11 @@ impl ArmMachine {
         Ok(())
     }
 
+    /// Returns bytes transmitted by one of the target's functional SPI controllers.
+    pub fn spi_transmitted(&self, index: usize) -> Option<Vec<u8>> {
+        self.chip_spis.get(index).map(SpiHandle::transmitted)
+    }
+
     /// Removes configured user breakpoints and data watchpoints.
     pub fn clear_debug_stops(&mut self) {
         self.breakpoints.clear();
@@ -1276,6 +1294,23 @@ impl ArmMachine {
                 self.cpu.set_interrupt(
                     u16::from(usb_irq),
                     usb.interrupt_pending() && self.ppb.interrupt_enabled(u16::from(usb_irq)),
+                )?;
+            }
+            if self.target == TargetId::Rp2040 {
+                for (index, spi) in self.chip_spis.iter().enumerate() {
+                    let line =
+                        10_u16 + u16::try_from(index).expect("RP2040 SPI index fits IRQ line");
+                    self.cpu.set_interrupt(
+                        line,
+                        spi.interrupt_pending() && self.ppb.interrupt_enabled(line),
+                    )?;
+                }
+            }
+            for (index, spi) in self.spi.iter().enumerate() {
+                let line = 31_u16 + u16::try_from(index).expect("RP2350 SPI index fits IRQ line");
+                self.cpu.set_interrupt(
+                    line,
+                    spi.interrupt_pending() && self.ppb.interrupt_enabled(line),
                 )?;
             }
             if self.ppb.take_systick_pending(self.now) {
@@ -1462,12 +1497,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;

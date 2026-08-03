@@ -10,8 +10,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
-| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
+| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform; native DW SSI SPI0/SPI1 loopback |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, PIO0 waveform, and SPI0/SPI1 PrimeCell FIFO proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
@@ -44,6 +44,35 @@ See `scripts/qualify-micropython.sh` and
 
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+
+RP2350 SPI0 and SPI1 are mapped at their documented `0x4008_0000` and
+`0x4008_8000` bases. The functional PrimeCell SSP slice covers the eight-word
+transmit/receive FIFOs, DSS/loopback/enable controls, status flags, masked and
+raw FIFO interrupts, interrupt clears, peripheral IDs, and deterministic host
+input/output. It also follows the RP2350 APB access contract for byte/halfword
+lane reads, replicated narrow writes, and the XOR/SET/CLEAR aliases on ordinary
+writable registers; CPSDVSR writes are normalised to the documented even
+`2..254` range. It intentionally does not model serial-clock waveforms, DMA
+handshakes, receive-timeout scheduling, or exact slave-mode timing.
+
+## RP2040 SPI closure
+
+RP2040 SPI0 and SPI1 are mapped at `0x4003_c000` and `0x4004_0000` using the
+native Synopsys DW_apb_ssi contract rather than the RP2350 PrimeCell layout.
+The typed register model covers `CTRLR0/1`, `SSIENR`, `SER`, baud and FIFO
+threshold/level registers, all 36 `DR` windows, status, raw/masked interrupts,
+read-clear interrupt registers, DMA controls, identification/version values,
+and RP atomic aliases. Functional transfers require SSI and a slave-select
+bit, complete in one abstract operation, and either consume queued host input
+or loop back the transmitted frame. Serial-clock waveforms, DMA handshakes,
+pin muxing, and exact serial timing remain outside this slice. The model uses
+the documented sixteen-entry FIFOs and latches transmit-overflow,
+receive-overflow, and receive-underflow status with the native clear-on-read
+registers. Register
+offsets and reset values are audited against the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
+and Raspberry Pi's generated [`ssi.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2040/hardware_regs/include/hardware/regs/ssi.h).
+The `rp2040-spi` Docker fixture compiles and runs the same checks against both
+native controller instances.
 
 ## Implemented CPU surface
 
