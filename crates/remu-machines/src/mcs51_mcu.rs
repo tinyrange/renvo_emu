@@ -8,7 +8,7 @@ use remu_core::{
     StopReason,
 };
 use remu_cpu_mcs51::{Mcs51Cpu, Mcs51Register};
-use remu_devices::{Efm8Peripherals, Efm8PeripheralsHandle, GpioHandle, SignalHub};
+use remu_devices::{Efm8Peripherals, Efm8PeripheralsHandle, Efm8PowerMode, GpioHandle, SignalHub};
 use remu_image::IntelHexImage;
 use remu_signals::Logic;
 use remu_trace::{TraceDigest, TraceSink};
@@ -299,6 +299,9 @@ impl Mcs51McuMachine {
             for (line, asserted) in interrupt_levels.iter().copied().enumerate() {
                 self.cpu.set_interrupt(line as u16, asserted)?;
             }
+            if self.peripherals.power_mode() != Efm8PowerMode::Active {
+                break StopReason::Halted;
+            }
             self.bus.clear_watchpoint_hit();
             if self.record_accesses || self.access_observer.is_some() {
                 let pc = self.cpu.snapshot().pc as u16;
@@ -370,7 +373,7 @@ impl Mcs51McuMachine {
 
 #[cfg(test)]
 mod tests {
-    use super::{IntelHexImage, Mcs51McuMachine, RunLimits, StopReason, TargetId};
+    use super::{Efm8PowerMode, IntelHexImage, Mcs51McuMachine, RunLimits, StopReason, TargetId};
 
     #[test]
     fn machine_executes_hex_and_drives_gpio_uart_and_vcd_signals() {
@@ -393,5 +396,24 @@ mod tests {
         assert_eq!(result.reason, StopReason::InstructionLimit);
         assert_eq!(machine.gpio_output() & 1, 1);
         assert_eq!(result.uart, b"M");
+    }
+
+    #[test]
+    fn machine_halts_deterministically_when_firmware_enters_stop_mode() {
+        // MOV PCON0,#02h enters the documented CPUSTOP one-shot mode.
+        let image = IntelHexImage::parse(b":03000000758702FF\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(8),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::Halted);
+        assert_eq!(machine.peripherals.power_mode(), Efm8PowerMode::Stop);
     }
 }
