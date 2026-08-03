@@ -164,6 +164,23 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
 }
 
 #[test]
+fn spi0_interrupt_uses_the_efm8_vector_at_low_or_high_priority() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x33, &[0x32]).unwrap();
+
+    cpu.set_interrupt(6, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x33);
+    cpu.set_interrupt(6, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+
+    cpu.set_interrupt(7, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x33);
+}
+
+#[test]
 fn every_base_opcode_except_reserved_a5_decodes() {
     for opcode in 0_u8..=u8::MAX {
         let mut cpu = Mcs51Cpu::new();

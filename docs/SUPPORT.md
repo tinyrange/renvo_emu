@@ -17,7 +17,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 EFM8BB52F32G also models the native SPI0 SFR transaction slice
 (`SPI0CFG`/`SPI0CKR`/`SPI0CN0`/`SPI0DAT`): master writes are captured,
-host-injected MISO bytes are returned, `SPIF`/`TXBMT` status is exposed, and
+host-injected MISO bytes are returned, `SPIF`/`TXNF` status is exposed, and
 the ESPI0 interrupt participates in the low/high priority interrupt inputs.
 FIFO operation, crossbar pin assignment, and exact serial clock timing remain
 outside this functional model.

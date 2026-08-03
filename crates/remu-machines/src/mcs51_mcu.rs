@@ -410,8 +410,8 @@ mod tests {
             .debug_write_memory(0x1_00f8, &[1])
             .expect("SPI0CN0 write should map");
         machine
-            .debug_write_memory(0x1_00f9, &[0xa6])
+            .debug_write_memory(0x1_00a3, &[0xa6])
             .expect("SPI0DAT write should map");
-        assert_eq!(machine.debug_read_memory(0x1_00f9, 1).unwrap(), [0x5a]);
+        assert_eq!(machine.debug_read_memory(0x1_00a3, 1).unwrap(), [0x5a]);
     }
 }
