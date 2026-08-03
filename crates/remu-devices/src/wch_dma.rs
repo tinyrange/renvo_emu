@@ -13,6 +13,8 @@ const DMA_PINC: u32 = 1 << 6;
 const DMA_MINC: u32 = 1 << 7;
 const DMA_PSIZE: u32 = 0b11 << 8;
 const DMA_MSIZE: u32 = 0b11 << 10;
+const DMA_PL: u32 = 0b11 << 12;
+const DMA_MEM2MEM: u32 = 1 << 14;
 const DMA_SUPPORTED: u32 = DMA_ENABLE
     | DMA_TCIE
     | DMA_HTIE
@@ -22,7 +24,9 @@ const DMA_SUPPORTED: u32 = DMA_ENABLE
     | DMA_PINC
     | DMA_MINC
     | DMA_PSIZE
-    | DMA_MSIZE;
+    | DMA_MSIZE
+    | DMA_PL
+    | DMA_MEM2MEM;
 
 #[derive(Clone, Copy, Default)]
 struct DmaChannel {
@@ -51,7 +55,7 @@ impl WchDmaHandle {
     pub fn service(&self, bus: &mut dyn Bus, at: SimTime) -> Result<usize, DeviceError> {
         let mut completed = 0;
         for index in 0..CHANNELS {
-            let Some((paddr, maddr, pwidth, mwidth, direction, pinc, minc)) = ({
+            let Some((paddr, maddr, pwidth, mwidth, direction, pinc, minc, mem2mem, circular)) = ({
                 let state = self.state.lock().expect("WCH DMA lock poisoned");
                 let channel = state.channels[index];
                 if channel.cfgr & DMA_ENABLE == 0 || channel.cntr == 0 {
@@ -65,6 +69,8 @@ impl WchDmaHandle {
                         channel.cfgr & DMA_DIR != 0,
                         channel.cfgr & DMA_PINC != 0,
                         channel.cfgr & DMA_MINC != 0,
+                        channel.cfgr & DMA_MEM2MEM != 0,
+                        channel.cfgr & DMA_CIRC != 0,
                     ))
                 }
             }) else {
@@ -75,53 +81,55 @@ impl WchDmaHandle {
             } else {
                 (paddr, pwidth, maddr, mwidth)
             };
-            if source_width != destination_width {
-                self.mark_error(index);
-                continue;
-            }
             let value = bus
                 .read(source, source_width, AccessKind::Read, at)
                 .map_err(|error| {
                     self.mark_error(index);
                     DeviceError::new(format!("WCH DMA channel {index} read: {error}"))
                 })?;
+            let value = match destination_width {
+                AccessWidth::Byte => value & u64::from(u8::MAX),
+                AccessWidth::HalfWord => value & u64::from(u16::MAX),
+                AccessWidth::Word => value & u64::from(u32::MAX),
+                AccessWidth::DoubleWord => value,
+            };
             if let Err(error) = bus.write(destination, destination_width, value, at) {
                 self.mark_error(index);
                 return Err(DeviceError::new(format!(
                     "WCH DMA channel {index} write: {error}"
                 )));
             }
-            let step = u32::from(source_width.bytes());
+            let source_step = u32::from(source_width.bytes());
+            let destination_step = u32::from(destination_width.bytes());
             let mut state = self.state.lock().expect("WCH DMA lock poisoned");
-            let (remaining, halfway, control) = {
+            let (remaining, halfway, initial_count) = {
                 let channel = &mut state.channels[index];
                 channel.cntr = channel.cntr.saturating_sub(1);
-                if direction {
-                    if minc {
-                        channel.maddr = channel.maddr.wrapping_add(step);
-                    }
-                    if pinc {
-                        channel.paddr = channel.paddr.wrapping_add(step);
-                    }
-                } else {
-                    if pinc {
-                        channel.paddr = channel.paddr.wrapping_add(step);
-                    }
-                    if minc {
-                        channel.maddr = channel.maddr.wrapping_add(step);
-                    }
+                if pinc {
+                    channel.paddr = channel.paddr.wrapping_add(if direction {
+                        destination_step
+                    } else {
+                        source_step
+                    });
                 }
-                (channel.cntr, channel.initial_cntr / 2, channel.cfgr)
+                if minc {
+                    channel.maddr = channel.maddr.wrapping_add(if direction {
+                        source_step
+                    } else {
+                        destination_step
+                    });
+                }
+                (channel.cntr, channel.initial_cntr / 2, channel.initial_cntr)
             };
-            if remaining == halfway && control & DMA_HTIE != 0 {
-                state.intfr |= 1 << (index * 4 + 2);
+            let flag_base = index * 4;
+            if remaining == halfway && initial_count > 1 {
+                state.intfr |= 1 << flag_base;
+                state.intfr |= 1 << (flag_base + 2);
             }
             if remaining == 0 {
-                state.intfr |= 1 << (index * 4);
-                if control & DMA_TCIE != 0 {
-                    state.intfr |= 1 << (index * 4 + 1);
-                }
-                if control & DMA_CIRC != 0 {
+                state.intfr |= 1 << flag_base;
+                state.intfr |= 1 << (flag_base + 1);
+                if circular && !mem2mem {
                     let channel = &mut state.channels[index];
                     channel.cntr = channel.initial_cntr;
                     channel.paddr = channel.initial_paddr;
@@ -156,7 +164,8 @@ impl WchDmaHandle {
 
     fn mark_error(&self, index: usize) {
         let mut state = self.state.lock().expect("WCH DMA lock poisoned");
-        state.intfr |= 1 << (index * 4 + 3);
+        let flag_base = index * 4;
+        state.intfr |= (1 << flag_base) | (1 << (flag_base + 3));
         state.channels[index].cfgr &= !DMA_ENABLE;
     }
 }
@@ -258,21 +267,21 @@ impl Device for WchDma {
                     }
                 }
                 0x04 => {
-                    channel.cntr = u16::try_from(value & u32::from(u16::MAX))
-                        .expect("masked WCH DMA count fits u16");
                     if channel.cfgr & DMA_ENABLE == 0 {
+                        channel.cntr = u16::try_from(value & u32::from(u16::MAX))
+                            .expect("masked WCH DMA count fits u16");
                         channel.initial_cntr = channel.cntr;
                     }
                 }
                 0x08 => {
-                    channel.paddr = value;
                     if channel.cfgr & DMA_ENABLE == 0 {
+                        channel.paddr = value;
                         channel.initial_paddr = value;
                     }
                 }
                 0x0c => {
-                    channel.maddr = value;
                     if channel.cfgr & DMA_ENABLE == 0 {
+                        channel.maddr = value;
                         channel.initial_maddr = value;
                     }
                 }
@@ -281,8 +290,18 @@ impl Device for WchDma {
             return Ok(());
         }
         match offset {
-            0x00 => state.intfr &= !value,
-            0x04 => state.intfr &= !value,
+            0x00 => {}
+            0x04 => {
+                for index in 0..CHANNELS {
+                    let base = index * 4;
+                    let mask = (value >> base) & 0xf;
+                    if mask & 1 != 0 {
+                        state.intfr &= !(0xf << base);
+                    } else {
+                        state.intfr &= !(mask << base);
+                    }
+                }
+            }
             _ => {
                 return Err(DeviceError::new(format!(
                     "{} write outside modeled registers at offset {offset:#x}",
@@ -339,5 +358,100 @@ mod tests {
             0x1234_5678
         );
         assert!(handle.channel_pending(0));
+    }
+
+    #[test]
+    fn transfer_flags_are_raised_without_interrupt_enables_and_clear_as_documented() {
+        let mut bus = AddressSpace::new(Endianness::Little);
+        bus.map_ram("ram", 0x2000_0000, 0x100, true).unwrap();
+        let (dma, handle) = WchDma::new("dma");
+        bus.map_device("dma", 0x4002_0000, 0x100, Box::new(dma))
+            .unwrap();
+        bus.write(0x2000_0000, AccessWidth::Word, 0x0000_2211, SimTime::ZERO)
+            .unwrap();
+        bus.write(0x4002_0010, AccessWidth::Word, 0x2000_0000, SimTime::ZERO)
+            .unwrap();
+        bus.write(0x4002_0014, AccessWidth::Word, 0x2000_0004, SimTime::ZERO)
+            .unwrap();
+        bus.write(0x4002_000c, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        bus.write(
+            0x4002_0008,
+            AccessWidth::Word,
+            u64::from(DMA_ENABLE | DMA_PINC | DMA_MINC),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        handle.service(&mut bus, SimTime::ZERO).unwrap();
+        handle.service(&mut bus, SimTime::ZERO).unwrap();
+        assert_eq!(
+            bus.read(
+                0x4002_0000,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap()
+                & 0x7,
+            0x7
+        );
+        bus.write(0x4002_0004, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            bus.read(
+                0x4002_0000,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn different_transfer_widths_zero_extend_and_use_independent_steps() {
+        let mut bus = AddressSpace::new(Endianness::Little);
+        bus.map_ram("ram", 0x2000_0000, 0x100, true).unwrap();
+        let (dma, handle) = WchDma::new("dma");
+        bus.map_device("dma", 0x4002_0000, 0x100, Box::new(dma))
+            .unwrap();
+        bus.write(0x2000_0000, AccessWidth::Word, 0x0000_2211, SimTime::ZERO)
+            .unwrap();
+        bus.write(0x4002_0010, AccessWidth::Word, 0x2000_0000, SimTime::ZERO)
+            .unwrap();
+        bus.write(0x4002_0014, AccessWidth::Word, 0x2000_0008, SimTime::ZERO)
+            .unwrap();
+        bus.write(0x4002_000c, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        bus.write(
+            0x4002_0008,
+            AccessWidth::Word,
+            u64::from(DMA_ENABLE | DMA_PINC | DMA_MINC | (2 << 10)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(handle.service(&mut bus, SimTime::ZERO).unwrap(), 1);
+        assert_eq!(handle.service(&mut bus, SimTime::ZERO).unwrap(), 1);
+        assert_eq!(
+            bus.read(
+                0x2000_0008,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            0x11
+        );
+        assert_eq!(
+            bus.read(
+                0x2000_000c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            0x22
+        );
     }
 }
