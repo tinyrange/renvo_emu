@@ -691,7 +691,9 @@ impl ArmMcuMachine {
         bus.map_device("stm32l432kc.i2c1", 0x4000_5400, 0x400, Box::new(i2c1))?;
         bus.map_device("stm32l432kc.i2c3", 0x4000_5c00, 0x400, Box::new(i2c3))?;
         bus.map_device("stm32l432kc.iwdg", 0x4000_3000, 0x10, Box::new(watchdog))?;
-        bus.map_device("stm32l432kc.adc1", 0x5000_0000, 0x400, Box::new(adc))?;
+        // STM32L432 places ADC1 in the AHB2 peripheral window at 0x5004_0000
+        // (the 0x5000_0000 base is used by other MCU families).
+        bus.map_device("stm32l432kc.adc1", 0x5004_0000, 0x400, Box::new(adc))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -1579,22 +1581,22 @@ mod tests {
         machine.adc().unwrap().set_input(4, 0x0abc);
         machine
             .bus
-            .write(0x5000_0030, AccessWidth::Word, 4 << 6, SimTime::ZERO)
+            .write(0x5004_0030, AccessWidth::Word, 4 << 6, SimTime::ZERO)
             .unwrap();
         machine
             .bus
-            .write(0x5000_0008, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(0x5004_0008, AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
         machine
             .bus
-            .write(0x5000_0008, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+            .write(0x5004_0008, AccessWidth::Word, 1 << 2, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.adc().unwrap().value(), 0x0abc);
         assert_eq!(
             machine
                 .bus
                 .read(
-                    0x5000_0040,
+                    0x5004_0040,
                     AccessWidth::Word,
                     AccessKind::Read,
                     SimTime::ZERO,

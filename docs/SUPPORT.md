@@ -1028,8 +1028,8 @@ register offsets follow ST's [STM32L41/42/43/44 reference manual](https://www.st
 Window watchdog timing and low-power clock behavior remain outside this
 functional boundary.
 
-The STM32L432KC ADC1 slice maps the native control, status, sequence, and data
-registers and accepts deterministic host-provided channel samples. Software
-start completes a single conversion immediately on the abstract timeline and
-publishes the result and end-of-conversion state. Analog voltage physics,
-calibration timing, injected groups, oversampling, and DMA remain deferred.
+The STM32L432KC model includes ADC1 at its native AHB2 address `0x50040000`.
+It supports the native enable/calibration/start sequence, regular-rank channel
+selection, deterministic 12-bit host-injected samples, end-of-conversion flags,
+and data-register reads. Analog settling, calibration curves, injected groups,
+DMA, oversampling, and exact conversion timing remain deferred.
