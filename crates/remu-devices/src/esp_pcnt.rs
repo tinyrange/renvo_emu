@@ -201,17 +201,35 @@ impl PcntState {
         }
         let unit_state = &mut self.units[unit];
         let mode = unit_state.mode(edge);
+        let previous = unit_state.count;
         match mode {
             1 => unit_state.count = unit_state.count.saturating_add(1),
             2 => unit_state.count = unit_state.count.saturating_sub(1),
             _ => {}
         }
-        let event = unit_state.update_status();
-        if event {
-            self.int_raw |= 1 << unit;
+        let changed = unit_state.count != previous;
+        if changed {
+            let event = unit_state.update_status();
+            if event {
+                self.int_raw |= 1 << unit;
+            }
+
+            // The native counter wraps through zero when an enabled high or
+            // low limit is reached.  A zero register value means that limit
+            // is not configured, so it must not make every pulse wrap.
+            let count = i32::from(unit_state.count);
+            let high_limit = i32::from((unit_state.conf2 & 0xffff) as i16);
+            let low_limit = i32::from((unit_state.conf2 >> 16) as i16);
+            let reached_high =
+                unit_state.conf0 & (1 << 12) != 0 && high_limit > 0 && count >= high_limit;
+            let reached_low =
+                unit_state.conf0 & (1 << 13) != 0 && low_limit < 0 && count <= low_limit;
+            if reached_high || reached_low {
+                unit_state.count = 0;
+            }
         }
         self.sync_counts();
-        mode != 0
+        changed
     }
 }
 
@@ -603,6 +621,68 @@ mod tests {
             .unwrap();
         pcnt.write(0x60, AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
+        assert_eq!(handle.count(0), 0);
+    }
+
+    #[test]
+    fn configured_limits_wrap_through_zero_and_noop_edges_report_false() {
+        let hub = SignalHub::new();
+        let (mut pcnt, handle) = Esp32S3Pcnt::new("pcnt", "board.esp32s3.pcnt", hub).unwrap();
+
+        // A positive edge reaches the enabled high limit and wraps to zero.
+        pcnt.write(
+            0x00,
+            AccessWidth::Word,
+            (1 << 18) | (1 << 12),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        pcnt.write(0x08, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        assert!(
+            handle
+                .pulse(0, EspPcntEdge::Rising, SimTime::from_ticks(1))
+                .unwrap()
+        );
+        assert_eq!(handle.count(0), 1);
+        assert!(
+            handle
+                .pulse(0, EspPcntEdge::Rising, SimTime::from_ticks(2))
+                .unwrap()
+        );
+        assert_eq!(handle.count(0), 0);
+
+        // A negative edge reaches the enabled low limit and also wraps.
+        pcnt.write(
+            0x00,
+            AccessWidth::Word,
+            (2 << 16) | (1 << 13),
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
+        pcnt.write(0x08, AccessWidth::Word, 0xfffe_0000, SimTime::from_ticks(2))
+            .unwrap();
+        assert!(
+            handle
+                .pulse(0, EspPcntEdge::Falling, SimTime::from_ticks(3))
+                .unwrap()
+        );
+        assert_eq!(handle.count(0), -1);
+        assert!(
+            handle
+                .pulse(0, EspPcntEdge::Falling, SimTime::from_ticks(4))
+                .unwrap()
+        );
+        assert_eq!(handle.count(0), 0);
+
+        // Mode 3 is the native no-effect encoding, not a count change.
+        pcnt.write(0x00, AccessWidth::Word, 3 << 18, SimTime::from_ticks(4))
+            .unwrap();
+        assert!(
+            !handle
+                .pulse(0, EspPcntEdge::Rising, SimTime::from_ticks(5))
+                .unwrap()
+        );
         assert_eq!(handle.count(0), 0);
     }
 }

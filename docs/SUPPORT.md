@@ -92,8 +92,9 @@ The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
 
 The ESP32-S3 PCNT model maps the native four-unit pulse counter at
 `0x6001_7000`. Each unit supports signed 16-bit counts, rising/falling edge
-actions, threshold/limit status, pause/reset controls, interrupt latches, and
-VCD count signals at `board.esp32s3.pcnt.u0` through `u3`. GPIO-matrix routing,
+actions, threshold/limit status, configured nonzero high/low-limit wrap-through-
+zero behavior, pause/reset controls, interrupt latches, and VCD count signals
+at `board.esp32s3.pcnt.u0` through `u3`. GPIO-matrix routing,
 quadrature coupling, glitch-filter timing, and exact interrupt-matrix delivery
 remain unsupported. Register offsets and field masks follow Espressif's
 official [`pcnt_reg.h`](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/register/soc/pcnt_reg.h).
