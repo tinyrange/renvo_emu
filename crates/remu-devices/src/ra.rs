@@ -6,8 +6,66 @@ use std::sync::{Arc, Mutex};
 
 /// RA4M1 ELC event number for GPT0 counter overflow.
 pub const RA4M1_EVENT_GPT0_OVERFLOW: u16 = 0x05d;
+/// RA4M1 ELC event number for GPT2 counter overflow.
+pub const RA4M1_EVENT_GPT2_OVERFLOW: u16 = 0x06d;
 /// RA4M1 ELC event number for SCI9 transmit-data-empty.
 pub const RA4M1_EVENT_SCI9_TXI: u16 = 0x0a9;
+
+/// Named RA4M1 GPT register identifier for the modeled counter/overflow
+/// surface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(u16)]
+pub enum RaGptRegister {
+    /// Counter start/stop and clock divider control (GTCR).
+    Gtcr = 0x2c,
+    /// Counter/compare interrupt enables (GTINTAD).
+    Gtintad = 0x38,
+    /// Counter status flags (GTST).
+    Gtst = 0x3c,
+    /// Current counter value (GTCNT).
+    Gtcnt = 0x48,
+    /// Counter period/reload value (GTPR).
+    Gtpr = 0x64,
+}
+
+impl RaGptRegister {
+    /// Stable list of modeled GPT register IDs.
+    pub const ALL: [Self; 5] = [
+        Self::Gtcr,
+        Self::Gtintad,
+        Self::Gtst,
+        Self::Gtcnt,
+        Self::Gtpr,
+    ];
+
+    /// Returns the native GPT offset.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Returns the vendor register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Gtcr => "gtcr",
+            Self::Gtintad => "gtintad",
+            Self::Gtst => "gtst",
+            Self::Gtcnt => "gtcnt",
+            Self::Gtpr => "gtpr",
+        }
+    }
+
+    /// Resolves a native GPT byte offset to a named register.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x2c => Some(Self::Gtcr),
+            0x38 => Some(Self::Gtintad),
+            0x3c => Some(Self::Gtst),
+            0x48 => Some(Self::Gtcnt),
+            0x64 => Some(Self::Gtpr),
+            _ => None,
+        }
+    }
+}
 
 fn input_bits(state: &Arc<Mutex<GpioState>>) -> u16 {
     state
@@ -307,14 +365,18 @@ impl Device for RaGpt {
             return Err(DeviceError::new("RA GPT requires word accesses"));
         }
         let state = self.state.lock().expect("RA GPT lock poisoned");
-        let value = match offset {
-            0x2c => u32::from(state.running) | (u32::from(state.divider) << 24),
-            0x3c => u32::from(state.pending) << 6,
-            0x48 => state.counter.wrapping_add(
+        let value = match RaGptRegister::from_offset(offset) {
+            Some(RaGptRegister::Gtcr) => {
+                u32::from(state.running) | (u32::from(state.divider) << 24)
+            }
+            Some(RaGptRegister::Gtst) => u32::from(state.pending) << 6,
+            Some(RaGptRegister::Gtcnt) => state.counter.wrapping_add(
                 (at.ticks().saturating_sub(state.started) >> state.divider.min(7)) as u32,
             ),
-            0x64 => state.period,
-            _ => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(63)],
+            Some(RaGptRegister::Gtpr) => state.period,
+            Some(RaGptRegister::Gtintad) | None => {
+                self.registers[usize::try_from(offset / 4).unwrap_or(0).min(63)]
+            }
         };
         Ok(u64::from(value))
     }
@@ -331,24 +393,24 @@ impl Device for RaGpt {
         }
         let value = value as u32;
         let mut state = self.state.lock().expect("RA GPT lock poisoned");
-        match offset {
-            0x2c => {
+        match RaGptRegister::from_offset(offset) {
+            Some(RaGptRegister::Gtcr) => {
                 state.running = value & 1 != 0;
                 state.divider = ((value >> 24) & 7) as u8;
                 state.started = at.ticks();
             }
-            0x38 => state.overflow_interrupt = value & (3 << 6) != 0,
-            0x3c => {
+            Some(RaGptRegister::Gtintad) => state.overflow_interrupt = value & (3 << 6) != 0,
+            Some(RaGptRegister::Gtst) => {
                 if value & (1 << 6) == 0 {
                     state.pending = false;
                 }
             }
-            0x48 => {
+            Some(RaGptRegister::Gtcnt) => {
                 state.counter = value;
                 state.started = at.ticks();
             }
-            0x64 => state.period = value,
-            _ => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(63)] = value,
+            Some(RaGptRegister::Gtpr) => state.period = value,
+            None => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(63)] = value,
         }
         Ok(())
     }
@@ -554,6 +616,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gpt_register_ids_are_named_and_native() {
+        assert_eq!(RaGptRegister::Gtcr.offset(), 0x2c);
+        assert_eq!(RaGptRegister::Gtcr.name(), "gtcr");
+        assert_eq!(RaGptRegister::from_offset(0x64), Some(RaGptRegister::Gtpr));
+        assert_eq!(RaGptRegister::ALL.len(), 5);
+    }
+
+    #[test]
     fn ioport_atomic_output_and_pfs_direction_are_visible() {
         let hub = SignalHub::new();
         let (mut port, handle) = RaIoPort::new("port1", "board.ra.port1", hub).unwrap();
@@ -578,12 +648,27 @@ mod tests {
         assert_eq!(handle.route_event(RA4M1_EVENT_GPT0_OVERFLOW), vec![7]);
 
         let (mut gpt, gpt_handle) = RaGpt::new("gpt0");
-        gpt.write(0x64, AccessWidth::Word, 3, SimTime::ZERO)
-            .unwrap();
-        gpt.write(0x38, AccessWidth::Word, 1 << 6, SimTime::ZERO)
-            .unwrap();
-        gpt.write(0x2c, AccessWidth::Word, 1, SimTime::ZERO)
-            .unwrap();
+        gpt.write(
+            RaGptRegister::Gtpr.offset(),
+            AccessWidth::Word,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        gpt.write(
+            RaGptRegister::Gtintad.offset(),
+            AccessWidth::Word,
+            1 << 6,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        gpt.write(
+            RaGptRegister::Gtcr.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert!(gpt_handle.poll(SimTime::from_ticks(4)));
 
         let (mut sci, sci_handle) = RaSci::new("sci9");
