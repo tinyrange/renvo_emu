@@ -809,12 +809,13 @@ fn execute_rp_pio_instruction(
     }
 }
 
-/// Functional RP2040-compatible PIO0 register and execution slice.
+/// Functional RP2040-compatible PIO register and execution slice.
 ///
 /// The baseline covers instruction memory, state-machine configuration,
 /// direct execution, unconditional `JMP`, and `SET` to pins, directions, X,
 /// and Y. FIFO, IRQ, `WAIT`, shift, side-set, and PIO v1 extensions remain
-/// outside this deliberately small proof.
+/// outside this deliberately small proof. The same block is used for both
+/// RP2040 PIO0 and PIO1 instances.
 pub struct RpPio {
     name: String,
     state: Rc<RefCell<RpPioState>>,

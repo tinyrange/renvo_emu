@@ -159,7 +159,7 @@ is byte-for-byte deterministic.
 ## Earlier PIO closure
 
 RP2040, RP2350 Arm, and RP2350 Hazard3 now run Docker-built firmware against
-native PIO0 registers. The functional PIO model covers instruction memory,
+native PIO registers. The functional PIO model covers instruction memory,
 state-machine configuration, direct execution, unconditional `JMP`, and `SET`
 to pins, pin directions, X, and Y. The smoke program executes a two-instruction
 `SET PINS` loop on GPIO25, and all three profiles produce a checked hierarchical
