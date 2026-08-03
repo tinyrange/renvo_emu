@@ -6,8 +6,66 @@ use std::sync::{Arc, Mutex};
 
 /// RA4M1 ELC event number for GPT0 counter overflow.
 pub const RA4M1_EVENT_GPT0_OVERFLOW: u16 = 0x05d;
+/// RA4M1 ELC event number for GPT4 counter overflow.
+pub const RA4M1_EVENT_GPT4_OVERFLOW: u16 = 0x07d;
 /// RA4M1 ELC event number for SCI9 transmit-data-empty.
 pub const RA4M1_EVENT_SCI9_TXI: u16 = 0x0a9;
+
+/// Named RA4M1 GPT register identifier for the modeled counter/overflow
+/// surface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(u16)]
+pub enum RaGptRegister {
+    /// Counter start/stop and clock divider control (GTCR).
+    Gtcr = 0x2c,
+    /// Counter/compare interrupt enables (GTINTAD).
+    Gtintad = 0x38,
+    /// Counter status flags (GTST).
+    Gtst = 0x3c,
+    /// Current counter value (GTCNT).
+    Gtcnt = 0x48,
+    /// Counter period/reload value (GTPR).
+    Gtpr = 0x64,
+}
+
+impl RaGptRegister {
+    /// Stable list of modeled GPT register IDs.
+    pub const ALL: [Self; 5] = [
+        Self::Gtcr,
+        Self::Gtintad,
+        Self::Gtst,
+        Self::Gtcnt,
+        Self::Gtpr,
+    ];
+
+    /// Returns the native GPT byte offset.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Returns the vendor register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Gtcr => "gtcr",
+            Self::Gtintad => "gtintad",
+            Self::Gtst => "gtst",
+            Self::Gtcnt => "gtcnt",
+            Self::Gtpr => "gtpr",
+        }
+    }
+
+    /// Resolves a native GPT byte offset to a named register.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x2c => Some(Self::Gtcr),
+            0x38 => Some(Self::Gtintad),
+            0x3c => Some(Self::Gtst),
+            0x48 => Some(Self::Gtcnt),
+            0x64 => Some(Self::Gtpr),
+            _ => None,
+        }
+    }
+}
 
 fn input_bits(state: &Arc<Mutex<GpioState>>) -> u16 {
     state
@@ -250,18 +308,19 @@ struct GptState {
     counter: u32,
     period: u32,
     divider: u8,
+    counter_mask: u32,
 }
 
-/// Host-facing RA4M1 GPT0 state.
+/// Host-facing RA4M1 GPT state.
 #[derive(Clone)]
 pub struct RaGptHandle(Arc<Mutex<GptState>>);
 
 impl RaGptHandle {
-    /// Advances GPT0 and reports an overflow event pulse/level.
+    /// Advances the GPT and reports an overflow event pulse/level.
     pub fn poll(&self, now: SimTime) -> bool {
         let mut state = self.0.lock().expect("RA GPT lock poisoned");
         let divider = 1_u64 << state.divider.min(7);
-        let period = u64::from(state.period)
+        let period = u64::from(state.period & state.counter_mask)
             .saturating_add(1)
             .saturating_mul(divider);
         if state.running && period != 0 && now.ticks().saturating_sub(state.started) >= period {
@@ -272,7 +331,7 @@ impl RaGptHandle {
     }
 }
 
-/// Functional RA4M1 GPT0 counter/overflow slice.
+/// Functional RA4M1 GPT counter/overflow slice.
 pub struct RaGpt {
     name: String,
     state: Arc<Mutex<GptState>>,
@@ -280,10 +339,20 @@ pub struct RaGpt {
 }
 
 impl RaGpt {
-    /// Creates GPT0 and its event handle.
+    /// Creates a 32-bit GPT and its event handle.
     pub fn new(name: impl Into<String>) -> (Self, RaGptHandle) {
+        Self::new_with_mask(name, u32::MAX)
+    }
+
+    /// Creates a 16-bit GPT and its event handle.
+    pub fn new_16(name: impl Into<String>) -> (Self, RaGptHandle) {
+        Self::new_with_mask(name, u16::MAX.into())
+    }
+
+    fn new_with_mask(name: impl Into<String>, counter_mask: u32) -> (Self, RaGptHandle) {
         let state = Arc::new(Mutex::new(GptState {
-            period: u32::MAX,
+            period: counter_mask,
+            counter_mask,
             ..GptState::default()
         }));
         (
@@ -307,14 +376,20 @@ impl Device for RaGpt {
             return Err(DeviceError::new("RA GPT requires word accesses"));
         }
         let state = self.state.lock().expect("RA GPT lock poisoned");
-        let value = match offset {
-            0x2c => u32::from(state.running) | (u32::from(state.divider) << 24),
-            0x3c => u32::from(state.pending) << 6,
-            0x48 => state.counter.wrapping_add(
-                (at.ticks().saturating_sub(state.started) >> state.divider.min(7)) as u32,
-            ),
-            0x64 => state.period,
-            _ => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(63)],
+        let value = match RaGptRegister::from_offset(offset) {
+            Some(RaGptRegister::Gtcr) => {
+                u32::from(state.running) | (u32::from(state.divider) << 24)
+            }
+            Some(RaGptRegister::Gtst) => u32::from(state.pending) << 6,
+            Some(RaGptRegister::Gtcnt) => {
+                state.counter.wrapping_add(
+                    (at.ticks().saturating_sub(state.started) >> state.divider.min(7)) as u32,
+                ) & state.counter_mask
+            }
+            Some(RaGptRegister::Gtpr) => state.period,
+            Some(RaGptRegister::Gtintad) | None => {
+                self.registers[usize::try_from(offset / 4).unwrap_or(0).min(63)]
+            }
         };
         Ok(u64::from(value))
     }
@@ -331,31 +406,37 @@ impl Device for RaGpt {
         }
         let value = value as u32;
         let mut state = self.state.lock().expect("RA GPT lock poisoned");
-        match offset {
-            0x2c => {
+        match RaGptRegister::from_offset(offset) {
+            Some(RaGptRegister::Gtcr) => {
                 state.running = value & 1 != 0;
                 state.divider = ((value >> 24) & 7) as u8;
                 state.started = at.ticks();
             }
-            0x38 => state.overflow_interrupt = value & (3 << 6) != 0,
-            0x3c => {
+            Some(RaGptRegister::Gtintad) => state.overflow_interrupt = value & (3 << 6) != 0,
+            Some(RaGptRegister::Gtst) => {
                 if value & (1 << 6) == 0 {
                     state.pending = false;
                 }
             }
-            0x48 => {
-                state.counter = value;
+            Some(RaGptRegister::Gtcnt) => {
+                state.counter = value & state.counter_mask;
                 state.started = at.ticks();
             }
-            0x64 => state.period = value,
-            _ => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(63)] = value,
+            Some(RaGptRegister::Gtpr) => state.period = value & state.counter_mask,
+            None => self.registers[usize::try_from(offset / 4).unwrap_or(0).min(63)] = value,
         }
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
+        let counter_mask = self
+            .state
+            .lock()
+            .expect("RA GPT lock poisoned")
+            .counter_mask;
         *self.state.lock().expect("RA GPT lock poisoned") = GptState {
-            period: u32::MAX,
+            period: counter_mask,
+            counter_mask,
             ..GptState::default()
         };
         self.registers.fill(0);
@@ -554,6 +635,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gpt_register_ids_are_named_and_native() {
+        assert_eq!(RaGptRegister::Gtcr.offset(), 0x2c);
+        assert_eq!(RaGptRegister::Gtcr.name(), "gtcr");
+        assert_eq!(RaGptRegister::from_offset(0x64), Some(RaGptRegister::Gtpr));
+        assert_eq!(RaGptRegister::ALL.len(), 5);
+    }
+
+    #[test]
     fn ioport_atomic_output_and_pfs_direction_are_visible() {
         let hub = SignalHub::new();
         let (mut port, handle) = RaIoPort::new("port1", "board.ra.port1", hub).unwrap();
@@ -576,15 +665,75 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.route_event(RA4M1_EVENT_GPT0_OVERFLOW), vec![7]);
+        icu.write(
+            0x300 + 8 * 4,
+            AccessWidth::Word,
+            u64::from(RA4M1_EVENT_GPT4_OVERFLOW),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(handle.route_event(RA4M1_EVENT_GPT4_OVERFLOW), vec![8]);
 
         let (mut gpt, gpt_handle) = RaGpt::new("gpt0");
-        gpt.write(0x64, AccessWidth::Word, 3, SimTime::ZERO)
-            .unwrap();
-        gpt.write(0x38, AccessWidth::Word, 1 << 6, SimTime::ZERO)
-            .unwrap();
-        gpt.write(0x2c, AccessWidth::Word, 1, SimTime::ZERO)
-            .unwrap();
+        gpt.write(
+            RaGptRegister::Gtpr.offset(),
+            AccessWidth::Word,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        gpt.write(
+            RaGptRegister::Gtintad.offset(),
+            AccessWidth::Word,
+            1 << 6,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        gpt.write(
+            RaGptRegister::Gtcr.offset(),
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert!(gpt_handle.poll(SimTime::from_ticks(4)));
+
+        let (mut gpt16, gpt16_handle) = RaGpt::new_16("gpt4");
+        gpt16
+            .write(
+                RaGptRegister::Gtpr.offset(),
+                AccessWidth::Word,
+                0x1_0003,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        gpt16
+            .write(
+                RaGptRegister::Gtintad.offset(),
+                AccessWidth::Word,
+                1 << 6,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        gpt16
+            .write(
+                RaGptRegister::Gtcr.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            gpt16
+                .read(
+                    RaGptRegister::Gtpr.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            3
+        );
+        assert!(gpt16_handle.poll(SimTime::from_ticks(4)));
 
         let (mut sci, sci_handle) = RaSci::new("sci9");
         sci.write(3, AccessWidth::Byte, b'R'.into(), SimTime::ZERO)

@@ -13,11 +13,12 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_GPT4_OVERFLOW,
+    RA4M1_EVENT_SCI9_TXI, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci,
+    RaSciHandle, RegisterBank, Samd21Eic, Samd21EicHandle, Samd21Port, Samd21RegisterBlock,
+    Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle,
+    SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -26,6 +27,8 @@ use std::collections::BTreeSet;
 
 const TEST_DEVICE_SIZE: usize = 0x100;
 const TEST_EXIT_SIZE: usize = 4;
+const RA4M1_GPT0_BASE: u64 = 0x4007_8000;
+const RA4M1_GPT4_BASE: u64 = 0x4007_8400;
 
 enum VendorUart {
     Samd21(Samd21UsartHandle),
@@ -78,6 +81,8 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    ra_gpt4: Option<RaGptHandle>,
+    ra_gpt4_irq_signal: Option<SignalId>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -183,6 +188,15 @@ impl ArmMcuMachine {
             SignalValue::from_u64(0, 1)?,
             Some("selected routed interrupt request".to_owned()),
         )?;
+        let ra_gpt4_irq_signal = if target == TargetId::R7fa4m1ab3cfm {
+            Some(signals.declare(
+                "board.r7fa4m1ab3cfm.gpt4.irq",
+                SignalValue::from_u64(0, 1)?,
+                Some("functional GPT4 overflow request".to_owned()),
+            )?)
+        } else {
+            None
+        };
         let (compiler_gpio_device, compiler_gpio) = FunctionalGpio::new(
             format!("{target}.compiler-gpio"),
             manifest.gpio_count.min(32),
@@ -230,7 +244,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, ra_gpt4, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -254,6 +268,7 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    None,
                     Some(eic),
                     None,
                     Some(watchdog),
@@ -295,6 +310,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -311,13 +327,23 @@ impl ArmMcuMachine {
                 }
                 let pfs = RaPfs::new("r7fa4m1ab3cfm.pfs", &ports);
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
+                let (gpt4_device, gpt4) = RaGpt::new_16("r7fa4m1ab3cfm.gpt4");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
-                Self::map_ra4m1(&mut bus, ports, pfs, icu_device, gpt0_device, sci9_device)?;
+                Self::map_ra4m1(
+                    &mut bus,
+                    ports,
+                    pfs,
+                    icu_device,
+                    gpt0_device,
+                    gpt4_device,
+                    sci9_device,
+                )?;
                 (
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
+                    Some(gpt4),
                     None,
                     Some(icu),
                     None,
@@ -336,6 +362,8 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            ra_gpt4,
+            ra_gpt4_irq_signal,
             eic,
             ra_icu,
             watchdog,
@@ -488,6 +516,7 @@ impl ArmMcuMachine {
         pfs: RaPfs,
         icu: RaIcu,
         gpt0: RaGpt,
+        gpt4: RaGpt,
         sci9: RaSci,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
@@ -508,7 +537,8 @@ impl ArmMcuMachine {
             Box::new(Samd21RegisterBlock::new("r7fa4m1ab3cfm.mstp", 0x20, [])),
         )?;
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
-        bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
+        bus.map_device("r7fa4m1ab3cfm.gpt0", RA4M1_GPT0_BASE, 0x100, Box::new(gpt0))?;
+        bus.map_device("r7fa4m1ab3cfm.gpt4", RA4M1_GPT4_BASE, 0x100, Box::new(gpt4))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
@@ -785,6 +815,23 @@ impl ArmMcuMachine {
                     }
                 }
             }
+            if let (Some(gpt4), Some(icu), Some(signal)) =
+                (&self.ra_gpt4, &self.ra_icu, self.ra_gpt4_irq_signal)
+            {
+                let gpt4_pending = gpt4.poll(self.now);
+                interrupt_requested |= gpt4_pending;
+                if gpt4_pending {
+                    for line in icu.route_event(RA4M1_EVENT_GPT4_OVERFLOW) {
+                        self.cpu
+                            .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+                self.signals.set(
+                    signal,
+                    SignalValue::from_u64(u64::from(gpt4_pending), 1)?,
+                    self.now,
+                )?;
+            }
             match self.target {
                 TargetId::Atsamd21e18 | TargetId::Stm32l432kc => {
                     let uart_line = if self.target == TargetId::Atsamd21e18 {
@@ -905,6 +952,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::RaGptRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -981,5 +1029,60 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
+        machine
+            .bus
+            .write(
+                0x4000_6320,
+                AccessWidth::Word,
+                u64::from(RA4M1_EVENT_GPT4_OVERFLOW),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                RA4M1_GPT4_BASE + RaGptRegister::Gtpr.offset(),
+                AccessWidth::Word,
+                3,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                RA4M1_GPT4_BASE + RaGptRegister::Gtintad.offset(),
+                AccessWidth::Word,
+                1 << 6,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                RA4M1_GPT4_BASE + RaGptRegister::Gtcr.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    RA4M1_GPT4_BASE + RaGptRegister::Gtpr.offset(),
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            3
+        );
+        assert!(
+            machine
+                .ra_gpt4
+                .as_ref()
+                .expect("RA4M1 GPT4 handle")
+                .poll(SimTime::from_ticks(4))
+        );
     }
 }

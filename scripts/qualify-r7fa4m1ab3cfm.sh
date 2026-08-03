@@ -56,6 +56,7 @@ jq -e '.target == "r7fa4m1ab3cfm" and .reason == "Halted" and .exit_code == 0 an
     "$artifact_root/run-a/result.json" >/dev/null
 grep -q '^\$scope module port1 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module gpt0 \$end$' "$artifact_root/run-a/gpio.vcd"
+grep -q '^\$scope module gpt4 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module sci9 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module icu \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^1' "$artifact_root/run-a/gpio.vcd"
