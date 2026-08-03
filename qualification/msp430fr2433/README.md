@@ -17,9 +17,13 @@ Implemented functionally: the CPUXv2 integer/interruption subset emitted by the
 pinned toolchain, the 20-bit unified address space, reset vectors, FRAM and
 SRAM, PM5 GPIO lock behavior, Ports 1–3, Port 1 edge interrupts, Timer0_A CCR0,
 eUSCI_A0 UART transmit/receive loopback, WDT_A reset and persistent FRAM.
-Clock-tree, timer prescaling and UART bit timing are deterministic
-approximations. Analog peripherals and unlisted serial modes are outside this
-acceptance slice.
+The FR2433 CSCTL0–CSCTL8 reset values, reserved-bit behavior, FLLN zero-is-one
+rule, clock-source selections, MCLK/SMCLK dividers and documented status/control
+fields are represented; MCLK division scales the machine's abstract execution
+time so timer and watchdog behavior remains deterministic. FLL lock convergence,
+oscillator fault dynamics, exact oscillator frequency and UART bit timing are
+deferred approximations. Analog peripherals and unlisted serial modes are
+outside this acceptance slice.
 
 Run from the repository root:
 
