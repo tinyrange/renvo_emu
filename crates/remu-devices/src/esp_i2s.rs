@@ -19,6 +19,9 @@ const RX_FIFO_RESET: u32 = 1 << 1;
 const TX_RESET: u32 = 1 << 0;
 const TX_FIFO_RESET: u32 = 1 << 1;
 const TX_IDLE: u32 = 1;
+const RX_RESET_FIELDS: u32 = RX_RESET | RX_FIFO_RESET;
+const TX_RESET_FIELDS: u32 = TX_RESET | TX_FIFO_RESET;
+const RX_EOF_MASK: u32 = 0x0fff;
 
 #[derive(Default)]
 struct EspI2sState {
@@ -31,7 +34,10 @@ impl EspI2sState {
     fn new() -> Self {
         let mut registers = vec![0; REGISTER_BYTES / 4];
         // Stable reset fields consumed by the ESP-IDF standard-mode driver.
-        registers[RX_CONF as usize / 4] = (1 << 9) | (1 << 12) | (1 << 15);
+        // Reset values from ESP-IDF's esp32c6 I2S register description:
+        // RX_MONO_FST_VLD=1, RX_PCM_CONF=1, RX_PCM_BYPASS=1 and
+        // RX_LEFT_ALIGN=1.
+        registers[RX_CONF as usize / 4] = (1 << 9) | (1 << 10) | (1 << 12) | (1 << 15);
         registers[TX_CONF as usize / 4] = (1 << 9) | (1 << 12) | (1 << 13) | (1 << 15);
         registers[RX_EOF_NUM as usize / 4] = 64;
         registers[STATE as usize / 4] = TX_IDLE;
@@ -212,17 +218,27 @@ impl Device for EspI2s {
             INT_RAW | INT_CLEAR => state.registers[INT_RAW as usize / 4] &= !value,
             INT_ENABLE => state.registers[INT_ENABLE as usize / 4] = value & 0x0f,
             RX_CONF => {
-                state.registers[RX_CONF as usize / 4] = value;
-                if value & (RX_RESET | RX_FIFO_RESET) != 0 {
+                // RX_RESET and RX_FIFO_RESET are write-trigger fields (WT),
+                // not persistent configuration bits.  The LL driver writes
+                // one and then writes zero, so the readback must remain zero.
+                state.registers[RX_CONF as usize / 4] = value & !RX_RESET_FIELDS;
+                if value & RX_RESET_FIELDS != 0 {
                     state.clear_rx();
                 }
             }
             TX_CONF => {
-                state.registers[TX_CONF as usize / 4] = value;
-                if value & (TX_RESET | TX_FIFO_RESET) != 0 {
+                // TX_RESET and TX_FIFO_RESET have the same write-trigger
+                // semantics as their RX counterparts.
+                state.registers[TX_CONF as usize / 4] = value & !TX_RESET_FIELDS;
+                if value & TX_RESET_FIELDS != 0 {
                     state.clear_tx();
                 }
             }
+            // INT_STATUS and STATE are read-only in the native register
+            // block.  Ignore firmware writes rather than creating state that
+            // hardware cannot expose.
+            INT_STATUS | STATE => {}
+            RX_EOF_NUM => state.registers[RX_EOF_NUM as usize / 4] = value & RX_EOF_MASK,
             _ => {
                 let index = usize::try_from(offset / 4).expect("I2S register index fits");
                 let register = state.registers.get_mut(index).ok_or_else(|| {

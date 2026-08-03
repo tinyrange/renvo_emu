@@ -529,6 +529,10 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
 fn esp_i2s_host_and_firmware_sample_streams_are_observable() {
     let hub = SignalHub::new();
     let (mut i2s, handle) = EspI2s::new("i2s", "board.esp32c6.i2s", hub.clone()).unwrap();
+    assert_eq!(
+        i2s.read(0x20, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x9600
+    );
     i2s.write(0x14, AccessWidth::Word, 0x03, SimTime::ZERO)
         .unwrap();
     i2s.write(0, AccessWidth::Word, 0x1020_3040, SimTime::from_ticks(1))
@@ -549,4 +553,40 @@ fn esp_i2s_host_and_firmware_sample_streams_are_observable() {
         hub.with_registry(|registry| registry.find("board.esp32c6.i2s.tx"))
             .is_some()
     );
+}
+
+#[test]
+fn esp_i2s_reset_triggers_are_pulses_and_read_only_status_is_ignored() {
+    let hub = SignalHub::new();
+    let (mut i2s, handle) = EspI2s::new("i2s", "board.esp32c6.i2s", hub).unwrap();
+
+    i2s.write(0, AccessWidth::Word, 0x1122_3344, SimTime::ZERO)
+        .unwrap();
+    handle.queue_rx_word(0xaabb_ccdd);
+    i2s.write(0x20, AccessWidth::Word, 1 << 1, SimTime::from_ticks(1))
+        .unwrap();
+    i2s.write(0x24, AccessWidth::Word, 1 << 1, SimTime::from_ticks(1))
+        .unwrap();
+
+    assert_eq!(handle.take_tx_words(), Vec::<u32>::new());
+    assert!(!handle.rx_available());
+    assert_eq!(
+        i2s.read(0x20, AccessWidth::Word, SimTime::from_ticks(1))
+            .unwrap()
+            & 0x3,
+        0
+    );
+    assert_eq!(
+        i2s.read(0x24, AccessWidth::Word, SimTime::from_ticks(1))
+            .unwrap()
+            & 0x3,
+        0
+    );
+
+    i2s.write(0x10, AccessWidth::Word, 0xffff_ffff, SimTime::ZERO)
+        .unwrap();
+    i2s.write(0x6c, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(i2s.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+    assert_eq!(i2s.read(0x6c, AccessWidth::Word, SimTime::ZERO).unwrap(), 1);
 }
