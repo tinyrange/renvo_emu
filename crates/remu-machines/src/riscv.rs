@@ -16,7 +16,8 @@ use remu_devices::{
     EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic, EspC6PlicHandle,
     EspGpio, EspSpiFlashCommand, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup, EspTimerGroupHandle,
     EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
+    FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
+    Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpPio,
     RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
@@ -49,6 +50,7 @@ use heap::EspFunctionalHeap;
 mod image;
 mod lp_uart;
 mod radio;
+mod pwm;
 mod rp_bootrom;
 mod runtime;
 mod watchdog;
@@ -211,6 +213,7 @@ pub struct RiscVMachine {
     pub(crate) uart: UartHandle,
     pub(crate) chip_uarts: Vec<UartHandle>,
     pub(crate) chip_adc: Option<RpAdcHandle>,
+    pub(crate) chip_pwm: Option<PwmHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -329,6 +332,7 @@ impl RiscVMachine {
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut chip_adc = None;
+        let mut chip_pwm = None;
         let mut sio = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
@@ -522,7 +526,6 @@ impl RiscVMachine {
                 ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
-                ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
                 ("rp2350.pio1", 0x5030_0000),
                 ("rp2350.pio2", 0x5040_0000),
@@ -537,6 +540,9 @@ impl RiscVMachine {
             let (adc, adc_handle) = RpAdc::new_for_variant("rp2350.adc", RpAdcVariant::FiveChannel);
             bus.map_device("rp2350.adc", 0x400a_0000, 0x1000, Box::new(adc))?;
             chip_adc = Some(adc_handle);
+            let (pwm, pwm_handle) = FunctionalPwm::new("rp2350.pwm", 12);
+            bus.map_device("rp2350.pwm", 0x400a_8000, 0x4000, Box::new(pwm))?;
+            chip_pwm = Some(pwm_handle);
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
                 ("rp2350.timer1", 0x400b_8000),
@@ -779,6 +785,7 @@ impl RiscVMachine {
             uart,
             chip_uarts,
             chip_adc,
+            chip_pwm,
             timer,
             exit,
             now: SimTime::ZERO,
