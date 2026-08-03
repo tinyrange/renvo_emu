@@ -24,3 +24,80 @@ fn exti_routes_afio_selected_edges_and_clears_flags() {
         0
     );
 }
+
+#[test]
+fn afio_uses_named_registers_and_masks_reserved_bits() {
+    let (mut _exti, _handle, mut afio) = WchExti::new("exti", "afio");
+    afio.write(
+        WchAfioRegister::Pcfr1.offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        afio.read(
+            WchAfioRegister::Pcfr1.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        u64::from(WCH_AFIO_PCFR1_MASK)
+    );
+
+    afio.write(
+        WchAfioRegister::Exticr.offset(),
+        AccessWidth::Word,
+        u64::from(u32::MAX),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        afio.read(
+            WchAfioRegister::Exticr.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xffff
+    );
+}
+
+#[test]
+fn exti_reserved_port_selection_does_not_alias_pa() {
+    let (mut exti, handle, mut afio) = WchExti::new("exti", "afio");
+    afio.write(
+        WchAfioRegister::Exticr.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    exti.write(
+        WchExtiRegister::InterruptEnable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    exti.write(
+        WchExtiRegister::RisingTrigger.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+
+    // AFIO encoding 01 is reserved on CH32V00x. A high PA0 must not look
+    // like an edge on a nonexistent PB0 input.
+    assert!(!handle.pending([1, 0, 0]));
+    assert_eq!(
+        exti.read(
+            WchExtiRegister::InterruptFlag.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+}

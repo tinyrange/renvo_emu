@@ -231,6 +231,96 @@ impl Device for WchTimer {
 }
 
 const WCH_EXTI_MASK: u32 = 0x03ff;
+pub(crate) const WCH_AFIO_PCFR1_MASK: u32 = (1 << 0)
+    | (1 << 1)
+    | (1 << 2)
+    | (0b11 << 6)
+    | (0b11 << 8)
+    | (1 << 15)
+    | (1 << 17)
+    | (1 << 18)
+    | (1 << 21)
+    | (1 << 22)
+    | (1 << 23)
+    | (0b111 << 24);
+
+/// Native AFIO register identifiers for the CH32V00x window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WchAfioRegister {
+    /// Remap and alternate-function selection.
+    Pcfr1,
+    /// EXTI0-7 port selection.
+    Exticr,
+}
+
+impl WchAfioRegister {
+    /// Returns the register's offset within the AFIO window.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::Pcfr1 => 0x04,
+            Self::Exticr => 0x08,
+        }
+    }
+}
+
+impl TryFrom<u64> for WchAfioRegister {
+    type Error = ();
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x04 => Ok(Self::Pcfr1),
+            0x08 => Ok(Self::Exticr),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Native EXTI register identifiers for the CH32V00x window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WchExtiRegister {
+    /// Interrupt enable register.
+    InterruptEnable,
+    /// Event enable register.
+    EventEnable,
+    /// Rising-edge trigger enable register.
+    RisingTrigger,
+    /// Falling-edge trigger enable register.
+    FallingTrigger,
+    /// Software interrupt/event register.
+    SoftwareTrigger,
+    /// Interrupt flag register.
+    InterruptFlag,
+}
+
+impl WchExtiRegister {
+    /// Returns the register's offset within the EXTI window.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::InterruptEnable => 0x00,
+            Self::EventEnable => 0x04,
+            Self::RisingTrigger => 0x08,
+            Self::FallingTrigger => 0x0c,
+            Self::SoftwareTrigger => 0x10,
+            Self::InterruptFlag => 0x14,
+        }
+    }
+}
+
+impl TryFrom<u64> for WchExtiRegister {
+    type Error = ();
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::InterruptEnable),
+            0x04 => Ok(Self::EventEnable),
+            0x08 => Ok(Self::RisingTrigger),
+            0x0c => Ok(Self::FallingTrigger),
+            0x10 => Ok(Self::SoftwareTrigger),
+            0x14 => Ok(Self::InterruptFlag),
+            _ => Err(()),
+        }
+    }
+}
 
 /// Scheduler-facing state for the WCH AFIO-selected external interrupt lines.
 #[derive(Clone)]
@@ -248,11 +338,14 @@ impl WchExtiHandle {
         let mut state = self.state.borrow_mut();
         for line in 0..8 {
             let port = match (state.exticr >> (line * 2)) & 3 {
-                2 => 1,
-                3 => 2,
-                _ => 0,
+                0 => Some(0), // PA
+                2 => Some(1), // PC
+                3 => Some(2), // PD
+                // The CH32V00x AFIO encoding 01 is reserved. It must not
+                // silently alias an unmodelled PB port to PA.
+                _ => None,
             };
-            let current = inputs[port] & (1 << line) != 0;
+            let current = port.is_some_and(|port| inputs[port] & (1 << line) != 0);
             let previous = state.previous[line];
             if (current && !previous && state.rising & (1 << line) != 0)
                 || (!current && previous && state.falling & (1 << line) != 0)
@@ -318,14 +411,12 @@ impl Device for WchAfio {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("WCH AFIO requires aligned word access"));
         }
-        let value = match offset {
-            0x04 => self.pcfr1,
-            0x08 => self.state.borrow().exticr,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled WCH AFIO read at offset {offset:#x}"
-                )));
-            }
+        let register = WchAfioRegister::try_from(offset).map_err(|()| {
+            DeviceError::new(format!("unmodeled WCH AFIO read at offset {offset:#x}"))
+        })?;
+        let value = match register {
+            WchAfioRegister::Pcfr1 => self.pcfr1,
+            WchAfioRegister::Exticr => self.state.borrow().exticr,
         };
         Ok(u64::from(value))
     }
@@ -341,15 +432,13 @@ impl Device for WchAfio {
             return Err(DeviceError::new("WCH AFIO requires aligned word access"));
         }
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("AFIO value fits");
-        match offset {
-            0x04 => self.pcfr1 = value,
+        let register = WchAfioRegister::try_from(offset).map_err(|()| {
+            DeviceError::new(format!("unmodeled WCH AFIO write at offset {offset:#x}"))
+        })?;
+        match register {
+            WchAfioRegister::Pcfr1 => self.pcfr1 = value & WCH_AFIO_PCFR1_MASK,
             // The V00x devices expose EXTI0-7 selection in the low 16 bits.
-            0x08 => self.state.borrow_mut().exticr = value & 0xffff,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled WCH AFIO write at offset {offset:#x}"
-                )));
-            }
+            WchAfioRegister::Exticr => self.state.borrow_mut().exticr = value & 0xffff,
         }
         Ok(())
     }
@@ -395,19 +484,17 @@ impl Device for WchExti {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new("WCH EXTI requires aligned word access"));
         }
+        let register = WchExtiRegister::try_from(offset).map_err(|()| {
+            DeviceError::new(format!("unmodeled WCH EXTI read at offset {offset:#x}"))
+        })?;
         let state = self.state.borrow();
-        let value = match offset {
-            0x00 => state.interrupt_enable,
-            0x04 => state.event_enable,
-            0x08 => state.rising,
-            0x0c => state.falling,
-            0x10 => state.software,
-            0x14 => state.flags,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled WCH EXTI read at offset {offset:#x}"
-                )));
-            }
+        let value = match register {
+            WchExtiRegister::InterruptEnable => state.interrupt_enable,
+            WchExtiRegister::EventEnable => state.event_enable,
+            WchExtiRegister::RisingTrigger => state.rising,
+            WchExtiRegister::FallingTrigger => state.falling,
+            WchExtiRegister::SoftwareTrigger => state.software,
+            WchExtiRegister::InterruptFlag => state.flags,
         };
         Ok(u64::from(value))
     }
@@ -425,22 +512,20 @@ impl Device for WchExti {
         let value =
             u32::try_from(value & u64::from(u32::MAX)).expect("EXTI value fits") & WCH_EXTI_MASK;
         let mut state = self.state.borrow_mut();
-        match offset {
-            0x00 => state.interrupt_enable = value,
-            0x04 => state.event_enable = value,
-            0x08 => state.rising = value,
-            0x0c => state.falling = value,
-            0x10 => {
+        let register = WchExtiRegister::try_from(offset).map_err(|()| {
+            DeviceError::new(format!("unmodeled WCH EXTI write at offset {offset:#x}"))
+        })?;
+        match register {
+            WchExtiRegister::InterruptEnable => state.interrupt_enable = value,
+            WchExtiRegister::EventEnable => state.event_enable = value,
+            WchExtiRegister::RisingTrigger => state.rising = value,
+            WchExtiRegister::FallingTrigger => state.falling = value,
+            WchExtiRegister::SoftwareTrigger => {
                 state.software = value;
                 state.flags |= value;
             }
             // CH32's INTFR is write-one-to-clear.
-            0x14 => state.flags &= !value,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled WCH EXTI write at offset {offset:#x}"
-                )));
-            }
+            WchExtiRegister::InterruptFlag => state.flags &= !value,
         }
         Ok(())
     }
