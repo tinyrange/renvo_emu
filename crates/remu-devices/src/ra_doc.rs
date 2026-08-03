@@ -23,23 +23,32 @@ impl DocState {
         match self.control & 0x03 {
             0 => {
                 let matched = self.input == self.data;
-                self.flag = if self.control & (1 << 2) != 0 {
+                let condition = if self.control & (1 << 2) != 0 {
                     matched
                 } else {
                     !matched
                 };
+                if condition {
+                    self.flag = true;
+                }
             }
             1 => {
                 let (result, carry) = self.data.overflowing_add(self.input);
                 self.data = result;
-                self.flag = carry;
+                if carry {
+                    self.flag = true;
+                }
             }
             2 => {
                 let (result, borrow) = self.data.overflowing_sub(self.input);
                 self.data = result;
-                self.flag = borrow;
+                if borrow {
+                    self.flag = true;
+                }
             }
-            _ => self.flag = false,
+            // OMS=11 is prohibited by the hardware; retain state if a
+            // malformed value is nevertheless written.
+            _ => {}
         }
     }
 
@@ -90,21 +99,21 @@ impl Device for RaDoc {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::HalfWord {
-            return Err(DeviceError::new("RA DOC requires half-word accesses"));
-        }
         let state = self.state.lock().expect("RA DOC lock poisoned");
         let value = match offset {
-            DOCR => state.control_read(),
-            DODIR => state.input,
-            DODSR => state.data,
+            DOCR if width == AccessWidth::Byte => u64::from(state.control_read() as u8),
+            DODIR | DODSR if width == AccessWidth::HalfWord => u64::from(if offset == DODIR {
+                state.input
+            } else {
+                state.data
+            }),
             _ => {
                 return Err(DeviceError::new(format!(
-                    "unmodeled RA DOC read at {offset:#x}"
+                    "invalid RA DOC read at {offset:#x} with {width:?}"
                 )));
             }
         };
-        Ok(u64::from(value))
+        Ok(value)
     }
 
     fn write(
@@ -114,26 +123,23 @@ impl Device for RaDoc {
         value: u64,
         _at: SimTime,
     ) -> Result<(), DeviceError> {
-        if width != AccessWidth::HalfWord {
-            return Err(DeviceError::new("RA DOC requires half-word accesses"));
-        }
         let mut state = self.state.lock().expect("RA DOC lock poisoned");
         match offset {
-            DOCR => {
+            DOCR if width == AccessWidth::Byte => {
                 let value = value as u16;
                 if value & DOPCFCL != 0 {
                     state.flag = false;
                 }
                 state.control = value & 0x07;
             }
-            DODIR => {
+            DODIR if width == AccessWidth::HalfWord => {
                 state.input = value as u16;
                 state.operate();
             }
-            DODSR => state.data = value as u16,
+            DODSR if width == AccessWidth::HalfWord => state.data = value as u16,
             _ => {
                 return Err(DeviceError::new(format!(
-                    "unmodeled RA DOC write at {offset:#x}"
+                    "invalid RA DOC write at {offset:#x} with {width:?}"
                 )));
             }
         }
@@ -154,12 +160,12 @@ mod tests {
         let (mut doc, handle) = RaDoc::new("doc");
         doc.write(DODSR, AccessWidth::HalfWord, 0x1234, SimTime::ZERO)
             .unwrap();
-        doc.write(DOCR, AccessWidth::HalfWord, 1 << 2, SimTime::ZERO)
+        doc.write(DOCR, AccessWidth::Byte, 1 << 2, SimTime::ZERO)
             .unwrap();
         doc.write(DODIR, AccessWidth::HalfWord, 0x1234, SimTime::ZERO)
             .unwrap();
         assert!(handle.flag());
-        doc.write(DOCR, AccessWidth::HalfWord, DOPCFCL.into(), SimTime::ZERO)
+        doc.write(DOCR, AccessWidth::Byte, DOPCFCL.into(), SimTime::ZERO)
             .unwrap();
         assert!(!handle.flag());
     }
@@ -169,15 +175,51 @@ mod tests {
         let (mut doc, handle) = RaDoc::new("doc");
         doc.write(DODSR, AccessWidth::HalfWord, 10, SimTime::ZERO)
             .unwrap();
-        doc.write(DOCR, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        doc.write(DOCR, AccessWidth::Byte, 1, SimTime::ZERO)
             .unwrap();
         doc.write(DODIR, AccessWidth::HalfWord, 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.result(), 15);
-        doc.write(DOCR, AccessWidth::HalfWord, 2, SimTime::ZERO)
+        doc.write(DOCR, AccessWidth::Byte, 2, SimTime::ZERO)
             .unwrap();
         doc.write(DODIR, AccessWidth::HalfWord, 3, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.result(), 12);
+    }
+
+    #[test]
+    fn doc_flag_is_latched_until_explicit_clear() {
+        let (mut doc, handle) = RaDoc::new("doc");
+        doc.write(DODSR, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+            .unwrap();
+        doc.write(DOCR, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        doc.write(DODIR, AccessWidth::HalfWord, 1, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.flag());
+        doc.write(DODIR, AccessWidth::HalfWord, 0, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.flag());
+        doc.write(DOCR, AccessWidth::Byte, DOPCFCL.into(), SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.flag());
+    }
+
+    #[test]
+    fn doc_control_is_byte_access_and_data_registers_are_halfword_access() {
+        let (mut doc, _) = RaDoc::new("doc");
+        assert!(
+            doc.write(DOCR, AccessWidth::HalfWord, 0, SimTime::ZERO)
+                .is_err()
+        );
+        assert!(
+            doc.write(DODIR, AccessWidth::Byte, 0, SimTime::ZERO)
+                .is_err()
+        );
+        assert!(doc.read(DOCR, AccessWidth::Byte, SimTime::ZERO).is_ok());
+        assert!(
+            doc.read(DODIR, AccessWidth::HalfWord, SimTime::ZERO)
+                .is_ok()
+        );
     }
 }
