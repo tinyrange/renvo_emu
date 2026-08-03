@@ -31,11 +31,19 @@ struct CacState {
     upper: u16,
     lower: u16,
     count: u16,
+    counting: bool,
 }
 
 impl CacState {
     fn reference_edge(&mut self, count: u16) {
         if self.control0 & CFME == 0 {
+            return;
+        }
+        if !self.counting {
+            // The first valid reference edge starts the measurement.  The
+            // hardware does not transfer a result or raise MENDF until the
+            // following valid edge.
+            self.counting = true;
             return;
         }
         self.count = count;
@@ -57,6 +65,19 @@ impl RaCacHandle {
             .lock()
             .expect("RA CAC lock poisoned")
             .reference_edge(count);
+    }
+
+    /// Injects a counter overflow observed while a measurement is enabled.
+    ///
+    /// The functional model does not synthesize target-clock edges, so hosts
+    /// use this hook when their external clock source wraps the 16-bit
+    /// counter.  The hardware latches only the overflow flag; the flag is
+    /// cleared through `CAICR.OVFFCL` like the other status flags.
+    pub fn overflow(&self) {
+        let mut state = self.0.lock().expect("RA CAC lock poisoned");
+        if state.control0 & CFME != 0 && state.counting {
+            state.status |= 1 << 2; // OVFF
+        }
     }
 
     /// Returns the last captured counter value.
@@ -161,10 +182,13 @@ impl Device for RaCac {
                 let value = value as u8;
                 match offset {
                     CACR0 => {
+                        let was_enabled = state.control0 & CFME != 0;
                         state.control0 = value & CFME;
                         if state.control0 & CFME == 0 {
                             state.count = 0;
-                            state.status = 0;
+                            state.counting = false;
+                        } else if !was_enabled {
+                            state.counting = false;
                         }
                     }
                     CACR1 => {
@@ -190,7 +214,9 @@ impl Device for RaCac {
                             state.status &= !(1 << 2);
                         }
                     }
-                    CASTR => {}
+                    CASTR => {
+                        return Err(DeviceError::new("RA CAC status register is read-only"));
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -242,6 +268,10 @@ mod tests {
             .unwrap();
         cac.write(CACR0, AccessWidth::Byte, CFME.into(), SimTime::ZERO)
             .unwrap();
+        // The first valid reference edge starts the measurement; the next
+        // edge transfers the result to CACNTBR.
+        handle.reference_edge(75);
+        assert_eq!(handle.flags(), (false, false, false));
         handle.reference_edge(75);
         assert_eq!(handle.count(), 75);
         assert_eq!(handle.flags(), (false, true, false));
@@ -258,16 +288,39 @@ mod tests {
     }
 
     #[test]
-    fn disabling_measurement_clears_counter_and_status() {
+    fn disabling_measurement_clears_counter_but_preserves_status() {
         let (mut cac, handle) = RaCac::new("cac");
         cac.write(CAULVR, AccessWidth::HalfWord, 10, SimTime::ZERO)
             .unwrap();
         cac.write(CACR0, AccessWidth::Byte, CFME.into(), SimTime::ZERO)
             .unwrap();
         handle.reference_edge(5);
+        handle.reference_edge(5);
         cac.write(CACR0, AccessWidth::Byte, 0, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.count(), 0);
+        assert_eq!(handle.flags(), (false, true, false));
+    }
+
+    #[test]
+    fn overflow_latches_until_explicitly_cleared() {
+        let (mut cac, handle) = RaCac::new("cac");
+        cac.write(CACR0, AccessWidth::Byte, CFME.into(), SimTime::ZERO)
+            .unwrap();
+        handle.reference_edge(0);
+        handle.overflow();
+        assert_eq!(handle.flags(), (false, false, true));
+        cac.write(CAICR, AccessWidth::Byte, u64::from(OVFFCL), SimTime::ZERO)
+            .unwrap();
         assert_eq!(handle.flags(), (false, false, false));
+    }
+
+    #[test]
+    fn status_is_read_only() {
+        let (mut cac, _) = RaCac::new("cac");
+        assert!(
+            cac.write(CASTR, AccessWidth::Byte, 0, SimTime::ZERO)
+                .is_err()
+        );
     }
 }
