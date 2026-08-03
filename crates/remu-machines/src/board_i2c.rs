@@ -49,6 +49,40 @@ pub struct BoardI2cEndpoint {
     available_at: SimTime,
 }
 
+const I2C_HALF_TICKS: u64 = 5_000;
+
+/// Returns the exclusive end of a byte-level I2C waveform before any signal is
+/// changed.  A byte consumes eight data/clock pairs and one ACK pair; the
+/// start and stop framing each consume one half-period.
+pub(crate) fn i2c_waveform_end(start: SimTime, byte_count: usize) -> Result<SimTime, BoardError> {
+    let bytes = u64::try_from(byte_count).map_err(|_| BoardError::I2cTimeOverflow)?;
+    let half_periods = bytes
+        .checked_mul(18)
+        .and_then(|periods| periods.checked_add(2))
+        .ok_or(BoardError::I2cTimeOverflow)?;
+    let duration = half_periods
+        .checked_mul(I2C_HALF_TICKS)
+        .ok_or(BoardError::I2cTimeOverflow)?;
+    start
+        .ticks()
+        .checked_add(duration)
+        .map(SimTime::from_ticks)
+        .ok_or(BoardError::I2cTimeOverflow)
+}
+
+fn i2c_byte_count(write_len: usize, read_len: usize) -> Result<usize, BoardError> {
+    let with_address = write_len
+        .checked_add(1)
+        .ok_or(BoardError::I2cTimeOverflow)?;
+    if read_len == 0 {
+        return Ok(with_address);
+    }
+    with_address
+        .checked_add(read_len)
+        .and_then(|count| count.checked_add(1))
+        .ok_or(BoardError::I2cTimeOverflow)
+}
+
 impl BoardI2cEndpoint {
     /// Attaches I2C connectors and supported external devices to a machine hub.
     pub fn new(
@@ -197,12 +231,14 @@ impl BoardI2cEndpoint {
                 connector: connector.to_owned(),
                 address,
             })?;
-        let response = self
+        let mut candidate = self
             .devices
-            .get_mut(&target)
+            .get(&target)
             .expect("I2C target has a device model")
-            .transact(write, read_len, at)?;
+            .clone();
+        let response = candidate.transact(write, read_len, at)?;
         let completed_at = emit_i2c(&self.hub, pins, address, write, &response, at)?;
+        self.devices.insert(target, candidate);
         self.available_at = completed_at;
         Ok(BoardI2cTransfer {
             connector: connector.to_owned(),
@@ -256,6 +292,8 @@ fn emit_i2c(
     read: &[u8],
     start: SimTime,
 ) -> Result<SimTime, BoardError> {
+    let byte_count = i2c_byte_count(write.len(), read.len())?;
+    let _ = i2c_waveform_end(start, byte_count)?;
     let mut now = start.ticks();
     set_line(
         hub,
@@ -346,7 +384,9 @@ fn emit_i2c(
 }
 
 fn advance(now: &mut u64) -> Result<(), BoardError> {
-    *now = now.checked_add(5_000).ok_or(BoardError::I2cTimeOverflow)?;
+    *now = now
+        .checked_add(I2C_HALF_TICKS)
+        .ok_or(BoardError::I2cTimeOverflow)?;
     Ok(())
 }
 
@@ -488,7 +528,7 @@ mod tests {
             duration: 1,
         };
         let mut endpoint =
-            BoardI2cEndpoint::new(&scenario, hub, "board.esp32c6.chip_gpio").unwrap();
+            BoardI2cEndpoint::new(&scenario, hub.clone(), "board.esp32c6.chip_gpio").unwrap();
         let error = endpoint
             .transfer(
                 "grove",
@@ -499,5 +539,11 @@ mod tests {
             )
             .unwrap_err();
         assert!(matches!(error, BoardError::I2cTimeOverflow));
+        assert!(!endpoint.sgp30_snapshot("grove").unwrap().initialized);
+        assert!(hub.drain_changes().is_empty());
+        endpoint
+            .transfer("grove", SGP30_ADDRESS, &[0x20, 0x03], 0, SimTime::ZERO)
+            .unwrap();
+        assert!(endpoint.sgp30_snapshot("grove").unwrap().initialized);
     }
 }
