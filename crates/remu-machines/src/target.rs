@@ -569,12 +569,22 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 27,
         fidelity: Fidelity::Functional,
-        baseline: &["PORT/interrupt GPIO", "Timer0/1", "USART0", "EEPROM", "VCD"],
+        baseline: &[
+            "PORT/interrupt GPIO",
+            "Timer0/1",
+            "USART0",
+            "EEPROM",
+            "analog comparator",
+            "VCD",
+        ],
         sources: &[
             "https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip-AVR-Microcontroller-ATmega328PB-Data-Sheet-DS40001906.pdf",
             "https://packs.download.microchip.com/Microchip.ATmega_DFP.3.6.299.atpack",
         ],
-        limitations: &["analog, touch, SPI, and TWI are outside the acceptance slice"],
+        limitations: &[
+            "analog voltage, bandgap, ADC, touch, SPI, and TWI are outside the acceptance slice",
+            "comparator timing is functional rather than clock-accurate",
+        ],
     },
     TargetManifest {
         schema: 1,

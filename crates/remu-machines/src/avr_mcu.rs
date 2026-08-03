@@ -211,6 +211,13 @@ impl AvrMcuMachine {
         self.gpio[port].set_input(local_pin, value, self.now)?;
         Ok(())
     }
+    /// Drives the functional ATmega328PB analog-comparator inputs.
+    ///
+    /// This is a deterministic boolean abstraction of AIN0/AIN1. It does not
+    /// model analog voltages, noise, propagation delay, or the bandgap input.
+    pub fn set_comparator_inputs(&self, positive: bool, negative: bool) {
+        self.io.set_comparator_inputs(positive, negative, self.now);
+    }
     /// Current PORTB output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio[0].output()
@@ -367,6 +374,7 @@ impl AvrMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::AtmegaComparatorRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -405,5 +413,20 @@ mod tests {
         assert_eq!(result.reason, StopReason::Halted);
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(machine.gpio_output(), 1);
+    }
+
+    #[test]
+    fn atmega_comparator_host_input_updates_acsr() {
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        // ACSR: ACIE plus rising-output edge mode.
+        machine
+            .debug_write_memory(u64::from(AtmegaComparatorRegister::Acsr.offset()), &[0x0b])
+            .unwrap();
+        machine.set_comparator_inputs(true, false);
+        let status = machine
+            .debug_read_memory(u64::from(AtmegaComparatorRegister::Acsr.offset()), 1)
+            .unwrap()[0];
+        assert_ne!(status & 0x20, 0, "ACO should reflect AIN0 > AIN1");
+        assert_ne!(status & 0x10, 0, "rising output should latch ACI");
     }
 }
