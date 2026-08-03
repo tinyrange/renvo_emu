@@ -5,7 +5,9 @@ use remu_signals::{Logic, SignalId, SignalValue};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
+mod clock;
 mod registers;
+use clock::*;
 pub use registers::Msp430EusciB0Register;
 use registers::*;
 
@@ -511,6 +513,15 @@ impl Msp430State {
     fn reset_registers(&mut self, at: SimTime) {
         self.registers.fill(0);
         self.set_word(PM5CTL0, LOCKLPM5);
+        self.set_word(CSCTL0, CSCTL0_RESET);
+        self.set_word(CSCTL1, CSCTL1_RESET);
+        self.set_word(CSCTL2, CSCTL2_RESET);
+        self.set_word(CSCTL3, CSCTL3_RESET);
+        self.set_word(CSCTL4, CSCTL4_RESET);
+        self.set_word(CSCTL5, CSCTL5_RESET);
+        self.set_word(CSCTL6, CSCTL6_RESET);
+        self.set_word(CSCTL7, CSCTL7_RESET);
+        self.set_word(CSCTL8, CSCTL8_RESET);
         self.set_word(WDTCTL, 0x6900);
         self.set_word(UCA0CTLW0, UCSWRST);
         self.set_word(UCA0IFG, UCTXIFG);
@@ -1096,6 +1107,7 @@ impl Device for Msp430Peripherals {
         }
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
         state.update_inputs();
+        normalize_clock_registers(&mut state, start, length);
         if start == FRCTL0 && length >= 2 {
             let low = state.word(FRCTL0) & 0x00ff;
             state.set_word(FRCTL0, 0x9600 | low);
@@ -1271,6 +1283,7 @@ impl Device for Msp430Peripherals {
         for index in 0..length {
             state.registers[start + index] = (value >> (index * 8)) as u8;
         }
+        normalize_clock_registers(&mut state, start, length);
         if start == CRCINIRES && length >= 2 {
             state.crc = input_value;
             state.set_word(CRCINIRES, input_value);

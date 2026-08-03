@@ -1,4 +1,3 @@
-
 use super::*;
 #[test]
 fn eusci_b0_register_ids_match_ti_map() {
@@ -10,6 +9,48 @@ fn eusci_b0_register_ids_match_ti_map() {
         Some(Msp430EusciB0Register::Iv)
     );
     assert_eq!(Msp430EusciB0Register::from_address(0x0544), None);
+}
+
+#[test]
+fn clock_system_has_fr2433_reset_values_and_masks() {
+    let hub = SignalHub::new();
+    let (mut device, handle, _gpio) =
+        Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+    for (address, expected) in [
+        (CSCTL0, CSCTL0_RESET),
+        (CSCTL1, CSCTL1_RESET),
+        (CSCTL2, CSCTL2_RESET),
+        (CSCTL3, CSCTL3_RESET),
+        (CSCTL4, CSCTL4_RESET),
+        (CSCTL5, CSCTL5_RESET),
+        (CSCTL6, CSCTL6_RESET),
+        (CSCTL7, CSCTL7_RESET),
+        (CSCTL8, CSCTL8_RESET),
+    ] {
+        assert_eq!(
+            device.read(address as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(expected.into())
+        );
+    }
+    assert_eq!((handle.mclk_divider(), handle.smclk_divider()), (1, 1));
+    assert_eq!((handle.fll_multiplier(), handle.mclk_source()), (0x1f, 0));
+    device
+        .write(
+            CSCTL5 as u64,
+            AccessWidth::HalfWord,
+            u16::MAX.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        device.read(CSCTL5 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x10f7)
+    );
+    assert_eq!((handle.mclk_divider(), handle.smclk_divider()), (128, 8));
+    device
+        .write(CSCTL2 as u64, AccessWidth::HalfWord, 0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.fll_multiplier(), 1);
 }
 #[test]
 fn gpio_is_locked_until_pm5ctl0_is_cleared() {

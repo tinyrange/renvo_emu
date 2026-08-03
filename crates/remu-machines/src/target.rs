@@ -744,6 +744,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "ADC10 single conversion",
             "eUSCI_B0 I²C host",
             "FRAM",
+            "CSCTL clock/FLL control",
             "VCD",
         ],
         sources: &[
@@ -751,7 +752,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.ti.com/lit/ug/slau445i/slau445i.pdf",
         ],
         limitations: &[
-            "Timer_A capture pin routing, ADC sequence/comparator/reference fidelity, capacitive touch, BSL, eUSCI_A1 IrDA/pin routing, and pin-level/slave/10-bit I²C and exact clock/prescaler accuracy are deferred",
+            "Timer_A capture pin routing, ADC sequence/comparator/reference fidelity, capacitive touch, BSL, eUSCI_A1 IrDA/pin routing, pin-level/slave/10-bit I²C, FLL lock timing, oscillator faults, and exact clock accuracy are deferred",
         ],
     },
     TargetManifest {

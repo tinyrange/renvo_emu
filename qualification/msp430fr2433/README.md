@@ -24,12 +24,15 @@ transmit/receive loopback, eUSCI_B0 SPI transfers and functional 7-bit I²C host
 ADC10 single conversion, WDT_A reset and persistent FRAM. The I²C host models
 the typed TI register slice, reset-only configuration masks, read-only status,
 byte counting and automatic STOP, ACK/NACK control, and documented interrupt-
-vector priorities. Clock-tree, timer prescaling and serial timing are
-deterministic approximations. Timer compare/overflow flags and
+vector priorities. CSCTL0–CSCTL8 reset values, reserved-bit masks, the FLLN
+zero-is-one rule, source selections, and MCLK/SMCLK dividers are represented;
+MCLK division scales abstract execution time. Clock-tree, timer prescaling and
+serial timing are deterministic approximations. Timer compare/overflow flags and
 CCR0/A1 vectors are deterministic; capture pin routing, RTC calendar/alarm
 features, eUSCI_A1 IrDA/pin routing/SPI mode, eUSCI_B0 pin-level arbitration,
 slave mode, 10-bit I²C and electrical ACK timing, ADC sequence/comparator/
-reference fidelity, capacitive touch, and unlisted serial modes remain outside
+reference fidelity, capacitive touch, FLL lock convergence, oscillator fault
+dynamics, exact oscillator frequency, and unlisted serial modes remain outside
 this acceptance slice.
 
 Run from the repository root:
