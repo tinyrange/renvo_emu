@@ -359,6 +359,170 @@ impl Device for Samd21Tc {
 }
 
 #[derive(Default)]
+struct RtcState {
+    control: u32,
+    interrupt_enable: u8,
+    interrupt_flags: u8,
+    count_base: u32,
+    compare0: u32,
+    epoch: u64,
+}
+
+impl RtcState {
+    const CONTROL_MASK: u32 = 0x0f8f;
+    const ENABLE: u32 = 1 << 1;
+    const MODE_MASK: u32 = 0x0c;
+    const MATCHCLR: u32 = 1 << 7;
+    const PRESCALER_MASK: u32 = 0x0f00;
+    const INT_MASK: u8 = 0xc1;
+    const CMP0: u8 = 1;
+    const OVF: u8 = 1 << 7;
+
+    fn enabled_count32(&self) -> bool {
+        self.control & Self::ENABLE != 0 && self.control & Self::MODE_MASK == 0
+    }
+
+    fn count(&self, now: SimTime) -> u32 {
+        if !self.enabled_count32() {
+            return self.count_base;
+        }
+        let prescaler = ((self.control & Self::PRESCALER_MASK) >> 8).min(10);
+        let elapsed = now.ticks().saturating_sub(self.epoch) >> prescaler;
+        self.count_base.wrapping_add(elapsed as u32)
+    }
+
+    fn advance(&mut self, now: SimTime) {
+        if !self.enabled_count32() {
+            return;
+        }
+        let previous = self.count_base;
+        let prescaler = ((self.control & Self::PRESCALER_MASK) >> 8).min(10);
+        let elapsed = now.ticks().saturating_sub(self.epoch) >> prescaler;
+        let count = previous.wrapping_add(elapsed as u32);
+        let wrapped = elapsed > u64::from(u32::MAX - previous) || count < previous;
+        let compare_match = if wrapped {
+            count >= self.compare0 || previous < self.compare0
+        } else {
+            previous < self.compare0 && count >= self.compare0
+        };
+        if compare_match {
+            self.interrupt_flags |= Self::CMP0;
+        }
+        if wrapped {
+            self.interrupt_flags |= Self::OVF;
+        }
+        if compare_match && self.control & Self::MATCHCLR != 0 {
+            self.count_base = 0;
+        } else {
+            self.count_base = count;
+        }
+        self.epoch = now.ticks();
+    }
+}
+
+/// Machine-facing handle for the SAM D21 RTC COUNT32/COMP0 interrupt slice.
+#[derive(Clone)]
+pub struct Samd21RtcHandle(Arc<Mutex<RtcState>>);
+
+impl Samd21RtcHandle {
+    /// Advances the abstract RTC clock and returns an enabled interrupt level.
+    pub fn poll(&self, now: SimTime) -> bool {
+        let mut state = self.0.lock().expect("RTC lock poisoned");
+        state.advance(now);
+        state.interrupt_flags & state.interrupt_enable & RtcState::INT_MASK != 0
+    }
+}
+
+/// Functional SAM D21 RTC COUNT32 register slice.
+pub struct Samd21Rtc {
+    name: String,
+    state: Arc<Mutex<RtcState>>,
+}
+
+impl Samd21Rtc {
+    /// Constructs the RTC and its interrupt handle.
+    pub fn new(name: impl Into<String>) -> (Self, Samd21RtcHandle) {
+        let state = Arc::new(Mutex::new(RtcState::default()));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+            },
+            Samd21RtcHandle(state),
+        )
+    }
+}
+
+impl Device for Samd21Rtc {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
+        let mut state = self.state.lock().expect("RTC lock poisoned");
+        state.advance(at);
+        let value = match offset {
+            0x00 => state.control,
+            0x06 | 0x07 => u32::from(state.interrupt_enable),
+            0x08 => u32::from(state.interrupt_flags),
+            0x0a => 0,
+            0x10..=0x13 => state.count(at) >> ((offset - 0x10) * 8),
+            0x18..=0x1b => state.compare0 >> ((offset - 0x18) * 8),
+            _ => 0,
+        };
+        let mask = if width.bytes() == 4 {
+            u64::from(u32::MAX)
+        } else {
+            (1_u64 << (u32::from(width.bytes()) * 8)) - 1
+        };
+        Ok(u64::from(value) & mask)
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        _width: AccessWidth,
+        value: u64,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let mut state = self.state.lock().expect("RTC lock poisoned");
+        state.advance(at);
+        match offset {
+            0x00 => {
+                if value & 1 != 0 {
+                    *state = RtcState::default();
+                } else {
+                    let value = (value as u32) & RtcState::CONTROL_MASK;
+                    let protected =
+                        RtcState::MODE_MASK | RtcState::MATCHCLR | RtcState::PRESCALER_MASK;
+                    let protected_value = if state.enabled_count32() {
+                        state.control & protected
+                    } else {
+                        value & protected
+                    };
+                    state.control = protected_value | (value & RtcState::ENABLE);
+                    state.epoch = at.ticks();
+                }
+            }
+            0x06 => state.interrupt_enable &= !(value as u8 & RtcState::INT_MASK),
+            0x07 => state.interrupt_enable |= value as u8 & RtcState::INT_MASK,
+            0x08 => state.interrupt_flags &= !(value as u8 & RtcState::INT_MASK),
+            0x10 => {
+                state.count_base = value as u32;
+                state.epoch = at.ticks();
+            }
+            0x18 => state.compare0 = value as u32,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        *self.state.lock().expect("RTC lock poisoned") = RtcState::default();
+    }
+}
+
+#[derive(Default)]
 struct UsartState {
     enabled: bool,
     interrupt_enable: u8,
@@ -743,5 +907,77 @@ mod tests {
             .unwrap();
         assert!(!handle.take_reset(SimTime::from_ticks(14)));
         assert!(handle.take_reset(SimTime::from_ticks(15)));
+    }
+
+    #[test]
+    fn rtc_count32_compare_sets_and_clears_cmp0() {
+        let (mut rtc, handle) = Samd21Rtc::new("rtc");
+        rtc.write(0x18, AccessWidth::Word, 4, SimTime::ZERO)
+            .unwrap();
+        rtc.write(0x07, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        rtc.write(0x00, AccessWidth::Word, 2 | (1 << 7), SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(3)));
+        assert!(handle.poll(SimTime::from_ticks(4)));
+        assert_eq!(
+            rtc.read(0x08, AccessWidth::Byte, SimTime::from_ticks(4))
+                .unwrap(),
+            1
+        );
+        rtc.write(0x08, AccessWidth::Byte, 1, SimTime::from_ticks(4))
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn rtc_count32_overflow_sets_native_ovf_flag() {
+        let (mut rtc, handle) = Samd21Rtc::new("rtc");
+        rtc.write(0x10, AccessWidth::Word, u64::from(u32::MAX), SimTime::ZERO)
+            .unwrap();
+        rtc.write(0x18, AccessWidth::Word, 0x7fff_ffff, SimTime::ZERO)
+            .unwrap();
+        rtc.write(0x07, AccessWidth::Byte, 1 << 7, SimTime::ZERO)
+            .unwrap();
+        rtc.write(0x00, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(1)));
+        assert_eq!(
+            rtc.read(0x08, AccessWidth::Byte, SimTime::from_ticks(1))
+                .unwrap(),
+            1 << 7
+        );
+        rtc.write(0x08, AccessWidth::Byte, 1 << 7, SimTime::from_ticks(1))
+            .unwrap();
+        assert_eq!(
+            rtc.read(0x08, AccessWidth::Byte, SimTime::from_ticks(1))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn rtc_control_and_interrupt_registers_use_native_masks() {
+        let (mut rtc, _handle) = Samd21Rtc::new("rtc");
+        rtc.write(
+            0x00,
+            AccessWidth::Word,
+            u64::from(u32::MAX & !1),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            rtc.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x0f8e
+        );
+        rtc.write(0x07, AccessWidth::Byte, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            rtc.read(0x07, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xc1
+        );
+        rtc.write(0x06, AccessWidth::Byte, u64::MAX, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(rtc.read(0x06, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0);
     }
 }
