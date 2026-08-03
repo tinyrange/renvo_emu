@@ -110,6 +110,11 @@ fn rp2350_timer_uses_shifted_interrupt_registers() {
 #[test]
 fn rp2350_accessctrl_tracks_masks_locks_and_configuration_reset() {
     let mut access = Rp2350AccessCtrl::new("accessctrl");
+    assert_eq!(
+        Rp2350AccessCtrlRegister::try_from(0x14).unwrap(),
+        Rp2350AccessCtrlRegister::Peripheral(0)
+    );
+    assert!(Rp2350AccessCtrlRegister::try_from(0x11).is_err());
     assert_eq!(access.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 4);
     assert_eq!(access.permission(0x14), Some(0xff));
     assert_eq!(access.gpio_nonsecure_masks(), (0, 0));
@@ -130,6 +135,13 @@ fn rp2350_accessctrl_tracks_masks_locks_and_configuration_reset() {
         .unwrap();
     assert_eq!(access.gpio_nonsecure_masks().0, 0xa5);
     access
+        .write(0x04, AccessWidth::Word, 0x03, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        access.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        2
+    );
+    access
         .write(0, AccessWidth::Word, 1, SimTime::ZERO)
         .unwrap();
     access
@@ -142,6 +154,10 @@ fn rp2350_accessctrl_tracks_masks_locks_and_configuration_reset() {
         .unwrap();
     assert_eq!(access.permission(0x14), Some(0xff));
     assert_eq!(access.gpio_nonsecure_masks(), (0, 0));
+    assert_eq!(
+        access.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        2
+    );
     assert_eq!(access.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 5);
 }
 

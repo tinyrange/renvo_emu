@@ -9,6 +9,46 @@ const GPIO_NSMASK1: usize = 0x10 / 4;
 const LOCK_MASK: u32 = 0x0f;
 const DMA_LOCK: u32 = 1 << 2;
 
+/// RP2350 ACCESSCTRL register offsets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rp2350AccessCtrlRegister {
+    /// Monotonic master lock bits.
+    Lock,
+    /// Force core 1 accesses to non-secure.
+    ForceCoreNs,
+    /// Self-clearing configuration reset command.
+    CfgReset,
+    /// GPIO0..31 non-secure mask.
+    GpioNsMask0,
+    /// GPIO32..47 and QSPI/USB non-secure mask.
+    GpioNsMask1,
+    /// Eight-bit permission mask for a named peripheral slot.
+    Peripheral(u8),
+}
+
+impl TryFrom<u64> for Rp2350AccessCtrlRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        let register = match offset {
+            0x00 => Self::Lock,
+            0x04 => Self::ForceCoreNs,
+            0x08 => Self::CfgReset,
+            0x0c => Self::GpioNsMask0,
+            0x10 => Self::GpioNsMask1,
+            0x14..=0xe8 if (offset - 0x14) % 4 == 0 => {
+                Self::Peripheral(u8::try_from((offset - 0x14) / 4).expect("ACCESSCTRL slot fits"))
+            }
+            _ => {
+                return Err(DeviceError::new(format!(
+                    "invalid RP2350 ACCESSCTRL register offset {offset:#x}"
+                )));
+            }
+        };
+        Ok(register)
+    }
+}
+
 fn atomic_update(current: u32, alias: u64, value: u32) -> Result<u32, DeviceError> {
     match alias {
         0 => Ok(value),
@@ -48,20 +88,25 @@ impl Rp2350AccessCtrl {
         }
     }
 
-    fn mask(index: usize) -> u32 {
-        match index {
-            LOCK => LOCK_MASK,
-            FORCE_CORE_NS | CFGRESET => 0x03,
-            GPIO_NSMASK0 => u32::MAX,
-            GPIO_NSMASK1 => 0xff00_ffff,
-            _ => 0xff,
+    fn mask(register: Rp2350AccessCtrlRegister) -> u32 {
+        match register {
+            Rp2350AccessCtrlRegister::Lock => LOCK_MASK,
+            Rp2350AccessCtrlRegister::ForceCoreNs => 0x02,
+            Rp2350AccessCtrlRegister::CfgReset => 0x01,
+            Rp2350AccessCtrlRegister::GpioNsMask0 => u32::MAX,
+            Rp2350AccessCtrlRegister::GpioNsMask1 => 0xff00_ffff,
+            Rp2350AccessCtrlRegister::Peripheral(_) => 0xff,
         }
     }
 
     /// Returns one peripheral's eight-bit security/privilege mask by offset.
     pub fn permission(&self, offset: u64) -> Option<u8> {
-        let index = usize::try_from(offset / 4).ok()?;
-        (index >= 5 && index < REGISTER_COUNT).then(|| self.registers[index] as u8)
+        let register = Rp2350AccessCtrlRegister::try_from(offset & 0x0fff).ok()?;
+        let Rp2350AccessCtrlRegister::Peripheral(slot) = register else {
+            return None;
+        };
+        let index = usize::from(slot) + 5;
+        self.registers.get(index).copied().map(|value| value as u8)
     }
 
     /// Returns the GPIO non-secure mask pair.
@@ -70,7 +115,7 @@ impl Rp2350AccessCtrl {
     }
 
     fn reset_configuration(&mut self) {
-        for index in 1..REGISTER_COUNT {
+        for index in 3..REGISTER_COUNT {
             self.registers[index] = self.reset[index];
         }
     }
@@ -88,16 +133,16 @@ impl Device for Rp2350AccessCtrl {
             ));
         }
         let register = offset & 0x0fff;
-        let index = usize::try_from(register / 4).expect("ACCESSCTRL index fits");
-        self.registers
-            .get(index)
-            .copied()
-            .map(u64::from)
-            .ok_or_else(|| {
-                DeviceError::new(format!(
-                    "unmodeled RP2350 ACCESSCTRL read at offset {register:#x}"
-                ))
-            })
+        let register = Rp2350AccessCtrlRegister::try_from(register)?;
+        let index = match register {
+            Rp2350AccessCtrlRegister::Lock => LOCK,
+            Rp2350AccessCtrlRegister::ForceCoreNs => FORCE_CORE_NS,
+            Rp2350AccessCtrlRegister::CfgReset => CFGRESET,
+            Rp2350AccessCtrlRegister::GpioNsMask0 => GPIO_NSMASK0,
+            Rp2350AccessCtrlRegister::GpioNsMask1 => GPIO_NSMASK1,
+            Rp2350AccessCtrlRegister::Peripheral(slot) => usize::from(slot) + 5,
+        };
+        Ok(u64::from(self.registers[index]))
     }
 
     fn write(
@@ -113,27 +158,31 @@ impl Device for Rp2350AccessCtrl {
             ));
         }
         let register = offset & 0x0fff;
-        let index = usize::try_from(register / 4).expect("ACCESSCTRL index fits");
+        let register = Rp2350AccessCtrlRegister::try_from(register)?;
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits");
-        let current = *self.registers.get(index).ok_or_else(|| {
-            DeviceError::new(format!(
-                "unmodeled RP2350 ACCESSCTRL write at offset {register:#x}"
-            ))
-        })?;
-        if index == CFGRESET {
+        let index = match register {
+            Rp2350AccessCtrlRegister::Lock => LOCK,
+            Rp2350AccessCtrlRegister::ForceCoreNs => FORCE_CORE_NS,
+            Rp2350AccessCtrlRegister::CfgReset => CFGRESET,
+            Rp2350AccessCtrlRegister::GpioNsMask0 => GPIO_NSMASK0,
+            Rp2350AccessCtrlRegister::GpioNsMask1 => GPIO_NSMASK1,
+            Rp2350AccessCtrlRegister::Peripheral(slot) => usize::from(slot) + 5,
+        };
+        let current = self.registers[index];
+        if matches!(register, Rp2350AccessCtrlRegister::CfgReset) {
             if value & 1 != 0 {
                 self.reset_configuration();
             }
             return Ok(());
         }
-        if index == LOCK {
+        if matches!(register, Rp2350AccessCtrlRegister::Lock) {
             // DMA is permanently locked by hardware; the other lock bits are
             // write-once until a full ACCESSCTRL reset.
             self.registers[index] = (current | value | DMA_LOCK) & LOCK_MASK;
             return Ok(());
         }
         let updated = atomic_update(current, (offset >> 12) & 3, value)?;
-        self.registers[index] = updated & Self::mask(index);
+        self.registers[index] = updated & Self::mask(register);
         Ok(())
     }
 
