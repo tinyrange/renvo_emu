@@ -15,11 +15,11 @@ use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
     EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
     EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
+    Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -37,6 +37,7 @@ mod esp_bootrom_secondary;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;
+mod pwm;
 mod rp_bootrom;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
@@ -176,6 +177,7 @@ pub struct RiscVMachine {
     chip_gpio: Vec<GpioHandle>,
     uart: UartHandle,
     chip_uarts: Vec<UartHandle>,
+    chip_pwm: Option<PwmHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -243,6 +245,7 @@ impl RiscVMachine {
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
         let mut wch_pfic = None;
+        let mut chip_pwm = None;
         let mut sio = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
@@ -437,7 +440,6 @@ impl RiscVMachine {
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.adc", 0x400a_0000),
-                ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
                 ("rp2350.pio1", 0x5030_0000),
                 ("rp2350.pio2", 0x5040_0000),
@@ -449,6 +451,9 @@ impl RiscVMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
+            let (pwm, pwm_handle) = FunctionalPwm::new("rp2350.pwm", 12);
+            bus.map_device("rp2350.pwm", 0x400a_8000, 0x4000, Box::new(pwm))?;
+            chip_pwm = Some(pwm_handle);
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
                 ("rp2350.timer1", 0x400b_8000),
@@ -775,6 +780,7 @@ impl RiscVMachine {
             chip_gpio,
             uart,
             chip_uarts,
+            chip_pwm,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1490,6 +1496,5 @@ impl RiscVMachine {
         })
     }
 }
-
 #[cfg(test)]
 mod tests;

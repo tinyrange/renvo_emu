@@ -25,9 +25,14 @@ fn raspberry_pi_pwm_models_compare_outputs() {
             .bus
             .write(base, AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
+        let global_base = if target == TargetId::Rp2040 {
+            0xa0
+        } else {
+            0xf0
+        };
         machine
             .bus
-            .write(base + 0xa0, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(base + global_base, AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.pwm_outputs(0), Some([true, false]));
         assert_eq!(

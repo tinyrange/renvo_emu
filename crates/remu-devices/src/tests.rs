@@ -533,10 +533,20 @@ fn pwm_advances_counter_and_reports_compare_outputs() {
         .unwrap();
     pwm.write(0x00, AccessWidth::Word, 1, SimTime::ZERO)
         .unwrap();
-    pwm.write(0xa0, AccessWidth::Word, 1, SimTime::ZERO)
-        .unwrap();
-    pwm.write(0xa8, AccessWidth::Word, 1, SimTime::ZERO)
-        .unwrap();
+    pwm.write(
+        RpPwmRegister::En.global_offset(2).unwrap(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    pwm.write(
+        RpPwmRegister::Inte0.global_offset(2).unwrap(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
     assert_eq!(handle.counter(0), Some(0));
     assert_eq!(handle.outputs(0), Some([true, false]));
     assert_eq!(

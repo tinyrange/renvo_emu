@@ -199,6 +199,63 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 }
 
 #[test]
+fn rp2350_hazard3_pwm_uses_rp2350_globals_and_irq_banks() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    let base = 0x400a_8000;
+
+    machine
+        .bus
+        .write(base + 0x0c, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x10, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0xf0, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(machine.pwm_outputs(0), Some([true, false]));
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0xf0,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        1
+    );
+
+    machine
+        .bus
+        .write(base + 0xf8, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0xfc, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.pwm_pending_interrupts(0), 1);
+
+    machine
+        .bus
+        .write(base + 0x104, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x108, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.pwm_pending_interrupts(1), 1);
+}
+
+#[test]
 fn gpio_facade_streams_valid_vcd() {
     // lui x1,0xffff0; addi x2,x0,1; sw x2,0(x1); sw x2,4(x1); ebreak
     let program = [
