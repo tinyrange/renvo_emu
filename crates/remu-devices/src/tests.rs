@@ -287,6 +287,46 @@ fn rp_pio_named_registers_model_fifo_levels_and_irq_masks() {
         0x60
     );
     assert!(pio.read(0x048, AccessWidth::Word, SimTime::ZERO).is_err());
+
+    // Empty RX reads set the RXUNDER W1C field (bits 8..11), not the
+    // RXSTALL low nibble. EXEC_STALLED is a read-only status bit.
+    assert_eq!(
+        pio.read(0x024, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+    assert_eq!(
+        pio.read(0x008, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 9),
+        1 << 9
+    );
+    pio.write(0x008, AccessWidth::Word, 1 << 9, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        pio.read(0x008, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 9),
+        0
+    );
+    pio.write(
+        offset(RpPioRegister::StateMachine {
+            machine: 0,
+            register: RpPioStateMachineRegister::ExecCtrl,
+        }),
+        AccessWidth::Word,
+        1 << 31,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        pio.read(
+            offset(RpPioRegister::StateMachine {
+                machine: 0,
+                register: RpPioStateMachineRegister::ExecCtrl,
+            }),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & (1 << 31),
+        0
+    );
 }
 
 #[test]
