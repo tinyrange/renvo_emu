@@ -27,7 +27,8 @@ This endpoint is deliberately transport-oriented. It does not invent baud
 rate timing or a UART electrical model; the target's existing functional UART
 device remains responsible for register semantics. Host writes and TX polls
 must use nondecreasing simulation timestamps, so the byte/strobe trace cannot
-silently move backwards in time.
+silently move backwards in time. UART connectors with aliased TX/RX pins are
+rejected during endpoint construction.
 
 The M5Stack NanoC6 definition is
 [`boards/m5stack_nanoc6.star`](../boards/m5stack_nanoc6.star). It contains the
