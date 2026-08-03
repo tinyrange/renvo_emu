@@ -65,7 +65,10 @@ read-clear interrupt registers, DMA controls, identification/version values,
 and RP atomic aliases. Functional transfers require SSI and a slave-select
 bit, complete in one abstract operation, and either consume queued host input
 or loop back the transmitted frame. Serial-clock waveforms, DMA handshakes,
-pin muxing, and exact FIFO depth/timing remain outside this slice. Register
+pin muxing, and exact serial timing remain outside this slice. The model uses
+the documented sixteen-entry FIFOs and latches transmit-overflow,
+receive-overflow, and receive-underflow status with the native clear-on-read
+registers. Register
 offsets and reset values are audited against the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
 and Raspberry Pi's generated [`ssi.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2040/hardware_regs/include/hardware/regs/ssi.h).
 The `rp2040-spi` Docker fixture compiles and runs the same checks against both

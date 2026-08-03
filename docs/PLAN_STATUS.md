@@ -197,8 +197,10 @@ layout at `0x4003_c000` and `0x4004_0000`, including typed `CTRLR0/1`,
 read-clear, DMA, ID/version, and atomic-alias registers. Transfers are
 deterministic and functional: an enabled selected controller consumes queued
 host input or loops back the transmitted frame, while the host handle records
-traffic and interrupt state. Serial-clock, DMA, pin-mux and exact FIFO timing
-remain explicit deviations. The native offsets and reset values are sourced
+traffic and interrupt state. Serial-clock, DMA, pin-mux and exact serial timing
+remain explicit deviations. The model uses the documented sixteen-entry FIFOs
+and latches transmit-overflow, receive-overflow, and receive-underflow status
+through the native clear-on-read registers. The native offsets and reset values are sourced
 from the RP2040 datasheet and Raspberry Pi's generated `ssi.h`. The
 `rp2040-spi` Docker fixture programs both native instances and checks FIFO
 levels, status, masked receive interrupts, and loopback from compiled Arm

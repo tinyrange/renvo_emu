@@ -12,7 +12,7 @@
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "7548a0016b2ec399da427bce3c64a9b09821abbef9041ef894cb05d99e5646aa"
+      "sha256": "9dfaf68723e6763d2c238461c43e2b4dc05b01cd50efcbb1f295206da48ab5d1"
     },
     {
       "path": "qualification/xtensa-cpu.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "d91da0c641e1a99375af1d535fedc502f4597363522d7c8ab4a03c08502dfe96"
+      "sha256": "b166ec3c820a0e22a9260ee733af5f61d7d85dc491a2bdf6851fa8f1db0ffabd"
     },
     {
       "path": "qualification/rust-abi.json",

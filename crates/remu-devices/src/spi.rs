@@ -1,9 +1,11 @@
 use super::*;
 use std::collections::VecDeque;
 
-const FIFO_DEPTH: usize = 8;
-const CTRL0_MASK: u32 = 0x01ff_ffff;
+// The RP2040 DW_apb_ssi integration has sixteen 32-bit entries in each FIFO.
+const FIFO_DEPTH: usize = 16;
+const CTRL0_MASK: u32 = 0x017f_ffff;
 const CTRL1_MASK: u32 = 0x0000_ffff;
+const SPI_CTRL0_MASK: u32 = 0xff07_fb3f;
 const INTERRUPT_MASK: u32 = 0x3f;
 
 /// Native RP2040 DW_apb_ssi register identifiers.
@@ -151,6 +153,8 @@ struct Rp2040SpiState {
     queued_input: VecDeque<u32>,
     transmitted: Vec<u8>,
     receive_overrun: bool,
+    receive_underflow: bool,
+    transmit_overflow: bool,
 }
 
 impl Default for Rp2040SpiState {
@@ -164,6 +168,7 @@ impl Rp2040SpiState {
         let mut registers = [0; 0x100 / 4];
         registers[Rp2040SpiRegister::Idr.offset() as usize / 4] = 0x5153_5049;
         registers[Rp2040SpiRegister::SsiVersionId.offset() as usize / 4] = 0x3430_312a;
+        registers[Rp2040SpiRegister::SpiCtrlr0.offset() as usize / 4] = 0x0300_0000;
         Self {
             registers,
             tx_fifo: VecDeque::new(),
@@ -171,6 +176,8 @@ impl Rp2040SpiState {
             queued_input: VecDeque::new(),
             transmitted: Vec::new(),
             receive_overrun: false,
+            receive_underflow: false,
+            transmit_overflow: false,
         }
     }
 
@@ -225,6 +232,12 @@ impl Rp2040SpiState {
         }
         if self.receive_overrun {
             raw |= 1 << 3;
+        }
+        if self.receive_underflow {
+            raw |= 1 << 2;
+        }
+        if self.transmit_overflow {
+            raw |= 1 << 1;
         }
         if self.rx_fifo.len() > rx_threshold {
             raw |= 1 << 4;
@@ -308,14 +321,17 @@ impl SpiHandle {
         state.rx_fifo.clear();
         state.queued_input.clear();
         state.receive_overrun = false;
+        state.receive_underflow = false;
+        state.transmit_overflow = false;
     }
 }
 
 /// Deterministic functional model of the RP2040's DW_apb_ssi SPI0/SPI1 blocks.
 ///
 /// Transfers complete immediately in abstract time. A host response is consumed first; if no
-/// response is queued, the transmitted frame is looped back. Serial clock waveforms, exact FIFO
-/// depths, DMA handshakes and pin muxing remain outside this functional slice.
+/// response is queued, the transmitted frame is looped back. The native sixteen-entry FIFO
+/// depth and clear-on-read overflow/underflow status are preserved; serial clock waveforms, DMA
+/// handshakes and pin muxing remain outside this functional slice.
 ///
 /// Register offsets and reset values follow Raspberry Pi's generated [`ssi.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2040/hardware_regs/include/hardware/regs/ssi.h)
 /// and the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf).
@@ -393,7 +409,14 @@ impl Device for FunctionalSpi {
             .ok_or_else(|| DeviceError::new(format!("{} read at {offset:#x}", self.name)))?;
         let mut state = self.state.lock().expect("SPI lock poisoned");
         let value = match register {
-            Rp2040SpiRegister::Data(_) => state.rx_fifo.pop_front().unwrap_or(0),
+            Rp2040SpiRegister::Data(_) => match state.rx_fifo.pop_front() {
+                Some(value) => value,
+                None => {
+                    // DW_apb_ssi latches RXUIR when firmware reads an empty RX FIFO.
+                    state.receive_underflow = true;
+                    0
+                }
+            },
             Rp2040SpiRegister::Txflr => state.tx_fifo.len() as u32,
             Rp2040SpiRegister::Rxflr => state.rx_fifo.len() as u32,
             Rp2040SpiRegister::Sr => state.status(),
@@ -408,10 +431,22 @@ impl Device for FunctionalSpi {
                 state.receive_overrun = false;
                 value
             }
-            Rp2040SpiRegister::Rxuicr | Rp2040SpiRegister::Msticr | Rp2040SpiRegister::Txoicr => 0,
+            Rp2040SpiRegister::Rxuicr => {
+                let value = u32::from(state.receive_underflow);
+                state.receive_underflow = false;
+                value
+            }
+            Rp2040SpiRegister::Txoicr => {
+                let value = u32::from(state.transmit_overflow);
+                state.transmit_overflow = false;
+                value
+            }
+            Rp2040SpiRegister::Msticr => 0,
             Rp2040SpiRegister::Icr => {
                 let value = state.raw_interrupts();
                 state.receive_overrun = false;
+                state.receive_underflow = false;
+                state.transmit_overflow = false;
                 value
             }
             Rp2040SpiRegister::Ctrlr0
@@ -456,7 +491,10 @@ impl Device for FunctionalSpi {
                     ));
                 }
                 if state.tx_fifo.len() >= FIFO_DEPTH {
-                    return Err(DeviceError::new("RP2040 SPI transmit FIFO is full"));
+                    // A full DW_apb_ssi TX FIFO drops the APB write and latches TXOIR;
+                    // it does not turn a peripheral status condition into a bus fault.
+                    state.transmit_overflow = true;
+                    return Ok(());
                 }
                 let mask = state.data_mask();
                 state.tx_fifo.push_back(value & mask);
@@ -474,8 +512,16 @@ impl Device for FunctionalSpi {
             }
             Rp2040SpiRegister::SsiEnr => {
                 let current = state.registers[register_offset as usize / 4];
-                state.registers[register_offset as usize / 4] =
-                    Self::atomic_update(current, alias, value) & 1;
+                let next = Self::atomic_update(current, alias, value) & 1;
+                state.registers[register_offset as usize / 4] = next;
+                if next == 0 {
+                    // The hardware clears both FIFOs whenever SSI_EN is deasserted.
+                    state.tx_fifo.clear();
+                    state.rx_fifo.clear();
+                    state.receive_overrun = false;
+                    state.receive_underflow = false;
+                    state.transmit_overflow = false;
+                }
                 state.process_tx();
             }
             Rp2040SpiRegister::Mwcr => {
@@ -513,10 +559,15 @@ impl Device for FunctionalSpi {
                 state.registers[register_offset as usize / 4] =
                     Self::atomic_update(current, alias, value) & 3;
             }
-            Rp2040SpiRegister::SpiCtrlr0 | Rp2040SpiRegister::TxdDriveEdge => {
+            Rp2040SpiRegister::SpiCtrlr0 => {
                 let current = state.registers[register_offset as usize / 4];
                 state.registers[register_offset as usize / 4] =
-                    Self::atomic_update(current, alias, value);
+                    Self::atomic_update(current, alias, value) & SPI_CTRL0_MASK;
+            }
+            Rp2040SpiRegister::TxdDriveEdge => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & 0xff;
             }
             Rp2040SpiRegister::Txflr
             | Rp2040SpiRegister::Rxflr
