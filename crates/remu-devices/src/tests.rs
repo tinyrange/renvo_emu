@@ -989,6 +989,13 @@ fn i2c_executes_addressed_writes_and_queued_reads() {
     handle.queue_read(0x58, &[0x12]);
     i2c.write(0x04, AccessWidth::Word, 0x58, SimTime::ZERO)
         .unwrap();
+    i2c.write(
+        Rp2040I2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
     i2c.write(0x10, AccessWidth::Word, 0xa0, SimTime::ZERO)
         .unwrap();
     i2c.write(0x10, AccessWidth::Word, 1 << 8, SimTime::ZERO)
@@ -1015,6 +1022,13 @@ fn i2c_executes_addressed_writes_and_queued_reads() {
 #[test]
 fn i2c_reports_fifo_and_stop_interrupt_state() {
     let (mut i2c, _handle) = FunctionalI2c::new("i2c");
+    i2c.write(
+        Rp2040I2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
     i2c.write(0x30, AccessWidth::Word, (1 << 4) | (1 << 9), SimTime::ZERO)
         .unwrap();
     i2c.write(0x04, AccessWidth::Word, 0x20, SimTime::ZERO)
@@ -1028,5 +1042,219 @@ fn i2c_reports_fifo_and_stop_interrupt_state() {
     assert_eq!(
         i2c.read(0x70, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x06
+    );
+}
+
+#[test]
+fn rp2040_i2c_matches_native_reset_register_contract() {
+    let (mut i2c, _handle) = FunctionalI2c::new("rp2040.i2c0");
+    let read = |i2c: &mut FunctionalI2c, register: Rp2040I2cRegister| {
+        i2c.read(register.offset(), AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+    };
+
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::Control), 0x65);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::TargetAddress), 0x55);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SlaveAddress), 0x55);
+    assert_eq!(
+        read(&mut i2c, Rp2040I2cRegister::StandardSpeedHighCount),
+        0x28
+    );
+    assert_eq!(
+        read(&mut i2c, Rp2040I2cRegister::StandardSpeedLowCount),
+        0x2f
+    );
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::FastSpeedHighCount), 0x06);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::FastSpeedLowCount), 0x0d);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::InterruptMask), 0x08ff);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SdaHold), 1);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SdaSetup), 0x64);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::FastSpeedSpikeLength), 7);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::AckGeneralCall), 1);
+    assert_eq!(
+        read(&mut i2c, Rp2040I2cRegister::ComponentVersion),
+        0x3230_312a
+    );
+    assert_eq!(
+        read(&mut i2c, Rp2040I2cRegister::ComponentType),
+        0x4457_0140
+    );
+    assert_eq!(
+        Rp2040I2cRegister::from_offset(0x70),
+        Some(Rp2040I2cRegister::Status)
+    );
+}
+
+#[test]
+fn rp2040_i2c_enforces_disabled_configuration_and_atomic_aliases() {
+    let (mut i2c, _handle) = FunctionalI2c::new("rp2040.i2c0");
+    i2c.write(
+        Rp2040I2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        0x40,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        Rp2040I2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        Rp2040I2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        0x49,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::TargetAddress.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x40
+    );
+
+    i2c.write(
+        Rp2040I2cRegister::Enable.offset(),
+        AccessWidth::Byte,
+        0,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        0x2000 + Rp2040I2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        8,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::TargetAddress.offset(),
+            AccessWidth::Byte,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x48
+    );
+    i2c.write(
+        0x3000 + Rp2040I2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        8,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::TargetAddress.offset(),
+            AccessWidth::HalfWord,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x40
+    );
+}
+
+#[test]
+fn rp2040_i2c_read_clear_underflow_and_fifo_status() {
+    let (mut i2c, handle) = FunctionalI2c::new("rp2040.i2c0");
+    handle.queue_read(0x48, &[0xa5]);
+    i2c.write(
+        Rp2040I2cRegister::InterruptMask.offset(),
+        AccessWidth::Word,
+        0,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        Rp2040I2cRegister::TargetAddress.offset(),
+        AccessWidth::Word,
+        0x48,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    i2c.write(
+        Rp2040I2cRegister::Enable.offset(),
+        AccessWidth::Word,
+        1,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::DataCommand.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::ClearReceiveUnderflow.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::ClearReceiveUnderflow.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
+    );
+
+    i2c.write(
+        Rp2040I2cRegister::DataCommand.offset(),
+        AccessWidth::Word,
+        (1 << 8) | (1 << 9),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::ReceiveFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::Status.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap()
+            & 0x18,
+        0x08
+    );
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::DataCommand.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xa5
+    );
+    assert_eq!(
+        i2c.read(
+            Rp2040I2cRegister::ReceiveFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0
     );
 }

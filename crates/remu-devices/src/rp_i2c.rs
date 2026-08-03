@@ -9,7 +9,7 @@ const IC_INTR_MASK_RESET: u32 = 0x08ff;
 const IC_CON_WRITABLE_BITS: u32 = 0x03ff;
 const IC_FIFO_DEPTH: usize = 16;
 
-/// RP2350 DW_apb_i2c register identifiers shared by I2C0 and I2C1.
+/// DW_apb_i2c register identifiers shared by RP2040 and RP2350 I2C0/I2C1.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u16)]
 pub enum RpI2cRegister {
