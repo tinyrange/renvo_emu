@@ -110,12 +110,31 @@ fn rp2350_timer_uses_shifted_interrupt_registers() {
 #[test]
 fn rp2350_ticks_expose_independent_running_and_countdown_state() {
     let mut ticks = Rp2350Ticks::new("ticks");
+    assert_eq!(
+        Rp2350TicksRegister::try_from(0x44).unwrap(),
+        Rp2350TicksRegister::RiscvCount
+    );
+    assert!(Rp2350TicksRegister::try_from(0x48).is_err());
     assert_eq!(ticks.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
     assert_eq!(ticks.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
 
     ticks
         .write(4, AccessWidth::Word, 4, SimTime::from_ticks(10))
         .unwrap();
+    ticks
+        .write(
+            0,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::from_ticks(10),
+        )
+        .unwrap();
+    assert_eq!(
+        ticks
+            .read(0, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap(),
+        3
+    );
     ticks
         .write(0, AccessWidth::Word, 1, SimTime::from_ticks(10))
         .unwrap();
