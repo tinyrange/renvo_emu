@@ -248,6 +248,10 @@ front-end concerns:
 
 - `remu-core`, `remu-bus`, `remu-signals`, and `remu-trace` provide abstract
   time, events, address spaces, resolved nets, and deterministic artifacts.
+- `remu-machines::RunControl` owns stable stimulus ordering, shared
+  instruction/time limits, and signal trace/digest streaming for the RISC-V,
+  Arm, and ATmega run paths; target-specific CPU, interrupt, boot, and device
+  work remains in each machine implementation.
 - `remu-cpu-*` crates implement RISC-V, Arm, Xtensa, AVR, MSP430, PIC16, and
   MCS-51 execution.
 - `remu-devices` provides reusable chip and board components.
