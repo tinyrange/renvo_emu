@@ -149,7 +149,10 @@ SetMe, SetFinish, QueryBusy, QueryKeyWrong, QueryCheck, and Date registers.
 reserved holes, aligned 32-bit accesses, and access directions. The functional
 operation uses a deterministic SHA-256 baseline for protocol testing; secure
 key provisioning, RSA-PSS padding and hardware timing remain outside this
-qualification slice. SetFinish clears the native data windows as documented.
+qualification slice. `QueryKeyWrong` is reserved for the HMAC-to-DS key
+handoff: malformed encrypted parameters set the MD check bit instead. The
+model can select ready, not-activated, or failed HMAC handoff states for
+deterministic tests. SetFinish clears the native data windows as documented.
 
 The final distillation gate adds four bounded capabilities:
 

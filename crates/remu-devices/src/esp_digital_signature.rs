@@ -8,6 +8,35 @@ const DS_DATE_RESET: u32 = 0x2019_1217;
 const DS_CHECK_INVALID_DIGEST: u32 = 1 << 0;
 const DS_CHECK_INVALID_PADDING: u32 = 1 << 1;
 
+/// State of the dependent HMAC-to-DS key handoff.
+///
+/// The native `DS_QUERY_KEY_WRONG` register reports this handshake, not the
+/// validity of the encrypted `C` parameter block. The default device fixture
+/// assumes that HMAC has already supplied a usable key; tests that need to
+/// exercise the handshake can select one of the other states.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EspDigitalSignatureHmacStatus {
+    /// HMAC supplied the DS key and the DS block can accept `SET_ME`.
+    Ready,
+    /// HMAC has not been activated. Native status is zero while busy remains set.
+    NotActivated,
+    /// HMAC was activated but failed to deliver the key (native values 1..=15).
+    Error(u8),
+}
+
+impl EspDigitalSignatureHmacStatus {
+    fn key_wrong(self) -> u32 {
+        match self {
+            Self::Ready | Self::NotActivated => 0,
+            Self::Error(value) => u32::from(value & 0xf),
+        }
+    }
+
+    fn is_ready(self) -> bool {
+        matches!(self, Self::Ready)
+    }
+}
+
 /// Native ESP32-S3 digital-signature register identifiers from Espressif's
 /// `hwcrypto_reg.h` and the Digital Signature chapter of the TRM.
 ///
@@ -175,6 +204,7 @@ struct EspDigitalSignatureState {
     started: bool,
     finished: bool,
     busy: bool,
+    hmac_status: EspDigitalSignatureHmacStatus,
     key_wrong: u32,
     check: u32,
     date: u32,
@@ -190,6 +220,7 @@ impl Default for EspDigitalSignatureState {
             started: false,
             finished: false,
             busy: false,
+            hmac_status: EspDigitalSignatureHmacStatus::Ready,
             key_wrong: 0,
             check: 0,
             date: DS_DATE_RESET,
@@ -206,6 +237,14 @@ impl EspDigitalSignatureState {
         self.c.iter().any(|word| *word != 0)
     }
 
+    fn set_hmac_status(&mut self, status: EspDigitalSignatureHmacStatus) {
+        self.hmac_status = status;
+        self.key_wrong = status.key_wrong();
+        if self.started {
+            self.busy = !status.is_ready();
+        }
+    }
+
     fn clear_data_windows(&mut self) {
         self.c.fill(0);
         self.iv.fill(0);
@@ -218,8 +257,15 @@ impl EspDigitalSignatureState {
             self.check |= DS_CHECK_INVALID_PADDING;
             return;
         }
+        if !self.hmac_status.is_ready() {
+            // The native block remains busy while it waits for HMAC. The
+            // caller can model the handoff by changing the status to Ready.
+            self.busy = true;
+            return;
+        }
         if !self.c_is_present() {
-            self.key_wrong = 1;
+            // A malformed/absent C block is reported through the MD check;
+            // QUERY_KEY_WRONG is reserved for the HMAC key handoff above.
             self.check |= DS_CHECK_INVALID_DIGEST;
             return;
         }
@@ -253,7 +299,8 @@ impl EspDigitalSignatureState {
 /// direction and masks. A deterministic SHA-256-backed operation provides a
 /// useful protocol and fault baseline; secure HMAC-derived RSA-PSS keys,
 /// signature padding, provisioning, and hardware timing are intentionally not
-/// claimed.
+/// claimed. The HMAC handoff status is modeled independently so
+/// `QueryKeyWrong` retains its native meaning.
 pub struct EspDigitalSignature {
     name: String,
     state: EspDigitalSignatureState,
@@ -262,10 +309,28 @@ pub struct EspDigitalSignature {
 impl EspDigitalSignature {
     /// Creates an idle digital-signature block.
     pub fn new(name: impl Into<String>) -> Self {
+        Self::with_hmac_status(name, EspDigitalSignatureHmacStatus::Ready)
+    }
+
+    /// Creates a digital-signature block with an explicit HMAC handoff state.
+    pub fn with_hmac_status(
+        name: impl Into<String>,
+        hmac_status: EspDigitalSignatureHmacStatus,
+    ) -> Self {
+        let mut state = EspDigitalSignatureState::default();
+        state.set_hmac_status(hmac_status);
         Self {
             name: name.into(),
-            state: EspDigitalSignatureState::default(),
+            state,
         }
+    }
+
+    /// Changes the modeled HMAC handoff state.
+    ///
+    /// This is useful for tests and board models that include an HMAC device;
+    /// normal firmware still observes the native busy and key-error registers.
+    pub fn set_hmac_status(&mut self, hmac_status: EspDigitalSignatureHmacStatus) {
+        self.state.set_hmac_status(hmac_status);
     }
 }
 
@@ -349,8 +414,8 @@ impl Device for EspDigitalSignature {
                 if value != 0 {
                     self.state.started = true;
                     self.state.finished = false;
-                    self.state.busy = false;
-                    self.state.key_wrong = 0;
+                    self.state.busy = !self.state.hmac_status.is_ready();
+                    self.state.key_wrong = self.state.hmac_status.key_wrong();
                     self.state.check = 0;
                 }
             }
@@ -413,7 +478,7 @@ mod tests {
             write_word(
                 &mut device,
                 Esp32S3DigitalSignatureRegister::X(index),
-                index as u64 + 1,
+                u64::from(index) + 1,
             );
         }
         write_word(&mut device, Esp32S3DigitalSignatureRegister::SetStart, 1);
@@ -462,17 +527,33 @@ mod tests {
     }
 
     #[test]
-    fn reports_missing_key_and_invalid_sequence() {
+    fn reports_invalid_ciphertext_without_mislabeling_hmac_key() {
         let mut device = EspDigitalSignature::new("digital-signature");
         write_word(&mut device, Esp32S3DigitalSignatureRegister::SetStart, 1);
         write_word(&mut device, Esp32S3DigitalSignatureRegister::SetMe, 1);
+        assert_eq!(
+            device.read(
+                Esp32S3DigitalSignatureRegister::QueryBusy.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(0)
+        );
         assert_eq!(
             device.read(
                 Esp32S3DigitalSignatureRegister::QueryKeyWrong.offset(),
                 AccessWidth::Word,
                 SimTime::ZERO,
             ),
-            Ok(1)
+            Ok(0)
+        );
+        assert_eq!(
+            device.read(
+                Esp32S3DigitalSignatureRegister::QueryCheck.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(u64::from(DS_CHECK_INVALID_DIGEST))
         );
         write_word(&mut device, Esp32S3DigitalSignatureRegister::SetFinish, 1);
         write_word(&mut device, Esp32S3DigitalSignatureRegister::SetMe, 1);
@@ -485,6 +566,69 @@ mod tests {
             Ok(u64::from(
                 DS_CHECK_INVALID_DIGEST | DS_CHECK_INVALID_PADDING
             ))
+        );
+    }
+
+    #[test]
+    fn models_hmac_key_handoff_separately_from_parameter_validation() {
+        let mut device = EspDigitalSignature::with_hmac_status(
+            "digital-signature",
+            EspDigitalSignatureHmacStatus::NotActivated,
+        );
+        write_word(&mut device, Esp32S3DigitalSignatureRegister::SetStart, 1);
+        assert_eq!(
+            device.read(
+                Esp32S3DigitalSignatureRegister::QueryBusy.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(1)
+        );
+        assert_eq!(
+            device.read(
+                Esp32S3DigitalSignatureRegister::QueryKeyWrong.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(0)
+        );
+
+        device.set_hmac_status(EspDigitalSignatureHmacStatus::Error(7));
+        assert_eq!(
+            device.read(
+                Esp32S3DigitalSignatureRegister::QueryKeyWrong.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(7)
+        );
+        assert_eq!(
+            device.read(
+                Esp32S3DigitalSignatureRegister::QueryBusy.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(1)
+        );
+
+        device.set_hmac_status(EspDigitalSignatureHmacStatus::Ready);
+        assert_eq!(
+            device.read(
+                Esp32S3DigitalSignatureRegister::QueryBusy.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(0)
+        );
+        write_word(&mut device, Esp32S3DigitalSignatureRegister::C(0), 1);
+        write_word(&mut device, Esp32S3DigitalSignatureRegister::SetMe, 1);
+        assert_eq!(
+            device.read(
+                Esp32S3DigitalSignatureRegister::QueryCheck.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            ),
+            Ok(0)
         );
     }
 
