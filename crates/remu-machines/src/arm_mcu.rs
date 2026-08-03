@@ -13,11 +13,11 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaCrc,
+    RaCrcHandle, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle,
+    RegisterBank, Samd21Eic, Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc,
+    Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub,
+    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -80,6 +80,7 @@ pub struct ArmMcuMachine {
     timer: VendorTimer,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
+    crc: Option<RaCrcHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
@@ -230,7 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, ra_icu, crc, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -255,6 +256,7 @@ impl ArmMcuMachine {
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
                     Some(eic),
+                    None,
                     None,
                     Some(watchdog),
                 )
@@ -295,6 +297,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -313,13 +316,23 @@ impl ArmMcuMachine {
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
-                Self::map_ra4m1(&mut bus, ports, pfs, icu_device, gpt0_device, sci9_device)?;
+                let (crc_device, crc) = RaCrc::new("r7fa4m1ab3cfm.crc");
+                Self::map_ra4m1(
+                    &mut bus,
+                    ports,
+                    pfs,
+                    icu_device,
+                    gpt0_device,
+                    sci9_device,
+                    crc_device,
+                )?;
                 (
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     None,
                     Some(icu),
+                    Some(crc),
                     None,
                 )
             }
@@ -338,6 +351,7 @@ impl ArmMcuMachine {
             timer,
             eic,
             ra_icu,
+            crc,
             watchdog,
             compiler_timer,
             exit,
@@ -489,6 +503,7 @@ impl ArmMcuMachine {
         icu: RaIcu,
         gpt0: RaGpt,
         sci9: RaSci,
+        crc: RaCrc,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -510,6 +525,7 @@ impl ArmMcuMachine {
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
         bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
+        bus.map_device("r7fa4m1ab3cfm.crc", 0x4007_4000, 0x100, Box::new(crc))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
@@ -652,6 +668,11 @@ impl ArmMcuMachine {
     /// Current vendor GPIO output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio.output()
+    }
+
+    /// Current host-visible RA4M1 CRC result, when present.
+    pub fn crc_value(&self) -> Option<u32> {
+        self.crc.as_ref().map(RaCrcHandle::value)
     }
 
     /// Reads guest-visible bytes for qualification and debugger adapters.
@@ -981,5 +1002,31 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn ra4m1_maps_crc_calculator_registers() {
+        let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+        machine
+            .bus
+            .write(0x4007_4000, AccessWidth::Byte, 1 | (1 << 6), SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4007_4004, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.crc_value(), Some(0x07));
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4007_4008,
+                    AccessWidth::Byte,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x07
+        );
     }
 }
