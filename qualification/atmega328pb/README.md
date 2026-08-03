@@ -12,11 +12,14 @@ and a PORTB pin-change interrupt each toggle PB0. USART0 emits `AVR8-PB\n`, and
 an EEPROM byte is written and read back. VCD contains PORT B/C/D plus explicit
 Timer0, Timer1, USART0, pin-change, external-interrupt and watchdog signals.
 
-Implemented functionally: clock/power register storage, PORT B/C/D, INT0 and
+Implemented functionally: clock/power register storage (SMCR sleep selection,
+CLKPR's four-tick change authorization and PRR0/PRR1 peripheral gates), PORT B/C/D, INT0 and
 pin-change group 0, Timer0 overflow, Timer1 compare A, USART0 transmit, EEPROM,
 watchdog reset, reset/vectors and AVR Harvard program/data separation. Timer
 prescalers and serial bit timing are deterministic approximations. Analog,
-touch, SPI and TWI are outside this acceptance slice.
+touch, SPI and TWI are outside this acceptance slice; exact oscillator timing,
+low-power wake sources, and independent asynchronous peripheral clock domains
+remain deferred.
 
 Run from the repository root:
 
