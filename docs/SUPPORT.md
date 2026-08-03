@@ -29,11 +29,15 @@ conventions without pretending that vendor peripherals are interchangeable.
 ### ESP32-C6 SHA accelerator functional slice
 
 The ESP32-C6 machine maps the native SHA block at `0x60089000`. The current
-functional slice supports the documented mode, message, start, busy, clear and
-date registers plus the 64-byte message and hash windows. SHA-224 and SHA-256
-complete deterministically through the pinned Rust digest implementation, and
-the register tests cover a known digest and deterministic handling of modes not
-yet implemented.
+functional slice follows Espressif's [native register
+definitions](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/register/soc/sha_reg.h)
+and [register layout](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/register/soc/sha_struct.h).
+It models the mode, SHA-512/t configuration, DMA block-count, start/continue,
+busy, interrupt-enable, clear and date registers, together with the 64-byte
+message and hash-state windows. SHA-224 and SHA-256 execute one fixed 64-byte
+compression block at a time, matching the [official low-level HAL
+flow](https://github.com/espressif/esp-idf/blob/master/components/esp_hal_security/esp32c6/include/hal/sha_ll.h);
+padding and message-length accounting remain the caller's responsibility.
 
 The model intentionally does not claim SHA-1, SHA-384, SHA-512, SHA-512/t,
 DMA descriptor ownership, interrupt-matrix routing, or the other ESP32-C6
