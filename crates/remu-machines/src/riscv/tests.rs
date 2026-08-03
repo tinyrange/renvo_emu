@@ -237,3 +237,23 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn wch_adc_block_is_mapped_for_both_qingke_targets() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4001_2400,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0,
+            "{target} ADC status resets clear"
+        );
+    }
+}
