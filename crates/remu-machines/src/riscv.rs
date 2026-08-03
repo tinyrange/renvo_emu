@@ -17,9 +17,9 @@ use remu_devices::{
     EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpAdc, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
-    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
+    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -31,6 +31,7 @@ use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
+mod adc;
 mod bootrom_support;
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
@@ -176,6 +177,7 @@ pub struct RiscVMachine {
     chip_gpio: Vec<GpioHandle>,
     uart: UartHandle,
     chip_uarts: Vec<UartHandle>,
+    chip_adc: Option<RpAdcHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -243,6 +245,7 @@ impl RiscVMachine {
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
         let mut wch_pfic = None;
+        let mut chip_adc = None;
         let mut sio = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
@@ -448,8 +451,9 @@ impl RiscVMachine {
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
             }
-            let (adc, _) = RpAdc::new("rp2350.adc");
+            let (adc, adc_handle) = RpAdc::new_for_variant("rp2350.adc", RpAdcVariant::FiveChannel);
             bus.map_device("rp2350.adc", 0x400a_0000, 0x1000, Box::new(adc))?;
+            chip_adc = Some(adc_handle);
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
                 ("rp2350.timer1", 0x400b_8000),
@@ -776,6 +780,7 @@ impl RiscVMachine {
             chip_gpio,
             uart,
             chip_uarts,
+            chip_adc,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1491,6 +1496,5 @@ impl RiscVMachine {
         })
     }
 }
-
 #[cfg(test)]
 mod tests;
