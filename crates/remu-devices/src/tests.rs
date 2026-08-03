@@ -566,3 +566,61 @@ fn esp_parlio_host_and_firmware_sample_streams_are_observable() {
         0
     );
 }
+
+#[test]
+fn esp_parlio_matches_native_reset_and_access_types() {
+    let hub = SignalHub::new();
+    let (mut parlio, _handle) =
+        EspParlio::new("parlio", "board.esp32c6.parlio", hub.clone()).unwrap();
+
+    assert_eq!(
+        parlio.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 31),
+        0
+    );
+    assert_eq!(
+        parlio.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        (4095 << 16) | (15 << 12) | (1 << 3)
+    );
+
+    // RX_REG_UPDATE is WT and must not become a sticky register bit.
+    parlio
+        .write(0x04, AccessWidth::Word, (1 << 2) | (1 << 3), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        parlio.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 3
+    );
+
+    // STATUS and INT_STATUS are RO; writes cannot manufacture state.
+    parlio
+        .write(0x10, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+        .unwrap();
+    parlio
+        .write(0x1c, AccessWidth::Word, 0x07, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        parlio.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 31),
+        0
+    );
+    assert_eq!(
+        parlio.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+
+    // The native reset bit clears the bounded fixture FIFO and leaves the
+    // transmitter unready until configuration is written again.
+    parlio
+        .write(0x08, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        parlio.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 31),
+        0
+    );
+    parlio
+        .write(0x08, AccessWidth::Word, 1 << 19, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        parlio.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 31),
+        1 << 31
+    );
+}

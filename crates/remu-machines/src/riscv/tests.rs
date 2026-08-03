@@ -264,7 +264,7 @@ fn esp32c6_parlio_native_window_exposes_version_and_vcd_signals() {
             )
             .unwrap()
             & (1 << 31),
-        1 << 31
+        0
     );
     assert!(
         machine

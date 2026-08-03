@@ -18,20 +18,30 @@ const TX_EMPTY: u32 = 1 << 0;
 const RX_FULL: u32 = 1 << 1;
 const TX_EOF: u32 = 1 << 2;
 const TX_READY: u32 = 1 << 31;
+const RX_REG_UPDATE: u32 = 1 << 2;
+const RX_FIFO_SRST: u32 = 1 << 31;
+const TX_FIFO_SRST: u32 = 1 << 30;
 const FIFO_LIMIT: usize = 64;
+
+// Masks follow the ESP32-C6 PARL_IO register definitions. In particular,
+// RX_REG_UPDATE and INT_CLEAR are write-trigger fields rather than storage.
+const RX_CFG1_MASK: u32 = 0xffff_f008;
+const TX_CFG0_MASK: u32 = 0x7e1f_fffc;
+const TX_CFG1_MASK: u32 = 0xffff_0000;
+const VERSION_MASK: u32 = 0x0fff_ffff;
 
 #[derive(Default)]
 struct EspParlioState {
     registers: Vec<u32>,
     tx_fifo: VecDeque<u16>,
     rx_fifo: VecDeque<u16>,
+    tx_ready: bool,
 }
 
 impl EspParlioState {
     fn new() -> Self {
         let mut registers = vec![0; REGISTER_BYTES / 4];
         registers[RX_CFG1 as usize / 4] = (15 << 12) | (4095 << 16) | (1 << 3);
-        registers[STATUS as usize / 4] = TX_READY;
         registers[VERSION as usize / 4] = 35_660_352;
         Self {
             registers,
@@ -41,7 +51,11 @@ impl EspParlioState {
 
     fn refresh(&mut self) {
         let mut status = self.registers[STATUS as usize / 4] & !TX_READY;
-        if self.tx_fifo.is_empty() {
+        // Native TX_READY is reset low and becomes meaningful only after the
+        // TX configuration/GDMA setup. The synthetic FIFO has no GDMA, so its
+        // readiness is enabled by a TX configuration write and then follows
+        // the bounded fixture FIFO state.
+        if self.tx_ready && self.tx_fifo.is_empty() {
             status |= TX_READY;
         }
         self.registers[STATUS as usize / 4] = status;
@@ -192,33 +206,62 @@ impl Device for EspParlio {
         let value = value as u32;
         if offset == FIFO {
             let word = value as u16;
-            state.tx_fifo.push_back(word);
-            state.registers[INT_RAW as usize / 4] |= TX_EOF;
+            let accepted = state.tx_fifo.len() < FIFO_LIMIT;
+            if accepted {
+                state.tx_fifo.push_back(word);
+                // The aperture is a fixture extension, so each accepted word
+                // is treated as a completed sample frame.
+                state.registers[INT_RAW as usize / 4] |= TX_EOF;
+            }
             state.refresh();
             drop(state);
-            self.emit(self.tx_signal, word, at)?;
+            if accepted {
+                self.emit(self.tx_signal, word, at)?;
+            }
             return Ok(());
         }
         match offset {
             INT_ENABLE => state.registers[INT_ENABLE as usize / 4] = value & 0x07,
-            INT_RAW | INT_CLEAR => state.registers[INT_RAW as usize / 4] &= !value,
-            RX_CFG0 if value & (1 << 31) != 0 => {
+            INT_RAW | INT_CLEAR => state.registers[INT_RAW as usize / 4] &= !(value & 0x07),
+            RX_CFG0 => {
                 state.registers[RX_CFG0 as usize / 4] = value;
-                state.rx_fifo.clear();
+                if value & RX_FIFO_SRST != 0 {
+                    state.rx_fifo.clear();
+                }
             }
-            TX_CFG0 if value & (1 << 30) != 0 => {
+            RX_CFG1 => {
+                // RX_REG_UPDATE is WT: it updates internal signals but reads
+                // back as zero. The remaining fields are ordinary R/W bits.
+                state.registers[RX_CFG1 as usize / 4] = (value & !RX_REG_UPDATE) & RX_CFG1_MASK;
+            }
+            TX_CFG0 => {
+                let value = value & TX_CFG0_MASK;
                 state.registers[TX_CFG0 as usize / 4] = value;
-                state.tx_fifo.clear();
+                if value & TX_FIFO_SRST != 0 {
+                    state.tx_fifo.clear();
+                    state.tx_ready = false;
+                } else {
+                    state.tx_ready = true;
+                }
             }
-            RX_CFG0 | RX_CFG1 | TX_CFG0 | TX_CFG1 | CLOCK => {
-                state.registers[offset as usize / 4] = value;
+            TX_CFG1 => {
+                state.registers[TX_CFG1 as usize / 4] = value & TX_CFG1_MASK;
+                state.tx_ready = true;
             }
+            CLOCK => state.registers[CLOCK as usize / 4] = value & 1,
+            // STATUS and INT_STATUS are read-only. Reserved addresses are
+            // likewise not writable on the native register block.
+            STATUS | INT_STATUS | VERSION => {
+                if offset == VERSION {
+                    state.registers[VERSION as usize / 4] = value & VERSION_MASK;
+                }
+            }
+            _ if offset < REGISTER_BYTES as u64 => {}
             _ => {
-                let index = usize::try_from(offset / 4).expect("PARLIO register index fits");
-                let register = state.registers.get_mut(index).ok_or_else(|| {
-                    DeviceError::new(format!("{} write at {offset:#x}", self.name))
-                })?;
-                *register = value;
+                return Err(DeviceError::new(format!(
+                    "{} write at {offset:#x}",
+                    self.name
+                )));
             }
         }
         state.refresh();
