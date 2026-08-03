@@ -52,6 +52,9 @@ const SPCR_SPIE: u8 = 1 << 7;
 const SPCR_SPE: u8 = 1 << 6;
 const SPSR_SPIF: u8 = 1 << 7;
 const SPSR_WCOL: u8 = 1 << 6;
+const SPSR_SPI2X: u8 = 1;
+// AVR CPU lines are two below the datasheet vector number (line 0 is INT0).
+const SPI0_INTERRUPT_LINE: u16 = 16;
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -73,6 +76,7 @@ struct AtmegaState {
     watchdog_reset: bool,
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
+    spi_status_read: bool,
     uart_tx_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
@@ -171,7 +175,7 @@ impl AtmegaIoHandle {
         if state.registers[usize::from(SPCR0 - IO_BASE)] & SPCR_SPIE != 0
             && state.registers[usize::from(SPSR0 - IO_BASE)] & SPSR_SPIF != 0
         {
-            lines.push(17);
+            lines.push(SPI0_INTERRUPT_LINE);
         }
         let pinb = resolved(&state.ports[0]);
         let changed = pinb ^ state.previous_pinb;
@@ -378,6 +382,7 @@ impl AtmegaIo {
             watchdog_reset: false,
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
+            spi_status_read: false,
             uart_tx_signal,
             timer0_irq_signal,
             timer1_irq_signal,
@@ -451,9 +456,18 @@ impl Device for AtmegaIo {
         }
         let value = match address {
             UCSR0A => state.registers[usize::from(address - IO_BASE)] | (1 << 5) | (1 << 6),
+            SPSR0 => {
+                let value = state.registers[usize::from(SPSR0 - IO_BASE)]
+                    & (SPSR_SPIF | SPSR_WCOL | SPSR_SPI2X);
+                state.spi_status_read = value & (SPSR_SPIF | SPSR_WCOL) != 0;
+                value
+            }
             SPDR0 => {
                 let value = state.registers[usize::from(SPDR0 - IO_BASE)];
-                state.registers[usize::from(SPSR0 - IO_BASE)] &= !SPSR_SPIF;
+                if state.spi_status_read {
+                    state.registers[usize::from(SPSR0 - IO_BASE)] &= !(SPSR_SPIF | SPSR_WCOL);
+                    state.spi_status_read = false;
+                }
                 value
             }
             EEDR => state.registers[usize::from(EEDR - IO_BASE)],
@@ -553,7 +567,9 @@ impl Device for AtmegaIo {
                     .expect("ATmega USART signal identity and width are fixed");
             }
             SPDR0 => {
-                if state.registers[usize::from(SPCR0 - IO_BASE)] & SPCR_SPE != 0 {
+                if state.registers[usize::from(SPCR0 - IO_BASE)] & SPCR_SPE != 0
+                    && state.registers[usize::from(SPSR0 - IO_BASE)] & SPSR_SPIF == 0
+                {
                     let received = if state.spi_rx.is_empty() {
                         value
                     } else {
@@ -562,12 +578,14 @@ impl Device for AtmegaIo {
                     state.spi_tx.push(value);
                     state.registers[usize::from(SPDR0 - IO_BASE)] = received;
                     state.registers[usize::from(SPSR0 - IO_BASE)] |= SPSR_SPIF;
-                } else {
+                } else if state.registers[usize::from(SPCR0 - IO_BASE)] & SPCR_SPE != 0 {
                     state.registers[usize::from(SPSR0 - IO_BASE)] |= SPSR_WCOL;
                 }
             }
             SPSR0 => {
-                state.registers[usize::from(SPSR0 - IO_BASE)] &= !value;
+                let status = state.registers[usize::from(SPSR0 - IO_BASE)];
+                state.registers[usize::from(SPSR0 - IO_BASE)] =
+                    (status & (SPSR_SPIF | SPSR_WCOL)) | (value & SPSR_SPI2X);
             }
             EECR => {
                 let address = usize::from(state.registers[usize::from(EEARL - IO_BASE)])
@@ -602,6 +620,7 @@ impl Device for AtmegaIo {
         state.watchdog_reset = false;
         state.spi_tx.clear();
         state.spi_rx.clear();
+        state.spi_status_read = false;
         set_bit_signal(&state, state.timer0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer1_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer2_irq_signal, false, SimTime::ZERO);
@@ -857,12 +876,85 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.spi_bytes(), [0xa5]);
-        assert_eq!(handle.poll(SimTime::from_ticks(1)), vec![17]);
+        assert_eq!(
+            handle.poll(SimTime::from_ticks(1)),
+            vec![SPI0_INTERRUPT_LINE]
+        );
         assert_eq!(
             io.read(u64::from(SPDR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
                 .unwrap(),
             0x3c
         );
+        assert_eq!(
+            io.read(u64::from(SPSR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
+                .unwrap()
+                & u64::from(SPSR_SPIF),
+            u64::from(SPSR_SPIF)
+        );
+        assert_eq!(
+            io.read(u64::from(SPDR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
+                .unwrap(),
+            0x3c
+        );
+        assert_eq!(
+            io.read(u64::from(SPSR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
+                .unwrap()
+                & u64::from(SPSR_SPIF),
+            0
+        );
         assert!(handle.poll(SimTime::from_ticks(1)).is_empty());
+    }
+
+    #[test]
+    fn spi0_write_collision_requires_an_unacknowledged_transfer() {
+        let hub = SignalHub::new();
+        let (mut io, _, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        io.write(
+            u64::from(SPDR0 - IO_BASE),
+            AccessWidth::Byte,
+            0x11,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            io.read(u64::from(SPSR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
+                .unwrap()
+                & u64::from(SPSR_WCOL),
+            0
+        );
+
+        io.write(
+            u64::from(SPCR0 - IO_BASE),
+            AccessWidth::Byte,
+            u64::from(SPCR_SPE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(SPDR0 - IO_BASE),
+            AccessWidth::Byte,
+            0x22,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(SPDR0 - IO_BASE),
+            AccessWidth::Byte,
+            0x33,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        let status = io
+            .read(u64::from(SPSR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            status & u64::from(SPSR_SPIF | SPSR_WCOL),
+            u64::from(SPSR_SPIF | SPSR_WCOL)
+        );
+        assert_eq!(
+            io.read(u64::from(SPDR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
+                .unwrap(),
+            0x22
+        );
     }
 }
