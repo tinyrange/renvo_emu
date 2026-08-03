@@ -31,6 +31,7 @@ impl Default for TimerState {
 struct ChannelState {
     configuration: u32,
     hpoint: u32,
+    active_hpoint: u32,
     duty: u32,
     duty_readback: u32,
     started: bool,
@@ -94,7 +95,7 @@ impl EspLedcState {
         let timer = (channel_state.configuration & 3) as usize;
         let resolution = self.duty_resolution(timer);
         let period = 1_u32 << resolution;
-        let duty = channel_state.duty.min(period);
+        let duty = channel_state.duty_readback.min(period);
         if duty == 0 {
             return Logic::Zero;
         }
@@ -102,7 +103,7 @@ impl EspLedcState {
             return Logic::One;
         }
         let counter = self.timer_counter(timer, at) % period;
-        let hpoint = channel_state.hpoint % period;
+        let hpoint = channel_state.active_hpoint % period;
         let end = hpoint.saturating_add(duty);
         let high = if end <= period {
             counter >= hpoint && counter < end
@@ -251,7 +252,10 @@ impl Device for EspLedc {
                 0x00 => channel_state.configuration,
                 0x04 => channel_state.hpoint,
                 0x08 => channel_state.duty,
-                0x0c => u32::from(channel_state.started) << 31,
+                // DUTY_START is a write-one/self-clearing trigger, not a
+                // persistent state bit. The running state is retained in the
+                // model so later zero writes do not stop an active channel.
+                0x0c => 0,
                 0x10 => channel_state.duty_readback,
                 _ => unreachable!(),
             }
@@ -288,12 +292,25 @@ impl Device for EspLedc {
         if let Some((channel, register)) = Self::channel_register(offset) {
             let channel_state = &mut state.channels[channel];
             match register {
-                0x00 => channel_state.configuration = value & 0x0001_ffff,
+                0x00 => {
+                    // PARA_UP and OVF_CNT_RESET are write-triggered bits and
+                    // clear automatically. Keep only the persistent CONF0
+                    // fields in the readable configuration state.
+                    let update = value & (1 << 4) != 0;
+                    channel_state.configuration = value & 0x0000_ffef;
+                    if update {
+                        channel_state.active_hpoint = channel_state.hpoint;
+                    }
+                }
                 0x04 => channel_state.hpoint = value & 0x000f_ffff,
                 0x08 => channel_state.duty = value & 0x01ff_ffff,
                 0x0c => {
-                    channel_state.started = value & (1 << 31) != 0;
-                    if channel_state.started {
+                    // The native DUTY_START bit is R/W/SC. A zero write is a
+                    // no-op; a one commits the shadow duty and then clears
+                    // itself.
+                    if value & (1 << 31) != 0 {
+                        channel_state.started = true;
+                        channel_state.active_hpoint = channel_state.hpoint;
                         channel_state.duty_readback = channel_state.duty;
                     }
                 }
@@ -311,7 +328,10 @@ impl Device for EspLedc {
                     u64::from(current)
                 };
                 timer_state.base_time = at;
-                timer_state.configuration = value & !(1 << 26);
+                // TIMER_RST is a pulse (the HAL writes one then zero), and
+                // PARA_UP is write-triggered and self-clearing. PAUSE and the
+                // clock/resolution fields remain latched.
+                timer_state.configuration = value & !((1 << 24) | (1 << 26));
             }
             state.registers[(offset / 4) as usize] = value;
         } else {
@@ -385,6 +405,68 @@ mod tests {
         );
         assert_eq!(
             ledc.read(0xa4, AccessWidth::Word, SimTime::from_ticks(2))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            ledc.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn ledc_timer_reset_is_a_pulse_and_duty_start_is_self_clearing() {
+        let hub = SignalHub::new();
+        let (mut ledc, handle) = EspLedc::new("ledc", "board.ledc", hub).unwrap();
+        ledc.write(0xa0, AccessWidth::Word, 3 | (256 << 5), SimTime::ZERO)
+            .unwrap();
+        ledc.write(0x08, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        ledc.write(0x00, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+            .unwrap();
+        ledc.write(0x0c, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+            .unwrap();
+        handle.poll(SimTime::from_ticks(3)).unwrap();
+        assert_eq!(handle.output(0).unwrap(), Logic::Zero);
+
+        // A zero write to CONF1 does not cancel a running channel.
+        ledc.write(0x0c, AccessWidth::Word, 0, SimTime::from_ticks(3))
+            .unwrap();
+        assert_eq!(handle.output(0).unwrap(), Logic::Zero);
+
+        // Duty writes are shadowed until the next DUTY_START pulse.
+        ledc.write(0x08, AccessWidth::Word, 6, SimTime::from_ticks(3))
+            .unwrap();
+        assert_eq!(
+            ledc.read(0x10, AccessWidth::Word, SimTime::from_ticks(3))
+                .unwrap(),
+            2
+        );
+        ledc.write(0x0c, AccessWidth::Word, 1 << 31, SimTime::from_ticks(3))
+            .unwrap();
+        assert_eq!(
+            ledc.read(0x10, AccessWidth::Word, SimTime::from_ticks(3))
+                .unwrap(),
+            6
+        );
+
+        // Hardware reset is a pulse; clearing RST in the stored config lets
+        // the timer run again after the reset write.
+        ledc.write(
+            0xa0,
+            AccessWidth::Word,
+            3 | (256 << 5) | (1 << 24),
+            SimTime::from_ticks(3),
+        )
+        .unwrap();
+        assert_eq!(
+            ledc.read(0xa0, AccessWidth::Word, SimTime::from_ticks(3))
+                .unwrap()
+                & (1 << 24),
+            0
+        );
+        assert_eq!(
+            ledc.read(0xa4, AccessWidth::Word, SimTime::from_ticks(5))
                 .unwrap(),
             2
         );
