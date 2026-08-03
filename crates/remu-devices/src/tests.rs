@@ -447,6 +447,14 @@ fn rp2040_rosc_models_protected_controls_dormant_and_count() {
         rosc.read(0x18, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x8000_1000
     );
+    assert_eq!(
+        rosc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xab0
+    );
+    assert_eq!(
+        rosc.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1
+    );
     rosc.write(
         0x00,
         AccessWidth::Word,
@@ -477,7 +485,7 @@ fn rp2040_rosc_models_protected_controls_dormant_and_count() {
     assert_eq!(
         rosc.read(0x1c, AccessWidth::Word, SimTime::from_ticks(3))
             .unwrap(),
-        0
+        1
     );
     rosc.write(0x0c, AccessWidth::Word, 0x7761_6b65, SimTime::from_ticks(3))
         .unwrap();
@@ -487,8 +495,24 @@ fn rp2040_rosc_models_protected_controls_dormant_and_count() {
             & 0x8000_1000,
         0x8000_1000
     );
+    rosc.write(0x10, AccessWidth::Word, 0xaa0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xaa0
+    );
+    rosc.write(0x10, AccessWidth::Word, 0xabf, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xabf
+    );
     rosc.write(0x10, AccessWidth::Word, 0x123, SimTime::ZERO)
         .unwrap();
+    assert_eq!(
+        rosc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xabf
+    );
     assert_ne!(
         rosc.read(0x18, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 24),
         0

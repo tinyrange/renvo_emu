@@ -8,6 +8,8 @@ const ROSC_RANGE_LOW: u32 = 0xfa4;
 const ROSC_RANGE_MEDIUM: u32 = 0xfa5;
 const ROSC_RANGE_HIGH: u32 = 0xfa7;
 const ROSC_RANGE_TOO_HIGH: u32 = 0xfa6;
+const ROSC_DIV_PASS: u32 = 0xaa0;
+const ROSC_DIV_MAX: u32 = ROSC_DIV_PASS + 31;
 const ROSC_WAKE: u32 = 0x7761_6b65;
 const ROSC_DORMANT: u32 = 0x636f_6d61;
 const ROSC_STATUS_STABLE: u32 = 1 << 31;
@@ -18,6 +20,108 @@ const VREG_MASK: u32 = 0x0000_00f3;
 const VREG_ROK: u32 = 1 << 12;
 const BOD_MASK: u32 = 0x0000_00f1;
 const CHIP_RESET_PSM_RESTART: u32 = 1 << 24;
+
+/// Register offsets in the RP2040 power state machine block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum Rp2040PsmRegister {
+    /// Force a power-managed block out of reset.
+    ForceOn = 0x00,
+    /// Force a power-managed block into reset.
+    ForceOff = 0x04,
+    /// Select blocks reset by the watchdog.
+    WatchdogSelect = 0x08,
+    /// Indicate that power-managed blocks are ready.
+    Done = 0x0c,
+}
+
+impl TryFrom<u64> for Rp2040PsmRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::ForceOn),
+            0x04 => Ok(Self::ForceOff),
+            0x08 => Ok(Self::WatchdogSelect),
+            0x0c => Ok(Self::Done),
+            _ => Err(DeviceError::new(format!(
+                "unmodeled RP2040 PSM register at offset {offset:#x}"
+            ))),
+        }
+    }
+}
+
+/// Register offsets in the RP2040 ring-oscillator block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum Rp2040RoscRegister {
+    /// Protected enable and frequency-range control.
+    Control = 0x00,
+    /// Stage 0–3 drive-strength controls.
+    FrequencyA = 0x04,
+    /// Stage 4–7 drive-strength controls.
+    FrequencyB = 0x08,
+    /// Dormant and wake command register.
+    Dormant = 0x0c,
+    /// Protected ROSC output divider.
+    Divider = 0x10,
+    /// Protected phase-shifted output control.
+    Phase = 0x14,
+    /// Stable, error and divider status.
+    Status = 0x18,
+    /// Read-only oscillator output bit.
+    RandomBit = 0x1c,
+    /// Short countdown timer driven by ROSC.
+    Count = 0x20,
+}
+
+impl TryFrom<u64> for Rp2040RoscRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::Control),
+            0x04 => Ok(Self::FrequencyA),
+            0x08 => Ok(Self::FrequencyB),
+            0x0c => Ok(Self::Dormant),
+            0x10 => Ok(Self::Divider),
+            0x14 => Ok(Self::Phase),
+            0x18 => Ok(Self::Status),
+            0x1c => Ok(Self::RandomBit),
+            0x20 => Ok(Self::Count),
+            _ => Err(DeviceError::new(format!(
+                "unmodeled RP2040 ROSC register at offset {offset:#x}"
+            ))),
+        }
+    }
+}
+
+/// Register offsets in the RP2040 regulator and chip-reset block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum Rp2040VregRegister {
+    /// Core regulator controls and status.
+    Vreg = 0x00,
+    /// Brown-out detector controls.
+    Bod = 0x04,
+    /// Reset-cause and PSM restart status.
+    ChipReset = 0x08,
+}
+
+impl TryFrom<u64> for Rp2040VregRegister {
+    type Error = DeviceError;
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::Vreg),
+            0x04 => Ok(Self::Bod),
+            0x08 => Ok(Self::ChipReset),
+            _ => Err(DeviceError::new(format!(
+                "unmodeled RP2040 VREG_AND_CHIP_RESET register at offset {offset:#x}"
+            ))),
+        }
+    }
+}
 
 fn atomic_update(current: u32, alias: u64, value: u32) -> Result<u32, DeviceError> {
     match alias {
@@ -84,17 +188,12 @@ impl Device for Rp2040Psm {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         word_access(width, "RP2040 PSM")?;
-        let register = offset & 0x0fff;
+        let register = Rp2040PsmRegister::try_from(offset & 0x0fff)?;
         let value = match register {
-            0x00 => self.force_on,
-            0x04 => self.force_off,
-            0x08 => self.watchdog_select,
-            0x0c => self.done(),
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2040 PSM read at offset {register:#x}"
-                )));
-            }
+            Rp2040PsmRegister::ForceOn => self.force_on,
+            Rp2040PsmRegister::ForceOff => self.force_off,
+            Rp2040PsmRegister::WatchdogSelect => self.watchdog_select,
+            Rp2040PsmRegister::Done => self.done(),
         };
         Ok(u64::from(value))
     }
@@ -108,20 +207,17 @@ impl Device for Rp2040Psm {
     ) -> Result<(), DeviceError> {
         word_access(width, "RP2040 PSM")?;
         let alias = (offset >> 12) & 3;
-        let register = offset & 0x0fff;
+        let register = Rp2040PsmRegister::try_from(offset & 0x0fff)?;
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked PSM value fits");
         match register {
-            0x00 => self.write_force_on(alias, value & PSM_MASK)?,
-            0x04 => self.write_force_off(alias, value & PSM_MASK)?,
-            0x08 => {
+            Rp2040PsmRegister::ForceOn => self.write_force_on(alias, value & PSM_MASK)?,
+            Rp2040PsmRegister::ForceOff => self.write_force_off(alias, value & PSM_MASK)?,
+            Rp2040PsmRegister::WatchdogSelect => {
                 self.watchdog_select =
                     atomic_update(self.watchdog_select, alias, value)? & PSM_MASK;
             }
-            0x0c => return Err(DeviceError::new("RP2040 PSM DONE is read-only")),
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2040 PSM write at offset {register:#x}"
-                )));
+            Rp2040PsmRegister::Done => {
+                return Err(DeviceError::new("RP2040 PSM DONE is read-only"));
             }
         }
         Ok(())
@@ -159,7 +255,7 @@ impl Rp2040Rosc {
             freqa: 0,
             freqb: 0,
             dormant: ROSC_WAKE,
-            div: ROSC_RANGE_LOW + 16,
+            div: ROSC_DIV_PASS + 16,
             phase: 0x8,
             badwrite: false,
             div_running: false,
@@ -245,10 +341,10 @@ impl Rp2040Rosc {
 
     fn write_div(&mut self, value: u32) {
         let value = value & 0xfff;
-        if (ROSC_RANGE_LOW..=ROSC_RANGE_LOW + 31).contains(&value) {
+        if (ROSC_DIV_PASS..=ROSC_DIV_MAX).contains(&value) {
             self.div = value;
         } else {
-            self.div = ROSC_RANGE_LOW + 31;
+            self.div = ROSC_DIV_MAX;
             self.mark_badwrite();
         }
         self.div_running = self.enabled() && !self.dormant_mode;
@@ -272,22 +368,19 @@ impl Device for Rp2040Rosc {
     fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
         word_access(width, "RP2040 ROSC")?;
         self.update_count(at);
-        let register = offset & 0x0fff;
+        let register = Rp2040RoscRegister::try_from(offset & 0x0fff)?;
         let value = match register {
-            0x00 => self.control,
-            0x04 => self.freqa,
-            0x08 => self.freqb,
-            0x0c => self.dormant,
-            0x10 => self.div,
-            0x14 => self.phase,
-            0x18 => self.status(),
-            0x1c => u32::from(self.stable()),
-            0x20 => u32::from(self.count),
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2040 ROSC read at offset {register:#x}"
-                )));
-            }
+            Rp2040RoscRegister::Control => self.control,
+            Rp2040RoscRegister::FrequencyA => self.freqa,
+            Rp2040RoscRegister::FrequencyB => self.freqb,
+            Rp2040RoscRegister::Dormant => self.dormant,
+            Rp2040RoscRegister::Divider => self.div,
+            Rp2040RoscRegister::Phase => self.phase,
+            Rp2040RoscRegister::Status => self.status(),
+            // The hardware exposes the oscillator output, whose reset value is 1.
+            // Keep this functional model deterministic while preserving that value.
+            Rp2040RoscRegister::RandomBit => 1,
+            Rp2040RoscRegister::Count => u32::from(self.count),
         };
         Ok(u64::from(value))
     }
@@ -301,13 +394,13 @@ impl Device for Rp2040Rosc {
     ) -> Result<(), DeviceError> {
         word_access(width, "RP2040 ROSC")?;
         self.update_count(at);
-        let register = offset & 0x0fff;
+        let register = Rp2040RoscRegister::try_from(offset & 0x0fff)?;
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked ROSC value fits");
         match register {
-            0x00 => self.write_control(value & ROSC_CTRL_MASK),
-            0x04 => self.write_frequency(value, true),
-            0x08 => self.write_frequency(value, false),
-            0x0c => {
+            Rp2040RoscRegister::Control => self.write_control(value & ROSC_CTRL_MASK),
+            Rp2040RoscRegister::FrequencyA => self.write_frequency(value, true),
+            Rp2040RoscRegister::FrequencyB => self.write_frequency(value, false),
+            Rp2040RoscRegister::Dormant => {
                 if value == ROSC_DORMANT {
                     self.dormant = ROSC_DORMANT;
                     self.dormant_mode = true;
@@ -320,22 +413,19 @@ impl Device for Rp2040Rosc {
                 }
                 self.div_running = self.enabled() && !self.dormant_mode;
             }
-            0x10 => self.write_div(value),
-            0x14 => self.write_phase(value),
-            0x18 => {
+            Rp2040RoscRegister::Divider => self.write_div(value),
+            Rp2040RoscRegister::Phase => self.write_phase(value),
+            Rp2040RoscRegister::Status => {
                 if value & ROSC_STATUS_BADWRITE != 0 {
                     self.badwrite = false;
                 }
             }
-            0x1c => return Err(DeviceError::new("RP2040 ROSC RANDOMBIT is read-only")),
-            0x20 => {
+            Rp2040RoscRegister::RandomBit => {
+                return Err(DeviceError::new("RP2040 ROSC RANDOMBIT is read-only"));
+            }
+            Rp2040RoscRegister::Count => {
                 self.count = u8::try_from(value & 0xff).expect("masked ROSC count fits");
                 self.last_count_at = at;
-            }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2040 ROSC write at offset {register:#x}"
-                )));
             }
         }
         Ok(())
@@ -377,16 +467,13 @@ impl Device for Rp2040VregAndChipReset {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         word_access(width, "RP2040 VREG_AND_CHIP_RESET")?;
-        let register = offset & 0x0fff;
+        let register = Rp2040VregRegister::try_from(offset & 0x0fff)?;
         let value = match register {
-            0x00 => self.vreg | self.regulator_ok().then_some(VREG_ROK).unwrap_or(0),
-            0x04 => self.bod,
-            0x08 => self.chip_reset,
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2040 VREG_AND_CHIP_RESET read at offset {register:#x}"
-                )));
+            Rp2040VregRegister::Vreg => {
+                self.vreg | self.regulator_ok().then_some(VREG_ROK).unwrap_or(0)
             }
+            Rp2040VregRegister::Bod => self.bod,
+            Rp2040VregRegister::ChipReset => self.chip_reset,
         };
         Ok(u64::from(value))
     }
@@ -400,23 +487,20 @@ impl Device for Rp2040VregAndChipReset {
     ) -> Result<(), DeviceError> {
         word_access(width, "RP2040 VREG_AND_CHIP_RESET")?;
         let alias = (offset >> 12) & 3;
-        let register = offset & 0x0fff;
+        let register = Rp2040VregRegister::try_from(offset & 0x0fff)?;
         let value = u32::try_from(value & u64::from(u32::MAX))
             .expect("masked VREG_AND_CHIP_RESET value fits");
         match register {
-            0x00 => self.vreg = atomic_update(self.vreg, alias, value)? & VREG_MASK,
-            0x04 => self.bod = atomic_update(self.bod, alias, value)? & BOD_MASK,
-            0x08 => {
+            Rp2040VregRegister::Vreg => {
+                self.vreg = atomic_update(self.vreg, alias, value)? & VREG_MASK
+            }
+            Rp2040VregRegister::Bod => self.bod = atomic_update(self.bod, alias, value)? & BOD_MASK,
+            Rp2040VregRegister::ChipReset => {
                 // PSM_RESTART_FLAG is write-one-clear; the read-only reset-cause bits
                 // remain host-controlled and are not changed by firmware writes.
                 if value & CHIP_RESET_PSM_RESTART != 0 {
                     self.chip_reset &= !CHIP_RESET_PSM_RESTART;
                 }
-            }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled RP2040 VREG_AND_CHIP_RESET write at offset {register:#x}"
-                )));
             }
         }
         Ok(())
