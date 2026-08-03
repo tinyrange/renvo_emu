@@ -11,6 +11,10 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
+#[path = "board_i2c.rs"]
+mod i2c;
+pub use i2c::*;
+
 /// Protocol inferred for a named physical connector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -369,6 +373,17 @@ pub enum BoardError {
         /// Requested address.
         address: u8,
     },
+    /// An I2C connector aliases its data and clock pin.
+    #[error("I2C connector {connector:?} aliases data and clock on GPIO pin {pin}")]
+    I2cPinAlias {
+        /// Connector name.
+        connector: String,
+        /// Aliased GPIO number.
+        pin: u8,
+    },
+    /// An I2C waveform would exceed the representable simulation timeline.
+    #[error("I2C waveform time overflow")]
+    I2cTimeOverflow,
     /// A model-specific SGP30 command failed.
     #[error(transparent)]
     Sgp30(#[from] Sgp30Error),
@@ -378,6 +393,14 @@ pub enum BoardError {
     /// Signal registration or update failed.
     #[error(transparent)]
     Signal(#[from] SignalError),
+    /// A board component is not an I2C device supported by the endpoint.
+    #[error("I2C endpoint does not support {kind} component {component:?}")]
+    I2cComponent {
+        /// Component name.
+        component: String,
+        /// Component kind.
+        kind: &'static str,
+    },
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
@@ -669,13 +692,14 @@ pub fn run_board_scenario(
                         connector: connector.clone(),
                         address: *address,
                     })?;
-                let RuntimeComponent::Sgp30(sensor) = runtime
-                    .get_mut(&connection.component.name)
+                let mut candidate = match runtime
+                    .get(&connection.component.name)
                     .expect("validated connection has runtime component")
-                else {
-                    unreachable!("SGP30 connection constructed an SGP30 runtime")
+                {
+                    RuntimeComponent::Sgp30(sensor) => sensor.clone(),
+                    _ => unreachable!("SGP30 connection constructed an SGP30 runtime"),
                 };
-                let response = sensor.transact(write, *read_len, SimTime::from_ticks(*at))?;
+                let response = candidate.transact(write, *read_len, SimTime::from_ticks(*at))?;
                 let (data, clock) = connector_signals
                     .get(connector)
                     .copied()
@@ -691,6 +715,13 @@ pub fn run_board_scenario(
                     &mut trace,
                     &mut digest,
                 )?;
+                let RuntimeComponent::Sgp30(sensor) = runtime
+                    .get_mut(&connection.component.name)
+                    .expect("validated connection has runtime component")
+                else {
+                    unreachable!("SGP30 connection constructed an SGP30 runtime")
+                };
+                *sensor = candidate;
                 events.push(BoardEvent::I2c {
                     connector: connector.clone(),
                     address: *address,
@@ -976,6 +1007,19 @@ fn emit_i2c(
     digest: &mut TraceDigest,
 ) -> Result<SimTime, BoardError> {
     const HALF: u64 = 5_000;
+    let byte_count = 1usize
+        .checked_add(write.len())
+        .and_then(|count| {
+            if read.is_empty() {
+                Some(count)
+            } else {
+                count
+                    .checked_add(read.len())
+                    .and_then(|count| count.checked_add(1))
+            }
+        })
+        .ok_or(BoardError::I2cTimeOverflow)?;
+    let _ = i2c::i2c_waveform_end(start, byte_count)?;
     let mut now = start.ticks();
     emit_logic(
         registry,
@@ -985,7 +1029,7 @@ fn emit_i2c(
         trace,
         digest,
     )?;
-    now = now.saturating_add(HALF);
+    now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
     let mut bytes = vec![(address << 1, false)];
     bytes.extend(write.iter().copied().map(|byte| (byte, false)));
     if !read.is_empty() {
@@ -1014,7 +1058,7 @@ fn emit_i2c(
                 trace,
                 digest,
             )?;
-            now = now.saturating_add(HALF);
+            now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
             emit_logic(
                 registry,
                 clock,
@@ -1023,7 +1067,7 @@ fn emit_i2c(
                 trace,
                 digest,
             )?;
-            now = now.saturating_add(HALF);
+            now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
         }
         emit_logic(
             registry,
@@ -1041,7 +1085,7 @@ fn emit_i2c(
             trace,
             digest,
         )?;
-        now = now.saturating_add(HALF);
+        now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
         emit_logic(
             registry,
             clock,
@@ -1050,7 +1094,7 @@ fn emit_i2c(
             trace,
             digest,
         )?;
-        now = now.saturating_add(HALF);
+        now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
     }
     emit_logic(
         registry,
@@ -1068,7 +1112,7 @@ fn emit_i2c(
         trace,
         digest,
     )?;
-    now = now.saturating_add(HALF);
+    now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
     emit_logic(
         registry,
         data,
@@ -1154,5 +1198,20 @@ mod tests {
             BoardComponentSnapshot::Ws2812 { pixels, .. }
                 if pixels.first().is_some_and(|pixel| pixel.red == 255)
         )));
+    }
+
+    #[test]
+    fn board_i2c_overflow_is_rejected_before_emitting_waveform() {
+        let mut scenario = scenario();
+        scenario.actions = vec![BoardAction::I2cTransfer {
+            connector: "grove".to_owned(),
+            address: SGP30_ADDRESS,
+            write: vec![0x20, 0x03],
+            read_len: 0,
+            at: u64::MAX,
+        }];
+        scenario.duration = u64::MAX;
+        let error = run_board_scenario(&scenario, None).unwrap_err();
+        assert!(matches!(error, BoardError::I2cTimeOverflow));
     }
 }
