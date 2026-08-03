@@ -160,6 +160,7 @@ fn raspberry_pi_i2c0_and_i2c1_have_addressed_functional_transfers() {
         for (index, base) in bases.into_iter().enumerate() {
             assert!(machine.queue_i2c_read(index, 0x58, &[0x12 + index as u8]));
             machine.bus.write(base + 0x04, AccessWidth::Word, 0x58, SimTime::ZERO).unwrap();
+            machine.bus.write(base + 0x6c, AccessWidth::Word, 1, SimTime::ZERO).unwrap();
             machine.bus.write(base + 0x10, AccessWidth::Word, 0xa0, SimTime::ZERO).unwrap();
             machine.bus.write(base + 0x10, AccessWidth::Word, (1 << 8) | (1 << 9), SimTime::ZERO).unwrap();
             assert_eq!(machine.bus.read(base + 0x10, AccessWidth::Word, AccessKind::Read, SimTime::ZERO).unwrap(), 0x12 + index as u64);

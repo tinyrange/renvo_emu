@@ -20,7 +20,7 @@ use remu_devices::{
     Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
-    Rp2350XipMaintenance, RpI2c, RpI2cHandle, RpPio, RpPioHandle,
+    Rp2350XipMaintenance, RpI2c, RpI2cEvent, RpI2cHandle, RpPio, RpPioHandle,
     RpAdc, RpAdcHandle, RpAdcVariant, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout,
     RpPioVersion, SignalHub, SpiHandle, TimerHandle, UartHandle,
 };
@@ -586,16 +586,13 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
-        let i2c_bases = match target {
-            TargetId::Rp2040 => [0x4004_4000, 0x4004_8000],
-            TargetId::Rp2350 => [0x4009_0000, 0x4009_8000],
-            _ => unreachable!(),
-        };
-        for (index, base) in i2c_bases.into_iter().enumerate() {
-            let name = format!("{target}.i2c{index}");
-            let (device, handle) = FunctionalI2c::new(&name);
-            bus.map_device(name, base, 0x1000, Box::new(device))?;
-            chip_i2cs.push(handle);
+        if target == TargetId::Rp2040 {
+            for (index, base) in [0x4004_4000, 0x4004_8000].into_iter().enumerate() {
+                let name = format!("{target}.i2c{index}");
+                let (device, handle) = FunctionalI2c::new(&name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                chip_i2cs.push(handle);
+            }
         }
         let uart1_base = match target {
             TargetId::Rp2040 => 0x4003_8000,
@@ -1253,16 +1250,32 @@ impl ArmMachine {
 
     /// Queues deterministic response bytes for one target I²C controller.
     pub fn queue_i2c_read(&self, index: usize, address: u16, bytes: &[u8]) -> bool {
-        let Some(handle) = self.chip_i2cs.get(index) else {
-            return false;
-        };
-        handle.queue_read(address, bytes);
-        true
+        if let Some(handle) = self.chip_i2cs.get(index) {
+            handle.queue_read(address, bytes);
+            return true;
+        }
+        self.i2c.get(index).is_some_and(|handle| {
+            handle.queue_read(address, bytes.iter().copied());
+            true
+        })
     }
 
     /// Returns byte-level events observed on one target I²C controller.
     pub fn i2c_events(&self, index: usize) -> Option<Vec<I2cEvent>> {
-        self.chip_i2cs.get(index).map(I2cHandle::events)
+        if let Some(handle) = self.chip_i2cs.get(index) {
+            return Some(handle.events());
+        }
+        self.i2c.get(index).map(|handle| {
+            handle
+                .events()
+                .into_iter()
+                .filter_map(|event| match event {
+                    RpI2cEvent::Write { address, value } => Some(I2cEvent::Write { address, value }),
+                    RpI2cEvent::Read { address, value } => Some(I2cEvent::Read { address, value }),
+                    RpI2cEvent::Start | RpI2cEvent::RepeatedStart | RpI2cEvent::Stop => None,
+                })
+                .collect()
+        })
     }
     /// Removes configured user breakpoints and data watchpoints.
     pub fn clear_debug_stops(&mut self) {

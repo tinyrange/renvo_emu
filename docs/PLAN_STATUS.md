@@ -29,7 +29,7 @@ Status meanings:
 |---|---|---|
 | Compiler-produced ELF on every CPU profile | Proven | `scripts/edge-corpus.sh` runs seven target/CPU combinations |
 | Memory maps, reset, traps and interrupt entry | Proven | The three CPU-family qualification artifacts prove the required direct maps and functional entry paths; fidelity beyond the baseline remains explicit in `remu targets --json` |
-| Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Proven | Docker smoke covers native-address GPIO/UART and explicit WCH/RP timer interrupt paths; official MicroPython callbacks cover the ESP timer-group routes |
+| Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Proven | Docker smoke covers native-address GPIO/UART, RP2040/RP2350 DW I²C, and explicit WCH/RP timer interrupt paths; official MicroPython callbacks cover the ESP timer-group routes |
 | Scheduled pin input and resolved digital nets | Proven | Signal/device unit tests and MicroPython external-input qualification |
 | Stable hierarchical VCD | Proven | Trace unit tests, Docker smoke VCDs and official-firmware qualification |
 | Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Proven | CLI controls and `qualification/stop-conditions.json` prove all non-exit stops independently on RISC-V, Arm and Xtensa; normal portfolio smoke proves exit |

@@ -121,6 +121,10 @@ build_case rp2350-arm-i2c toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-i2c
     -O2 start.S main.c
 run_case rp2350-arm-i2c rp2350 "$artifact_root/rp2350-arm-i2c/smoke.elf"
 
+build_case rp2040-arm-i2c toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp2040-i2c-arm rp2040 \
+    -O2 start.S main.c
+run_case rp2040-arm-i2c rp2040 "$artifact_root/rp2040-arm-i2c/smoke.elf"
+
 build_case rp2040-arm-exceptions toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/arm-qualification rp2040 \
     exceptions.S
 run_case rp2040-arm-exceptions rp2040 "$artifact_root/rp2040-arm-exceptions/smoke.elf"
@@ -245,6 +249,7 @@ jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-arm-native
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-riscv-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2350-arm-i2c-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2350-riscv-i2c-run.json" >/dev/null
+jq -e '.exit_code == 0' "$artifact_root/rp2040-arm-i2c-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2040-pio-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2350-arm-pio-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events >= 8' "$artifact_root/rp2350-riscv-pio-run.json" >/dev/null
