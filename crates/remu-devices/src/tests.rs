@@ -1161,6 +1161,55 @@ fn rp2040_i2c_enforces_disabled_configuration_and_atomic_aliases() {
 }
 
 #[test]
+fn rp2040_i2c_applies_native_write_masks_and_disabled_rules() {
+    let (mut i2c, _handle) = FunctionalI2c::new("rp2040.i2c0");
+    let read = |i2c: &mut FunctionalI2c, register: Rp2040I2cRegister| {
+        i2c.read(register.offset(), AccessWidth::Word, SimTime::ZERO)
+            .unwrap()
+    };
+    let write = |i2c: &mut FunctionalI2c, register: Rp2040I2cRegister, value: u64| {
+        i2c.write(register.offset(), AccessWidth::Word, value, SimTime::ZERO)
+            .unwrap();
+    };
+
+    // IC_CON[10] is read-only and an illegal speed value saturates to the
+    // RP2040 maximum (fast mode, value 2).
+    write(&mut i2c, Rp2040I2cRegister::Control, 1 << 10);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::Control), 0x04);
+
+    write(&mut i2c, Rp2040I2cRegister::TargetAddress, u64::MAX);
+    write(&mut i2c, Rp2040I2cRegister::SlaveAddress, u64::MAX);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::TargetAddress), 0x0fff);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SlaveAddress), 0x03ff);
+
+    write(&mut i2c, Rp2040I2cRegister::StandardSpeedHighCount, 0);
+    write(&mut i2c, Rp2040I2cRegister::StandardSpeedLowCount, 0);
+    write(&mut i2c, Rp2040I2cRegister::FastSpeedHighCount, 0);
+    write(&mut i2c, Rp2040I2cRegister::FastSpeedLowCount, 0);
+    write(&mut i2c, Rp2040I2cRegister::SdaSetup, 0);
+    write(&mut i2c, Rp2040I2cRegister::FastSpeedSpikeLength, 0);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::StandardSpeedHighCount), 6);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::StandardSpeedLowCount), 8);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::FastSpeedHighCount), 6);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::FastSpeedLowCount), 8);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SdaSetup), 2);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::FastSpeedSpikeLength), 1);
+
+    write(&mut i2c, Rp2040I2cRegister::SdaHold, 0x1234_5678);
+    write(&mut i2c, Rp2040I2cRegister::SlaveDataNackOnly, 1);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SdaHold), 0x0034_5678);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SlaveDataNackOnly), 1);
+
+    write(&mut i2c, Rp2040I2cRegister::Enable, 1);
+    write(&mut i2c, Rp2040I2cRegister::Control, 0x65);
+    write(&mut i2c, Rp2040I2cRegister::SlaveAddress, 0x12);
+    write(&mut i2c, Rp2040I2cRegister::SdaHold, 0xabcdef);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::Control), 0x04);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SlaveAddress), 0x03ff);
+    assert_eq!(read(&mut i2c, Rp2040I2cRegister::SdaHold), 0x0034_5678);
+}
+
+#[test]
 fn rp2040_i2c_read_clear_underflow_and_fifo_status() {
     let (mut i2c, handle) = FunctionalI2c::new("rp2040.i2c0");
     handle.queue_read(0x48, &[0xa5]);

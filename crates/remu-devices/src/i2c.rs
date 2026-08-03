@@ -4,6 +4,10 @@ use crate::RpI2cRegister;
 const IC_INTR_BITS: u32 = 0x1fff;
 const IC_INTR_MASK_RESET: u32 = 0x08ff;
 const IC_FIFO_DEPTH: usize = 16;
+// IC_CON[10] is the read-only STOP_DET_IF_MASTER_ACTIVE status bit.  The
+// remaining low ten bits are writable while the controller is disabled.
+const IC_CON_WRITABLE_BITS: u32 = 0x03ff;
+const IC_MAX_SPEED_MODE: u32 = 2;
 const IC_INTR_RX_UNDER: u32 = 1 << 0;
 const IC_INTR_RX_OVER: u32 = 1 << 1;
 const IC_INTR_RX_FULL: u32 = 1 << 2;
@@ -439,14 +443,28 @@ impl Device for FunctionalI2c {
         match register {
             RpI2cRegister::Control => {
                 if !state.enabled() {
-                    state.registers[index] =
-                        Self::atomic_update(alias, state.registers[index], value) & 0x07ff;
+                    let value = Self::atomic_update(alias, state.registers[index], value);
+                    let speed = match (value >> 1) & 0x3 {
+                        1 => 1,
+                        2 => 2,
+                        // RP2040 is configured for standard and fast modes;
+                        // DW_apb_i2c saturates an illegal speed to the
+                        // maximum supported mode.
+                        _ => IC_MAX_SPEED_MODE,
+                    };
+                    state.registers[index] = (value & IC_CON_WRITABLE_BITS & !0x6) | (speed << 1);
                 }
             }
-            RpI2cRegister::TargetAddress | RpI2cRegister::SlaveAddress => {
+            RpI2cRegister::TargetAddress => {
                 if !state.enabled() {
                     state.registers[index] =
                         Self::atomic_update(alias, state.registers[index], value) & 0x0fff;
+                }
+            }
+            RpI2cRegister::SlaveAddress => {
+                if !state.enabled() {
+                    state.registers[index] =
+                        Self::atomic_update(alias, state.registers[index], value) & 0x03ff;
                 }
             }
             RpI2cRegister::DataCommand => {
@@ -486,19 +504,32 @@ impl Device for FunctionalI2c {
             | RpI2cRegister::FastSpeedHighCount
             | RpI2cRegister::FastSpeedLowCount => {
                 if !state.enabled() {
+                    let minimum = match register {
+                        RpI2cRegister::StandardSpeedHighCount
+                        | RpI2cRegister::FastSpeedHighCount => 6,
+                        RpI2cRegister::StandardSpeedLowCount | RpI2cRegister::FastSpeedLowCount => {
+                            8
+                        }
+                        _ => unreachable!(),
+                    };
                     state.registers[index] =
-                        Self::atomic_update(alias, state.registers[index], value) & 0xffff;
+                        Self::atomic_update(alias, state.registers[index], value)
+                            .min(u32::from(u16::MAX))
+                            .max(minimum);
                 }
             }
-            RpI2cRegister::SdaHold => {
+            RpI2cRegister::SdaHold if !state.enabled() => {
                 state.registers[index] =
                     Self::atomic_update(alias, state.registers[index], value) & 0x00ff_ffff;
             }
-            RpI2cRegister::SlaveDataNackOnly
-            | RpI2cRegister::DmaControl
-            | RpI2cRegister::AckGeneralCall => {
+            RpI2cRegister::SlaveDataNackOnly => {
+                if !state.enabled() {
+                    state.registers[index] =
+                        Self::atomic_update(alias, state.registers[index], value) & 1;
+                }
+            }
+            RpI2cRegister::DmaControl | RpI2cRegister::AckGeneralCall => {
                 let mask = match register {
-                    RpI2cRegister::SlaveDataNackOnly => 1,
                     RpI2cRegister::DmaControl => 3,
                     RpI2cRegister::AckGeneralCall => 1,
                     _ => unreachable!(),
@@ -510,14 +541,20 @@ impl Device for FunctionalI2c {
                 state.registers[index] =
                     Self::atomic_update(alias, state.registers[index], value) & 0x0f;
             }
-            RpI2cRegister::SdaSetup => {
-                state.registers[index] =
-                    Self::atomic_update(alias, state.registers[index], value) & 0xff;
+            RpI2cRegister::SdaSetup if !state.enabled() => {
+                state.registers[index] = Self::atomic_update(alias, state.registers[index], value)
+                    .min(u32::from(u8::MAX))
+                    .max(2);
             }
-            RpI2cRegister::FastSpeedSpikeLength => {
-                state.registers[index] =
-                    Self::atomic_update(alias, state.registers[index], value) & 0xff;
+            RpI2cRegister::FastSpeedSpikeLength if !state.enabled() => {
+                state.registers[index] = Self::atomic_update(alias, state.registers[index], value)
+                    .min(u32::from(u8::MAX))
+                    .max(1);
             }
+            // These configuration registers ignore writes while enabled.
+            RpI2cRegister::SdaHold
+            | RpI2cRegister::SdaSetup
+            | RpI2cRegister::FastSpeedSpikeLength => {}
             RpI2cRegister::ClearInterrupt
             | RpI2cRegister::ClearReceiveUnderflow
             | RpI2cRegister::ClearReceiveOverflow
