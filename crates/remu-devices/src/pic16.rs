@@ -16,18 +16,13 @@ const TX1STA: usize = 0x11e;
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
-const T2TMR: usize = 0x28c;
-const T2PR: usize = 0x28d;
-const T2CON: usize = 0x28e;
 const TMR0L: usize = 0x59c;
 const TMR0H: usize = 0x59d;
 const T0CON0: usize = 0x59e;
 const PIR0: usize = 0x70c;
 const PIR3: usize = 0x70f;
-const PIR4: usize = 0x710;
 const PIE0: usize = 0x716;
 const PIE3: usize = 0x719;
-const PIE4: usize = 0x71a;
 const WDTCON0: usize = 0x80c;
 const OSCSTAT: usize = 0x890;
 const PPSLOCK: usize = 0x1e8f;
@@ -48,6 +43,71 @@ const SPEN: u8 = 1 << 7;
 const T2ON: u8 = 1 << 7;
 const T2CKPS_MASK: u8 = 0x70;
 const T2OUTPS_MASK: u8 = 0x0f;
+
+/// Named PIC16F15376 Timer2 and interrupt register identifiers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(usize)]
+pub enum Pic16Timer2Register {
+    /// Timer2 count register (T2TMR).
+    T2Tmr = 0x28c,
+    /// Timer2 period register (T2PR).
+    T2Pr = 0x28d,
+    /// Timer2 control register (T2CON).
+    T2Con = 0x28e,
+    /// Timer2 clock selection register (T2CLKCON).
+    T2ClkCon = 0x290,
+    /// Peripheral interrupt request register 4 (PIR4).
+    Pir4 = 0x710,
+    /// Peripheral interrupt enable register 4 (PIE4).
+    Pie4 = 0x71a,
+}
+
+impl Pic16Timer2Register {
+    /// Stable list of modeled Timer2-related register IDs.
+    pub const ALL: [Self; 6] = [
+        Self::T2Tmr,
+        Self::T2Pr,
+        Self::T2Con,
+        Self::T2ClkCon,
+        Self::Pir4,
+        Self::Pie4,
+    ];
+
+    /// Returns the native PIC16 data-space address.
+    pub const fn offset(self) -> usize {
+        self as usize
+    }
+
+    /// Returns the register-array index used by `Pic16Peripherals`.
+    pub const fn index(self) -> usize {
+        self.offset()
+    }
+
+    /// Returns the vendor register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::T2Tmr => "t2tmr",
+            Self::T2Pr => "t2pr",
+            Self::T2Con => "t2con",
+            Self::T2ClkCon => "t2clkcon",
+            Self::Pir4 => "pir4",
+            Self::Pie4 => "pie4",
+        }
+    }
+
+    /// Resolves a native data-space address to a named Timer2-related register.
+    pub const fn from_data_address(address: usize) -> Option<Self> {
+        match address {
+            0x28c => Some(Self::T2Tmr),
+            0x28d => Some(Self::T2Pr),
+            0x28e => Some(Self::T2Con),
+            0x290 => Some(Self::T2ClkCon),
+            0x710 => Some(Self::Pir4),
+            0x71a => Some(Self::Pie4),
+            _ => None,
+        }
+    }
+}
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -121,7 +181,7 @@ impl Pic16State {
             self.registers[ANSEL[port]] = PORT_MASKS[port];
         }
         self.registers[PIR3] = TX1IF;
-        self.registers[T2PR] = u8::MAX;
+        self.registers[Pic16Timer2Register::T2Pr.index()] = u8::MAX;
         self.registers[TX1STA] = 1 << 1; // TRMT
         self.registers[OSCSTAT] = 1 << 6; // internal HF oscillator ready
         self.registers[PPSLOCK] = 1;
@@ -146,8 +206,14 @@ impl Pic16State {
     fn interrupt_pending(&self) -> bool {
         let peripheral = self.registers[INTCON] & INTCON_PEIE != 0
             && ((self.registers[PIR0] & self.registers[PIE0] & TMR0IF != 0)
-                || (self.registers[PIR4] & self.registers[PIE4] & TMR1IF != 0)
-                || (self.registers[PIR4] & self.registers[PIE4] & TMR2IF != 0)
+                || (self.registers[Pic16Timer2Register::Pir4.index()]
+                    & self.registers[Pic16Timer2Register::Pie4.index()]
+                    & TMR1IF
+                    != 0)
+                || (self.registers[Pic16Timer2Register::Pir4.index()]
+                    & self.registers[Pic16Timer2Register::Pie4.index()]
+                    & TMR2IF
+                    != 0)
                 || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
     }
@@ -193,27 +259,35 @@ impl Pic16PeripheralsHandle {
             state.registers[TMR1H] = (value >> 8) as u8;
             state.timer1_epoch = now.ticks();
             if total > u64::from(u16::MAX) {
-                state.registers[PIR4] |= TMR1IF;
+                state.registers[Pic16Timer2Register::Pir4.index()] |= TMR1IF;
                 state.set_signal(state.timer1_irq_signal, 1, 1, now);
             }
         }
-        if state.registers[T2CON] & T2ON != 0 {
-            let prescaler = 1_u64 << u32::from((state.registers[T2CON] & T2CKPS_MASK) >> 4);
-            let period = u64::from(state.registers[T2PR]).saturating_add(1).max(1);
+        if state.registers[Pic16Timer2Register::T2Con.index()] & T2ON != 0 {
+            let prescaler = 1_u64
+                << u32::from(
+                    (state.registers[Pic16Timer2Register::T2Con.index()] & T2CKPS_MASK) >> 4,
+                );
+            let period = u64::from(state.registers[Pic16Timer2Register::T2Pr.index()])
+                .saturating_add(1)
+                .max(1);
             let elapsed = now.ticks().saturating_sub(state.timer2_epoch);
             let increments = elapsed / prescaler;
             if increments != 0 {
-                let total = u64::from(state.registers[T2TMR]).saturating_add(increments);
+                let total = u64::from(state.registers[Pic16Timer2Register::T2Tmr.index()])
+                    .saturating_add(increments);
                 let matches = total / period;
-                state.registers[T2TMR] = (total % period) as u8;
+                state.registers[Pic16Timer2Register::T2Tmr.index()] = (total % period) as u8;
                 state.timer2_epoch = state
                     .timer2_epoch
                     .saturating_add(increments.saturating_mul(prescaler));
                 if matches != 0 {
-                    let postscaler = u64::from(state.registers[T2CON] & T2OUTPS_MASK) + 1;
+                    let postscaler = u64::from(
+                        state.registers[Pic16Timer2Register::T2Con.index()] & T2OUTPS_MASK,
+                    ) + 1;
                     let accumulated = u64::from(state.timer2_postscale) + matches;
                     if accumulated >= postscaler {
-                        state.registers[PIR4] |= TMR2IF;
+                        state.registers[Pic16Timer2Register::Pir4.index()] |= TMR2IF;
                         state.set_signal(state.timer2_irq_signal, 1, 1, now);
                     }
                     state.timer2_postscale = (accumulated % postscaler) as u8;
@@ -453,7 +527,7 @@ impl Device for Pic16Peripherals {
                     at,
                 );
             }
-            PIR4 => {
+            address if address == Pic16Timer2Register::Pir4.offset() => {
                 state.registers[address] = value;
                 state.set_signal(
                     state.timer1_irq_signal,
@@ -480,12 +554,12 @@ impl Device for Pic16Peripherals {
                 }
                 state.registers[address] = value;
             }
-            T2TMR => {
+            address if address == Pic16Timer2Register::T2Tmr.offset() => {
                 state.registers[address] = value;
                 state.timer2_epoch = at.ticks();
                 state.timer2_postscale = 0;
             }
-            T2CON => {
+            address if address == Pic16Timer2Register::T2Con.offset() => {
                 state.registers[address] = value;
                 state.timer2_epoch = at.ticks();
                 state.timer2_postscale = 0;
@@ -519,6 +593,19 @@ impl Device for Pic16Peripherals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timer2_register_ids_are_named_and_native() {
+        assert_eq!(Pic16Timer2Register::ALL.len(), 6);
+        assert_eq!(Pic16Timer2Register::T2Con.offset(), 0x28e);
+        assert_eq!(Pic16Timer2Register::T2Con.index(), 0x28e);
+        assert_eq!(Pic16Timer2Register::T2Con.name(), "t2con");
+        assert_eq!(
+            Pic16Timer2Register::from_data_address(0x71a),
+            Some(Pic16Timer2Register::Pie4)
+        );
+        assert_eq!(Pic16Timer2Register::from_data_address(0x28f), None);
+    }
 
     #[test]
     fn gpio_uart_timer_and_watchdog_slice_is_functional() {
@@ -571,10 +658,20 @@ mod tests {
         let hub = SignalHub::new();
         let (mut device, handle, _) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
         device
-            .write(T2PR as u64, AccessWidth::Byte, 2, SimTime::ZERO)
+            .write(
+                Pic16Timer2Register::T2Pr.offset() as u64,
+                AccessWidth::Byte,
+                2,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(PIE4 as u64, AccessWidth::Byte, TMR2IF.into(), SimTime::ZERO)
+            .write(
+                Pic16Timer2Register::Pie4.offset() as u64,
+                AccessWidth::Byte,
+                TMR2IF.into(),
+                SimTime::ZERO,
+            )
             .unwrap();
         device
             .write(
@@ -588,7 +685,7 @@ mod tests {
         // (2 + 1) * 2 ticks, and the interrupt is raised on the second match.
         device
             .write(
-                T2CON as u64,
+                Pic16Timer2Register::T2Con.offset() as u64,
                 AccessWidth::Byte,
                 (T2ON | (1 << 4) | 1).into(),
                 SimTime::ZERO,
@@ -598,7 +695,12 @@ mod tests {
         assert!(!handle.poll(SimTime::from_ticks(11)));
         assert!(handle.poll(SimTime::from_ticks(12)));
         device
-            .write(PIR4 as u64, AccessWidth::Byte, 0, SimTime::from_ticks(12))
+            .write(
+                Pic16Timer2Register::Pir4.offset() as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::from_ticks(12),
+            )
             .unwrap();
         assert!(!handle.poll(SimTime::from_ticks(13)));
     }
