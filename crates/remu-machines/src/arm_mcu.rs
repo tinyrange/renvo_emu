@@ -664,7 +664,7 @@ impl ArmMcuMachine {
         bus.map_device("stm32l432kc.spi3", 0x4000_3c00, 0x400, Box::new(spi3))?;
         bus.map_device("stm32l432kc.spi1", 0x4001_3000, 0x400, Box::new(spi1))?;
         bus.map_device("stm32l432kc.i2c1", 0x4000_5400, 0x400, Box::new(i2c1))?;
-        bus.map_device("stm32l432kc.i2c3", 0x4000_5800, 0x400, Box::new(i2c3))?;
+        bus.map_device("stm32l432kc.i2c3", 0x4000_5c00, 0x400, Box::new(i2c3))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -1481,7 +1481,7 @@ mod tests {
         machine
             .bus
             .write(
-                0x4000_5804,
+                0x4000_5c04,
                 AccessWidth::Word,
                 (1 << 13) | (1 << 25),
                 SimTime::ZERO,
@@ -1491,7 +1491,7 @@ mod tests {
             machine
                 .bus
                 .read(
-                    0x4000_5818,
+                    0x4000_5c18,
                     AccessWidth::Word,
                     AccessKind::Read,
                     SimTime::ZERO,
