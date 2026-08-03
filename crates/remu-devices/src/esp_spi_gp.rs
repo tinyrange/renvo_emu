@@ -185,6 +185,9 @@ impl Esp32s3Spi {
         | Self::USER_DOUTDIN;
     const DMA_INT_MASK: u32 = 0x001f_ffff;
     const DATE_MASK: u32 = 0x0fff_ffff;
+    // The model is functional rather than clock-accurate, but each visible
+    // edge still gets a deterministic position in abstract simulation time.
+    const WAVEFORM_HALF_TICKS: u64 = 1;
 
     /// Creates a reset general-purpose SPI controller and its waveform
     /// signals. `name` should be `esp32s3.spi2` or `esp32s3.spi3`.
@@ -309,48 +312,74 @@ impl Esp32s3Spi {
         bytes
     }
 
+    fn store_rx_bytes(&mut self, bytes: &[u8]) {
+        for (index, chunk) in bytes.chunks(4).enumerate() {
+            let mut word = 0_u32;
+            for byte in chunk {
+                word = (word << 8) | u32::from(*byte);
+            }
+            word <<= (4 - chunk.len()) * 8;
+            self.buffers[index] = word;
+        }
+    }
+
     fn execute_transfer(&mut self, at: SimTime) -> Result<(), DeviceError> {
         let user = self.registers[Self::USER as usize / 4];
         let bit_length = self.data_bit_length();
         let bytes = self.tx_bytes(bit_length);
         let mut bit_index = 0;
+        let mut now = at.ticks();
 
-        self.set_signal(self.cs0, 0, at)
+        self.set_signal(self.cs0, 0, SimTime::from_ticks(now))
             .map_err(Self::signal_error)?;
+        now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
         for byte in &bytes {
             for bit in (0..8).rev() {
                 if bit_index >= bit_length {
                     break;
                 }
                 let value = u64::from((byte >> bit) & 1);
+                self.set_signal(self.sclk, 0, SimTime::from_ticks(now))
+                    .map_err(Self::signal_error)?;
                 if user & Self::USER_MOSI != 0 || user & Self::USER_DOUTDIN != 0 {
-                    self.set_signal(self.mosi, value, at)
+                    self.set_signal(self.mosi, value, SimTime::from_ticks(now))
                         .map_err(Self::signal_error)?;
                 }
                 if user & Self::USER_MISO != 0 || user & Self::USER_DOUTDIN != 0 {
                     // The functional endpoint is a deterministic loopback.
-                    self.set_signal(self.miso, value, at)
+                    self.set_signal(self.miso, value, SimTime::from_ticks(now))
                         .map_err(Self::signal_error)?;
                 }
-                self.set_signal(self.sclk, 0, at)
+                now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+                self.set_signal(self.sclk, 1, SimTime::from_ticks(now))
                     .map_err(Self::signal_error)?;
-                self.set_signal(self.sclk, 1, at)
+                now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+                self.set_signal(self.sclk, 0, SimTime::from_ticks(now))
                     .map_err(Self::signal_error)?;
+                now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
                 bit_index += 1;
             }
         }
-        self.set_signal(self.sclk, 0, at)
+        self.set_signal(self.sclk, 0, SimTime::from_ticks(now))
             .map_err(Self::signal_error)?;
-        self.set_signal(self.cs0, 1, at)
+        now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_signal(self.cs0, 1, SimTime::from_ticks(now))
             .map_err(Self::signal_error)?;
 
-        // DOUTDIN is the useful baseline for compiler and board tests. Keep
-        // the FIFO contents unchanged: firmware can inspect its TX/RX bytes
-        // without a second host-side buffer API.
+        // In full-duplex or MISO-enabled mode the hardware writes received
+        // bytes back through the same W0-W15 buffer window. The functional
+        // endpoint loops the transmitted stream back as that response.
+        if user & (Self::USER_MISO | Self::USER_DOUTDIN) != 0 {
+            self.store_rx_bytes(&bytes);
+        }
         self.transfer.count = self.transfer.count.saturating_add(1);
         self.transfer.bytes = bytes;
         self.dma_raw |= Self::TRANS_DONE_INT;
-        self.set_signal(self.transfer_done, self.transfer.count & 1, at)
+        now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_signal(self.transfer_done, 1, SimTime::from_ticks(now))
+            .map_err(Self::signal_error)?;
+        now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_signal(self.transfer_done, 0, SimTime::from_ticks(now))
             .map_err(Self::signal_error)?;
         Ok(())
     }
@@ -478,6 +507,13 @@ mod tests {
                 count: 1,
                 bytes: vec![0xa5, 0x5a]
             }
+        );
+        let changes = hub.drain_changes();
+        assert!(changes.windows(2).all(|pair| pair[0].at <= pair[1].at));
+        assert!(
+            changes
+                .iter()
+                .any(|change| change.at > SimTime::from_ticks(1))
         );
         assert!(hub.with_registry(|registry| registry.find("board.esp32s3.spi2.cs0").is_some()));
         assert!(hub.with_registry(|registry| registry.find("board.esp32s3.spi2.sclk").is_some()));
