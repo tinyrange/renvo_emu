@@ -46,8 +46,10 @@ This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
 The ATSAMD21E18 model also includes a native RTC COUNT32/COMP0 slice at
-`0x40001400`. It implements deterministic abstract-time counting, prescaler
-configuration, compare/clear-on-match behavior, interrupt enable/flag
+`0x40001400`. It follows Microchip's [COUNT32 register
+summary](https://onlinedocs.microchip.com/oxy/GUID-76938A18-C47D-4351-9D02-463E8A957829-en-US-8/GUID-DC4646A6-D301-40AD-894A-2D8D7B20D96A.html)
+and implements deterministic abstract-time counting, the native prescaler,
+compare/clear-on-match behavior, CMP0 and overflow interrupt enable/flag
 registers, and machine interrupt line 3. COUNT16, clock/calendar alarms,
 frequency correction, event routing, and low-power clock-source fidelity remain
 outside this slice.
