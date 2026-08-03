@@ -11,6 +11,126 @@ const ADIE: u16 = 1 << 12;
 const ADF: u8 = 1;
 const CONVERSION_TICKS: u64 = 8;
 
+/// Named RA4M1 ADC140 register identifiers for the modeled register surface.
+///
+/// `Addr` covers the 29 consecutive read-only conversion-result registers at
+/// `0x20..=0x58`; all other variants correspond to the fixed registers in the
+/// R7FA4M1AB ADC0 register block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum RaAdcRegister {
+    /// A/D control register (ADCSR).
+    Adcsr,
+    /// A/D status register (ADREF).
+    Adref,
+    /// A/D enhancing status register (ADEXREF).
+    Adexref,
+    /// Group-A channel select register 0 (ADANSA0).
+    Adansa0,
+    /// Group-A channel select register 1 (ADANSA1).
+    Adansa1,
+    /// Addition/average channel select register 0 (ADADS0).
+    Adads0,
+    /// Addition/average channel select register 1 (ADADS1).
+    Adads1,
+    /// Addition/average count select register (ADADC).
+    Adadc,
+    /// A/D control extended register (ADCER).
+    Adcer,
+    /// Conversion start trigger select register (ADSTRGR).
+    Adstrgr,
+    /// Conversion extended input control register (ADEXICR).
+    Adexicr,
+    /// Group-B channel select register 0 (ADANSB0).
+    Adansb0,
+    /// Group-B channel select register 1 (ADANSB1).
+    Adansb1,
+    /// A/D data duplication register (ADDBLDR).
+    Addbldr,
+    /// A/D temperature sensor data register (ADTSDR).
+    Adtsdr,
+    /// A/D internal reference voltage data register (ADOCDR).
+    Adocdr,
+    /// A/D self-diagnosis data register (ADRD).
+    Adrd,
+    /// A/D conversion result register ADDR0 through ADDR28.
+    Addr(u8),
+}
+
+impl RaAdcRegister {
+    /// Returns the native ADC140 byte offset.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::Adcsr => 0x00,
+            Self::Adref => 0x02,
+            Self::Adexref => 0x03,
+            Self::Adansa0 => 0x04,
+            Self::Adansa1 => 0x06,
+            Self::Adads0 => 0x08,
+            Self::Adads1 => 0x0a,
+            Self::Adadc => 0x0c,
+            Self::Adcer => 0x0e,
+            Self::Adstrgr => 0x10,
+            Self::Adexicr => 0x12,
+            Self::Adansb0 => 0x14,
+            Self::Adansb1 => 0x16,
+            Self::Addbldr => 0x18,
+            Self::Adtsdr => 0x1a,
+            Self::Adocdr => 0x1c,
+            Self::Adrd => 0x1e,
+            Self::Addr(channel) => 0x20 + channel as u64 * 2,
+        }
+    }
+
+    /// Returns a stable descriptive register name.
+    pub fn name(self) -> String {
+        match self {
+            Self::Addr(channel) => format!("addr{channel}"),
+            Self::Adcsr => "adcsr".to_owned(),
+            Self::Adref => "adref".to_owned(),
+            Self::Adexref => "adexref".to_owned(),
+            Self::Adansa0 => "adansa0".to_owned(),
+            Self::Adansa1 => "adansa1".to_owned(),
+            Self::Adads0 => "adads0".to_owned(),
+            Self::Adads1 => "adads1".to_owned(),
+            Self::Adadc => "adadc".to_owned(),
+            Self::Adcer => "adcer".to_owned(),
+            Self::Adstrgr => "adstrgr".to_owned(),
+            Self::Adexicr => "adexicr".to_owned(),
+            Self::Adansb0 => "adansb0".to_owned(),
+            Self::Adansb1 => "adansb1".to_owned(),
+            Self::Addbldr => "addbldr".to_owned(),
+            Self::Adtsdr => "adtsdr".to_owned(),
+            Self::Adocdr => "adocdr".to_owned(),
+            Self::Adrd => "adrd".to_owned(),
+        }
+    }
+
+    /// Resolves a native ADC140 byte offset to a named register.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Adcsr),
+            0x02 => Some(Self::Adref),
+            0x03 => Some(Self::Adexref),
+            0x04 => Some(Self::Adansa0),
+            0x06 => Some(Self::Adansa1),
+            0x08 => Some(Self::Adads0),
+            0x0a => Some(Self::Adads1),
+            0x0c => Some(Self::Adadc),
+            0x0e => Some(Self::Adcer),
+            0x10 => Some(Self::Adstrgr),
+            0x12 => Some(Self::Adexicr),
+            0x14 => Some(Self::Adansb0),
+            0x16 => Some(Self::Adansb1),
+            0x18 => Some(Self::Addbldr),
+            0x1a => Some(Self::Adtsdr),
+            0x1c => Some(Self::Adocdr),
+            0x1e => Some(Self::Adrd),
+            0x20..=0x58 if offset & 1 == 0 => Some(Self::Addr(((offset - 0x20) / 2) as u8)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct AdcState {
     adcsr: u16,
@@ -76,8 +196,6 @@ impl RaAdcHandle {
     pub fn poll(&self, now: SimTime) -> bool {
         let mut state = self.0.lock().expect("RA ADC lock poisoned");
         if state.active && now.ticks().saturating_sub(state.started) >= CONVERSION_TICKS {
-            let channel = selected_channel(state.adansa[0]);
-            let input = u32::from(state.inputs[channel]);
             let accuracy = match (state.adcer >> 1) & 0x3 {
                 0 => 14,
                 1 => 12,
@@ -85,16 +203,19 @@ impl RaAdcHandle {
                 _ => 8,
             };
             let maximum = (1_u32 << accuracy) - 1;
-            let mut value = (input.saturating_mul(maximum) + 0x1fff) / 0x3fff;
-            if state.adcer & (1 << 14) != 0 {
-                value = maximum.saturating_sub(value);
+            for channel in selected_channels(state.adansa) {
+                let input = u32::from(state.inputs[channel]);
+                let mut value = (input.saturating_mul(maximum) + 0x1fff) / 0x3fff;
+                if state.adcer & (1 << 14) != 0 {
+                    value = maximum.saturating_sub(value);
+                }
+                let value = if state.adcer & (1 << 15) != 0 {
+                    value << (16 - accuracy)
+                } else {
+                    value
+                } as u16;
+                state.data[channel] = value;
             }
-            let value = if state.adcer & (1 << 15) != 0 {
-                value << (16 - accuracy)
-            } else {
-                value
-            } as u16;
-            state.data[channel] = value;
             state.adref |= ADF;
             state.adcsr &= !ADST;
             state.active = false;
@@ -113,14 +234,19 @@ impl RaAdcHandle {
     }
 }
 
-fn selected_channel(mask: u16) -> usize {
-    if mask == 0 {
-        0
-    } else {
-        usize::try_from(mask.trailing_zeros())
-            .unwrap_or(0)
-            .min(CHANNELS - 1)
+fn selected_channels(masks: [u16; 2]) -> Vec<usize> {
+    let mut channels = masks
+        .into_iter()
+        .enumerate()
+        .flat_map(|(bank, mask)| {
+            (0..16).filter_map(move |bit| (mask & (1 << bit) != 0).then_some(bank * 16 + bit))
+        })
+        .filter(|channel| *channel < CHANNELS)
+        .collect::<Vec<_>>();
+    if channels.is_empty() {
+        channels.push(0);
     }
+    channels
 }
 
 fn lane_u16(value: u16, offset: u64, base: u64, width: AccessWidth) -> Result<u64, DeviceError> {
@@ -200,57 +326,95 @@ impl Device for RaAdc {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         let state = self.state.lock().expect("RA ADC lock poisoned");
-        match offset {
-            0x00 | 0x01 => Self::read_u16(
+        let register =
+            RaAdcRegister::from_offset(offset).or_else(|| RaAdcRegister::from_offset(offset & !1));
+        match register {
+            Some(RaAdcRegister::Adcsr) => Self::read_u16(
                 offset,
                 width,
                 state.adcsr | u16::from(state.active) * ADST,
-                0x00,
+                RaAdcRegister::Adcsr.offset(),
             ),
-            0x02 => lane_u16(u16::from(state.adref), offset, 0x02, width),
-            0x03 => lane_u16(u16::from(state.adexref), offset, 0x03, width),
-            0x04..=0x06 => {
-                let index = usize::try_from((offset - 0x04) / 2).expect("ADANSA index fits usize");
+            Some(RaAdcRegister::Adref) => lane_u16(
+                u16::from(state.adref | (u8::from(state.active) << 7)),
+                offset,
+                RaAdcRegister::Adref.offset(),
+                width,
+            ),
+            Some(RaAdcRegister::Adexref) => lane_u16(
+                u16::from(state.adexref),
+                offset,
+                RaAdcRegister::Adexref.offset(),
+                width,
+            ),
+            Some(RaAdcRegister::Adansa0 | RaAdcRegister::Adansa1) => {
+                let index = usize::from(matches!(register, Some(RaAdcRegister::Adansa1)));
                 lane_u16(
                     state.adansa[index],
                     offset,
-                    0x04 + (index as u64) * 2,
+                    RaAdcRegister::Adansa0.offset() + (index as u64) * 2,
                     width,
                 )
             }
-            0x08..=0x0a => {
-                let index = usize::try_from((offset - 0x08) / 2).expect("ADADS index fits usize");
-                lane_u16(state.adads[index], offset, 0x08 + (index as u64) * 2, width)
+            Some(RaAdcRegister::Adads0 | RaAdcRegister::Adads1) => {
+                let index = usize::from(matches!(register, Some(RaAdcRegister::Adads1)));
+                lane_u16(
+                    state.adads[index],
+                    offset,
+                    RaAdcRegister::Adads0.offset() + (index as u64) * 2,
+                    width,
+                )
             }
-            0x0c => lane_u16(u16::from(state.adadc), offset, 0x0c, width),
-            0x0e => lane_u16(state.adcer, offset, 0x0e, width),
-            0x10 => lane_u16(state.adstrgr, offset, 0x10, width),
-            0x12 => lane_u16(state.adexicr, offset, 0x12, width),
-            0x14..=0x16 => {
-                let index = usize::try_from((offset - 0x14) / 2).expect("ADANSB index fits usize");
+            Some(RaAdcRegister::Adadc) => lane_u16(
+                u16::from(state.adadc),
+                offset,
+                RaAdcRegister::Adadc.offset(),
+                width,
+            ),
+            Some(RaAdcRegister::Adcer) => {
+                lane_u16(state.adcer, offset, RaAdcRegister::Adcer.offset(), width)
+            }
+            Some(RaAdcRegister::Adstrgr) => lane_u16(
+                state.adstrgr,
+                offset,
+                RaAdcRegister::Adstrgr.offset(),
+                width,
+            ),
+            Some(RaAdcRegister::Adexicr) => lane_u16(
+                state.adexicr,
+                offset,
+                RaAdcRegister::Adexicr.offset(),
+                width,
+            ),
+            Some(RaAdcRegister::Adansb0 | RaAdcRegister::Adansb1) => {
+                let index = usize::from(matches!(register, Some(RaAdcRegister::Adansb1)));
                 lane_u16(
                     state.adansb[index],
                     offset,
-                    0x14 + (index as u64) * 2,
+                    RaAdcRegister::Adansb0.offset() + (index as u64) * 2,
                     width,
                 )
             }
-            0x18 => lane_u16(state.addbldr, offset, 0x18, width),
-            0x1a => lane_u16(state.adtsdr, offset, 0x1a, width),
-            0x1c => lane_u16(state.adocdr, offset, 0x1c, width),
-            0x1e => Ok(0),
-            0x20..=0x58 if offset & 1 == 0 => {
-                let channel = usize::try_from((offset - 0x20) / 2).expect("ADDR index fits usize");
-                state
-                    .data
-                    .get(channel)
-                    .copied()
-                    .map(u64::from)
-                    .ok_or_else(|| {
-                        DeviceError::new(format!("unmodeled RA ADC data read at {offset:#x}"))
-                    })
+            Some(RaAdcRegister::Addbldr) => lane_u16(
+                state.addbldr,
+                offset,
+                RaAdcRegister::Addbldr.offset(),
+                width,
+            ),
+            Some(RaAdcRegister::Adtsdr) => {
+                lane_u16(state.adtsdr, offset, RaAdcRegister::Adtsdr.offset(), width)
             }
-            _ => Ok(0),
+            Some(RaAdcRegister::Adocdr) => {
+                lane_u16(state.adocdr, offset, RaAdcRegister::Adocdr.offset(), width)
+            }
+            Some(RaAdcRegister::Adrd) => Ok(0),
+            Some(RaAdcRegister::Addr(channel)) => lane_u16(
+                state.data[usize::from(channel)],
+                offset,
+                RaAdcRegister::Addr(channel).offset(),
+                width,
+            ),
+            None => Ok(0),
         }
     }
 
@@ -262,49 +426,96 @@ impl Device for RaAdc {
         at: SimTime,
     ) -> Result<(), DeviceError> {
         let mut state = self.state.lock().expect("RA ADC lock poisoned");
-        match offset {
-            0x00 | 0x01 => {
+        let register =
+            RaAdcRegister::from_offset(offset).or_else(|| RaAdcRegister::from_offset(offset & !1));
+        match register {
+            Some(RaAdcRegister::Adcsr) => {
                 let current = state.adcsr;
-                let updated = merge_u16(current, offset, 0x00, width, value)?;
+                let updated =
+                    merge_u16(current, offset, RaAdcRegister::Adcsr.offset(), width, value)?;
                 state.adcsr = updated & !ADST;
-                if updated & ADST != 0 && !state.active {
+                if updated & ADST == 0 {
+                    state.active = false;
+                } else if !state.active {
                     state.active = true;
                     state.started = at.ticks();
                     state.adref &= !ADF;
                 }
             }
-            0x02 => {
+            Some(RaAdcRegister::Adref) => {
                 let current = u16::from(state.adref);
-                state.adref = merge_u16(current, offset, 0x02, width, value)? as u8 & ADF;
+                state.adref =
+                    merge_u16(current, offset, RaAdcRegister::Adref.offset(), width, value)? as u8
+                        & ADF;
             }
-            0x03 => {
-                state.adexref =
-                    merge_u16(u16::from(state.adexref), offset, 0x03, width, value)? as u8
+            Some(RaAdcRegister::Adexref) => {
+                state.adexref = merge_u16(
+                    u16::from(state.adexref),
+                    offset,
+                    RaAdcRegister::Adexref.offset(),
+                    width,
+                    value,
+                )? as u8
             }
-            0x04..=0x06 => {
-                let index = usize::try_from((offset - 0x04) / 2).expect("ADANSA index fits usize");
-                let base = 0x04 + (index as u64) * 2;
+            Some(RaAdcRegister::Adansa0 | RaAdcRegister::Adansa1) => {
+                let index = usize::from(matches!(register, Some(RaAdcRegister::Adansa1)));
+                let base = RaAdcRegister::Adansa0.offset() + (index as u64) * 2;
                 state.adansa[index] = merge_u16(state.adansa[index], offset, base, width, value)?;
             }
-            0x08..=0x0a => {
-                let index = usize::try_from((offset - 0x08) / 2).expect("ADADS index fits usize");
-                let base = 0x08 + (index as u64) * 2;
+            Some(RaAdcRegister::Adads0 | RaAdcRegister::Adads1) => {
+                let index = usize::from(matches!(register, Some(RaAdcRegister::Adads1)));
+                let base = RaAdcRegister::Adads0.offset() + (index as u64) * 2;
                 state.adads[index] = merge_u16(state.adads[index], offset, base, width, value)?;
             }
-            0x0c => {
-                state.adadc = merge_u16(u16::from(state.adadc), offset, 0x0c, width, value)? as u8
+            Some(RaAdcRegister::Adadc) => {
+                state.adadc = merge_u16(
+                    u16::from(state.adadc),
+                    offset,
+                    RaAdcRegister::Adadc.offset(),
+                    width,
+                    value,
+                )? as u8
             }
-            0x0e => state.adcer = merge_u16(state.adcer, offset, 0x0e, width, value)?,
-            0x10 => state.adstrgr = merge_u16(state.adstrgr, offset, 0x10, width, value)?,
-            0x12 => state.adexicr = merge_u16(state.adexicr, offset, 0x12, width, value)?,
-            0x14..=0x16 => {
-                let index = usize::try_from((offset - 0x14) / 2).expect("ADANSB index fits usize");
-                let base = 0x14 + (index as u64) * 2;
+            Some(RaAdcRegister::Adcer) => {
+                state.adcer = merge_u16(
+                    state.adcer,
+                    offset,
+                    RaAdcRegister::Adcer.offset(),
+                    width,
+                    value,
+                )?
+            }
+            Some(RaAdcRegister::Adstrgr) => {
+                state.adstrgr = merge_u16(
+                    state.adstrgr,
+                    offset,
+                    RaAdcRegister::Adstrgr.offset(),
+                    width,
+                    value,
+                )?
+            }
+            Some(RaAdcRegister::Adexicr) => {
+                state.adexicr = merge_u16(
+                    state.adexicr,
+                    offset,
+                    RaAdcRegister::Adexicr.offset(),
+                    width,
+                    value,
+                )?
+            }
+            Some(RaAdcRegister::Adansb0 | RaAdcRegister::Adansb1) => {
+                let index = usize::from(matches!(register, Some(RaAdcRegister::Adansb1)));
+                let base = RaAdcRegister::Adansb0.offset() + (index as u64) * 2;
                 state.adansb[index] = merge_u16(state.adansb[index], offset, base, width, value)?;
             }
-            0x18 | 0x1a | 0x1c => {}
-            0x1e..=0x5a => {}
-            _ => {}
+            Some(
+                RaAdcRegister::Addbldr
+                | RaAdcRegister::Adtsdr
+                | RaAdcRegister::Adocdr
+                | RaAdcRegister::Adrd
+                | RaAdcRegister::Addr(_),
+            )
+            | None => {}
         }
         Ok(())
     }
@@ -317,6 +528,22 @@ impl Device for RaAdc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn register_ids_cover_fixed_and_result_windows() {
+        assert_eq!(RaAdcRegister::Adcsr.offset(), 0x00);
+        assert_eq!(RaAdcRegister::Adcsr.name(), "adcsr");
+        assert_eq!(
+            RaAdcRegister::from_offset(0x06),
+            Some(RaAdcRegister::Adansa1)
+        );
+        assert_eq!(
+            RaAdcRegister::from_offset(0x58),
+            Some(RaAdcRegister::Addr(28))
+        );
+        assert_eq!(RaAdcRegister::Addr(28).name(), "addr28");
+        assert_eq!(RaAdcRegister::from_offset(0x59), None);
+    }
 
     #[test]
     fn single_scan_quantizes_host_input_and_sets_scan_end() {
@@ -364,5 +591,74 @@ mod tests {
         assert!(handle.poll(SimTime::from_ticks(CONVERSION_TICKS)));
         assert_eq!(handle.sample(0), Some(0xfff0));
         assert!(handle.set_input(29, 0).is_err());
+    }
+
+    #[test]
+    fn single_scan_updates_multiple_channels_in_both_selection_banks() {
+        let (mut adc, handle) = RaAdc::new("adc0");
+        handle.set_input(0, 0x1000).unwrap();
+        handle.set_input(16, 0x3000).unwrap();
+        adc.write(
+            RaAdcRegister::Adansa0.offset(),
+            AccessWidth::HalfWord,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            RaAdcRegister::Adansa1.offset(),
+            AccessWidth::HalfWord,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            RaAdcRegister::Adcsr.offset(),
+            AccessWidth::HalfWord,
+            (1_u64 << 15) | u64::from(ADIE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(CONVERSION_TICKS)));
+        assert_eq!(handle.sample(0), Some(0x1000));
+        assert_eq!(handle.sample(16), Some(0x3000));
+        assert_eq!(
+            adc.read(
+                RaAdcRegister::Addr(16).offset() + 1,
+                AccessWidth::Byte,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+            0x30
+        );
+    }
+
+    #[test]
+    fn clearing_adst_aborts_an_in_progress_scan() {
+        let (mut adc, handle) = RaAdc::new("adc0");
+        handle.set_input(28, 0x3fff).unwrap();
+        adc.write(
+            RaAdcRegister::Adansa1.offset(),
+            AccessWidth::HalfWord,
+            1 << 12,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            RaAdcRegister::Adcsr.offset(),
+            AccessWidth::HalfWord,
+            1 << 15,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        adc.write(
+            RaAdcRegister::Adcsr.offset(),
+            AccessWidth::HalfWord,
+            0,
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(CONVERSION_TICKS)));
+        assert_eq!(handle.sample(28), Some(0));
     }
 }
