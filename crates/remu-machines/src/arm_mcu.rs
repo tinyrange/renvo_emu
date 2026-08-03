@@ -962,7 +962,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remu_devices::RA4M1_EVENT_ELC_SOFTWARE0;
+    use remu_devices::{RA4M1_EVENT_ELC_SOFTWARE0, RaElcRegister};
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -1042,7 +1042,7 @@ mod tests {
         machine
             .bus
             .write(
-                0x4004_1010,
+                0x4004_1000 + RaElcRegister::Elsr(0).offset(),
                 AccessWidth::HalfWord,
                 u64::from(RA4M1_EVENT_ELC_SOFTWARE0),
                 SimTime::ZERO,
@@ -1050,11 +1050,21 @@ mod tests {
             .unwrap();
         machine
             .bus
-            .write(0x4004_1000, AccessWidth::Byte, 0x80, SimTime::ZERO)
+            .write(
+                0x4004_1000 + RaElcRegister::Elcr.offset(),
+                AccessWidth::Byte,
+                0x80,
+                SimTime::ZERO,
+            )
             .unwrap();
         machine
             .bus
-            .write(0x4004_1002, AccessWidth::Byte, 0x41, SimTime::ZERO)
+            .write(
+                0x4004_1000 + RaElcRegister::Elsegr0.offset(),
+                AccessWidth::Byte,
+                0x41,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_eq!(
             machine

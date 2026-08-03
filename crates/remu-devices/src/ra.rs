@@ -13,6 +13,92 @@ pub const RA4M1_EVENT_ELC_SOFTWARE0: u16 = 0x053;
 /// RA4M1 ELC event number for software event 1.
 pub const RA4M1_EVENT_ELC_SOFTWARE1: u16 = 0x054;
 
+/// Named RA4M1 Event Link Controller register identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum RaElcRegister {
+    /// Event Link Controller enable register (ELCR).
+    Elcr,
+    /// Software event generation register 0 (ELSEGR0).
+    Elsegr0,
+    /// Software event generation register 1 (ELSEGR1).
+    Elsegr1,
+    /// Event-link setting register with its destination index (ELSRn).
+    Elsr(u8),
+}
+
+impl RaElcRegister {
+    /// Stable list of modeled ELC register IDs.
+    pub const ALL: [Self; 26] = [
+        Self::Elcr,
+        Self::Elsegr0,
+        Self::Elsegr1,
+        Self::Elsr(0),
+        Self::Elsr(1),
+        Self::Elsr(2),
+        Self::Elsr(3),
+        Self::Elsr(4),
+        Self::Elsr(5),
+        Self::Elsr(6),
+        Self::Elsr(7),
+        Self::Elsr(8),
+        Self::Elsr(9),
+        Self::Elsr(10),
+        Self::Elsr(11),
+        Self::Elsr(12),
+        Self::Elsr(13),
+        Self::Elsr(14),
+        Self::Elsr(15),
+        Self::Elsr(16),
+        Self::Elsr(17),
+        Self::Elsr(18),
+        Self::Elsr(19),
+        Self::Elsr(20),
+        Self::Elsr(21),
+        Self::Elsr(22),
+    ];
+
+    /// Returns the native ELC byte offset.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::Elcr => 0x00,
+            Self::Elsegr0 => 0x02,
+            Self::Elsegr1 => 0x04,
+            Self::Elsr(index) => 0x10 + (index as u64) * 4,
+        }
+    }
+
+    /// Returns the vendor register name family.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Elcr => "elcr",
+            Self::Elsegr0 => "elsegr0",
+            Self::Elsegr1 => "elsegr1",
+            Self::Elsr(_) => "elsr",
+        }
+    }
+
+    /// Returns the destination index for an ELSR register.
+    pub const fn link_index(self) -> Option<u8> {
+        match self {
+            Self::Elsr(index) => Some(index),
+            Self::Elcr | Self::Elsegr0 | Self::Elsegr1 => None,
+        }
+    }
+
+    /// Resolves a native ELC byte offset to a named register.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Elcr),
+            0x02 => Some(Self::Elsegr0),
+            0x04 => Some(Self::Elsegr1),
+            0x10..=0x68 if (offset - 0x10) % 4 == 0 => {
+                Some(Self::Elsr(((offset - 0x10) / 4) as u8))
+            }
+            _ => None,
+        }
+    }
+}
+
 fn input_bits(state: &Arc<Mutex<GpioState>>) -> u16 {
     state
         .lock()
@@ -614,13 +700,6 @@ impl RaElc {
             RaElcHandle(state),
         )
     }
-
-    fn link_index(offset: u64) -> Option<usize> {
-        if offset < 0x10 || offset >= 0x10 + (RA4M1_ELC_LINKS as u64) * 4 {
-            return None;
-        }
-        ((offset - 0x10) % 4 == 0).then(|| usize::try_from((offset - 0x10) / 4).ok())?
-    }
 }
 
 impl Device for RaElc {
@@ -630,14 +709,14 @@ impl Device for RaElc {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         let state = self.state.lock().expect("RA ELC lock poisoned");
-        match (offset, width) {
-            (0x00, AccessWidth::Byte) => Ok(u64::from(u8::from(state.enabled) << 7)),
-            (0x02 | 0x04, AccessWidth::Byte) => Ok(0),
-            (offset, AccessWidth::HalfWord) => state
+        match (RaElcRegister::from_offset(offset), width) {
+            (Some(RaElcRegister::Elcr), AccessWidth::Byte) => {
+                Ok(u64::from(u8::from(state.enabled) << 7))
+            }
+            (Some(RaElcRegister::Elsegr0 | RaElcRegister::Elsegr1), AccessWidth::Byte) => Ok(0),
+            (Some(RaElcRegister::Elsr(index)), AccessWidth::HalfWord) => state
                 .links
-                .get(Self::link_index(offset).ok_or_else(|| {
-                    DeviceError::new(format!("unmodeled RA ELC read at {offset:#x}"))
-                })?)
+                .get(usize::from(index))
                 .copied()
                 .map(u64::from)
                 .ok_or_else(|| DeviceError::new("RA ELC link index out of range")),
@@ -653,23 +732,25 @@ impl Device for RaElc {
         _at: SimTime,
     ) -> Result<(), DeviceError> {
         let mut state = self.state.lock().expect("RA ELC lock poisoned");
-        match (offset, width) {
-            (0x00, AccessWidth::Byte) => state.enabled = value & 0x80 != 0,
-            (0x02 | 0x04, AccessWidth::Byte) => {
+        match (RaElcRegister::from_offset(offset), width) {
+            (Some(RaElcRegister::Elcr), AccessWidth::Byte) => state.enabled = value & 0x80 != 0,
+            (
+                Some(register @ (RaElcRegister::Elsegr0 | RaElcRegister::Elsegr1)),
+                AccessWidth::Byte,
+            ) => {
                 // SEG is write-only and requires WE; WI disables writes.
                 if value & 0x40 != 0 && value & 0x80 == 0 && value & 1 != 0 && state.enabled {
-                    state.software_events.push(if offset == 0x02 {
-                        RA4M1_EVENT_ELC_SOFTWARE0
-                    } else {
-                        RA4M1_EVENT_ELC_SOFTWARE1
-                    });
+                    state
+                        .software_events
+                        .push(if register == RaElcRegister::Elsegr0 {
+                            RA4M1_EVENT_ELC_SOFTWARE0
+                        } else {
+                            RA4M1_EVENT_ELC_SOFTWARE1
+                        });
                 }
             }
-            (offset, AccessWidth::HalfWord) => {
-                let index = Self::link_index(offset).ok_or_else(|| {
-                    DeviceError::new(format!("unmodeled RA ELC write at {offset:#x}"))
-                })?;
-                state.links[index] = value as u16 & 0x01ff;
+            (Some(RaElcRegister::Elsr(index)), AccessWidth::HalfWord) => {
+                state.links[usize::from(index)] = value as u16 & 0x01ff;
             }
             _ => return Err(DeviceError::new("RA ELC access width is not supported")),
         }
@@ -684,6 +765,19 @@ impl Device for RaElc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elc_register_ids_are_named_and_native() {
+        assert_eq!(RaElcRegister::ALL.len(), 26);
+        assert_eq!(RaElcRegister::Elcr.offset(), 0x00);
+        assert_eq!(RaElcRegister::Elsegr1.name(), "elsegr1");
+        assert_eq!(
+            RaElcRegister::from_offset(0x10),
+            Some(RaElcRegister::Elsr(0))
+        );
+        assert_eq!(RaElcRegister::Elsr(22).offset(), 0x68);
+        assert_eq!(RaElcRegister::from_offset(0x0c), None);
+    }
 
     #[test]
     fn ioport_atomic_output_and_pfs_direction_are_visible() {
@@ -728,28 +822,48 @@ mod tests {
     fn elc_links_and_software_events_are_enable_gated() {
         let (mut elc, handle) = RaElc::new("elc");
         elc.write(
-            0x10,
+            RaElcRegister::Elsr(0).offset(),
             AccessWidth::HalfWord,
             RA4M1_EVENT_ELC_SOFTWARE0.into(),
             SimTime::ZERO,
         )
         .unwrap();
-        elc.write(0x02, AccessWidth::Byte, 0x41, SimTime::ZERO)
-            .unwrap();
+        elc.write(
+            RaElcRegister::Elsegr0.offset(),
+            AccessWidth::Byte,
+            0x41,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert!(handle.take_software_events().is_empty());
         assert!(handle.route_event(RA4M1_EVENT_ELC_SOFTWARE0).is_empty());
 
-        elc.write(0x00, AccessWidth::Byte, 0x80, SimTime::ZERO)
-            .unwrap();
-        elc.write(0x02, AccessWidth::Byte, 0x41, SimTime::ZERO)
-            .unwrap();
+        elc.write(
+            RaElcRegister::Elcr.offset(),
+            AccessWidth::Byte,
+            0x80,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        elc.write(
+            RaElcRegister::Elsegr0.offset(),
+            AccessWidth::Byte,
+            0x41,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert_eq!(
             handle.take_software_events(),
             vec![RA4M1_EVENT_ELC_SOFTWARE0]
         );
         assert_eq!(handle.route_event(RA4M1_EVENT_ELC_SOFTWARE0), vec![0]);
-        elc.write(0x00, AccessWidth::Byte, 0, SimTime::ZERO)
-            .unwrap();
+        elc.write(
+            RaElcRegister::Elcr.offset(),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
         assert!(!handle.enabled());
         assert!(handle.route_event(RA4M1_EVENT_ELC_SOFTWARE0).is_empty());
     }
