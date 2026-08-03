@@ -990,6 +990,18 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x5006_0804,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0
+        );
         machine.rng().unwrap().seed(0x1234_5678);
         let replay = machine
             .bus
@@ -997,7 +1009,7 @@ mod tests {
                 0x5006_0808,
                 AccessWidth::Word,
                 AccessKind::Read,
-                SimTime::ZERO,
+                SimTime::from_ticks(1),
             )
             .unwrap();
         assert_eq!(first, replay);
