@@ -1,6 +1,6 @@
 {
   "schema": "remu.riscv-cpu.v1",
-  "source_sha256": "bcad8a5e89292e10eae123444179519d82fb4679b7aa6d55ee0a4d3532c212c3",
+  "source_sha256": "f1608816f1936792ae64530ae3b070f9cb389a416704389bea43e0f9bd4d615c",
   "primary_sources": [
     "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
     "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
@@ -147,7 +147,7 @@
       "elf": ".remu/portfolio-smoke/hazard3/smoke.elf",
       "elf_sha256": "0dd19dc8ca2cce47d7941a1b06f0124a6df022d203ca2b6568ab5b954ac9fcfe",
       "result_artifact": ".remu/portfolio-smoke/hazard3-extensions-run.json",
-      "result_sha256": "d81b5c0629f80335ff62f5bf5bd681c26b559c6b4774c1d625e585127d520ded",
+      "result_sha256": "1af64f9d101cc35460eca4720ddbb064b653d3eb5a0a23b00ed1f19343671090",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -155,7 +155,7 @@
         "time": 58,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "e5e04eec221807e1cb5a84e75955f97b2f6817f16de5c72afbc8ab73c798d87f",
       "result": "pass"
     }
   ],

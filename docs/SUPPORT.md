@@ -10,8 +10,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
-| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
+| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform; native DW I²C0/I²C1 host transactions |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, PIO0 waveform, and functional I²C0/I²C1 host proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
@@ -44,6 +44,25 @@ See `scripts/qualify-micropython.sh` and
 
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+
+The RP2350 I²C slice exposes the documented DW_apb_i2c register/FIFO command
+path, including reset values, disabled-only configuration writes, sixteen-entry
+TX/RX FIFO status, read-clear interrupt registers, component identification,
+RP2350 atomic XOR/set/clear write aliases, RP2350 narrow-write replication,
+deterministic host-provided read bytes, and VCD byte/strobe signals. The
+`IC_INTR_MASK` bits follow the silicon contract: zero masks a source and one
+unmasks it. It is a functional host model; electrical SDA/SCL resolution,
+arbitration, slave mode, DMA handshakes, and exact bus timing remain outside
+the current support contract.
+
+The RP2040 I²C0/I²C1 slice uses the same native DW_apb_i2c register contract at
+`0x4004_4000` and `0x4004_8000`. It has the official reset values and access
+masks, disabled-only configuration, sixteen-entry command/receive FIFOs,
+read-clear interrupt sources, APB byte/halfword lanes, RP atomic aliases, and
+deterministic host-provided read bytes. `scripts/docker-smoke.sh` runs a
+native-address Cortex-M0+ firmware proof on both controllers. As with RP2350,
+pin-level SDA/SCL behavior, arbitration, slave mode, DMA handshakes, interrupt
+controller delivery, and exact bus timing are intentionally not claimed.
 
 ## Implemented CPU surface
 

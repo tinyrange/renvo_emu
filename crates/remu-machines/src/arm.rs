@@ -14,10 +14,11 @@ use remu_core::{
 };
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
-    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
-    Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
+    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalI2c,
+    FunctionalTimer, FunctionalUart, GpioHandle, I2cEvent, I2cHandle, Rp2040Clocks, Rp2040Pll,
+    Rp2040RegisterBank, Rp2040Resets, Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam,
+    Rp2350XipMaintenance, RpI2c, RpI2cEvent, RpI2cHandle, RpPio, RpPioHandle, RpSioGpio,
     RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
@@ -30,7 +31,6 @@ mod error;
 pub use error::ArmMachineError;
 mod usb_host;
 pub(crate) use usb_host::Rp2040UsbHost;
-
 /// Runnable direct-ELF Arm vertical slice for RP2040 and RP2350.
 pub struct ArmMachine {
     target: TargetId,
@@ -44,6 +44,7 @@ pub struct ArmMachine {
     sio: RpSioHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
+    chip_i2cs: Vec<I2cHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -55,6 +56,7 @@ pub struct ArmMachine {
     native_bootrom: bool,
     ppb: ArmPpbHandle,
     chip_timers: Vec<Rp2040TimerHandle>,
+    i2c: Vec<RpI2cHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -63,7 +65,6 @@ pub struct ArmMachine {
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
 }
-
 impl ArmMachine {
     /// Creates the selected Raspberry Pi Arm mode.
     pub fn new(target: TargetId) -> Result<Self, ArmMachineError> {
@@ -118,6 +119,8 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut chip_i2cs = Vec::new();
+        let mut i2c = Vec::new();
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
@@ -303,8 +306,6 @@ impl ArmMachine {
                 ("rp2040.uart1", 0x4003_8000),
                 ("rp2040.spi0", 0x4003_c000),
                 ("rp2040.spi1", 0x4004_0000),
-                ("rp2040.i2c0", 0x4004_4000),
-                ("rp2040.i2c1", 0x4004_8000),
                 ("rp2040.adc", 0x4004_c000),
                 ("rp2040.pwm", 0x4005_0000),
                 ("rp2040.dma", 0x5000_0000),
@@ -416,8 +417,6 @@ impl ArmMachine {
                 ("rp2350.uart1", 0x4007_8000),
                 ("rp2350.spi0", 0x4008_0000),
                 ("rp2350.spi1", 0x4008_8000),
-                ("rp2350.i2c0", 0x4009_0000),
-                ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
@@ -430,6 +429,16 @@ impl ArmMachine {
                     0x4000,
                     Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
                 )?;
+            }
+            for (index, (name, base)) in
+                [("rp2350.i2c0", 0x4009_0000), ("rp2350.i2c1", 0x4009_8000)]
+                    .into_iter()
+                    .enumerate()
+            {
+                let (device, handle) =
+                    RpI2c::new(name, &format!("board.rp2350.i2c{index}"), signals.clone())?;
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                i2c.push(handle);
             }
             bus.map_device(
                 "rp2350.xosc",
@@ -571,6 +580,14 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
+        if target == TargetId::Rp2040 {
+            for (index, base) in [0x4004_4000, 0x4004_8000].into_iter().enumerate() {
+                let name = format!("{target}.i2c{index}");
+                let (device, handle) = FunctionalI2c::new(&name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                chip_i2cs.push(handle);
+            }
+        }
         let (pio0, handle) = RpPio::new(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
@@ -596,6 +613,7 @@ impl ArmMachine {
             sio,
             uart,
             chip_uart,
+            chip_i2cs,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -607,6 +625,7 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            i2c,
             pio,
             usb,
             usb_dpram,
@@ -616,7 +635,6 @@ impl ArmMachine {
             signal_stops: Vec::new(),
         })
     }
-
     fn service_functional_bootrom(&mut self) -> Result<bool, String> {
         if self.target == TargetId::Rp2040 && self.native_bootrom {
             return Ok(false);
@@ -889,7 +907,6 @@ impl ArmMachine {
             _ => Ok(false),
         }
     }
-
     /// Loads an Arm ELF and establishes direct-mode entry state.
     pub fn load_firmware(&mut self, image: &FirmwareImage) -> Result<(), ArmMachineError> {
         if image.architecture != FirmwareArchitecture::Arm {
@@ -917,7 +934,6 @@ impl ArmMachine {
         self.cpu.set_direct_state(self.default_stack, entry | 1)?;
         Ok(())
     }
-
     /// Loads a validated Raspberry Pi UF2 image into the target's XIP flash.
     pub fn load_uf2(&mut self, image: &Uf2Image) -> Result<(), ArmMachineError> {
         let expected = match self.target {
@@ -946,7 +962,6 @@ impl ArmMachine {
         }
         Ok(())
     }
-
     /// Replaces the complete persistent XIP flash backing before firmware is
     /// overlaid and booted.
     pub fn set_flash_image(&self, bytes: &[u8]) -> Result<(), ArmMachineError> {
@@ -970,12 +985,10 @@ impl ArmMachine {
         }
         Ok(())
     }
-
     /// Copies the complete mutable XIP flash state for persistence.
     pub fn flash_image(&self) -> Vec<u8> {
         self.flash_storage.to_vec()
     }
-
     /// Installs a complete 16 KiB RP2040 boot-ROM image.
     pub fn load_rp2040_boot_rom(&mut self, image: &[u8]) -> Result<(), ArmMachineError> {
         if self.target != TargetId::Rp2040 || image.len() != 16 * 1024 {
@@ -997,7 +1010,6 @@ impl ArmMachine {
         self.native_bootrom = true;
         Ok(())
     }
-
     /// Applies the documented functional RP2040 boot-ROM boundary and starts at the SDK vector
     /// table after the 256-byte second-stage flash bootloader.
     pub fn rp2040_bootrom_handoff(&mut self) -> Result<(), ArmMachineError> {
@@ -1072,32 +1084,26 @@ impl ArmMachine {
     pub fn set_access_recording(&mut self, enabled: bool) {
         self.bus.set_access_recording(enabled);
     }
-
     /// Installs or removes a streaming completed-access observer.
     pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
         self.bus.set_access_observer(observer);
     }
-
     /// Returns completed bus accesses retained for diagnostics.
     pub fn access_log(&self) -> &[BusAccessRecord] {
         self.bus.access_log()
     }
-
     /// Stops before executing an instruction at `address`.
     pub fn add_breakpoint(&mut self, address: u64) {
         self.breakpoints.insert(address);
     }
-
     /// Removes one debugger execution breakpoint.
     pub fn remove_breakpoint(&mut self, address: u64) {
         self.breakpoints.remove(&address);
     }
-
     /// Returns the current CPU0 snapshot for debugger adapters.
     pub fn debug_snapshot(&self) -> remu_core::CpuSnapshot {
         self.cpu.snapshot()
     }
-
     /// Reads guest-visible bytes for a debugger.
     pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         (0..length)
@@ -1114,7 +1120,6 @@ impl ArmMachine {
             })
             .collect()
     }
-
     /// Writes guest-visible bytes for a debugger.
     pub fn debug_write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), String> {
         for (offset, byte) in bytes.iter().enumerate() {
@@ -1129,26 +1134,52 @@ impl ArmMachine {
         }
         Ok(())
     }
-
     /// Stops after a completed CPU data access overlaps `address`.
     pub fn add_watchpoint(&mut self, address: u64) {
         self.bus.add_watchpoint(address);
     }
-
     /// Stops when the named signal satisfies `edge`.
     pub fn add_signal_stop(&mut self, path: &str, edge: SignalEdge) -> Result<(), ArmMachineError> {
         self.signal_stops
             .push(resolve_signal_stop(&self.signals, path, edge)?);
         Ok(())
     }
-
+    /// Queues deterministic response bytes for one target I²C controller.
+    pub fn queue_i2c_read(&self, index: usize, address: u16, bytes: &[u8]) -> bool {
+        if let Some(handle) = self.chip_i2cs.get(index) {
+            handle.queue_read(address, bytes);
+            return true;
+        }
+        self.i2c.get(index).is_some_and(|handle| {
+            handle.queue_read(address, bytes.iter().copied());
+            true
+        })
+    }
+    /// Returns byte-level events observed on one target I²C controller.
+    pub fn i2c_events(&self, index: usize) -> Option<Vec<I2cEvent>> {
+        if let Some(handle) = self.chip_i2cs.get(index) {
+            return Some(handle.events());
+        }
+        self.i2c.get(index).map(|handle| {
+            handle
+                .events()
+                .into_iter()
+                .filter_map(|event| match event {
+                    RpI2cEvent::Write { address, value } => {
+                        Some(I2cEvent::Write { address, value })
+                    }
+                    RpI2cEvent::Read { address, value } => Some(I2cEvent::Read { address, value }),
+                    RpI2cEvent::Start | RpI2cEvent::RepeatedStart | RpI2cEvent::Stop => None,
+                })
+                .collect()
+        })
+    }
     /// Removes configured user breakpoints and data watchpoints.
     pub fn clear_debug_stops(&mut self) {
         self.breakpoints.clear();
         self.bus.clear_watchpoints();
         self.signal_stops.clear();
     }
-
     /// Drives or releases one compiler-facade GPIO pin.
     pub fn set_pin(&self, pin: u8, value: Logic) -> Result<(), ArmMachineError> {
         self.gpio.set_input(pin, value, self.now)?;
@@ -1157,7 +1188,6 @@ impl ArmMachine {
         }
         Ok(())
     }
-
     /// Queues bytes for delivery through the enumerated USB bulk-OUT endpoint.
     pub fn queue_usb_input(&mut self, bytes: &[u8]) {
         if let Some(host) = &mut self.usb_host {
@@ -1248,6 +1278,12 @@ impl ArmMachine {
                 (chip_timer_pending & !chip_timer_was_pending).count_ones(),
             ));
             chip_timer_was_pending = chip_timer_pending;
+            for (index, handle) in self.i2c.iter().enumerate() {
+                self.cpu.set_interrupt(
+                    36_u16 + u16::try_from(index).expect("RP2350 I²C index fits u16"),
+                    handle.pending(),
+                )?;
+            }
             for pio in &self.pio {
                 if pio.poll(self.now)? {
                     stats.events = stats.events.saturating_add(1);
@@ -1460,14 +1496,5 @@ impl ArmMachine {
         })
     }
 }
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
