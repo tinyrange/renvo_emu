@@ -186,6 +186,7 @@ pub struct AvrCpu {
     pc: u16,
     program: Vec<u16>,
     interrupts: BTreeSet<u16>,
+    last_interrupt_line: Option<u16>,
     waiting: bool,
     halted: bool,
 }
@@ -206,6 +207,7 @@ impl AvrCpu {
             pc: 0,
             program: Vec::new(),
             interrupts: BTreeSet::new(),
+            last_interrupt_line: None,
             waiting: false,
             halted: false,
         }
@@ -231,6 +233,15 @@ impl AvrCpu {
             AvrRegister::Pc => u64::from(self.pc),
             _ => u64::from(self.registers[register.gdb_number()]),
         }
+    }
+
+    /// Returns the interrupt line consumed by the most recent CPU step.
+    ///
+    /// A machine model can use this acknowledgement point to apply
+    /// architecture-specific peripheral side effects, such as clearing an
+    /// interrupt flag that hardware clears while vectoring.
+    pub fn last_interrupt_line(&self) -> Option<u16> {
+        self.last_interrupt_line
     }
 
     fn fault(&self, kind: CpuFaultKind, message: impl Into<String>) -> CpuFault {
@@ -321,12 +332,14 @@ impl Cpu for AvrCpu {
         self.sp = 0x08ff;
         self.pc = 0;
         self.interrupts.clear();
+        self.last_interrupt_line = None;
         self.waiting = false;
         self.halted = false;
         Ok(())
     }
 
     fn step(&mut self, bus: &mut dyn Bus, now: SimTime) -> Result<StepOutcome, CpuFault> {
+        self.last_interrupt_line = None;
         if self.halted {
             return Ok(StepOutcome {
                 elapsed: SimDuration::TICK,
@@ -338,6 +351,7 @@ impl Cpu for AvrCpu {
                 self.push_pc(bus, self.pc, now)?;
                 self.sreg &= !SREG_I;
                 self.pc = line.saturating_add(1).saturating_mul(2);
+                self.last_interrupt_line = Some(line);
                 self.waiting = false;
                 return Ok(StepOutcome::advanced(SimDuration::from_ticks(4)));
             }

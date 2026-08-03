@@ -40,12 +40,24 @@ const ADCL: u16 = 0x78;
 const ADCH: u16 = 0x79;
 const ADCSRA: u16 = 0x7a;
 const ADMUX: u16 = 0x7c;
+const PRR0: u16 = 0x64;
 
 const ADEN: u8 = 1 << 7;
 const ADSC: u8 = 1 << 6;
+const ADATE: u8 = 1 << 5;
 const ADIF: u8 = 1 << 4;
 const ADIE: u8 = 1 << 3;
+const ADPS_MASK: u8 = 0x07;
 const ADLAR: u8 = 1 << 5;
+const PRADC: u8 = 1;
+const ADC_INTERRUPT_LINE: u16 = 20;
+
+#[derive(Clone, Copy)]
+struct AdcConversion {
+    started: u64,
+    duration: u64,
+    mux: u8,
+}
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -63,6 +75,9 @@ struct AtmegaState {
     watchdog_started: u64,
     watchdog_reset: bool,
     adc_inputs: [u16; 8],
+    adc_conversion: Option<AdcConversion>,
+    adc_first_conversion: bool,
+    adc_result_locked: bool,
     uart_tx_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
@@ -90,6 +105,27 @@ impl AtmegaIoHandle {
     pub fn poll(&self, now: SimTime) -> Vec<u16> {
         let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
         let mut lines = Vec::new();
+        if let Some(conversion) = state.adc_conversion
+            && now.ticks().saturating_sub(conversion.started) >= conversion.duration
+        {
+            let sample = adc_sample(&state, conversion.mux);
+            let adcl = usize::from(ADCL - IO_BASE);
+            let adch = usize::from(ADCH - IO_BASE);
+            if !state.adc_result_locked {
+                if state.registers[usize::from(ADMUX - IO_BASE)] & ADLAR != 0 {
+                    state.registers[adch] = (sample >> 2) as u8;
+                    state.registers[adcl] = ((sample & 3) << 6) as u8;
+                } else {
+                    state.registers[adcl] = sample as u8;
+                    state.registers[adch] = (sample >> 8) as u8;
+                }
+            }
+            let control = usize::from(ADCSRA - IO_BASE);
+            state.registers[control] = (state.registers[control] & !ADSC) | ADIF;
+            state.adc_conversion = None;
+            state.adc_first_conversion = false;
+            set_bit_signal(&state, state.adc_irq_signal, true, now);
+        }
         let tccr = state.registers[usize::from(TCCR0B - IO_BASE)];
         if tccr & 7 != 0 {
             let compare = state.registers[usize::from(OCR0A - IO_BASE)];
@@ -159,7 +195,8 @@ impl AtmegaIoHandle {
             set_bit_signal(&state, state.watchdog_reset_signal, true, now);
         }
         if state.registers[usize::from(ADCSRA - IO_BASE)] & (ADIF | ADIE) == (ADIF | ADIE) {
-            lines.push(21);
+            // CPU line 20 is vector number 22 (program address 0x002a).
+            lines.push(ADC_INTERRUPT_LINE);
             set_bit_signal(&state, state.adc_irq_signal, true, now);
         }
         lines
@@ -189,11 +226,47 @@ impl AtmegaIoHandle {
         }
     }
 
+    /// Applies the native ADC side effect of entering the conversion-complete
+    /// interrupt vector: hardware clears ADIF during vectoring.
+    pub fn acknowledge_adc_interrupt(&self, at: SimTime) {
+        let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
+        state.registers[usize::from(ADCSRA - IO_BASE)] &= !ADIF;
+        set_bit_signal(&state, state.adc_irq_signal, false, at);
+    }
+
     /// Returns the most recently completed ADC result in right-adjusted form.
     pub fn adc_value(&self) -> u16 {
         let state = self.0.lock().expect("ATmega I/O lock poisoned");
-        u16::from(state.registers[usize::from(ADCL - IO_BASE)])
-            | (u16::from(state.registers[usize::from(ADCH - IO_BASE)]) << 8)
+        let low = state.registers[usize::from(ADCL - IO_BASE)];
+        let high = state.registers[usize::from(ADCH - IO_BASE)];
+        if state.registers[usize::from(ADMUX - IO_BASE)] & ADLAR != 0 {
+            (u16::from(high) << 2) | u16::from(low >> 6)
+        } else {
+            u16::from(low) | (u16::from(high) << 8)
+        }
+    }
+}
+
+fn adc_sample(state: &AtmegaState, mux: u8) -> u16 {
+    match mux & 0x0f {
+        channel @ 0..=7 => state.adc_inputs[usize::from(channel)],
+        // Temperature sensor, bandgap, and GND are not electrical models in
+        // this functional slice. Keep them deterministic and do not alias
+        // them to an external ADC channel.
+        8 | 14 | 15 => 0,
+        _ => 0,
+    }
+}
+
+fn adc_prescaler(control: u8) -> u64 {
+    match control & ADPS_MASK {
+        0 | 1 => 2,
+        2 => 4,
+        3 => 8,
+        4 => 16,
+        5 => 32,
+        6 => 64,
+        _ => 128,
     }
 }
 
@@ -286,6 +359,9 @@ impl AtmegaIo {
             watchdog_started: 0,
             watchdog_reset: false,
             adc_inputs: [0; 8],
+            adc_conversion: None,
+            adc_first_conversion: true,
+            adc_result_locked: false,
             uart_tx_signal,
             timer0_irq_signal,
             timer1_irq_signal,
@@ -335,7 +411,7 @@ impl Device for AtmegaIo {
             return Err(DeviceError::new("ATmega I/O requires byte accesses"));
         }
         let address = IO_BASE + offset as u16;
-        let state = self.state.lock().expect("ATmega I/O lock poisoned");
+        let mut state = self.state.lock().expect("ATmega I/O lock poisoned");
         if let Some((port, base)) = Self::port_register(address) {
             let value = match address - base {
                 0 => resolved(&state.ports[port]),
@@ -355,6 +431,14 @@ impl Device for AtmegaIo {
             return Ok(u64::from(value));
         }
         let value = match address {
+            ADCL => {
+                state.adc_result_locked = true;
+                state.registers[usize::from(address - IO_BASE)]
+            }
+            ADCH => {
+                state.adc_result_locked = false;
+                state.registers[usize::from(address - IO_BASE)]
+            }
             UCSR0A => state.registers[usize::from(address - IO_BASE)] | (1 << 5) | (1 << 6),
             EEDR => state.registers[usize::from(EEDR - IO_BASE)],
             _ => state.registers[usize::from(address - IO_BASE)],
@@ -423,23 +507,58 @@ impl Device for AtmegaIo {
             ADCSRA => {
                 let index = usize::from(ADCSRA - IO_BASE);
                 let previous = state.registers[index];
-                let mut next = (value & !ADIF) | (previous & ADIF);
-                if value & ADSC != 0 && previous & ADSC == 0 && value & ADEN != 0 {
-                    let channel = usize::from(state.registers[usize::from(ADMUX - IO_BASE)] & 7);
-                    let sample = state.adc_inputs.get(channel).copied().unwrap_or(0);
-                    let adcl = usize::from(ADCL - IO_BASE);
-                    let adch = usize::from(ADCH - IO_BASE);
-                    if state.registers[usize::from(ADMUX - IO_BASE)] & ADLAR != 0 {
-                        state.registers[adch] = (sample >> 2) as u8;
-                        state.registers[adcl] = ((sample & 3) << 6) as u8;
-                    } else {
-                        state.registers[adcl] = sample as u8;
-                        state.registers[adch] = (sample >> 8) as u8;
-                    }
-                    next = (next | ADIF) & !ADSC;
+                let control_mask = ADEN | ADATE | ADIE | ADPS_MASK;
+                let mut next = (previous & !control_mask) | (value & control_mask);
+                if value & ADIF != 0 {
+                    next &= !ADIF;
                     set_bit_signal(&state, state.adc_irq_signal, false, at);
+                } else {
+                    next = (next & !ADIF) | (previous & ADIF);
+                }
+                let powered =
+                    next & ADEN != 0 && state.registers[usize::from(PRR0 - IO_BASE)] & PRADC == 0;
+                if !powered {
+                    state.adc_conversion = None;
+                    state.adc_first_conversion = true;
+                    next &= !ADSC;
+                } else if value & ADSC != 0
+                    && previous & ADSC == 0
+                    && state.adc_conversion.is_none()
+                {
+                    let duration = (if state.adc_first_conversion {
+                        25_u64
+                    } else {
+                        13_u64
+                    }) * adc_prescaler(next);
+                    state.adc_conversion = Some(AdcConversion {
+                        started: at.ticks(),
+                        duration,
+                        mux: state.registers[usize::from(ADMUX - IO_BASE)] & 0x0f,
+                    });
+                    next |= ADSC;
+                } else if state.adc_conversion.is_some() {
+                    // Writing zero to ADSC has no effect while a conversion
+                    // is in progress.
+                    next |= ADSC;
+                } else {
+                    next &= !ADSC;
                 }
                 state.registers[index] = next;
+            }
+            ADCL | ADCH => {
+                // ADC data registers are read-only on the ATmega328PB.
+            }
+            ADMUX => {
+                // Bit 4 is reserved and reads as zero.
+                state.registers[usize::from(ADMUX - IO_BASE)] = value & 0xef;
+            }
+            PRR0 => {
+                state.registers[usize::from(PRR0 - IO_BASE)] = value;
+                if value & PRADC != 0 {
+                    state.adc_conversion = None;
+                    state.adc_first_conversion = true;
+                    state.registers[usize::from(ADCSRA - IO_BASE)] &= !ADSC;
+                }
             }
             UDR0 => {
                 state.uart.push(value);
@@ -480,7 +599,9 @@ impl Device for AtmegaIo {
         state.timer_pending = false;
         state.timer1_pending = false;
         state.watchdog_reset = false;
-        state.adc_inputs = [0; 8];
+        state.adc_conversion = None;
+        state.adc_first_conversion = true;
+        state.adc_result_locked = false;
         set_bit_signal(&state, state.timer0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer1_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.pcint0_irq_signal, false, SimTime::ZERO);
@@ -576,7 +697,7 @@ mod tests {
             SimTime::ZERO,
         )
         .unwrap();
-        assert_eq!(handle.adc_value(), 0x02aa);
+        assert_eq!(handle.adc_value(), 0);
         assert_eq!(
             io.read(
                 u64::from(ADCSRA - IO_BASE),
@@ -585,19 +706,42 @@ mod tests {
             )
             .unwrap() as u8
                 & ADSC,
-            0
+            ADSC
         );
-        assert!(
+        assert!(handle.poll(SimTime::from_ticks(49)).is_empty());
+        assert_eq!(
+            handle.poll(SimTime::from_ticks(50)),
+            vec![ADC_INTERRUPT_LINE]
+        );
+        assert_eq!(handle.adc_value(), 0x02aa);
+        assert_ne!(
             io.read(
                 u64::from(ADCSRA - IO_BASE),
                 AccessWidth::Byte,
                 SimTime::ZERO
             )
             .unwrap() as u8
-                & ADIF
-                != 0
+                & ADIF,
+            0
         );
-        assert_eq!(handle.poll(SimTime::from_ticks(1)), vec![21]);
+        io.write(
+            u64::from(ADCSRA - IO_BASE),
+            AccessWidth::Byte,
+            u64::from(ADEN | ADIE | ADIF),
+            SimTime::from_ticks(50),
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(51)).is_empty());
+        assert_eq!(
+            io.read(
+                u64::from(ADCSRA - IO_BASE),
+                AccessWidth::Byte,
+                SimTime::from_ticks(51)
+            )
+            .unwrap() as u8
+                & ADIF,
+            0
+        );
         io.write(
             u64::from(ADMUX - IO_BASE),
             AccessWidth::Byte,
@@ -609,9 +753,14 @@ mod tests {
             u64::from(ADCSRA - IO_BASE),
             AccessWidth::Byte,
             u64::from(ADEN | ADIE | ADIF | ADSC),
-            SimTime::ZERO,
+            SimTime::from_ticks(51),
         )
         .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(76)).is_empty());
+        assert_eq!(
+            handle.poll(SimTime::from_ticks(77)),
+            vec![ADC_INTERRUPT_LINE]
+        );
         assert_eq!(
             io.read(u64::from(ADCH - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
                 .unwrap(),
@@ -622,5 +771,46 @@ mod tests {
                 .unwrap(),
             0x80
         );
+    }
+
+    #[test]
+    fn adc_does_not_alias_reserved_mux_values_and_preserves_external_inputs_on_reset() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        handle.set_adc_input(0, 0x03ff);
+        io.write(
+            u64::from(ADMUX - IO_BASE),
+            AccessWidth::Byte,
+            8,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(ADCSRA - IO_BASE),
+            AccessWidth::Byte,
+            u64::from(ADEN | ADSC),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(50)).is_empty());
+        assert_eq!(handle.adc_value(), 0);
+        io.reset(ResetKind::External);
+        handle.set_adc_input(0, 0x03ff);
+        io.write(
+            u64::from(ADMUX - IO_BASE),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(ADCSRA - IO_BASE),
+            AccessWidth::Byte,
+            u64::from(ADEN | ADSC),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(50)).is_empty());
+        assert_eq!(handle.adc_value(), 0x03ff);
     }
 }

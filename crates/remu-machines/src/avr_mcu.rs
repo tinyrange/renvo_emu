@@ -15,6 +15,8 @@ use remu_trace::{TraceDigest, TraceSink};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
+const ADC_INTERRUPT_LINE: u16 = 20;
+
 /// ATmega machine construction, loading, and execution error.
 #[derive(Debug, Error)]
 pub enum AvrMachineError {
@@ -314,9 +316,16 @@ impl AvrMcuMachine {
                 self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
                 stats.events = stats.events.saturating_add(1);
             }
-            for line in self.io.poll(self.now) {
+            let interrupt_lines = self.io.poll(self.now);
+            for line in interrupt_lines.iter().copied() {
                 self.cpu.set_interrupt(line, true)?;
             }
+            // ADC completion is a level derived from ADIF/ADIE. Clear the
+            // core's pending input when firmware clears ADIF before vectoring.
+            self.cpu.set_interrupt(
+                ADC_INTERRUPT_LINE,
+                interrupt_lines.contains(&ADC_INTERRUPT_LINE),
+            )?;
             self.bus.clear_watchpoint_hit();
             let outcome = match self.cpu.step(&mut self.bus, self.now) {
                 Ok(outcome) => outcome,
@@ -328,6 +337,9 @@ impl AvrMcuMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| AvrMachineError::TimeOverflow)?;
             stats.time = self.now;
+            if self.cpu.last_interrupt_line() == Some(ADC_INTERRUPT_LINE) {
+                self.io.acknowledge_adc_interrupt(self.now);
+            }
             let mut signal_stop = None;
             for change in self.signals.drain_changes() {
                 signal_stop =
@@ -422,12 +434,16 @@ mod tests {
             .unwrap();
         machine
             .bus
-            .write(0x7a, AccessWidth::Byte, 0x80, SimTime::ZERO)
+            .write(0x7a, AccessWidth::Byte, 0x88, SimTime::ZERO)
             .unwrap();
         machine
             .bus
-            .write(0x7a, AccessWidth::Byte, 0xc0, SimTime::ZERO)
+            .write(0x7a, AccessWidth::Byte, 0xc8, SimTime::ZERO)
             .unwrap();
+        assert_eq!(
+            machine.io.poll(SimTime::from_ticks(50)),
+            vec![ADC_INTERRUPT_LINE]
+        );
         assert_eq!(
             machine
                 .bus
