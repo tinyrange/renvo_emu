@@ -13,9 +13,10 @@ EUSART1 output. Every build must emit `PIC16F15376:OK\nIRQ\n`.
 Implemented functionally: all 49 enhanced mid-range instruction families,
 14-bit word program memory, banked/common/linear RAM, the 16-level hardware
 stack, reset and interrupt vectors, oscillator-ready state, PORT/LAT/TRIS/
-ANSEL A–E, PPS register storage plus functional TMR0/TX1 output-source routing,
-PIR/PIE routing, Timer0/1, EUSART1 transmit and watchdog reset. Timer and
-serial timing are deterministic approximations.
+ANSEL A–E, named PPS RxyPPS/PPSLOCK registers with functional lock behavior and
+TMR0/TX1 output-source routing, PIR/PIE routing, Timer0/1, EUSART1 transmit and
+watchdog reset. Timer, PPS unlock-sequence and serial timing are deterministic
+functional approximations.
 Analog modules, serial receive timing and unlisted peripherals remain
 unsupported and are not represented as hardware-accurate.
 
