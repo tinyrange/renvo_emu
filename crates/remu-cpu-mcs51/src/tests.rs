@@ -150,17 +150,29 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
     cpu.load_code(0, &[0x00]).unwrap();
     cpu.load_code(0x0b, &[0x32]).unwrap();
     cpu.load_code(0x23, &[0x32]).unwrap();
+    cpu.load_code(0x3b, &[0x32]).unwrap();
     cpu.set_interrupt(0, true).unwrap();
     run(&mut cpu, &mut bus, 1);
     assert_eq!(cpu.pc, 0x0b);
     cpu.set_interrupt(0, false).unwrap();
-    cpu.set_interrupt(4, true).unwrap();
+    cpu.set_interrupt(5, true).unwrap();
     run(&mut cpu, &mut bus, 1);
     assert_eq!(cpu.pc, 0x23);
-    cpu.set_interrupt(4, false).unwrap();
+    cpu.set_interrupt(5, false).unwrap();
     run(&mut cpu, &mut bus, 2);
     assert_eq!(cpu.pc, 0);
     assert_eq!(cpu.active_priority, None);
+}
+
+#[test]
+fn extended_interrupt_line_uses_smbus_vector() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0, &[0x00]).unwrap();
+    cpu.load_code(0x3b, &[0x32]).unwrap();
+    cpu.set_interrupt(3, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x3b);
 }
 
 #[test]
