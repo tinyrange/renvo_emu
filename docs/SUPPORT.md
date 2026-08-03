@@ -45,6 +45,12 @@ See `scripts/qualify-micropython.sh` and
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
+The R7FA4M1AB3CFM model includes the RA4M1 Data Operation Circuit at
+`0x40054100`. Its compare, add, and subtract modes, detection polarity,
+operation flag/clear, and 16-bit input/reference/result registers are modeled
+for deterministic firmware tests. It does not claim the hardware's exact
+operation-completion latency.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
