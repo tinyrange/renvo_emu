@@ -10,6 +10,7 @@ mod arm;
 mod arm_mcu;
 mod avr_mcu;
 mod board;
+mod board_gpio;
 mod mcs51_mcu;
 mod msp430_mcu;
 mod pic16_mcu;

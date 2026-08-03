@@ -61,15 +61,18 @@ impl PushButton {
                 level: final_level,
             }];
         }
-        let interval = (self.bounce_ticks / 4).max(1);
-        [final_level, old_level, final_level, old_level, final_level]
+        let offsets = [
+            0,
+            self.bounce_ticks / 4,
+            self.bounce_ticks / 2,
+            self.bounce_ticks.saturating_mul(3) / 4,
+            self.bounce_ticks,
+        ];
+        offsets
             .into_iter()
-            .enumerate()
-            .map(|(index, level)| ButtonTransition {
-                at: SimTime::from_ticks(
-                    at.ticks()
-                        .saturating_add(interval.saturating_mul(index as u64)),
-                ),
+            .zip([final_level, old_level, final_level, old_level, final_level])
+            .map(|(offset, level)| ButtonTransition {
+                at: SimTime::from_ticks(at.ticks().saturating_add(offset)),
                 level,
             })
             .collect()
@@ -90,5 +93,17 @@ mod tests {
         assert_eq!(transitions[1].level, Logic::One);
         assert_eq!(transitions[4].at, SimTime::from_ticks(140));
         assert!(button.pressed());
+    }
+
+    #[test]
+    fn short_bounce_stays_inside_configured_window() {
+        let mut button = PushButton::new(true, 1);
+        let transitions = button.set_pressed(true, SimTime::from_ticks(100));
+        assert_eq!(transitions.len(), 5);
+        assert!(
+            transitions
+                .iter()
+                .all(|transition| transition.at <= SimTime::from_ticks(101))
+        );
     }
 }
