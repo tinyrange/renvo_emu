@@ -723,6 +723,10 @@ impl Device for EspSystimer {
             return Ok(());
         }
         if offset == 0x6c {
+            // Keep the write visible for one machine observation so a
+            // composed machine can mirror the clear into an interrupt router;
+            // the register is consumed and cleared by that observation.
+            state.registers[0x6c / 4] = value as u32 & 0x7;
             state.registers[0x68 / 4] &= !(value as u32 & 0x7);
             return Ok(());
         }

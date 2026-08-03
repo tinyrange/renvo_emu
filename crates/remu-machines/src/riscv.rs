@@ -13,13 +13,13 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspSystimer, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
-    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks,
-    Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController,
-    Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
-    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
-    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspGpio, EspSpiMem, EspSystimer, EspSystimerHandle, EspTimerGroup,
+    EspTimerGroupHandle, EspTimerGroupKind, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice,
+    ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank,
+    Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio,
+    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -198,6 +198,7 @@ pub struct RiscVMachine {
     esp_flash_guard: u32,
     esp_flash: Vec<u8>,
     esp_timer_groups: Vec<EspTimerGroupHandle>,
+    esp_systimer: Option<EspSystimerHandle>,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
@@ -241,6 +242,7 @@ impl RiscVMachine {
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
+        let mut esp_systimer = None;
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
@@ -642,8 +644,9 @@ impl RiscVMachine {
                     0x1000,
                     Box::new(EspSpiMem::new("esp32c6.spimem1")),
                 )?;
-                let (systimer, _systimer_handle) = EspSystimer::new("esp32c6.systimer");
+                let (systimer, systimer_handle) = EspSystimer::new("esp32c6.systimer");
                 bus.map_device("esp32c6.systimer", 0x6000_a000, 0x1000, Box::new(systimer))?;
+                esp_systimer = Some(systimer_handle);
                 for (name, base) in [
                     ("esp32c6.i2c0", 0x6000_4000),
                     ("esp32c6.uhci0", 0x6000_5000),
@@ -798,6 +801,7 @@ impl RiscVMachine {
             esp_flash_guard: 0,
             esp_flash: Vec::new(),
             esp_timer_groups,
+            esp_systimer,
             flash_storage,
             chip_timers,
             pio,
@@ -1162,6 +1166,7 @@ impl RiscVMachine {
                     }
                 }
                 const SYSTIMER_INT_RAW: u64 = 0x6000_a068;
+                const SYSTIMER_INT_ENA: u64 = 0x6000_a064;
                 const SYSTIMER_INT_CLR: u64 = 0x6000_a06c;
                 const SYSTIMER_INT_ST: u64 = 0x6000_a070;
                 let clear = self
@@ -1179,6 +1184,32 @@ impl RiscVMachine {
                         .write(SYSTIMER_INT_CLR, AccessWidth::Word, 0, self.now)
                         .map_err(MachineError::Bus)?;
                 }
+                // The mapped device is also used directly by firmware that
+                // bypasses the ROM timer helpers. Poll it before routing the
+                // interrupt so native MMIO alarms become live machine events.
+                if let Some(handle) = &self.esp_systimer {
+                    let _ = handle.pending(self.now);
+                }
+                let model_raw = self
+                    .bus
+                    .read(
+                        SYSTIMER_INT_RAW,
+                        AccessWidth::Word,
+                        AccessKind::Read,
+                        self.now,
+                    )
+                    .map_err(MachineError::Bus)? as u8
+                    & 0x7;
+                let model_enabled = self
+                    .bus
+                    .read(
+                        SYSTIMER_INT_ENA,
+                        AccessWidth::Word,
+                        AccessKind::Read,
+                        self.now,
+                    )
+                    .map_err(MachineError::Bus)? as u8
+                    & 0x7;
                 let counter = self.now.ticks().wrapping_add(self.esp_systimer_offset);
                 for alarm in 0..self.esp_systimer_next.len() {
                     let due = self.esp_systimer_interrupt_enabled[alarm]
@@ -1217,7 +1248,9 @@ impl RiscVMachine {
                             self.now,
                         )
                         .map_err(MachineError::Bus)? as u32;
-                    let deliver = self.esp_systimer_raw & (1 << alarm) != 0
+                    let old_deliver = self.esp_systimer_raw & (1 << alarm) != 0;
+                    let model_deliver = model_raw & model_enabled & (1 << alarm) != 0;
+                    let deliver = (old_deliver || model_deliver)
                         && self.esp_enabled_interrupts.contains(&interrupt)
                         && priority >= threshold;
                     if deliver {
@@ -1233,12 +1266,13 @@ impl RiscVMachine {
                     .enumerate()
                     .fold(0_u8, |mask, (alarm, enabled)| {
                         mask | (u8::from(*enabled) << alarm)
-                    });
+                    })
+                    | model_enabled;
                 self.bus
                     .write(
                         SYSTIMER_INT_RAW,
                         AccessWidth::Word,
-                        u64::from(self.esp_systimer_raw),
+                        u64::from(self.esp_systimer_raw | model_raw),
                         self.now,
                     )
                     .map_err(MachineError::Bus)?;
@@ -1246,7 +1280,7 @@ impl RiscVMachine {
                     .write(
                         SYSTIMER_INT_ST,
                         AccessWidth::Word,
-                        u64::from(self.esp_systimer_raw & enabled_mask),
+                        u64::from((self.esp_systimer_raw | model_raw) & enabled_mask),
                         self.now,
                     )
                     .map_err(MachineError::Bus)?;
