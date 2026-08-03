@@ -361,7 +361,11 @@ impl Device for Esp32S3Tsens {
         match register {
             Esp32S3TsensRegister::TsensCtrl => {
                 let requested = value & register.write_mask();
-                state.set_register(register, requested);
+                // The output and ready fields are read-only on native
+                // hardware.  A configuration write must not erase the last
+                // completed measurement while changing the writable bits.
+                let preserved = state.register(register) & !register.write_mask();
+                state.set_register(register, preserved | requested);
                 if requested & (TSENS_POWER_UP | TSENS_POWER_UP_FORCE) != 0 {
                     state.complete_measurement(at)?;
                 }
@@ -465,6 +469,21 @@ mod tests {
         assert_eq!(
             read(&mut tsens, Esp32S3TsensRegister::SarCocpuIntStatus),
             u64::from(TSENS_INTERRUPT)
+        );
+        write(
+            &mut tsens,
+            Esp32S3TsensRegister::TsensCtrl,
+            u64::from(TSENS_INT_ENABLE),
+        )
+        .unwrap();
+        let control_after_configuration_write = read(&mut tsens, Esp32S3TsensRegister::TsensCtrl);
+        assert_eq!(
+            control_after_configuration_write & u64::from(TSENS_RAW_MASK),
+            u64::from(!173u8)
+        );
+        assert_ne!(
+            control_after_configuration_write & u64::from(TSENS_READY),
+            0
         );
         write(
             &mut tsens,
