@@ -203,10 +203,14 @@ fn wch_flash_controller_programs_and_erases_the_mapped_alias() {
     const KEY1: u64 = 0x4567_0123;
     const KEY2: u64 = 0xcdef_89ab;
     const PG: u64 = 1;
+    const PAGE_PG: u64 = 1 << 16;
+    const BUF_LOAD: u64 = 1 << 18;
     const PER_AND_STRT: u64 = (1 << 1) | (1 << 6);
     for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
         let mut machine = RiscVMachine::new(target).unwrap();
-        machine.load_bytes(0x400, &[0xff, 0xff]).unwrap();
+        machine
+            .load_bytes(0x400, &[0xff, 0xff, 0xff, 0xff])
+            .unwrap();
         machine
             .bus
             .write(0x4002_2004, AccessWidth::Word, KEY1, SimTime::ZERO)
@@ -215,25 +219,57 @@ fn wch_flash_controller_programs_and_erases_the_mapped_alias() {
             .bus
             .write(0x4002_2004, AccessWidth::Word, KEY2, SimTime::ZERO)
             .unwrap();
-        machine
-            .bus
-            .write(0x4002_2010, AccessWidth::Word, PG, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(0x400, AccessWidth::HalfWord, 0x1234, SimTime::ZERO)
-            .unwrap();
+        if target == TargetId::Ch32v003 {
+            machine
+                .bus
+                .write(0x4002_2010, AccessWidth::Word, PG, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x400, AccessWidth::HalfWord, 0x1234, SimTime::ZERO)
+                .unwrap();
+        } else {
+            machine
+                .bus
+                .write(0x4002_2024, AccessWidth::Word, KEY1, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x4002_2024, AccessWidth::Word, KEY2, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x4002_2010, AccessWidth::Word, PAGE_PG, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x400, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(
+                    0x4002_2010,
+                    AccessWidth::Word,
+                    PAGE_PG | BUF_LOAD,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
         assert_eq!(
             machine
                 .bus
                 .read(
                     0x0800_0400,
-                    AccessWidth::HalfWord,
+                    AccessWidth::Word,
                     AccessKind::Read,
                     SimTime::ZERO
                 )
                 .unwrap(),
-            0x1234
+            if target == TargetId::Ch32v003 {
+                0xffff_1234
+            } else {
+                0x1234_5678
+            }
         );
         machine
             .bus

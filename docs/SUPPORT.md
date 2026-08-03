@@ -29,10 +29,13 @@ conventions without pretending that vendor peripherals are interchangeable.
 The WCH CH32V003/CH32V006 flash slice is mapped as executable device-backed
 memory at the manifest flash address plus the vendor `0x0800_0000` alias. The
 native controller at `0x4002_2000` implements the key sequence, lock state,
-`PG` halfword/word programming with NOR one-to-zero behavior, 1 KiB page
-erase, mass erase, `BSY`/`EOP` status, and firmware-loader initialization. It
-is intentionally functional: option bytes, write-protection regions, fast
-buffer programming, and flash operation timing are not modeled.
+NOR one-to-zero programming, 1 KiB sector erase, mass erase, `BSY`/`EOP`
+status, and firmware-loader initialization. CH32V003 supports standard
+half-word programming plus its 64-byte fast-page control path; CH32V006
+supports the documented 32-bit buffered/fast-page control path and 256-byte
+fast erase geometry. It is intentionally functional: option-byte contents,
+write-protection enforcement, exact buffer timing, and flash operation timing
+are not modeled.
 
 ## Official MicroPython milestone
 
