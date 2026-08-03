@@ -545,3 +545,24 @@ fn esp_etm_routes_enabled_event_channels_to_tasks() {
             .is_some()
     );
 }
+
+#[test]
+fn esp_etm_zero_event_or_task_keeps_channel_disabled() {
+    let hub = SignalHub::new();
+    let (mut etm, handle) = EspEtm::new("etm", "board.esp32c6.etm", hub).unwrap();
+
+    etm.write(0x04, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    etm.write(0x1c, AccessWidth::Word, 29, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.trigger(0, SimTime::ZERO).unwrap(), Vec::<u8>::new());
+    assert_eq!(etm.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+
+    etm.write(0x18, AccessWidth::Word, 17, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.trigger(17, SimTime::ZERO).unwrap(), vec![29]);
+    etm.write(0x1c, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.trigger(17, SimTime::ZERO).unwrap(), Vec::<u8>::new());
+    assert_eq!(etm.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+}

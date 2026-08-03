@@ -31,6 +31,11 @@ impl EspEtmState {
     }
 
     fn enabled(&self, channel: usize) -> bool {
+        if self.channel_event(channel) == 0 || self.channel_task(channel) == 0 {
+            // The native ETM disables a channel whose event or task selector
+            // is zero, even if its enable bit was previously set.
+            return false;
+        }
         if channel < 32 {
             self.registers[CH_ENA_AD0 as usize / 4] & (1 << channel) != 0
         } else {
@@ -44,6 +49,12 @@ impl EspEtmState {
 
     fn channel_task(&self, channel: usize) -> u8 {
         self.registers[(CHANNEL_BASE + channel as u64 * CHANNEL_STRIDE + 4) as usize / 4] as u8
+    }
+
+    fn enabled_word(&self, first_channel: usize, count: usize) -> u32 {
+        (0..count).fold(0, |word, index| {
+            word | (u32::from(self.enabled(first_channel + index)) << index)
+        })
     }
 }
 
@@ -150,6 +161,12 @@ impl Device for EspEtm {
             return Err(DeviceError::new("ESP ETM requires aligned word access"));
         }
         let state = self.state.lock().expect("ESP ETM lock poisoned");
+        if offset == CH_ENA_AD0 {
+            return Ok(u64::from(state.enabled_word(0, 32)));
+        }
+        if offset == CH_ENA_AD1 {
+            return Ok(u64::from(state.enabled_word(32, CHANNEL_COUNT - 32)));
+        }
         let index = usize::try_from(offset / 4).expect("ETM register index fits");
         state
             .registers

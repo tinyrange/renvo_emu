@@ -236,8 +236,12 @@ can be changed with `--esp-app-offset`.
 ESP32-C6 ETM exposes all fifty native event/task selector channels, split
 enable/set/clear registers, clock enable, and version fields. A host fixture
 can trigger an event ID and observe the enabled task IDs in deterministic VCD
-and handle output; peripheral-specific task side effects and cross-peripheral
-interrupt routing remain unsupported.
+and handle output. Channels with a zero event or task selector remain disabled,
+matching the native channel-control rule. The register layout and reset values
+follow Espressif's [ESP-IDF SOC ETM definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32c6/register/soc/soc_etm_reg.h)
+and [ETM low-level HAL](https://raw.githubusercontent.com/espressif/esp-idf/master/components/hal/esp32c6/include/hal/etm_ll.h);
+peripheral-specific task side effects and cross-peripheral interrupt routing
+remain unsupported.
 
 ESP32-C6 application RAM powers on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only the file-backed portion of writable load
