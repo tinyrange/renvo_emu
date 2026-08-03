@@ -99,8 +99,12 @@ struct AdcConversion {
     duration: u64,
     mux: u8,
 }
+const UDR1: u16 = 0xc7;
 const UCSR1A: u16 = 0xc8;
-const UDR1: u16 = 0xce;
+const UCSR1B: u16 = 0xc9;
+const UDRE1: u8 = 1 << 5;
+const TXC1: u8 = 1 << 6;
+const TXEN1: u8 = 1 << 3;
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -468,6 +472,7 @@ fn reset_registers(registers: &mut [u8; 224]) {
     registers[usize::from(TWSR - IO_BASE)] = TWI_STATUS_RESET;
     registers[usize::from(TWAR - IO_BASE)] = 0x02;
     registers[usize::from(TWDR - IO_BASE)] = 0x01;
+    registers[usize::from(UCSR1A - IO_BASE)] = UDRE1;
 }
 
 /// Unified ATmega328PB memory-mapped I/O window.
@@ -673,7 +678,7 @@ impl Device for AtmegaIo {
                 }
                 value
             }
-            UCSR1A => state.registers[usize::from(address - IO_BASE)] | (1 << 5) | (1 << 6),
+            UCSR1A => state.registers[usize::from(address - IO_BASE)],
             EEDR => state.registers[usize::from(EEDR - IO_BASE)],
             TWCR => state.registers[usize::from(TWCR - IO_BASE)] & TWCR_READ_MASK,
             TWSR => state.registers[usize::from(TWSR - IO_BASE)],
@@ -709,6 +714,16 @@ impl Device for AtmegaIo {
             return Self::refresh_port(&state, port, at);
         }
         match address {
+            UCSR1A => {
+                let index = usize::from(UCSR1A - IO_BASE);
+                let current = state.registers[index];
+                // TXC1 is cleared by writing one. UDRE1 and the receiver
+                // status/error flags are read-only; U2X1 and MPCM1 are the
+                // writable configuration bits in this functional slice.
+                state.registers[index] = (current & UDRE1)
+                    | (if value & TXC1 == 0 { current & TXC1 } else { 0 })
+                    | (value & 0x03);
+            }
             TCCR0B if state.registers[usize::from(TCCR0B - IO_BASE)] & 7 == 0 && value & 7 != 0 => {
                 state.timer_started = at.ticks();
                 state.registers[usize::from(TCCR0B - IO_BASE)] = value;
@@ -853,16 +868,24 @@ impl Device for AtmegaIo {
                     (status & (SPSR_SPIF | SPSR_WCOL)) | (value & SPSR_SPI2X);
             }
             UDR1 => {
-                state.uart1.push(value);
-                state
-                    .hub
-                    .set(
-                        state.uart1_tx_signal,
-                        SignalValue::from_u64(u64::from(value), 8)
-                            .expect("eight-bit signal is valid"),
-                        at,
-                    )
-                    .expect("ATmega USART1 signal identity and width are fixed");
+                let status = state.registers[usize::from(UCSR1A - IO_BASE)];
+                let control = state.registers[usize::from(UCSR1B - IO_BASE)];
+                if control & TXEN1 != 0 && status & UDRE1 != 0 {
+                    state.uart1.push(value);
+                    // The functional model completes the frame at the same
+                    // abstract timestamp, leaving both ready and complete
+                    // for the next polling iteration.
+                    state.registers[usize::from(UCSR1A - IO_BASE)] |= UDRE1 | TXC1;
+                    state
+                        .hub
+                        .set(
+                            state.uart1_tx_signal,
+                            SignalValue::from_u64(u64::from(value), 8)
+                                .expect("eight-bit signal is valid"),
+                            at,
+                        )
+                        .expect("ATmega USART1 signal identity and width are fixed");
+                }
             }
             EECR => {
                 let address = usize::from(state.registers[usize::from(EEARL - IO_BASE)])
@@ -1623,6 +1646,13 @@ mod tests {
         let hub = SignalHub::new();
         let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
         io.write(
+            u64::from(UCSR1B - IO_BASE),
+            AccessWidth::Byte,
+            u64::from(TXEN1),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
             u64::from(UDR1 - IO_BASE),
             AccessWidth::Byte,
             b'Z'.into(),
@@ -1637,8 +1667,8 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap() as u8
-                & (1 << 5),
-            1 << 5
+                & (UDRE1 | TXC1),
+            UDRE1 | TXC1
         );
     }
 }
