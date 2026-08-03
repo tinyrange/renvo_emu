@@ -144,13 +144,22 @@ def main() -> None:
             raise SystemExit(f"dashboard target metadata is missing: {target_id}")
         if manifest["support_tier"] != entry_spec["highest_tier"]:
             raise SystemExit(f"target tier metadata disagrees: {target_id}")
-        native_cases = [
+        all_native_cases = [
             case
             for case in native_images["cases"]
-            if case["target"] == target_id and case.get("status") == "pass"
+            if case["target"] == target_id
         ]
-        if not native_cases:
+        if not all_native_cases or any(
+            case.get("status") != "pass" for case in all_native_cases
+        ):
             raise SystemExit(f"native-image evidence is incomplete: {target_id}")
+        native_cases = all_native_cases
+        declared_formats = set(entry_spec["native_image_formats"])
+        observed_formats = {case["native_format"] for case in native_cases}
+        if "elf" not in declared_formats or observed_formats != declared_formats - {"elf"}:
+            raise SystemExit(f"native-image formats are not evidence-bound: {target_id}")
+        if any(case.get("direct_format") != "elf" for case in native_cases):
+            raise SystemExit(f"native-image direct format is not ELF: {target_id}")
 
         tiers = []
         for tier in tier_definitions:
