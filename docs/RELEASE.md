@@ -23,7 +23,11 @@ asset checksum file covers both architecture-specific binaries and the
 quick-start archive. A quick-start run is documented in
 [`examples/quickstart`](../examples/quickstart/README.md); extracting the
 archive provides a ready-to-run `quickstart/build/quickstart.elf` plus its
-build provenance, result, waveform, and per-file checksums.
+build provenance, result, waveform, and per-file checksums. Before publishing,
+the workflow runs
+[`scripts/verify-release-quickstart.sh`](../scripts/verify-release-quickstart.sh)
+to validate those checksums, the halted CH32V003 result, the GPIO VCD scope,
+the archive contents, and the top-level release checksum manifest.
 
 The image should be treated as an execution environment, not a build
 environment. Firmware compilation continues to use the immutable, pinned
