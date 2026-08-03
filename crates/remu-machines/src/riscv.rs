@@ -19,7 +19,7 @@ use remu_devices::{
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
     RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchPower,
-    WchPowerHandle, WchTimer, WchTimerHandle, WchUsart,
+    WchPowerHandle, WchPowerVariant, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -474,7 +474,6 @@ impl RiscVMachine {
             usb = Some(usb_handle);
             usb_host = Some(Rp2040UsbHost::new());
         }
-
         let signals = SignalHub::new();
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
@@ -513,7 +512,6 @@ impl RiscVMachine {
             TEST_EXIT_SIZE,
             Box::new(exit_device),
         )?;
-
         let mut chip_gpio = Vec::new();
         let mut chip_uarts = Vec::new();
         match target {
@@ -559,7 +557,12 @@ impl RiscVMachine {
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 wch_timer = Some(handle);
-                let (power, handle) = WchPower::new(format!("{target}.pwr"));
+                let variant = match target {
+                    TargetId::Ch32v003 => WchPowerVariant::Ch32v003,
+                    TargetId::Ch32v006 => WchPowerVariant::Ch32v006,
+                    _ => unreachable!("WCH PWR is only constructed for WCH targets"),
+                };
+                let (power, handle) = WchPower::new_for_variant(format!("{target}.pwr"), variant);
                 bus.map_device(format!("{target}.pwr"), 0x4000_7000, 0x400, Box::new(power))?;
                 wch_power = Some(handle);
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
@@ -761,7 +764,6 @@ impl RiscVMachine {
             | TargetId::Pic16f15376
             | TargetId::Efm8bb52f32g => unreachable!(),
         }
-
         Ok(Self {
             target,
             cpu: RiscVCpu::new(profile.clone())?,
@@ -811,7 +813,6 @@ impl RiscVMachine {
             signal_stops: Vec::new(),
         })
     }
-
     fn service_functional_bootrom(&mut self) -> Result<bool, String> {
         if self.target == TargetId::Esp32c6 {
             let pc = self.cpu.pc();
@@ -826,7 +827,6 @@ impl RiscVMachine {
         }
         self.service_rp2350_bootrom()
     }
-
     /// Selected target.
     pub const fn target(&self) -> TargetId {
         self.target

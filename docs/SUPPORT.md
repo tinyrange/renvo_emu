@@ -32,7 +32,10 @@ CH32V003 and CH32V006 map the vendor `PWR` block at `0x40007000`. The model
 covers the documented `CTLR`, `CSR`, `AWUCSR`, `AWUWR`, and `AWUPSC` registers:
 PVD enable/threshold configuration, the host-driven `PVDO` status flag,
 automatic-wakeup enable/window/prescaler fields, and the standby (`PDDS`)
-request used by firmware before `WFI`/`WFE`.
+configuration used by firmware before `WFI`/`WFE`. The target-specific CTLR
+layouts and reset values are retained: CH32V003 exposes PLS[2:0] with a zero
+reset, while CH32V006 exposes PLS[1:0], FLASH low-power and LDO fields with
+reset `0x00000408`; both AWUWR registers reset to `0x3f`.
 
 `WchPowerHandle` lets a host set the deterministic supply-low condition and
 observe/clear the latched standby request. It does not claim analogue voltage

@@ -281,6 +281,27 @@ fn wch_power_models_pvd_awu_and_standby_controls() {
 }
 
 #[test]
+fn wch_power_uses_target_specific_control_masks_and_resets() {
+    let (mut ch32v003, _) = WchPower::new_for_variant("v003", WchPowerVariant::Ch32v003);
+    let (mut ch32v006, _) = WchPower::new_for_variant("v006", WchPowerVariant::Ch32v006);
+    let at = SimTime::ZERO;
+
+    assert_eq!(ch32v003.read(0x00, AccessWidth::Word, at).unwrap(), 0);
+    assert_eq!(ch32v003.read(0x0c, AccessWidth::Word, at).unwrap(), 0x3f);
+    assert_eq!(ch32v006.read(0x00, AccessWidth::Word, at).unwrap(), 0x0408);
+    assert_eq!(ch32v006.read(0x0c, AccessWidth::Word, at).unwrap(), 0x3f);
+
+    ch32v003
+        .write(0x00, AccessWidth::Word, u32::MAX.into(), at)
+        .unwrap();
+    ch32v006
+        .write(0x00, AccessWidth::Word, u32::MAX.into(), at)
+        .unwrap();
+    assert_eq!(ch32v003.read(0x00, AccessWidth::Word, at).unwrap(), 0x00f2);
+    assert_eq!(ch32v006.read(0x00, AccessWidth::Word, at).unwrap(), 0x0e7e);
+}
+
+#[test]
 fn wch_timer_raises_and_vendor_clear_sequence_lowers_update_interrupt() {
     let (mut timer, handle) = WchTimer::new("tim2");
     timer
