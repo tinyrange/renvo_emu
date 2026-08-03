@@ -529,6 +529,8 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
 fn esp_twai_transmits_and_self_receives_data_register_frames() {
     let hub = SignalHub::new();
     let (mut twai, handle) = EspTwai::new("twai0", "board.esp32c6.twai0", hub.clone()).unwrap();
+    twai.write(0x00, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
     for index in 0..13_u64 {
         twai.write(
             0x40 + index * 4,

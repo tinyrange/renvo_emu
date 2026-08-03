@@ -23,6 +23,7 @@ const STATUS_TRANSMISSION_COMPLETE: u32 = 1 << 3;
 const INTERRUPT_RECEIVE: u32 = 1 << 0;
 const INTERRUPT_TRANSMIT: u32 = 1 << 1;
 const INTERRUPT_DATA_OVERRUN: u32 = 1 << 3;
+const INTERRUPT_ENABLE_MASK: u32 = 0x1ef;
 
 #[derive(Default)]
 struct EspTwaiState {
@@ -37,8 +38,9 @@ impl EspTwaiState {
             registers: vec![0; REGISTER_BYTES / 4],
             ..Self::default()
         };
-        state.registers[STATUS as usize / 4] =
-            STATUS_TRANSMIT_BUFFER_RELEASED | STATUS_TRANSMISSION_COMPLETE;
+        // The controller powers up in reset mode. Buffer-released and
+        // transmission-complete are asserted only after a command completes.
+        state.registers[MODE as usize / 4] = 1;
         state
     }
 
@@ -201,7 +203,13 @@ impl Device for EspTwai {
             if offset == STATUS {
                 u64::from(state.status())
             } else if offset == INTERRUPT {
-                u64::from(state.registers[INTERRUPT as usize / 4])
+                let value = state.registers[INTERRUPT as usize / 4]
+                    & state.registers[INTERRUPT_ENABLE as usize / 4]
+                    & INTERRUPT_ENABLE_MASK;
+                // Reading clears edge/status interrupts except receive, which
+                // remains asserted while the RX FIFO is non-empty.
+                state.registers[INTERRUPT as usize / 4] &= !(value & !INTERRUPT_RECEIVE);
+                u64::from(value)
             } else if offset == INTERRUPT_ENABLE {
                 u64::from(state.registers[INTERRUPT_ENABLE as usize / 4])
             } else if (DATA_BASE..=DATA_END).contains(&offset) {
@@ -258,9 +266,12 @@ impl Device for EspTwai {
                     self.transmit(&mut state, command & COMMAND_SELF_RX_REQUEST != 0, at)?;
                 }
             }
-            INTERRUPT => state.registers[INTERRUPT as usize / 4] &= !(value as u32),
-            INTERRUPT_ENABLE => state.registers[INTERRUPT_ENABLE as usize / 4] = value as u32,
-            MODE => state.registers[MODE as usize / 4] = value as u32,
+            INTERRUPT => {}
+            INTERRUPT_ENABLE => {
+                state.registers[INTERRUPT_ENABLE as usize / 4] =
+                    value as u32 & INTERRUPT_ENABLE_MASK;
+            }
+            MODE => state.registers[MODE as usize / 4] = value as u32 & 0x0f,
             _ => {
                 let index = usize::try_from(offset / 4).expect("TWAI register index fits");
                 let register = state.registers.get_mut(index).ok_or_else(|| {

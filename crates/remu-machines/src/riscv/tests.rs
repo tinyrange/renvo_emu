@@ -179,7 +179,7 @@ fn esp32c6_twai_native_windows_expose_distinct_status_and_vcd_signals() {
                     SimTime::ZERO
                 )
                 .unwrap(),
-            0x0c
+            0
         );
     }
     assert!(
