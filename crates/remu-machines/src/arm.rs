@@ -574,7 +574,12 @@ impl ArmMachine {
             TargetId::Rp2350 => ("rp2350.pwm", 0x400a_8000),
             _ => unreachable!(),
         };
-        bus.map_device(pwm_name, pwm_base, 0x4000, Box::new(RpPwm::new(pwm_name)))?;
+        let pwm = if target == TargetId::Rp2350 {
+            RpPwm::new_rp2350(pwm_name)
+        } else {
+            RpPwm::new(pwm_name)
+        };
+        bus.map_device(pwm_name, pwm_base, 0x4000, Box::new(pwm))?;
         let (pio0, handle) = RpPio::new(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
@@ -1466,33 +1471,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-
-    #[test]
-    fn raspberry_pi_arm_pwm_maps_native_global_registers() {
-        let mut machine = ArmMachine::new(TargetId::Rp2350).unwrap();
-        machine
-            .bus
-            .write(0x400a_80f0, AccessWidth::Word, 1, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            machine
-                .bus
-                .read(
-                    0x400a_80f0,
-                    AccessWidth::Word,
-                    AccessKind::Read,
-                    SimTime::ZERO
-                )
-                .unwrap(),
-            1
-        );
-    }
-}
+mod tests;

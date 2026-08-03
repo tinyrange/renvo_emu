@@ -452,7 +452,7 @@ impl RiscVMachine {
                 "rp2350.pwm",
                 0x400a_8000,
                 0x4000,
-                Box::new(RpPwm::new("rp2350.pwm")),
+                Box::new(RpPwm::new_rp2350("rp2350.pwm")),
             )?;
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
