@@ -258,6 +258,9 @@ def main() -> None:
     for target in targets:
         profiles = ", ".join(profile["name"] for profile in target["cpu_profiles"])
         coverage = target["register_coverage"]
+        highest_tier = next(
+            tier for tier in target["support_tiers"] if tier["id"] == target["highest_tier"]
+        )
         cpu_rows = escape_list(
             [
                 f"{row['id']} · {row['native_image_format']} · {row['status']}"
@@ -266,15 +269,15 @@ def main() -> None:
         )
         tiers = "".join(
             f"<li><strong>{html.escape(tier['label'])}</strong> — {html.escape(tier['status'])}; "
-            f"evidence: {escape_list([item['path'] + ' (' + item['sha256'][:12] + ')' for item in tier['evidence']])}"
+            f"evidence:<ul>{escape_list([item['path'] + ' (' + item['sha256'][:12] + ')' for item in tier['evidence']])}</ul>"
             f"</li>"
             for tier in target["support_tiers"]
         )
         rows.append(
             f"""
             <article class="target">
-              <header><div><code>{html.escape(target['id'])}</code><h2>{html.escape(target['name'])}</h2></div><span>{html.escape(target['support_tiers'][-1]['label'].upper())}</span></header>
-              <p class="tier">Highest tier: {html.escape(target['support_tiers'][-1]['label'])}. This is a named evidence claim, not arbitrary-device compatibility.</p>
+              <header><div><code>{html.escape(target['id'])}</code><h2>{html.escape(target['name'])}</h2></div><span>{html.escape(highest_tier['label'].upper())}</span></header>
+              <p class="tier">Highest tier: {html.escape(highest_tier['label'])}. This is a named evidence claim, not arbitrary-device compatibility.</p>
               <dl><dt>CPU profiles</dt><dd>{html.escape(profiles)}</dd>
                 <dt>Native-image rows</dt><dd><ul>{cpu_rows}</ul></dd>
                 <dt>Native formats</dt><dd>{html.escape(', '.join(target['native_image_formats']))}</dd>
@@ -320,7 +323,11 @@ def main() -> None:
             + " | ".join(
                 [
                     f"[{target['name']}]({target['peripheral_tracker']})",
-                    target["support_tiers"][-1]["label"],
+                    next(
+                        tier["label"]
+                        for tier in target["support_tiers"]
+                        if tier["id"] == target["highest_tier"]
+                    ),
                     cpu_rows,
                     ", ".join(target["native_image_formats"]),
                     ", ".join(target["peripheral_scope"]),
