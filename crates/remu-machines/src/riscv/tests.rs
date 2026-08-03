@@ -241,6 +241,7 @@ fn unsupported_targets_fail_explicitly() {
 #[test]
 fn esp32c6_maps_native_sdio_identity_and_fifo_blocks() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    assert!(machine.esp32c6_sdio_handle().is_some());
     assert_eq!(
         machine
             .bus

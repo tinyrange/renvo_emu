@@ -34,8 +34,13 @@ contains the Espressif reset identities and configuration defaults, CIS words,
 card/IO-ready controls, timing-update writes, SLC0/SLC1 interrupt raw/status/
 enable/clear registers, FIFO status, deterministic RX/TX FIFO exchange,
 link-control/address registers, token counters, and date/ID registers. The
-host-facing handle makes queued words and interrupt delivery testable without
-introducing wall-clock timing.
+host-facing handle is retained by the ESP32-C6 machine and makes queued words
+and interrupt delivery testable without introducing wall-clock timing. Register
+access follows Espressif's native RO, write-trigger, self-clearing, and
+write-one-to-clear behavior for the covered fields. The implementation is based
+on the official [`sdio_hinf_reg.h`](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/register/soc/sdio_hinf_reg.h)
+and [`sdio_slc_reg.h`](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/register/soc/sdio_slc_reg.h)
+definitions.
 
 This is intentionally not a DMA or bus-protocol implementation: descriptor
 ownership, SLC host-memory transfers, SDIO electrical signalling, CRC/tuning,
