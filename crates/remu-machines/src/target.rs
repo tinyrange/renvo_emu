@@ -736,6 +736,8 @@ const MANIFESTS: &[TargetManifest] = &[
         support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
             "GPIO/low-power wake",
+            "PMM password protection and software POR/BOR",
+            "LPM0-LPM4/LPM3.5-LPM4.5 classification",
             "Timer_A",
             "RTC counter",
             "eUSCI_A0 UART",
@@ -752,7 +754,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.ti.com/lit/ug/slau445i/slau445i.pdf",
         ],
         limitations: &[
-            "Timer_A capture pin routing, ADC sequence/comparator/reference fidelity, capacitive touch, BSL, eUSCI_A1 IrDA/pin routing, pin-level/slave/10-bit I²C, FLL lock timing, oscillator faults, and exact clock accuracy are deferred",
+            "Timer_A capture pin routing, SVS voltage thresholds, PMM NMI routing, analog-reference readiness, ADC sequence/comparator/reference fidelity, capacitive touch, BSL, eUSCI_A1 IrDA/pin routing, pin-level/slave/10-bit I²C, FLL lock timing, oscillator faults, and exact clock accuracy are deferred",
         ],
     },
     TargetManifest {

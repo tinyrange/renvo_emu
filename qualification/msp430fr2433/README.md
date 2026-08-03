@@ -26,14 +26,19 @@ the typed TI register slice, reset-only configuration masks, read-only status,
 byte counting and automatic STOP, ACK/NACK control, and documented interrupt-
 vector priorities. CSCTL0–CSCTL8 reset values, reserved-bit masks, the FLLN
 zero-is-one rule, source selections, and MCLK/SMCLK dividers are represented;
-MCLK division scales abstract execution time. Clock-tree, timer prescaling and
-serial timing are deterministic approximations. Timer compare/overflow flags and
-CCR0/A1 vectors are deterministic; capture pin routing, RTC calendar/alarm
-features, eUSCI_A1 IrDA/pin routing/SPI mode, eUSCI_B0 pin-level arbitration,
-slave mode, 10-bit I²C and electrical ACK timing, ADC sequence/comparator/
-reference fidelity, capacitive touch, FLL lock convergence, oscillator fault
-dynamics, exact oscillator frequency, and unlisted serial modes remain outside
-this acceptance slice.
+The PMM window follows the documented reset values and password gate, masks
+reserved/status bits, consumes PMMCTL2 reference triggers, exposes writable
+PMMIFG causes, classifies LPM0–LPM4 and LPM3.5/LPM4.5 from SR plus PMMREGOFF,
+and turns software POR/BOR (or protected-access faults) into deterministic
+machine resets. MCLK division scales abstract execution time. Clock-tree, timer
+prescaling and serial timing are deterministic approximations. Timer compare/
+overflow flags and CCR0/A1 vectors are deterministic; capture pin routing, RTC
+calendar/alarm features, SVS voltage thresholds, analog-reference readiness,
+NMI/SYSRSTIV routing, eUSCI_A1 IrDA/pin routing/SPI mode, eUSCI_B0 pin-level
+arbitration, slave mode, 10-bit I²C and electrical ACK timing, ADC sequence/
+comparator/reference fidelity, capacitive touch, FLL lock convergence,
+oscillator fault dynamics, exact oscillator frequency, and unlisted serial modes
+remain outside this acceptance slice.
 
 Run from the repository root:
 

@@ -70,6 +70,139 @@ fn gpio_is_locked_until_pm5ctl0_is_cleared() {
     assert_eq!(gpio[0].direction(), 1);
     assert_eq!(gpio[0].resolved(0).unwrap(), Logic::One);
 }
+
+#[test]
+fn pmm_registers_follow_reset_values_and_password_gate() {
+    let hub = SignalHub::new();
+    let (mut device, handle, _gpio) =
+        Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+    assert_eq!(
+        device.read(PMMCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x9640)
+    );
+    assert_eq!(
+        device.read(PMMCTL1 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x9600)
+    );
+    assert_eq!(
+        device.read(PM5CTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x0011)
+    );
+    assert!(!handle.pmm_unlocked());
+
+    device
+        .write(PMMCTL2 as u64, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.take_pmm_reset(), Some(ResetKind::Software));
+    assert_eq!(
+        device.read(PMMCTL2 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0)
+    );
+
+    device
+        .write(
+            (PMMCTL0 + 1) as u64,
+            AccessWidth::Byte,
+            u64::from(PMM_UNLOCK),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert!(handle.pmm_unlocked());
+    device
+        .write(
+            PMMCTL0 as u64,
+            AccessWidth::Byte,
+            u64::from(PMMCTL0_REG_OFF | PMMCTL0_SVSHE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        device.read(PMMCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x9650)
+    );
+    device
+        .write(PMMCTL2 as u64, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        device.read(PMMCTL2 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x003b)
+    );
+    device
+        .write(PMMIFG as u64, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        device.read(PMMIFG as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(PMMIFG_VALUE_MASK.into())
+    );
+    device
+        .write(PMMIE as u64, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        device.read(PMMIE as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0)
+    );
+
+    device
+        .write((PMMCTL0 + 1) as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.pmm_unlocked());
+    device
+        .write(PMMCTL2 as u64, AccessWidth::HalfWord, 0x55, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.take_pmm_reset(), Some(ResetKind::Software));
+}
+
+#[test]
+fn pmm_software_resets_self_clear_and_classify_low_power_modes() {
+    let hub = SignalHub::new();
+    let (mut device, handle, _gpio) =
+        Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+    device
+        .write(
+            PMMCTL0 as u64,
+            AccessWidth::HalfWord,
+            u64::from((u16::from(PMM_UNLOCK) << 8) | PMMCTL0_SWPOR),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(handle.take_pmm_reset(), Some(ResetKind::Software));
+    assert_eq!(
+        device.read(PMMCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+        Ok(0x9600)
+    );
+
+    assert_eq!(handle.low_power_mode(0), Msp430LowPowerMode::Active);
+    assert_eq!(handle.low_power_mode(1 << 4), Msp430LowPowerMode::Lpm0);
+    assert_eq!(
+        handle.low_power_mode((1 << 4) | (1 << 5)),
+        Msp430LowPowerMode::Lpm1
+    );
+    assert_eq!(
+        handle.low_power_mode((1 << 4) | (1 << 6)),
+        Msp430LowPowerMode::Lpm2
+    );
+    assert_eq!(
+        handle.low_power_mode((1 << 4) | (1 << 5) | (1 << 6)),
+        Msp430LowPowerMode::Lpm3
+    );
+
+    device
+        .write(
+            PMMCTL0 as u64,
+            AccessWidth::HalfWord,
+            u64::from((u16::from(PMM_UNLOCK) << 8) | PMMCTL0_REG_OFF),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        handle.low_power_mode((1 << 4) | (1 << 5) | (1 << 6)),
+        Msp430LowPowerMode::Lpm3_5
+    );
+    assert_eq!(
+        handle.low_power_mode((1 << 4) | (1 << 5) | (1 << 6) | (1 << 7)),
+        Msp430LowPowerMode::Lpm4_5
+    );
+}
 #[test]
 fn eusci_captures_a_transmitted_byte() {
     let hub = SignalHub::new();

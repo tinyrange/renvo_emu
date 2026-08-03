@@ -1,3 +1,33 @@
+/// One functional eUSCI_B0 I²C host transaction observed by the test harness.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Msp430I2cEvent {
+    /// START condition on the virtual bus.
+    Start,
+    /// Repeated START without releasing the virtual bus.
+    RepeatedStart,
+    /// A transmitted address or data byte.
+    Write {
+        /// Seven-bit target address selected in UCB0I2CSA.
+        address: u16,
+        /// Byte placed in UCB0TXBUF.
+        value: u8,
+    },
+    /// A received byte supplied by the host fixture.
+    Read {
+        /// Seven-bit target address selected in UCB0I2CSA.
+        address: u16,
+        /// Byte supplied by the host fixture.
+        value: u8,
+    },
+    /// A target did not acknowledge its address.
+    Nack {
+        /// Seven-bit target address selected in UCB0I2CSA.
+        address: u16,
+    },
+    /// STOP condition on the virtual bus.
+    Stop,
+}
+
 /// FR2433 eUSCI_B0 register identities from the TI device table.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(usize)]

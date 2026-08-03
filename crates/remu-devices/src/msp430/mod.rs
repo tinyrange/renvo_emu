@@ -6,10 +6,13 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 mod clock;
+mod pmm;
 mod registers;
 use clock::*;
-pub use registers::Msp430EusciB0Register;
+pub use pmm::Msp430LowPowerMode;
+use pmm::*;
 use registers::*;
+pub use registers::{Msp430EusciB0Register, Msp430I2cEvent};
 
 const REGISTER_BYTES: usize = 0x1000;
 
@@ -134,36 +137,6 @@ fn timer_register(timer: usize, offset: usize) -> usize {
     TIMER_BASES[timer] + offset
 }
 
-/// One functional eUSCI_B0 I²C host transaction observed by the test harness.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Msp430I2cEvent {
-    /// START condition on the virtual bus.
-    Start,
-    /// Repeated START without releasing the virtual bus.
-    RepeatedStart,
-    /// A transmitted address or data byte.
-    Write {
-        /// Seven-bit target address selected in UCB0I2CSA.
-        address: u16,
-        /// Byte placed in UCB0TXBUF.
-        value: u8,
-    },
-    /// A received byte supplied by the host fixture.
-    Read {
-        /// Seven-bit target address selected in UCB0I2CSA.
-        address: u16,
-        /// Byte supplied by the host fixture.
-        value: u8,
-    },
-    /// A target did not acknowledge its address.
-    Nack {
-        /// Seven-bit target address selected in UCB0I2CSA.
-        address: u16,
-    },
-    /// STOP condition on the virtual bus.
-    Stop,
-}
-
 struct Msp430State {
     registers: [u8; REGISTER_BYTES],
     ports: [Arc<Mutex<GpioState>>; 3],
@@ -183,6 +156,9 @@ struct Msp430State {
     rtc_delivered: bool,
     watchdog_epoch: u64,
     watchdog_reset: bool,
+    pmm_unlocked: bool,
+    pmm_reset: Option<ResetKind>,
+    pmm_reset_flags: u16,
     loopback_pending: Option<(u8, u64)>,
     crc: u16,
     crc_data: u16,
@@ -211,6 +187,7 @@ struct Msp430State {
     i2c_strobe_signal: SignalId,
     port1_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
+    pmm_reset_signal: SignalId,
 }
 
 impl Msp430State {
@@ -512,7 +489,7 @@ impl Msp430State {
 
     fn reset_registers(&mut self, at: SimTime) {
         self.registers.fill(0);
-        self.set_word(PM5CTL0, LOCKLPM5);
+        self.reset_pmm(at);
         self.set_word(CSCTL0, CSCTL0_RESET);
         self.set_word(CSCTL1, CSCTL1_RESET);
         self.set_word(CSCTL2, CSCTL2_RESET);
@@ -1014,6 +991,11 @@ impl Msp430Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("WDT_A reset request".to_owned()),
         )?;
+        let pmm_reset_signal = hub.declare(
+            "board.msp430fr2433.pmm.reset",
+            SignalValue::from_u64(0, 1)?,
+            Some("PMM software/reset request".to_owned()),
+        )?;
         let state = Arc::new(Mutex::new(Msp430State {
             registers: [0; REGISTER_BYTES],
             ports: [p1, p2, p3],
@@ -1033,6 +1015,9 @@ impl Msp430Peripherals {
             rtc_delivered: false,
             watchdog_epoch: 0,
             watchdog_reset: false,
+            pmm_unlocked: false,
+            pmm_reset: None,
+            pmm_reset_flags: 0,
             loopback_pending: None,
             crc: 0,
             crc_data: 0,
@@ -1061,6 +1046,7 @@ impl Msp430Peripherals {
             i2c_strobe_signal,
             port1_irq_signal,
             watchdog_reset_signal,
+            pmm_reset_signal,
         }));
         state
             .lock()
@@ -1108,6 +1094,7 @@ impl Device for Msp430Peripherals {
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
         state.update_inputs();
         normalize_clock_registers(&mut state, start, length);
+        normalize_pmm_read(&mut state, start, length);
         if start == FRCTL0 && length >= 2 {
             let low = state.word(FRCTL0) & 0x00ff;
             state.set_word(FRCTL0, 0x9600 | low);
@@ -1266,6 +1253,9 @@ impl Device for Msp430Peripherals {
             )));
         }
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
+        if handle_pmm_write(&mut state, start, length, value, at) {
+            return Ok(());
+        }
         let input_value = value as u16;
         let previous_control = state.word(UCB0CTLW0);
         let previous_ctlw1 = state.word(UCB0CTLW1);
@@ -1283,6 +1273,7 @@ impl Device for Msp430Peripherals {
         for index in 0..length {
             state.registers[start + index] = (value >> (index * 8)) as u8;
         }
+        normalize_pm5_write(&mut state, start, length);
         normalize_clock_registers(&mut state, start, length);
         if start == CRCINIRES && length >= 2 {
             state.crc = input_value;
