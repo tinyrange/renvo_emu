@@ -952,6 +952,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::RaGptRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -1030,13 +1031,18 @@ mod tests {
             .unwrap();
         machine
             .bus
-            .write(0x4007_8164, AccessWidth::Word, 3, SimTime::ZERO)
+            .write(
+                0x4007_8100 + RaGptRegister::Gtpr.offset(),
+                AccessWidth::Word,
+                3,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_eq!(
             machine
                 .bus
                 .read(
-                    0x4007_8164,
+                    0x4007_8100 + RaGptRegister::Gtpr.offset(),
                     AccessWidth::Word,
                     AccessKind::Read,
                     SimTime::ZERO
