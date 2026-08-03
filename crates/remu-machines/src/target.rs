@@ -822,6 +822,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "P0/1/2 port-match interrupt",
             "keyed 32 KiB flash program/erase",
             "PCA0 PWM/capture/compare",
+            "clock source/divider and CPU power controls",
             "interrupt priority",
             "VCD",
         ],
@@ -830,7 +831,8 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf",
         ],
         limitations: &[
-            "UART1 FIFO thresholds, LIN, flow control, analog peripherals, additional serial modes, and historical 8051 machine timing are deferred",
+            "UART1 FIFO thresholds, LIN, flow control, analog electrical physics, additional serial modes, and historical 8051 machine timing are deferred",
+            "oscillator settling, missing-clock detection, external-clock waveforms, peripheral clock domains, and exact low-power timing are functional approximations",
         ],
     },
 ];

@@ -1,7 +1,9 @@
 use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 mod adc;
+mod clock;
 mod clu;
 mod comparator;
+mod crc;
 mod crossbar;
 mod dac;
 mod flash;
@@ -10,8 +12,11 @@ mod port_match;
 mod registers;
 mod timers;
 use adc::*;
+use clock::*;
+pub use clock::{Efm8ClockRegister, Efm8ClockSource, Efm8PowerMode};
 use clu::*;
 use comparator::*;
+use crc::*;
 use crossbar::*;
 pub use crossbar::{Efm8CrossbarFunction, Efm8CrossbarPin};
 use dac::*;
@@ -59,7 +64,6 @@ const P0MDOUT: usize = 0xa4;
 const P1MDOUT: usize = 0xa5;
 const P2MDOUT: usize = 0xa6;
 const IE: usize = 0xa8;
-const CLKSEL: usize = 0xa9;
 const P3: usize = 0xb0;
 const IP: usize = 0xb8;
 const TMR2CN0: usize = 0xc8;
@@ -171,22 +175,6 @@ const PCA0CPM_TOG: u8 = 0x04;
 const PCA0CPM_PWM: u8 = 0x02;
 const PCA0CPM_ECCF: u8 = 0x01;
 
-fn crc16_ccitt(mut crc: u16, input: u8) -> u16 {
-    crc ^= u16::from(input) << 8;
-    for _ in 0..8 {
-        crc = if crc & 0x8000 != 0 {
-            (crc << 1) ^ 0x1021
-        } else {
-            crc << 1
-        };
-    }
-    crc
-}
-
-fn reverse_bits(value: u8) -> u8 {
-    value.reverse_bits()
-}
-
 struct Efm8State {
     registers: Box<[u8]>,
     flash: Box<[u8]>,
@@ -223,6 +211,8 @@ struct Efm8State {
     flash_key_stage: u8,
     flash_locked_out: bool,
     flash_unlocked: bool,
+    power_mode: Efm8PowerMode,
+    external_clock_hz: u32,
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
     uart_byte_signal: SignalId,
@@ -248,6 +238,10 @@ struct Efm8State {
     crossbar_assigned_signal: SignalId,
     crossbar_uart0_tx_signal: SignalId,
     crossbar_uart0_rx_signal: SignalId,
+    clock_source_signal: SignalId,
+    clock_divider_signal: SignalId,
+    sysclk_hz_signal: SignalId,
+    power_mode_signal: SignalId,
     dac_output_signal: SignalId,
     dac_enabled_signal: SignalId,
     comparator_output_signals: [SignalId; 2],
@@ -355,7 +349,7 @@ impl Efm8State {
             self.registers[PORTS[port]] = PORT_MASKS[port];
             self.registers[PORT_MDIN[port]] = PORT_MASKS[port];
         }
-        self.registers[CLKSEL] = 0x80;
+        self.reset_clock(at);
         self.registers[PSCTL] = 0x40;
         self.registers[RSTSRC] = match kind {
             ResetKind::PowerOn => 0x02,
@@ -453,6 +447,9 @@ impl Efm8State {
     }
 
     fn canonical(raw: usize) -> usize {
+        if let Some(register) = canonical_clock_register(raw) {
+            return register;
+        }
         if let Some(register) = Efm8SmbusRegister::from_data_address(raw) {
             return register.offset();
         }
@@ -941,6 +938,26 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0xff, 8)?,
             Some("UART0 RX physical pin index, or 0xff when disabled".to_owned()),
         )?;
+        let clock_source_signal = hub.declare(
+            "board.efm8bb52f32g.clock.source",
+            SignalValue::from_u64(0, 3)?,
+            Some("CLKSEL clock-source selector".to_owned()),
+        )?;
+        let clock_divider_signal = hub.declare(
+            "board.efm8bb52f32g.clock.divider",
+            SignalValue::from_u64(8, 8)?,
+            Some("functional SYSCLK divider".to_owned()),
+        )?;
+        let sysclk_hz_signal = hub.declare(
+            "board.efm8bb52f32g.clock.sysclk_hz",
+            SignalValue::from_u64(3_062_500, 32)?,
+            Some("nominal functional SYSCLK frequency".to_owned()),
+        )?;
+        let power_mode_signal = hub.declare(
+            "board.efm8bb52f32g.power.mode",
+            SignalValue::from_u64(0, 3)?,
+            Some("functional power-mode code".to_owned()),
+        )?;
         let pca_output_signals = [
             hub.declare(
                 "board.efm8bb52f32g.pca0.cex0",
@@ -999,6 +1016,8 @@ impl Efm8Peripherals {
             flash_key_stage: 0,
             flash_locked_out: false,
             flash_unlocked: false,
+            power_mode: Efm8PowerMode::Active,
+            external_clock_hz: 24_000_000,
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
             uart_byte_signal,
@@ -1024,6 +1043,10 @@ impl Efm8Peripherals {
             crossbar_assigned_signal,
             crossbar_uart0_tx_signal,
             crossbar_uart0_rx_signal,
+            clock_source_signal,
+            clock_divider_signal,
+            sysclk_hz_signal,
+            power_mode_signal,
             dac_output_signal,
             dac_enabled_signal,
             comparator_output_signals: [comparator0_output_signal, comparator1_output_signal],
@@ -1066,6 +1089,9 @@ impl Device for Efm8Peripherals {
         let raw = usize::try_from(offset).map_err(|_| DeviceError::new("EFM8 offset overflow"))?;
         let address = Efm8State::canonical(raw);
         let mut state = self.state.lock().expect("EFM8 lock poisoned");
+        if let Some(value) = state.read_clock_register(address) {
+            return Ok(u64::from(value));
+        }
         if matches!(
             address,
             PCA0CN
@@ -1144,11 +1170,7 @@ impl Device for Efm8Peripherals {
         if address == CRC0CN0 {
             value &= CRC0CN0_MASK;
         }
-        if address == CLKSEL {
-            Ok(u64::from(value | 0x80))
-        } else {
-            Ok(u64::from(value))
-        }
+        Ok(u64::from(value))
     }
 
     fn write(
@@ -1169,6 +1191,10 @@ impl Device for Efm8Peripherals {
             return Err(DeviceError::new(format!(
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
+        }
+        if state.write_clock_register(address, value, at) {
+            state.update_interrupt_signals(at);
+            return Ok(());
         }
         if state.write_clu_register(address, value, at) {
             state.update_interrupt_signals(at);
@@ -1286,9 +1312,6 @@ impl Device for Efm8Peripherals {
                     });
                     state.set_signal(state.smbus0_tx_strobe_signal, previous ^ 1, 1, at);
                 }
-            }
-            None if address == CLKSEL => {
-                state.registers[address] = value;
             }
             None => {
                 state.registers[address] = value;

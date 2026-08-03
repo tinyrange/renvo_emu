@@ -1279,3 +1279,77 @@ fn crossbar_assigns_fixed_uart_and_priority_skips_pins() {
         Some(super::Efm8CrossbarPin { port: 0, pin: 6 })
     );
 }
+
+#[test]
+fn clock_selection_masks_and_external_frequency_are_observable() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    assert_eq!(handle.clock_source(), super::Efm8ClockSource::Hfosc0Clk24p5);
+    assert_eq!(handle.clock_divider(), 8);
+    assert_eq!(handle.system_clock_hz(), 3_062_500);
+    assert_eq!(
+        device
+            .read(super::CLKSEL as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0xb0
+    );
+
+    handle
+        .set_external_clock_hz(48_000_000, SimTime::from_ticks(1))
+        .unwrap();
+    device
+        .write(
+            super::CLKSEL as u64,
+            AccessWidth::Byte,
+            0x11,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+    assert_eq!(handle.clock_source(), super::Efm8ClockSource::External);
+    assert_eq!(handle.clock_divider(), 2);
+    assert_eq!(handle.system_clock_hz(), 24_000_000);
+
+    device
+        .write(super::HFO0CN as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        device
+            .read(super::HFO0CN as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x8c
+    );
+}
+
+#[test]
+fn power_commands_are_one_shot_wakeable_and_distinguish_shutdown() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(super::PCON0 as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.power_mode(), super::Efm8PowerMode::Idle);
+    assert_eq!(
+        device
+            .read(super::PCON0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0
+    );
+    handle.wake(SimTime::from_ticks(1));
+    assert_eq!(handle.power_mode(), super::Efm8PowerMode::Active);
+
+    device
+        .write(super::REG0CN as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        device
+            .read(super::REG0CN as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x08
+    );
+    device
+        .write(super::PCON0 as u64, AccessWidth::Byte, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.power_mode(), super::Efm8PowerMode::Shutdown);
+    handle.wake(SimTime::from_ticks(2));
+    assert_eq!(handle.power_mode(), super::Efm8PowerMode::Shutdown);
+}

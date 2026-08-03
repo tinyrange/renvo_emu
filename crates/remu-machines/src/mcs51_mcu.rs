@@ -10,7 +10,7 @@ use remu_core::{
     StepReason, StopReason,
 };
 use remu_cpu_mcs51::{Mcs51Cpu, Mcs51Register};
-use remu_devices::{Efm8Peripherals, Efm8PeripheralsHandle, GpioHandle, SignalHub};
+use remu_devices::{Efm8Peripherals, Efm8PeripheralsHandle, Efm8PowerMode, GpioHandle, SignalHub};
 use remu_image::IntelHexImage;
 use remu_signals::Logic;
 use remu_trace::{TraceDigest, TraceSink};
@@ -306,6 +306,16 @@ impl Mcs51McuMachine {
         self.gpio[0].output()
     }
 
+    /// Returns the current functional EFM8 CPU power mode.
+    pub fn power_mode(&self) -> Efm8PowerMode {
+        self.peripherals.power_mode()
+    }
+
+    /// Resumes an EFM8 CPU waiting in IDLE or SNOOZE.
+    pub fn wake_from_low_power(&self) {
+        self.peripherals.wake(self.now);
+    }
+
     /// Reads guest-visible XRAM or the machine SFR bus window.
     pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         (0..length)
@@ -403,6 +413,9 @@ impl Mcs51McuMachine {
             for (line, asserted) in interrupt_levels.iter().copied().enumerate() {
                 self.cpu.set_interrupt(line as u16, asserted)?;
             }
+            if self.peripherals.power_mode() != Efm8PowerMode::Active {
+                break StopReason::Halted;
+            }
             self.bus.clear_watchpoint_hit();
             if self.record_accesses || self.access_observer.is_some() {
                 let pc = self.cpu.snapshot().pc as u16;
@@ -482,7 +495,9 @@ impl Mcs51McuMachine {
 
 #[cfg(test)]
 mod tests {
-    use super::{IntelHexImage, Mcs51McuMachine, PinStimulus, RunLimits, StopReason, TargetId};
+    use super::{
+        Efm8PowerMode, IntelHexImage, Mcs51McuMachine, PinStimulus, RunLimits, StopReason, TargetId,
+    };
     use remu_core::SimTime;
     use remu_signals::Logic;
 
@@ -588,5 +603,25 @@ mod tests {
             .debug_write_memory(0x1_00a3, &[0xa6])
             .expect("SPI0DAT write should map");
         assert_eq!(machine.debug_read_memory(0x1_00a3, 1).unwrap(), [0x5a]);
+    }
+
+    #[test]
+    fn stop_command_returns_a_bounded_halted_result() {
+        // MOV PCON0,#CPUSTOP; SJMP -2.
+        let image = IntelHexImage::parse(b":0500000075870280FE7F\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(10),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::Halted);
+        assert_eq!(result.stats.instructions, 1);
+        assert_eq!(machine.power_mode(), Efm8PowerMode::Stop);
     }
 }

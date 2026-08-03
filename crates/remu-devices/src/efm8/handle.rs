@@ -57,6 +57,50 @@ impl Efm8PeripheralsHandle {
         self.0.lock().expect("EFM8 lock poisoned").registers[XBR2] & XBR2_XBARE != 0
     }
 
+    /// Returns the functional SYSCLK source selected by `CLKSEL.CLKSL`.
+    pub fn clock_source(&self) -> Efm8ClockSource {
+        self.0.lock().expect("EFM8 lock poisoned").clock_source()
+    }
+
+    /// Returns the active SYSCLK divider (one of 1, 2, 4, ..., 128).
+    pub fn clock_divider(&self) -> u32 {
+        self.0.lock().expect("EFM8 lock poisoned").clock_divider()
+    }
+
+    /// Returns the nominal functional SYSCLK frequency in hertz.
+    pub fn system_clock_hz(&self) -> u32 {
+        self.0.lock().expect("EFM8 lock poisoned").system_clock_hz()
+    }
+
+    /// Sets the nominal host frequency used when `CLKSEL` selects EXTOSC.
+    pub fn set_external_clock_hz(&self, hz: u32, at: SimTime) -> Result<(), DeviceError> {
+        if hz == 0 {
+            return Err(DeviceError::new(
+                "EFM8 external clock frequency must be non-zero",
+            ));
+        }
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        state.external_clock_hz = hz;
+        state.refresh_clock(at);
+        Ok(())
+    }
+
+    /// Returns the current functional CPU power mode.
+    pub fn power_mode(&self) -> Efm8PowerMode {
+        self.0.lock().expect("EFM8 lock poisoned").power_mode
+    }
+
+    /// Wakes IDLE or SNOOZE after a host-side interrupt stimulus.
+    pub fn wake(&self, at: SimTime) {
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        if matches!(
+            state.power_mode,
+            Efm8PowerMode::Idle | Efm8PowerMode::Snooze
+        ) {
+            state.set_power_mode(Efm8PowerMode::Active, at);
+        }
+    }
+
     /// Copies an Intel HEX code segment into the functional flash image.
     pub fn load_flash(&self, address: u32, bytes: &[u8]) -> Result<(), DeviceError> {
         self.0.lock().expect("EFM8 lock poisoned").load_flash(
@@ -433,7 +477,16 @@ impl Efm8PeripheralsHandle {
         state.refresh_port_match(now);
         state.update_smbus0_signals(now);
         state.update_interrupt_signals(now);
-        state.interrupt_levels()
+        let levels = state.interrupt_levels();
+        if levels.iter().any(|level| *level)
+            && matches!(
+                state.power_mode,
+                Efm8PowerMode::Idle | Efm8PowerMode::Snooze
+            )
+        {
+            state.set_power_mode(Efm8PowerMode::Active, now);
+        }
+        levels
     }
 
     /// Consumes a watchdog reset request.

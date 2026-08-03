@@ -18,6 +18,13 @@ handling, and first-free SPI0 assignment. Route decisions and the global
 crossbar enable are observable in VCD without implying peripheral waveform
 behavior that belongs to the individual peripheral models.
 
+Clock and power control includes named `CLKSEL`, `CLKGRP0`, `HFO0CN`,
+`LFO0CN`, `PCON0`, `PCON1`, `REG0CN`, and `PSTAT0` register surfaces,
+documented reset values and masks, nominal source/divider reporting, and
+bounded IDLE/STOP/SNOOZE/SHUTDOWN execution. Oscillator settling,
+missing-clock detection, external-clock waveforms, regulator physics, and
+exact low-power timing remain outside the functional qualification claim.
+
 The exact functional register surface is RSTSRC, CLKSEL, WDTCN, Ports 0–3,
 port modes and XBR0/XBR1/XBR2 priority allocation with PnSKIP masks, Timer0/2, UART0, SMBus0 control/data/FIFO status,
 PCA0 and IE/IP/EIE1/EIP1 routing. PCA0
