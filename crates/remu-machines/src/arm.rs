@@ -20,7 +20,7 @@ use remu_devices::{
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle,
     RpAdc, RpAdcHandle, RpAdcVariant, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout,
-    SignalHub, TimerHandle, UartHandle,
+    RpPioVersion, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -595,11 +595,17 @@ impl ArmMachine {
             Box::new(pwm_device),
         )?;
         chip_pwm = pwm_handle;
-        let (pio0, handle) = RpPio::new(
+        let pio_version = if target == TargetId::Rp2350 {
+            RpPioVersion::Rp2350
+        } else {
+            RpPioVersion::Rp2040
+        };
+        let (pio0, handle) = RpPio::new_with_version(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
             &format!("board.{target}.pio0.gpio"),
             signals.clone(),
+            pio_version,
         )?;
         bus.map_device(
             format!("{target}.pio0"),
@@ -624,11 +630,12 @@ impl ArmMachine {
         for index in 1..pio_count {
             let name = format!("{target}.pio{index}");
             let base = 0x5020_0000 + (index as u64 * 0x0010_0000);
-            let (device, handle) = RpPio::new(
+            let (device, handle) = RpPio::new_with_version(
                 &name,
                 u16::from(manifest.gpio_count.min(32)),
                 &format!("board.{target}.pio{index}.gpio"),
                 signals.clone(),
+                pio_version,
             )?;
             bus.map_device(name, base, 0x4000, Box::new(device))?;
             pio.push(handle);

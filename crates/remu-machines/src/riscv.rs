@@ -20,7 +20,8 @@ use remu_devices::{
     Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpPio,
-    RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle,
+    UartHandle,
     WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
@@ -51,6 +52,7 @@ mod image;
 mod lp_uart;
 mod radio;
 mod pwm;
+mod pio;
 mod rp_bootrom;
 mod runtime;
 mod watchdog;
@@ -527,8 +529,6 @@ impl RiscVMachine {
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
                 ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio1", 0x5030_0000),
-                ("rp2350.pio2", 0x5040_0000),
             ] {
                 bus.map_device(
                     name,
@@ -738,14 +738,21 @@ impl RiscVMachine {
                     FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
                 bus.map_device("rp2350.uart0", 0x4007_0000, 0x1000, Box::new(uart0))?;
                 chip_uarts.push(handle);
-                let (pio0, handle) = RpPio::new(
+                let (pio0, handle) = RpPio::new_with_version(
                     "rp2350.pio0",
                     u16::from(manifest.gpio_count.min(32)),
                     "board.rp2350.pio0.gpio",
                     signals.clone(),
+                    RpPioVersion::Rp2350,
                 )?;
                 bus.map_device("rp2350.pio0", 0x5020_0000, 0x4000, Box::new(pio0))?;
                 pio.push(handle);
+                pio::map_secondary_rp2350_pios(
+                    &mut bus,
+                    &mut pio,
+                    &signals,
+                    u16::from(manifest.gpio_count.min(32)),
+                )?;
             }
             TargetId::Rp2040
             | TargetId::Esp32s3

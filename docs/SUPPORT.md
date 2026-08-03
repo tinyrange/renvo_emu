@@ -10,8 +10,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
-| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; PL011 UART1 register slice; native TIMER→NVIC; PIO0 `SET PINS` waveform |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, PL011 UART1 register slice, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
+| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; PL011 UART1 register slice; native TIMER→NVIC; native PIO0/1 register slices |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, PL011 UART1 register slice, TIMER interrupt, and native PIO0/1/2 register slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
@@ -196,6 +196,20 @@ overlaps the named byte, and records the access address and kind in JSON.
 Signal stops use stable hierarchical paths and preserve the triggering change
 in VCD/digest output. `scripts/qualify-stop-conditions.sh` checks every stop
 class on RISC-V, Arm, and Xtensa.
+
+### RP PIO register and FIFO baseline
+
+RP2040 PIO0/PIO1 and RP2350 PIO0/PIO1/PIO2 are mapped at their native bases
+(`0x50200000`, `0x50300000`, and `0x50400000` where present). The shared
+functional model uses named `RpPioRegister` and `RpPioStateMachineRegister`
+identifiers and covers instruction memory, four state machines, `SET`/`JMP`,
+four-word host FIFOs, `FSTAT`/`FLEVEL`/`FDEBUG`, internal IRQ flags, versioned
+`DBG_CFGINFO`, processor IRQ0 masks, and the RP2350 IRQ1/GPIOBASE register
+placement. RP2350 FIFO PUT/GET windows and cross-PIO controls are intentionally
+unmapped; `WAIT`, `IN`, `OUT`, `PULL`/`PUSH`, side-set, DMA, and exact divider
+timing remain known functional gaps. The register layout is checked against the
+official [RP2040 PIO definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
+and [RP2350 PIO definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2350/hardware_regs/include/hardware/regs/pio.h).
 
 The ESP32-S3 AES accelerator is mapped at `0x6003_a000` using the native
 `hwcrypto_reg.h` offsets. The functional slice supports AES-128 and AES-256
