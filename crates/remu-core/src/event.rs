@@ -67,6 +67,7 @@ where
     T: Eq,
 {
     heap: BinaryHeap<ScheduledEvent<T>>,
+    active: BTreeSet<EventId>,
     cancelled: BTreeSet<EventId>,
     next_sequence: u64,
 }
@@ -78,6 +79,7 @@ where
     fn default() -> Self {
         Self {
             heap: BinaryHeap::new(),
+            active: BTreeSet::new(),
             cancelled: BTreeSet::new(),
             next_sequence: 0,
         }
@@ -107,6 +109,7 @@ where
             payload,
             sequence,
         });
+        self.active.insert(id);
         Ok(id)
     }
 
@@ -122,9 +125,12 @@ where
 
     /// Marks an event as cancelled.
     ///
-    /// Returns false when the event was already cancelled. Cancelling an
-    /// unknown or already-popped ID is harmless.
+    /// Returns false when the event is unknown, already cancelled, or already
+    /// popped. Cancelling an ID owned by another queue is harmless.
     pub fn cancel(&mut self, id: EventId) -> bool {
+        if !self.active.remove(&id) {
+            return false;
+        }
         self.cancelled.insert(id)
     }
 
@@ -134,6 +140,7 @@ where
             if self.cancelled.remove(&event.id) {
                 continue;
             }
+            self.active.remove(&event.id);
             return Some(event);
         }
         None
@@ -193,5 +200,18 @@ mod tests {
         assert_eq!(queue.next_time(), Some(SimTime::from_ticks(2)));
         assert_eq!(queue.pop().unwrap().payload, "kept");
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn cancelling_an_unknown_id_does_not_cancel_a_future_event() {
+        let mut queue = EventQueue::new();
+        let mut other_queue = EventQueue::new();
+        let foreign_id = other_queue
+            .schedule_at(SimTime::from_ticks(1), "foreign")
+            .unwrap();
+
+        assert!(!queue.cancel(foreign_id));
+        queue.schedule_at(SimTime::from_ticks(1), "kept").unwrap();
+        assert_eq!(queue.pop().unwrap().payload, "kept");
     }
 }
