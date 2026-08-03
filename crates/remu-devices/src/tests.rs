@@ -463,6 +463,11 @@ fn rp2350_sha256_accepts_padded_byte_stream_and_matches_fips_digest() {
         sha.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x1206
     );
+    assert_eq!(sha.read(0x08, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+    assert!(
+        sha.write(0x08, AccessWidth::Word, 1, SimTime::ZERO)
+            .is_err()
+    );
     sha.write(0x00, AccessWidth::Word, 0x1201, SimTime::ZERO)
         .unwrap();
     let mut padded = [0_u8; 64];
