@@ -7,12 +7,12 @@ compiler-generated Thumb-2/DSP/FPU code, option/startup state, external GPIO,
 explicit ICU routing, GPT0/GPT5-7 interrupt entries and SCI9 UART (`RA4M1\n`).
 
 Implemented functionally are SYSTEM clock/oscillator and module-stop state,
-IOPORT, ICU, GPT0/GPT5-7 counter-overflow slices, SCI9 and watchdog. GPT5-7 use
-their documented `0x40078500`-`0x40078700` register windows and ELC overflow
-events `0x085`, `0x08d`, and `0x095`; PWM, capture, and exact clock timing are
-not modeled. USB, CAN, analog/LCD blocks and the UNO R4 Wi-Fi-board bridge are
-unsupported. VCD records the selected port, GPT, SCI and ICU/interrupt signals
-and deterministic runs are compared byte-for-byte.
+IOPORT, ICU, GPT0/GPT5-7 counter-overflow slices, SCI9 and watchdog. GPT5-7 are
+the documented 16-bit GPT instances at `0x40078500`-`0x40078700`, with ELC
+overflow events `0x085`, `0x08d`, and `0x095`; PWM, capture, and exact clock
+timing are not modeled. USB, CAN, analog/LCD blocks and the UNO R4 Wi-Fi-board
+bridge are unsupported. VCD records the selected port, GPT, SCI and
+ICU/interrupt signals and deterministic runs are compared byte-for-byte.
 
 The vendor lanes build pinned Renesas FSP GPT/SCI peripheral sources unchanged
 with documented BSP/startup adapters. They also compile and run pinned Arduino

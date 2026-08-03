@@ -27,6 +27,7 @@ use std::collections::BTreeSet;
 
 const TEST_DEVICE_SIZE: usize = 0x100;
 const TEST_EXIT_SIZE: usize = 4;
+const RA4M1_GPT0_BASE: u64 = 0x4007_8000;
 
 enum VendorUart {
     Samd21(Samd21UsartHandle),
@@ -350,7 +351,7 @@ impl ArmMcuMachine {
                 let mut gpt_devices = Vec::new();
                 let mut gpt_handles = Vec::new();
                 for index in [5_u8, 6, 7] {
-                    let (device, handle) = RaGpt::new(format!("r7fa4m1ab3cfm.gpt{index}"));
+                    let (device, handle) = RaGpt::new_16(format!("r7fa4m1ab3cfm.gpt{index}"));
                     gpt_devices.push((index, device));
                     gpt_handles.push(handle);
                 }
@@ -566,11 +567,11 @@ impl ArmMcuMachine {
             Box::new(Samd21RegisterBlock::new("r7fa4m1ab3cfm.mstp", 0x20, [])),
         )?;
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
-        bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
+        bus.map_device("r7fa4m1ab3cfm.gpt0", RA4M1_GPT0_BASE, 0x100, Box::new(gpt0))?;
         for (index, gpt) in extra_gpts {
             bus.map_device(
                 format!("r7fa4m1ab3cfm.gpt{index}"),
-                0x4007_8000 + u64::from(index) * 0x100,
+                RA4M1_GPT0_BASE + u64::from(index) * 0x100,
                 0x100,
                 Box::new(gpt),
             )?;
@@ -988,6 +989,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::RaGptRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -1081,7 +1083,7 @@ mod tests {
             machine
                 .bus
                 .write(
-                    0x4007_8000 + index * 0x100 + 0x64,
+                    RA4M1_GPT0_BASE + index * 0x100 + RaGptRegister::Gtpr.offset(),
                     AccessWidth::Word,
                     3,
                     SimTime::ZERO,
@@ -1090,7 +1092,7 @@ mod tests {
             machine
                 .bus
                 .write(
-                    0x4007_8000 + index * 0x100 + 0x38,
+                    RA4M1_GPT0_BASE + index * 0x100 + RaGptRegister::Gtintad.offset(),
                     AccessWidth::Word,
                     1 << 6,
                     SimTime::ZERO,
@@ -1099,7 +1101,7 @@ mod tests {
             machine
                 .bus
                 .write(
-                    0x4007_8000 + index * 0x100 + 0x2c,
+                    RA4M1_GPT0_BASE + index * 0x100 + RaGptRegister::Gtcr.offset(),
                     AccessWidth::Word,
                     1,
                     SimTime::ZERO,
@@ -1109,7 +1111,7 @@ mod tests {
                 machine
                     .bus
                     .read(
-                        0x4007_8000 + index * 0x100 + 0x64,
+                        RA4M1_GPT0_BASE + index * 0x100 + RaGptRegister::Gtpr.offset(),
                         AccessWidth::Word,
                         AccessKind::Read,
                         SimTime::ZERO,
@@ -1118,5 +1120,11 @@ mod tests {
                 3
             );
         }
+        assert!(
+            machine
+                .ra_extra_gpts
+                .iter()
+                .all(|(_, handle, _)| handle.poll(SimTime::from_ticks(4)))
+        );
     }
 }
