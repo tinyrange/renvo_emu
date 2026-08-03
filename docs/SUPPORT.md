@@ -476,9 +476,13 @@ Rust case build remains network-isolated and read-only.
 
 The ATmega328PB functional slice includes the native TWI0 register contract
 (`TWBR`, `TWSR`, `TWAR`, `TWDR`, `TWCR`, and `TWAMR`) with deterministic START,
-transmit, receive, status, and interrupt behavior. It exposes host byte queues
-for tests, but does not claim electrical I²C arbitration, clock stretching, or
-TWI1 coverage.
+transmit, receive, status, and interrupt behavior. Register reset values,
+write-one-to-clear control semantics, reserved-bit handling, and the TWWC data
+collision flag follow Microchip's [TWI control-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-1E9DD1D3-4D52-4B17-979C-13B5AA4AC1A1.html),
+[status-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-AE5E72CE-344A-4C37-8F5B-9948EB814739.html),
+and [data-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-6EAB15A1-6D6A-4723-A787-E8275BE8A49E.html)
+descriptions. It exposes host byte queues for tests, but does not claim
+electrical I²C arbitration, clock stretching, or TWI1 coverage.
 
 `scripts/qualify-rust-abi.sh` compiles one freestanding ABI/behavior program at
 `-O0`, `-O2`, and `-Os`. Its 18 deterministic proof runs cover CH32V003,
