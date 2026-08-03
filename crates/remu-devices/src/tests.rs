@@ -529,11 +529,25 @@ fn arm_ppb_systick_latches_a_deterministic_exception() {
 fn esp_gdma_channel_zero_moves_fixture_words_and_latches_interrupts() {
     let hub = SignalHub::new();
     let (mut gdma, handle) = EspGdma::new("gdma", "board.esp32c6.gdma", hub).unwrap();
+    assert_eq!(
+        gdma.read(0x7c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x800
+    );
+    assert_eq!(
+        gdma.read(0x80, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        (1 << 20) | (1 << 24)
+    );
+    assert_eq!(
+        gdma.read(0x9c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
     handle.queue_input_words(&[0xabc, 0x123]);
     assert_eq!(
         gdma.read(0x78, AccessWidth::Word, SimTime::ZERO).unwrap() & 0xfc,
         2 << 2
     );
+    gdma.write(0x7c, AccessWidth::Word, 1 << 12, SimTime::from_ticks(1))
+        .unwrap();
     assert_eq!(
         gdma.read(0x7c, AccessWidth::Word, SimTime::from_ticks(1))
             .unwrap(),
@@ -558,5 +572,60 @@ fn esp_gdma_channel_zero_moves_fixture_words_and_latches_interrupts() {
     assert_eq!(
         gdma.read(0x34, AccessWidth::Word, SimTime::ZERO).unwrap() & 0x03,
         0
+    );
+}
+
+#[test]
+fn esp_gdma_channel_zero_uses_native_masks_and_fifo_overflow_flags() {
+    let hub = SignalHub::new();
+    let (mut gdma, handle) = EspGdma::new("gdma", "board.esp32c6.gdma", hub).unwrap();
+
+    gdma.write(0x9c, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    gdma.write(0xa0, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    gdma.write(0x80, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        gdma.read(0x9c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xf
+    );
+    assert_eq!(
+        gdma.read(0xa0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x3f
+    );
+    assert_eq!(
+        gdma.read(0x80, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x000f_ffff | (1 << 20) | (1 << 24)
+    );
+
+    handle.queue_input_words(&[0; 65]);
+    assert_ne!(
+        gdma.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 5),
+        0
+    );
+    gdma.write(0x00, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        gdma.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 5),
+        0
+    );
+
+    gdma.write(0xdc, AccessWidth::Word, 1 << 9, SimTime::ZERO)
+        .unwrap();
+    for _ in 0..64 {
+        gdma.write(0xdc, AccessWidth::Word, (1 << 9) | 1, SimTime::ZERO)
+            .unwrap();
+    }
+    assert_ne!(
+        gdma.read(0x30, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 4),
+        0
+    );
+    // RO FIFO status writes do not alter the live count.
+    gdma.write(0xd8, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        gdma.read(0xd8, AccessWidth::Word, SimTime::ZERO).unwrap() & 0xfc,
+        63 << 2
     );
 }
