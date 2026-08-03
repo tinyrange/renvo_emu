@@ -17,8 +17,9 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
     Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpAdc, RpAdcHandle,
+    RpAdcVariant, RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub,
+    TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -44,6 +45,7 @@ pub struct ArmMachine {
     sio: RpSioHandle,
     uart: UartHandle,
     chip_uart: UartHandle,
+    chip_adc: RpAdcHandle,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -119,6 +121,7 @@ impl ArmMachine {
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
         let mut pio = Vec::new();
+        let chip_adc;
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
@@ -305,7 +308,6 @@ impl ArmMachine {
                 ("rp2040.spi1", 0x4004_0000),
                 ("rp2040.i2c0", 0x4004_4000),
                 ("rp2040.i2c1", 0x4004_8000),
-                ("rp2040.adc", 0x4004_c000),
                 ("rp2040.pwm", 0x4005_0000),
                 ("rp2040.dma", 0x5000_0000),
                 ("rp2040.pio1", 0x5030_0000),
@@ -418,7 +420,6 @@ impl ArmMachine {
                 ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
                 ("rp2350.i2c1", 0x4009_8000),
-                ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
                 ("rp2350.pio1", 0x5030_0000),
@@ -584,6 +585,18 @@ impl ArmMachine {
             Box::new(pio0),
         )?;
         pio.push(handle);
+        let (adc_name, adc_base) = match target {
+            TargetId::Rp2040 => ("rp2040.adc", 0x4004_c000),
+            TargetId::Rp2350 => ("rp2350.adc", 0x400a_0000),
+            _ => unreachable!(),
+        };
+        let variant = match target {
+            TargetId::Rp2040 | TargetId::Rp2350 => RpAdcVariant::FiveChannel,
+            _ => unreachable!(),
+        };
+        let (adc, adc_handle) = RpAdc::new_for_variant(adc_name, variant);
+        bus.map_device(adc_name, adc_base, 0x1000, Box::new(adc))?;
+        chip_adc = adc_handle;
         Ok(Self {
             target,
             cpu: ArmCpu::new(profile),
@@ -596,6 +609,7 @@ impl ArmMachine {
             sio,
             uart,
             chip_uart,
+            chip_adc,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -1158,6 +1172,16 @@ impl ArmMachine {
         Ok(())
     }
 
+    /// Sets a deterministic sample for one RP ADC channel.
+    pub fn set_adc_sample(&self, channel: usize, value: u16) -> bool {
+        self.chip_adc.set_sample(channel, value)
+    }
+
+    /// Returns the most recent RP ADC conversion result.
+    pub fn adc_result(&self) -> u16 {
+        self.chip_adc.result()
+    }
+
     /// Queues bytes for delivery through the enumerated USB bulk-OUT endpoint.
     pub fn queue_usb_input(&mut self, bytes: &[u8]) {
         if let Some(host) = &mut self.usb_host {
@@ -1462,12 +1486,4 @@ impl ArmMachine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;
