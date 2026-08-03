@@ -974,6 +974,7 @@ mod tests {
             .bus
             .write(0x4200_4808, AccessWidth::HalfWord, 0x02a5, SimTime::ZERO)
             .unwrap();
+        assert_eq!(machine.dac.as_ref().expect("SAM D21 DAC").data(), 0x02a5);
         assert_eq!(
             machine
                 .bus
@@ -984,7 +985,7 @@ mod tests {
                     SimTime::ZERO,
                 )
                 .unwrap(),
-            0x02a5
+            0
         );
     }
 

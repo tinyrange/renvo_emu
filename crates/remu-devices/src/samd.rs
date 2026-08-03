@@ -425,8 +425,10 @@ impl Samd21DacRegister {
             0x05 => Some(Self::Intenset),
             0x06 => Some(Self::Intflag),
             0x07 => Some(Self::Status),
-            0x08 => Some(Self::Data),
-            0x0c => Some(Self::Databuf),
+            // DATA and DATABUF are 16-bit registers whose byte lanes are
+            // individually addressable on the SAM D21.
+            0x08 | 0x09 => Some(Self::Data),
+            0x0c | 0x0d => Some(Self::Databuf),
             _ => None,
         }
     }
@@ -438,6 +440,7 @@ const DAC_CTRLA_ENABLE: u8 = 1 << 1;
 const DAC_CTRLB_MASK: u8 = 0xdf;
 const DAC_CTRLB_LEFTADJ: u8 = 1 << 2;
 const DAC_EVENT_MASK: u8 = 0x03;
+const DAC_EVENT_STARTEI: u8 = 1 << 0;
 const DAC_INTERRUPT_MASK: u8 = 0x07;
 const DAC_INTERRUPT_EMPTY: u8 = 1 << 1;
 const DAC_INTERRUPT_UNDERRUN: u8 = 1 << 0;
@@ -501,6 +504,12 @@ impl Samd21DacHandle {
     pub fn start_conversion(&self, at: SimTime) -> Result<(), SignalError> {
         let code = {
             let mut state = self.state.lock().expect("DAC lock poisoned");
+            // A start-conversion event is only observed while the controller is
+            // enabled and STARTEI is selected. In direct-data mode firmware
+            // writes DATA instead of relying on this event path.
+            if state.ctrla & DAC_CTRLA_ENABLE == 0 || state.evctrl & DAC_EVENT_STARTEI == 0 {
+                return Ok(());
+            }
             if state.databuf_full {
                 state.data = state.databuf;
                 state.databuf_full = false;
@@ -521,7 +530,7 @@ impl Samd21DacHandle {
 /// Functional SAM D21 single-channel 10-bit DAC.
 ///
 /// This follows the native register offsets and bit meanings from Microchip
-/// DS40001882E §35. It deliberately reports a deterministic digital code rather
+/// DS40001882H §35. It deliberately reports a deterministic digital code rather
 /// than attempting analog voltage, settling, or reference-electrical fidelity.
 pub struct Samd21Dac {
     name: String,
@@ -594,6 +603,19 @@ impl Samd21Dac {
             code & 0x03ff
         }
     }
+
+    fn merge_data_register(
+        current: u16,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        base: u64,
+    ) -> u16 {
+        let lane = offset.saturating_sub(base).min(1);
+        let shift = lane * 8;
+        let mask = (width.value_mask() as u16) << shift;
+        (current & !mask) | (((value as u16) << shift) & mask)
+    }
 }
 
 impl Device for Samd21Dac {
@@ -612,8 +634,9 @@ impl Device for Samd21Dac {
             }
             Some(Samd21DacRegister::Intflag) => u64::from(state.interrupt_flags),
             Some(Samd21DacRegister::Status) => 0,
-            Some(Samd21DacRegister::Data) => u64::from(Self::encode(state.data, state.ctrlb)),
-            Some(Samd21DacRegister::Databuf) => u64::from(Self::encode(state.databuf, state.ctrlb)),
+            // DATA and DATABUF are write-only in the native register map.
+            // Host-side inspection uses Samd21DacHandle instead.
+            Some(Samd21DacRegister::Data | Samd21DacRegister::Databuf) => 0,
             None => 0,
         };
         Ok(value & width.value_mask())
@@ -638,7 +661,10 @@ impl Device for Samd21Dac {
             let mut state = self.state.lock().expect("DAC lock poisoned");
             match Samd21DacRegister::from_offset(offset) {
                 Some(Samd21DacRegister::Ctrla) => state.ctrla = value as u8 & DAC_CTRLA_MASK,
-                Some(Samd21DacRegister::Ctrlb) => state.ctrlb = value as u8 & DAC_CTRLB_MASK,
+                Some(Samd21DacRegister::Ctrlb) if state.ctrla & DAC_CTRLA_ENABLE == 0 => {
+                    state.ctrlb = value as u8 & DAC_CTRLB_MASK
+                }
+                Some(Samd21DacRegister::Ctrlb) => {}
                 Some(Samd21DacRegister::Evctrl) => state.evctrl = value as u8 & DAC_EVENT_MASK,
                 Some(Samd21DacRegister::Intenclr) => {
                     state.interrupt_enable &= !(value as u8 & DAC_INTERRUPT_MASK)
@@ -650,11 +676,25 @@ impl Device for Samd21Dac {
                     state.interrupt_flags &= !(value as u8 & DAC_INTERRUPT_MASK)
                 }
                 Some(Samd21DacRegister::Data) => {
-                    state.data = Self::decode(value as u16, state.ctrlb);
+                    let raw = Self::merge_data_register(
+                        Self::encode(state.data, state.ctrlb),
+                        offset,
+                        width,
+                        value,
+                        0x08,
+                    );
+                    state.data = Self::decode(raw, state.ctrlb);
                     output = Some(state.data);
                 }
                 Some(Samd21DacRegister::Databuf) => {
-                    state.databuf = Self::decode(value as u16, state.ctrlb);
+                    let raw = Self::merge_data_register(
+                        Self::encode(state.databuf, state.ctrlb),
+                        offset,
+                        width,
+                        value,
+                        0x0c,
+                    );
+                    state.databuf = Self::decode(raw, state.ctrlb);
                     state.databuf_full = true;
                     state.interrupt_flags &= !DAC_INTERRUPT_EMPTY;
                 }
@@ -1024,6 +1064,8 @@ mod tests {
         assert_eq!(handle.data(), 0x03ff);
         assert_eq!(handle.data_buffer(), 0x0155);
         assert!(handle.data_buffer_full());
+        dac.write(0x02, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
         dac.write(0x05, AccessWidth::Byte, 0x02, SimTime::ZERO)
             .unwrap();
         handle.start_conversion(SimTime::from_ticks(3)).unwrap();
@@ -1048,11 +1090,52 @@ mod tests {
         let (mut dac, handle) = Samd21Dac::new("dac");
         dac.write(0x01, AccessWidth::Byte, 0x04, SimTime::ZERO)
             .unwrap();
+        dac.write(0x00, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x02, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
         dac.write(0x08, AccessWidth::HalfWord, 0x03fc, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.data(), 0x000f);
         handle.start_conversion(SimTime::from_ticks(1)).unwrap();
         assert_eq!(dac.read(0x06, AccessWidth::Byte, SimTime::ZERO).unwrap(), 1);
+    }
+
+    #[test]
+    fn dac_honors_native_byte_lanes_and_write_only_data_registers() {
+        let (mut dac, handle) = Samd21Dac::new("dac");
+        dac.write(0x08, AccessWidth::Byte, 0x02, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x09, AccessWidth::Byte, 0x03, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.data(), 0x0302);
+        assert_eq!(
+            dac.read(0x08, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        dac.write(0x0c, AccessWidth::Byte, 0x05, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x0d, AccessWidth::Byte, 0x02, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.data_buffer(), 0x0205);
+        assert_eq!(
+            dac.read(0x0c, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn dac_control_b_is_enable_protected() {
+        let (mut dac, handle) = Samd21Dac::new("dac");
+        dac.write(0x01, AccessWidth::Byte, 0x04, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x00, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        dac.write(0x01, AccessWidth::Byte, 0, SimTime::from_ticks(1))
+            .unwrap();
+        assert_eq!(handle.control_b(), 0x04);
     }
 
     #[test]
