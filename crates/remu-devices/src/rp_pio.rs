@@ -541,7 +541,10 @@ impl Device for RpPio {
             RpPioRegister::Txf(_) => 0,
             RpPioRegister::Rxf(machine) => {
                 state.rx_fifo[machine].pop_front().unwrap_or_else(|| {
-                    state.debug |= 1 << machine;
+                    // FDEBUG_RXUNDER occupies bits 8..11.  The low nibble is
+                    // RXSTALL, which is a distinct condition raised by the
+                    // state machine when PUSH/IN encounters a full FIFO.
+                    state.debug |= 1 << (8 + machine);
                     0
                 })
             }
@@ -693,8 +696,10 @@ impl Device for RpPio {
                     RpPioStateMachineRegister::ExecCtrl => {
                         let current = state.machines[machine].execution_control;
                         let mask = match state.version {
-                            RpPioVersion::Rp2040 => 0xffff_ff9f,
-                            RpPioVersion::Rp2350 => 0xffff_ffff,
+                            // EXEC_STALLED (bit 31) is read-only on both
+                            // generations. RP2040 also reserves bits 7:5.
+                            RpPioVersion::Rp2040 => 0x7fff_ff9f,
+                            RpPioVersion::Rp2350 => 0x7fff_ffff,
                         };
                         state.machines[machine].execution_control =
                             Self::update_register(current, alias, value) & mask;

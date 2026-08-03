@@ -32,7 +32,7 @@
   },
   "cross_profile_computation": {
     "artifact": "qualification/rust-abi.json",
-    "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67",
+    "sha256": "f2a8fa344ad3e4a789bf78313bb4e0ad305f4cb67c0838aff563be94d37187c1",
     "assertion": "the same Rust ABI computation passes Cortex-M33 and Hazard3 at O0/O2/Os"
   },
   "proofs": [
