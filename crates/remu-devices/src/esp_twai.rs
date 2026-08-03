@@ -155,6 +155,7 @@ impl EspTwaiState {
     }
 
     fn status(&mut self) -> u32 {
+        self.refresh_receive_message_counter();
         let mut status = self.registers[STATUS as usize / 4];
         if self.rx_frames.is_empty() {
             status &= !STATUS_RECEIVE_BUFFER;
@@ -165,6 +166,11 @@ impl EspTwaiState {
         }
         self.registers[STATUS as usize / 4] = status & STATUS_MASK;
         status
+    }
+
+    fn refresh_receive_message_counter(&mut self) {
+        self.registers[RX_MESSAGE_COUNTER as usize / 4] =
+            u32::try_from(self.rx_frames.len()).unwrap_or(u32::MAX) & RX_MESSAGE_COUNTER_MASK;
     }
 
     fn refresh_receive_interrupt(&mut self) {
@@ -191,6 +197,7 @@ impl EspTwaiState {
         let length = frame.len().min(padded.len());
         padded[..length].copy_from_slice(&frame[..length]);
         self.rx_frames.push_back(padded);
+        self.refresh_receive_message_counter();
         self.registers[STATUS as usize / 4] |= STATUS_RECEIVE;
         self.refresh_receive_interrupt();
     }
@@ -662,6 +669,35 @@ mod tests {
         .unwrap();
         assert_eq!(
             twai.read(INTERRUPT, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn receive_message_counter_tracks_host_queue_and_release() {
+        let hub = SignalHub::new();
+        let (mut twai, handle) = EspTwai::new("twai", "board.twai", hub).unwrap();
+        assert_eq!(
+            twai.read(RX_MESSAGE_COUNTER, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        handle.queue_rx(&[0x12]);
+        assert_eq!(
+            twai.read(RX_MESSAGE_COUNTER, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            1
+        );
+        twai.write(
+            COMMAND,
+            AccessWidth::Word,
+            u64::from(COMMAND_RELEASE_BUFFER),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            twai.read(RX_MESSAGE_COUNTER, AccessWidth::Word, SimTime::ZERO)
                 .unwrap(),
             0
         );
