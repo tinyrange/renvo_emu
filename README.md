@@ -103,9 +103,18 @@ Direct ESP execution is an architectural/compiler oracle, not proof that a
 bootloader accepts the flash layout. Supplying `--esp-app-image` adds a separate
 esptool-compatible application-image validation step.
 
-There is not yet a published runtime container or binary release. Until that
-distribution path exists, the source build above is the supported installation
-method.
+Tagged releases publish Linux/amd64 and Linux/arm64 binaries, checksums, and a
+runtime-only OCI image. The image contains no compiler toolchains and runs as a
+non-root user. For a source-level example, see
+[`examples/quickstart`](examples/quickstart/README.md).
+
+```sh
+docker run --rm -v "$PWD:/work:ro" -w /work \
+  ghcr.io/tinyrange/renvo_emu:latest targets
+```
+
+The image is for running existing ELF/native firmware artifacts. Compilation
+of corpus cases remains isolated in the pinned Docker toolchain images.
 
 ## Target portfolio
 
@@ -340,6 +349,7 @@ assertions.
 - [CoreMark qualification](docs/COREMARK.md)
 - [Restored-plan status](docs/PLAN_STATUS.md)
 - [Architecture decisions](docs/adr/)
+- [Release and runtime image contract](docs/RELEASE.md)
 - [Original implementation plan](PLAN.html)
 
 ## Development
