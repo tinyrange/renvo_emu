@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 const GROUP_STRIDE: u64 = 0x100;
 const STATUS_MASK: u32 = 0x0000_000f;
-const CONFIG_MASK: u32 = (0x0f << 27) | (0x7 << 4);
+const CONFIG_MASK: u32 = (0x0f << 28) | (0x7 << 4);
 const PIDF: u32 = 1 << 0;
 const IOCF: u32 = 1 << 1;
 const OSTPF: u32 = 1 << 2;
@@ -50,7 +50,8 @@ impl RaPoegHandle {
         } else {
             *register &= !ST;
         }
-        if *register & PIDE != 0 {
+        let request_level = high ^ (*register & (1 << 28) != 0);
+        if *register & PIDE != 0 && request_level {
             *register |= PIDF;
         }
     }
@@ -141,8 +142,9 @@ impl Device for RaPoeg {
         let mut state = self.state.lock().expect("RA POEG lock poisoned");
         let register = &mut state.groups[group];
         let value = value as u32;
-        *register = (*register & ST) | (value & CONFIG_MASK);
-        *register &= !(value & STATUS_MASK);
+        let retained_flags = (*register & (PIDF | IOCF | OSTPF)) & (value & (PIDF | IOCF | OSTPF));
+        let software_stop = value & SSF;
+        *register = (*register & ST) | (value & CONFIG_MASK) | retained_flags | software_stop;
         Ok(())
     }
 
@@ -171,8 +173,7 @@ mod tests {
             poeg.read(0, AccessWidth::Word, SimTime::ZERO).unwrap() as u32 & (PIDF | IOCF | ST),
             PIDF | IOCF | ST
         );
-        poeg.write(0, AccessWidth::Word, u64::from(PIDF | IOCF), SimTime::ZERO)
-            .unwrap();
+        poeg.write(0, AccessWidth::Word, 0, SimTime::ZERO).unwrap();
         assert!(!handle.output_disabled(0));
     }
 
@@ -185,5 +186,23 @@ mod tests {
             poeg.read(0x200, AccessWidth::Word, SimTime::ZERO).unwrap() as u32 & SSF,
             SSF
         );
+    }
+
+    #[test]
+    fn native_high_configuration_bits_and_input_polarity_are_preserved() {
+        let (mut poeg, handle) = RaPoeg::new("poeg");
+        poeg.write(
+            0,
+            AccessWidth::Word,
+            (1 << 31) | (1 << 28) | u64::from(PIDE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            poeg.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            (1 << 31) | (1 << 28) | u64::from(PIDE)
+        );
+        handle.trigger_pin(0, false);
+        assert!(handle.output_disabled(0));
     }
 }
