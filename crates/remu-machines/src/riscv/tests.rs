@@ -203,23 +203,48 @@ fn esp32c6_i2c0_uses_native_fifo_window() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine
         .bus
-        .write(0x6000_4004, AccessWidth::Word, 1, SimTime::ZERO)
+        .write(0x6000_401c, AccessWidth::Word, 0xa0, SimTime::ZERO)
         .unwrap();
     machine
         .bus
-        .write(0x6000_401c, AccessWidth::Word, 0xa0, SimTime::ZERO)
+        .write(0x6000_4058, AccessWidth::Word, 6 << 11, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_405c, AccessWidth::Word, 1 | (1 << 11), SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_4060, AccessWidth::Word, 2 << 11, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_4064, AccessWidth::Word, 4 << 11, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_4028, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6000_4004,
+            AccessWidth::Word,
+            (1 << 4) | (1 << 5),
+            SimTime::ZERO,
+        )
         .unwrap();
     assert_eq!(
         machine
             .bus
             .read(
-                0x6000_4008,
+                0x6000_402c,
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO,
             )
             .unwrap(),
-        1
+        1 << 7
     );
 }
 

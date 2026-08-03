@@ -211,13 +211,10 @@ fn esp32s3_timer_group_exposes_second_timer_interrupt() {
 fn esp_i2c_fifo_exposes_master_transaction_and_completion_status() {
     let (mut i2c, handle) = EspI2c::new("i2c0");
     handle.queue_rx(&[0x34, 0x12]);
-    i2c.write(0x04, AccessWidth::Word, 1, SimTime::ZERO)
-        .unwrap();
     i2c.write(0x1c, AccessWidth::Word, 0xa0, SimTime::ZERO)
         .unwrap();
     i2c.write(0x1c, AccessWidth::Word, 0x00, SimTime::ZERO)
         .unwrap();
-    assert!(handle.busy());
     assert_eq!(handle.take_tx(), [0xa0, 0x00]);
     assert_eq!(
         i2c.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
@@ -227,18 +224,28 @@ fn esp_i2c_fifo_exposes_master_transaction_and_completion_status() {
         i2c.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x12
     );
-    i2c.write(0x04, AccessWidth::Word, 1 << 1, SimTime::ZERO)
+    // Restart, write two bytes, stop, and end. Command fields use the native
+    // ESP32-C6 byte-count/opcode encoding.
+    i2c.write(0x58, AccessWidth::Word, 6 << 11, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x5c, AccessWidth::Word, 2 | (1 << 11), SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x60, AccessWidth::Word, 2 << 11, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x64, AccessWidth::Word, 4 << 11, SimTime::ZERO)
+        .unwrap();
+    i2c.write(0x04, AccessWidth::Word, (1 << 4) | (1 << 5), SimTime::ZERO)
         .unwrap();
     assert!(!handle.busy());
-    i2c.write(0x24, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+    i2c.write(0x28, AccessWidth::Word, 1 << 7, SimTime::ZERO)
         .unwrap();
     assert_eq!(
-        i2c.read(0x28, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        i2c.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap(),
         1 << 7
     );
-    i2c.write(0x30, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+    i2c.write(0x24, AccessWidth::Word, 1 << 7, SimTime::ZERO)
         .unwrap();
-    assert_eq!(i2c.read(0x28, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+    assert_eq!(i2c.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
 }
 
 #[test]

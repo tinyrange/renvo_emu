@@ -48,10 +48,11 @@ PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 ## ESP32-C6 I2C0 slice
 
 The ESP32-C6 native I2C0 window at `0x60004000` now has a behavioral FIFO and
-master-control subset. START/STOP state, FIFO transmit/receive bytes, transfer
-completion raw/enable/status/clear bits, and deterministic host injection are
-covered. Command-link timing, arbitration, clock stretching, DMA, LP-I2C, and
-the interrupt matrix remain outside this slice.
+master command-link subset. Native `CTR.TRANS_START`, restart/write/read/stop/
+end command entries, FIFO transmit/receive bytes, transfer-completion raw/
+enable/status/clear bits, and deterministic host injection are covered.
+Command-link timing, arbitration, clock stretching, DMA, LP-I2C, and the
+interrupt matrix remain outside this slice.
 
 ## Implemented CPU surface
 

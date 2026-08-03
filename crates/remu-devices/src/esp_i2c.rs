@@ -35,12 +35,22 @@ impl EspI2cState {
     const STATUS: usize = 0x08;
     const FIFO_DATA: usize = 0x1c;
     const INT_RAW: usize = 0x20;
-    const INT_ENABLE: usize = 0x24;
-    const INT_STATUS: usize = 0x28;
-    const INT_CLEAR: usize = 0x30;
-    const START: u32 = 1;
-    const STOP: u32 = 1 << 1;
+    const INT_CLEAR: usize = 0x24;
+    const INT_ENABLE: usize = 0x28;
+    const INT_STATUS: usize = 0x2c;
+    const COMMAND_BASE: usize = 0x58;
+    const COMMAND_COUNT: usize = 8;
+    const BUS_BUSY: u32 = 1 << 4;
+    const TRANS_START: u32 = 1 << 5;
+    const COMMAND_OPCODE_SHIFT: u32 = 11;
+    const COMMAND_OPCODE_MASK: u32 = 0x7;
+    const COMMAND_RESTART: u32 = 6;
+    const COMMAND_WRITE: u32 = 1;
+    const COMMAND_READ: u32 = 3;
+    const COMMAND_STOP: u32 = 2;
+    const COMMAND_END: u32 = 4;
     const TRANSFER_COMPLETE: u32 = 1 << 7;
+    const TRANSFER_START: u32 = 1 << 9;
 
     fn new() -> Self {
         Self {
@@ -52,18 +62,41 @@ impl EspI2cState {
     }
 
     fn status(&self) -> u32 {
-        // The functional FIFO is never full; bit 0 is the active master state.
-        u32::from(self.busy)
+        // The native BUS_BUSY status is bit 4. FIFO watermark and detailed
+        // state-machine fields remain outside this bounded model.
+        u32::from(self.busy) * Self::BUS_BUSY
+    }
+
+    fn execute_commands(&mut self) {
+        self.busy = true;
+        self.registers[Self::INT_RAW / 4] |= Self::TRANSFER_START;
+        for command_index in 0..Self::COMMAND_COUNT {
+            let index = (Self::COMMAND_BASE + command_index * 4) / 4;
+            let command = self.registers[index];
+            let opcode = (command >> Self::COMMAND_OPCODE_SHIFT) & Self::COMMAND_OPCODE_MASK;
+            self.registers[index] = command | (1 << 31);
+            match opcode {
+                Self::COMMAND_RESTART | Self::COMMAND_WRITE | Self::COMMAND_READ => {}
+                Self::COMMAND_STOP => {
+                    self.busy = false;
+                    self.registers[Self::INT_RAW / 4] |= Self::TRANSFER_COMPLETE;
+                    return;
+                }
+                Self::COMMAND_END => return,
+                _ => return,
+            }
+        }
     }
 }
 
 /// Functional ESP32-C6 I2C0 master FIFO/controller slice.
 ///
-/// Register writes retain the native control/status/FIFO/interrupt windows.
-/// START and STOP are deterministic abstract actions; bytes written to the
-/// FIFO are exposed through the host handle, and queued host bytes are returned
-/// by FIFO reads. Command-link timing, arbitration, clock stretching, and DMA
-/// remain outside this functional slice.
+/// Register writes retain the native control/status/FIFO/interrupt and command
+/// windows. A write to `CTR.TRANS_START` executes the programmed command link;
+/// command opcodes provide restart, write, read, stop, and end actions. Bytes
+/// written to the FIFO are exposed through the host handle, and queued host
+/// bytes are returned by FIFO reads. Command-link timing, arbitration, clock
+/// stretching, and DMA remain outside this functional slice.
 pub struct EspI2c {
     name: String,
     state: Rc<RefCell<EspI2cState>>,
@@ -126,16 +159,19 @@ impl Device for EspI2c {
             EspI2cState::FIFO_DATA => state.tx.push(value as u8),
             EspI2cState::CTR => {
                 state.registers[index] = value;
-                if value & EspI2cState::START != 0 {
-                    state.busy = true;
-                }
-                if value & EspI2cState::STOP != 0 {
-                    state.busy = false;
-                    state.registers[EspI2cState::INT_RAW / 4] |= EspI2cState::TRANSFER_COMPLETE;
+                if value & EspI2cState::TRANS_START != 0 {
+                    state.execute_commands();
                 }
             }
             EspI2cState::INT_CLEAR => state.registers[EspI2cState::INT_RAW / 4] &= !value,
             EspI2cState::STATUS | EspI2cState::INT_STATUS => {}
+            offset
+                if offset >= EspI2cState::COMMAND_BASE
+                    && offset < EspI2cState::COMMAND_BASE + EspI2cState::COMMAND_COUNT * 4
+                    && offset & 3 == 0 =>
+            {
+                state.registers[index] = value & !(1 << 31);
+            }
             _ => {
                 let register = state.registers.get_mut(index).ok_or_else(|| {
                     DeviceError::new(format!("{} write at {offset:#x}", self.name))
