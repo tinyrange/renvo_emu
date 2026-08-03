@@ -456,12 +456,52 @@ impl Device for RaSci {
     }
 }
 
+const SPI_SPCR_SPRIE: u8 = 1 << 7;
+const SPI_SPCR_SPE: u8 = 1 << 6;
+const SPI_SPCR_SPTIE: u8 = 1 << 5;
+const SPI_SPCR_SPEIE: u8 = 1 << 4;
+const SPI_SPCR_MSTR: u8 = 1 << 3;
+const SPI_SPCR_MODFEN: u8 = 1 << 2;
+const SPI_SPCR_TXMD: u8 = 1 << 1;
+const SPI_SPCR_SPMS: u8 = 1;
+const SPI_SPCR_MASK: u8 = SPI_SPCR_SPRIE
+    | SPI_SPCR_SPE
+    | SPI_SPCR_SPTIE
+    | SPI_SPCR_SPEIE
+    | SPI_SPCR_MSTR
+    | SPI_SPCR_MODFEN
+    | SPI_SPCR_TXMD
+    | SPI_SPCR_SPMS;
+const SPI_SPSR_SPRF: u8 = 1 << 7;
+const SPI_SPSR_SPTEF: u8 = 1 << 5;
+const SPI_SPSR_UDRF: u8 = 1 << 4;
+const SPI_SPSR_PERF: u8 = 1 << 3;
+const SPI_SPSR_MODF: u8 = 1 << 2;
+const SPI_SPSR_IDLNF: u8 = 1 << 1;
+const SPI_SPSR_OVRF: u8 = 1;
+const SPI_SPSR_READ_MASK: u8 = SPI_SPSR_SPRF
+    | SPI_SPSR_SPTEF
+    | SPI_SPSR_UDRF
+    | SPI_SPSR_PERF
+    | SPI_SPSR_MODF
+    | SPI_SPSR_IDLNF
+    | SPI_SPSR_OVRF;
+const SPI_SPSR_CLEAR_ZERO_MASK: u8 = SPI_SPSR_UDRF | SPI_SPSR_PERF | SPI_SPSR_MODF | SPI_SPSR_OVRF;
+const SPI_SPDCR_SPRDTD: u8 = 1 << 4;
+const SPI_SPDCR_SPLW: u8 = 1 << 5;
+const SPI_SPDCR_SPBYT: u8 = 1 << 6;
+const SPI_SPDCR_MASK: u8 = SPI_SPDCR_SPRDTD | SPI_SPDCR_SPLW | SPI_SPDCR_SPBYT;
+const SPI_SPCR2_MASK: u8 = 0x1f;
+const SPI_SPCMD0_MASK: u16 = 0xff7f;
+const SPI_SPCMD0_RESET: u16 = 0x0401;
+
 #[derive(Default)]
 struct SpiState {
     control: u8,
     status: u8,
-    command: u8,
-    data: u32,
+    command: u16,
+    tx_data: u32,
+    rx_data: u32,
     tx: Vec<u32>,
     rx: VecDeque<u32>,
 }
@@ -497,27 +537,59 @@ impl RaSpi {
     /// Creates an RSPI instance and its host transfer handle.
     pub fn new(name: impl Into<String>) -> (Self, RaSpiHandle) {
         let state = Arc::new(Mutex::new(SpiState {
-            status: 1 << 7,
-            command: 7,
+            status: SPI_SPSR_SPTEF,
+            command: SPI_SPCMD0_RESET,
             ..SpiState::default()
         }));
+        let mut registers = [0; 0x11];
+        registers[0x0a] = u8::MAX;
         (
             Self {
                 name: name.into(),
                 state: state.clone(),
-                registers: [0; 0x11],
+                registers,
             },
             RaSpiHandle(state),
         )
     }
 
-    fn data_value(state: &SpiState, width: AccessWidth) -> Result<u64, DeviceError> {
+    fn data_access_is_valid(control: u8, width: AccessWidth) -> bool {
+        match (control & (SPI_SPDCR_SPBYT | SPI_SPDCR_SPLW), width) {
+            (SPI_SPDCR_SPBYT, AccessWidth::Byte)
+            | (SPI_SPDCR_SPLW, AccessWidth::Word)
+            | (0, AccessWidth::HalfWord) => true,
+            _ => false,
+        }
+    }
+
+    fn data_value(state: &SpiState, control: u8, width: AccessWidth) -> Result<u64, DeviceError> {
+        if !Self::data_access_is_valid(control, width) {
+            return Err(DeviceError::new(
+                "RA SPI SPDR access width does not match SPDCR",
+            ));
+        }
+        let value = if control & SPI_SPDCR_SPRDTD != 0 {
+            state.tx_data
+        } else {
+            state.rx_data
+        };
         match width {
-            AccessWidth::Byte => Ok(u64::from(state.data & 0xff)),
-            AccessWidth::HalfWord => Ok(u64::from(state.data & 0xffff)),
-            AccessWidth::Word => Ok(u64::from(state.data)),
+            AccessWidth::Byte => Ok(u64::from(value & 0xff)),
+            AccessWidth::HalfWord => Ok(u64::from(value & 0xffff)),
+            AccessWidth::Word => Ok(u64::from(value)),
             AccessWidth::DoubleWord => Err(DeviceError::new("RA SPI data is at most 32 bits")),
         }
+    }
+
+    fn reset_state(&mut self) {
+        let mut state = self.state.lock().expect("RA SPI lock poisoned");
+        *state = SpiState {
+            status: SPI_SPSR_SPTEF,
+            command: SPI_SPCMD0_RESET,
+            ..SpiState::default()
+        };
+        self.registers.fill(0);
+        self.registers[0x0a] = u8::MAX;
     }
 }
 
@@ -529,9 +601,24 @@ impl Device for RaSpi {
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         let mut state = self.state.lock().expect("RA SPI lock poisoned");
         if offset == 0x04 {
-            let value = Self::data_value(&state, width)?;
-            state.status &= !(1 << 6);
+            let control = self.registers[0x0b];
+            let value = Self::data_value(&state, control, width)?;
+            if control & SPI_SPDCR_SPRDTD == 0 {
+                state.status &= !SPI_SPSR_SPRF;
+            }
             return Ok(value);
+        }
+        if offset == 0x10 {
+            return match width {
+                AccessWidth::Byte => Ok(u64::from(state.command as u8)),
+                AccessWidth::HalfWord => Ok(u64::from(state.command)),
+                _ => Err(DeviceError::new(
+                    "RA SPI SPCMD0 requires byte or halfword access",
+                )),
+            };
+        }
+        if offset == 0x11 && width == AccessWidth::Byte {
+            return Ok(u64::from((state.command >> 8) as u8));
         }
         if width != AccessWidth::Byte {
             return Err(DeviceError::new(
@@ -540,8 +627,7 @@ impl Device for RaSpi {
         }
         let value = match offset {
             0x00 => state.control,
-            0x03 => state.status,
-            0x10 => state.command,
+            0x03 => state.status & SPI_SPSR_READ_MASK,
             _ => self.registers.get(offset as usize).copied().unwrap_or(0),
         };
         Ok(u64::from(value))
@@ -556,6 +642,12 @@ impl Device for RaSpi {
     ) -> Result<(), DeviceError> {
         let mut state = self.state.lock().expect("RA SPI lock poisoned");
         if offset == 0x04 {
+            let control = self.registers[0x0b];
+            if !Self::data_access_is_valid(control, width) {
+                return Err(DeviceError::new(
+                    "RA SPI SPDR access width does not match SPDCR",
+                ));
+            }
             let value = match width {
                 AccessWidth::Byte => value & 0xff,
                 AccessWidth::HalfWord => value & 0xffff,
@@ -564,12 +656,39 @@ impl Device for RaSpi {
                     return Err(DeviceError::new("RA SPI data is at most 32 bits"));
                 }
             } as u32;
-            state.data = value;
-            if state.control & (1 << 6) != 0 {
+            if state.control & SPI_SPCR_SPE != 0 && state.status & SPI_SPSR_SPTEF != 0 {
+                state.tx_data = value;
+                state.status &= !SPI_SPSR_SPTEF;
                 state.tx.push(value);
-                state.data = state.rx.pop_front().unwrap_or(0);
-                state.status |= (1 << 7) | (1 << 6);
+                if state.control & SPI_SPCR_TXMD == 0 {
+                    state.rx_data = state.rx.pop_front().unwrap_or(0);
+                    state.status |= SPI_SPSR_SPRF;
+                }
+                // Functional execution completes the transfer immediately;
+                // the transmit buffer is empty again at the next observable
+                // boundary.
+                state.status |= SPI_SPSR_SPTEF;
             }
+            return Ok(());
+        }
+        if offset == 0x10 {
+            match width {
+                AccessWidth::Byte => {
+                    state.command = (state.command & 0xff00) | (value as u16 & 0xff);
+                }
+                AccessWidth::HalfWord => state.command = value as u16 & SPI_SPCMD0_MASK,
+                _ => {
+                    return Err(DeviceError::new(
+                        "RA SPI SPCMD0 requires byte or halfword access",
+                    ));
+                }
+            }
+            state.command &= SPI_SPCMD0_MASK;
+            return Ok(());
+        }
+        if offset == 0x11 && width == AccessWidth::Byte {
+            state.command = (state.command & 0x00ff) | ((value as u16 & 0xff) << 8);
+            state.command &= SPI_SPCMD0_MASK;
             return Ok(());
         }
         if width != AccessWidth::Byte {
@@ -580,13 +699,27 @@ impl Device for RaSpi {
         let value = value as u8;
         match offset {
             0x00 => {
-                state.control = value;
-                if value & (1 << 6) != 0 {
-                    state.status |= 1 << 7;
+                let was_enabled = state.control & SPI_SPCR_SPE != 0;
+                state.control = value & SPI_SPCR_MASK;
+                if was_enabled && value & SPI_SPCR_SPE == 0 {
+                    state.status |= SPI_SPSR_SPTEF;
                 }
             }
-            0x03 => state.status &= !value,
-            0x10 => state.command = value,
+            0x03 => {
+                // Error flags clear only when firmware writes zero after
+                // observing them; SPTEF/SPRF are hardware flags and the
+                // reserved bit is read as zero.
+                state.status &= !(SPI_SPSR_CLEAR_ZERO_MASK & !value);
+            }
+            0x01 => self.registers[0x01] = value & 0x03,
+            0x02 => self.registers[0x02] = value & 0x37,
+            0x0b => self.registers[0x0b] = value & SPI_SPDCR_MASK,
+            0x0c | 0x0d | 0x0e => {
+                if let Some(register) = self.registers.get_mut(offset as usize) {
+                    *register = value & 0x07;
+                }
+            }
+            0x0f => self.registers[0x0f] = value & SPI_SPCR2_MASK,
             _ => {
                 if let Some(register) = self.registers.get_mut(offset as usize) {
                     *register = value;
@@ -597,13 +730,7 @@ impl Device for RaSpi {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        let mut state = self.state.lock().expect("RA SPI lock poisoned");
-        *state = SpiState {
-            status: 1 << 7,
-            command: 7,
-            ..SpiState::default()
-        };
-        self.registers.fill(0);
+        self.reset_state();
     }
 }
 
@@ -749,18 +876,67 @@ mod tests {
         let (mut spi, handle) = RaSpi::new("spi0");
         spi.write(0, AccessWidth::Byte, 1 << 6, SimTime::ZERO)
             .unwrap();
+        spi.write(0x0b, AccessWidth::Byte, 1 << 6, SimTime::ZERO)
+            .unwrap();
         handle.queue_rx(0xa5);
         spi.write(4, AccessWidth::Byte, 0x5a, SimTime::ZERO)
             .unwrap();
         assert_eq!(handle.take_tx(), vec![0x5a]);
         assert_eq!(
-            spi.read(3, AccessWidth::Byte, SimTime::ZERO).unwrap() & 0xc0,
-            0xc0
+            spi.read(3, AccessWidth::Byte, SimTime::ZERO).unwrap() & 0xa0,
+            0xa0
         );
         assert_eq!(spi.read(4, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0xa5);
         assert_eq!(
-            spi.read(3, AccessWidth::Byte, SimTime::ZERO).unwrap() & 0x40,
+            spi.read(3, AccessWidth::Byte, SimTime::ZERO).unwrap() & 0x80,
             0
         );
+    }
+
+    #[test]
+    fn spi_reset_defaults_and_width_selection_follow_ra4m1_registers() {
+        let (mut spi, _) = RaSpi::new("spi0");
+        assert_eq!(spi.read(0, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0);
+        assert_eq!(spi.read(3, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0x20);
+        assert_eq!(
+            spi.read(0x0a, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0xff
+        );
+        assert_eq!(
+            spi.read(0x10, AccessWidth::HalfWord, SimTime::ZERO)
+                .unwrap(),
+            0x0401
+        );
+        assert!(
+            spi.write(4, AccessWidth::Byte, 0x12, SimTime::ZERO)
+                .is_err()
+        );
+
+        spi.write(0x0b, AccessWidth::Byte, 0x40, SimTime::ZERO)
+            .unwrap();
+        spi.write(0, AccessWidth::Byte, 1 << 6, SimTime::ZERO)
+            .unwrap();
+        spi.write(4, AccessWidth::Byte, 0x12, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(spi.read(4, AccessWidth::Byte, SimTime::ZERO).unwrap(), 0);
+
+        spi.reset(ResetKind::PowerOn);
+        spi.write(0, AccessWidth::Byte, 1 << 6, SimTime::ZERO)
+            .unwrap();
+        assert!(
+            spi.write(4, AccessWidth::Byte, 0x12, SimTime::ZERO)
+                .is_err()
+        );
+        spi.write(4, AccessWidth::HalfWord, 0x1234, SimTime::ZERO)
+            .unwrap();
+
+        spi.reset(ResetKind::PowerOn);
+        spi.write(0x0b, AccessWidth::Byte, 1 << 5, SimTime::ZERO)
+            .unwrap();
+        spi.write(0, AccessWidth::Byte, 1 << 6, SimTime::ZERO)
+            .unwrap();
+        spi.write(4, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(spi.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
     }
 }
