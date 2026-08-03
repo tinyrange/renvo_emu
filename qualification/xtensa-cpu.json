@@ -1,6 +1,6 @@
 {
   "schema": "remu.xtensa-cpu.v1",
-  "source_sha256": "7633961719fdbbaedbd9cb438f3eec1fca9d0ed5a717399f011f28092ca0bc6b",
+  "source_sha256": "3ff7a012c4de71e38a03767723d209e4761e9dcbd92faca8691769ccd97d233f",
   "primary_sources": [
     "https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf",
     "https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/tools/idf-tools.html",

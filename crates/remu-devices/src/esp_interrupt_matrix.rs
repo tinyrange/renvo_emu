@@ -3,7 +3,7 @@ use super::*;
 const ESP_INTERRUPT_ROUTE_COUNT: usize = 99;
 const ESP_INTERRUPT_CORE1_BASE: u64 = 0x800;
 const ESP_INTERRUPT_ROUTE_MASK: u32 = 0x1f;
-const ESP_INTERRUPT_ROUTE_DISABLED: u8 = 0x1f;
+const ESP_INTERRUPT_INTERNAL_DISABLED: [u8; 6] = [6, 7, 11, 15, 16, 29];
 const ESP_INTERRUPT_ROUTE_RESET: u8 = 16;
 const ESP_INTERRUPT_DATE_RESET: u32 = 0x0201_2300;
 
@@ -115,9 +115,11 @@ impl EspInterruptMatrixState {
     fn new() -> Self {
         Self {
             // Every route field resets to interrupt line 16 per the official
-            // CPU0/CPU1 register definitions. The host handle uses 0xff as
-            // its out-of-range/disabled sentinel, while native reads retain
-            // the five-bit 0x1f encoding.
+            // CPU0/CPU1 register definitions. Native reads retain that
+            // five-bit value, while the host handle translates the native
+            // internal-interrupt destinations (6, 7, 11, 15, 16, 29) to its
+            // out-of-range/disabled sentinel. Peripheral interrupt 31 remains
+            // a valid destination.
             routes: [[ESP_INTERRUPT_ROUTE_RESET; ESP_INTERRUPT_ROUTE_COUNT]; 2],
             pending: [[false; ESP_INTERRUPT_ROUTE_COUNT]; 2],
             status: [[0; 4]; 2],
@@ -132,12 +134,16 @@ impl EspInterruptMatrixState {
             .and_then(|routes| routes.get(source))
             .copied()
             .map_or(u8::MAX, |route| {
-                if route == ESP_INTERRUPT_ROUTE_DISABLED {
+                if Self::route_is_disabled(route) {
                     u8::MAX
                 } else {
                     route
                 }
             })
+    }
+
+    fn route_is_disabled(route: u8) -> bool {
+        ESP_INTERRUPT_INTERNAL_DISABLED.contains(&route)
     }
 
     fn set_route(&mut self, core: usize, source: usize, interrupt: u32) {
@@ -163,9 +169,6 @@ impl EspInterruptMatrixState {
     }
 
     fn recompute_status(&mut self, core: usize) {
-        let Some(routes) = self.routes.get(core) else {
-            return;
-        };
         let Some(pending) = self.pending.get(core) else {
             return;
         };
@@ -173,10 +176,13 @@ impl EspInterruptMatrixState {
             return;
         };
         status.fill(0);
-        for (route, is_pending) in routes.iter().zip(pending.iter()) {
-            if *is_pending && *route != ESP_INTERRUPT_ROUTE_DISABLED {
-                let bank = usize::from(*route) / 32;
-                let bit = u32::from(*route % 32);
+        // Status bits identify the peripheral source, not its selected CPU
+        // interrupt destination. A source remains observable here even when
+        // it is routed to one of the native internal/disabled destinations.
+        for (source, is_pending) in pending.iter().enumerate() {
+            if *is_pending {
+                let bank = source / 32;
+                let bit = u32::try_from(source % 32).expect("status bit fits");
                 status[bank] |= 1 << bit;
             }
         }
@@ -209,7 +215,7 @@ impl EspInterruptMatrixHandle {
     }
 
     /// Updates a source's pending state so native status words reflect the
-    /// scheduler's current interrupt-line view.
+    /// scheduler's current peripheral-source view.
     pub fn set_source_pending(&self, core: usize, source: usize, pending: bool) {
         self.state.borrow_mut().set_pending(core, source, pending);
     }
@@ -370,6 +376,7 @@ mod tests {
                 .unwrap(),
             u64::from(ESP_INTERRUPT_ROUTE_RESET)
         );
+        assert_eq!(handle.route(0, 0), u8::MAX);
         assert_eq!(
             device
                 .read(
@@ -383,13 +390,13 @@ mod tests {
         write_word(&mut device, Esp32S3InterruptRegister::Core0Route(38), 5);
         write_word(&mut device, Esp32S3InterruptRegister::Core1Route(39), 7);
         assert_eq!(handle.route(0, 38), 5);
-        assert_eq!(handle.route(1, 39), 7);
+        assert_eq!(handle.route(1, 39), u8::MAX);
         write_word(
             &mut device,
             Esp32S3InterruptRegister::Core0Route(38),
             u64::from(u32::MAX),
         );
-        assert_eq!(handle.route(0, 38), u8::MAX);
+        assert_eq!(handle.route(0, 38), 31);
         assert_eq!(
             device
                 .read(
@@ -398,13 +405,44 @@ mod tests {
                     SimTime::ZERO,
                 )
                 .unwrap(),
-            u64::from(ESP_INTERRUPT_ROUTE_DISABLED)
+            31
         );
+        for route in ESP_INTERRUPT_INTERNAL_DISABLED {
+            write_word(
+                &mut device,
+                Esp32S3InterruptRegister::Core0Route(38),
+                u64::from(route),
+            );
+            assert_eq!(handle.route(0, 38), u8::MAX);
+        }
+        write_word(&mut device, Esp32S3InterruptRegister::Core0Route(38), 5);
         handle.set_source_pending(1, 39, true);
         assert_eq!(
             device
                 .read(
                     Esp32S3InterruptRegister::Core1Status(0).offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3InterruptRegister::Core1Status(1).offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            1 << 7
+        );
+        write_word(&mut device, Esp32S3InterruptRegister::Core1Route(39), 8);
+        assert_eq!(handle.route(1, 39), 8);
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3InterruptRegister::Core1Status(1).offset(),
                     AccessWidth::Word,
                     SimTime::ZERO,
                 )

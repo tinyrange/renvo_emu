@@ -45,13 +45,47 @@ fn esp32s3_interrupt_matrix_native_routes_feed_the_scheduler_view() {
         5
     );
     assert_eq!(machine.interrupt_matrix.route(0, 38), 5);
-    assert_eq!(machine.interrupt_matrix.route(1, 39), 7);
+    assert_eq!(machine.interrupt_matrix.route(1, 39), u8::MAX);
     machine.interrupt_matrix.set_source_pending(1, 39, true);
     assert_eq!(
         machine
             .bus
             .read(
                 base + Esp32S3InterruptRegister::Core1Status(0).offset(),
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + Esp32S3InterruptRegister::Core1Status(1).offset(),
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        1 << 7
+    );
+    machine
+        .bus
+        .write(
+            base + Esp32S3InterruptRegister::Core1Route(39).offset(),
+            AccessWidth::Word,
+            8,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(machine.interrupt_matrix.route(1, 39), 8);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + Esp32S3InterruptRegister::Core1Status(1).offset(),
                 AccessWidth::Word,
                 AccessKind::Read,
                 SimTime::ZERO,
@@ -68,7 +102,7 @@ fn esp32s3_interrupt_matrix_native_routes_feed_the_scheduler_view() {
             SimTime::ZERO,
         )
         .unwrap();
-    assert_eq!(machine.interrupt_matrix.route(0, 38), u8::MAX);
+    assert_eq!(machine.interrupt_matrix.route(0, 38), 31);
 }
 
 #[test]

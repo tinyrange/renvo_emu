@@ -1162,8 +1162,10 @@ impl XtensaMachine {
                 );
             }
             for core in 0..2_u32 {
-                // IDF maps every unused source to CPU interrupt 6, the
-                // architecture's disabled/reserved matrix sink.
+                // Native ESP32-S3 treats the internal CPU interrupt
+                // destinations (including the reset value 16) as disabled
+                // for peripheral sources; the matrix handle normalizes them
+                // to its disabled sentinel.
                 self.interrupt_matrix
                     .set_source_pending(core as usize, 38, usb_pending);
                 let interrupt = self.interrupt_matrix.route(core as usize, 38);

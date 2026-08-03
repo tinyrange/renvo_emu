@@ -90,10 +90,14 @@ The ESP32-S3 interrupt-matrix slice maps the 99 native CPU0 route registers at
 `0x600c2000..0x600c2188` and CPU1 routes at `0x600c2800..0x600c2988`, plus the
 four read-only status words, clock gates, and writable version/date registers
 at their documented offsets. `Esp32S3InterruptRegister` enforces the five-bit
-route mask, reset line 16, native `0x1f` disabled encoding, status read-only
-semantics, date mask/reset, reserved holes, and aligned 32-bit accesses.
-Pending source state is shared with the deterministic Xtensa scheduler so
-status words and routed CPU interrupt lines agree. Priority, interrupt
+route mask, reset line 16, native internal-interrupt disable encodings
+`6/7/11/15/16/29`, status read-only semantics, date mask/reset, reserved
+holes, and aligned 32-bit accesses. Peripheral interrupt 31 remains a valid
+route.
+Status bits retain the source-number mapping even when a source is routed to
+an internal/disabled destination. Pending source state is shared with the
+deterministic Xtensa scheduler so status words and routed CPU interrupt lines
+agree. Priority, interrupt
 nesting, NMI behavior, and cycle-accurate SMP arbitration remain outside the
 functional model.
 
