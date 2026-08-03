@@ -45,6 +45,16 @@ See `scripts/qualify-micropython.sh` and
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
+The R7FA4M1AB3CFM model also exposes the RA4M1 DAC12 channel 0 at
+`0x4005e000`. `DADR0`, `DACR.DAOE0`, `DADPR.DPSEL`, `DAADSCR.DAADST`, and
+VREF control registers are modeled, with a 12-bit
+`board.r7fa4m1ab3cfm.dac0` signal for traces and host assertions. The model
+reports a deterministic digital sample; ADC-synchronized conversion latency,
+analog amplifier settling, reference-voltage magnitude, and pin-mux
+electrical behavior are outside this functional boundary. Register choices
+follow the [RA4M1 hardware
+manual](https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware).
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
