@@ -83,6 +83,9 @@ const PIE1: usize = 0x717;
 const PIE3: usize = 0x719;
 const WDTCON0: usize = 0x80c;
 const OSCSTAT: usize = 0x890;
+// PIC16F15376 data-sheet register summary, bank 17 (DS40001866A §4.3).
+const CLKRCON: usize = 0x895;
+const CLKRCLK: usize = 0x896;
 const ANSEL: [usize; 5] = [0x1f38, 0x1f43, 0x1f4e, 0x1f59, 0x1f64];
 const ADRESL: usize = 0x09b;
 const ADRESH: usize = 0x09c;
@@ -106,6 +109,9 @@ const ADCON0_GO: u8 = 1 << 1;
 const ADCON0_ADON: u8 = 1;
 const TXEN: u8 = 1 << 5;
 const SPEN: u8 = 1 << 7;
+const CLKRCON_ENABLE: u8 = 1 << 7;
+const CLKRCON_WRITABLE_MASK: u8 = 0x9f;
+const CLKRCLK_WRITABLE_MASK: u8 = 0x0f;
 const NCO1IF: u8 = 1 << 4;
 const NCO1IE: u8 = 1 << 4;
 const NCO1EN: u8 = 1 << 7;
@@ -625,6 +631,7 @@ struct Pic16State {
     nco_raw_output: bool,
     nco_pulse_remaining: u64,
     watchdog_epoch: u64,
+    clock_reference_epoch: u64,
     watchdog_reset: bool,
     adc_inputs: [u16; 64],
     adc_started: Option<(u8, u64)>,
@@ -642,6 +649,7 @@ struct Pic16State {
     comparator1_output_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
+    clock_reference_signal: SignalId,
 }
 
 impl Pic16State {
@@ -653,6 +661,41 @@ impl Pic16State {
                 at,
             )
             .expect("PIC16 signal identity is fixed at construction");
+    }
+
+    /// Publishes the functional CLKR waveform.
+    ///
+    /// The emulator timeline is an abstract instruction/action tick, so the
+    /// oscillator sources use deterministic relative periods rather than a
+    /// claimed silicon frequency. NCO/CLC sources remain low until their
+    /// coupling to CLKR is modelled.
+    fn refresh_clock_reference(&self, at: SimTime) {
+        let control = self.registers[CLKRCON];
+        let source = self.registers[CLKRCLK] & CLKRCLK_WRITABLE_MASK;
+        let output = if control & CLKRCON_ENABLE == 0 {
+            false
+        } else if let Some(source_period) = match source {
+            0 | 1 => Some(1_u64),
+            2 => Some(512_u64),
+            3 => Some(32_u64),
+            4 => Some(512_u64),
+            5 => Some(1024_u64),
+            6..=10 => None,
+            _ => None,
+        } {
+            let divider = 1_u64 << u32::from(control & 0x07);
+            let period = 4_u64
+                .saturating_mul(source_period)
+                .saturating_mul(divider)
+                .max(1);
+            let duty = u64::from((control >> 3) & 0x03);
+            let high_ticks = period.saturating_mul(duty) / 4;
+            let phase = at.ticks().saturating_sub(self.clock_reference_epoch) % period;
+            phase < high_ticks
+        } else {
+            false
+        };
+        self.set_signal(self.clock_reference_signal, u64::from(output), 1, at);
     }
 
     fn resolved_port(&self, port: usize) -> u8 {
@@ -1075,6 +1118,9 @@ impl Pic16State {
         self.registers[Pic16Timer2Register::T2Pr.index()] = u8::MAX;
         self.registers[TX1STA] = 1 << 1; // TRMT
         self.registers[OSCSTAT] = 1 << 6; // internal HF oscillator ready
+        // CLKRDC1 resets high, selecting the documented deterministic 50%
+        // duty default while the module remains disabled.
+        self.registers[CLKRCON] = 0x08;
         self.registers[Pic16PpsRegister::Ppslock.offset()] = 0;
         self.uart.clear();
         self.spi.clear();
@@ -1094,6 +1140,7 @@ impl Pic16State {
         self.nco_raw_output = false;
         self.nco_pulse_remaining = 0;
         self.watchdog_epoch = at.ticks();
+        self.clock_reference_epoch = at.ticks();
         self.watchdog_reset = false;
         self.adc_inputs = [0; 64];
         self.adc_started = None;
@@ -1111,6 +1158,7 @@ impl Pic16State {
         self.publish_nco_output(at);
         self.set_signal(self.interrupt_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
+        self.set_signal(self.clock_reference_signal, 0, 1, at);
         for port in 0..5 {
             let _ = self.refresh_port(port, at);
         }
@@ -1277,6 +1325,7 @@ impl Pic16PeripheralsHandle {
             let _ = state.refresh_port(port, now);
         }
         state.update_comparator(now);
+        state.refresh_clock_reference(now);
         if state.registers[T0CON0] & 0x80 != 0 {
             let period = u64::from(state.registers[TMR0H]).saturating_add(1).max(1);
             let elapsed = now.ticks().saturating_sub(state.timer0_epoch);
@@ -1487,6 +1536,11 @@ impl Pic16Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("functional watchdog reset request".to_owned()),
         )?;
+        let clock_reference_signal = hub.declare(
+            "board.pic16f15376.clkr",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional PIC16F15376 CLKR reference-clock output".to_owned()),
+        )?;
         let state = Arc::new(Mutex::new(Pic16State {
             registers: vec![0; DATA_BYTES],
             ports: [porta, portb, portc, portd, porte],
@@ -1510,6 +1564,7 @@ impl Pic16Peripherals {
             nco_raw_output: false,
             nco_pulse_remaining: 0,
             watchdog_epoch: 0,
+            clock_reference_epoch: 0,
             watchdog_reset: false,
             adc_inputs: [0; 64],
             adc_started: None,
@@ -1529,6 +1584,7 @@ impl Pic16Peripherals {
             comparator1_output_signal,
             interrupt_signal,
             watchdog_reset_signal,
+            clock_reference_signal,
         }));
         state
             .lock()
@@ -1590,6 +1646,8 @@ impl Device for Pic16Peripherals {
         }
         let value = match address {
             OSCSTAT => state.registers[address] | (1 << 6),
+            CLKRCON => state.registers[address] & CLKRCON_WRITABLE_MASK,
+            CLKRCLK => state.registers[address] & CLKRCLK_WRITABLE_MASK,
             TX1STA => state.registers[address] | (1 << 1),
             address
                 if Pic16PpsRegister::from_data_address(address)
@@ -1853,6 +1911,16 @@ impl Device for Pic16Peripherals {
             WDTCON0 => {
                 state.registers[address] = value & 0x3f;
                 state.watchdog_epoch = at.ticks();
+            }
+            CLKRCON => {
+                state.registers[address] = value & CLKRCON_WRITABLE_MASK;
+                state.clock_reference_epoch = at.ticks();
+                state.refresh_clock_reference(at);
+            }
+            CLKRCLK => {
+                state.registers[address] = value & CLKRCLK_WRITABLE_MASK;
+                state.clock_reference_epoch = at.ticks();
+                state.refresh_clock_reference(at);
             }
             ADCON0 => {
                 let previous = state.registers[address];
@@ -2931,6 +2999,92 @@ mod tests {
                 .read(SSP1BUF as u64, AccessWidth::Byte, SimTime::from_ticks(4))
                 .unwrap(),
             0x10
+        );
+    }
+
+    #[test]
+    fn clock_reference_masks_registers_and_emits_deterministic_output() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _) =
+            Pic16Peripherals::new("pic16f15376.data", hub.clone()).unwrap();
+        let clkr = hub
+            .with_registry(|registry| registry.find("board.pic16f15376.clkr"))
+            .expect("CLKR signal is declared");
+
+        assert_eq!(
+            device
+                .read(CLKRCON as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x08
+        );
+        assert_eq!(
+            device
+                .read(CLKRCLK as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        device
+            .write(CLKRCON as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(CLKRCLK as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device
+                .read(CLKRCON as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            CLKRCON_WRITABLE_MASK.into()
+        );
+        assert_eq!(
+            device
+                .read(CLKRCLK as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            CLKRCLK_WRITABLE_MASK.into()
+        );
+
+        handle.poll(SimTime::ZERO);
+        assert_eq!(
+            hub.with_registry(|registry| registry.value(clkr).and_then(|value| value.bit(0))),
+            Some(Logic::Zero)
+        );
+        hub.drain_changes();
+
+        // FOSC, /2, 50% duty: an eight-tick functional period.
+        device
+            .write(CLKRCLK as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(CLKRCON as u64, AccessWidth::Byte, 0x91, SimTime::ZERO)
+            .unwrap();
+        let changes = hub.drain_changes();
+        assert_eq!(changes.last().map(|change| change.signal), Some(clkr));
+        assert_eq!(
+            changes.last().and_then(|change| change.value.bit(0)),
+            Some(Logic::One)
+        );
+
+        handle.poll(SimTime::from_ticks(3));
+        assert!(hub.drain_changes().is_empty());
+        handle.poll(SimTime::from_ticks(4));
+        let falling = hub.drain_changes();
+        assert_eq!(
+            falling.last().and_then(|change| change.value.bit(0)),
+            Some(Logic::Zero)
+        );
+        handle.poll(SimTime::from_ticks(8));
+        let rising = hub.drain_changes();
+        assert_eq!(
+            rising.last().and_then(|change| change.value.bit(0)),
+            Some(Logic::One)
+        );
+
+        device
+            .write(CLKRCON as u64, AccessWidth::Byte, 0, SimTime::from_ticks(9))
+            .unwrap();
+        let disabled = hub.drain_changes();
+        assert_eq!(
+            disabled.last().and_then(|change| change.value.bit(0)),
+            Some(Logic::Zero)
         );
     }
 }
