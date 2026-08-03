@@ -45,6 +45,11 @@ impl UartEndpoint {
 pub trait UartEndpointProvider {
     /// Returns the compiler facade followed by the primary native UART when
     /// the selected machine implements one.
+    ///
+    /// A caller may discover endpoints more than once: every returned handle
+    /// refers to the same machine transport for its role. The compiler and
+    /// native roles are independent transports, so wiring one to a board
+    /// connector cannot silently capture the other role's output.
     fn uart_endpoints(&self) -> Vec<UartEndpoint>;
 }
 
@@ -128,5 +133,49 @@ mod tests {
         endpoint.handle().transmit(b"ok");
         assert_eq!(endpoint.handle().bytes(), b"ok");
         assert_eq!(machine.chip_uarts[0].bytes(), b"ok");
+    }
+
+    fn assert_roles_have_independent_stable_transports(endpoints: Vec<UartEndpoint>) {
+        assert_eq!(
+            ids(&endpoints),
+            vec![UartEndpointId::Compiler, UartEndpointId::Native]
+        );
+
+        let compiler = endpoints[0].handle();
+        let native = endpoints[1].handle();
+        compiler.clear();
+        native.clear();
+
+        compiler.transmit(b"compiler");
+        assert_eq!(compiler.bytes(), b"compiler");
+        assert!(native.bytes().is_empty());
+
+        native.transmit(b"native");
+        assert_eq!(compiler.bytes(), b"compiler");
+        assert_eq!(native.bytes(), b"native");
+    }
+
+    #[test]
+    fn compiler_and_native_endpoint_transports_are_independent() {
+        let riscv = RiscVMachine::new(TargetId::Ch32v003).expect("CH32V003 machine");
+        assert_roles_have_independent_stable_transports(riscv.uart_endpoints());
+
+        let arm = ArmMachine::new(TargetId::Rp2040).expect("RP2040 machine");
+        assert_roles_have_independent_stable_transports(arm.uart_endpoints());
+
+        let xtensa = XtensaMachine::new(TargetId::Esp32s3).expect("ESP32-S3 machine");
+        assert_roles_have_independent_stable_transports(xtensa.uart_endpoints());
+    }
+
+    #[test]
+    fn repeated_endpoint_discovery_preserves_transport_identity() {
+        let machine = RiscVMachine::new(TargetId::Esp32c6).expect("ESP32-C6 machine");
+        let first = machine.uart_endpoints();
+        let second = machine.uart_endpoints();
+
+        assert_eq!(ids(&first), ids(&second));
+        first[0].handle().transmit(b"repeat");
+        assert_eq!(second[0].handle().bytes(), b"repeat");
+        assert!(second[1].handle().bytes().is_empty());
     }
 }

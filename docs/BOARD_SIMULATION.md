@@ -61,10 +61,12 @@ Machine models now expose the same boundary through the typed
 `UartEndpointProvider` API. A runner can discover the `Compiler` capture UART
 and the target's `Native` UART, then pass the selected `UartHandle` to a board
 transport. Endpoint roles are named rather than address- or index-based, and
-the returned handles share the machine's deterministic transmit state. This
-first slice covers the RISC-V, Arm RP, and Xtensa machines whose native UARTs
-use the common functional handle; vendor-specific peripheral handles remain
-target-specific until their receive/transmit adapters are added.
+the returned handles share the machine's deterministic transmit state. Repeated
+discovery returns handles for the same role, while the compiler and native
+roles remain independent so a board connector cannot silently capture the
+other stream. This first slice covers the RISC-V, Arm RP, and Xtensa machines
+whose native UARTs use the common functional handle; vendor-specific peripheral
+handles remain target-specific until their receive/transmit adapters are added.
 
 Run the deterministic qualification, including byte-identical JSON and VCD
 replay, with:
