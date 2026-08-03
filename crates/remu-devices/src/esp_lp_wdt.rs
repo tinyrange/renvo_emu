@@ -41,14 +41,17 @@ impl EspLpWatchdogState {
     const INT_ENABLE: usize = 0x2c;
     const INT_CLEAR: usize = 0x30;
     const DATE: usize = 0x3fc;
+    const CONFIG0_RESET: u32 = 20 | (1 << 9) | (1 << 12) | (1 << 13) | (1 << 16);
+    const INT_MASK: u32 = (1 << 30) | (1 << 31);
     const ENABLE: u32 = 1 << 31;
     const STAGE0_ACTION_SHIFT: u32 = 28;
     const LP_INT: u32 = 1 << 31;
+    const FEED_TRIGGER: u32 = 1 << 31;
 
     fn new() -> Self {
         let mut registers = vec![0; 0x400 / 4];
         // Reset values from Espressif's ESP32-C6 lp_wdt_reg.h.
-        registers[Self::CONFIG0 / 4] = (1 << 9) | (1 << 12) | (1 << 16);
+        registers[Self::CONFIG0 / 4] = Self::CONFIG0_RESET;
         registers[Self::STAGE0_HOLD / 4] = 200_000;
         registers[0x08 / 4] = 80_000;
         registers[0x0c / 4] = 4095;
@@ -74,7 +77,10 @@ impl EspLpWatchdogState {
         }
         self.registers[Self::INT_RAW / 4] |= Self::LP_INT;
         let action = (self.registers[Self::CONFIG0 / 4] >> Self::STAGE0_ACTION_SHIFT) & 0x7;
-        self.reset_pending = action >= 1;
+        // ESP-IDF encodes stage actions as 0=off, 1=interrupt,
+        // 2=CPU reset, 3=system reset, and later reset domains.  This
+        // functional machine consumes only CPU/system reset actions.
+        self.reset_pending = matches!(action, 2 | 3);
     }
 
     fn interrupt_status(&self) -> u32 {
@@ -150,10 +156,24 @@ impl Device for EspLpWatchdog {
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits");
         let mut state = self.state.borrow_mut();
         match offset {
-            EspLpWatchdogState::FEED => state.epoch = at,
+            EspLpWatchdogState::FEED => {
+                if value & EspLpWatchdogState::FEED_TRIGGER != 0 {
+                    state.epoch = at;
+                }
+            }
             EspLpWatchdogState::INT_CLEAR => {
-                state.registers[EspLpWatchdogState::INT_RAW / 4] &= !value;
+                state.registers[EspLpWatchdogState::INT_RAW / 4] &=
+                    !(value & EspLpWatchdogState::INT_MASK);
                 state.reset_pending = false;
+            }
+            EspLpWatchdogState::INT_RAW => {
+                // R/WTC/SS: writing one clears the corresponding raw bit.
+                state.registers[EspLpWatchdogState::INT_RAW / 4] &=
+                    !(value & EspLpWatchdogState::INT_MASK);
+            }
+            EspLpWatchdogState::INT_ENABLE => {
+                state.registers[EspLpWatchdogState::INT_ENABLE / 4] =
+                    value & EspLpWatchdogState::INT_MASK;
             }
             EspLpWatchdogState::INT_STATUS => {}
             _ => {

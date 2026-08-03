@@ -210,6 +210,12 @@ fn esp32s3_timer_group_exposes_second_timer_interrupt() {
 #[test]
 fn esp32c6_lp_watchdog_feeds_and_requests_stage_zero_reset() {
     let (mut watchdog, handle) = EspLpWatchdog::new("lp-wdt");
+    assert_eq!(
+        watchdog
+            .read(0x00, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        20 | (1 << 9) | (1 << 12) | (1 << 13) | (1 << 16)
+    );
     watchdog
         .write(0x04, AccessWidth::Word, 3, SimTime::ZERO)
         .unwrap();
@@ -223,13 +229,13 @@ fn esp32c6_lp_watchdog_feeds_and_requests_stage_zero_reset() {
         .unwrap();
     assert!(!handle.take_reset(SimTime::from_ticks(2)));
     watchdog
-        .write(0x14, AccessWidth::Word, 1, SimTime::from_ticks(2))
+        .write(0x14, AccessWidth::Word, 1 << 31, SimTime::from_ticks(2))
         .unwrap();
     assert!(!handle.take_reset(SimTime::from_ticks(4)));
     assert!(handle.take_reset(SimTime::from_ticks(5)));
     assert!(handle.interrupt_pending(SimTime::from_ticks(5)));
     watchdog
-        .write(0x14, AccessWidth::Word, 1, SimTime::from_ticks(5))
+        .write(0x14, AccessWidth::Word, 1 << 31, SimTime::from_ticks(5))
         .unwrap();
     watchdog
         .write(0x30, AccessWidth::Word, 1 << 31, SimTime::from_ticks(5))
@@ -240,6 +246,43 @@ fn esp32c6_lp_watchdog_feeds_and_requests_stage_zero_reset() {
             .read(0x3fc, AccessWidth::Word, SimTime::ZERO)
             .unwrap(),
         34_676_864
+    );
+}
+
+#[test]
+fn esp32c6_lp_watchdog_preserves_interrupt_only_action_and_wtc_masks() {
+    let (mut watchdog, handle) = EspLpWatchdog::new("lp-wdt");
+    watchdog
+        .write(0x04, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    watchdog
+        .write(
+            0x00,
+            AccessWidth::Word,
+            (1 << 31) | (1 << 28),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert!(!handle.take_reset(SimTime::from_ticks(2)));
+    assert!(handle.interrupt_pending(SimTime::from_ticks(2)));
+
+    watchdog
+        .write(0x24, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        watchdog
+            .read(0x24, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        0
+    );
+    watchdog
+        .write(0x2c, AccessWidth::Word, u64::MAX, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        watchdog
+            .read(0x2c, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        (1 << 30) | (1 << 31)
     );
 }
 
