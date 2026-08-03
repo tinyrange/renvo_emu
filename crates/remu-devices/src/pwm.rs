@@ -158,7 +158,11 @@ pub struct FunctionalPwm {
 
 impl FunctionalPwm {
     const SLICE_STRIDE: u64 = 0x14;
-    const CSR_MASK: u32 = 0x3f;
+    // CSR[7:6] are command bits (PH_ADV/PH_RET) and self-clear after a
+    // write.  The remaining fields are persistent control bits.
+    const CSR_MASK: u32 = 0xff;
+    const CSR_PHASE_RET: u32 = 1 << 6;
+    const CSR_PHASE_ADV: u32 = 1 << 7;
     const DIV_MASK: u32 = 0x0fff;
     const VALUE_MASK: u32 = 0xffff;
 
@@ -251,6 +255,19 @@ impl FunctionalPwm {
         }
         state.last_time = at;
     }
+
+    fn adjust_phase(slice: &mut PwmSlice, command: u32) {
+        let period = u32::from(slice.top) + 1;
+        let counter = u32::from(slice.ctr);
+        // PH_ADV and PH_RET are mutually exclusive commands in the hardware
+        // programming model.  Treat an invalid request deterministically as
+        // no adjustment rather than applying two contradictory operations.
+        slice.ctr = match command & (Self::CSR_PHASE_ADV | Self::CSR_PHASE_RET) {
+            Self::CSR_PHASE_ADV => ((counter + 1) % period) as u16,
+            Self::CSR_PHASE_RET => ((counter + period - 1) % period) as u16,
+            _ => slice.ctr,
+        };
+    }
 }
 
 impl Device for FunctionalPwm {
@@ -295,8 +312,13 @@ impl Device for FunctionalPwm {
         let (slice_index, register) = Self::decode(state.slices.len(), offset)?;
         match register {
             RpPwmRegister::Csr => {
-                state.slices[slice_index].csr = value & Self::CSR_MASK;
-                if state.slices[slice_index].csr & 1 != 0 {
+                let phase_command = value & (Self::CSR_PHASE_ADV | Self::CSR_PHASE_RET);
+                let slice = &mut state.slices[slice_index];
+                Self::adjust_phase(slice, phase_command);
+                // PH_ADV/PH_RET self-clear; all other CSR fields retain the
+                // value written by firmware.
+                slice.csr = value & (Self::CSR_MASK & !(Self::CSR_PHASE_ADV | Self::CSR_PHASE_RET));
+                if slice.csr & 1 != 0 {
                     state.enable |= 1 << slice_index;
                 } else {
                     state.enable &= !(1 << slice_index);

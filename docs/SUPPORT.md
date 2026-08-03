@@ -48,8 +48,9 @@ connectivity.
 
 RP2040 and RP2350 PWM blocks are mapped at their native addresses and use
 named register IDs. The functional model covers per-slice CSR/DIV/CTR/CC/TOP
-registers, channel-enable aliases, compare outputs, wrap interrupt status,
-write-one-to-clear raw status, and both RP2350 interrupt banks. It uses the
+registers, channel-enable aliases, compare outputs, self-clearing phase
+advance/retard commands, wrap interrupt status, write-one-to-clear raw status,
+and both RP2350 interrupt banks. It uses the
 RP2040 eight-slice global layout (`EN` at `0xa0`) and RP2350's twelve-slice
 layout (`EN` at `0xf0`, with the second IRQ bank through `0x10c`). Abstract
 time advances enabled counters deterministically; exact divider and
