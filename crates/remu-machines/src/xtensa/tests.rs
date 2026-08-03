@@ -29,17 +29,23 @@ fn esp32s3_hmac_native_register_window_produces_sha256_digest() {
     write(&mut machine, Esp32S3HmacRegister::SetParaPurpose, 8);
     write(&mut machine, Esp32S3HmacRegister::SetParaKey, 2);
     write(&mut machine, Esp32S3HmacRegister::SetParaFinish, 1);
-    for index in 0..16_u64 {
-        let start = index * 4;
-        let word = start | ((start + 1) << 8) | ((start + 2) << 16) | ((start + 3) << 24);
+    let message = b"renvo-hmac";
+    let mut block = [0_u8; 64];
+    block[..message.len()].copy_from_slice(message);
+    block[message.len()] = 0x80;
+    block[56..].copy_from_slice(&(512_u64 + (message.len() as u64 * 8)).to_be_bytes());
+    for (index, chunk) in block.chunks_exact(4).enumerate() {
         write(
             &mut machine,
-            Esp32S3HmacRegister::from_offset(Esp32S3HmacRegister::Wdata0.offset() + index * 4)
-                .expect("HMAC write window register"),
-            word,
+            Esp32S3HmacRegister::from_offset(
+                Esp32S3HmacRegister::Wdata0.offset() + (index as u64 * 4),
+            )
+            .expect("HMAC write window register"),
+            u64::from(u32::from_le_bytes(chunk.try_into().unwrap())),
         );
     }
     write(&mut machine, Esp32S3HmacRegister::SetMessageOne, 1);
+    write(&mut machine, Esp32S3HmacRegister::OneBlock, 1);
 
     assert_eq!(
         machine
@@ -73,9 +79,9 @@ fn esp32s3_hmac_native_register_window_produces_sha256_digest() {
     assert_eq!(
         digest,
         [
-            0x14, 0x3e, 0xa7, 0x44, 0xc3, 0x9c, 0x49, 0xdc, 0xc2, 0x90, 0x53, 0xc5, 0x5d, 0x37,
-            0xd2, 0xc3, 0xa3, 0x08, 0xf4, 0xb2, 0x22, 0xc3, 0xea, 0x21, 0x30, 0xbc, 0x66, 0x89,
-            0xbf, 0x5d, 0x96, 0x5b,
+            0xec, 0xe8, 0x02, 0x8a, 0xaa, 0x34, 0x64, 0x62, 0x6b, 0xdc, 0x42, 0x3b, 0xae, 0xc8,
+            0xa4, 0x08, 0x78, 0x49, 0xb0, 0xef, 0x93, 0x2b, 0x5f, 0x66, 0x0a, 0x3b, 0xda, 0x9d,
+            0x2b, 0x9f, 0x8b, 0x46,
         ]
     );
 }

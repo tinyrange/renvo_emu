@@ -2,7 +2,10 @@ use super::*;
 use sha2::{Digest, Sha256};
 
 const HMAC_KEY_PURPOSE_DOWN_ALL: u32 = 5;
+const HMAC_KEY_PURPOSE_DOWN_JTAG: u32 = 6;
+const HMAC_KEY_PURPOSE_DOWN_DIGITAL_SIGNATURE: u32 = 7;
 const HMAC_KEY_PURPOSE_UP: u32 = 8;
+const HMAC_KEY_COUNT: u32 = 6;
 const HMAC_BLOCK_BYTES: usize = 64;
 const HMAC_DIGEST_BYTES: usize = 32;
 
@@ -57,6 +60,7 @@ pub enum Esp32S3HmacRegister {
     OneBlock = 0xf4,
     SoftJtagCtrl = 0xf8,
     WrJtag = 0xfc,
+    Date = 0x1fc,
 }
 
 impl Esp32S3HmacRegister {
@@ -108,6 +112,7 @@ impl Esp32S3HmacRegister {
             0xf4 => Self::OneBlock,
             0xf8 => Self::SoftJtagCtrl,
             0xfc => Self::WrJtag,
+            0x1fc => Self::Date,
             _ => return None,
         })
     }
@@ -151,8 +156,9 @@ impl Esp32S3HmacRegister {
     /// Bits returned by a native read of this register.
     pub const fn read_mask(self) -> u32 {
         match self {
-            Self::QueryError => 0x3,
+            Self::QueryError => 1,
             Self::QueryBusy => 1,
+            Self::Date => u32::MAX,
             Self::Rdata0
             | Self::Rdata1
             | Self::Rdata2
@@ -172,6 +178,7 @@ impl Esp32S3HmacRegister {
             Self::SetParaKey => 0x7,
             Self::SetResultFinish => 0x3,
             Self::SoftJtagCtrl => 1,
+            Self::Date => u32::MAX,
             Self::QueryError | Self::QueryBusy => 0,
             Self::Rdata0
             | Self::Rdata1
@@ -213,6 +220,7 @@ struct EspHmacState {
     purpose: u32,
     started: bool,
     config_finished: bool,
+    software_padding_pending: bool,
     busy: bool,
     error: u32,
 }
@@ -229,6 +237,7 @@ impl EspHmacState {
             purpose: 0,
             started: false,
             config_finished: false,
+            software_padding_pending: false,
             busy: false,
             error: 0,
         };
@@ -238,6 +247,8 @@ impl EspHmacState {
 
     fn reset(&mut self) {
         self.registers.clear();
+        self.registers
+            .insert(Esp32S3HmacRegister::Date, 0x2019_0402);
         self.wdata.fill(0);
         self.rdata.fill(0);
         self.message.clear();
@@ -246,6 +257,7 @@ impl EspHmacState {
         self.purpose = 0;
         self.started = false;
         self.config_finished = false;
+        self.software_padding_pending = false;
         self.busy = false;
         self.error = 0;
     }
@@ -283,8 +295,39 @@ impl EspHmacState {
         outer.finalize().into()
     }
 
-    fn publish_result(&mut self) {
-        self.result = self.digest(&self.message);
+    fn padded_message(&self) -> Vec<u8> {
+        let Some(length_bytes) = self.message.get(self.message.len().saturating_sub(8)..) else {
+            return self.message.clone();
+        };
+        let Ok(length_bytes) = <[u8; 8]>::try_from(length_bytes) else {
+            return self.message.clone();
+        };
+        let length_bits = u64::from_be_bytes(length_bytes);
+        let Some(message_bits) = length_bits.checked_sub(512) else {
+            return self.message.clone();
+        };
+        if message_bits % 8 != 0 {
+            return self.message.clone();
+        }
+        let message_len = usize::try_from(message_bits / 8).unwrap_or(usize::MAX);
+        if message_len >= self.message.len().saturating_sub(8)
+            || self.message[message_len] != 0x80
+            || self.message[message_len + 1..self.message.len() - 8]
+                .iter()
+                .any(|byte| *byte != 0)
+        {
+            return self.message.clone();
+        }
+        self.message[..message_len].to_vec()
+    }
+
+    fn publish_result(&mut self, software_padded: bool) {
+        let message = if software_padded {
+            self.padded_message()
+        } else {
+            self.message.clone()
+        };
+        self.result = self.digest(&message);
         for (index, chunk) in self.result.chunks_exact(4).enumerate() {
             self.rdata[index] =
                 u32::from_le_bytes(chunk.try_into().expect("digest word is four bytes"));
@@ -309,29 +352,37 @@ impl EspHmacState {
 
     fn finish_configuration(&mut self) {
         self.config_finished = self.started
-            && (HMAC_KEY_PURPOSE_DOWN_ALL..=HMAC_KEY_PURPOSE_UP).contains(&self.purpose);
-        if !self.started {
-            self.command_error(2);
-        } else if !self.config_finished {
+            && self.key_id < HMAC_KEY_COUNT
+            && matches!(
+                self.purpose,
+                HMAC_KEY_PURPOSE_DOWN_ALL
+                    | HMAC_KEY_PURPOSE_DOWN_JTAG
+                    | HMAC_KEY_PURPOSE_DOWN_DIGITAL_SIGNATURE
+                    | HMAC_KEY_PURPOSE_UP
+            );
+        if !self.config_finished {
             self.command_error(1);
         }
     }
 
     fn execute_message_command(&mut self, register: Esp32S3HmacRegister) {
         if !self.config_finished {
-            self.command_error(3);
+            self.command_error(1);
             return;
         }
         self.busy = true;
         match register {
-            Esp32S3HmacRegister::SetMessageIng => self.append_block(),
-            Esp32S3HmacRegister::SetMessageOne
-            | Esp32S3HmacRegister::SetMessageEnd
-            | Esp32S3HmacRegister::SetMessagePad
-            | Esp32S3HmacRegister::OneBlock => {
+            Esp32S3HmacRegister::SetMessageOne => {
                 self.append_block();
-                self.publish_result();
+                if self.software_padding_pending {
+                    self.publish_result(true);
+                    self.software_padding_pending = false;
+                }
             }
+            Esp32S3HmacRegister::SetMessageIng => {}
+            Esp32S3HmacRegister::SetMessageEnd => self.publish_result(false),
+            Esp32S3HmacRegister::SetMessagePad => self.software_padding_pending = true,
+            Esp32S3HmacRegister::OneBlock => self.publish_result(true),
             _ => {}
         }
         self.busy = false;
@@ -342,8 +393,8 @@ impl EspHmacState {
             return self.rdata[index];
         }
         match register {
-            Esp32S3HmacRegister::QueryError => self.error,
-            Esp32S3HmacRegister::QueryBusy => u32::from(self.busy),
+            Esp32S3HmacRegister::QueryError => self.error & register.read_mask(),
+            Esp32S3HmacRegister::QueryBusy => u32::from(self.busy) & register.read_mask(),
             _ => self.registers.get(&register).copied().unwrap_or_default() & register.read_mask(),
         }
     }
@@ -462,6 +513,9 @@ impl Device for EspHmac {
             Esp32S3HmacRegister::SoftJtagCtrl | Esp32S3HmacRegister::WrJtag => {
                 self.state.registers.insert(register, command);
             }
+            Esp32S3HmacRegister::Date => {
+                self.state.registers.insert(register, command);
+            }
             _ => {}
         }
         Ok(())
@@ -511,8 +565,13 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
-        let message = (0_u8..64).collect::<Vec<_>>();
-        for (index, chunk) in message.chunks_exact(4).enumerate() {
+        let mut block = [0_u8; HMAC_BLOCK_BYTES];
+        let message = b"renvo-hmac".to_vec();
+        block[..message.len()].copy_from_slice(&message);
+        block[message.len()] = 0x80;
+        block[HMAC_BLOCK_BYTES - 8..]
+            .copy_from_slice(&(512_u64 + (message.len() as u64 * 8)).to_be_bytes());
+        for (index, chunk) in block.chunks_exact(4).enumerate() {
             device
                 .write(
                     Esp32S3HmacRegister::Wdata0.offset() + (index as u64 * 4),
@@ -525,6 +584,14 @@ mod tests {
         device
             .write(
                 Esp32S3HmacRegister::SetMessageOne.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3HmacRegister::OneBlock.offset(),
                 AccessWidth::Word,
                 1,
                 SimTime::ZERO,
@@ -617,13 +684,43 @@ mod tests {
         assert_eq!(Esp32S3HmacRegister::Wdata15.offset(), 0xbc);
         assert_eq!(Esp32S3HmacRegister::Rdata7.offset(), 0xdc);
         assert_eq!(Esp32S3HmacRegister::WrJtag.offset(), 0xfc);
+        assert_eq!(Esp32S3HmacRegister::Date.offset(), 0x1fc);
         assert_eq!(Esp32S3HmacRegister::from_offset(0x70), None);
         assert_eq!(Esp32S3HmacRegister::from_offset(0xe0), None);
         assert_eq!(Esp32S3HmacRegister::SetParaPurpose.write_mask(), 0xf);
         assert_eq!(Esp32S3HmacRegister::QueryError.write_mask(), 0);
+        assert_eq!(Esp32S3HmacRegister::QueryError.read_mask(), 1);
         assert_eq!(Esp32S3HmacRegister::Rdata0.read_mask(), u32::MAX);
 
         let mut device = EspHmac::new("hmac");
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3HmacRegister::Date.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x2019_0402
+        );
+        device
+            .write(
+                Esp32S3HmacRegister::Date.offset(),
+                AccessWidth::Word,
+                0x1234_5678,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3HmacRegister::Date.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x1234_5678
+        );
         assert!(device.read(0x70, AccessWidth::Word, SimTime::ZERO).is_err());
         assert!(
             device
@@ -705,6 +802,24 @@ mod tests {
         device
             .write(
                 Esp32S3HmacRegister::SetMessageOne.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3HmacRegister::Rdata0.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0
+        );
+        device
+            .write(
+                Esp32S3HmacRegister::OneBlock.offset(),
                 AccessWidth::Word,
                 1,
                 SimTime::ZERO,
