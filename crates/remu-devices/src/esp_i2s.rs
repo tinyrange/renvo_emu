@@ -209,6 +209,9 @@ impl Esp32s3I2s {
     const RXEOF_NUM_RESET: u32 = 0x40;
     const DATE_MASK: u32 = 0x0fff_ffff;
     const DATE_RESET: u32 = 0x0200_9070;
+    // The model is functional rather than clock-accurate, but visible I2S
+    // edges still need a stable order in abstract simulation time.
+    const WAVEFORM_HALF_TICKS: u64 = 1;
 
     /// Creates an I2S controller and declares its digital waveform signals.
     pub fn new(name: impl Into<String>, hub: SignalHub) -> Result<Self, SignalError> {
@@ -319,9 +322,12 @@ impl Esp32s3I2s {
         self.set_signal(self.rx_done, 0, at)
     }
 
-    fn pulse(&self, signal: SignalId, at: SimTime) -> Result<(), SignalError> {
-        self.set_signal(signal, 1, at)?;
-        self.set_signal(signal, 0, at)
+    fn pulse(&self, signal: SignalId, now: &mut u64) -> Result<(), SignalError> {
+        self.set_signal(signal, 1, SimTime::from_ticks(*now))?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        self.set_signal(signal, 0, SimTime::from_ticks(*now))?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
+        Ok(())
     }
 
     fn sample_bits(&self, tx: bool) -> u32 {
@@ -332,39 +338,54 @@ impl Esp32s3I2s {
             .min(32)
     }
 
-    fn emit_frame(&mut self, sample: u32, bits: u32, at: SimTime) -> Result<(), DeviceError> {
+    fn emit_frame(&mut self, sample: u32, bits: u32, now: &mut u64) -> Result<(), DeviceError> {
         self.registers[Self::STATE as usize / 4] &= !Self::TX_IDLE;
         for channel in 0_u32..2 {
-            self.set_signal(self.ws, u64::from(channel), at)
+            self.set_signal(self.ws, u64::from(channel), SimTime::from_ticks(*now))
                 .map_err(Self::signal_error)?;
+            *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
             for bit in (0..bits).rev() {
                 let value = u64::from((sample >> bit) & 1);
-                self.set_signal(self.dout, value, at)
+                self.set_signal(self.bclk, 0, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
-                self.set_signal(self.din, value, at)
+                self.set_signal(self.dout, value, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
-                self.set_signal(self.bclk, 0, at)
+                self.set_signal(self.din, value, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
+                *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
                 self.mclk_level = !self.mclk_level;
-                self.set_signal(self.mclk, u64::from(self.mclk_level), at)
+                self.set_signal(
+                    self.mclk,
+                    u64::from(self.mclk_level),
+                    SimTime::from_ticks(*now),
+                )
+                .map_err(Self::signal_error)?;
+                self.set_signal(self.bclk, 1, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
-                self.set_signal(self.bclk, 1, at)
-                    .map_err(Self::signal_error)?;
+                *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
                 self.mclk_level = !self.mclk_level;
-                self.set_signal(self.mclk, u64::from(self.mclk_level), at)
+                self.set_signal(
+                    self.mclk,
+                    u64::from(self.mclk_level),
+                    SimTime::from_ticks(*now),
+                )
+                .map_err(Self::signal_error)?;
+                self.set_signal(self.bclk, 0, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
+                *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
             }
         }
-        self.set_signal(self.bclk, 0, at)
+        self.set_signal(self.bclk, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
-        self.set_signal(self.ws, 0, at)
+        self.set_signal(self.ws, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
-        self.set_signal(self.dout, 0, at)
+        self.set_signal(self.dout, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
-        self.set_signal(self.din, 0, at)
+        self.set_signal(self.din, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
-        self.set_signal(self.mclk, 0, at)
+        self.set_signal(self.mclk, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
         self.mclk_level = false;
         self.registers[Self::STATE as usize / 4] |= Self::TX_IDLE;
         Ok(())
@@ -372,11 +393,13 @@ impl Esp32s3I2s {
 
     fn execute_tx(&mut self, at: SimTime) -> Result<(), DeviceError> {
         let sample = self.registers[Self::SINGLE_DATA as usize / 4];
-        self.emit_frame(sample, self.sample_bits(true), at)?;
+        let mut now = at.ticks();
+        self.emit_frame(sample, self.sample_bits(true), &mut now)?;
         self.transfer.tx_frames = self.transfer.tx_frames.saturating_add(1);
         self.transfer.last_tx = sample;
         self.interrupt_raw |= Self::TX_DONE_INT;
-        self.pulse(self.tx_done, at).map_err(Self::signal_error)
+        self.pulse(self.tx_done, &mut now)
+            .map_err(Self::signal_error)
     }
 
     fn execute_rx(&mut self, at: SimTime) -> Result<(), DeviceError> {
@@ -385,41 +408,58 @@ impl Esp32s3I2s {
         } else {
             0
         };
-        self.emit_rx_frame(sample, self.sample_bits(false), at)?;
+        let mut now = at.ticks();
+        self.emit_rx_frame(sample, self.sample_bits(false), &mut now)?;
         self.transfer.rx_frames = self.transfer.rx_frames.saturating_add(1);
         self.transfer.last_rx = sample;
         self.interrupt_raw |= Self::RX_DONE_INT;
-        self.pulse(self.rx_done, at).map_err(Self::signal_error)
+        self.pulse(self.rx_done, &mut now)
+            .map_err(Self::signal_error)
     }
 
-    fn emit_rx_frame(&mut self, sample: u32, bits: u32, at: SimTime) -> Result<(), DeviceError> {
+    fn emit_rx_frame(&mut self, sample: u32, bits: u32, now: &mut u64) -> Result<(), DeviceError> {
         for channel in 0_u32..2 {
-            self.set_signal(self.ws, u64::from(channel), at)
+            self.set_signal(self.ws, u64::from(channel), SimTime::from_ticks(*now))
                 .map_err(Self::signal_error)?;
+            *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
             for bit in (0..bits).rev() {
                 let value = u64::from((sample >> bit) & 1);
-                self.set_signal(self.din, value, at)
+                self.set_signal(self.bclk, 0, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
-                self.set_signal(self.bclk, 0, at)
+                self.set_signal(self.din, value, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
+                *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
                 self.mclk_level = !self.mclk_level;
-                self.set_signal(self.mclk, u64::from(self.mclk_level), at)
+                self.set_signal(
+                    self.mclk,
+                    u64::from(self.mclk_level),
+                    SimTime::from_ticks(*now),
+                )
+                .map_err(Self::signal_error)?;
+                self.set_signal(self.bclk, 1, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
-                self.set_signal(self.bclk, 1, at)
-                    .map_err(Self::signal_error)?;
+                *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
                 self.mclk_level = !self.mclk_level;
-                self.set_signal(self.mclk, u64::from(self.mclk_level), at)
+                self.set_signal(
+                    self.mclk,
+                    u64::from(self.mclk_level),
+                    SimTime::from_ticks(*now),
+                )
+                .map_err(Self::signal_error)?;
+                self.set_signal(self.bclk, 0, SimTime::from_ticks(*now))
                     .map_err(Self::signal_error)?;
+                *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
             }
         }
-        self.set_signal(self.bclk, 0, at)
+        self.set_signal(self.bclk, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
-        self.set_signal(self.ws, 0, at)
+        self.set_signal(self.ws, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
-        self.set_signal(self.din, 0, at)
+        self.set_signal(self.din, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
-        self.set_signal(self.mclk, 0, at)
+        self.set_signal(self.mclk, 0, SimTime::from_ticks(*now))
             .map_err(Self::signal_error)?;
+        *now = now.saturating_add(Self::WAVEFORM_HALF_TICKS);
         self.mclk_level = false;
         Ok(())
     }
@@ -580,6 +620,13 @@ mod tests {
         );
         assert!(hub.with_registry(|registry| registry.find("board.esp32s3.i2s0.bclk").is_some()));
         assert!(hub.with_registry(|registry| registry.find("board.esp32s3.i2s0.dout").is_some()));
+        let changes = hub.drain_changes();
+        assert!(changes.windows(2).all(|pair| pair[0].at <= pair[1].at));
+        assert!(
+            changes
+                .iter()
+                .any(|change| change.at > SimTime::from_ticks(1))
+        );
     }
 
     #[test]
