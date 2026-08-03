@@ -108,6 +108,60 @@ fn rp2350_timer_uses_shifted_interrupt_registers() {
 }
 
 #[test]
+fn rp2350_accessctrl_tracks_masks_locks_and_configuration_reset() {
+    let mut access = Rp2350AccessCtrl::new("accessctrl");
+    assert_eq!(
+        Rp2350AccessCtrlRegister::try_from(0x14).unwrap(),
+        Rp2350AccessCtrlRegister::Peripheral(0)
+    );
+    assert!(Rp2350AccessCtrlRegister::try_from(0x11).is_err());
+    assert_eq!(access.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 4);
+    assert_eq!(access.permission(0x14), Some(0xff));
+    assert_eq!(access.gpio_nonsecure_masks(), (0, 0));
+
+    access
+        .write(0x14, AccessWidth::Word, 0x55, SimTime::ZERO)
+        .unwrap();
+    access
+        .write(0x2014, AccessWidth::Word, 0x0f, SimTime::ZERO)
+        .unwrap();
+    access
+        .write(0x3014, AccessWidth::Word, 0x0f, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(access.permission(0x14), Some(0x50));
+
+    access
+        .write(0x0c, AccessWidth::Word, 0x0000_00a5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(access.gpio_nonsecure_masks().0, 0xa5);
+    access
+        .write(0x04, AccessWidth::Word, 0x03, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        access.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        2
+    );
+    access
+        .write(0, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    access
+        .write(0x3000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(access.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 5);
+
+    access
+        .write(8, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(access.permission(0x14), Some(0xff));
+    assert_eq!(access.gpio_nonsecure_masks(), (0, 0));
+    assert_eq!(
+        access.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        2
+    );
+    assert_eq!(access.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 5);
+}
+
+#[test]
 fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
     let hub = SignalHub::new();
     let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio0.gpio", hub.clone()).unwrap();
