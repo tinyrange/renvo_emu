@@ -20,6 +20,11 @@ const EECR: u16 = 0x3f;
 const EEDR: u16 = 0x40;
 const EEARL: u16 = 0x41;
 const EEARH: u16 = 0x42;
+// ATmega328PB power-management registers (DS40001906C §13.12).
+const SMCR: u16 = 0x53;
+const CLKPR: u16 = 0x61;
+const PRR0: u16 = 0x64;
+const PRR1: u16 = 0x65;
 const TCCR0B: u16 = 0x45;
 const TCNT0: u16 = 0x46;
 const OCR0A: u16 = 0x47;
@@ -81,7 +86,6 @@ const ADCL: u16 = 0x78;
 const ADCH: u16 = 0x79;
 const ADCSRA: u16 = 0x7a;
 const ADMUX: u16 = 0x7c;
-const PRR0: u16 = 0x64;
 
 const ADEN: u8 = 1 << 7;
 const ADSC: u8 = 1 << 6;
@@ -262,6 +266,14 @@ impl AtmegaTimerRegister {
     }
 }
 
+const SMCR_WRITABLE_MASK: u8 = 0x0f;
+const CLKPR_CHANGE_ENABLE: u8 = 1 << 7;
+const CLKPR_DIVIDER_MASK: u8 = 0x0f;
+const PRR1_WRITABLE_MASK: u8 = 0x3d;
+const PRR0_PRTIM0: u8 = 1 << 5;
+const PRR0_PRTIM1: u8 = 1 << 3;
+const PRR0_PRUSART0: u8 = 1 << 1;
+
 struct AtmegaState {
     registers: [u8; 224],
     ports: [Arc<Mutex<GpioState>>; 3],
@@ -289,6 +301,7 @@ struct AtmegaState {
     previous_pinb: u8,
     previous_pinc: u8,
     previous_pind: u8,
+    clock_prescaler_armed_at: Option<u64>,
     watchdog_started: u64,
     watchdog_reset: bool,
     spi_tx: Vec<u8>,
@@ -354,6 +367,25 @@ impl AtmegaIoHandle {
         state.update_comparator(at);
     }
 
+    /// Returns the deterministic CPU/peripheral tick divisor selected by CLKPR.
+    pub fn clock_divider(&self) -> u64 {
+        let state = self.0.lock().expect("ATmega I/O lock poisoned");
+        1_u64 << u32::from(state.registers[usize::from(CLKPR - IO_BASE)] & CLKPR_DIVIDER_MASK)
+    }
+
+    /// Whether the next SLEEP instruction is permitted to enter sleep.
+    pub fn sleep_enabled(&self) -> bool {
+        self.0.lock().expect("ATmega I/O lock poisoned").registers[usize::from(SMCR - IO_BASE)] & 1
+            != 0
+    }
+
+    /// Current documented sleep-mode selection (`SM[2:0]`).
+    pub fn sleep_mode(&self) -> u8 {
+        (self.0.lock().expect("ATmega I/O lock poisoned").registers[usize::from(SMCR - IO_BASE)]
+            >> 1)
+            & 0x07
+    }
+
     /// Advances timers, edge detection and watchdog; returns asserted AVR interrupt lines.
     pub fn poll(&self, now: SimTime) -> Vec<u16> {
         let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
@@ -379,8 +411,16 @@ impl AtmegaIoHandle {
             state.adc_first_conversion = false;
             set_bit_signal(&state, state.adc_irq_signal, true, now);
         }
+        if state
+            .clock_prescaler_armed_at
+            .is_some_and(|armed| now.ticks().saturating_sub(armed) > 4)
+        {
+            state.clock_prescaler_armed_at = None;
+            state.registers[usize::from(CLKPR - IO_BASE)] &= CLKPR_DIVIDER_MASK;
+        }
+        let prr0 = state.registers[usize::from(PRR0 - IO_BASE)];
         let tccr = state.registers[usize::from(TCCR0B - IO_BASE)];
-        if tccr & 7 != 0 {
+        if prr0 & PRR0_PRTIM0 == 0 && tccr & 7 != 0 {
             let compare = state.registers[usize::from(OCR0A - IO_BASE)];
             let period = u64::from(if compare == 0 { u8::MAX } else { compare }) + 1;
             if now.ticks().saturating_sub(state.timer_started) >= period {
@@ -395,7 +435,7 @@ impl AtmegaIoHandle {
             lines.push(15);
         }
         let tccr1 = state.registers[usize::from(TCCR1B - IO_BASE)];
-        if tccr1 & 7 != 0 {
+        if prr0 & PRR0_PRTIM1 == 0 && tccr1 & 7 != 0 {
             let compare = u16::from(state.registers[usize::from(OCR1AL - IO_BASE)])
                 | (u16::from(state.registers[usize::from(OCR1AH - IO_BASE)]) << 8);
             let period = u64::from(if compare == 0 { u16::MAX } else { compare }) + 1;
@@ -511,7 +551,9 @@ impl AtmegaIoHandle {
             // TIMER4_OVF is vector 44, represented by CPU interrupt line 43.
             lines.push(43);
         }
-        if state.registers[usize::from(UCSR0B - IO_BASE)] & (1 << 5) != 0 {
+        if prr0 & PRR0_PRUSART0 == 0
+            && state.registers[usize::from(UCSR0B - IO_BASE)] & (1 << 5) != 0
+        {
             lines.push(18);
         }
         if state.registers[usize::from(SPCR0 - IO_BASE)] & SPCR_SPIE != 0
@@ -894,6 +936,7 @@ impl AtmegaIo {
             previous_pinb: 0,
             previous_pinc: 0,
             previous_pind: 0,
+            clock_prescaler_armed_at: None,
             watchdog_started: 0,
             watchdog_reset: false,
             spi_tx: Vec::new(),
@@ -1012,6 +1055,13 @@ impl Device for AtmegaIo {
                 value
             }
             UCSR1A => state.registers[usize::from(address - IO_BASE)],
+            SMCR => state.registers[usize::from(SMCR - IO_BASE)] & SMCR_WRITABLE_MASK,
+            CLKPR => {
+                state.registers[usize::from(CLKPR - IO_BASE)]
+                    & (CLKPR_CHANGE_ENABLE | CLKPR_DIVIDER_MASK)
+            }
+            PRR0 => state.registers[usize::from(PRR0 - IO_BASE)],
+            PRR1 => state.registers[usize::from(PRR1 - IO_BASE)] & PRR1_WRITABLE_MASK,
             EEDR => state.registers[usize::from(EEDR - IO_BASE)],
             TWCR => state.registers[usize::from(TWCR - IO_BASE)] & TWCR_READ_MASK,
             TWSR => state.registers[usize::from(TWSR - IO_BASE)],
@@ -1068,6 +1118,38 @@ impl Device for AtmegaIo {
                 state.registers[index] = (current & UDRE1)
                     | (if value & TXC1 == 0 { current & TXC1 } else { 0 })
                     | (value & 0x03);
+            }
+            SMCR => {
+                state.registers[usize::from(SMCR - IO_BASE)] = value & SMCR_WRITABLE_MASK;
+            }
+            CLKPR => {
+                let index = usize::from(CLKPR - IO_BASE);
+                if value & CLKPR_CHANGE_ENABLE != 0 {
+                    if value & !CLKPR_CHANGE_ENABLE == 0 {
+                        state.clock_prescaler_armed_at = Some(at.ticks());
+                        state.registers[index] =
+                            CLKPR_CHANGE_ENABLE | (state.registers[index] & CLKPR_DIVIDER_MASK);
+                    }
+                } else if value & !CLKPR_DIVIDER_MASK == 0 {
+                    if state
+                        .clock_prescaler_armed_at
+                        .is_some_and(|armed| at.ticks().saturating_sub(armed) <= 4)
+                    {
+                        state.registers[index] = value & CLKPR_DIVIDER_MASK;
+                    }
+                    state.clock_prescaler_armed_at = None;
+                }
+            }
+            PRR0 => {
+                state.registers[usize::from(PRR0 - IO_BASE)] = value;
+                if value & PRADC != 0 {
+                    state.adc_conversion = None;
+                    state.adc_first_conversion = true;
+                    state.registers[usize::from(ADCSRA - IO_BASE)] &= !ADSC;
+                }
+            }
+            PRR1 => {
+                state.registers[usize::from(PRR1 - IO_BASE)] = value & PRR1_WRITABLE_MASK;
             }
             TCCR0B if state.registers[usize::from(TCCR0B - IO_BASE)] & 7 == 0 && value & 7 != 0 => {
                 state.timer_started = at.ticks();
@@ -1253,25 +1335,19 @@ impl Device for AtmegaIo {
                 // Bit 4 is reserved and reads as zero.
                 state.registers[usize::from(ADMUX - IO_BASE)] = value & 0xef;
             }
-            PRR0 => {
-                state.registers[usize::from(PRR0 - IO_BASE)] = value;
-                if value & PRADC != 0 {
-                    state.adc_conversion = None;
-                    state.adc_first_conversion = true;
-                    state.registers[usize::from(ADCSRA - IO_BASE)] &= !ADSC;
-                }
-            }
             UDR0 => {
-                state.uart.push(value);
-                state
-                    .hub
-                    .set(
-                        state.uart_tx_signal,
-                        SignalValue::from_u64(u64::from(value), 8)
-                            .expect("eight-bit signal is valid"),
-                        at,
-                    )
-                    .expect("ATmega USART signal identity and width are fixed");
+                if state.registers[usize::from(PRR0 - IO_BASE)] & PRR0_PRUSART0 == 0 {
+                    state.uart.push(value);
+                    state
+                        .hub
+                        .set(
+                            state.uart_tx_signal,
+                            SignalValue::from_u64(u64::from(value), 8)
+                                .expect("eight-bit signal is valid"),
+                            at,
+                        )
+                        .expect("ATmega USART signal identity and width are fixed");
+                }
             }
             SPDR0 => {
                 if state.registers[usize::from(SPCR0 - IO_BASE)] & SPCR_SPE != 0
@@ -1401,6 +1477,7 @@ impl Device for AtmegaIo {
         reset_registers(&mut state.registers);
         state.uart.clear();
         state.uart1.clear();
+        state.clock_prescaler_armed_at = None;
         state.timer_pending = false;
         state.timer1_pending = false;
         state.timer2_pending = false;
@@ -2334,5 +2411,170 @@ mod tests {
             0xff
         );
         assert_eq!(handle.poll(SimTime::from_ticks(2)), vec![32]);
+    }
+
+    #[test]
+    fn power_registers_apply_masks_and_clkpr_authorization_window() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+
+        assert_eq!(handle.clock_divider(), 1);
+        assert!(!handle.sleep_enabled());
+        assert_eq!(handle.sleep_mode(), 0);
+
+        io.write(
+            u64::from(SMCR - IO_BASE),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.sleep_enabled());
+        assert_eq!(handle.sleep_mode(), 7);
+        assert_eq!(
+            io.read(u64::from(SMCR - IO_BASE), AccessWidth::Byte, SimTime::ZERO),
+            Ok(0x0f)
+        );
+
+        // CLKPR writes without CLKPCE are ignored.
+        io.write(
+            u64::from(CLKPR - IO_BASE),
+            AccessWidth::Byte,
+            0x0f,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(handle.clock_divider(), 1);
+        io.write(
+            u64::from(CLKPR - IO_BASE),
+            AccessWidth::Byte,
+            CLKPR_CHANGE_ENABLE.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(CLKPR - IO_BASE),
+            AccessWidth::Byte,
+            2,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        assert_eq!(handle.clock_divider(), 4);
+
+        // A second write after the four-tick authorization window is ignored.
+        io.write(
+            u64::from(CLKPR - IO_BASE),
+            AccessWidth::Byte,
+            CLKPR_CHANGE_ENABLE.into(),
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
+        io.write(
+            u64::from(CLKPR - IO_BASE),
+            AccessWidth::Byte,
+            4,
+            SimTime::from_ticks(7),
+        )
+        .unwrap();
+        assert_eq!(handle.clock_divider(), 4);
+
+        io.write(
+            u64::from(PRR0 - IO_BASE),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::from_ticks(8),
+        )
+        .unwrap();
+        io.write(
+            u64::from(PRR1 - IO_BASE),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::from_ticks(8),
+        )
+        .unwrap();
+        assert_eq!(
+            io.read(u64::from(PRR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO),
+            Ok(0xff)
+        );
+        assert_eq!(
+            io.read(u64::from(PRR1 - IO_BASE), AccessWidth::Byte, SimTime::ZERO),
+            Ok(u64::from(PRR1_WRITABLE_MASK))
+        );
+    }
+
+    #[test]
+    fn power_reduction_gates_timer_and_uart_facades() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        io.write(
+            u64::from(OCR0A - IO_BASE),
+            AccessWidth::Byte,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TIMSK0 - IO_BASE),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TCCR0B - IO_BASE),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(PRR0 - IO_BASE),
+            AccessWidth::Byte,
+            PRR0_PRTIM0.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(4)).is_empty());
+        io.write(
+            u64::from(PRR0 - IO_BASE),
+            AccessWidth::Byte,
+            0,
+            SimTime::from_ticks(4),
+        )
+        .unwrap();
+        assert_eq!(handle.poll(SimTime::from_ticks(8)), vec![15]);
+
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        io.write(
+            u64::from(PRR0 - IO_BASE),
+            AccessWidth::Byte,
+            PRR0_PRUSART0.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(UDR0 - IO_BASE),
+            AccessWidth::Byte,
+            u64::from(b'X'),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.uart_bytes().is_empty());
+        io.write(
+            u64::from(PRR0 - IO_BASE),
+            AccessWidth::Byte,
+            0,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        io.write(
+            u64::from(UDR0 - IO_BASE),
+            AccessWidth::Byte,
+            u64::from(b'Y'),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        assert_eq!(handle.uart_bytes(), b"Y");
     }
 }

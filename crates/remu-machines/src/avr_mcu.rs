@@ -318,15 +318,20 @@ impl AvrMcuMachine {
                 ADC_INTERRUPT_LINE,
                 interrupt_lines.contains(&ADC_INTERRUPT_LINE),
             )?;
+            self.cpu.set_sleep_enabled(self.io.sleep_enabled());
             self.bus.clear_watchpoint_hit();
             let outcome = match self.cpu.step(&mut self.bus, self.now) {
                 Ok(outcome) => outcome,
                 Err(error) => break StopReason::Fault(error.to_string()),
             };
             stats.instructions = stats.instructions.saturating_add(1);
+            let elapsed = outcome
+                .elapsed
+                .checked_mul(self.io.clock_divider())
+                .map_err(|_| AvrMachineError::TimeOverflow)?;
             self.now = self
                 .now
-                .checked_add(outcome.elapsed)
+                .checked_add(elapsed)
                 .map_err(|_| AvrMachineError::TimeOverflow)?;
             stats.time = self.now;
             if self.cpu.last_interrupt_line() == Some(ADC_INTERRUPT_LINE) {
@@ -465,5 +470,94 @@ mod tests {
             .unwrap()[0];
         assert_ne!(status & 0x20, 0, "ACO should reflect AIN0 > AIN1");
         assert_ne!(status & 0x10, 0, "rising output should latch ACI");
+    }
+
+    #[test]
+    fn atmega_sleep_enable_and_clock_prescaler_are_machine_visible() {
+        let words = [0x9588_u16, 0x9598]; // sleep; break
+        let code = words
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        let image = FirmwareImage {
+            architecture: FirmwareArchitecture::Avr8,
+            entry: 0,
+            segments: vec![FirmwareSegment {
+                address: 0,
+                load_address: None,
+                initialized_size: code.len(),
+                data: code,
+                executable: true,
+                writable: false,
+                alignment: 2,
+            }],
+            symbols: Vec::new(),
+        };
+
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.load_firmware(&image).unwrap();
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(4),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::Halted);
+        assert!(!result.cpu.waiting);
+        assert_eq!(result.stats.instructions, 2);
+
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.load_firmware(&image).unwrap();
+        machine.debug_write_memory(0x53, &[1]).unwrap(); // SMCR.SE
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(3),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::InstructionLimit);
+        assert!(result.cpu.waiting);
+        assert_eq!(result.stats.instructions, 3);
+
+        let words = [0x0000_u16, 0x9598]; // nop; break
+        let code = words
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        let image = FirmwareImage {
+            architecture: FirmwareArchitecture::Avr8,
+            entry: 0,
+            segments: vec![FirmwareSegment {
+                address: 0,
+                load_address: None,
+                initialized_size: code.len(),
+                data: code,
+                executable: true,
+                writable: false,
+                alignment: 2,
+            }],
+            symbols: Vec::new(),
+        };
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.load_firmware(&image).unwrap();
+        machine.debug_write_memory(0x61, &[0x80]).unwrap(); // CLKPR: CLKPCE
+        machine.debug_write_memory(0x61, &[2]).unwrap(); // divide by four
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(4),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::Halted);
+        assert_eq!(result.stats.time, SimTime::from_ticks(8));
     }
 }

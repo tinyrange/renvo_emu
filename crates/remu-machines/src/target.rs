@@ -692,15 +692,18 @@ const MANIFESTS: &[TargetManifest] = &[
             "USART0",
             "EEPROM",
             "analog comparator",
+            "SMCR/CLKPR sleep and clock control",
             "VCD",
         ],
         sources: &[
             "https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip-AVR-Microcontroller-ATmega328PB-Data-Sheet-DS40001906.pdf",
+            "https://www.microchip.com/content/dam/mchp/documents/MCU08/ProductDocuments/DataSheets/40001906C.pdf",
             "https://packs.download.microchip.com/Microchip.ATmega_DFP.3.6.299.atpack",
         ],
         limitations: &[
             "comparator timing is functional rather than clock-accurate",
             "Timer3/4 PWM and input-capture waveform fidelity are deferred",
+            "peripheral clock domains, exact low-power wake behavior, and oscillator timing are deferred",
         ],
     },
     TargetManifest {

@@ -188,6 +188,7 @@ pub struct AvrCpu {
     interrupts: BTreeSet<u16>,
     last_interrupt_line: Option<u16>,
     waiting: bool,
+    sleep_enabled: bool,
     halted: bool,
 }
 
@@ -209,8 +210,16 @@ impl AvrCpu {
             interrupts: BTreeSet::new(),
             last_interrupt_line: None,
             waiting: false,
+            // Preserve the standalone core's historical SLEEP behavior. A
+            // machine model overrides this from the device's SMCR register.
+            sleep_enabled: true,
             halted: false,
         }
+    }
+
+    /// Controls whether the next SLEEP instruction enters the waiting state.
+    pub fn set_sleep_enabled(&mut self, enabled: bool) {
+        self.sleep_enabled = enabled;
     }
 
     /// Loads byte-oriented flash contents into the word-addressed program store.
@@ -334,6 +343,7 @@ impl Cpu for AvrCpu {
         self.interrupts.clear();
         self.last_interrupt_line = None;
         self.waiting = false;
+        self.sleep_enabled = true;
         self.halted = false;
         Ok(())
     }
