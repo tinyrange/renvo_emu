@@ -37,6 +37,116 @@ const UCSR0A: u16 = 0xc0;
 const UCSR0B: u16 = 0xc1;
 const UDR0: u16 = 0xc6;
 
+/// Named ATmega328PB Timer/Counter3 and Timer/Counter4 register identifiers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(u16)]
+pub enum AtmegaTimerRegister {
+    /// Timer/Counter3 interrupt flags (TIFR3).
+    Tifr3 = 0x38,
+    /// Timer/Counter4 interrupt flags (TIFR4).
+    Tifr4 = 0x39,
+    /// Timer/Counter3 interrupt mask (TIMSK3).
+    Timsk3 = 0x71,
+    /// Timer/Counter4 interrupt mask (TIMSK4).
+    Timsk4 = 0x72,
+    /// Timer/Counter3 control register B (TCCR3B).
+    Tccr3b = 0x91,
+    /// Timer/Counter3 counter low byte (TCNT3L).
+    Tcnt3l = 0x94,
+    /// Timer/Counter3 counter high byte (TCNT3H).
+    Tcnt3h = 0x95,
+    /// Timer/Counter3 output compare A low byte (OCR3AL).
+    Ocr3al = 0x98,
+    /// Timer/Counter3 output compare A high byte (OCR3AH).
+    Ocr3ah = 0x99,
+    /// Timer/Counter4 control register B (TCCR4B).
+    Tccr4b = 0xa1,
+    /// Timer/Counter4 counter low byte (TCNT4L).
+    Tcnt4l = 0xa4,
+    /// Timer/Counter4 counter high byte (TCNT4H).
+    Tcnt4h = 0xa5,
+    /// Timer/Counter4 output compare A low byte (OCR4AL).
+    Ocr4al = 0xa8,
+    /// Timer/Counter4 output compare A high byte (OCR4AH).
+    Ocr4ah = 0xa9,
+}
+
+impl AtmegaTimerRegister {
+    /// Stable list of modeled Timer3/Timer4 register IDs.
+    pub const ALL: [Self; 14] = [
+        Self::Tifr3,
+        Self::Tifr4,
+        Self::Timsk3,
+        Self::Timsk4,
+        Self::Tccr3b,
+        Self::Tcnt3l,
+        Self::Tcnt3h,
+        Self::Ocr3al,
+        Self::Ocr3ah,
+        Self::Tccr4b,
+        Self::Tcnt4l,
+        Self::Tcnt4h,
+        Self::Ocr4al,
+        Self::Ocr4ah,
+    ];
+
+    /// Returns the native data-space address.
+    pub const fn offset(self) -> u16 {
+        self as u16
+    }
+
+    /// Returns the I/O-device offset used by `AtmegaIo`.
+    pub const fn io_offset(self) -> u16 {
+        self.offset() - IO_BASE
+    }
+
+    /// Returns the register-array index used by `AtmegaIo`.
+    pub const fn index(self) -> usize {
+        self.io_offset() as usize
+    }
+
+    /// Returns the vendor register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Tifr3 => "tifr3",
+            Self::Tifr4 => "tifr4",
+            Self::Timsk3 => "timsk3",
+            Self::Timsk4 => "timsk4",
+            Self::Tccr3b => "tccr3b",
+            Self::Tcnt3l => "tcnt3l",
+            Self::Tcnt3h => "tcnt3h",
+            Self::Ocr3al => "ocr3al",
+            Self::Ocr3ah => "ocr3ah",
+            Self::Tccr4b => "tccr4b",
+            Self::Tcnt4l => "tcnt4l",
+            Self::Tcnt4h => "tcnt4h",
+            Self::Ocr4al => "ocr4al",
+            Self::Ocr4ah => "ocr4ah",
+        }
+    }
+
+    /// Resolves a native data-space address to a named Timer3/Timer4 register.
+    pub const fn from_data_address(address: u16) -> Option<Self> {
+        match address {
+            0x38 => Some(Self::Tifr3),
+            0x39 => Some(Self::Tifr4),
+            0x71 => Some(Self::Timsk3),
+            0x72 => Some(Self::Timsk4),
+            0x91 => Some(Self::Tccr3b),
+            0x94 => Some(Self::Tcnt3l),
+            0x95 => Some(Self::Tcnt3h),
+            0x98 => Some(Self::Ocr3al),
+            0x99 => Some(Self::Ocr3ah),
+            0xa1 => Some(Self::Tccr4b),
+            0xa4 => Some(Self::Tcnt4l),
+            0xa5 => Some(Self::Tcnt4h),
+            0xa8 => Some(Self::Ocr4al),
+            0xa9 => Some(Self::Ocr4ah),
+            _ => None,
+        }
+    }
+}
+
 struct AtmegaState {
     registers: [u8; 224],
     ports: [Arc<Mutex<GpioState>>; 3],
@@ -48,6 +158,16 @@ struct AtmegaState {
     timer_pending: bool,
     timer1_started: u64,
     timer1_pending: bool,
+    timer3_started: u64,
+    timer3_base: u64,
+    timer3_elapsed: u64,
+    timer3_compare_pending: bool,
+    timer3_overflow_pending: bool,
+    timer4_started: u64,
+    timer4_base: u64,
+    timer4_elapsed: u64,
+    timer4_compare_pending: bool,
+    timer4_overflow_pending: bool,
     previous_pinb: u8,
     previous_pind: u8,
     watchdog_started: u64,
@@ -55,6 +175,10 @@ struct AtmegaState {
     uart_tx_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
+    timer3_compare_irq_signal: SignalId,
+    timer3_overflow_irq_signal: SignalId,
+    timer4_compare_irq_signal: SignalId,
+    timer4_overflow_irq_signal: SignalId,
     pcint0_irq_signal: SignalId,
     int0_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
@@ -110,6 +234,76 @@ impl AtmegaIoHandle {
         if state.timer1_pending && state.registers[usize::from(TIMSK1 - IO_BASE)] & (1 << 1) != 0 {
             // TIMER1_COMPA is vector 11, represented by CPU interrupt line 10.
             lines.push(10);
+        }
+        let tccr3 = state.registers[AtmegaTimerRegister::Tccr3b.index()];
+        if tccr3 & 7 != 0 {
+            let elapsed = state
+                .timer3_base
+                .saturating_add(now.ticks().saturating_sub(state.timer3_started));
+            let compare = u16::from(state.registers[AtmegaTimerRegister::Ocr3al.index()])
+                | (u16::from(state.registers[AtmegaTimerRegister::Ocr3ah.index()]) << 8);
+            let compare_period = u64::from(compare).saturating_add(1);
+            if elapsed / compare_period > state.timer3_elapsed / compare_period {
+                state.timer3_compare_pending = true;
+                state.registers[AtmegaTimerRegister::Tifr3.index()] |= 1 << 1;
+                set_bit_signal(&state, state.timer3_compare_irq_signal, true, now);
+            }
+            if elapsed / 0x1_0000 > state.timer3_elapsed / 0x1_0000 {
+                state.timer3_overflow_pending = true;
+                state.registers[AtmegaTimerRegister::Tifr3.index()] |= 1;
+                set_bit_signal(&state, state.timer3_overflow_irq_signal, true, now);
+            }
+            state.timer3_elapsed = elapsed;
+            let counter = elapsed as u16;
+            state.registers[AtmegaTimerRegister::Tcnt3l.index()] = counter as u8;
+            state.registers[AtmegaTimerRegister::Tcnt3h.index()] = (counter >> 8) as u8;
+        }
+        if state.timer3_compare_pending
+            && state.registers[AtmegaTimerRegister::Timsk3.index()] & (1 << 1) != 0
+        {
+            // TIMER3_COMPA is vector 33, represented by CPU interrupt line 32.
+            lines.push(32);
+        }
+        if state.timer3_overflow_pending
+            && state.registers[AtmegaTimerRegister::Timsk3.index()] & 1 != 0
+        {
+            // TIMER3_OVF is vector 35, represented by CPU interrupt line 34.
+            lines.push(34);
+        }
+        let tccr4 = state.registers[AtmegaTimerRegister::Tccr4b.index()];
+        if tccr4 & 7 != 0 {
+            let elapsed = state
+                .timer4_base
+                .saturating_add(now.ticks().saturating_sub(state.timer4_started));
+            let compare = u16::from(state.registers[AtmegaTimerRegister::Ocr4al.index()])
+                | (u16::from(state.registers[AtmegaTimerRegister::Ocr4ah.index()]) << 8);
+            let compare_period = u64::from(compare).saturating_add(1);
+            if elapsed / compare_period > state.timer4_elapsed / compare_period {
+                state.timer4_compare_pending = true;
+                state.registers[AtmegaTimerRegister::Tifr4.index()] |= 1 << 1;
+                set_bit_signal(&state, state.timer4_compare_irq_signal, true, now);
+            }
+            if elapsed / 0x1_0000 > state.timer4_elapsed / 0x1_0000 {
+                state.timer4_overflow_pending = true;
+                state.registers[AtmegaTimerRegister::Tifr4.index()] |= 1;
+                set_bit_signal(&state, state.timer4_overflow_irq_signal, true, now);
+            }
+            state.timer4_elapsed = elapsed;
+            let counter = elapsed as u16;
+            state.registers[AtmegaTimerRegister::Tcnt4l.index()] = counter as u8;
+            state.registers[AtmegaTimerRegister::Tcnt4h.index()] = (counter >> 8) as u8;
+        }
+        if state.timer4_compare_pending
+            && state.registers[AtmegaTimerRegister::Timsk4.index()] & (1 << 1) != 0
+        {
+            // TIMER4_COMPA is vector 42, represented by CPU interrupt line 41.
+            lines.push(41);
+        }
+        if state.timer4_overflow_pending
+            && state.registers[AtmegaTimerRegister::Timsk4.index()] & 1 != 0
+        {
+            // TIMER4_OVF is vector 44, represented by CPU interrupt line 43.
+            lines.push(43);
         }
         if state.registers[usize::from(UCSR0B - IO_BASE)] & (1 << 5) != 0 {
             lines.push(18);
@@ -214,6 +408,26 @@ impl AtmegaIo {
             SignalValue::from_u64(0, 1)?,
             Some("functional Timer1 compare-A request".to_owned()),
         )?;
+        let timer3_compare_irq_signal = hub.declare(
+            "board.atmega328pb.timer3.compare_a_irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer3 compare-A request".to_owned()),
+        )?;
+        let timer3_overflow_irq_signal = hub.declare(
+            "board.atmega328pb.timer3.overflow_irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer3 overflow request".to_owned()),
+        )?;
+        let timer4_compare_irq_signal = hub.declare(
+            "board.atmega328pb.timer4.compare_a_irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer4 compare-A request".to_owned()),
+        )?;
+        let timer4_overflow_irq_signal = hub.declare(
+            "board.atmega328pb.timer4.overflow_irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional Timer4 overflow request".to_owned()),
+        )?;
         let pcint0_irq_signal = hub.declare(
             "board.atmega328pb.interrupt.pcint0",
             SignalValue::from_u64(0, 1)?,
@@ -240,6 +454,16 @@ impl AtmegaIo {
             timer_pending: false,
             timer1_started: 0,
             timer1_pending: false,
+            timer3_started: 0,
+            timer3_base: 0,
+            timer3_elapsed: 0,
+            timer3_compare_pending: false,
+            timer3_overflow_pending: false,
+            timer4_started: 0,
+            timer4_base: 0,
+            timer4_elapsed: 0,
+            timer4_compare_pending: false,
+            timer4_overflow_pending: false,
             previous_pinb: 0,
             previous_pind: 0,
             watchdog_started: 0,
@@ -247,6 +471,10 @@ impl AtmegaIo {
             uart_tx_signal,
             timer0_irq_signal,
             timer1_irq_signal,
+            timer3_compare_irq_signal,
+            timer3_overflow_irq_signal,
+            timer4_compare_irq_signal,
+            timer4_overflow_irq_signal,
             pcint0_irq_signal,
             int0_irq_signal,
             watchdog_reset_signal,
@@ -365,6 +593,88 @@ impl Device for AtmegaIo {
                     set_bit_signal(&state, state.timer1_irq_signal, false, at);
                 }
             }
+            address if address == AtmegaTimerRegister::Tccr3b.offset() => {
+                if state.registers[AtmegaTimerRegister::Tccr3b.index()] & 7 == 0 && value & 7 != 0 {
+                    state.timer3_started = at.ticks();
+                    state.timer3_base = u64::from(
+                        u16::from(state.registers[AtmegaTimerRegister::Tcnt3l.index()])
+                            | (u16::from(state.registers[AtmegaTimerRegister::Tcnt3h.index()])
+                                << 8),
+                    );
+                    state.timer3_elapsed = state.timer3_base;
+                }
+                state.registers[AtmegaTimerRegister::Tccr3b.index()] = value;
+            }
+            address if address == AtmegaTimerRegister::Tifr3.offset() => {
+                state.registers[AtmegaTimerRegister::Tifr3.index()] &= !value;
+                if value & (1 << 1) != 0 {
+                    state.timer3_compare_pending = false;
+                    set_bit_signal(&state, state.timer3_compare_irq_signal, false, at);
+                }
+                if value & 1 != 0 {
+                    state.timer3_overflow_pending = false;
+                    set_bit_signal(&state, state.timer3_overflow_irq_signal, false, at);
+                }
+            }
+            address if address == AtmegaTimerRegister::Tccr4b.offset() => {
+                if state.registers[AtmegaTimerRegister::Tccr4b.index()] & 7 == 0 && value & 7 != 0 {
+                    state.timer4_started = at.ticks();
+                    state.timer4_base = u64::from(
+                        u16::from(state.registers[AtmegaTimerRegister::Tcnt4l.index()])
+                            | (u16::from(state.registers[AtmegaTimerRegister::Tcnt4h.index()])
+                                << 8),
+                    );
+                    state.timer4_elapsed = state.timer4_base;
+                }
+                state.registers[AtmegaTimerRegister::Tccr4b.index()] = value;
+            }
+            address if address == AtmegaTimerRegister::Tifr4.offset() => {
+                state.registers[AtmegaTimerRegister::Tifr4.index()] &= !value;
+                if value & (1 << 1) != 0 {
+                    state.timer4_compare_pending = false;
+                    set_bit_signal(&state, state.timer4_compare_irq_signal, false, at);
+                }
+                if value & 1 != 0 {
+                    state.timer4_overflow_pending = false;
+                    set_bit_signal(&state, state.timer4_overflow_irq_signal, false, at);
+                }
+            }
+            address if address == AtmegaTimerRegister::Tcnt3l.offset() => {
+                state.registers[AtmegaTimerRegister::Tcnt3l.index()] = value;
+                state.timer3_base = u64::from(
+                    u16::from(state.registers[AtmegaTimerRegister::Tcnt3l.index()])
+                        | (u16::from(state.registers[AtmegaTimerRegister::Tcnt3h.index()]) << 8),
+                );
+                state.timer3_started = at.ticks();
+                state.timer3_elapsed = state.timer3_base;
+            }
+            address if address == AtmegaTimerRegister::Tcnt3h.offset() => {
+                state.registers[AtmegaTimerRegister::Tcnt3h.index()] = value;
+                state.timer3_base = u64::from(
+                    u16::from(state.registers[AtmegaTimerRegister::Tcnt3l.index()])
+                        | (u16::from(state.registers[AtmegaTimerRegister::Tcnt3h.index()]) << 8),
+                );
+                state.timer3_started = at.ticks();
+                state.timer3_elapsed = state.timer3_base;
+            }
+            address if address == AtmegaTimerRegister::Tcnt4l.offset() => {
+                state.registers[AtmegaTimerRegister::Tcnt4l.index()] = value;
+                state.timer4_base = u64::from(
+                    u16::from(state.registers[AtmegaTimerRegister::Tcnt4l.index()])
+                        | (u16::from(state.registers[AtmegaTimerRegister::Tcnt4h.index()]) << 8),
+                );
+                state.timer4_started = at.ticks();
+                state.timer4_elapsed = state.timer4_base;
+            }
+            address if address == AtmegaTimerRegister::Tcnt4h.offset() => {
+                state.registers[AtmegaTimerRegister::Tcnt4h.index()] = value;
+                state.timer4_base = u64::from(
+                    u16::from(state.registers[AtmegaTimerRegister::Tcnt4l.index()])
+                        | (u16::from(state.registers[AtmegaTimerRegister::Tcnt4h.index()]) << 8),
+                );
+                state.timer4_started = at.ticks();
+                state.timer4_elapsed = state.timer4_base;
+            }
             PCIFR => {
                 state.registers[usize::from(PCIFR - IO_BASE)] &= !value;
                 if value & 1 != 0 {
@@ -415,9 +725,39 @@ impl Device for AtmegaIo {
         state.uart.clear();
         state.timer_pending = false;
         state.timer1_pending = false;
+        state.timer3_elapsed = 0;
+        state.timer3_compare_pending = false;
+        state.timer3_overflow_pending = false;
+        state.timer4_elapsed = 0;
+        state.timer4_compare_pending = false;
+        state.timer4_overflow_pending = false;
         state.watchdog_reset = false;
         set_bit_signal(&state, state.timer0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer1_irq_signal, false, SimTime::ZERO);
+        set_bit_signal(
+            &state,
+            state.timer3_compare_irq_signal,
+            false,
+            SimTime::ZERO,
+        );
+        set_bit_signal(
+            &state,
+            state.timer3_overflow_irq_signal,
+            false,
+            SimTime::ZERO,
+        );
+        set_bit_signal(
+            &state,
+            state.timer4_compare_irq_signal,
+            false,
+            SimTime::ZERO,
+        );
+        set_bit_signal(
+            &state,
+            state.timer4_overflow_irq_signal,
+            false,
+            SimTime::ZERO,
+        );
         set_bit_signal(&state, state.pcint0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.int0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.watchdog_reset_signal, false, SimTime::ZERO);
@@ -432,6 +772,19 @@ impl Device for AtmegaIo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timer_register_ids_are_named_and_native() {
+        assert_eq!(AtmegaTimerRegister::ALL.len(), 14);
+        assert_eq!(AtmegaTimerRegister::Tccr3b.offset(), 0x91);
+        assert_eq!(AtmegaTimerRegister::Tccr3b.io_offset(), 0x71);
+        assert_eq!(AtmegaTimerRegister::Tccr3b.name(), "tccr3b");
+        assert_eq!(
+            AtmegaTimerRegister::from_data_address(0xa9),
+            Some(AtmegaTimerRegister::Ocr4ah)
+        );
+        assert_eq!(AtmegaTimerRegister::from_data_address(0x93), None);
+    }
 
     #[test]
     fn pb_ports_uart_timer_and_persistent_eeprom_are_functional() {
@@ -482,5 +835,125 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15]);
+        io.write(
+            u64::from(AtmegaTimerRegister::Ocr3al.io_offset()),
+            AccessWidth::Byte,
+            3,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Timsk3.io_offset()),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Tccr3b.io_offset()),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15, 32]);
+        io.write(
+            u64::from(AtmegaTimerRegister::Tifr3.io_offset()),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::from_ticks(4),
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Ocr4al.io_offset()),
+            AccessWidth::Byte,
+            2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Timsk4.io_offset()),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Tccr4b.io_offset()),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.poll(SimTime::from_ticks(4)).contains(&41));
+    }
+
+    #[test]
+    fn timer3_counter_preload_advances_from_written_value() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.timer3", hub).unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Ocr3al.io_offset()),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Ocr3ah.io_offset()),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Tcnt3l.io_offset()),
+            AccessWidth::Byte,
+            0xfe,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Tcnt3h.io_offset()),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Timsk3.io_offset()),
+            AccessWidth::Byte,
+            1 << 1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(AtmegaTimerRegister::Tccr3b.io_offset()),
+            AccessWidth::Byte,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        assert_eq!(handle.poll(SimTime::from_ticks(1)), Vec::<u16>::new());
+        assert_eq!(
+            io.read(
+                u64::from(AtmegaTimerRegister::Tcnt3l.io_offset()),
+                AccessWidth::Byte,
+                SimTime::from_ticks(1),
+            )
+            .unwrap(),
+            0xff
+        );
+        assert_eq!(
+            io.read(
+                u64::from(AtmegaTimerRegister::Tcnt3h.io_offset()),
+                AccessWidth::Byte,
+                SimTime::from_ticks(1),
+            )
+            .unwrap(),
+            0xff
+        );
+        assert_eq!(handle.poll(SimTime::from_ticks(2)), vec![32]);
     }
 }
