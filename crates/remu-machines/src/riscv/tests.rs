@@ -237,3 +237,77 @@ fn unsupported_targets_fail_explicitly() {
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
 }
+
+#[test]
+fn wch_watchdog_blocks_are_mapped_for_both_qingke_targets() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4000_3000,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0,
+            "{target} IWDG key reads as write-only"
+        );
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4000_2c00,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap()
+                & 0x80,
+            0,
+            "{target} WWDG starts disabled"
+        );
+    }
+}
+
+#[test]
+fn wch_independent_watchdog_timeout_resets_the_riscv_machine() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    // `jal x0, 0`: keep the CPU runnable while the abstract IWDG expires.
+    machine
+        .load_bytes(0, &0x0000_006f_u32.to_le_bytes())
+        .unwrap();
+    machine.set_entry(0).unwrap();
+    machine
+        .bus
+        .write(0x4000_3000, AccessWidth::Word, 0x5555, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_3008, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_3000, AccessWidth::Word, 0xcccc, SimTime::ZERO)
+        .unwrap();
+
+    let result = machine
+        .run(
+            RunLimits {
+                // The CH32 independent watchdog uses a /4 prescaler.  Give the
+                // scheduler enough abstract instruction ticks to observe the
+                // reload=0 expiry before the bounded run stops.
+                instructions: Some(8),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.reason, StopReason::InstructionLimit);
+    assert!(
+        result.stats.events >= 1,
+        "watchdog reset was not dispatched"
+    );
+}
