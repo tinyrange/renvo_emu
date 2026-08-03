@@ -158,8 +158,14 @@ The final distillation gate adds four bounded capabilities:
   and `--replay`. RISC-V, Arm and Xtensa evidence is in
   `qualification/debug-observability.json`.
 - `scripts/generate-dashboard.sh` fails unless all six target manifests,
-  register manifests and Phase 5 artifacts pass, then regenerates
-  `qualification/dashboard.html` and `.json`.
+  register manifests and Phase 5 artifacts pass, then regenerates the
+  evidence-bound `qualification/dashboard.html`, `.json`, and
+  `capability-matrix.md` outputs.
+- `scripts/check-capability-matrix.sh` runs the generator in check mode and
+  rejects modified or untracked source files, or generated outputs whose
+  source-tree digest is stale. Set `REMU_BIN=target/release/remu` when running
+  the check from a release workflow; this is the release check for the public
+  capability matrix.
 
 ## Unmodified vendor sample gate
 
@@ -254,8 +260,10 @@ UART/USB output, trace digest, and byte-identical VCD for all 14 target modes.
 PIC16 and EFM8 use their direct Intel HEX boundary because their toolchains do
 not emit a runnable ELF; every other mode compares native boot with ELF.
 
-The human-readable portfolio view is
-[`qualification/dashboard.html`](../qualification/dashboard.html), with the
-same checked data in `qualification/dashboard.json`. “Baseline proven” there
-means a deterministic functional compiler/firmware model, never complete
-silicon compatibility or cycle accuracy.
+The human-readable portfolio views are the generated
+[`qualification/dashboard.html`](../qualification/dashboard.html) and
+[`qualification/capability-matrix.md`](../qualification/capability-matrix.md),
+with the same checked data in `qualification/dashboard.json`. The matrix uses
+three cumulative tiers—compiler execution, firmware functional slice, and a
+selected board/SDK workflow. Tier 3 is a named evidence claim, never complete
+silicon compatibility or arbitrary production-firmware support.

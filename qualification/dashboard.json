@@ -1,9 +1,9 @@
 {
   "generator": {
     "path": "scripts/generate-dashboard.py",
-    "sha256": "259a3f1f792a524bceb3808c153b98077d771d26b5adb2bd2a79497b5b42a6c1",
+    "sha256": "94bbcfadadbf431a6b8da1070ec262087e893b9ecfa1f36db19e20dbe3c2be97",
     "spec": "qualification/dashboard-spec.json",
-    "spec_sha256": "c6cae39f15e7247520fda27dd508b20c63c66b7414f7a6208c783ffb62112af4"
+    "spec_sha256": "5472d2a49edd7a2a23a1680eea65f01fed68cc8efeac2be5122b1135343732f0"
   },
   "phase_5_evidence": [
     {
@@ -45,6 +45,10 @@
     {
       "path": "qualification/host-determinism.json",
       "sha256": "2acff2ec8840fdf2c8374423e0884c840e41c93ca7a0b3ec932701adcc40e130"
+    },
+    {
+      "path": "qualification/native-images.json",
+      "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
     }
   ],
   "portfolio": "six-chip baseline",
@@ -84,8 +88,17 @@
   "result": "pass",
   "schema": "remu.support-dashboard.v1",
   "scope_note": "Baseline proven means deterministic functional compiler/firmware testing; it does not claim cycle accuracy, complete ISA coverage, or complete peripherals.",
+  "source_tree_sha256": "7515b6cb09d06b85f46931dea272f57bc66d3f8719232cdd84220fcb98cac411",
   "targets": [
     {
+      "cpu_evidence_rows": [
+        {
+          "id": "ch32v003",
+          "native_image_format": "raw-bin",
+          "native_result_sha256": "c41bac7d2844eff1c1299c487fa5c5e4581ccddc639c704d05b844381cc3b72a",
+          "status": "pass"
+        }
+      ],
       "cpu_profiles": [
         {
           "architecture": "RiscV32",
@@ -99,6 +112,7 @@
         "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html"
       ],
       "fidelity": "functional",
+      "highest_tier": "selected_board_or_sdk_workflow",
       "id": "ch32v003",
       "known_gaps": [
         "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
@@ -110,12 +124,28 @@
         "PFIC covers baseline enable, pending and table entry without exact priority nesting or tail chaining."
       ],
       "name": "WCH CH32V003",
+      "native_image_formats": [
+        "elf",
+        "raw-bin"
+      ],
+      "official_workflows": [
+        "Unmodified WCH EVT GPIO Toggle"
+      ],
       "passing_corpus": [
         "Docker GCC, Clang and Rust compiler cases",
         "1,000-case generated C corpus",
         "CoreMark 1,200-byte profile workload",
         "Unmodified WCH EVT GPIO Toggle"
       ],
+      "peripheral_scope": [
+        "GPIO",
+        "TIM2",
+        "USART1",
+        "PFIC",
+        "RCC",
+        "VCD"
+      ],
+      "peripheral_tracker": "https://github.com/tinyrange/renvo_emu/issues/4",
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
@@ -129,12 +159,80 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tier": "selected_board_or_sdk_workflow",
+      "support_tiers": [
+        {
+          "description": "Compiler-produced code runs through a documented CPU and ABI subset with bounded results and tracing.",
+          "evidence": [
+            {
+              "path": "qualification/riscv-cpu.json",
+              "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+            },
+            {
+              "path": "qualification/rust-abi.json",
+              "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+            }
+          ],
+          "id": "compiler_execution",
+          "known_omissions": [
+            "chip-specific peripheral and board behavior is not implied by compiler execution"
+          ],
+          "label": "Compiler execution",
+          "status": "proven"
+        },
+        {
+          "description": "Native image handling and a tested subset of chip-specific GPIO, timer, UART, interrupt, and startup behavior.",
+          "evidence": [
+            {
+              "path": "qualification/register-coverage/ch32v003.json",
+              "sha256": "dff87cdf11a4ca63ec36435415dca6780fe2092c7acc71a7653d973f19189492"
+            },
+            {
+              "path": "qualification/native-images.json",
+              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+            },
+            {
+              "path": "qualification/stop-conditions.json",
+              "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+            }
+          ],
+          "id": "firmware_functional_slice",
+          "known_omissions": [
+            "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
+            "analog and debug-wire behavior is outside the baseline"
+          ],
+          "label": "Firmware functional slice",
+          "status": "proven"
+        },
+        {
+          "description": "A named board, SDK path, vendor sample, or official firmware image reaches a tested endpoint; this never implies arbitrary firmware compatibility.",
+          "evidence": [
+            {
+              "path": "qualification/vendor-samples.json",
+              "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+            }
+          ],
+          "id": "selected_board_or_sdk_workflow",
+          "known_omissions": [
+            "only the named workflow is qualified; arbitrary SDK or production firmware is not implied"
+          ],
+          "label": "Selected board or SDK workflow",
+          "status": "proven"
+        }
+      ],
       "vendor_sample_profiles": [
         "ch32v003"
       ]
     },
     {
+      "cpu_evidence_rows": [
+        {
+          "id": "ch32v006",
+          "native_image_format": "raw-bin",
+          "native_result_sha256": "366adf80b4c3463bc2e760616999995c01493ac3ca7e1da8db67c66e2fc2a039",
+          "status": "pass"
+        }
+      ],
       "cpu_profiles": [
         {
           "architecture": "RiscV32",
@@ -148,6 +246,7 @@
         "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html"
       ],
       "fidelity": "functional",
+      "highest_tier": "selected_board_or_sdk_workflow",
       "id": "ch32v006",
       "known_gaps": [
         "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
@@ -159,12 +258,28 @@
         "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
       ],
       "name": "WCH CH32V006",
+      "native_image_formats": [
+        "elf",
+        "raw-bin"
+      ],
+      "official_workflows": [
+        "Unmodified WCH EVT GPIO Toggle"
+      ],
       "passing_corpus": [
         "Docker GCC, Clang and Rust compiler cases",
         "1,000-case generated C corpus",
         "CoreMark standard performance and validation workloads",
         "Unmodified WCH EVT GPIO Toggle"
       ],
+      "peripheral_scope": [
+        "GPIO",
+        "TIM2",
+        "USART1",
+        "PFIC",
+        "RCC",
+        "VCD"
+      ],
+      "peripheral_tracker": "https://github.com/tinyrange/renvo_emu/issues/5",
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
@@ -178,12 +293,80 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tier": "selected_board_or_sdk_workflow",
+      "support_tiers": [
+        {
+          "description": "Compiler-produced code runs through a documented CPU and ABI subset with bounded results and tracing.",
+          "evidence": [
+            {
+              "path": "qualification/riscv-cpu.json",
+              "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+            },
+            {
+              "path": "qualification/rust-abi.json",
+              "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+            }
+          ],
+          "id": "compiler_execution",
+          "known_omissions": [
+            "chip-specific peripheral and board behavior is not implied by compiler execution"
+          ],
+          "label": "Compiler execution",
+          "status": "proven"
+        },
+        {
+          "description": "Native image handling and a tested subset of chip-specific GPIO, timer, UART, interrupt, and startup behavior.",
+          "evidence": [
+            {
+              "path": "qualification/register-coverage/ch32v006.json",
+              "sha256": "f9183872e0295be232156081ca16457b0c7d655fa1a1280ac0885f92b29a85ca"
+            },
+            {
+              "path": "qualification/native-images.json",
+              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+            },
+            {
+              "path": "qualification/stop-conditions.json",
+              "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+            }
+          ],
+          "id": "firmware_functional_slice",
+          "known_omissions": [
+            "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
+            "analog and touch peripherals are outside the baseline"
+          ],
+          "label": "Firmware functional slice",
+          "status": "proven"
+        },
+        {
+          "description": "A named board, SDK path, vendor sample, or official firmware image reaches a tested endpoint; this never implies arbitrary firmware compatibility.",
+          "evidence": [
+            {
+              "path": "qualification/vendor-samples.json",
+              "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+            }
+          ],
+          "id": "selected_board_or_sdk_workflow",
+          "known_omissions": [
+            "only the named workflow is qualified; arbitrary SDK or production firmware is not implied"
+          ],
+          "label": "Selected board or SDK workflow",
+          "status": "proven"
+        }
+      ],
       "vendor_sample_profiles": [
         "ch32v006"
       ]
     },
     {
+      "cpu_evidence_rows": [
+        {
+          "id": "rp2040",
+          "native_image_format": "uf2",
+          "native_result_sha256": "177c426063e30751971f9ed41497c5d03a2bc7331ed78f3786ee85dce9db2903",
+          "status": "pass"
+        }
+      ],
       "cpu_profiles": [
         {
           "architecture": "Arm",
@@ -195,6 +378,7 @@
         "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"
       ],
       "fidelity": "functional",
+      "highest_tier": "selected_board_or_sdk_workflow",
       "id": "rp2040",
       "known_gaps": [
         "the initial Thumb interpreter covers the compiler baseline, not the complete ISA",
@@ -206,12 +390,29 @@
         "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
       ],
       "name": "Raspberry Pi RP2040",
+      "native_image_formats": [
+        "elf",
+        "uf2"
+      ],
+      "official_workflows": [
+        "Unmodified Pico SDK blink_simple"
+      ],
       "passing_corpus": [
         "Docker GCC, Clang and Rust compiler cases",
         "1,000-case generated C corpus",
         "CoreMark standard performance and validation workloads",
         "Unmodified Pico SDK blink_simple"
       ],
+      "peripheral_scope": [
+        "SIO GPIO",
+        "UART0",
+        "TIMER",
+        "PIO0",
+        "USB",
+        "XIP",
+        "VCD"
+      ],
+      "peripheral_tracker": "https://github.com/tinyrange/renvo_emu/issues/6",
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
@@ -224,12 +425,86 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tier": "selected_board_or_sdk_workflow",
+      "support_tiers": [
+        {
+          "description": "Compiler-produced code runs through a documented CPU and ABI subset with bounded results and tracing.",
+          "evidence": [
+            {
+              "path": "qualification/arm-cpu.json",
+              "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+            },
+            {
+              "path": "qualification/rust-abi.json",
+              "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+            }
+          ],
+          "id": "compiler_execution",
+          "known_omissions": [
+            "chip-specific peripheral and board behavior is not implied by compiler execution"
+          ],
+          "label": "Compiler execution",
+          "status": "proven"
+        },
+        {
+          "description": "Native image handling and a tested subset of chip-specific GPIO, timer, UART, interrupt, and startup behavior.",
+          "evidence": [
+            {
+              "path": "qualification/register-coverage/rp2040.json",
+              "sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487"
+            },
+            {
+              "path": "qualification/native-images.json",
+              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+            },
+            {
+              "path": "qualification/stop-conditions.json",
+              "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+            }
+          ],
+          "id": "firmware_functional_slice",
+          "known_omissions": [
+            "the initial Thumb interpreter covers the compiler baseline, not the complete ISA",
+            "NVIC priority/preemption, USB device fidelity, and exact XIP timing are deferred"
+          ],
+          "label": "Firmware functional slice",
+          "status": "proven"
+        },
+        {
+          "description": "A named board, SDK path, vendor sample, or official firmware image reaches a tested endpoint; this never implies arbitrary firmware compatibility.",
+          "evidence": [
+            {
+              "path": "qualification/vendor-samples.json",
+              "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+            }
+          ],
+          "id": "selected_board_or_sdk_workflow",
+          "known_omissions": [
+            "only the named workflow is qualified; arbitrary SDK or production firmware is not implied"
+          ],
+          "label": "Selected board or SDK workflow",
+          "status": "proven"
+        }
+      ],
       "vendor_sample_profiles": [
         "rp2040"
       ]
     },
     {
+      "cpu_evidence_rows": [
+        {
+          "id": "rp2350-arm",
+          "native_image_format": "uf2",
+          "native_result_sha256": "8473a7a416fcf8f6899f8377082e277f6ab6f579855955b10e95185de4dff41d",
+          "status": "pass"
+        },
+        {
+          "id": "rp2350-riscv",
+          "native_image_format": "uf2",
+          "native_result_sha256": "3c63b50a14048b27822cab49febc92b310d75c99b6444b78e26c925a971da844",
+          "status": "pass"
+        }
+      ],
       "cpu_profiles": [
         {
           "architecture": "Arm",
@@ -246,6 +521,7 @@
         "https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"
       ],
       "fidelity": "functional",
+      "highest_tier": "selected_board_or_sdk_workflow",
       "id": "rp2350",
       "known_gaps": [
         "Cortex-M33 and Hazard3 direct-ELF modes implement compiler-facing ISA subsets",
@@ -257,12 +533,30 @@
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
       ],
       "name": "Raspberry Pi RP2350A",
+      "native_image_formats": [
+        "elf",
+        "uf2"
+      ],
+      "official_workflows": [
+        "Unmodified Pico SDK blink_simple on Cortex-M33",
+        "Unmodified Pico SDK blink_simple on Hazard3"
+      ],
       "passing_corpus": [
         "Docker GCC, Clang and Rust cases on Cortex-M33 and Hazard3",
         "1,000-case generated C corpus",
         "CoreMark standard workloads on both CPU modes",
         "Unmodified Pico SDK blink_simple on both CPU modes"
       ],
+      "peripheral_scope": [
+        "SIO GPIO",
+        "UART0",
+        "TIMER",
+        "PIO0",
+        "USB",
+        "XIP",
+        "VCD"
+      ],
+      "peripheral_tracker": "https://github.com/tinyrange/renvo_emu/issues/16",
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
@@ -275,13 +569,85 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 Arm and Hazard3 functional MCU modes",
+      "support_tier": "selected_board_or_sdk_workflow",
+      "support_tiers": [
+        {
+          "description": "Compiler-produced code runs through a documented CPU and ABI subset with bounded results and tracing.",
+          "evidence": [
+            {
+              "path": "qualification/arm-cpu.json",
+              "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+            },
+            {
+              "path": "qualification/riscv-cpu.json",
+              "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+            },
+            {
+              "path": "qualification/rust-abi.json",
+              "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+            }
+          ],
+          "id": "compiler_execution",
+          "known_omissions": [
+            "chip-specific peripheral and board behavior is not implied by compiler execution"
+          ],
+          "label": "Compiler execution",
+          "status": "proven"
+        },
+        {
+          "description": "Native image handling and a tested subset of chip-specific GPIO, timer, UART, interrupt, and startup behavior.",
+          "evidence": [
+            {
+              "path": "qualification/register-coverage/rp2350.json",
+              "sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95"
+            },
+            {
+              "path": "qualification/native-images.json",
+              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+            },
+            {
+              "path": "qualification/stop-conditions.json",
+              "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+            }
+          ],
+          "id": "firmware_functional_slice",
+          "known_omissions": [
+            "Cortex-M33 and Hazard3 direct-ELF modes implement compiler-facing ISA subsets",
+            "TrustZone, HSTX, USB, NVIC priority/preemption, and exact QMI timing are deferred"
+          ],
+          "label": "Firmware functional slice",
+          "status": "proven"
+        },
+        {
+          "description": "A named board, SDK path, vendor sample, or official firmware image reaches a tested endpoint; this never implies arbitrary firmware compatibility.",
+          "evidence": [
+            {
+              "path": "qualification/vendor-samples.json",
+              "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+            }
+          ],
+          "id": "selected_board_or_sdk_workflow",
+          "known_omissions": [
+            "only the named workflow is qualified; arbitrary SDK or production firmware is not implied"
+          ],
+          "label": "Selected board or SDK workflow",
+          "status": "proven"
+        }
+      ],
       "vendor_sample_profiles": [
         "rp2350-arm",
         "rp2350-riscv"
       ]
     },
     {
+      "cpu_evidence_rows": [
+        {
+          "id": "esp32s3",
+          "native_image_format": "esp-bin",
+          "native_result_sha256": "a61c61fd72b6d3fc9f1ffb337dab653fb24183ce07d413a79f35ef40b2d7339f",
+          "status": "pass"
+        }
+      ],
       "cpu_profiles": [
         {
           "architecture": "Xtensa",
@@ -294,6 +660,7 @@
         "https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf"
       ],
       "fidelity": "functional",
+      "highest_tier": "selected_board_or_sdk_workflow",
       "id": "esp32s3",
       "known_gaps": [
         "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
@@ -306,12 +673,30 @@
         "Radio, analogue and security peripherals are outside the six-chip baseline."
       ],
       "name": "Espressif ESP32-S3",
+      "native_image_formats": [
+        "elf",
+        "esp-bin"
+      ],
+      "official_workflows": [
+        "Unmodified ESP-IDF hello_world"
+      ],
       "passing_corpus": [
         "Pinned Espressif GCC qualification at -O0, -O2 and -Os",
         "1,000-case generated C corpus",
         "CoreMark standard performance and validation workloads",
         "Unmodified ESP-IDF hello_world"
       ],
+      "peripheral_scope": [
+        "GPIO",
+        "UART0",
+        "timer groups",
+        "USB Serial/JTAG",
+        "USB OTG",
+        "SPI flash",
+        "RNG",
+        "VCD"
+      ],
+      "peripheral_tracker": "https://github.com/tinyrange/renvo_emu/issues/7",
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
@@ -322,12 +707,77 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tier": "selected_board_or_sdk_workflow",
+      "support_tiers": [
+        {
+          "description": "Compiler-produced code runs through a documented CPU and ABI subset with bounded results and tracing.",
+          "evidence": [
+            {
+              "path": "qualification/xtensa-cpu.json",
+              "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+            }
+          ],
+          "id": "compiler_execution",
+          "known_omissions": [
+            "chip-specific peripheral and board behavior is not implied by compiler execution"
+          ],
+          "label": "Compiler execution",
+          "status": "proven"
+        },
+        {
+          "description": "Native image handling and a tested subset of chip-specific GPIO, timer, UART, interrupt, and startup behavior.",
+          "evidence": [
+            {
+              "path": "qualification/register-coverage/esp32s3.json",
+              "sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4"
+            },
+            {
+              "path": "qualification/native-images.json",
+              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+            },
+            {
+              "path": "qualification/stop-conditions.json",
+              "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+            }
+          ],
+          "id": "firmware_functional_slice",
+          "known_omissions": [
+            "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
+            "windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy",
+            "exact SMP timing, wireless, ULP, and full USB are deferred"
+          ],
+          "label": "Firmware functional slice",
+          "status": "proven"
+        },
+        {
+          "description": "A named board, SDK path, vendor sample, or official firmware image reaches a tested endpoint; this never implies arbitrary firmware compatibility.",
+          "evidence": [
+            {
+              "path": "qualification/vendor-samples.json",
+              "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+            }
+          ],
+          "id": "selected_board_or_sdk_workflow",
+          "known_omissions": [
+            "only the named workflow is qualified; arbitrary SDK or production firmware is not implied"
+          ],
+          "label": "Selected board or SDK workflow",
+          "status": "proven"
+        }
+      ],
       "vendor_sample_profiles": [
         "esp32s3"
       ]
     },
     {
+      "cpu_evidence_rows": [
+        {
+          "id": "esp32c6",
+          "native_image_format": "esp-bin",
+          "native_result_sha256": "f49957dbcab5cbec88d07674a715425dbd50836ed0b10f04b3591f811b2eae1c",
+          "status": "pass"
+        }
+      ],
       "cpu_profiles": [
         {
           "architecture": "RiscV32",
@@ -340,6 +790,7 @@
         "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf"
       ],
       "fidelity": "functional",
+      "highest_tier": "selected_board_or_sdk_workflow",
       "id": "esp32c6",
       "known_gaps": [
         "PMP permission enforcement, complete interrupt-matrix behavior, and vendor cache behavior are not implemented yet",
@@ -351,12 +802,29 @@
         "Radio, analogue and security peripherals are outside the six-chip baseline."
       ],
       "name": "Espressif ESP32-C6",
+      "native_image_formats": [
+        "elf",
+        "esp-bin"
+      ],
+      "official_workflows": [
+        "Unmodified ESP-IDF hello_world"
+      ],
       "passing_corpus": [
         "Docker GCC, Clang and Rust compiler cases",
         "1,000-case generated C corpus",
         "CoreMark standard performance and validation workloads",
         "Unmodified ESP-IDF hello_world"
       ],
+      "peripheral_scope": [
+        "GPIO",
+        "UART0",
+        "timer groups",
+        "USB Serial/JTAG",
+        "SPI flash",
+        "PMP",
+        "VCD"
+      ],
+      "peripheral_tracker": "https://github.com/tinyrange/renvo_emu/issues/15",
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
@@ -370,10 +838,87 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tier": "selected_board_or_sdk_workflow",
+      "support_tiers": [
+        {
+          "description": "Compiler-produced code runs through a documented CPU and ABI subset with bounded results and tracing.",
+          "evidence": [
+            {
+              "path": "qualification/riscv-cpu.json",
+              "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+            },
+            {
+              "path": "qualification/rust-abi.json",
+              "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+            }
+          ],
+          "id": "compiler_execution",
+          "known_omissions": [
+            "chip-specific peripheral and board behavior is not implied by compiler execution"
+          ],
+          "label": "Compiler execution",
+          "status": "proven"
+        },
+        {
+          "description": "Native image handling and a tested subset of chip-specific GPIO, timer, UART, interrupt, and startup behavior.",
+          "evidence": [
+            {
+              "path": "qualification/register-coverage/esp32c6.json",
+              "sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf"
+            },
+            {
+              "path": "qualification/native-images.json",
+              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+            },
+            {
+              "path": "qualification/stop-conditions.json",
+              "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+            }
+          ],
+          "id": "firmware_functional_slice",
+          "known_omissions": [
+            "PMP permission enforcement, complete interrupt-matrix behavior, and vendor cache behavior are not implemented yet",
+            "LP core and wireless peripherals are deferred"
+          ],
+          "label": "Firmware functional slice",
+          "status": "proven"
+        },
+        {
+          "description": "A named board, SDK path, vendor sample, or official firmware image reaches a tested endpoint; this never implies arbitrary firmware compatibility.",
+          "evidence": [
+            {
+              "path": "qualification/vendor-samples.json",
+              "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+            }
+          ],
+          "id": "selected_board_or_sdk_workflow",
+          "known_omissions": [
+            "only the named workflow is qualified; arbitrary SDK or production firmware is not implied"
+          ],
+          "label": "Selected board or SDK workflow",
+          "status": "proven"
+        }
+      ],
       "vendor_sample_profiles": [
         "esp32c6"
       ]
+    }
+  ],
+  "tier_definitions": [
+    {
+      "description": "Compiler-produced code runs through a documented CPU and ABI subset with bounded results and tracing.",
+      "id": "compiler_execution",
+      "label": "Compiler execution"
+    },
+    {
+      "description": "Native image handling and a tested subset of chip-specific GPIO, timer, UART, interrupt, and startup behavior.",
+      "id": "firmware_functional_slice",
+      "label": "Firmware functional slice"
+    },
+    {
+      "description": "A named board, SDK path, vendor sample, or official firmware image reaches a tested endpoint; this never implies arbitrary firmware compatibility.",
+      "id": "selected_board_or_sdk_workflow",
+      "label": "Selected board or SDK workflow"
     }
   ]
 }

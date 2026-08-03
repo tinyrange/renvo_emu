@@ -99,6 +99,18 @@ pub enum Fidelity {
     Planned,
 }
 
+/// Cumulative public support tier for a target model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SupportTier {
+    /// Compiler-produced code runs through a documented CPU/ABI subset.
+    CompilerExecution,
+    /// Native image handling and a tested chip-specific firmware slice work.
+    FirmwareFunctionalSlice,
+    /// A named board, SDK workflow, or official firmware image is qualified.
+    SelectedBoardOrSdkWorkflow,
+}
+
 /// One selectable application CPU configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct CpuOption {
@@ -154,6 +166,8 @@ pub struct TargetManifest {
     pub gpio_count: u8,
     /// Currently promised support tier.
     pub fidelity: Fidelity,
+    /// Highest cumulative support tier currently demonstrated.
+    pub support_tier: SupportTier,
     /// Explicitly implemented or planned baseline surface.
     pub baseline: &'static [&'static str],
     /// Primary vendor evidence used to establish the manifest.
@@ -251,6 +265,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 18,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::SelectedBoardOrSdkWorkflow,
         baseline: COMMON_BASELINE,
         sources: &[
             "https://www.wch-ic.com/downloads/CH32V003DS0_PDF.html",
@@ -285,6 +300,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 24,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::SelectedBoardOrSdkWorkflow,
         baseline: COMMON_BASELINE,
         sources: &[
             "https://www.wch-ic.com/downloads/CH32V006DS0_PDF.html",
@@ -319,6 +335,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 30,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::SelectedBoardOrSdkWorkflow,
         baseline: COMMON_BASELINE,
         sources: &["https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"],
         limitations: &[
@@ -349,6 +366,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 48,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::SelectedBoardOrSdkWorkflow,
         baseline: COMMON_BASELINE,
         sources: &["https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"],
         limitations: &[
@@ -386,6 +404,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 49,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::SelectedBoardOrSdkWorkflow,
         baseline: COMMON_BASELINE,
         sources: &[
             "https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf",
@@ -434,6 +453,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 31,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::SelectedBoardOrSdkWorkflow,
         baseline: COMMON_BASELINE,
         sources: &[
             "https://www.espressif.com/sites/default/files/documentation/esp32-c6_datasheet_en.pdf",
@@ -467,6 +487,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 26,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::FirmwareFunctionalSlice,
         baseline: &[
             "PORT/EIC GPIO",
             "TC3 timer interrupt",
@@ -502,6 +523,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 26,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::FirmwareFunctionalSlice,
         baseline: &["GPIO/EXTI", "TIM2 interrupt", "USART2", "VCD"],
         sources: &[
             "https://www.st.com/en/microcontrollers-microprocessors/stm32l432kc.html",
@@ -539,6 +561,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 49,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::FirmwareFunctionalSlice,
         baseline: &["IOPORT/ICU", "GPT0 interrupt", "SCI9 UART", "VCD"],
         sources: &[
             "https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware",
@@ -569,6 +592,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 27,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::FirmwareFunctionalSlice,
         baseline: &["PORT/interrupt GPIO", "Timer0/1", "USART0", "EEPROM", "VCD"],
         sources: &[
             "https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip-AVR-Microcontroller-ATmega328PB-Data-Sheet-DS40001906.pdf",
@@ -599,6 +623,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 19,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::FirmwareFunctionalSlice,
         baseline: &[
             "GPIO/low-power wake",
             "Timer_A",
@@ -635,6 +660,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 36,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::FirmwareFunctionalSlice,
         baseline: &[
             "PORT/PPS GPIO",
             "Timer0/1",
@@ -671,6 +697,7 @@ const MANIFESTS: &[TargetManifest] = &[
         ],
         gpio_count: 29,
         fidelity: Fidelity::Functional,
+        support_tier: SupportTier::FirmwareFunctionalSlice,
         baseline: &[
             "crossbar GPIO",
             "Timer0/2",
@@ -714,6 +741,20 @@ mod tests {
                     .any(|earlier| earlier.id == manifest.id)
             );
         }
+    }
+
+    #[test]
+    fn support_tiers_are_explicit_for_baseline_and_expansion_targets() {
+        assert!(
+            target_manifests()[..6]
+                .iter()
+                .all(|manifest| manifest.support_tier == SupportTier::SelectedBoardOrSdkWorkflow)
+        );
+        assert!(
+            target_manifests()[6..]
+                .iter()
+                .all(|manifest| manifest.support_tier == SupportTier::FirmwareFunctionalSlice)
+        );
     }
 
     #[test]

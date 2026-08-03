@@ -56,7 +56,9 @@ Tier 3 never means that arbitrary firmware for the chip will work. It means
 only that the exact published workflows pass. The authoritative implemented
 and deferred behavior is in [the support contract](docs/SUPPORT.md), while the
 generated [qualification dashboard](qualification/dashboard.html) binds claims
-to checked evidence.
+to checked evidence. The compact [capability matrix](qualification/capability-matrix.md)
+contains the same tier rows, native-image formats, CPU-mode evidence, and
+peripheral tracker links.
 
 ## Quick start
 
@@ -112,27 +114,33 @@ method.
 The repository contains 13 MCU models and 14 execution modes because RP2350 is
 qualified in both Arm and RISC-V configurations.
 
-| MCU model | CPU mode(s) | Highest demonstrated tier | Native image |
-| --- | --- | --- | --- |
-| WCH CH32V003 | QingKe V2 RV32EC | 3 — selected WCH EVT | raw binary, Intel HEX |
-| WCH CH32V006 | QingKe V2 RV32EC | 3 — selected WCH EVT | raw binary, Intel HEX |
-| Raspberry Pi RP2040 | Cortex-M0+ | 3 — Pico SDK and official MicroPython | UF2 |
-| Raspberry Pi RP2350 | Cortex-M33, Hazard3 RV32IMAC | 3 — Pico SDK and official MicroPython | UF2 |
-| Espressif ESP32-S3 | Xtensa LX7 | 3 — ESP-IDF sample and official MicroPython | merged flash binary, application UF2 overlay |
-| Espressif ESP32-C6 | RV32IMAC | 3 — ESP-IDF sample and official MicroPython | merged flash binary, application UF2 overlay |
-| Microchip ATSAMD21E18A | Cortex-M0+ | 2 — firmware functional slice | raw binary, Intel HEX |
-| STMicroelectronics STM32L432KC | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
-| Renesas R7FA4M1AB3CFM | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
-| Microchip ATmega328PB | enhanced AVR8 | 2 — firmware functional slice | Intel HEX, raw binary |
-| Texas Instruments MSP430FR2433 | MSP430Xv2 | 2 — firmware functional slice | Intel HEX, raw binary |
-| Microchip PIC16F15376 | enhanced mid-range PIC16 | 2 — firmware functional slice | Intel HEX |
-| Silicon Labs EFM8BB52F32G | CIP-51/MCS-51 | 2 — firmware functional slice | Intel HEX |
+| MCU model | CPU mode(s) | Native image |
+| --- | --- | --- |
+| WCH CH32V003 | QingKe V2 RV32EC | raw binary, Intel HEX |
+| WCH CH32V006 | QingKe V2 RV32EC | raw binary, Intel HEX |
+| Raspberry Pi RP2040 | Cortex-M0+ | UF2 |
+| Raspberry Pi RP2350 | Cortex-M33, Hazard3 RV32IMAC | UF2 |
+| Espressif ESP32-S3 | Xtensa LX7 | merged flash binary, application UF2 overlay |
+| Espressif ESP32-C6 | RV32IMAC | merged flash binary, application UF2 overlay |
+| Microchip ATSAMD21E18A | Cortex-M0+ | raw binary, Intel HEX |
+| STMicroelectronics STM32L432KC | Cortex-M4F | raw binary, Intel HEX |
+| Renesas R7FA4M1AB3CFM | Cortex-M4F | raw binary, Intel HEX |
+| Microchip ATmega328PB | enhanced AVR8 | Intel HEX, raw binary |
+| Texas Instruments MSP430FR2433 | MSP430Xv2 | Intel HEX, raw binary |
+| Microchip PIC16F15376 | enhanced mid-range PIC16 | Intel HEX |
+| Silicon Labs EFM8BB52F32G | CIP-51/MCS-51 | Intel HEX |
 
 Each target has a public peripheral checklist in the repository’s
 [GitHub issues](https://github.com/tinyrange/renvo_emu/issues). An unchecked
 peripheral may have address space reserved for startup compatibility, but it
 has no supported behavioral model until deterministic tests and documentation
 say otherwise.
+
+The evidence-backed tier, CPU-mode rows, native formats, peripheral scope, and
+named workflow for the six qualified targets are generated in the
+[capability matrix](qualification/capability-matrix.md) and
+[HTML dashboard](qualification/dashboard.html); the table above intentionally
+does not duplicate those claims.
 
 ## Qualification and provenance
 
@@ -290,7 +298,7 @@ The next cross-cutting work is tracked explicitly:
 3. [Centralize deterministic machine scheduling and run control](https://github.com/tinyrange/renvo_emu/issues/24)
 4. [Connect Starlark board topology to live firmware MMIO](https://github.com/tinyrange/renvo_emu/issues/25)
 5. [Add hardware-backed and differential correctness oracles](https://github.com/tinyrange/renvo_emu/issues/26)
-6. [Generate the public capability matrix from qualification evidence](https://github.com/tinyrange/renvo_emu/issues/27)
+6. ~~[Generate the public capability matrix from qualification evidence](https://github.com/tinyrange/renvo_emu/issues/27)~~ — generated matrix is checked by `scripts/check-capability-matrix.sh`
 7. [Deepen RP2040 as the flagship Pico SDK target](https://github.com/tinyrange/renvo_emu/issues/28)
 8. [Establish interpreter performance benchmarks and budgets](https://github.com/tinyrange/renvo_emu/issues/29)
 
@@ -335,6 +343,7 @@ assertions.
 
 - [Support contract](docs/SUPPORT.md)
 - [Generated support dashboard](qualification/dashboard.html)
+- [Generated capability matrix](qualification/capability-matrix.md)
 - [Expansion target acceptance](docs/EXPANSION.md)
 - [Board simulation](docs/BOARD_SIMULATION.md)
 - [CoreMark qualification](docs/COREMARK.md)
