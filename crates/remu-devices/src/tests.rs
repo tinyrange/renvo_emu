@@ -108,6 +108,154 @@ fn rp2350_timer_uses_shifted_interrupt_registers() {
 }
 
 #[test]
+fn rp2040_psm_exposes_power_state_masks_and_atomic_aliases() {
+    let mut psm = Rp2040Psm::new("psm");
+    assert_eq!(
+        psm.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x1ffff
+    );
+    psm.write(0x04, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        psm.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x1fff7
+    );
+    psm.write(0x2000, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        psm.read(0x0c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x1ffff
+    );
+    assert_eq!(
+        psm.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 3
+    );
+    assert!(
+        psm.write(0x0c, AccessWidth::Word, 0, SimTime::ZERO)
+            .is_err()
+    );
+}
+
+#[test]
+fn rp2040_rosc_models_protected_controls_dormant_and_count() {
+    let mut rosc = Rp2040Rosc::new("rosc");
+    assert_eq!(
+        rosc.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xaa0
+    );
+    assert_eq!(
+        rosc.read(0x18, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x8000_1000
+    );
+    assert_eq!(
+        rosc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xab0
+    );
+    assert_eq!(
+        rosc.read(0x1c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1
+    );
+    rosc.write(
+        0x00,
+        AccessWidth::Word,
+        (0xd1e_u64 << 12) | 0xfa4,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        rosc.read(0x18, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+    rosc.write(
+        0x00,
+        AccessWidth::Word,
+        (0xfab_u64 << 12) | 0xfa5,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    rosc.write(0x20, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x20, AccessWidth::Word, SimTime::from_ticks(2))
+            .unwrap(),
+        1
+    );
+    rosc.write(0x0c, AccessWidth::Word, 0x636f_6d61, SimTime::from_ticks(2))
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x1c, AccessWidth::Word, SimTime::from_ticks(3))
+            .unwrap(),
+        1
+    );
+    rosc.write(0x0c, AccessWidth::Word, 0x7761_6b65, SimTime::from_ticks(3))
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x18, AccessWidth::Word, SimTime::from_ticks(3))
+            .unwrap()
+            & 0x8000_1000,
+        0x8000_1000
+    );
+    rosc.write(0x10, AccessWidth::Word, 0xaa0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xaa0
+    );
+    rosc.write(0x10, AccessWidth::Word, 0xabf, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xabf
+    );
+    rosc.write(0x10, AccessWidth::Word, 0x123, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xabf
+    );
+    assert_ne!(
+        rosc.read(0x18, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 24),
+        0
+    );
+    rosc.write(0x18, AccessWidth::Word, 1 << 24, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        rosc.read(0x18, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 24),
+        0
+    );
+}
+
+#[test]
+fn rp2040_vreg_reports_regulation_and_bod_configuration() {
+    let mut power = Rp2040VregAndChipReset::new("vreg");
+    assert_eq!(
+        power.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x10b1
+    );
+    power
+        .write(0x2000, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        power.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xb3
+    );
+    power
+        .write(0x3000, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        power.read(0x00, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x10b1
+    );
+    power
+        .write(0x04, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        power.read(0x04, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+}
+
+#[test]
 fn rp_pio_executes_set_pin_program_on_abstract_ticks() {
     let hub = SignalHub::new();
     let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio0.gpio", hub.clone()).unwrap();
