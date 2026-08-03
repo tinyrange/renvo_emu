@@ -284,3 +284,20 @@ fn wch_tim1_registers_and_update_interrupt_are_mapped() {
         1
     );
 }
+
+#[test]
+fn wch_tim1_is_mapped_on_ch32v006() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v006).unwrap();
+    let base = 0x4001_2c00;
+    machine
+        .bus
+        .write(base, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(base, AccessWidth::HalfWord, AccessKind::Read, SimTime::ZERO,)
+            .unwrap(),
+        1
+    );
+}

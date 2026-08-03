@@ -220,8 +220,9 @@ known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
 
 The WCH CH32V003/CH32V006 models also map the advanced TIM1 register block at
-`0x40012c00`, using the same deterministic counter, update-event,
-capture/compare-latch, and PWM-control register subset as TIM2.
+`0x40012c00`, using the deterministic counter, update-event, capture/compare
+register, and PWM-control subset shared with TIM2. TIM1 update and TIM2 update
+sources are routed to their native PFIC lines (35 and 38 respectively).
 Exact center-aligned waveform timing, break/dead-time outputs, and DMA request
 sequencing remain outside this slice.
 
