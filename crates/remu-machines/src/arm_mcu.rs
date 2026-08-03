@@ -1570,7 +1570,7 @@ mod tests {
             .unwrap();
         machine
             .bus
-            .write(0x4005_4100, AccessWidth::HalfWord, 1 << 2, SimTime::ZERO)
+            .write(0x4005_4100, AccessWidth::Byte, 1 << 2, SimTime::ZERO)
             .unwrap();
         machine
             .bus
@@ -1582,7 +1582,7 @@ mod tests {
                 .bus
                 .read(
                     0x4005_4100,
-                    AccessWidth::HalfWord,
+                    AccessWidth::Byte,
                     AccessKind::Read,
                     SimTime::ZERO,
                 )
