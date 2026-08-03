@@ -809,18 +809,20 @@ fn execute_rp_pio_instruction(
     }
 }
 
-/// Functional RP2040-compatible PIO0 register and execution slice.
+/// Functional RP-compatible PIO register and execution slice.
 ///
 /// The baseline covers instruction memory, state-machine configuration,
 /// direct execution, unconditional `JMP`, and `SET` to pins, directions, X,
 /// and Y. FIFO, IRQ, `WAIT`, shift, side-set, and PIO v1 extensions remain
-/// outside this deliberately small proof.
+/// outside this deliberately small proof. RP2350 instances report PIO version
+/// one through `DBG_CFGINFO`; RP2040 instances report version zero.
 pub struct RpPio {
     name: String,
     state: Rc<RefCell<RpPioState>>,
     hub: SignalHub,
     output_signal: SignalId,
     pins: u16,
+    version: u8,
 }
 
 impl RpPio {
@@ -830,6 +832,26 @@ impl RpPio {
         pins: u16,
         signal_path: &str,
         hub: SignalHub,
+    ) -> Result<(Self, RpPioHandle), SignalError> {
+        Self::new_with_version(name, pins, signal_path, hub, 0)
+    }
+
+    /// Creates a reset RP2350 PIO block and scheduler handle.
+    pub fn new_rp2350(
+        name: impl Into<String>,
+        pins: u16,
+        signal_path: &str,
+        hub: SignalHub,
+    ) -> Result<(Self, RpPioHandle), SignalError> {
+        Self::new_with_version(name, pins, signal_path, hub, 1)
+    }
+
+    fn new_with_version(
+        name: impl Into<String>,
+        pins: u16,
+        signal_path: &str,
+        hub: SignalHub,
+        version: u8,
     ) -> Result<(Self, RpPioHandle), SignalError> {
         let output_signal = hub.declare(
             signal_path,
@@ -844,6 +866,7 @@ impl RpPio {
                 hub: hub.clone(),
                 output_signal,
                 pins,
+                version,
             },
             RpPioHandle {
                 state,
@@ -913,7 +936,7 @@ impl Device for RpPio {
                 0x000 => state.control,
                 0x004 => 0x0f00_0f00,
                 0x008 => state.debug,
-                0x044 => (32 << 16) | (4 << 8) | 4,
+                0x044 => (u32::from(self.version & 0xf) << 28) | (32 << 16) | (4 << 8) | 4,
                 0x048..=0x0c4 => {
                     let index = usize::try_from((register - 0x048) / 4)
                         .expect("PIO instruction index fits");

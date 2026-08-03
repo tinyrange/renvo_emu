@@ -743,7 +743,7 @@ impl RiscVMachine {
                 chip_uarts.push(handle);
                 for (index, base) in [(0, 0x5020_0000), (1, 0x5030_0000), (2, 0x5040_0000)] {
                     let name = format!("rp2350.pio{index}");
-                    let (device, handle) = RpPio::new(
+                    let (device, handle) = RpPio::new_rp2350(
                         &name,
                         u16::from(manifest.gpio_count.min(32)),
                         &format!("board.{name}.gpio"),

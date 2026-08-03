@@ -569,12 +569,21 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
-        let (pio0, handle) = RpPio::new(
-            format!("{target}.pio0"),
-            u16::from(manifest.gpio_count.min(32)),
-            &format!("board.{target}.pio0.gpio"),
-            signals.clone(),
-        )?;
+        let (pio0, handle) = if target == TargetId::Rp2350 {
+            RpPio::new_rp2350(
+                format!("{target}.pio0"),
+                u16::from(manifest.gpio_count.min(32)),
+                &format!("board.{target}.pio0.gpio"),
+                signals.clone(),
+            )?
+        } else {
+            RpPio::new(
+                format!("{target}.pio0"),
+                u16::from(manifest.gpio_count.min(32)),
+                &format!("board.{target}.pio0.gpio"),
+                signals.clone(),
+            )?
+        };
         bus.map_device(
             format!("{target}.pio0"),
             0x5020_0000,
@@ -585,7 +594,7 @@ impl ArmMachine {
         if target == TargetId::Rp2350 {
             for (index, base) in [(1, 0x5030_0000), (2, 0x5040_0000)] {
                 let name = format!("rp2350.pio{index}");
-                let (device, handle) = RpPio::new(
+                let (device, handle) = RpPio::new_rp2350(
                     &name,
                     u16::from(manifest.gpio_count.min(32)),
                     &format!("board.{name}.gpio"),
