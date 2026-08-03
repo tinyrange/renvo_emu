@@ -20,6 +20,8 @@ mod esp_usb_serial_jtag;
 pub use esp_usb_serial_jtag::*;
 mod gpio;
 pub use gpio::*;
+mod rp_pio;
+pub use rp_pio::*;
 mod rp;
 pub use rp::*;
 mod esp;

@@ -8,39 +8,39 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "4bfcc8e18b11b5d01def72bcc62226dbdfcf2c8e32d5f2f8b05062062b407b21"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "c8024305ca4f3f8a6ca0f2214d60c0462797fe1934d483ae8188344d85892591"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "b08d107340253bc6750133d03edee50e26fd4f15f1a0c0376a2afe352c531053"
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "7664050616ab60b6a53b1a1049233e85b29902ad7448a10921480d750bf0cfa6"
+      "sha256": "c92a4c50960639622328f9c937435e955399881eaef0073141321a766c59841e"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "f7dde1520d959d650c5a78a027f7388df279d2233e0d228a77f8982260e5fe97"
+      "sha256": "58dfcad4af667b9a6604185a4b1fa00c1131a3efab9217b80e0419ae0c0ce761"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+      "sha256": "02a1cbcd479c4fe9b4e6543c9b1ef341921ccfb7c1572550ec079f651bfa3756"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "8b36b06b810d4283f15c8c570be166e660c1885b07f4c9ecdcce4bc923635935"
     },
     {
       "path": "qualification/rust-abi.json",
-      "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+      "sha256": "f2a8fa344ad3e4a789bf78313bb4e0ad305f4cb67c0838aff563be94d37187c1"
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+      "sha256": "32584be5ac45fc31456140f379b3f5d2f7a2e3582e036e60f30225918da9447e"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -215,7 +215,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487",
+        "manifest_sha256": "4ca1061c8e11193d1347f8385134e8e84189b0230d150cdca89f3967c99a59eb",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -266,7 +266,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95",
+        "manifest_sha256": "3105d9d8c718c2f3f804c7850297ffebd7eaf20585a22ab2f2b04a1e5fde762d",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",

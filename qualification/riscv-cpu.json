@@ -147,7 +147,7 @@
       "elf": ".remu/portfolio-smoke/hazard3/smoke.elf",
       "elf_sha256": "0dd19dc8ca2cce47d7941a1b06f0124a6df022d203ca2b6568ab5b954ac9fcfe",
       "result_artifact": ".remu/portfolio-smoke/hazard3-extensions-run.json",
-      "result_sha256": "d81b5c0629f80335ff62f5bf5bd681c26b559c6b4774c1d625e585127d520ded",
+      "result_sha256": "83030787a662534f8b6cde3e112368d422e13a5c221e329ab51161d362b3b256",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -155,7 +155,7 @@
         "time": 58,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "8fa5ca1eec4ae0c65a3bd24efe0fe84559cba19c780aa6e962ee8abfc59711e0",
       "result": "pass"
     }
   ],

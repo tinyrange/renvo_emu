@@ -17,9 +17,9 @@ use remu_devices::{
     EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpPioVersion, RpSioGpio,
+    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -37,6 +37,7 @@ mod esp_bootrom_secondary;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;
+mod pio;
 mod rp_bootrom;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
@@ -439,8 +440,6 @@ impl RiscVMachine {
                 ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio1", 0x5030_0000),
-                ("rp2350.pio2", 0x5040_0000),
             ] {
                 bus.map_device(
                     name,
@@ -743,14 +742,21 @@ impl RiscVMachine {
                     FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
                 bus.map_device("rp2350.uart0", 0x4007_0000, 0x1000, Box::new(uart0))?;
                 chip_uarts.push(handle);
-                let (pio0, handle) = RpPio::new(
+                let (pio0, handle) = RpPio::new_with_version(
                     "rp2350.pio0",
                     u16::from(manifest.gpio_count.min(32)),
                     "board.rp2350.pio0.gpio",
                     signals.clone(),
+                    RpPioVersion::Rp2350,
                 )?;
                 bus.map_device("rp2350.pio0", 0x5020_0000, 0x4000, Box::new(pio0))?;
                 pio.push(handle);
+                pio::map_secondary_rp2350_pios(
+                    &mut bus,
+                    &mut pio,
+                    &signals,
+                    u16::from(manifest.gpio_count.min(32)),
+                )?;
             }
             TargetId::Rp2040
             | TargetId::Esp32s3
@@ -762,7 +768,6 @@ impl RiscVMachine {
             | TargetId::Pic16f15376
             | TargetId::Efm8bb52f32g => unreachable!(),
         }
-
         Ok(Self {
             target,
             cpu: RiscVCpu::new(profile.clone())?,
@@ -1460,7 +1465,6 @@ impl RiscVMachine {
                 }
             }
         };
-
         if let Some(sink) = trace {
             sink.finish()?;
         }
@@ -1490,6 +1494,5 @@ impl RiscVMachine {
         })
     }
 }
-
 #[cfg(test)]
 mod tests;
