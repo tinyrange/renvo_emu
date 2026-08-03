@@ -9,7 +9,7 @@ archive=$dist/remu-quickstart-$release_ref.tar.gz
 asset_checksums=$dist/remu-$release_ref-sha256sums.txt
 
 test -x "$dist/amd64/remu"
-test -s "$dist/arm64/remu"
+test -x "$dist/arm64/remu"
 test "$("$dist/amd64/remu" --version)" = "remu $release_version"
 
 test -s "$quickstart/build/quickstart.elf"
@@ -51,12 +51,30 @@ do
 done
 
 test "$(wc -l < "$asset_checksums")" -eq 3
-while read -r expected name
+seen_amd64=0
+seen_arm64=0
+seen_archive=0
+while read -r expected name extra
 do
+    test -n "$expected"
+    test -n "$name"
+    test -z "$extra"
     case "$name" in
-        remu-$release_ref-linux-amd64) path=$dist/amd64/remu ;;
-        remu-$release_ref-linux-arm64) path=$dist/arm64/remu ;;
-        remu-quickstart-$release_ref.tar.gz) path=$archive ;;
+        remu-$release_ref-linux-amd64)
+            test "$seen_amd64" -eq 0
+            seen_amd64=1
+            path=$dist/amd64/remu
+            ;;
+        remu-$release_ref-linux-arm64)
+            test "$seen_arm64" -eq 0
+            seen_arm64=1
+            path=$dist/arm64/remu
+            ;;
+        remu-quickstart-$release_ref.tar.gz)
+            test "$seen_archive" -eq 0
+            seen_archive=1
+            path=$archive
+            ;;
         *)
             echo "unexpected release checksum entry: $name" >&2
             exit 1
@@ -64,5 +82,8 @@ do
     esac
     test "$expected" = "$(sha256sum "$path" | awk '{print $1}')"
 done < "$asset_checksums"
+test "$seen_amd64" -eq 1
+test "$seen_arm64" -eq 1
+test "$seen_archive" -eq 1
 
 echo "release quick-start artifacts verified for $release_ref"
