@@ -25,25 +25,15 @@ const SSP1CON3: usize = 0x192;
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
-const NCO1ACCL: usize = 0x58c;
-const NCO1ACCH: usize = 0x58d;
-const NCO1ACCU: usize = 0x58e;
-const NCO1INCL: usize = 0x58f;
-const NCO1INCH: usize = 0x590;
-const NCO1INCU: usize = 0x591;
-const NCO1CON: usize = 0x592;
-const NCO1CLK: usize = 0x593;
 const TMR0L: usize = 0x59c;
 const TMR0H: usize = 0x59d;
 const T0CON0: usize = 0x59e;
 const PIR0: usize = 0x70c;
 const PIR1: usize = 0x70d;
 const PIR3: usize = 0x70f;
-const PIR7: usize = 0x713;
 const PIE0: usize = 0x716;
 const PIE1: usize = 0x717;
 const PIE3: usize = 0x719;
-const PIE7: usize = 0x71d;
 const WDTCON0: usize = 0x80c;
 const OSCSTAT: usize = 0x890;
 const ANSEL: [usize; 5] = [0x1f38, 0x1f43, 0x1f4e, 0x1f59, 0x1f64];
@@ -427,6 +417,93 @@ impl Pic16PpsRegister {
     }
 }
 
+/// Named PIC16F15376 NCO1 and associated interrupt registers.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[repr(u8)]
+#[allow(missing_docs)]
+pub enum Pic16NcoRegister {
+    Nco1Accl,
+    Nco1Acch,
+    Nco1Accu,
+    Nco1Incl,
+    Nco1Inch,
+    Nco1Incu,
+    Nco1Con,
+    Nco1Clk,
+    Pir7,
+    Pie7,
+}
+
+impl Pic16NcoRegister {
+    /// Every register in the implemented NCO1 block, in data-space order.
+    pub const ALL: [Self; 10] = [
+        Self::Nco1Accl,
+        Self::Nco1Acch,
+        Self::Nco1Accu,
+        Self::Nco1Incl,
+        Self::Nco1Inch,
+        Self::Nco1Incu,
+        Self::Nco1Con,
+        Self::Nco1Clk,
+        Self::Pir7,
+        Self::Pie7,
+    ];
+
+    /// Returns the canonical data-space address.
+    pub const fn offset(self) -> usize {
+        match self {
+            Self::Nco1Accl => 0x58c,
+            Self::Nco1Acch => 0x58d,
+            Self::Nco1Accu => 0x58e,
+            Self::Nco1Incl => 0x58f,
+            Self::Nco1Inch => 0x590,
+            Self::Nco1Incu => 0x591,
+            Self::Nco1Con => 0x592,
+            Self::Nco1Clk => 0x593,
+            Self::Pir7 => 0x713,
+            Self::Pie7 => 0x71d,
+        }
+    }
+
+    /// Returns the stable zero-based index in [`Self::ALL`].
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// Returns a stable human-readable register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Nco1Accl => "NCO1ACCL",
+            Self::Nco1Acch => "NCO1ACCH",
+            Self::Nco1Accu => "NCO1ACCU",
+            Self::Nco1Incl => "NCO1INCL",
+            Self::Nco1Inch => "NCO1INCH",
+            Self::Nco1Incu => "NCO1INCU",
+            Self::Nco1Con => "NCO1CON",
+            Self::Nco1Clk => "NCO1CLK",
+            Self::Pir7 => "PIR7",
+            Self::Pie7 => "PIE7",
+        }
+    }
+
+    /// Resolves a canonical data-space address to a named register.
+    pub const fn from_data_address(address: usize) -> Option<Self> {
+        match address {
+            0x58c => Some(Self::Nco1Accl),
+            0x58d => Some(Self::Nco1Acch),
+            0x58e => Some(Self::Nco1Accu),
+            0x58f => Some(Self::Nco1Incl),
+            0x590 => Some(Self::Nco1Inch),
+            0x591 => Some(Self::Nco1Incu),
+            0x592 => Some(Self::Nco1Con),
+            0x593 => Some(Self::Nco1Clk),
+            0x713 => Some(Self::Pir7),
+            0x71d => Some(Self::Pie7),
+            _ => None,
+        }
+    }
+}
+
 struct Pic16State {
     registers: Vec<u8>,
     ports: [Arc<Mutex<GpioState>>; 5],
@@ -440,6 +517,10 @@ struct Pic16State {
     timer2_epoch: u64,
     timer2_postscale: u8,
     nco_epoch: u64,
+    nco_increment_active: u32,
+    nco_increment_pending: bool,
+    nco_raw_output: bool,
+    nco_pulse_remaining: u64,
     watchdog_epoch: u64,
     watchdog_reset: bool,
     adc_inputs: [u16; 64],
@@ -485,51 +566,86 @@ impl Pic16State {
     }
 
     fn nco_accumulator(&self) -> u32 {
-        u32::from(self.registers[NCO1ACCL])
-            | (u32::from(self.registers[NCO1ACCH]) << 8)
-            | (u32::from(self.registers[NCO1ACCU] & 0x0f) << 16)
+        u32::from(self.registers[Pic16NcoRegister::Nco1Accl.offset()])
+            | (u32::from(self.registers[Pic16NcoRegister::Nco1Acch.offset()]) << 8)
+            | (u32::from(self.registers[Pic16NcoRegister::Nco1Accu.offset()] & 0x0f) << 16)
     }
 
     fn nco_increment(&self) -> u32 {
-        u32::from(self.registers[NCO1INCL])
-            | (u32::from(self.registers[NCO1INCH]) << 8)
-            | (u32::from(self.registers[NCO1INCU] & 0x0f) << 16)
+        self.nco_increment_active
+    }
+
+    fn nco_enabled(&self) -> bool {
+        self.registers[Pic16NcoRegister::Nco1Con.offset()] & NCO1EN != 0
     }
 
     fn nco_output(&self) -> bool {
-        let output = self.registers[NCO1CON] & NCO1OUT != 0;
-        if self.registers[NCO1CON] & NCO1POL != 0 {
-            !output
-        } else {
-            output
-        }
+        self.registers[Pic16NcoRegister::Nco1Con.offset()] & NCO1OUT != 0
+    }
+
+    fn nco_pulse_width(&self) -> u64 {
+        1_u64 << u32::from((self.registers[Pic16NcoRegister::Nco1Clk.offset()] >> 5) & 0x07)
+    }
+
+    fn publish_nco_output(&mut self, at: SimTime) {
+        let control = Pic16NcoRegister::Nco1Con.offset();
+        let visible =
+            self.nco_enabled() && (self.nco_raw_output ^ (self.registers[control] & NCO1POL != 0));
+        self.registers[control] =
+            (self.registers[control] & !NCO1OUT) | (u8::from(visible) * NCO1OUT);
+        self.set_signal(self.nco1_output_signal, u64::from(visible), 1, at);
     }
 
     fn update_nco(&mut self, now: SimTime) {
+        let control = Pic16NcoRegister::Nco1Con.offset();
+        if self.nco_increment_pending {
+            self.nco_increment_active = self.nco_increment_registers();
+            self.nco_increment_pending = false;
+        }
         let elapsed = now.ticks().saturating_sub(self.nco_epoch);
         self.nco_epoch = now.ticks();
-        if self.registers[NCO1CON] & NCO1EN == 0 || elapsed == 0 {
-            let output = self.registers[NCO1CON] & NCO1EN != 0 && self.nco_output();
-            self.set_signal(self.nco1_output_signal, u64::from(output), 1, now);
+        if !self.nco_enabled() {
+            self.nco_raw_output = false;
+            self.nco_pulse_remaining = 0;
+            self.publish_nco_output(now);
+            return;
+        }
+        if elapsed == 0 {
+            self.publish_nco_output(now);
             return;
         }
         let increment = u64::from(self.nco_increment());
         let total = u64::from(self.nco_accumulator()) + increment.saturating_mul(elapsed);
         let overflows = total >> 20;
         let accumulator = (total as u32) & NCO_ACC_MASK;
-        self.registers[NCO1ACCL] = accumulator as u8;
-        self.registers[NCO1ACCH] = (accumulator >> 8) as u8;
-        self.registers[NCO1ACCU] = (accumulator >> 16) as u8 & 0x0f;
+        self.registers[Pic16NcoRegister::Nco1Accl.offset()] = accumulator as u8;
+        self.registers[Pic16NcoRegister::Nco1Acch.offset()] = (accumulator >> 8) as u8;
+        self.registers[Pic16NcoRegister::Nco1Accu.offset()] = (accumulator >> 16) as u8 & 0x0f;
         if overflows != 0 {
-            self.registers[PIR7] |= NCO1IF;
-            if self.registers[NCO1CON] & NCO1PFM == 0 && overflows & 1 != 0 {
-                self.registers[NCO1CON] ^= NCO1OUT;
+            self.registers[Pic16NcoRegister::Pir7.offset()] |= NCO1IF;
+            if self.registers[control] & NCO1PFM == 0 {
+                if overflows & 1 != 0 {
+                    self.nco_raw_output = !self.nco_raw_output;
+                }
+            } else {
+                self.nco_pulse_remaining = self
+                    .nco_pulse_remaining
+                    .saturating_sub(elapsed)
+                    .max(self.nco_pulse_width());
             }
+        } else if self.registers[control] & NCO1PFM != 0 {
+            self.nco_pulse_remaining = self.nco_pulse_remaining.saturating_sub(elapsed);
         }
-        let output = self.registers[NCO1CON] & NCO1EN != 0 && self.nco_output();
-        self.registers[NCO1CON] = (self.registers[NCO1CON] & !NCO1OUT)
-            | (u8::from(output ^ (self.registers[NCO1CON] & NCO1POL != 0)) * NCO1OUT);
-        self.set_signal(self.nco1_output_signal, u64::from(output), 1, now);
+        if self.registers[control] & NCO1PFM != 0 {
+            self.nco_raw_output = self.nco_pulse_remaining != 0;
+        }
+        self.publish_nco_output(now);
+    }
+
+    fn nco_increment_registers(&self) -> u32 {
+        u32::from(self.registers[Pic16NcoRegister::Nco1Incl.offset()])
+            | (u32::from(self.registers[Pic16NcoRegister::Nco1Inch.offset()]) << 8)
+            | (u32::from(self.registers[Pic16NcoRegister::Nco1Incu.offset()] & 0x0f) << 16)
     }
 
     fn update_dac_signals(&self, at: SimTime) {
@@ -675,6 +791,8 @@ impl Pic16State {
         self.registers[SSP1MSK] = 0xff;
         self.registers[SSP1CON2] = 0;
         self.registers[SSP1CON3] = 0;
+        // NCO1INCL's bit zero powers up set on the PIC16F15376.
+        self.registers[Pic16NcoRegister::Nco1Incl.offset()] = 1;
         self.registers[PIR3] = TX1IF;
         self.registers[Pic16Timer2Register::T2Pr.index()] = u8::MAX;
         self.registers[TX1STA] = 1 << 1; // TRMT
@@ -688,6 +806,10 @@ impl Pic16State {
         self.timer2_epoch = at.ticks();
         self.timer2_postscale = 0;
         self.nco_epoch = at.ticks();
+        self.nco_increment_active = 1;
+        self.nco_increment_pending = false;
+        self.nco_raw_output = false;
+        self.nco_pulse_remaining = 0;
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
         self.adc_inputs = [0; 64];
@@ -699,9 +821,9 @@ impl Pic16State {
         self.set_signal(self.timer0_irq_signal, 0, 1, at);
         self.set_signal(self.timer1_irq_signal, 0, 1, at);
         self.set_signal(self.timer2_irq_signal, 0, 1, at);
-        self.set_signal(self.nco1_output_signal, 0, 1, at);
         self.update_dac_signals(at);
         self.set_signal(self.comparator1_output_signal, 0, 1, at);
+        self.publish_nco_output(at);
         self.set_signal(self.interrupt_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
         for port in 0..5 {
@@ -726,7 +848,10 @@ impl Pic16State {
                     & self.registers[Pic16ComparatorRegister::Pie2.index()]
                     & C1IF
                     != 0)
-                || (self.registers[PIR7] & self.registers[PIE7] & NCO1IF != 0)
+                || (self.registers[Pic16NcoRegister::Pir7.offset()]
+                    & self.registers[Pic16NcoRegister::Pie7.offset()]
+                    & NCO1IF
+                    != 0)
                 || (self.registers[PIR3] & SSP1IF != 0 && self.registers[PIE3] & SSP1IE != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
     }
@@ -810,7 +935,7 @@ impl Pic16PeripheralsHandle {
     /// Returns the current logical NCO1 output.
     pub fn nco1_output(&self) -> bool {
         let state = self.0.lock().expect("PIC16 peripheral lock poisoned");
-        state.registers[NCO1CON] & NCO1EN != 0 && state.nco_output()
+        state.nco_output()
     }
 
     /// Advances functional timers and returns the combined interrupt request.
@@ -1033,6 +1158,10 @@ impl Pic16Peripherals {
             timer2_epoch: 0,
             timer2_postscale: 0,
             nco_epoch: 0,
+            nco_increment_active: 0,
+            nco_increment_pending: false,
+            nco_raw_output: false,
+            nco_pulse_remaining: 0,
             watchdog_epoch: 0,
             watchdog_reset: false,
             adc_inputs: [0; 64],
@@ -1106,6 +1235,9 @@ impl Device for Pic16Peripherals {
         let mut state = self.state.lock().expect("PIC16 peripheral lock poisoned");
         if (PORT_BASE..PORT_BASE + 5).contains(&address) {
             state.refresh_port(address - PORT_BASE, at)?;
+        }
+        if Pic16NcoRegister::from_data_address(address).is_some() {
+            state.update_nco(at);
         }
         let value = match address {
             OSCSTAT => state.registers[address] | (1 << 6),
@@ -1293,30 +1425,62 @@ impl Device for Pic16Peripherals {
                 state.registers[address] = value & CM1_CHANNEL_MASK;
                 state.update_comparator(at);
             }
-            NCO1ACCL | NCO1ACCH | NCO1ACCU | NCO1INCL | NCO1INCH | NCO1INCU => {
+            address if Pic16NcoRegister::from_data_address(address).is_some() => {
+                let register = Pic16NcoRegister::from_data_address(address)
+                    .expect("NCO register guard returned Some");
                 state.update_nco(at);
-                state.registers[address] = if address == NCO1ACCU || address == NCO1INCU {
-                    value & 0x0f
-                } else {
-                    value
-                };
-            }
-            NCO1CON => {
-                let was_enabled = state.registers[NCO1CON] & NCO1EN != 0;
-                state.update_nco(at);
-                let output = state.registers[NCO1CON] & NCO1OUT;
-                state.registers[NCO1CON] = (value & (NCO1EN | NCO1POL | NCO1PFM)) | output;
-                if !was_enabled && state.registers[NCO1CON] & NCO1EN != 0 {
-                    state.nco_epoch = at.ticks();
+                match register {
+                    Pic16NcoRegister::Nco1Accl
+                    | Pic16NcoRegister::Nco1Acch
+                    | Pic16NcoRegister::Nco1Accu => {
+                        state.registers[address] = if register == Pic16NcoRegister::Nco1Accu {
+                            value & 0x0f
+                        } else {
+                            value
+                        };
+                    }
+                    Pic16NcoRegister::Nco1Incl
+                    | Pic16NcoRegister::Nco1Inch
+                    | Pic16NcoRegister::Nco1Incu => {
+                        state.registers[address] = if register == Pic16NcoRegister::Nco1Incu {
+                            value & 0x0f
+                        } else {
+                            value
+                        };
+                        if state.nco_enabled() {
+                            if register == Pic16NcoRegister::Nco1Incl {
+                                state.nco_increment_pending = true;
+                            }
+                        } else {
+                            state.nco_increment_active = state.nco_increment_registers();
+                            state.nco_increment_pending = false;
+                        }
+                    }
+                    Pic16NcoRegister::Nco1Con => {
+                        let was_enabled = state.nco_enabled();
+                        let output = state.registers[address] & NCO1OUT;
+                        state.registers[address] = (value & (NCO1EN | NCO1POL | NCO1PFM)) | output;
+                        if was_enabled && !state.nco_enabled() {
+                            state.nco_raw_output = false;
+                            state.nco_pulse_remaining = 0;
+                        }
+                        if !was_enabled && state.nco_enabled() {
+                            state.nco_epoch = at.ticks();
+                        }
+                        state.publish_nco_output(at);
+                    }
+                    Pic16NcoRegister::Nco1Clk => {
+                        state.registers[address] = value & 0xef;
+                        state.publish_nco_output(at);
+                    }
+                    Pic16NcoRegister::Pir7 => {
+                        state.registers[address] = value & NCO1IF;
+                    }
+                    Pic16NcoRegister::Pie7 => {
+                        state.registers[address] = value & NCO1IE;
+                    }
                 }
-                state.update_nco(at);
             }
-            NCO1CLK => {
-                state.update_nco(at);
-                state.registers[address] = value & 0xef;
-            }
-            PIR7 => state.registers[address] = value,
-            PIE7 => state.registers[address] = value & NCO1IE,
             WDTCON0 => {
                 state.registers[address] = value & 0x3f;
                 state.watchdog_epoch = at.ticks();
@@ -1401,6 +1565,50 @@ mod tests {
             Some(Pic16ComparatorRegister::Cm1Pch)
         );
         assert_eq!(Pic16ComparatorRegister::from_data_address(0x994), None);
+    }
+
+    #[test]
+    fn nco_registers_are_named_and_match_the_documented_map() {
+        assert_eq!(Pic16NcoRegister::ALL.len(), 10);
+        for (index, register) in Pic16NcoRegister::ALL.into_iter().enumerate() {
+            assert_eq!(register.index(), index);
+            assert_eq!(
+                Pic16NcoRegister::from_data_address(register.offset()),
+                Some(register)
+            );
+            assert!(!register.name().is_empty());
+        }
+
+        let hub = SignalHub::new();
+        let (mut device, _handle, _ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Pic16NcoRegister::Nco1Incl.offset() as u64,
+                    AccessWidth::Byte,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            1
+        );
+        device
+            .write(
+                Pic16NcoRegister::Nco1Con.offset() as u64,
+                AccessWidth::Byte,
+                u64::from(NCO1EN | NCO1POL | NCO1OUT | 0x0e),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Pic16NcoRegister::Nco1Con.offset() as u64,
+                    AccessWidth::Byte,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(NCO1EN | NCO1OUT | NCO1POL)
+        );
     }
 
     #[test]
@@ -1935,16 +2143,36 @@ mod tests {
         let hub = SignalHub::new();
         let (mut device, handle, _ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
         device
-            .write(NCO1INCU as u64, AccessWidth::Byte, 0x0f, SimTime::ZERO)
+            .write(
+                Pic16NcoRegister::Nco1Incu.offset() as u64,
+                AccessWidth::Byte,
+                0x0f,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(NCO1INCH as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .write(
+                Pic16NcoRegister::Nco1Inch.offset() as u64,
+                AccessWidth::Byte,
+                0xff,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(NCO1INCL as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .write(
+                Pic16NcoRegister::Nco1Incl.offset() as u64,
+                AccessWidth::Byte,
+                0xff,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
-            .write(PIE7 as u64, AccessWidth::Byte, NCO1IE.into(), SimTime::ZERO)
+            .write(
+                Pic16NcoRegister::Pie7.offset() as u64,
+                AccessWidth::Byte,
+                NCO1IE.into(),
+                SimTime::ZERO,
+            )
             .unwrap();
         device
             .write(
@@ -1956,7 +2184,7 @@ mod tests {
             .unwrap();
         device
             .write(
-                NCO1CON as u64,
+                Pic16NcoRegister::Nco1Con.offset() as u64,
                 AccessWidth::Byte,
                 NCO1EN.into(),
                 SimTime::ZERO,
@@ -1968,10 +2196,69 @@ mod tests {
         assert!(handle.nco1_output());
         assert_eq!(
             device
-                .read(PIR7 as u64, AccessWidth::Byte, SimTime::from_ticks(2))
+                .read(
+                    Pic16NcoRegister::Pir7.offset() as u64,
+                    AccessWidth::Byte,
+                    SimTime::from_ticks(2),
+                )
                 .unwrap() as u8
                 & NCO1IF,
             NCO1IF
         );
+    }
+
+    #[test]
+    fn nco_fixed_duty_polarity_and_pulse_mode_are_observable() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        for (register, value) in [
+            (Pic16NcoRegister::Nco1Incu, 0x04_u64),
+            (Pic16NcoRegister::Nco1Inch, 0),
+            (Pic16NcoRegister::Nco1Incl, 0),
+        ] {
+            device
+                .write(
+                    register.offset() as u64,
+                    AccessWidth::Byte,
+                    value,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
+        device
+            .write(
+                Pic16NcoRegister::Nco1Con.offset() as u64,
+                AccessWidth::Byte,
+                NCO1EN.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.nco1_output());
+        assert!(!handle.poll(SimTime::from_ticks(4)));
+        assert!(handle.nco1_output());
+
+        device
+            .write(
+                Pic16NcoRegister::Nco1Con.offset() as u64,
+                AccessWidth::Byte,
+                u64::from(NCO1EN | NCO1POL),
+                SimTime::from_ticks(4),
+            )
+            .unwrap();
+        assert!(!handle.nco1_output());
+
+        // A 1/4-scale increment overflows every four abstract input clocks.
+        device
+            .write(
+                Pic16NcoRegister::Nco1Con.offset() as u64,
+                AccessWidth::Byte,
+                u64::from(NCO1EN | NCO1PFM),
+                SimTime::from_ticks(4),
+            )
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(8)));
+        assert!(handle.nco1_output());
+        assert!(!handle.poll(SimTime::from_ticks(9)));
+        assert!(!handle.nco1_output());
     }
 }
