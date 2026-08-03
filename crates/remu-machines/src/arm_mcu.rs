@@ -1665,7 +1665,20 @@ mod tests {
         machine.rtc().unwrap().set_seconds(0);
         machine
             .bus
-            .write(0x4000_281c, AccessWidth::Word, 1 << 8, SimTime::ZERO)
+            .write(0x4000_2824, AccessWidth::Word, 0xca, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4000_2824, AccessWidth::Word, 0x53, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(
+                0x4000_281c,
+                AccessWidth::Word,
+                (1 << 31) | (1 << 8),
+                SimTime::ZERO,
+            )
             .unwrap();
         machine
             .bus
