@@ -83,6 +83,47 @@ impl RaGptRegister {
     }
 }
 
+/// Named RA4M1 KINT register identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(u8)]
+pub enum RaKintRegister {
+    /// Key-return edge/flag mode control (KRCTL).
+    Krctl = 0x00,
+    /// Key-return interrupt flags (KRF).
+    Krf = 0x04,
+    /// Per-channel key-return enable mask (KRM).
+    Krm = 0x08,
+}
+
+impl RaKintRegister {
+    /// Stable list of modeled KINT register IDs.
+    pub const ALL: [Self; 3] = [Self::Krctl, Self::Krf, Self::Krm];
+
+    /// Returns the native KINT byte offset.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    /// Returns the vendor register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Krctl => "krctl",
+            Self::Krf => "krf",
+            Self::Krm => "krm",
+        }
+    }
+
+    /// Resolves a native KINT offset to a named register.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        match offset {
+            0x00 => Some(Self::Krctl),
+            0x04 => Some(Self::Krf),
+            0x08 => Some(Self::Krm),
+            _ => None,
+        }
+    }
+}
+
 fn input_bits(state: &Arc<Mutex<GpioState>>) -> u16 {
     state
         .lock()
@@ -1338,6 +1379,18 @@ impl Device for RaIcu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kint_register_ids_are_named_and_native() {
+        assert_eq!(RaKintRegister::ALL.len(), 3);
+        assert_eq!(RaKintRegister::Krctl.offset(), 0x00);
+        assert_eq!(RaKintRegister::Krf.name(), "krf");
+        assert_eq!(
+            RaKintRegister::from_offset(RaKintRegister::Krm.offset()),
+            Some(RaKintRegister::Krm)
+        );
+        assert_eq!(RaKintRegister::from_offset(0x0c), None);
+    }
 
     #[test]
     fn ioport_atomic_output_and_pfs_direction_are_visible() {

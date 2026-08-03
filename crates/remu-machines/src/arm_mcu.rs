@@ -1366,6 +1366,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::RaKintRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
