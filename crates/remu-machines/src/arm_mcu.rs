@@ -27,6 +27,8 @@ use std::collections::BTreeSet;
 
 const TEST_DEVICE_SIZE: usize = 0x100;
 const TEST_EXIT_SIZE: usize = 4;
+const RA4M1_GPT0_BASE: u64 = 0x4007_8000;
+const RA4M1_GPT4_BASE: u64 = 0x4007_8400;
 
 enum VendorUart {
     Samd21(Samd21UsartHandle),
@@ -325,7 +327,7 @@ impl ArmMcuMachine {
                 }
                 let pfs = RaPfs::new("r7fa4m1ab3cfm.pfs", &ports);
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
-                let (gpt4_device, gpt4) = RaGpt::new("r7fa4m1ab3cfm.gpt4");
+                let (gpt4_device, gpt4) = RaGpt::new_16("r7fa4m1ab3cfm.gpt4");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
                 Self::map_ra4m1(
@@ -535,8 +537,8 @@ impl ArmMcuMachine {
             Box::new(Samd21RegisterBlock::new("r7fa4m1ab3cfm.mstp", 0x20, [])),
         )?;
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
-        bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
-        bus.map_device("r7fa4m1ab3cfm.gpt4", 0x4007_8400, 0x100, Box::new(gpt4))?;
+        bus.map_device("r7fa4m1ab3cfm.gpt0", RA4M1_GPT0_BASE, 0x100, Box::new(gpt0))?;
+        bus.map_device("r7fa4m1ab3cfm.gpt4", RA4M1_GPT4_BASE, 0x100, Box::new(gpt4))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
@@ -950,6 +952,7 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::RaGptRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -1037,27 +1040,49 @@ mod tests {
             .unwrap();
         machine
             .bus
-            .write(0x4007_8464, AccessWidth::Word, 3, SimTime::ZERO)
+            .write(
+                RA4M1_GPT4_BASE + RaGptRegister::Gtpr.offset(),
+                AccessWidth::Word,
+                3,
+                SimTime::ZERO,
+            )
             .unwrap();
         machine
             .bus
-            .write(0x4007_8438, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+            .write(
+                RA4M1_GPT4_BASE + RaGptRegister::Gtintad.offset(),
+                AccessWidth::Word,
+                1 << 6,
+                SimTime::ZERO,
+            )
             .unwrap();
         machine
             .bus
-            .write(0x4007_842c, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(
+                RA4M1_GPT4_BASE + RaGptRegister::Gtcr.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
             .unwrap();
         assert_eq!(
             machine
                 .bus
                 .read(
-                    0x4007_8464,
+                    RA4M1_GPT4_BASE + RaGptRegister::Gtpr.offset(),
                     AccessWidth::Word,
                     AccessKind::Read,
                     SimTime::ZERO,
                 )
                 .unwrap(),
             3
+        );
+        assert!(
+            machine
+                .ra_gpt4
+                .as_ref()
+                .expect("RA4M1 GPT4 handle")
+                .poll(SimTime::from_ticks(4))
         );
     }
 }
