@@ -1,85 +1,379 @@
 use super::*;
 use std::collections::VecDeque;
 
-/// Host-facing state for a functional SPI controller.
-#[derive(Clone, Default)]
+const FIFO_DEPTH: usize = 8;
+const CTRL0_MASK: u32 = 0x01ff_ffff;
+const CTRL1_MASK: u32 = 0x0000_ffff;
+const INTERRUPT_MASK: u32 = 0x3f;
+
+/// Native RP2040 DW_apb_ssi register identifiers.
+///
+/// The RP2040 SPI blocks are not PrimeCell SSP peripherals. They use the Synopsys DW SSI
+/// register contract, with up to 36 data-register windows starting at `0x60`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rp2040SpiRegister {
+    /// Control register 0.
+    Ctrlr0,
+    /// Control register 1.
+    Ctrlr1,
+    /// SSI enable register.
+    SsiEnr,
+    /// Microwire control register.
+    Mwcr,
+    /// Slave-enable register.
+    Ser,
+    /// Baud-rate divisor.
+    Baudr,
+    /// Transmit FIFO threshold.
+    Txftlr,
+    /// Receive FIFO threshold.
+    Rxftlr,
+    /// Transmit FIFO level (read-only).
+    Txflr,
+    /// Receive FIFO level (read-only).
+    Rxflr,
+    /// Status register (read-only).
+    Sr,
+    /// Interrupt mask.
+    Imr,
+    /// Masked interrupt status (read-only).
+    Isr,
+    /// Raw interrupt status (read-only).
+    Risr,
+    /// Transmit FIFO overflow interrupt clear (read-only).
+    Txoicr,
+    /// Receive FIFO overflow interrupt clear (read-only).
+    Rxoicr,
+    /// Receive FIFO underflow interrupt clear (read-only).
+    Rxuicr,
+    /// Multi-master interrupt clear (read-only).
+    Msticr,
+    /// All-interrupt clear (read-only).
+    Icr,
+    /// DMA control.
+    Dmacr,
+    /// DMA transmit-data level.
+    Dmatdlr,
+    /// DMA receive-data level.
+    Dmardlr,
+    /// Peripheral identification register.
+    Idr,
+    /// SSI version identifier.
+    SsiVersionId,
+    /// Data register window, indexed from DR0 through DR35.
+    Data(u8),
+    /// Receive sample delay.
+    RxSampleDly,
+    /// SPI control register 0.
+    SpiCtrlr0,
+    /// Transmit drive edge.
+    TxdDriveEdge,
+}
+
+impl Rp2040SpiRegister {
+    /// Converts a controller-relative byte offset into a typed register identifier.
+    pub fn from_offset(offset: u64) -> Option<Self> {
+        if (0x60..=0xec).contains(&offset) && offset % 4 == 0 {
+            return Some(Self::Data(u8::try_from((offset - 0x60) / 4).ok()?));
+        }
+        Some(match offset {
+            0x00 => Self::Ctrlr0,
+            0x04 => Self::Ctrlr1,
+            0x08 => Self::SsiEnr,
+            0x0c => Self::Mwcr,
+            0x10 => Self::Ser,
+            0x14 => Self::Baudr,
+            0x18 => Self::Txftlr,
+            0x1c => Self::Rxftlr,
+            0x20 => Self::Txflr,
+            0x24 => Self::Rxflr,
+            0x28 => Self::Sr,
+            0x2c => Self::Imr,
+            0x30 => Self::Isr,
+            0x34 => Self::Risr,
+            0x38 => Self::Txoicr,
+            0x3c => Self::Rxoicr,
+            0x40 => Self::Rxuicr,
+            0x44 => Self::Msticr,
+            0x48 => Self::Icr,
+            0x4c => Self::Dmacr,
+            0x50 => Self::Dmatdlr,
+            0x54 => Self::Dmardlr,
+            0x58 => Self::Idr,
+            0x5c => Self::SsiVersionId,
+            0xf0 => Self::RxSampleDly,
+            0xf4 => Self::SpiCtrlr0,
+            0xf8 => Self::TxdDriveEdge,
+            _ => return None,
+        })
+    }
+
+    /// Returns the controller-relative byte offset for this register identifier.
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::Ctrlr0 => 0x00,
+            Self::Ctrlr1 => 0x04,
+            Self::SsiEnr => 0x08,
+            Self::Mwcr => 0x0c,
+            Self::Ser => 0x10,
+            Self::Baudr => 0x14,
+            Self::Txftlr => 0x18,
+            Self::Rxftlr => 0x1c,
+            Self::Txflr => 0x20,
+            Self::Rxflr => 0x24,
+            Self::Sr => 0x28,
+            Self::Imr => 0x2c,
+            Self::Isr => 0x30,
+            Self::Risr => 0x34,
+            Self::Txoicr => 0x38,
+            Self::Rxoicr => 0x3c,
+            Self::Rxuicr => 0x40,
+            Self::Msticr => 0x44,
+            Self::Icr => 0x48,
+            Self::Dmacr => 0x4c,
+            Self::Dmatdlr => 0x50,
+            Self::Dmardlr => 0x54,
+            Self::Idr => 0x58,
+            Self::SsiVersionId => 0x5c,
+            Self::Data(index) => 0x60 + (index as u64) * 4,
+            Self::RxSampleDly => 0xf0,
+            Self::SpiCtrlr0 => 0xf4,
+            Self::TxdDriveEdge => 0xf8,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Rp2040SpiState {
+    registers: [u32; 0x100 / 4],
+    tx_fifo: VecDeque<u32>,
+    rx_fifo: VecDeque<u32>,
+    queued_input: VecDeque<u32>,
+    transmitted: Vec<u8>,
+    receive_overrun: bool,
+}
+
+impl Default for Rp2040SpiState {
+    fn default() -> Self {
+        Self::reset()
+    }
+}
+
+impl Rp2040SpiState {
+    fn reset() -> Self {
+        let mut registers = [0; 0x100 / 4];
+        registers[Rp2040SpiRegister::Idr.offset() as usize / 4] = 0x5153_5049;
+        registers[Rp2040SpiRegister::SsiVersionId.offset() as usize / 4] = 0x3430_312a;
+        Self {
+            registers,
+            tx_fifo: VecDeque::new(),
+            rx_fifo: VecDeque::new(),
+            queued_input: VecDeque::new(),
+            transmitted: Vec::new(),
+            receive_overrun: false,
+        }
+    }
+
+    fn data_mask(&self) -> u32 {
+        let raw = self.registers[Rp2040SpiRegister::Ctrlr0.offset() as usize / 4] & 0x0f;
+        // DW SSI encodes a 4..16-bit frame as value-minus-one. Treat the reset value as the
+        // useful eight-bit default used by the Pico SDK's byte-oriented helpers.
+        let bits = if raw < 3 {
+            8
+        } else {
+            raw.saturating_add(1).min(16)
+        };
+        u32::MAX >> (32 - bits)
+    }
+
+    fn enabled(&self) -> bool {
+        self.registers[Rp2040SpiRegister::SsiEnr.offset() as usize / 4] & 1 != 0
+            && self.registers[Rp2040SpiRegister::Ser.offset() as usize / 4] & 1 != 0
+    }
+
+    fn status(&self) -> u32 {
+        let mut status = 0;
+        if self.tx_fifo.len() >= FIFO_DEPTH {
+            status |= 1 << 5;
+        }
+        if self.rx_fifo.len() >= FIFO_DEPTH {
+            status |= 1 << 4;
+        }
+        if !self.rx_fifo.is_empty() {
+            status |= 1 << 3;
+        }
+        if self.tx_fifo.is_empty() {
+            status |= 1 << 2;
+        }
+        if self.tx_fifo.len() < FIFO_DEPTH {
+            status |= 1 << 1;
+        }
+        // Transfers complete in one functional step, so BUSY remains low between accesses.
+        status
+    }
+
+    fn raw_interrupts(&self) -> u32 {
+        let tx_threshold =
+            usize::try_from(self.registers[Rp2040SpiRegister::Txftlr.offset() as usize / 4] & 0xff)
+                .expect("threshold fits usize");
+        let rx_threshold =
+            usize::try_from(self.registers[Rp2040SpiRegister::Rxftlr.offset() as usize / 4] & 0xff)
+                .expect("threshold fits usize");
+        let mut raw = 0;
+        if self.tx_fifo.len() <= tx_threshold {
+            raw |= 1;
+        }
+        if self.receive_overrun {
+            raw |= 1 << 3;
+        }
+        if self.rx_fifo.len() > rx_threshold {
+            raw |= 1 << 4;
+        }
+        raw
+    }
+
+    fn process_tx(&mut self) {
+        if !self.enabled() {
+            return;
+        }
+        let mask = self.data_mask();
+        while let Some(value) = self.tx_fifo.pop_front() {
+            let value = value & mask;
+            self.transmitted.push(value as u8);
+            let response = self.queued_input.pop_front().unwrap_or(value) & mask;
+            if self.rx_fifo.len() < FIFO_DEPTH {
+                self.rx_fifo.push_back(response);
+            } else {
+                self.receive_overrun = true;
+            }
+        }
+    }
+}
+
+/// Host-facing state for a functional RP2040 SPI controller.
+#[derive(Clone)]
 pub struct SpiHandle {
-    transmitted: Arc<Mutex<Vec<u8>>>,
-    received: Arc<Mutex<VecDeque<u8>>>,
+    state: Arc<Mutex<Rp2040SpiState>>,
+}
+
+impl Default for SpiHandle {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(Rp2040SpiState::reset())),
+        }
+    }
 }
 
 impl SpiHandle {
-    /// Returns bytes written to the controller's data register.
+    /// Returns bytes written to the controller's data-register windows.
     pub fn transmitted(&self) -> Vec<u8> {
-        self.transmitted
+        self.state
             .lock()
-            .expect("SPI transmit lock poisoned")
+            .expect("SPI lock poisoned")
+            .transmitted
             .clone()
     }
 
     /// Queues bytes to be returned by subsequent data-register reads.
     pub fn queue_received(&self, bytes: &[u8]) {
-        self.received
+        self.state
             .lock()
-            .expect("SPI receive lock poisoned")
-            .extend(bytes.iter().copied());
+            .expect("SPI lock poisoned")
+            .queued_input
+            .extend(bytes.iter().map(|byte| u32::from(*byte)));
     }
 
-    /// Clears captured traffic and pending receive bytes.
+    /// Returns the raw DW SSI interrupt conditions.
+    pub fn raw_interrupts(&self) -> u32 {
+        self.state
+            .lock()
+            .expect("SPI lock poisoned")
+            .raw_interrupts()
+    }
+
+    /// Returns whether the masked interrupt output is asserted.
+    pub fn interrupt_pending(&self) -> bool {
+        let state = self.state.lock().expect("SPI lock poisoned");
+        state.raw_interrupts()
+            & state.registers[Rp2040SpiRegister::Imr.offset() as usize / 4]
+            & INTERRUPT_MASK
+            != 0
+    }
+
+    /// Clears captured traffic and pending receive/input bytes.
     pub fn clear(&self) {
-        self.transmitted
-            .lock()
-            .expect("SPI transmit lock poisoned")
-            .clear();
-        self.received
-            .lock()
-            .expect("SPI receive lock poisoned")
-            .clear();
+        let mut state = self.state.lock().expect("SPI lock poisoned");
+        state.transmitted.clear();
+        state.tx_fifo.clear();
+        state.rx_fifo.clear();
+        state.queued_input.clear();
+        state.receive_overrun = false;
     }
 }
 
-/// Deterministic byte-oriented SPI controller.
+/// Deterministic functional model of the RP2040's DW_apb_ssi SPI0/SPI1 blocks.
 ///
-/// The register layout follows the ARM PL022-style controller used by the RP2040 and RP2350:
-/// `CR0` at `0x00`, `CR1` at `0x04`, `DR` at `0x08`, `SR` at `0x0c`, `CPSR` at `0x10`, and the
-/// interrupt/DMA registers from `0x14` through `0x24`. Each data write records one transmitted
-/// byte and produces one received byte. A queued host byte is consumed first; otherwise the
-/// transmitted byte is looped back, giving firmware tests a useful deterministic endpoint.
+/// Transfers complete immediately in abstract time. A host response is consumed first; if no
+/// response is queued, the transmitted frame is looped back. Serial clock waveforms, exact FIFO
+/// depths, DMA handshakes and pin muxing remain outside this functional slice.
+///
+/// Register offsets and reset values follow Raspberry Pi's generated [`ssi.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2040/hardware_regs/include/hardware/regs/ssi.h)
+/// and the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf).
 pub struct FunctionalSpi {
     name: String,
-    registers: [u32; 10],
-    handle: SpiHandle,
+    state: Arc<Mutex<Rp2040SpiState>>,
 }
 
 impl FunctionalSpi {
-    /// Creates a reset SPI controller and host handle.
+    /// Creates a reset RP2040 SSI controller and host handle.
     pub fn new(name: impl Into<String>) -> (Self, SpiHandle) {
-        let handle = SpiHandle::default();
+        let state = Arc::new(Mutex::new(Rp2040SpiState::reset()));
         (
             Self {
                 name: name.into(),
-                registers: [0; 10],
-                handle: handle.clone(),
+                state: state.clone(),
             },
-            handle,
+            SpiHandle { state },
         )
     }
 
-    fn check_access(offset: u64, width: AccessWidth) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
-            return Err(DeviceError::new("SPI requires aligned word access"));
+    fn replicated_write(value: u64, width: AccessWidth) -> Result<u32, DeviceError> {
+        match width {
+            AccessWidth::Byte => {
+                let value = u32::try_from(value & 0xff).expect("SPI byte value fits");
+                Ok(value | (value << 8) | (value << 16) | (value << 24))
+            }
+            AccessWidth::HalfWord => {
+                let value = u32::try_from(value & 0xffff).expect("SPI halfword value fits");
+                Ok(value | (value << 16))
+            }
+            AccessWidth::Word => u32::try_from(value & u64::from(u32::MAX))
+                .map_err(|_| DeviceError::new("RP2040 SPI value overflow")),
+            AccessWidth::DoubleWord => Err(DeviceError::new(
+                "RP2040 SPI does not support 64-bit access",
+            )),
         }
-        Ok(offset & 0x0fff)
     }
 
-    fn status(&self) -> u32 {
-        let received = self
-            .handle
-            .received
-            .lock()
-            .expect("SPI receive lock poisoned");
-        // TFE and TNF remain asserted because the functional model never blocks on a TX FIFO.
-        0x03 | u32::from(!received.is_empty()) << 3 | u32::from(received.len() >= 8) << 2
+    fn read_lane(value: u32, offset: u64, width: AccessWidth) -> Result<u64, DeviceError> {
+        match width {
+            AccessWidth::Byte => Ok(u64::from((value >> ((offset & 3) * 8)) & 0xff)),
+            AccessWidth::HalfWord => Ok(u64::from((value >> ((offset & 2) * 8)) & 0xffff)),
+            AccessWidth::Word => Ok(u64::from(value)),
+            AccessWidth::DoubleWord => Err(DeviceError::new(
+                "RP2040 SPI does not support 64-bit access",
+            )),
+        }
+    }
+
+    fn atomic_update(current: u32, alias: u64, value: u32) -> u32 {
+        match alias {
+            0 => value,
+            1 => current ^ value,
+            2 => current | value,
+            3 => current & !value,
+            _ => unreachable!("RP2040 SPI atomic alias is two bits"),
+        }
     }
 }
 
@@ -89,28 +383,56 @@ impl Device for FunctionalSpi {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        let offset = Self::check_access(offset, width)?;
-        let value = match offset {
-            0x08 => u32::from(
-                self.handle
-                    .received
-                    .lock()
-                    .expect("SPI receive lock poisoned")
-                    .pop_front()
-                    .unwrap_or(0),
-            ),
-            0x0c => self.status(),
-            0x00..=0x04 | 0x10..=0x24 => {
-                let index = usize::try_from(offset / 4).expect("SPI register index fits");
-                self.registers[index]
+        if width == AccessWidth::DoubleWord {
+            return Err(DeviceError::new(
+                "RP2040 SPI does not support 64-bit access",
+            ));
+        }
+        let register_offset = (offset & 0x0fff) & !3;
+        let register = Rp2040SpiRegister::from_offset(register_offset)
+            .ok_or_else(|| DeviceError::new(format!("{} read at {offset:#x}", self.name)))?;
+        let mut state = self.state.lock().expect("SPI lock poisoned");
+        let value = match register {
+            Rp2040SpiRegister::Data(_) => state.rx_fifo.pop_front().unwrap_or(0),
+            Rp2040SpiRegister::Txflr => state.tx_fifo.len() as u32,
+            Rp2040SpiRegister::Rxflr => state.rx_fifo.len() as u32,
+            Rp2040SpiRegister::Sr => state.status(),
+            Rp2040SpiRegister::Isr => {
+                state.raw_interrupts()
+                    & state.registers[Rp2040SpiRegister::Imr.offset() as usize / 4]
+                    & INTERRUPT_MASK
             }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled SPI read at offset {offset:#x}"
-                )));
+            Rp2040SpiRegister::Risr => state.raw_interrupts(),
+            Rp2040SpiRegister::Rxoicr => {
+                let value = u32::from(state.receive_overrun);
+                state.receive_overrun = false;
+                value
             }
+            Rp2040SpiRegister::Rxuicr | Rp2040SpiRegister::Msticr | Rp2040SpiRegister::Txoicr => 0,
+            Rp2040SpiRegister::Icr => {
+                let value = state.raw_interrupts();
+                state.receive_overrun = false;
+                value
+            }
+            Rp2040SpiRegister::Ctrlr0
+            | Rp2040SpiRegister::Ctrlr1
+            | Rp2040SpiRegister::SsiEnr
+            | Rp2040SpiRegister::Mwcr
+            | Rp2040SpiRegister::Ser
+            | Rp2040SpiRegister::Baudr
+            | Rp2040SpiRegister::Txftlr
+            | Rp2040SpiRegister::Rxftlr
+            | Rp2040SpiRegister::Imr
+            | Rp2040SpiRegister::Dmacr
+            | Rp2040SpiRegister::Dmatdlr
+            | Rp2040SpiRegister::Dmardlr
+            | Rp2040SpiRegister::Idr
+            | Rp2040SpiRegister::SsiVersionId
+            | Rp2040SpiRegister::RxSampleDly
+            | Rp2040SpiRegister::SpiCtrlr0
+            | Rp2040SpiRegister::TxdDriveEdge => state.registers[register_offset as usize / 4],
         };
-        Ok(u64::from(value))
+        Self::read_lane(value, offset, width)
     }
 
     fn write(
@@ -120,45 +442,101 @@ impl Device for FunctionalSpi {
         value: u64,
         _at: SimTime,
     ) -> Result<(), DeviceError> {
-        let offset = Self::check_access(offset, width)?;
-        let byte = value.to_le_bytes()[0];
-        if offset == 0x08 {
-            self.handle
-                .transmitted
-                .lock()
-                .expect("SPI transmit lock poisoned")
-                .push(byte);
-            let received = self
-                .handle
-                .received
-                .lock()
-                .expect("SPI receive lock poisoned")
-                .pop_front()
-                .unwrap_or(byte);
-            self.handle
-                .received
-                .lock()
-                .expect("SPI receive lock poisoned")
-                .push_back(received);
-            return Ok(());
+        let register_offset = (offset & 0x0fff) & !3;
+        let alias = (offset >> 12) & 3;
+        let register = Rp2040SpiRegister::from_offset(register_offset)
+            .ok_or_else(|| DeviceError::new(format!("{} write at {offset:#x}", self.name)))?;
+        let value = Self::replicated_write(value, width)?;
+        let mut state = self.state.lock().expect("SPI lock poisoned");
+        match register {
+            Rp2040SpiRegister::Data(_) => {
+                if alias != 0 {
+                    return Err(DeviceError::new(
+                        "RP2040 SPI atomic aliases are not valid for data registers",
+                    ));
+                }
+                if state.tx_fifo.len() >= FIFO_DEPTH {
+                    return Err(DeviceError::new("RP2040 SPI transmit FIFO is full"));
+                }
+                let mask = state.data_mask();
+                state.tx_fifo.push_back(value & mask);
+                state.process_tx();
+            }
+            Rp2040SpiRegister::Ctrlr0 => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & CTRL0_MASK;
+            }
+            Rp2040SpiRegister::Ctrlr1 => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & CTRL1_MASK;
+            }
+            Rp2040SpiRegister::SsiEnr => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & 1;
+                state.process_tx();
+            }
+            Rp2040SpiRegister::Mwcr => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & 7;
+            }
+            Rp2040SpiRegister::Ser => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & 1;
+                state.process_tx();
+            }
+            Rp2040SpiRegister::Baudr => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & 0xffff;
+            }
+            Rp2040SpiRegister::Txftlr
+            | Rp2040SpiRegister::Rxftlr
+            | Rp2040SpiRegister::Dmatdlr
+            | Rp2040SpiRegister::Dmardlr
+            | Rp2040SpiRegister::RxSampleDly => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & 0xff;
+            }
+            Rp2040SpiRegister::Imr => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & INTERRUPT_MASK;
+            }
+            Rp2040SpiRegister::Dmacr => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value) & 3;
+            }
+            Rp2040SpiRegister::SpiCtrlr0 | Rp2040SpiRegister::TxdDriveEdge => {
+                let current = state.registers[register_offset as usize / 4];
+                state.registers[register_offset as usize / 4] =
+                    Self::atomic_update(current, alias, value);
+            }
+            Rp2040SpiRegister::Txflr
+            | Rp2040SpiRegister::Rxflr
+            | Rp2040SpiRegister::Sr
+            | Rp2040SpiRegister::Isr
+            | Rp2040SpiRegister::Risr
+            | Rp2040SpiRegister::Txoicr
+            | Rp2040SpiRegister::Rxoicr
+            | Rp2040SpiRegister::Rxuicr
+            | Rp2040SpiRegister::Msticr
+            | Rp2040SpiRegister::Icr
+            | Rp2040SpiRegister::Idr
+            | Rp2040SpiRegister::SsiVersionId => {
+                return Err(DeviceError::new("RP2040 SPI register is read-only"));
+            }
         }
-        let index = match offset {
-            0x00..=0x04 | 0x10..=0x24 => {
-                usize::try_from(offset / 4).expect("SPI register index fits")
-            }
-            _ => {
-                return Err(DeviceError::new(format!(
-                    "unmodeled SPI write at offset {offset:#x}"
-                )));
-            }
-        };
-        self.registers[index] =
-            u32::try_from(value & u64::from(u32::MAX)).expect("masked SPI register value fits");
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.registers = [0; 10];
-        self.handle.clear();
+        *self.state.lock().expect("SPI lock poisoned") = Rp2040SpiState::reset();
     }
 }

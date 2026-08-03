@@ -1,6 +1,6 @@
 {
   "schema": "remu.arm-cpu.v1",
-  "source_sha256": "e695d7dca5c4366da3199873422c5c7e40aa0d120d8339080e4c469cd617757d",
+  "source_sha256": "329db212330bf34dc696b134c5afec260d809471f3c7c0d722e21535558f2a3f",
   "primary_sources": [
     "https://developer.arm.com/documentation/100235/0003/",
     "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf",
@@ -28,7 +28,7 @@
   },
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/arm-cpu-unit-tests.txt",
-    "sha256": "c07f5d6b6c9edaf98e15429e7aa3022b32cf978d0f6770180003e5ac065dc5c8"
+    "sha256": "25227f75b0d06c2fed828ef161ea0e46da7faedbc5a4373a89896fd78ca24491"
   },
   "cross_profile_computation": {
     "artifact": "qualification/rust-abi.json",

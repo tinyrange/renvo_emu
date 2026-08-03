@@ -189,6 +189,21 @@ and exact slave timing remain explicit deviations. The `rp2350-arm-spi` and
 `rp2350-riscv-spi` Docker fixtures cover both instances and contribute
 `rp2350.spi0` and `rp2350.spi1` to register-coverage evidence.
 
+## RP2040 SPI closure
+
+RP2040 Arm firmware and device tests now use the native Synopsys DW_apb_ssi
+layout at `0x4003_c000` and `0x4004_0000`, including typed `CTRLR0/1`,
+`SSIENR`, `SER`, FIFO level/threshold, status, data-window, interrupt,
+read-clear, DMA, ID/version, and atomic-alias registers. Transfers are
+deterministic and functional: an enabled selected controller consumes queued
+host input or loops back the transmitted frame, while the host handle records
+traffic and interrupt state. Serial-clock, DMA, pin-mux and exact FIFO timing
+remain explicit deviations. The native offsets and reset values are sourced
+from the RP2040 datasheet and Raspberry Pi's generated `ssi.h`. The
+`rp2040-spi` Docker fixture programs both native instances and checks FIFO
+levels, status, masked receive interrupts, and loopback from compiled Arm
+firmware.
+
 ## Earlier UART closure
 
 Docker-built firmware now writes the chip UART0/FIFO addresses on RP2040,
