@@ -335,12 +335,19 @@ impl Device for Esp32s3Rmt {
             return Ok(());
         }
         if let Some(channel) = Self::channel(offset, CONF0_BASE, 4) {
-            self.registers[(CONF0_BASE as usize / 4) + channel] = value & CONF_MASK & !CONF_STROBES;
+            let index = (CONF0_BASE as usize / 4) + channel;
+            // The start/reset/update fields are write-triggered and do not
+            // replace the ordinary R/W configuration bits. Preserve the
+            // configured divider, idle level, carrier and memory size when a
+            // driver writes a strobe by itself (the common RMT pattern).
+            let normal_mask = CONF_MASK & !CONF_STROBES;
+            self.registers[index] = (self.registers[index] & normal_mask) | (value & normal_mask);
             if value & (MEM_RD_RST | APB_MEM_RST) != 0 {
                 self.reset_channel(channel);
             }
             if value & TX_STOP != 0 {
-                self.set_output(channel, value & IDLE_OUT_LV != 0, at)?;
+                let config = self.registers[index];
+                self.set_output(channel, config & IDLE_OUT_LV != 0, at)?;
             }
             if value & TX_START != 0 {
                 self.execute_channel(channel, at)?;
@@ -549,6 +556,31 @@ mod tests {
             )
             .unwrap(),
             u64::from(config & CONF_MASK)
+        );
+        rmt.reset(ResetKind::External);
+        let ordinary_config = CONF_RESET | IDLE_OUT_EN | IDLE_OUT_LV | (7 << 8);
+        rmt.write(
+            Esp32s3RmtRegister::Ch0Conf0.offset(),
+            AccessWidth::Word,
+            u64::from(ordinary_config),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        rmt.write(
+            Esp32s3RmtRegister::Ch0Conf0.offset(),
+            AccessWidth::Word,
+            u64::from(TX_START),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            rmt.read(
+                Esp32s3RmtRegister::Ch0Conf0.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            u64::from(ordinary_config)
         );
         rmt.write(
             SYS_CONF,
