@@ -24,7 +24,7 @@
   ],
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/xtensa-cpu-unit-tests.txt",
-    "sha256": "02631924f5da8cd118aeec72a696a26faa26be4de51522041f37464fe6147ac6"
+    "sha256": "7639a4d309491b1e6a689341b4e9a8883be1e7cea084a90976ae12835d69c22b"
   },
   "proofs": [
     {
