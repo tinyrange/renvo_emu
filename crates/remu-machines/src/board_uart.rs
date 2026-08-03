@@ -17,6 +17,14 @@ pub enum BoardUartError {
         /// Declared connector protocol.
         actual: ConnectorProtocol,
     },
+    /// The connector aliases its TX and RX pins.
+    #[error("UART connector {connector:?} aliases TX and RX on GPIO pin {pin}")]
+    PinAlias {
+        /// Connector name.
+        connector: String,
+        /// Aliased GPIO number.
+        pin: u8,
+    },
     /// An endpoint operation moved backwards on the simulation timeline.
     #[error("UART endpoint time regressed from {previous} to {next}")]
     TimeRegression {
@@ -62,6 +70,12 @@ impl BoardUartEndpoint {
             return Err(BoardUartError::Protocol {
                 connector: connector.name.clone(),
                 actual: connector.protocol,
+            });
+        }
+        if connector.data_pin == connector.clock_pin {
+            return Err(BoardUartError::PinAlias {
+                connector: connector.name.clone(),
+                pin: connector.data_pin,
             });
         }
         let prefix = format!("board.{board_name}.connector.{}", connector.name);
@@ -251,6 +265,19 @@ mod tests {
         assert!(matches!(
             endpoint.poll_tx(SimTime::from_ticks(4)),
             Err(BoardUartError::TimeRegression { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_uart_connector_pin_alias() {
+        let mut aliased = connector(ConnectorProtocol::Uart);
+        aliased.clock_pin = aliased.data_pin;
+        let (_, handle) = FunctionalUart::new("uart", 0, 4, 1);
+        let result = BoardUartEndpoint::new("teaching", &aliased, handle, SignalHub::new());
+        assert!(matches!(
+            result,
+            Err(BoardUartError::PinAlias { connector, pin })
+                if connector == "console" && pin == 1
         ));
     }
 }
