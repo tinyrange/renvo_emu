@@ -206,7 +206,9 @@ instead of the permissive byte facade. `DR`, `RSR/ECR`, `FR`, baud divisors,
 their documented offsets, reset values, read-only fields, and write masks.
 `DR` transmits immediately only when `UARTEN` and `TXE` are set; the model does
 not claim receive data, baud timing, FIFO occupancy, modem signals, DMA, or a
-generated UART interrupt source yet. The contract is based on the official
+generated UART interrupt source yet. Reserved FIFO watermark encodings are
+rejected instead of being accepted as undocumented levels. The contract is
+based on the official
 [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf),
 whose PL011 block is shared by the RP2350 UART instances.
 

@@ -240,6 +240,8 @@ impl RpPl011Uart {
     const FLAG_TXFE: u32 = 1 << 7;
     const FLAG_RXFE: u32 = 1 << 4;
     const REGISTER_MASK: u32 = 0x07ff;
+    const CONTROL_MASK: u32 = 0xff87;
+    const FIFO_LEVEL_MASK: u32 = 0x3f;
 
     /// Creates a reset PL011 slice and its host-facing terminal handle.
     pub fn new(name: impl Into<String>) -> (Self, UartHandle) {
@@ -276,6 +278,17 @@ impl RpPl011Uart {
         // With no receive queue and immediate transmit, both FIFO-empty bits
         // stay asserted. BUSY is not observable between functional writes.
         Self::FLAG_TXFE | Self::FLAG_RXFE
+    }
+
+    fn fifo_level(value: u32) -> Result<u32, DeviceError> {
+        let rx_level = (value >> 3) & 0x07;
+        let tx_level = value & 0x07;
+        if rx_level > 4 || tx_level > 4 {
+            return Err(DeviceError::new(
+                "RP PL011 UART FIFO level must use a documented 1/8..7/8 encoding",
+            ));
+        }
+        Ok(value & Self::FIFO_LEVEL_MASK)
     }
 }
 
@@ -351,8 +364,10 @@ impl Device for RpPl011Uart {
             RpPl011Register::IntegerBaud => self.integer_baud = value & 0xffff,
             RpPl011Register::FractionalBaud => self.fractional_baud = value & 0x3f,
             RpPl011Register::LineControl => self.line_control = value & 0xff,
-            RpPl011Register::Control => self.control = value & 0xff87,
-            RpPl011Register::InterruptFifoLevel => self.interrupt_fifo_level = value & 0x3f,
+            RpPl011Register::Control => self.control = value & Self::CONTROL_MASK,
+            RpPl011Register::InterruptFifoLevel => {
+                self.interrupt_fifo_level = Self::fifo_level(value)?;
+            }
             RpPl011Register::InterruptMask => self.interrupt_mask = value & Self::REGISTER_MASK,
             RpPl011Register::RawInterruptStatus => {}
             RpPl011Register::MaskedInterruptStatus => {}
