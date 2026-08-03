@@ -351,6 +351,22 @@ fn rp_pl011_applies_register_masks_and_clear_semantics() {
         .unwrap(),
         0x7ff
     );
+    uart.write(
+        RpPl011Register::Control.offset(),
+        AccessWidth::Word,
+        u64::MAX,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        uart.read(
+            RpPl011Register::Control.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0xff87
+    );
     assert!(
         uart.read(
             RpPl011Register::Data.offset(),
@@ -358,6 +374,46 @@ fn rp_pl011_applies_register_masks_and_clear_semantics() {
             SimTime::ZERO,
         )
         .is_err()
+    );
+}
+
+#[test]
+fn rp_pl011_rejects_reserved_fifo_level_encodings() {
+    let (mut uart, _handle) = RpPl011Uart::new("rp.uart1");
+    assert!(
+        uart.write(
+            RpPl011Register::InterruptFifoLevel.offset(),
+            AccessWidth::Word,
+            0x25,
+            SimTime::ZERO,
+        )
+        .is_err()
+    );
+    assert_eq!(
+        uart.read(
+            RpPl011Register::InterruptFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x12
+    );
+
+    uart.write(
+        RpPl011Register::InterruptFifoLevel.offset(),
+        AccessWidth::Word,
+        0x24,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        uart.read(
+            RpPl011Register::InterruptFifoLevel.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO,
+        )
+        .unwrap(),
+        0x24
     );
 }
 
