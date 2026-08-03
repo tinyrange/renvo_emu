@@ -299,6 +299,12 @@ impl EspRtcControlState {
         }
     }
 
+    fn refresh_interrupt_status(&mut self) {
+        let status =
+            self.register(Esp32S3RtcRegister::IntRaw) & self.register(Esp32S3RtcRegister::IntEna);
+        self.set_register(Esp32S3RtcRegister::IntSt, status & ESP_RTC_INT_MASK);
+    }
+
     fn refresh_ulp(&mut self, now: SimTime) {
         let timer = self.register(Esp32S3RtcRegister::UlpCpTimer);
         let period = (self.register(Esp32S3RtcRegister::UlpCpTimer1) >> 8
@@ -320,10 +326,7 @@ impl EspRtcControlState {
             Esp32S3RtcRegister::IntRaw,
             self.register(Esp32S3RtcRegister::IntRaw) | ESP_RTC_ULP_INT_BIT,
         );
-        self.set_register(
-            Esp32S3RtcRegister::IntSt,
-            self.register(Esp32S3RtcRegister::IntSt) | ESP_RTC_ULP_INT_BIT,
-        );
+        self.refresh_interrupt_status();
         self.signal(true, now);
     }
 
@@ -332,10 +335,7 @@ impl EspRtcControlState {
             Esp32S3RtcRegister::IntRaw,
             self.register(Esp32S3RtcRegister::IntRaw) & !mask,
         );
-        self.set_register(
-            Esp32S3RtcRegister::IntSt,
-            self.register(Esp32S3RtcRegister::IntSt) & !mask,
-        );
+        self.refresh_interrupt_status();
         if mask & ESP_RTC_ULP_INT_BIT != 0 {
             self.signal(false, at);
         }
@@ -476,12 +476,14 @@ impl Device for EspRtcControl {
                 let enabled =
                     state.register(Esp32S3RtcRegister::IntEna) | (value & register.write_mask());
                 state.set_register(Esp32S3RtcRegister::IntEna, enabled & ESP_RTC_INT_MASK);
+                state.refresh_interrupt_status();
             }
             Esp32S3RtcRegister::IntEnaW1tc => {
                 state.set_register(register, 0);
                 let enabled =
                     state.register(Esp32S3RtcRegister::IntEna) & !(value & register.write_mask());
                 state.set_register(Esp32S3RtcRegister::IntEna, enabled & ESP_RTC_INT_MASK);
+                state.refresh_interrupt_status();
             }
             Esp32S3RtcRegister::UlpCpTimer => {
                 // GPIO wake-clear is a write-only strobe; GPIO wake semantics
@@ -513,6 +515,9 @@ impl Device for EspRtcControl {
                     register,
                     (old & !register.write_mask()) | (value & register.write_mask()),
                 );
+                if register == Esp32S3RtcRegister::IntEna {
+                    state.refresh_interrupt_status();
+                }
             }
         }
         state.refresh_ulp(at);
@@ -598,6 +603,75 @@ mod tests {
             )
             .unwrap();
         assert!(!handle.ulp_pending(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn interrupt_status_is_raw_source_gated_by_enable() {
+        let mut device = EspRtcControl::new("rtc");
+        device
+            .write(
+                Esp32S3RtcRegister::UlpCpTimer1.offset(),
+                AccessWidth::Word,
+                4_u64 << 8,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3RtcRegister::UlpCpCtrl.offset(),
+                AccessWidth::Word,
+                1_u64 << 31,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Esp32S3RtcRegister::UlpCpTimer.offset(),
+                AccessWidth::Word,
+                u64::from(ESP_RTC_ULP_TIMER_ENABLE),
+                SimTime::ZERO,
+            )
+            .unwrap();
+
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3RtcRegister::IntRaw.offset(),
+                    AccessWidth::Word,
+                    SimTime::from_ticks(4),
+                )
+                .unwrap(),
+            u64::from(ESP_RTC_ULP_INT_BIT)
+        );
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3RtcRegister::IntSt.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0
+        );
+
+        device
+            .write(
+                Esp32S3RtcRegister::IntEna.offset(),
+                AccessWidth::Word,
+                u64::from(ESP_RTC_ULP_INT_BIT),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3RtcRegister::IntSt.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(ESP_RTC_ULP_INT_BIT)
+        );
     }
 
     #[test]
