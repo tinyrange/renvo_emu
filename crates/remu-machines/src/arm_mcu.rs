@@ -1449,7 +1449,7 @@ mod tests {
                 .unwrap();
             machine
                 .bus
-                .write(base + 1, AccessWidth::Byte, 0x04, SimTime::ZERO)
+                .write(base + 1, AccessWidth::Byte, 0x02, SimTime::ZERO)
                 .unwrap();
             machine
                 .bus
@@ -1465,12 +1465,12 @@ mod tests {
                         SimTime::ZERO,
                     )
                     .unwrap(),
-                0
+                0x6e
             );
             assert_eq!(
                 machine
                     .bus
-                    .read(base + 8, AccessWidth::Byte, AccessKind::Read, SimTime::ZERO,)
+                    .read(base + 1, AccessWidth::Byte, AccessKind::Read, SimTime::ZERO,)
                     .unwrap()
                     & 0x80,
                 0x80
