@@ -63,9 +63,11 @@ waveform and returns the model response, but it does not yet observe a
 firmware I2C controller's MMIO transaction or inject device ACK/data bits into
 that controller. Data/clock pin aliases are rejected, transfers must start at
 or after the previous transfer's stop time, and waveform timestamp overflow is
-reported instead of being saturated. The command-line board runner and this
-endpoint therefore do not yet claim that an ESP32-C6 firmware driver talks to
-the SGP30; that is the next machine-peripheral slice.
+reported instead of being saturated. Waveform timing is preflighted before
+signals or the target model are changed, so a rejected transfer is
+transactional. The command-line board runner applies the same checked timing
+boundary. These interfaces therefore do not yet claim that an ESP32-C6
+firmware driver talks to the SGP30; that is the next machine-peripheral slice.
 
 An external protocol transfer uses the same machine hub and produces
 connector-level VCD changes:
