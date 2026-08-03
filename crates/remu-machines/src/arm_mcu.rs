@@ -1015,7 +1015,7 @@ mod tests {
             .unwrap();
         machine
             .bus
-            .write(0x4008_4002, AccessWidth::HalfWord, 3, SimTime::ZERO)
+            .write(0x4008_4000, AccessWidth::HalfWord, 3, SimTime::ZERO)
             .unwrap();
         machine
             .bus
@@ -1031,7 +1031,7 @@ mod tests {
                     SimTime::ZERO,
                 )
                 .unwrap(),
-            1
+            3
         );
     }
 }

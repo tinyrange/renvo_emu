@@ -370,8 +370,10 @@ impl Device for RaGpt {
 struct AgtState {
     running: bool,
     pending: bool,
+    underflow: bool,
     started: u64,
     counter: u16,
+    reload: u16,
     compare_a: u16,
     compare_b: u16,
     mode1: u8,
@@ -391,15 +393,16 @@ impl RaAgtHandle {
     pub fn poll(&self, now: SimTime) -> bool {
         let mut state = self.0.lock().expect("RA AGT lock poisoned");
         if state.running {
-            let period = u64::from(state.compare_a).saturating_add(1);
+            let period = u64::from(state.reload).saturating_add(1);
             let elapsed = now.ticks().saturating_sub(state.started);
             if elapsed >= period {
                 state.started = now.ticks();
-                state.counter = state.compare_a;
+                state.counter = state.reload;
                 state.pending = true;
+                state.underflow = true;
             } else {
                 state.counter = state
-                    .compare_a
+                    .reload
                     .wrapping_sub(u16::try_from(elapsed).unwrap_or(u16::MAX));
             }
         }
@@ -418,8 +421,9 @@ impl RaAgt {
     /// Constructs an AGT channel and event handle.
     pub fn new(name: impl Into<String>) -> (Self, RaAgtHandle) {
         let state = Arc::new(Mutex::new(AgtState {
-            compare_a: u16::MAX,
-            counter: u16::MAX,
+            compare_a: 0,
+            counter: 0,
+            reload: 0,
             ..AgtState::default()
         }));
         (
@@ -444,7 +448,11 @@ impl Device for RaAgt {
             0x00 => u32::from(state.counter),
             0x02 => u32::from(state.compare_a),
             0x04 => u32::from(state.compare_b),
-            0x08 => u32::from(state.running),
+            0x08 => {
+                u32::from(state.running)
+                    | (u32::from(state.running) << 1)
+                    | (u32::from(state.underflow) << 5)
+            }
             0x09 => u32::from(state.mode1),
             0x0a => u32::from(state.mode2),
             0x0c => u32::from(state.ioc),
@@ -478,23 +486,27 @@ impl Device for RaAgt {
         match offset {
             0x00 => {
                 state.counter = value as u16;
+                state.reload = value as u16;
                 state.started = at.ticks();
             }
             0x02 => state.compare_a = value as u16,
             0x04 => state.compare_b = value as u16,
             0x08 => {
                 state.running = value & 1 != 0;
+                if value & 4 != 0 {
+                    state.running = false;
+                    state.counter = u16::MAX;
+                    state.pending = false;
+                }
+                if value & (1 << 5) == 0 {
+                    state.underflow = false;
+                }
                 state.started = at.ticks();
             }
             0x09 => state.mode1 = value as u8,
             0x0a => state.mode2 = value as u8,
             0x0c => state.ioc = value as u8,
-            0x0d => {
-                if value & 1 != 0 {
-                    state.pending = false;
-                }
-                state.isr = value as u8;
-            }
+            0x0d => state.isr = value as u8,
             0x0e => state.cmsr = value as u8,
             0x0f => state.iosel = value as u8,
             _ => {
@@ -509,8 +521,9 @@ impl Device for RaAgt {
 
     fn reset(&mut self, _kind: ResetKind) {
         *self.state.lock().expect("RA AGT lock poisoned") = AgtState {
-            compare_a: u16::MAX,
-            counter: u16::MAX,
+            compare_a: 0,
+            counter: 0,
+            reload: 0,
             ..AgtState::default()
         };
         self.registers = [0; 0x20];
@@ -750,7 +763,7 @@ mod tests {
     #[test]
     fn agt_channels_count_down_and_emit_underflow_events() {
         let (mut agt0, handle0) = RaAgt::new("agt0");
-        agt0.write(0x02, AccessWidth::HalfWord, 3, SimTime::ZERO)
+        agt0.write(0x00, AccessWidth::HalfWord, 3, SimTime::ZERO)
             .unwrap();
         agt0.write(0x08, AccessWidth::Byte, 1, SimTime::ZERO)
             .unwrap();
@@ -759,11 +772,17 @@ mod tests {
         assert!(!handle0.poll(SimTime::from_ticks(4)));
         assert_eq!(
             agt0.read(0x08, AccessWidth::Byte, SimTime::ZERO).unwrap(),
-            1
+            0x23
+        );
+        agt0.write(0x08, AccessWidth::Byte, 1, SimTime::from_ticks(4))
+            .unwrap();
+        assert_eq!(
+            agt0.read(0x08, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x03
         );
 
         let (mut agt1, handle1) = RaAgt::new("agt1");
-        agt1.write(0x02, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        agt1.write(0x00, AccessWidth::HalfWord, 1, SimTime::ZERO)
             .unwrap();
         agt1.write(0x08, AccessWidth::Byte, 1, SimTime::ZERO)
             .unwrap();
