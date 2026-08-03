@@ -24,8 +24,6 @@ const SSP1CON3: usize = 0x192;
 const TMR1L: usize = 0x20c;
 const TMR1H: usize = 0x20d;
 const T1CON: usize = 0x20e;
-const DAC1CON0: usize = 0x90e;
-const DAC1CON1: usize = 0x90f;
 const TMR0L: usize = 0x59c;
 const TMR0H: usize = 0x59d;
 const T0CON0: usize = 0x59e;
@@ -134,8 +132,51 @@ impl Pic16Timer2Register {
     }
 }
 const DAC1EN: u8 = 1 << 7;
-const DAC1CON0_MASK: u8 = 0xbd;
+// DAC1NSS (bit 0) reads as zero on this device and is not writable.
+const DAC1CON0_MASK: u8 = 0xbc;
 const DAC1R_MASK: u8 = 0x1f;
+
+/// PIC16F15376 DAC1 register identifiers.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
+#[repr(usize)]
+pub enum Pic16DacRegister {
+    /// DAC1 enable, output-enable and source-selection control.
+    Dac1Con0 = 0x90e,
+    /// DAC1 five-bit code register.
+    Dac1Con1 = 0x90f,
+}
+
+impl Pic16DacRegister {
+    /// All registers modelled by this peripheral slice, in address order.
+    pub const ALL: [Self; 2] = [Self::Dac1Con0, Self::Dac1Con1];
+
+    /// Data-space address of this register.
+    pub const fn offset(self) -> usize {
+        self as usize
+    }
+
+    /// Backing register-array index for this register.
+    pub const fn index(self) -> usize {
+        self.offset()
+    }
+
+    /// Lowercase datasheet register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Dac1Con0 => "dac1con0",
+            Self::Dac1Con1 => "dac1con1",
+        }
+    }
+
+    /// Converts a data-space address into a known DAC1 register.
+    pub const fn from_data_address(address: usize) -> Option<Self> {
+        match address {
+            0x90e => Some(Self::Dac1Con0),
+            0x90f => Some(Self::Dac1Con1),
+            _ => None,
+        }
+    }
+}
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -192,9 +233,9 @@ impl Pic16State {
     }
 
     fn update_dac_signals(&self, at: SimTime) {
-        let enabled = self.registers[DAC1CON0] & DAC1EN != 0;
+        let enabled = self.registers[Pic16DacRegister::Dac1Con0.index()] & DAC1EN != 0;
         let code = if enabled {
-            self.registers[DAC1CON1] & DAC1R_MASK
+            self.registers[Pic16DacRegister::Dac1Con1.index()] & DAC1R_MASK
         } else {
             0
         };
@@ -329,8 +370,8 @@ impl Pic16PeripheralsHandle {
     /// Returns the normalized 5-bit DAC code, or zero while DAC1 is disabled.
     pub fn dac1_code(&self) -> u8 {
         let state = self.0.lock().expect("PIC16 peripheral lock poisoned");
-        if state.registers[DAC1CON0] & DAC1EN != 0 {
-            state.registers[DAC1CON1] & DAC1R_MASK
+        if state.registers[Pic16DacRegister::Dac1Con0.index()] & DAC1EN != 0 {
+            state.registers[Pic16DacRegister::Dac1Con1.index()] & DAC1R_MASK
         } else {
             0
         }
@@ -341,7 +382,7 @@ impl Pic16PeripheralsHandle {
         self.0
             .lock()
             .expect("PIC16 peripheral lock poisoned")
-            .registers[DAC1CON0]
+            .registers[Pic16DacRegister::Dac1Con0.index()]
             & DAC1EN
             != 0
     }
@@ -766,11 +807,11 @@ impl Device for Pic16Peripherals {
                 state.timer2_epoch = at.ticks();
                 state.timer2_postscale = 0;
             }
-            DAC1CON0 => {
+            address if address == Pic16DacRegister::Dac1Con0.offset() => {
                 state.registers[address] = value & DAC1CON0_MASK;
                 state.update_dac_signals(at);
             }
-            DAC1CON1 => {
+            address if address == Pic16DacRegister::Dac1Con1.offset() => {
                 state.registers[address] = value & DAC1R_MASK;
                 state.update_dac_signals(at);
             }
@@ -824,6 +865,19 @@ mod tests {
             Some(Pic16Timer2Register::Pie4)
         );
         assert_eq!(Pic16Timer2Register::from_data_address(0x28f), None);
+    }
+
+    #[test]
+    fn dac_register_ids_are_named_and_stable() {
+        assert_eq!(Pic16DacRegister::ALL.len(), 2);
+        assert_eq!(Pic16DacRegister::Dac1Con0.offset(), 0x90e);
+        assert_eq!(Pic16DacRegister::Dac1Con0.index(), 0x90e);
+        assert_eq!(Pic16DacRegister::Dac1Con0.name(), "dac1con0");
+        assert_eq!(
+            Pic16DacRegister::from_data_address(0x90f),
+            Some(Pic16DacRegister::Dac1Con1)
+        );
+        assert_eq!(Pic16DacRegister::from_data_address(0x90d), None);
     }
 
     #[test]
@@ -1052,21 +1106,36 @@ mod tests {
         assert!(!handle.dac1_enabled());
         assert_eq!(handle.dac1_code(), 0);
         device
-            .write(DAC1CON1 as u64, AccessWidth::Byte, 0xb5, SimTime::ZERO)
+            .write(
+                Pic16DacRegister::Dac1Con1.offset() as u64,
+                AccessWidth::Byte,
+                0xb5,
+                SimTime::ZERO,
+            )
             .unwrap();
         device
             .write(
-                DAC1CON0 as u64,
+                Pic16DacRegister::Dac1Con0.offset() as u64,
                 AccessWidth::Byte,
                 u64::from(DAC1EN | (1 << 5) | (1 << 2) | 1),
                 SimTime::ZERO,
             )
             .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Pic16DacRegister::Dac1Con0.offset() as u64,
+                    AccessWidth::Byte,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(DAC1EN | (1 << 5) | (1 << 2))
+        );
         assert!(handle.dac1_enabled());
         assert_eq!(handle.dac1_code(), 0x15);
         device
             .write(
-                DAC1CON0 as u64,
+                Pic16DacRegister::Dac1Con0.offset() as u64,
                 AccessWidth::Byte,
                 0,
                 SimTime::from_ticks(1),
