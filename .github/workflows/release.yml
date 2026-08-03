@@ -80,6 +80,9 @@ jobs:
             sha256sum "dist/remu-quickstart-${GITHUB_REF_NAME}.tar.gz" | awk -v name="remu-quickstart-${GITHUB_REF_NAME}.tar.gz" '{print $1 "  " name}'
           } > "dist/remu-${GITHUB_REF_NAME}-sha256sums.txt"
 
+      - name: Verify release artifact closure
+        run: ./scripts/verify-release-quickstart.sh dist "$GITHUB_REF_NAME"
+
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
 
