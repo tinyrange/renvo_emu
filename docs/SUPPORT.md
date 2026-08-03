@@ -52,6 +52,9 @@ at `0x40010400`. The functional slice retains AFIO `PCFR1`, routes EXTI0-7
 through `EXTICR`, detects configured rising/falling edges, supports software
 triggers and write-one-to-clear flags, and delivers the EXTI7_0 request through
 PFIC line 20. External GPIO stimuli are sampled on the deterministic timeline.
+The register surface uses named `WchAfioRegister` and `WchExtiRegister` IDs;
+reserved AFIO `PCFR1` bits read back as zero, and the reserved `EXTICR` port
+encoding `01` is rejected as an input source rather than being aliased to PA.
 
 Alternate-function electrical muxing, event-only wake semantics, analog/PVD
 sources, and undocumented remap side effects remain outside this slice.
