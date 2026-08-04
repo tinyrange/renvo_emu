@@ -30,6 +30,8 @@ mod esp_spi_gp;
 pub use esp_spi_gp::*;
 mod esp_i2s;
 pub use esp_i2s::*;
+mod esp_rmt;
+pub use esp_rmt::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;
