@@ -134,6 +134,11 @@ peripheral may have address space reserved for startup compatibility, but it
 has no supported behavioral model until deterministic tests and documentation
 say otherwise.
 
+The ESP32-S3 model includes deterministic native I2C0 and I2C1 command/FIFO
+transactions against the built-in SGP30 qualification device, with SDA/SCL
+waveform signals. This is a functional peripheral slice, not a clock-accurate
+electrical bus model or a complete device catalogue.
+
 ## Qualification and provenance
 
 The checked qualification suite covers more than workspace unit tests:
