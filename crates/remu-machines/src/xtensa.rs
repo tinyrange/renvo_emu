@@ -405,7 +405,19 @@ impl XtensaMachine {
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
-                    bus.map_ram(region.name, region.start, region.size, region.executable)?;
+                    let storage = SharedMemory::from_bytes(vec![0xa5; region.size]);
+                    bus.map_shared(
+                        region.name,
+                        region.start,
+                        region.size,
+                        if region.executable {
+                            Permissions::RWX
+                        } else {
+                            Permissions::RW
+                        },
+                        storage,
+                        0,
+                    )?;
                     if region.name == "dram" {
                         stack = Some(
                             u32::try_from(
@@ -737,8 +749,19 @@ impl XtensaMachine {
             return Err(XtensaMachineError::Architecture(image.architecture));
         }
         for segment in &image.segments {
+            let initialized = segment
+                .data
+                .get(..segment.initialized_size)
+                .ok_or_else(|| XtensaMachineError::Load {
+                    address: segment.address,
+                    message: format!(
+                        "initialized ELF bytes ({}) exceed segment data ({})",
+                        segment.initialized_size,
+                        segment.data.len()
+                    ),
+                })?;
             self.bus
-                .load(segment.address, &segment.data)
+                .load(segment.address, initialized)
                 .map_err(|error| XtensaMachineError::Load {
                     address: segment.address,
                     message: error.to_string(),

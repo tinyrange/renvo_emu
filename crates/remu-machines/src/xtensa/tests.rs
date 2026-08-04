@@ -124,6 +124,37 @@ fn esp32s3_dram_upper_boundary_is_exclusive() {
 }
 
 #[test]
+fn direct_elf_load_leaves_the_bss_tail_poisoned() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let initialized = [0x13, 0, 0, 0];
+    let mut data = initialized.to_vec();
+    data.resize(12, 0);
+    let image = FirmwareImage {
+        architecture: FirmwareArchitecture::Xtensa,
+        entry: 0x3fc8_8000,
+        segments: vec![FirmwareSegment {
+            address: 0x3fc8_8000,
+            load_address: None,
+            data,
+            initialized_size: initialized.len(),
+            executable: true,
+            writable: true,
+            alignment: 4,
+        }],
+        symbols: Vec::new(),
+    };
+
+    machine.load_firmware(&image).unwrap();
+
+    assert_eq!(
+        machine.debug_read_memory(0x3fc8_8000, 12).unwrap(),
+        [
+            0x13, 0, 0, 0, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5
+        ]
+    );
+}
+
+#[test]
 fn appcpu_systimer_defers_to_a_logical_window_safe_point_during_usb_execution() {
     assert!(appcpu_systimer_level(true, false, false));
     assert!(!appcpu_systimer_level(true, true, false));
