@@ -76,6 +76,8 @@ mod esp_syscon;
 pub use esp_syscon::*;
 mod esp_usb_wrap;
 pub use esp_usb_wrap::*;
+mod esp_pms;
+pub use esp_pms::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

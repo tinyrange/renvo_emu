@@ -16,17 +16,17 @@ use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
     DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, Esp32S3IoMux, Esp32S3IoMuxHandle,
     Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc, Esp32S3LedcHandle, Esp32S3Mcpwm,
-    Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle,
-    Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon,
-    Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle,
-    Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi,
-    EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix,
-    EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa, EspRtcControl,
-    EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
-    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg,
-    EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
-    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub,
-    TimerHandle, UartHandle,
+    Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3Pms, Esp32S3PmsHandle,
+    Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha,
+    Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle,
+    Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32s3I2c, Esp32s3I2s,
+    Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio,
+    EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa,
+    EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
+    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
+    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
+    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
+    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -37,6 +37,7 @@ use thiserror::Error;
 
 mod functional_rom;
 mod interrupts;
+mod pms;
 
 /// ESP32-S3 machine construction or execution failure.
 #[derive(Debug, Error)]
@@ -100,6 +101,7 @@ pub struct XtensaMachine {
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
     usb_wrap: Esp32S3UsbWrapHandle,
+    pms: Esp32S3PmsHandle,
     usb_host: EspDwc2Host,
     saradc: Esp32S3SarAdcHandle,
     tsens: Esp32S3TsensHandle,
@@ -227,20 +229,22 @@ impl XtensaMachine {
             rtc_slow_memory,
             0,
         )?;
-        for (name, base) in [
-            ("sensitive", 0x600c_1000),
-            ("world-controller", 0x600d_0000),
-        ] {
-            bus.map_device(
-                format!("esp32s3.{name}"),
-                base,
-                0x1000,
-                Box::new(Rp2040RegisterBank::new(
-                    format!("esp32s3.{name}"),
-                    vec![0; 0x1000 / 4],
-                )),
-            )?;
-        }
+        bus.map_device(
+            "esp32s3.world-controller",
+            0x600d_0000,
+            0x1000,
+            Box::new(Rp2040RegisterBank::new(
+                "esp32s3.world-controller",
+                vec![0; 0x1000 / 4],
+            )),
+        )?;
+        let (pms_device, pms) = Esp32S3Pms::new("esp32s3.sensitive");
+        bus.map_device(
+            "esp32s3.sensitive",
+            0x600c_1000,
+            0x1000,
+            Box::new(pms_device),
+        )?;
         let (syscon_device, syscon) = Esp32S3Syscon::new("esp32s3.syscon");
         bus.map_device(
             "esp32s3.syscon",
@@ -578,6 +582,7 @@ impl XtensaMachine {
             usb_serial_jtag,
             usb_otg,
             usb_wrap,
+            pms,
             usb_host: EspDwc2Host::new(),
             saradc,
             tsens,
@@ -1040,6 +1045,7 @@ impl XtensaMachine {
         let mut usb_serial_was_pending = false;
         let mut uhci_was_pending = false;
         let mut syscon_was_pending = false;
+        let mut pms_was_pending = false;
         let mut rtc_was_pending = false;
         let mut crosscore_was_pending = [false; 2];
         let mut systimer_was_pending = [false; 3];
@@ -1083,6 +1089,11 @@ impl XtensaMachine {
                 stats.events = stats.events.saturating_add(1);
             }
             syscon_was_pending = syscon_pending;
+            let pms_pending = self.update_pms_interrupt_lines()?;
+            if pms_pending && !pms_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            pms_was_pending = pms_pending;
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -1403,7 +1414,13 @@ impl XtensaMachine {
                 }
                 self.windowed_handoff_pending = false;
             }
-            let outcome = match self.cpu.step(&mut self.bus, self.now) {
+            let mut pms_bus = pms::Esp32S3PmsBus::new(
+                &mut self.bus,
+                &self.pms,
+                u8::from(running_cpu1),
+                remu_devices::Esp32S3World::Secure,
+            );
+            let outcome = match self.cpu.step(&mut pms_bus, self.now) {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     if running_cpu1 {

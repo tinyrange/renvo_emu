@@ -57,6 +57,8 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x60026004u, 0x0001ffffu, 0x00010727u, 33); /* tick config */
     CHECK(0x600393fcu, 0xffffffffu, 0x02102010u, 34); /* USB wrap */
     CHECK(0x60039000u, 0x807fffffu, 0x001c0000u, 35); /* internal PHY */
+    CHECK(0x600c1ffcu, 0x0fffffffu, 0x02101280u, 36); /* permission control */
+    CHECK(0x600c1128u, 0xff33cfffu, 0xff33cfffu, 37); /* core-0 PIF */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

@@ -1028,3 +1028,83 @@ fn esp32s3_io_mux_native_writes_are_visible_to_pin_coupling() {
     assert!(config.input_enable);
     assert_eq!(config.function, 1);
 }
+
+#[test]
+fn esp32s3_pms_blocks_cpu_writes_and_routes_first_fault_interrupts() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let pms_base = 0x600c_1000;
+    let uart0_permissions = pms_base + 0x128;
+
+    // Leave UART0 reads enabled while denying secure-world writes.
+    let reset_permissions = machine
+        .bus
+        .read(
+            uart0_permissions,
+            AccessWidth::Word,
+            AccessKind::Read,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            uart0_permissions,
+            AccessWidth::Word,
+            reset_permissions & !1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    // CORE0_PIF_PMS_INTR is native interrupt-matrix source 87.
+    machine
+        .bus
+        .write(0x600c_2000 + 87 * 4, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    assert!(machine.chip_uart.bytes().is_empty());
+    {
+        let mut guarded = pms::Esp32S3PmsBus::new(
+            &mut machine.bus,
+            &machine.pms,
+            0,
+            remu_devices::Esp32S3World::Secure,
+        );
+        guarded
+            .write(0x6000_0000, AccessWidth::Word, b'X'.into(), SimTime::ZERO)
+            .unwrap();
+    }
+    assert!(machine.chip_uart.bytes().is_empty());
+
+    assert!(machine.update_pms_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                pms_base + 0x1a8,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x6000_0000
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                pms_base + 0x1a4,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x6b
+    );
+
+    machine
+        .bus
+        .write(pms_base + 0x1a0, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    assert!(!machine.update_pms_interrupt_lines().unwrap());
+    assert_eq!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+}
