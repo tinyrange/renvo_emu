@@ -90,6 +90,8 @@ mod esp_sdm;
 pub use esp_sdm::*;
 mod esp_rtc_io;
 pub use esp_rtc_io::*;
+mod esp_peri_backup;
+pub use esp_peri_backup::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

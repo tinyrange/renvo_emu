@@ -52,3 +52,67 @@ fn esp32s3_sigma_delta_clock_produces_a_traceable_channel() {
     machine.sdm.poll(SimTime::from_ticks(2)).unwrap();
     assert_eq!(machine.sdm.channel_level(0), Some(true));
 }
+
+#[test]
+fn esp32s3_uhci1_uses_its_native_page_and_interrupt_source() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6000_c000;
+    machine
+        .bus
+        .write(0x600c_2000 + 15 * 4, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x0c, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x14, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert!(machine.update_uhci_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+}
+
+#[test]
+fn esp32s3_peripheral_backup_dma_copies_apb_words_and_completes() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6002_a000;
+    for (offset, value) in [(0x50, 0x1122_3344), (0x54, 0x5566_7788)] {
+        machine
+            .bus
+            .write(
+                0x6000_8000 + offset,
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    for (offset, value) in [
+        (0x04, 0x6000_8050),
+        (0x08, 0x3fc8_8000),
+        (0x24, 1),
+        (0x00, (1 << 31) | (1 << 30) | (1 << 29) | (2 << 19)),
+    ] {
+        machine
+            .bus
+            .write(base + offset, AccessWidth::Word, value, SimTime::ZERO)
+            .unwrap();
+    }
+    assert!(machine.service_peri_backup().unwrap());
+    for (offset, expected) in [(0, 0x1122_3344), (4, 0x5566_7788)] {
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x3fc8_8000 + offset,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            expected
+        );
+    }
+    assert!(machine.peri_backup.interrupt_pending());
+}

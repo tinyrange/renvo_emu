@@ -46,7 +46,15 @@ impl XtensaMachine {
     }
 
     pub(super) fn update_uhci_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
-        self.update_matrix_source(14, self.uhci.interrupt_pending())
+        let uhci0 = self.update_matrix_source(14, self.uhci.interrupt_pending())?;
+        let uhci1 = self.update_matrix_source(15, self.uhci1.interrupt_pending())?;
+        Ok(uhci0 || uhci1)
+    }
+
+    pub(super) fn update_peri_backup_interrupt_lines(
+        &mut self,
+    ) -> Result<bool, XtensaMachineError> {
+        self.update_matrix_source(97, self.peri_backup.interrupt_pending())
     }
 
     pub(super) fn update_syscon_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {

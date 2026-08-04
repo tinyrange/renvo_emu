@@ -37,6 +37,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 mod functional_rom;
 mod interrupts;
+mod peripheral_dma;
 mod peripheral_handles;
 mod pms;
 /// ESP32-S3 machine construction or execution failure.
@@ -119,6 +120,8 @@ pub struct XtensaMachine {
     twai: EspTwaiHandle,
     gdma: EspGdmaHandle,
     uhci: Esp32S3UhciHandle,
+    uhci1: Esp32S3UhciHandle,
+    peri_backup: remu_devices::Esp32S3PeriBackupHandle,
     syscon: Esp32S3SysconHandle,
     rtc_control: EspRtcControlHandle,
     rtc_i2c: remu_devices::Esp32S3RtcI2cHandle,
@@ -298,6 +301,14 @@ impl XtensaMachine {
         let (twai_device, twai) =
             EspTwai::new("esp32s3.twai", "board.esp32s3.twai", signals.clone())?;
         bus.map_device("esp32s3.twai", 0x6002_b000, 0x1000, Box::new(twai_device))?;
+        let (peri_backup_device, peri_backup) =
+            remu_devices::Esp32S3PeriBackup::new("esp32s3.peri-backup");
+        bus.map_device(
+            "esp32s3.peri-backup",
+            0x6002_a000,
+            0x1000,
+            Box::new(peri_backup_device),
+        )?;
         let (gdma_device, gdma) =
             EspGdma::new("esp32s3.gdma", "board.esp32s3.gdma", signals.clone())?;
         bus.map_device("esp32s3.gdma", 0x6003_f000, 0x1000, Box::new(gdma_device))?;
@@ -538,6 +549,15 @@ impl XtensaMachine {
             ],
         );
         bus.map_device("esp32s3.uhci0", 0x6001_4000, 0x1000, Box::new(uhci_device))?;
+        let (uhci1_device, uhci1) = Esp32S3Uhci::new(
+            "esp32s3.uhci1",
+            [
+                chip_uart.clone(),
+                auxiliary_uarts[0].clone(),
+                auxiliary_uarts[1].clone(),
+            ],
+        );
+        bus.map_device("esp32s3.uhci1", 0x6000_c000, 0x1000, Box::new(uhci1_device))?;
         let (usb_serial_jtag_device, usb_serial_jtag) =
             EspUsbSerialJtag::new("esp32s3.usb-serial-jtag");
         bus.map_device(
@@ -621,6 +641,8 @@ impl XtensaMachine {
             twai,
             gdma,
             uhci,
+            uhci1,
+            peri_backup,
             syscon,
             rtc_control,
             rtc_i2c,
@@ -1008,6 +1030,7 @@ impl XtensaMachine {
         let mut usb_was_pending = false;
         let mut usb_serial_was_pending = false;
         let mut uhci_was_pending = false;
+        let mut peri_backup_was_pending = false;
         let mut syscon_was_pending = false;
         let mut extmem_was_pending = false;
         let mut pms_was_pending = false;
@@ -1044,11 +1067,19 @@ impl XtensaMachine {
             if self.uhci.poll_gdma(&self.gdma) != 0 {
                 stats.events = stats.events.saturating_add(1);
             }
+            if self.uhci1.poll_gdma(&self.gdma) != 0 || self.service_peri_backup()? {
+                stats.events = stats.events.saturating_add(1);
+            }
             let uhci_pending = self.update_uhci_interrupt_lines()?;
             if uhci_pending && !uhci_was_pending {
                 stats.events = stats.events.saturating_add(1);
             }
             uhci_was_pending = uhci_pending;
+            let peri_backup_pending = self.update_peri_backup_interrupt_lines()?;
+            if peri_backup_pending && !peri_backup_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            peri_backup_was_pending = peri_backup_pending;
             let syscon_pending = self.update_syscon_interrupt_lines()?;
             if syscon_pending && !syscon_was_pending {
                 stats.events = stats.events.saturating_add(1);

@@ -745,6 +745,8 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
         ("esp32s3.rtc-control", 0x6000_8000, 0x0400),
         ("esp32s3.rtc-io", 0x6000_8400, 0x0400),
         ("esp32s3.sdm", 0x6000_4f00, 0x0100),
+        ("esp32s3.uhci1", 0x6000_c000, 0x1000),
+        ("esp32s3.peri-backup", 0x6002_a000, 0x1000),
         ("esp32s3.interrupt-matrix", 0x600c_2000, 0x1000),
         ("esp32s3.extmem", 0x600c_4000, 0x1000),
         ("esp32s3.xts-aes", 0x600c_c000, 0x1000),
@@ -918,18 +920,16 @@ fn esp32s3_rtc_slow_memory_aliases_and_reserved_legacy_pages_fault() {
         0x414c_4941
     );
 
-    // These old reg_base constants fall in ranges explicitly marked Reserved
-    // by ESP32-S3 TRM table 4.3-3 and must not behave like writable devices.
+    // These remaining legacy reg_base constants fall in ranges explicitly
+    // marked Reserved by ESP32-S3 TRM table 4.3-3.
     for address in [
         0x6000_5000,
         0x6000_b000,
-        0x6000_c000,
         0x6000_e000,
         0x6001_1000,
         0x6001_5000,
         0x6001_8000,
         0x6001_c000,
-        0x6002_a000,
         0x600c_e000,
     ] {
         assert!(
@@ -1200,14 +1200,6 @@ fn esp32s3_uhci0_couples_gdma_uart_and_interrupt_matrix() {
         .unwrap();
     assert!(!machine.update_uhci_interrupt_lines().unwrap());
     assert_eq!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
-
-    assert!(
-        machine
-            .bus
-            .region_map()
-            .iter()
-            .all(|(name, _, _, _)| *name != "esp32s3.uhci1")
-    );
 }
 
 #[test]

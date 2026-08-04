@@ -120,6 +120,8 @@ impl Esp32S3World {
 /// GDMA-capable peripheral selected by the PMS permission tables.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Esp32S3DmaPeripheral {
+    /// APB peripheral backup DMA.
+    Backup,
     /// General-purpose SPI2.
     Spi2,
     /// General-purpose SPI3.
@@ -149,6 +151,7 @@ pub enum Esp32S3DmaPeripheral {
 impl Esp32S3DmaPeripheral {
     const fn internal_permission_offset(self) -> u64 {
         match self {
+            Self::Backup => 0x6c,
             Self::Spi2 => 0x3c,
             Self::Spi3 => 0x44,
             Self::Uhci0 => 0x4c,
@@ -166,6 +169,7 @@ impl Esp32S3DmaPeripheral {
 
     const fn external_permission_offset(self) -> Option<u64> {
         match self {
+            Self::Backup => None,
             Self::Spi2 => Some(0x2bc),
             Self::Spi3 => Some(0x2c4),
             Self::Uhci0 => Some(0x2cc),
@@ -676,7 +680,9 @@ fn peripheral_permission(address: u32) -> Option<(u8, u8)> {
         0x6000_3000 => Some((1, 4)),
         0x6000_4000 => Some((1, 6)),
         0x6000_7000 => Some((1, 14)),
+        0x6000_8000 => Some((1, 14)),
         0x6000_9000 => Some((1, 16)),
+        0x6000_c000 => Some((1, 24)),
         0x6000_f000 => Some((1, 28)),
         0x6001_0000 => Some((1, 30)),
         0x6001_3000 => Some((2, 4)),
@@ -693,6 +699,7 @@ fn peripheral_permission(address: u32) -> Option<(u8, u8)> {
         0x6002_6000 => Some((3, 4)),
         0x6002_7000 => Some((3, 6)),
         0x6002_8000 => Some((3, 8)),
+        0x6002_a000 => Some((2, 18)),
         0x6002_b000 => Some((3, 10)),
         0x6002_c000 => Some((3, 12)),
         0x6002_d000 => Some((3, 14)),

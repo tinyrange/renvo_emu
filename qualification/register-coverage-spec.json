@@ -106,6 +106,7 @@
         "esp32s3.mcpwm0",
         "esp32s3.mcpwm1",
         "esp32s3.pcnt",
+        "esp32s3.peri-backup",
         "esp32s3.rmt",
         "esp32s3.rsa",
         "esp32s3.rtc-control",
@@ -122,6 +123,7 @@
         "esp32s3.tsens",
         "esp32s3.twai",
         "esp32s3.uhci0",
+        "esp32s3.uhci1",
         "esp32s3.uart0",
         "esp32s3.uart1",
         "esp32s3.uart2",
@@ -146,6 +148,7 @@
         "RTC-I2C transfers complete at the issuing architectural write and use deterministic internal slave storage without electrical bus timing.",
         "SENS implements the complete vendor register surface, deterministic touch counts/threshold scans, and ULP RTC-I2C coupling without analogue calibration or scan-cycle timing.",
         "XTS_AES manual encryption implements AES-XTS and SYSTEM gating with a deterministic replaceable key; RELEASE exposes ciphertext through a host/SPI-side handle because SPI1 transfer sequencing is not yet modeled.",
+        "PERI_BACKUP performs permission-checked APB/retention-memory copies at the next architectural machine service point without silicon burst or timeout-cycle timing.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ]

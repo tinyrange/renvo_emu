@@ -71,6 +71,8 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x600cc05cu, 0x3fffffffu, 0x20200111u, 47); /* XTS date */
     CHECK(0x600085fcu, 0x0fffffffu, 0x02101180u, 48); /* RTC_IO date */
     CHECK(0x60004f28u, 0x0fffffffu, 0x01802260u, 49); /* SDM date */
+    CHECK(0x6000c084u, 0xffffffffu, 0x02010090u, 50); /* UHCI1 */
+    CHECK(0x6002a0fcu, 0xffffffffu, 0x02012300u, 51); /* peripheral backup */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");
