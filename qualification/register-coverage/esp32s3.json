@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "984d870ff1217ac04d7524ae347c7f9a10843bf44da1ebe30f83f1ab565e237c"
+    "sha256": "a0ab5478902a336e37f9371388942ee750205a3426f220d06282afa0466f239b"
   },
   "proofs": [
     {
@@ -66,15 +66,15 @@
       "id": "esp32s3-peripherals",
       "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
-      "result_sha256": "c7663a3a01cf0940c5718ca8375671d16dcb31c847938fc629e9fd82f16b82ae",
-      "bus_log_sha256": "6e855ac42af3cfcbb755e1d998e53d3b8fbceaf018c2bf6280b499c016488b06",
+      "result_sha256": "dbcbf5d05ee13b16210fd40dc991d8887bb5bbf1a6d819b1fd9660d6dbad2131",
+      "bus_log_sha256": "b2b0cb4d06fc4bcaf8a908003bba327c68688c32b26a8633e7aa1216b8d3f91a",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
         "trace_digest": "5e40374583e5a196739610e3f08d96e9e80ac8a3015b06e77479fb8df5f2b614",
         "stats": {
-          "instructions": 187,
-          "time": 187,
+          "instructions": 194,
+          "time": 194,
           "events": 0
         }
       }
@@ -108,12 +108,13 @@
     "esp32s3.spi3",
     "esp32s3.tsens",
     "esp32s3.twai",
+    "esp32s3.uhci0",
     "esp32s3.uart0",
     "esp32s3.uart1",
     "esp32s3.uart2",
     "esp32s3.usb-otg"
   ],
-  "covered_register_count": 40,
+  "covered_register_count": 41,
   "covered_registers": [
     {
       "region": "esp32s3.aes",
@@ -448,6 +449,17 @@
     {
       "region": "esp32s3.uart2",
       "address": 1610801152,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.uhci0",
+      "address": 1610694788,
       "operations": [
         "Read"
       ],

@@ -47,6 +47,7 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x600081fcu, 0xffffffffu, 0x02101271u, 26); /* RTC control */
     CHECK(0x600c27fcu, 0xffffffffu, 0x02012300u, 27); /* interrupt matrix */
     CHECK(0x600090fcu, 0xffffffffu, 0x01907160u, 28); /* IO MUX */
+    CHECK(0x60014084u, 0xffffffffu, 0x02010090u, 29); /* UHCI0 */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

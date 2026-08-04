@@ -729,6 +729,7 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
         ("esp32s3.mcpwm1", 0x6002_c000, 0x1000),
         ("esp32s3.twai", 0x6002_b000, 0x1000),
         ("esp32s3.gdma", 0x6003_f000, 0x1000),
+        ("esp32s3.uhci0", 0x6001_4000, 0x1000),
         ("esp32s3.io-mux", 0x6000_9000, 0x1000),
         ("esp32s3.saradc", 0x6004_0000, 0x1000),
         ("esp32s3.tsens", 0x6000_8800, 0x0200),
@@ -753,6 +754,87 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
             "missing or incorrect native mapping for {name}"
         );
     }
+}
+
+#[test]
+fn esp32s3_uhci0_couples_gdma_uart_and_interrupt_matrix() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let uhci = 0x6001_4000;
+    let gdma = 0x6003_f000;
+
+    // UHCI0 is the single ESP32-S3 instance and attaches to UART2 here.
+    machine
+        .bus
+        .write(uhci, AccessWidth::Word, 0x06e0 | (1 << 4), SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(gdma + 0xa8, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    for byte in [b'R', 0xc0] {
+        machine
+            .bus
+            .write(
+                gdma + 0x7c,
+                AccessWidth::Word,
+                u64::from((1 << 9) | u32::from(byte)),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    assert_eq!(machine.uhci.poll_gdma(&machine.gdma), 2);
+    assert_eq!(
+        machine.auxiliary_uarts[1].bytes(),
+        vec![0xc0, b'R', 0xdb, 0xdc, 0xc0]
+    );
+
+    machine
+        .bus
+        .write(gdma + 0x48, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert!(machine.queue_uhci_input(&[0xc0, b'X', 0xdb, 0xdc, 0xc0]));
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                gdma + 0x1c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        u64::from(b'X')
+    );
+
+    // UHCI0 is source 14 in the native interrupt matrix.
+    machine
+        .bus
+        .write(0x600c_2000 + 14 * 4, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(uhci + 0x0c, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(uhci + 0x14, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert!(machine.update_uhci_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+    machine
+        .bus
+        .write(uhci + 0x10, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    assert!(!machine.update_uhci_interrupt_lines().unwrap());
+    assert_eq!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+
+    assert!(
+        machine
+            .bus
+            .region_map()
+            .iter()
+            .all(|(name, _, _, _)| *name != "esp32s3.uhci1")
+    );
 }
 
 #[test]

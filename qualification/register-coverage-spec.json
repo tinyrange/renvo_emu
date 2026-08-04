@@ -115,6 +115,7 @@
         "esp32s3.spi3",
         "esp32s3.tsens",
         "esp32s3.twai",
+        "esp32s3.uhci0",
         "esp32s3.uart0",
         "esp32s3.uart1",
         "esp32s3.uart2",

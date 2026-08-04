@@ -373,12 +373,42 @@ impl EspGdmaHandle {
         state.refresh();
     }
 
+    /// Queues peripheral-produced words when channel zero is connected to
+    /// the requested native GDMA trigger ID. Returns whether the channel
+    /// accepted the peripheral handshake.
+    pub fn queue_peripheral_input_words(&self, peripheral: u8, words: &[u32]) -> bool {
+        let selected = {
+            let state = self.state.lock().expect("ESP GDMA lock poisoned");
+            state.registers[index(Esp32s3GdmaRegister::InPeripheral)] & 0x3f
+                == u32::from(peripheral)
+        };
+        if selected {
+            self.queue_input_words(words);
+        }
+        selected
+    }
+
     /// Returns words written by firmware through the OUT-channel push port.
     pub fn take_output_words(&self) -> Vec<u32> {
         let mut state = self.state.lock().expect("ESP GDMA lock poisoned");
         let words = state.output.drain(..).collect();
         state.refresh();
         words
+    }
+
+    /// Drains words destined for a peripheral when channel zero is connected
+    /// to the requested native GDMA trigger ID.
+    pub fn take_peripheral_output_words(&self, peripheral: u8) -> Vec<u32> {
+        let selected = {
+            let state = self.state.lock().expect("ESP GDMA lock poisoned");
+            state.registers[index(Esp32s3GdmaRegister::OutPeripheral)] & 0x3f
+                == u32::from(peripheral)
+        };
+        if selected {
+            self.take_output_words()
+        } else {
+            Vec::new()
+        }
     }
 }
 

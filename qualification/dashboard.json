@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "91505c33d765f7fed5903e22695b94616b92dca7d245a787f9456c20cdae29fd",
+        "manifest_sha256": "29fbf12ffd4d4f3bd6d46bdeb5196f29187858f8484e350ee1724bb35fcf73d3",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -192,7 +192,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "c069fe5923812f4c8062b83150b68da0214289be1bee521697451e1d571bae48",
+        "manifest_sha256": "9298b84d27bf39fce94137111e451db96fc7953f63dd4b9fe133488375227dcb",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -263,7 +263,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "90e5330981094f8657cbc14bbf30d9cc221ed05b7bbed3887f83d3df0130aeb4",
+        "manifest_sha256": "f2dcb1eeea33d745115199c39bbbc42c7730c38664a1c9145d8c821949f39ca3",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -338,7 +338,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "b8cba40654b2ba09bb8a2c47fec20035d3438075b446c5b1ad3d13e83715e137",
+        "manifest_sha256": "ee4535a9574ecc138356903577889b5513972e4a2bcb876a37fbedf8d1fc1f21",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -411,9 +411,9 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 40,
+        "covered_register_count": 41,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "4bd46f281626c917b453b2ccc2172343df5c7e5b7a95a18ff676925ddbaa4a8d",
+        "manifest_sha256": "d870bd2a72ee14e79a18db83dd9a75f87211fbb2d6c79bd28c1394dfe9218601",
         "required_covered_regions": [
           "esp32s3.aes",
           "esp32s3.digital-signature",
@@ -442,6 +442,7 @@
           "esp32s3.spi3",
           "esp32s3.tsens",
           "esp32s3.twai",
+          "esp32s3.uhci0",
           "esp32s3.uart0",
           "esp32s3.uart1",
           "esp32s3.uart2",
@@ -511,7 +512,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "19024ceb99e2cf0fd82bebb2af4e4a6c2d4b00e4fdf3d5e1a62011d17d3855a5",
+        "manifest_sha256": "399be31a8c67360237af848bd63637169f6590cb7628e29ebf90499d869aac07",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

@@ -70,6 +70,8 @@ mod esp_interrupt_matrix;
 pub use esp_interrupt_matrix::*;
 mod esp_io_mux;
 pub use esp_io_mux::*;
+mod esp_uhci;
+pub use esp_uhci::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

@@ -18,14 +18,14 @@ use remu_devices::{
     Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc, Esp32S3LedcHandle, Esp32S3Mcpwm,
     Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle,
     Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Tsens,
-    Esp32S3TsensHandle, Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature,
-    EspEfuse, EspGdma, EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix,
-    EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa, EspRtcControl,
-    EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
-    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg,
-    EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
-    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub,
-    TimerHandle, UartHandle,
+    Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle, Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt,
+    Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio, EspHmac,
+    EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa,
+    EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
+    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
+    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
+    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
+    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -112,6 +112,7 @@ pub struct XtensaMachine {
     mcpwm: Vec<Esp32S3McpwmHandle>,
     twai: EspTwaiHandle,
     gdma: EspGdmaHandle,
+    uhci: Esp32S3UhciHandle,
     rtc_control: EspRtcControlHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
@@ -216,9 +217,7 @@ impl XtensaMachine {
             ("radio-fe2", 0x6000_5000),
             ("radio-fe", 0x6000_6000),
             ("hinf", 0x6000_b000),
-            ("uhci1", 0x6000_c000),
             ("bluetooth", 0x6001_1000),
-            ("uhci0", 0x6001_4000),
             ("slchost", 0x6001_5000),
             ("slc", 0x6001_8000),
             ("radio-nrx", 0x6001_c000),
@@ -492,6 +491,15 @@ impl XtensaMachine {
             bus.map_device(format!("esp32s3.{name}"), base, 0x1000, Box::new(device))?;
             auxiliary_uarts.push(handle);
         }
+        let (uhci_device, uhci) = Esp32S3Uhci::new(
+            "esp32s3.uhci0",
+            [
+                chip_uart.clone(),
+                auxiliary_uarts[0].clone(),
+                auxiliary_uarts[1].clone(),
+            ],
+        );
+        bus.map_device("esp32s3.uhci0", 0x6001_4000, 0x1000, Box::new(uhci_device))?;
         let (usb_serial_jtag_device, usb_serial_jtag) =
             EspUsbSerialJtag::new("esp32s3.usb-serial-jtag");
         bus.map_device(
@@ -569,6 +577,7 @@ impl XtensaMachine {
             mcpwm,
             twai,
             gdma,
+            uhci,
             rtc_control,
             mmu_table,
             now: SimTime::ZERO,
@@ -902,6 +911,16 @@ impl XtensaMachine {
         self.gdma.clone()
     }
 
+    /// Returns the host-side UHCI0 framed GDMA/UART bridge handle.
+    pub fn uhci(&self) -> Esp32S3UhciHandle {
+        self.uhci.clone()
+    }
+
+    /// Injects a UHCI0 UART frame into the configured GDMA receive channel.
+    pub fn queue_uhci_input(&self, frame: &[u8]) -> bool {
+        self.uhci.receive_uart_frame(&self.gdma, frame)
+    }
+
     /// Returns a host-side handle for deterministic SAR ADC samples.
     pub fn saradc(&self) -> Esp32S3SarAdcHandle {
         self.saradc.clone()
@@ -998,6 +1017,24 @@ impl XtensaMachine {
         self.run_with_stimuli(limits, &[], trace)
     }
 
+    fn update_uhci_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
+        let pending = self.uhci.interrupt_pending();
+        for core in 0..2_u32 {
+            self.interrupt_matrix
+                .set_source_pending(core as usize, 14, pending);
+            let interrupt = self.interrupt_matrix.route(core as usize, 14);
+            if interrupt == u8::MAX || interrupt == 6 {
+                continue;
+            }
+            if core == 0 {
+                self.cpu.set_interrupt(u16::from(interrupt), pending)?;
+            } else if self.appcpu_boot_address.is_some() {
+                self.cpu1.set_interrupt(u16::from(interrupt), pending)?;
+            }
+        }
+        Ok(pending)
+    }
+
     /// Runs with timestamped external GPIO stimulus.
     pub fn run_with_stimuli(
         &mut self,
@@ -1026,6 +1063,7 @@ impl XtensaMachine {
         let mut timer_was_pending = false;
         let mut usb_was_pending = false;
         let mut usb_serial_was_pending = false;
+        let mut uhci_was_pending = false;
         let mut rtc_was_pending = false;
         let mut crosscore_was_pending = [false; 2];
         let mut systimer_was_pending = [false; 3];
@@ -1056,6 +1094,14 @@ impl XtensaMachine {
             if self.usb_serial_jtag.poll(self.now) {
                 stats.events = stats.events.saturating_add(1);
             }
+            if self.uhci.poll_gdma(&self.gdma) != 0 {
+                stats.events = stats.events.saturating_add(1);
+            }
+            let uhci_pending = self.update_uhci_interrupt_lines()?;
+            if uhci_pending && !uhci_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            uhci_was_pending = uhci_pending;
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
                 stats.events = stats.events.saturating_add(1);
