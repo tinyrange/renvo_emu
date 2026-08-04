@@ -110,6 +110,19 @@ instruction per abstract tick and intentionally ignores divider and delay
 timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
 
+The ESP32-S3 eFuse slice retains the native staging, read-data, error, timing,
+command, status, and interrupt registers. `Esp32S3EfuseRegister` names every
+implemented native register and applies the official read/write masks, reset
+defaults, reserved-hole rejection, strict aligned 32-bit access, and
+read-only/write-only/W1C semantics. It provides deterministic factory identity
+words, read-only OTP views, one-way bitwise programming for the documented
+blocks, including the native `BLOCK0` staging split between `PGM_DATA0` and
+`PGM_DATA1..5`. Programming and read command strobes require the documented
+`0x5A5A`/`0x5AA5` opcodes, clear staging registers after programming, redact
+key blocks through `RD_DIS`, and expose read/program completion interrupts. It
+intentionally does not model programming voltage, Reed-Solomon correction
+timing, secure-boot policy, or physical-fuse failure characteristics.
+
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.

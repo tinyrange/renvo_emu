@@ -485,7 +485,6 @@ impl XtensaMachine {
         for (name, base) in [
             ("radio-fe2", 0x6000_5000),
             ("radio-fe", 0x6000_6000),
-            ("efuse", 0x6000_7000),
             ("io-mux", 0x6000_9000),
             ("hinf", 0x6000_b000),
             ("uhci1", 0x6000_c000),
@@ -528,6 +527,12 @@ impl XtensaMachine {
         }
         let rmt_device = Esp32s3Rmt::new("esp32s3.rmt", signals.clone())?;
         bus.map_device("esp32s3.rmt", 0x6001_6000, 0x1000, Box::new(rmt_device))?;
+        bus.map_device(
+            "esp32s3.efuse",
+            0x6000_7000,
+            0x1000,
+            Box::new(EspEfuse::new("esp32s3.efuse")),
+        )?;
         bus.map_device(
             "esp32s3.rng",
             0x6003_5000,
