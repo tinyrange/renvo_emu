@@ -534,6 +534,12 @@ impl XtensaMachine {
             Box::new(EspEfuse::new("esp32s3.efuse")),
         )?;
         bus.map_device(
+            "esp32s3.hmac",
+            0x6003_e000,
+            0x1000,
+            Box::new(EspHmac::new("esp32s3.hmac")),
+        )?;
+        bus.map_device(
             "esp32s3.rng",
             0x6003_5000,
             0x1000,
