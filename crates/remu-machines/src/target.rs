@@ -383,6 +383,13 @@ const MANIFESTS: &[TargetManifest] = &[
                 kind: MemoryKind::Flash,
                 executable: true,
             },
+            MemoryRegion {
+                name: "psram-octal",
+                start: 0x3d00_0000,
+                size: 8 * 1024 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
         ],
         gpio_count: 49,
         fidelity: Fidelity::Functional,
@@ -394,7 +401,7 @@ const MANIFESTS: &[TargetManifest] = &[
         limitations: &[
             "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
             "windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy",
-            "exact SMP timing, wireless, ULP, and full USB are deferred",
+            "exact SMP timing, wireless, ULP, full USB, and PSRAM initialization timing are deferred",
         ],
     },
     TargetManifest {
