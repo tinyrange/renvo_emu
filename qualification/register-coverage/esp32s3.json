@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "f73e4479676fe59a18bf641b76e678bbd45180a9645b8de746dbf625ea6c1933"
+    "sha256": "e2b92c9d4af21d335aaf0c2a815918f5cd241c71c833244d6de42441a4b7e1b0"
   },
   "proofs": [
     {
@@ -66,15 +66,15 @@
       "id": "esp32s3-peripherals",
       "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
-      "result_sha256": "7e5ce1f7a230fa83225918636fa7828cbcf1fff9bd711fcd48467b612eb95fc1",
-      "bus_log_sha256": "bc06035ea0d1b4185f3c9c78602f2514fa51843348a228084000224749720fd6",
+      "result_sha256": "0b8e18e5786fc3cc1610f95a0abf83f4552d9bb87a0eccca31d647b7f11908c0",
+      "bus_log_sha256": "f1603c7d64797bedfeea133e6f0845a4fa04ac36d53066298a68307aef333e7a",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
         "trace_digest": "54129d4762dc9bd3c8b75886f42847ac0a84d5004508c5c037e18b2f79bdb841",
         "stats": {
-          "instructions": 371,
-          "time": 371,
+          "instructions": 380,
+          "time": 380,
           "events": 0
         }
       }
@@ -82,6 +82,7 @@
   ],
   "required_covered_regions": [
     "esp32s3.aes",
+    "esp32s3.assist-debug",
     "esp32s3.digital-signature",
     "esp32s3.efuse",
     "esp32s3.extmem",
@@ -125,11 +126,22 @@
     "esp32s3.world-controller",
     "esp32s3.xts-aes"
   ],
-  "covered_register_count": 61,
+  "covered_register_count": 62,
   "covered_registers": [
     {
       "region": "esp32s3.aes",
       "address": 1610850484,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.assist-debug",
+      "address": 1611457020,
       "operations": [
         "Read"
       ],
@@ -817,6 +829,7 @@
     "SENS implements the complete vendor register surface, deterministic touch counts/threshold scans, and ULP RTC-I2C coupling without analogue calibration or scan-cycle timing.",
     "XTS_AES manual encryption implements AES-XTS and SYSTEM gating with a deterministic replaceable key; RELEASE exposes ciphertext through a host/SPI-side handle because SPI1 transfer sequencing is not yet modeled.",
     "PERI_BACKUP performs permission-checked APB/retention-memory copies at the next architectural machine service point without silicon burst or timeout-cycle timing.",
+    "ASSIST_DEBUG observes architectural CPU accesses and writes deterministic four-word trace records without reproducing internal pipeline-cycle exception timing.",
     "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
     "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
   ]

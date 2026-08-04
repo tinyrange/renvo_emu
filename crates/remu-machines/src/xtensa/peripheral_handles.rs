@@ -1,6 +1,24 @@
 use super::*;
 
 impl XtensaMachine {
+    /// Drives or releases one GPIO pin.
+    pub fn set_pin(&self, pin: u8, value: Logic) -> Result<(), XtensaMachineError> {
+        if usize::from(pin) < self.gpio.pin_count() {
+            self.gpio.set_input(pin, value, self.now)?;
+        }
+        self.chip_gpio.set_input(pin, value, self.now)?;
+        Ok(())
+    }
+
+    /// Applies a host-supplied edge to an ESP32-S3 PCNT unit.
+    pub fn pulse_pcnt(
+        &self,
+        unit: usize,
+        edge: remu_devices::EspPcntEdge,
+    ) -> Result<bool, XtensaMachineError> {
+        Ok(self.pcnt.pulse(unit, edge, self.now)?)
+    }
+
     /// Returns a host-side handle for deterministic TWAI bus injection.
     pub fn twai(&self) -> EspTwaiHandle {
         self.twai.clone()

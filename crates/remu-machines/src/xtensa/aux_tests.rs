@@ -116,3 +116,72 @@ fn esp32s3_peripheral_backup_dma_copies_apb_words_and_completes() {
     }
     assert!(machine.peri_backup.interrupt_pending());
 }
+
+#[test]
+fn esp32s3_assist_debug_observes_cpu_access_interrupts_and_trace_dma() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x600c_e000;
+    for (offset, value) in [
+        (0x10, 0x3fc8_8000),
+        (0x14, 0x3fc8_800f),
+        (0x48, 1),
+        (0x4c, 1),
+        (0x00, 1 << 1),
+        (0x128, 0x44),
+        (0x140, 0x3fc8_8000),
+        (0x144, 0x3fc8_800f),
+        (0x148, 0x3fc8_8100),
+        (0x14c, 0x3fc8_811f),
+    ] {
+        machine
+            .bus
+            .write(base + offset, AccessWidth::Word, value, SimTime::ZERO)
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(0x600c_2000 + 83 * 4, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    {
+        let mut guarded = pms::Esp32S3PmsBus::new(
+            &mut machine.bus,
+            &machine.pms,
+            &machine.world_controller,
+            &machine.extmem,
+            &machine.assist_debug,
+            0,
+            0x4037_1234,
+            0x3fc8_9000,
+        );
+        guarded
+            .write(0x3fc8_8000, AccessWidth::Word, 0xa55a_5aa5, SimTime::ZERO)
+            .unwrap();
+    }
+    assert!(machine.service_assist_debug_logs().unwrap());
+    assert!(machine.update_assist_debug_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x34,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x4037_1234
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x3fc8_8104,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x3fc8_8000
+    );
+}

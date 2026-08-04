@@ -122,6 +122,7 @@ pub struct XtensaMachine {
     uhci: Esp32S3UhciHandle,
     uhci1: Esp32S3UhciHandle,
     peri_backup: remu_devices::Esp32S3PeriBackupHandle,
+    assist_debug: remu_devices::Esp32S3AssistDebugHandle,
     syscon: Esp32S3SysconHandle,
     rtc_control: EspRtcControlHandle,
     rtc_i2c: remu_devices::Esp32S3RtcI2cHandle,
@@ -308,6 +309,14 @@ impl XtensaMachine {
             0x6002_a000,
             0x1000,
             Box::new(peri_backup_device),
+        )?;
+        let (assist_debug_device, assist_debug) =
+            remu_devices::Esp32S3AssistDebug::new("esp32s3.assist-debug");
+        bus.map_device(
+            "esp32s3.assist-debug",
+            0x600c_e000,
+            0x1000,
+            Box::new(assist_debug_device),
         )?;
         let (gdma_device, gdma) =
             EspGdma::new("esp32s3.gdma", "board.esp32s3.gdma", signals.clone())?;
@@ -643,6 +652,7 @@ impl XtensaMachine {
             uhci,
             uhci1,
             peri_backup,
+            assist_debug,
             syscon,
             rtc_control,
             rtc_i2c,
@@ -974,24 +984,6 @@ impl XtensaMachine {
         self.stop_on_usb_input_complete = enabled;
     }
 
-    /// Drives or releases one GPIO pin.
-    pub fn set_pin(&self, pin: u8, value: Logic) -> Result<(), XtensaMachineError> {
-        if usize::from(pin) < self.gpio.pin_count() {
-            self.gpio.set_input(pin, value, self.now)?;
-        }
-        self.chip_gpio.set_input(pin, value, self.now)?;
-        Ok(())
-    }
-
-    /// Applies a host-supplied edge to an ESP32-S3 PCNT unit.
-    pub fn pulse_pcnt(
-        &self,
-        unit: usize,
-        edge: remu_devices::EspPcntEdge,
-    ) -> Result<bool, XtensaMachineError> {
-        Ok(self.pcnt.pulse(unit, edge, self.now)?)
-    }
-
     /// Runs until a terminal condition.
     pub fn run(
         &mut self,
@@ -1031,6 +1023,7 @@ impl XtensaMachine {
         let mut usb_serial_was_pending = false;
         let mut uhci_was_pending = false;
         let mut peri_backup_was_pending = false;
+        let mut assist_debug_was_pending = false;
         let mut syscon_was_pending = false;
         let mut extmem_was_pending = false;
         let mut pms_was_pending = false;
@@ -1067,7 +1060,10 @@ impl XtensaMachine {
             if self.uhci.poll_gdma(&self.gdma) != 0 {
                 stats.events = stats.events.saturating_add(1);
             }
-            if self.uhci1.poll_gdma(&self.gdma) != 0 || self.service_peri_backup()? {
+            if self.uhci1.poll_gdma(&self.gdma) != 0
+                || self.service_peri_backup()?
+                || self.service_assist_debug_logs()?
+            {
                 stats.events = stats.events.saturating_add(1);
             }
             let uhci_pending = self.update_uhci_interrupt_lines()?;
@@ -1080,6 +1076,11 @@ impl XtensaMachine {
                 stats.events = stats.events.saturating_add(1);
             }
             peri_backup_was_pending = peri_backup_pending;
+            let assist_debug_pending = self.update_assist_debug_interrupt_lines()?;
+            if assist_debug_pending && !assist_debug_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            assist_debug_was_pending = assist_debug_pending;
             let syscon_pending = self.update_syscon_interrupt_lines()?;
             if syscon_pending && !syscon_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -1403,12 +1404,17 @@ impl XtensaMachine {
                 }
                 self.windowed_handoff_pending = false;
             }
+            let assist_pc = self.cpu.pc();
+            let assist_sp = self.cpu.register(XtensaRegister::A1);
             let mut pms_bus = pms::Esp32S3PmsBus::new(
                 &mut self.bus,
                 &self.pms,
                 &self.world_controller,
                 &self.extmem,
+                &self.assist_debug,
                 u8::from(running_cpu1),
+                assist_pc,
+                assist_sp,
             );
             let outcome = match self.cpu.step(&mut pms_bus, self.now) {
                 Ok(outcome) => outcome,

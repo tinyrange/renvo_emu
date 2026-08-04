@@ -747,6 +747,7 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
         ("esp32s3.sdm", 0x6000_4f00, 0x0100),
         ("esp32s3.uhci1", 0x6000_c000, 0x1000),
         ("esp32s3.peri-backup", 0x6002_a000, 0x1000),
+        ("esp32s3.assist-debug", 0x600c_e000, 0x1000),
         ("esp32s3.interrupt-matrix", 0x600c_2000, 0x1000),
         ("esp32s3.extmem", 0x600c_4000, 0x1000),
         ("esp32s3.xts-aes", 0x600c_c000, 0x1000),
@@ -930,7 +931,6 @@ fn esp32s3_rtc_slow_memory_aliases_and_reserved_legacy_pages_fault() {
         0x6001_5000,
         0x6001_8000,
         0x6001_c000,
-        0x600c_e000,
     ] {
         assert!(
             machine
@@ -983,6 +983,9 @@ fn esp32s3_extmem_couples_cached_accesses_and_native_interrupts() {
             &machine.pms,
             &machine.world_controller,
             &machine.extmem,
+            &machine.assist_debug,
+            0,
+            0,
             0,
         );
         assert_eq!(
@@ -1261,6 +1264,9 @@ fn esp32s3_pms_blocks_cpu_writes_and_routes_first_fault_interrupts() {
             &machine.pms,
             &machine.world_controller,
             &machine.extmem,
+            &machine.assist_debug,
+            0,
+            0,
             0,
         );
         guarded
@@ -1352,6 +1358,9 @@ fn esp32s3_world_controller_switches_pms_worlds_and_masks_nmi() {
             &machine.pms,
             &machine.world_controller,
             &machine.extmem,
+            &machine.assist_debug,
+            0,
+            0,
             0,
         );
         guarded
@@ -1437,6 +1446,9 @@ fn esp32s3_world_controller_switches_pms_worlds_and_masks_nmi() {
             &machine.pms,
             &machine.world_controller,
             &machine.extmem,
+            &machine.assist_debug,
+            0,
+            0,
             0,
         );
         guarded

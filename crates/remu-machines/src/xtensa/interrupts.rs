@@ -57,6 +57,27 @@ impl XtensaMachine {
         self.update_matrix_source(97, self.peri_backup.interrupt_pending())
     }
 
+    pub(super) fn update_assist_debug_interrupt_lines(
+        &mut self,
+    ) -> Result<bool, XtensaMachineError> {
+        let mut any = false;
+        for core in 0..2_usize {
+            let pending = self.assist_debug.interrupt_pending(core as u8);
+            any |= pending;
+            self.interrupt_matrix.set_source_pending(core, 83, pending);
+            let interrupt = self.interrupt_matrix.route(core, 83);
+            if interrupt == u8::MAX || interrupt == 6 {
+                continue;
+            }
+            if core == 0 {
+                self.cpu.set_interrupt(u16::from(interrupt), pending)?;
+            } else if self.appcpu_boot_address.is_some() {
+                self.cpu1.set_interrupt(u16::from(interrupt), pending)?;
+            }
+        }
+        Ok(any)
+    }
+
     pub(super) fn update_syscon_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
         // SPI_MEM_REJECT_INTR is source 60 in both native matrices.
         self.update_matrix_source(60, self.syscon.interrupt_pending())

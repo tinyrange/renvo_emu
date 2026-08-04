@@ -73,6 +73,7 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x60004f28u, 0x0fffffffu, 0x01802260u, 49); /* SDM date */
     CHECK(0x6000c084u, 0xffffffffu, 0x02010090u, 50); /* UHCI1 */
     CHECK(0x6002a0fcu, 0xffffffffu, 0x02012300u, 51); /* peripheral backup */
+    CHECK(0x600ce1fcu, 0x0fffffffu, 0x02003040u, 52); /* CPU assist debug */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

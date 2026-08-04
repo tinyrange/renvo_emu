@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "2b3411bee3d0b68fb9fe8180d5fa7c9479912fc73c052e4957959751633e762a",
+        "manifest_sha256": "c01af6edc14edfc8adecc9a5eb920cc662dd4c91a2a2801ec60de18929528f11",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -192,7 +192,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "044b0ed1e6147439a3767d9ff1fcc4b468df568e4ac782e58bb688b74ce9f590",
+        "manifest_sha256": "e1dc133bb85810e225be46da6e29839b4d53a4d6b247eb1bd6747aed9a07f1ed",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -263,7 +263,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "57196af1a0dddbe2ad67ac871a77a49c37a92a26c740ffca4478d6d53f59de42",
+        "manifest_sha256": "dbdb0f016873eb5edf9c59218d0539649da7ae971d024802d32d4339ca210df0",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -338,7 +338,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "ef08b712de6e8dc7bcb163e269aa954744e8169d04ed370af1746dcb7d4d209a",
+        "manifest_sha256": "f0c2d1c4a923b05e54834ac0412143f0d6ba5f7b17926be0446f3b4d4f3ca85e",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -407,6 +407,7 @@
         "SENS implements the complete vendor register surface, deterministic touch counts/threshold scans, and ULP RTC-I2C coupling without analogue calibration or scan-cycle timing.",
         "XTS_AES manual encryption implements AES-XTS and SYSTEM gating with a deterministic replaceable key; RELEASE exposes ciphertext through a host/SPI-side handle because SPI1 transfer sequencing is not yet modeled.",
         "PERI_BACKUP performs permission-checked APB/retention-memory copies at the next architectural machine service point without silicon burst or timeout-cycle timing.",
+        "ASSIST_DEBUG observes architectural CPU accesses and writes deterministic four-word trace records without reproducing internal pipeline-cycle exception timing.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ],
@@ -418,11 +419,12 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 61,
+        "covered_register_count": 62,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "59684d863b76deb083b0b46e2b947dd1ce026b8ffe889579d00ca011cea02155",
+        "manifest_sha256": "02cd1135db66af2620d1b81cc112434c4c4ab81bf63f7f9b26f28511c6b58d18",
         "required_covered_regions": [
           "esp32s3.aes",
+          "esp32s3.assist-debug",
           "esp32s3.digital-signature",
           "esp32s3.efuse",
           "esp32s3.extmem",
@@ -530,7 +532,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "8b9b5644cca8765a7936867ae27d48794484559dd51d23855cf22407f93e97ef",
+        "manifest_sha256": "a13d2f210ebdcba4f1f0d28d4a7cef3b29bb439a51b082feef065a09f7d33b1a",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

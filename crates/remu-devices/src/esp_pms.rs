@@ -711,7 +711,7 @@ fn peripheral_permission(address: u32) -> Option<(u8, u8)> {
         0x6004_0000 => Some((4, 8)),
         0x6004_1000 => Some((4, 10)),
         0x6008_0000..=0x6008_f000 => Some((4, 14)),
-        0x600c_0000 | 0x600c_5000 => Some((4, 16)),
+        0x600c_0000 | 0x600c_5000 | 0x600c_e000 => Some((4, 16)),
         0x600c_1000 => Some((4, 18)),
         0x600c_2000 => Some((4, 20)),
         0x600c_4000 | 0x600c_c000 => Some((4, 24)),
@@ -961,6 +961,17 @@ mod tests {
         write(&mut device, 0x1a0, 3);
         assert!(!handle.interrupt_pending(87));
         assert_eq!(read(&mut device, 0x1a8), 0);
+
+        // ASSIST_DEBUG shares the vendor SYSTEM permission pair.
+        let system_permissions = read(&mut device, 0x134);
+        write(&mut device, 0x134, system_permissions & !(3 << 16));
+        assert!(!handle.check_cpu_access(
+            0,
+            Esp32S3World::Secure,
+            0x600c_e000,
+            AccessWidth::Word,
+            AccessKind::Read,
+        ));
 
         // World1 has an independent four-register table after World0's.
         write(&mut device, 0x128, uart_permissions);

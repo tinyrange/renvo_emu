@@ -1,6 +1,8 @@
 use remu_bus::AddressSpace;
 use remu_core::{AccessKind, AccessWidth, Bus, BusFault, SimTime};
-use remu_devices::{Esp32S3ExtmemHandle, Esp32S3PmsHandle, Esp32S3WorldControllerHandle};
+use remu_devices::{
+    Esp32S3AssistDebugHandle, Esp32S3ExtmemHandle, Esp32S3PmsHandle, Esp32S3WorldControllerHandle,
+};
 
 /// CPU-facing address-space wrapper that applies PMS before the underlying bus.
 pub(super) struct Esp32S3PmsBus<'a> {
@@ -8,7 +10,10 @@ pub(super) struct Esp32S3PmsBus<'a> {
     pms: &'a Esp32S3PmsHandle,
     world_controller: &'a Esp32S3WorldControllerHandle,
     extmem: &'a Esp32S3ExtmemHandle,
+    assist_debug: &'a Esp32S3AssistDebugHandle,
     core: u8,
+    pc: u32,
+    sp: u32,
 }
 
 impl<'a> Esp32S3PmsBus<'a> {
@@ -17,14 +22,20 @@ impl<'a> Esp32S3PmsBus<'a> {
         pms: &'a Esp32S3PmsHandle,
         world_controller: &'a Esp32S3WorldControllerHandle,
         extmem: &'a Esp32S3ExtmemHandle,
+        assist_debug: &'a Esp32S3AssistDebugHandle,
         core: u8,
+        pc: u32,
+        sp: u32,
     ) -> Self {
         Self {
             bus,
             pms,
             world_controller,
             extmem,
+            assist_debug,
             core,
+            pc,
+            sp,
         }
     }
 }
@@ -49,7 +60,19 @@ impl Bus for Esp32S3PmsBus<'_> {
             && u32::try_from(address)
                 .is_ok_and(|address| self.extmem.observe_access(self.core, address, kind));
         if cache_allowed {
-            self.bus.read(address, width, kind, at)
+            let value = self.bus.read(address, width, kind, at)?;
+            if let Ok(address) = u32::try_from(address) {
+                self.assist_debug.observe_access(
+                    self.core,
+                    address,
+                    width,
+                    kind,
+                    self.pc,
+                    self.sp,
+                    u32::try_from(value).unwrap_or_default(),
+                );
+            }
+            Ok(value)
         } else {
             // The PMS fabric responds to denied internal/PIF reads with zero.
             Ok(0)
@@ -80,6 +103,15 @@ impl Bus for Esp32S3PmsBus<'_> {
             if let Ok(address) = u32::try_from(address) {
                 self.world_controller
                     .observe_write(self.core, address, width, value);
+                self.assist_debug.observe_access(
+                    self.core,
+                    address,
+                    width,
+                    AccessKind::Write,
+                    self.pc,
+                    self.sp,
+                    u32::try_from(value).unwrap_or_default(),
+                );
             }
             Ok(())
         } else {

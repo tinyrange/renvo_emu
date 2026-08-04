@@ -2,6 +2,23 @@ use super::*;
 use remu_devices::{Esp32S3DmaPeripheral, Esp32S3World};
 
 impl XtensaMachine {
+    pub(super) fn service_assist_debug_logs(&mut self) -> Result<bool, XtensaMachineError> {
+        let mut serviced = false;
+        while let Some(record) = self.assist_debug.take_log_write() {
+            serviced = true;
+            for (word, value) in record.words.into_iter().enumerate() {
+                let address = u64::from(record.address) + word as u64 * 4;
+                self.bus
+                    .write(address, AccessWidth::Word, u64::from(value), self.now)
+                    .map_err(|error| XtensaMachineError::Load {
+                        address,
+                        message: format!("ASSIST_DEBUG trace write failed: {error}"),
+                    })?;
+            }
+        }
+        Ok(serviced)
+    }
+
     pub(super) fn service_peri_backup(&mut self) -> Result<bool, XtensaMachineError> {
         let Some(request) = self.peri_backup.take_request() else {
             return Ok(false);

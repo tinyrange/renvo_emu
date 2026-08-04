@@ -89,6 +89,7 @@
       "proofs": ["esp32s3", "esp32s3-uart", "esp32s3-usb", "esp32s3-peripherals"],
       "required_covered_regions": [
         "esp32s3.aes",
+        "esp32s3.assist-debug",
         "esp32s3.digital-signature",
         "esp32s3.efuse",
         "esp32s3.extmem",
@@ -149,6 +150,7 @@
         "SENS implements the complete vendor register surface, deterministic touch counts/threshold scans, and ULP RTC-I2C coupling without analogue calibration or scan-cycle timing.",
         "XTS_AES manual encryption implements AES-XTS and SYSTEM gating with a deterministic replaceable key; RELEASE exposes ciphertext through a host/SPI-side handle because SPI1 transfer sequencing is not yet modeled.",
         "PERI_BACKUP performs permission-checked APB/retention-memory copies at the next architectural machine service point without silicon burst or timeout-cycle timing.",
+        "ASSIST_DEBUG observes architectural CPU accesses and writes deterministic four-word trace records without reproducing internal pipeline-cycle exception timing.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ]
