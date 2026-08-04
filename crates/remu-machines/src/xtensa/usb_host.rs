@@ -1,4 +1,6 @@
-use super::*;
+use super::{
+    Esp32S3UsbWrapHandle, EspUsbOtgHandle, HOST_SCRIPT_COMPLETE_MARKER, SimTime, VecDeque,
+};
 
 #[derive(Clone, Copy)]
 enum Dwc2ControlResponse {
@@ -202,7 +204,16 @@ impl EspDwc2Host {
         0
     }
 
-    pub(super) fn poll(&mut self, now: SimTime, usb: &EspUsbOtgHandle) -> u64 {
+    pub(super) fn poll(
+        &mut self,
+        now: SimTime,
+        usb: &EspUsbOtgHandle,
+        wrapper: &Esp32S3UsbWrapHandle,
+    ) -> u64 {
+        if !wrapper.host_link_active() {
+            self.reset_sent = false;
+            return 0;
+        }
         if !self.reset_sent {
             if usb.device_connected() {
                 if std::env::var_os("REMU_DEBUG_USB").is_some() {

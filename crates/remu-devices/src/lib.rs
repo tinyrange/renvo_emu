@@ -74,6 +74,8 @@ mod esp_uhci;
 pub use esp_uhci::*;
 mod esp_syscon;
 pub use esp_syscon::*;
+mod esp_usb_wrap;
+pub use esp_usb_wrap::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

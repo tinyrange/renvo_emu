@@ -871,6 +871,63 @@ fn esp32s3_syscon_routes_external_memory_rejections_through_source_60() {
 }
 
 #[test]
+fn esp32s3_usb_wrap_controls_the_functional_dwc2_host_link() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let usb_wrap = 0x6003_9000;
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                usb_wrap + 0x3fc,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x0210_2010
+    );
+    assert!(machine.usb_wrap.host_link_active());
+    machine
+        .bus
+        .write(
+            usb_wrap,
+            AccessWidth::Word,
+            (1 << 18) | (1 << 2),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert!(!machine.usb_wrap.host_link_active());
+    machine
+        .bus
+        .write(
+            usb_wrap,
+            AccessWidth::Word,
+            (1 << 18) | (1 << 12) | (1 << 13),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert!(machine.usb_wrap.host_link_active());
+    machine.usb_wrap.drive_test_inputs(true, false, true);
+    machine
+        .bus
+        .write(usb_wrap + 4, AccessWidth::Word, 0x07, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.usb_wrap.test_output(), Some((true, false, true)));
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                usb_wrap + 4,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x37
+    );
+}
+
+#[test]
 fn esp32s3_uhci0_couples_gdma_uart_and_interrupt_matrix() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let uhci = 0x6001_4000;

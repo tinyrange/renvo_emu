@@ -55,6 +55,8 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x50000124u, 0xffffffffu, 0x414c4941u, 31); /* reverse alias */
     CHECK(0x600263fcu, 0xffffffffu, 0x02101150u, 32); /* SYSCON */
     CHECK(0x60026004u, 0x0001ffffu, 0x00010727u, 33); /* tick config */
+    CHECK(0x600393fcu, 0xffffffffu, 0x02102010u, 34); /* USB wrap */
+    CHECK(0x60039000u, 0x807fffffu, 0x001c0000u, 35); /* internal PHY */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

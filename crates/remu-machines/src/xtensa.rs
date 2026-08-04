@@ -19,13 +19,14 @@ use remu_devices::{
     Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle,
     Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon,
     Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle,
-    Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma,
-    EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable,
-    EspMmuTableHandle, EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
-    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi,
+    EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix,
+    EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa, EspRtcControl,
+    EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg,
+    EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub,
+    TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -98,6 +99,7 @@ pub struct XtensaMachine {
     exit: ExitHandle,
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
+    usb_wrap: Esp32S3UsbWrapHandle,
     usb_host: EspDwc2Host,
     saradc: Esp32S3SarAdcHandle,
     tsens: Esp32S3TsensHandle,
@@ -226,7 +228,6 @@ impl XtensaMachine {
             0,
         )?;
         for (name, base) in [
-            ("usb-wrap", 0x6003_9000),
             ("sensitive", 0x600c_1000),
             ("world-controller", 0x600d_0000),
         ] {
@@ -246,6 +247,13 @@ impl XtensaMachine {
             0x6002_6000,
             0x1000,
             Box::new(syscon_device),
+        )?;
+        let (usb_wrap_device, usb_wrap) = Esp32S3UsbWrap::new("esp32s3.usb-wrap");
+        bus.map_device(
+            "esp32s3.usb-wrap",
+            0x6003_9000,
+            0x1000,
+            Box::new(usb_wrap_device),
         )?;
         let (io_mux_device, io_mux) = Esp32S3IoMux::new("esp32s3.io-mux");
         bus.map_device(
@@ -569,6 +577,7 @@ impl XtensaMachine {
             exit,
             usb_serial_jtag,
             usb_otg,
+            usb_wrap,
             usb_host: EspDwc2Host::new(),
             saradc,
             tsens,
@@ -992,30 +1001,6 @@ impl XtensaMachine {
         Ok(self.pcnt.pulse(unit, edge, self.now)?)
     }
 
-    fn set_systimer_interrupt(
-        &mut self,
-        core: u32,
-        interrupt: u32,
-        pending: bool,
-    ) -> Result<(), XtensaMachineError> {
-        if core == 0 {
-            self.cpu.set_interrupt(interrupt as u16, pending)?;
-        } else if core == 1 && self.appcpu_boot_address.is_some() {
-            // Once an external script is running, retain a pending CPU1 tick
-            // until the application core reaches WAITI or another shallow
-            // logical-window safe point. This gives the functional model a
-            // deterministic preemption boundary while still waking delayed
-            // and newly runnable tasks.
-            let asserted = appcpu_systimer_level(
-                pending,
-                self.usb_host.input_started(),
-                self.cpu1.functional_interrupt_safe_point(),
-            );
-            self.cpu1.set_interrupt(interrupt as u16, asserted)?;
-        }
-        Ok(())
-    }
-
     /// Runs until a terminal condition.
     pub fn run(
         &mut self,
@@ -1113,9 +1098,11 @@ impl XtensaMachine {
                 || self.usb_host.can_poll()
                 || self.cpu1.waiting_for_interrupt()
             {
-                stats.events = stats
-                    .events
-                    .saturating_add(self.usb_host.poll(self.now, &self.usb_otg));
+                stats.events = stats.events.saturating_add(self.usb_host.poll(
+                    self.now,
+                    &self.usb_otg,
+                    &self.usb_wrap,
+                ));
             }
             if self.stop_on_usb_input_complete && self.usb_host.input_complete() {
                 break StopReason::HostInputComplete;

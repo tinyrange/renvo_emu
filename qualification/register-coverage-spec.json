@@ -120,6 +120,7 @@
         "esp32s3.uart0",
         "esp32s3.uart1",
         "esp32s3.uart2",
+        "esp32s3.usb-wrap",
         "esp32s3.usb-otg"
       ],
       "additional_evidence": [

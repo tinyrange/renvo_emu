@@ -1,6 +1,27 @@
-use super::{Cpu, XtensaMachine, XtensaMachineError};
+use super::{Cpu, XtensaMachine, XtensaMachineError, appcpu_systimer_level};
 
 impl XtensaMachine {
+    pub(super) fn set_systimer_interrupt(
+        &mut self,
+        core: u32,
+        interrupt: u32,
+        pending: bool,
+    ) -> Result<(), XtensaMachineError> {
+        if core == 0 {
+            self.cpu.set_interrupt(interrupt as u16, pending)?;
+        } else if core == 1 && self.appcpu_boot_address.is_some() {
+            // Retain a CPU1 tick until WAITI or another shallow logical-window
+            // safe point while an external script is running.
+            let asserted = appcpu_systimer_level(
+                pending,
+                self.usb_host.input_started(),
+                self.cpu1.functional_interrupt_safe_point(),
+            );
+            self.cpu1.set_interrupt(interrupt as u16, asserted)?;
+        }
+        Ok(())
+    }
+
     fn update_matrix_source(
         &mut self,
         source: usize,
