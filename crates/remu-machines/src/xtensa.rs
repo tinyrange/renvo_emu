@@ -580,7 +580,7 @@ impl XtensaMachine {
         bus.map_device(
             "esp32s3.rtc-control",
             0x6000_8000,
-            0x1000,
+            0x800,
             Box::new(EspRtcControl::new("esp32s3.rtc-control")),
         )?;
         let mut timer_groups = Vec::new();
