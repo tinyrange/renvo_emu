@@ -17,6 +17,8 @@ use thiserror::Error;
 pub enum ConnectorProtocol {
     /// Two-wire open-drain I2C bus.
     I2c,
+    /// Clocked SPI bus with data and clock pins recorded by the topology.
+    Spi,
     /// Two independent digital pins.
     Digital,
     /// Transmit/receive UART pair.
@@ -29,6 +31,7 @@ impl std::str::FromStr for ConnectorProtocol {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "i2c" => Ok(Self::I2c),
+            "spi" => Ok(Self::Spi),
             "digital" | "gpio" => Ok(Self::Digital),
             "uart" => Ok(Self::Uart),
             _ => Err(format!("unsupported connector protocol {value:?}")),
@@ -307,6 +310,10 @@ pub struct BoardRunResult {
     pub duration: u64,
     /// Resolved topology.
     pub connectors: Vec<BoardConnector>,
+    /// On-board components and their MCU pin assignments.
+    pub mounts: Vec<BoardMount>,
+    /// External components attached to connectors.
+    pub connections: Vec<BoardConnection>,
     /// Completed event stream.
     pub events: Vec<BoardEvent>,
     /// Final component states.
@@ -734,6 +741,8 @@ pub fn run_board_scenario(
         target: scenario.target.clone(),
         duration: scenario.duration,
         connectors: scenario.connectors.clone(),
+        mounts: scenario.mounts.clone(),
+        connections: scenario.connections.clone(),
         events,
         components,
         trace_digest: digest.finish(),
