@@ -14,7 +14,7 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, Esp32s3I2c, Esp32s3Spi, EspGpio, EspMmuTable, EspMmuTableHandle,
+    DeterministicRng, Esp32s3I2c, Esp32s3I2s, Esp32s3Spi, EspGpio, EspMmuTable, EspMmuTableHandle,
     EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
     EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
     EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
@@ -486,7 +486,6 @@ impl XtensaMachine {
             ("io-mux", 0x6000_9000),
             ("hinf", 0x6000_b000),
             ("uhci1", 0x6000_c000),
-            ("i2s0", 0x6000_f000),
             ("bluetooth", 0x6001_1000),
             ("uhci0", 0x6001_4000),
             ("slchost", 0x6001_5000),
@@ -503,7 +502,6 @@ impl XtensaMachine {
             ("peripheral-backup", 0x6002_a000),
             ("twai", 0x6002_b000),
             ("pwm1", 0x6002_c000),
-            ("i2s1", 0x6002_d000),
             ("usb-wrap", 0x6003_9000),
             ("aes", 0x6003_a000),
             ("sha", 0x6003_b000),
@@ -569,6 +567,14 @@ impl XtensaMachine {
                 base,
                 0x1000,
                 Box::new(Esp32s3Spi::new(format!("esp32s3.{name}"), signals.clone())?),
+            )?;
+        }
+        for (name, base) in [("i2s0", 0x6000_f000), ("i2s1", 0x6002_d000)] {
+            bus.map_device(
+                format!("esp32s3.{name}"),
+                base,
+                0x1000,
+                Box::new(Esp32s3I2s::new(format!("esp32s3.{name}"), signals.clone())?),
             )?;
         }
         bus.map_device(

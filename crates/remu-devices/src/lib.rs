@@ -28,6 +28,8 @@ mod esp_i2c_s3;
 pub use esp_i2c_s3::*;
 mod esp_spi_gp;
 pub use esp_spi_gp::*;
+mod esp_i2s;
+pub use esp_i2s::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;
