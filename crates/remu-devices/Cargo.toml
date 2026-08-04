@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+aes.workspace = true
 remu-bus.workspace = true
 remu-core.workspace = true
 remu-signals.workspace = true

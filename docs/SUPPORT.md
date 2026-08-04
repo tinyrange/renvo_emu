@@ -129,6 +129,17 @@ Signal stops use stable hierarchical paths and preserve the triggering change
 in VCD/digest output. `scripts/qualify-stop-conditions.sh` checks every stop
 class on RISC-V, Arm, and Xtensa.
 
+The ESP32-S3 AES accelerator is mapped at `0x6003_a000` using the native
+`hwcrypto_reg.h` offsets. The functional slice supports AES-128 and AES-256
+single-block encryption/decryption through the text-in/text-out window,
+completion busy/interrupt state, and the VCD path
+`board.esp32s3.aes.text_out`. DMA cipher modes, GCM/CTR/CBC/CFB/OFB
+chaining, eFuse-backed keys, and cycle timing remain unsupported. The model
+exposes a named `Esp32S3AesRegister` enum for the complete native key/text,
+mode, IV/GCM, DMA, interrupt, and DATE map, applies conservative access masks,
+treats trigger/continue/interrupt-clear fields as write-only strobes, and
+rejects reserved holes, read-only output writes, and values wider than 32 bits.
+
 The supported host matrix is Linux/amd64 and Linux/arm64. A pinned Rust
 container runs the fake dual-core/timer scheduler test on both architectures;
 each architecture checks 64 repeat and insertion-stress variants against the
