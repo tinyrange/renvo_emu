@@ -495,7 +495,6 @@ impl XtensaMachine {
             ("slc", 0x6001_8000),
             ("radio-nrx", 0x6001_c000),
             ("radio-bb", 0x6001_d000),
-            ("pwm0", 0x6001_e000),
             ("rtc-slowmem-controller", 0x6002_1000),
             ("syscon", 0x6002_6000),
             ("sdmmc", 0x6002_8000),
