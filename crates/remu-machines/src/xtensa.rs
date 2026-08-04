@@ -503,7 +503,6 @@ impl XtensaMachine {
             ("usb-wrap", 0x6003_9000),
             ("aes", 0x6003_a000),
             ("rsa", 0x6003_c000),
-            ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
             ("saradc", 0x6004_0000),
             ("sensitive", 0x600c_1000),
@@ -544,6 +543,12 @@ impl XtensaMachine {
             0x6003_c000,
             0x1000,
             Box::new(EspRsa::new("esp32s3.rsa")),
+        )?;
+        bus.map_device(
+            "esp32s3.digital-signature",
+            0x6003_d000,
+            0x1000,
+            Box::new(EspDigitalSignature::new("esp32s3.digital-signature")),
         )?;
         bus.map_device(
             "esp32s3.rng",

@@ -195,6 +195,19 @@ The same gate also runs the windowed Xtensa ABI, exception, atomic, FPU, memory
 view, and deterministic-repeat matrix recorded in
 `qualification/xtensa-cpu.json`.
 
+The ESP32-S3 digital-signature slice follows the native page layout: a
+contiguous 396-word C/Y/M/RB/BOX write-only window, four-word IV window, and
+128-word X write-only and Z read-only windows, followed by the SetStart,
+SetMe, SetFinish, QueryBusy, QueryKeyWrong, QueryCheck, and Date registers.
+`Esp32S3DigitalSignatureRegister` enforces the documented masks, reset date,
+reserved holes, aligned 32-bit accesses, and access directions. The functional
+operation uses a deterministic SHA-256 baseline for protocol testing; secure
+key provisioning, RSA-PSS padding and hardware timing remain outside this
+qualification slice. `QueryKeyWrong` is reserved for the HMAC-to-DS key
+handoff: malformed encrypted parameters set the MD check bit instead. The
+model can select ready, not-activated, or failed HMAC handoff states for
+deterministic tests. SetFinish clears the native data windows as documented.
+
 The final distillation gate adds four bounded capabilities:
 
 - `remu corpus reduce` minimizes source fragments, flags and numeric inputs,
