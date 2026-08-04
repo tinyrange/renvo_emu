@@ -503,7 +503,6 @@ impl XtensaMachine {
             ("pwm1", 0x6002_c000),
             ("usb-wrap", 0x6003_9000),
             ("aes", 0x6003_a000),
-            ("sha", 0x6003_b000),
             ("rsa", 0x6003_c000),
             ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
