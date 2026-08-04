@@ -506,7 +506,6 @@ impl XtensaMachine {
             ("rsa", 0x6003_c000),
             ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
-            ("gdma", 0x6003_f000),
             ("saradc", 0x6004_0000),
             ("lcd-cam", 0x6004_1000),
             ("sensitive", 0x600c_1000),
