@@ -66,6 +66,7 @@ impl XtensaMachine {
     pub(super) fn update_rtc_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
         let pending = self.rtc_control.ulp_pending(self.now)
             || self.rtc_i2c.interrupt_pending()
+            || self.rtc_io.interrupt_pending()
             || self.tsens.interrupt_pending();
         self.update_matrix_source(39, pending)
     }

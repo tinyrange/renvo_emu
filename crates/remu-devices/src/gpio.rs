@@ -62,6 +62,31 @@ impl GpioHandle {
             .map(DigitalNet::resolved)
             .ok_or_else(|| DeviceError::new(format!("GPIO pin {pin} is out of range")))
     }
+
+    pub(crate) fn drive_peripheral(
+        &self,
+        pin: u8,
+        driver: u16,
+        value: Logic,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let index = usize::from(pin);
+        let mut state = self.state.lock().expect("GPIO lock poisoned");
+        let net = state
+            .nets
+            .get_mut(index)
+            .ok_or_else(|| DeviceError::new(format!("GPIO pin {pin} is out of range")))?;
+        let update = net.drive(DriverId(u32::from(driver)), value);
+        drop(state);
+        self.hub
+            .set(
+                self.signals[index],
+                SignalValue::repeat(update.value, 1)
+                    .expect("one-bit signal construction cannot fail"),
+                at,
+            )
+            .map_err(|error| DeviceError::new(error.to_string()))
+    }
 }
 
 /// Simple GPIO register facade with direction, output, and input registers.

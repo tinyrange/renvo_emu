@@ -37,6 +37,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 mod functional_rom;
 mod interrupts;
+mod peripheral_handles;
 mod pms;
 /// ESP32-S3 machine construction or execution failure.
 #[derive(Debug, Error)]
@@ -121,6 +122,8 @@ pub struct XtensaMachine {
     syscon: Esp32S3SysconHandle,
     rtc_control: EspRtcControlHandle,
     rtc_i2c: remu_devices::Esp32S3RtcI2cHandle,
+    rtc_io: remu_devices::Esp32S3RtcIoHandle,
+    sdm: remu_devices::Esp32S3SdmHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -394,7 +397,7 @@ impl XtensaMachine {
         bus.map_device(
             "esp32s3.rtc-control",
             0x6000_8000,
-            0x800,
+            0x400,
             Box::new(rtc_control_device),
         )?;
         let (interrupt_matrix_device, interrupt_matrix) =
@@ -494,9 +497,23 @@ impl XtensaMachine {
         bus.map_device(
             "esp32s3.gpio",
             0x6000_4000,
-            0x1000,
+            0x0f00,
             Box::new(chip_gpio_device),
         )?;
+        let (rtc_io_device, rtc_io) = remu_devices::Esp32S3RtcIo::new(
+            "esp32s3.rtc-io",
+            chip_gpio.clone(),
+            rtc_control.clone(),
+        );
+        bus.map_device(
+            "esp32s3.rtc-io",
+            0x6000_8400,
+            0x400,
+            Box::new(rtc_io_device),
+        )?;
+        let (sdm_device, sdm) =
+            remu_devices::Esp32S3Sdm::new("esp32s3.sdm", "board.esp32s3.sdm", signals.clone())?;
+        bus.map_device("esp32s3.sdm", 0x6000_4f00, 0x100, Box::new(sdm_device))?;
         let (chip_uart_device, chip_uart) =
             FunctionalUart::new_lenient("esp32s3.uart0", 0, 0x1c, 0);
         bus.map_device(
@@ -607,6 +624,8 @@ impl XtensaMachine {
             syscon,
             rtc_control,
             rtc_i2c,
+            rtc_io,
+            sdm,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -926,66 +945,6 @@ impl XtensaMachine {
     /// disconnected mode is useful for testing non-blocking console paths.
     pub fn set_usb_host_connected(&mut self, connected: bool) {
         self.usb_serial_jtag.set_host_connected(connected, self.now);
-    }
-
-    /// Returns a host-side handle for deterministic TWAI bus injection.
-    pub fn twai(&self) -> EspTwaiHandle {
-        self.twai.clone()
-    }
-
-    /// Returns a host-side handle for configuring and inspecting GDMA channels.
-    pub fn gdma(&self) -> EspGdmaHandle {
-        self.gdma.clone()
-    }
-
-    /// Returns the host-side UHCI0 framed GDMA/UART bridge handle.
-    pub fn uhci(&self) -> Esp32S3UhciHandle {
-        self.uhci.clone()
-    }
-
-    /// Injects a UHCI0 UART frame into the configured GDMA receive channel.
-    pub fn queue_uhci_input(&self, frame: &[u8]) -> bool {
-        self.uhci.receive_uart_frame(&self.gdma, frame)
-    }
-
-    /// Returns a host-side handle for deterministic SAR ADC samples.
-    pub fn saradc(&self) -> Esp32S3SarAdcHandle {
-        self.saradc.clone()
-    }
-
-    /// Returns a host-side handle for deterministic temperature samples.
-    pub fn tsens(&self) -> Esp32S3TsensHandle {
-        self.tsens.clone()
-    }
-
-    /// Returns the LCD/CAM host-side inspection handle.
-    pub fn lcd_cam(&self) -> Esp32S3LcdCamHandle {
-        self.lcd_cam.clone()
-    }
-
-    /// Returns the SD/MMC host-side card handle.
-    pub fn sdmmc(&self) -> Esp32S3SdmmcHandle {
-        self.sdmmc.clone()
-    }
-
-    /// Returns the SHA accelerator host-side inspection handle.
-    pub fn sha(&self) -> Esp32S3ShaHandle {
-        self.sha.clone()
-    }
-
-    /// Returns the AES accelerator host-side inspection handle.
-    pub fn aes(&self) -> Esp32S3AesHandle {
-        self.aes.clone()
-    }
-
-    /// Returns the RTC-control host-side wakeup and interrupt handle.
-    pub fn rtc_control(&self) -> EspRtcControlHandle {
-        self.rtc_control.clone()
-    }
-
-    /// Returns the IO MUX host-side pad configuration handle.
-    pub fn io_mux(&self) -> Esp32S3IoMuxHandle {
-        self.io_mux.clone()
     }
 
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
@@ -1440,6 +1399,7 @@ impl XtensaMachine {
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
             stats.time = self.now;
             self.ledc.poll(self.now)?;
+            self.sdm.poll(self.now)?;
             for handle in &self.mcpwm {
                 handle.poll(self.now)?;
             }
@@ -1496,5 +1456,7 @@ impl XtensaMachine {
     }
 }
 
+#[cfg(test)]
+mod aux_tests;
 #[cfg(test)]
 mod tests;

@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "5a0ad7656e9c32c30e60d9ccbc484b2a2efede533ebafd29ca7fb61fc913adb0"
+    "sha256": "19c0204a905f68e1ff66e35cf7e1866832f580a339acd6fd17db7271eccd0d2a"
   },
   "proofs": [
     {
@@ -66,15 +66,15 @@
       "id": "esp32s3-peripherals",
       "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
-      "result_sha256": "3f18c6f652708d5f10eff9d45c3d36e96a6ced4b5eb78ce7e50208a3cf54ffbf",
-      "bus_log_sha256": "abfd2a6e297918866fec6af9e72a1db043fb6bd0e087a0c40579eb247d2faabd",
+      "result_sha256": "fc08991117b230a8d5cd60940a73b8e9c8e1a3f7810aa19e481f596b151130f2",
+      "bus_log_sha256": "b8c7d65fe74b64aa435023d7d07c4213fb8b561fd7d20a0536d785df5018d52e",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "5e40374583e5a196739610e3f08d96e9e80ac8a3015b06e77479fb8df5f2b614",
+        "trace_digest": "54129d4762dc9bd3c8b75886f42847ac0a84d5004508c5c037e18b2f79bdb841",
         "stats": {
-          "instructions": 342,
-          "time": 342,
+          "instructions": 359,
+          "time": 359,
           "events": 0
         }
       }
@@ -103,9 +103,11 @@
     "esp32s3.rsa",
     "esp32s3.rtc-control",
     "esp32s3.rtc-i2c",
+    "esp32s3.rtc-io",
     "esp32s3.saradc",
     "esp32s3.sensitive",
     "esp32s3.sdmmc",
+    "esp32s3.sdm",
     "esp32s3.sha",
     "esp32s3.spi2",
     "esp32s3.spi3",
@@ -121,7 +123,7 @@
     "esp32s3.world-controller",
     "esp32s3.xts-aes"
   ],
-  "covered_register_count": 57,
+  "covered_register_count": 59,
   "covered_registers": [
     {
       "region": "esp32s3.aes",
@@ -399,8 +401,30 @@
       "access_count": 1
     },
     {
+      "region": "esp32s3.rtc-io",
+      "address": 1610647036,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
       "region": "esp32s3.saradc",
       "address": 1610875900,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.sdm",
+      "address": 1610633000,
       "operations": [
         "Read"
       ],

@@ -375,6 +375,11 @@ impl EspRtcControlHandle {
     pub fn ulp_wakeups(&self) -> u64 {
         self.state.borrow().ulp_wakeups
     }
+
+    /// Reports whether RTC-domain writes to a pad are held at their prior value.
+    pub fn pad_held(&self, pin: u8) -> bool {
+        pin < 22 && self.state.borrow().register(Esp32S3RtcRegister::PadHold) & (1 << pin) != 0
+    }
 }
 
 /// Functional ESP32-S3 RTC control and ULP timer block.
