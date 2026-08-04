@@ -816,6 +816,61 @@ fn esp32s3_rtc_slow_memory_aliases_and_reserved_legacy_pages_fault() {
 }
 
 #[test]
+fn esp32s3_syscon_routes_external_memory_rejections_through_source_60() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let syscon = 0x6002_6000;
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                syscon + 0x3fc,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x0210_1150
+    );
+    machine
+        .bus
+        .write(0x600c_2000 + 60 * 4, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    machine.syscon.report_external_reject(0x3c01_0000, 0x02);
+    assert!(machine.update_syscon_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                syscon + 0x88,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x09
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                syscon + 0x8c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x3c01_0000
+    );
+    machine
+        .bus
+        .write(syscon + 0x88, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    assert!(!machine.update_syscon_interrupt_lines().unwrap());
+    assert_eq!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+}
+
+#[test]
 fn esp32s3_uhci0_couples_gdma_uart_and_interrupt_matrix() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let uhci = 0x6001_4000;

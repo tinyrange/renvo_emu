@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "29fbf12ffd4d4f3bd6d46bdeb5196f29187858f8484e350ee1724bb35fcf73d3",
+        "manifest_sha256": "5bb9d3fa22ac44aebc660e1c0c695e7411e3e23b45aa824238fa6b7dfc1c6a95",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -192,7 +192,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "9298b84d27bf39fce94137111e451db96fc7953f63dd4b9fe133488375227dcb",
+        "manifest_sha256": "1fd3a23e377225adff5b8fb66d68d420aa06613644985d80c979b184b570130a",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -263,7 +263,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "f2dcb1eeea33d745115199c39bbbc42c7730c38664a1c9145d8c821949f39ca3",
+        "manifest_sha256": "94f52b3c3be426400217d9217c0f27b74dde70b3d101a0fc35573db7d5ea499f",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -338,7 +338,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "ee4535a9574ecc138356903577889b5513972e4a2bcb876a37fbedf8d1fc1f21",
+        "manifest_sha256": "9ff583808298e881e3d0200691f121f29fb6a19e6b0fd3eb5ddaf58f8d799c62",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -400,6 +400,7 @@
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
         "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
+        "SYSCON radio-only clock/reset/configuration fields retain their documented register contract but have no radio side effects; radio behavior is tracked separately in issue #334.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ],
@@ -411,9 +412,9 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 41,
+        "covered_register_count": 43,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "aca06cd272c7717248012207409662fa1f0600ad6b779e46b5c79bbf8608f7f0",
+        "manifest_sha256": "aec5db08a469538e1eca64e7151731fa9db4857062d0478bbf917d624edf25d5",
         "required_covered_regions": [
           "esp32s3.aes",
           "esp32s3.digital-signature",
@@ -440,6 +441,7 @@
           "esp32s3.sha",
           "esp32s3.spi2",
           "esp32s3.spi3",
+          "esp32s3.syscon",
           "esp32s3.tsens",
           "esp32s3.twai",
           "esp32s3.uhci0",
@@ -512,7 +514,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "399be31a8c67360237af848bd63637169f6590cb7628e29ebf90499d869aac07",
+        "manifest_sha256": "0b8277757e809ab5526610fb41af7480b4dc7aecc0c19cf6401c147d849fdd8a",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",

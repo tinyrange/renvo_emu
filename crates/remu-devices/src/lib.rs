@@ -72,6 +72,8 @@ mod esp_io_mux;
 pub use esp_io_mux::*;
 mod esp_uhci;
 pub use esp_uhci::*;
+mod esp_syscon;
+pub use esp_syscon::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

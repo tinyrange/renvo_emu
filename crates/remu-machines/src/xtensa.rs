@@ -17,15 +17,15 @@ use remu_devices::{
     DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, Esp32S3IoMux, Esp32S3IoMuxHandle,
     Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc, Esp32S3LedcHandle, Esp32S3Mcpwm,
     Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle,
-    Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Tsens,
-    Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle, Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt,
-    Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio, EspHmac,
-    EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa,
-    EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
-    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
-    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon,
+    Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle,
+    Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma,
+    EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable,
+    EspMmuTableHandle, EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem,
+    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -35,6 +35,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
 mod functional_rom;
+mod interrupts;
 
 /// ESP32-S3 machine construction or execution failure.
 #[derive(Debug, Error)]
@@ -113,6 +114,7 @@ pub struct XtensaMachine {
     twai: EspTwaiHandle,
     gdma: EspGdmaHandle,
     uhci: Esp32S3UhciHandle,
+    syscon: Esp32S3SysconHandle,
     rtc_control: EspRtcControlHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
@@ -224,7 +226,6 @@ impl XtensaMachine {
             0,
         )?;
         for (name, base) in [
-            ("syscon", 0x6002_6000),
             ("usb-wrap", 0x6003_9000),
             ("sensitive", 0x600c_1000),
             ("world-controller", 0x600d_0000),
@@ -239,6 +240,13 @@ impl XtensaMachine {
                 )),
             )?;
         }
+        let (syscon_device, syscon) = Esp32S3Syscon::new("esp32s3.syscon");
+        bus.map_device(
+            "esp32s3.syscon",
+            0x6002_6000,
+            0x1000,
+            Box::new(syscon_device),
+        )?;
         let (io_mux_device, io_mux) = Esp32S3IoMux::new("esp32s3.io-mux");
         bus.map_device(
             "esp32s3.io-mux",
@@ -577,6 +585,7 @@ impl XtensaMachine {
             twai,
             gdma,
             uhci,
+            syscon,
             rtc_control,
             mmu_table,
             now: SimTime::ZERO,
@@ -1016,24 +1025,6 @@ impl XtensaMachine {
         self.run_with_stimuli(limits, &[], trace)
     }
 
-    fn update_uhci_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
-        let pending = self.uhci.interrupt_pending();
-        for core in 0..2_u32 {
-            self.interrupt_matrix
-                .set_source_pending(core as usize, 14, pending);
-            let interrupt = self.interrupt_matrix.route(core as usize, 14);
-            if interrupt == u8::MAX || interrupt == 6 {
-                continue;
-            }
-            if core == 0 {
-                self.cpu.set_interrupt(u16::from(interrupt), pending)?;
-            } else if self.appcpu_boot_address.is_some() {
-                self.cpu1.set_interrupt(u16::from(interrupt), pending)?;
-            }
-        }
-        Ok(pending)
-    }
-
     /// Runs with timestamped external GPIO stimulus.
     pub fn run_with_stimuli(
         &mut self,
@@ -1063,6 +1054,7 @@ impl XtensaMachine {
         let mut usb_was_pending = false;
         let mut usb_serial_was_pending = false;
         let mut uhci_was_pending = false;
+        let mut syscon_was_pending = false;
         let mut rtc_was_pending = false;
         let mut crosscore_was_pending = [false; 2];
         let mut systimer_was_pending = [false; 3];
@@ -1101,6 +1093,11 @@ impl XtensaMachine {
                 stats.events = stats.events.saturating_add(1);
             }
             uhci_was_pending = uhci_pending;
+            let syscon_pending = self.update_syscon_interrupt_lines()?;
+            if syscon_pending && !syscon_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            syscon_was_pending = syscon_pending;
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
                 stats.events = stats.events.saturating_add(1);

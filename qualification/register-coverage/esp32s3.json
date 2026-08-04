@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "a0ab5478902a336e37f9371388942ee750205a3426f220d06282afa0466f239b"
+    "sha256": "df4336c3a17487644c66044b5ef6a4218d2991470d471c18e0fbe9db051700dc"
   },
   "proofs": [
     {
@@ -66,15 +66,15 @@
       "id": "esp32s3-peripherals",
       "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
-      "result_sha256": "f3cca3794f1bca08c1d1282b072c92c262d4f049dadc9267b7a57b57985e3f95",
-      "bus_log_sha256": "07de4b65f1ab3075e6a6d9bcdd339db66a16bcf9e117c53dc847a74152e90043",
+      "result_sha256": "fa73be97c0d1a5ef0e4fab62a4d5b39e738592a2b2680f1968d242d3372468ec",
+      "bus_log_sha256": "dcb5411d6b4de4b2691c73218e97518a8df3fa9bea5143f9d2c3643e78c77647",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
         "trace_digest": "5e40374583e5a196739610e3f08d96e9e80ac8a3015b06e77479fb8df5f2b614",
         "stats": {
-          "instructions": 214,
-          "time": 214,
+          "instructions": 230,
+          "time": 230,
           "events": 0
         }
       }
@@ -106,6 +106,7 @@
     "esp32s3.sha",
     "esp32s3.spi2",
     "esp32s3.spi3",
+    "esp32s3.syscon",
     "esp32s3.tsens",
     "esp32s3.twai",
     "esp32s3.uhci0",
@@ -114,7 +115,7 @@
     "esp32s3.uart2",
     "esp32s3.usb-otg"
   ],
-  "covered_register_count": 41,
+  "covered_register_count": 43,
   "covered_registers": [
     {
       "region": "esp32s3.aes",
@@ -403,6 +404,28 @@
       "access_count": 1
     },
     {
+      "region": "esp32s3.syscon",
+      "address": 1610768388,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.syscon",
+      "address": 1610769404,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
       "region": "esp32s3.tsens",
       "address": 1610648060,
       "operations": [
@@ -579,6 +602,7 @@
     "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
     "UART0 is transmit-focused and does not model physical baud timing.",
     "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
+    "SYSCON radio-only clock/reset/configuration fields retain their documented register contract but have no radio side effects; radio behavior is tracked separately in issue #334.",
     "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
     "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
   ]

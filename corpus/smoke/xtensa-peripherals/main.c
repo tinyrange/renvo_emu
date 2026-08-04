@@ -53,6 +53,8 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x60021120u, 0xffffffffu, 0x52544353u, 30); /* RTC slow alias */
     WRITE32(0x60021124u, 0x414c4941u);
     CHECK(0x50000124u, 0xffffffffu, 0x414c4941u, 31); /* reverse alias */
+    CHECK(0x600263fcu, 0xffffffffu, 0x02101150u, 32); /* SYSCON */
+    CHECK(0x60026004u, 0x0001ffffu, 0x00010727u, 33); /* tick config */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

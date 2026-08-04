@@ -113,6 +113,7 @@
         "esp32s3.sha",
         "esp32s3.spi2",
         "esp32s3.spi3",
+        "esp32s3.syscon",
         "esp32s3.tsens",
         "esp32s3.twai",
         "esp32s3.uhci0",
@@ -131,6 +132,7 @@
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
         "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
+        "SYSCON radio-only clock/reset/configuration fields retain their documented register contract but have no radio side effects; radio behavior is tracked separately in issue #334.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ]
