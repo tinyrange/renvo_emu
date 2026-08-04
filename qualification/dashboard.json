@@ -20,7 +20,7 @@
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "7664050616ab60b6a53b1a1049233e85b29902ad7448a10921480d750bf0cfa6"
+      "sha256": "66211fd4d941fc0e562477694452c27620985f62a9446d65e97f3c35dca0143e"
     },
     {
       "path": "qualification/debug-observability.json",
@@ -28,7 +28,7 @@
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+      "sha256": "71df0d9e1801adc5194ae3c42fa77ea203bc343938065bac441d798df7fc4944"
     },
     {
       "path": "qualification/starlark.json",
@@ -412,7 +412,7 @@
       "register_coverage": {
         "covered_register_count": 3,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4",
+        "manifest_sha256": "07679a61d563866694e55dfa8a9eee44350b6d3f24424325894e705dc6a7cebd",
         "required_covered_regions": [
           "esp32s3.gpio",
           "esp32s3.uart0"

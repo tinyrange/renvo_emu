@@ -96,7 +96,7 @@
         "result": "pass",
         "byte_identical": true,
         "path": ".remu/qualification/debug-observability/xtensa/run.json",
-        "sha256": "16468c702352c8eeed0f172b4d3db30a0e51e96305c06ef09d22484dafca7586"
+        "sha256": "4640c21a47194b7d2b6e4d21f4ff8aecef40f9d168dc4f04acecd891cee46846"
       },
       "coverage": {
         "path": ".remu/qualification/debug-observability/xtensa/coverage.json",

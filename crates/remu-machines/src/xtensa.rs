@@ -381,6 +381,7 @@ pub struct XtensaMachine {
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
+    ledc: Esp32S3LedcHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -492,7 +493,6 @@ impl XtensaMachine {
             ("slchost", 0x6001_5000),
             ("pcnt", 0x6001_7000),
             ("slc", 0x6001_8000),
-            ("ledc", 0x6001_9000),
             ("radio-nrx", 0x6001_c000),
             ("radio-bb", 0x6001_d000),
             ("pwm0", 0x6001_e000),
@@ -753,6 +753,7 @@ impl XtensaMachine {
             system,
             systimer,
             timer_groups,
+            ledc,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -1393,6 +1394,7 @@ impl XtensaMachine {
                         .checked_add(remu_core::SimDuration::TICK)
                         .map_err(|_| XtensaMachineError::TimeOverflow)?;
                     stats.time = self.now;
+                    self.ledc.poll(self.now)?;
                     if let Some(hit) = self.bus.take_watchpoint_hit() {
                         break StopReason::Watchpoint {
                             address: hit.address,
@@ -1481,6 +1483,7 @@ impl XtensaMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
             stats.time = self.now;
+            self.ledc.poll(self.now)?;
             next_core = if self.appcpu_boot_address.is_some() {
                 next_core ^ 1
             } else {
