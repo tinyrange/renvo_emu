@@ -14,11 +14,12 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, Esp32s3I2c, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl,
-    EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup,
-    EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
-    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32s3I2c, Esp32s3Spi, EspGpio, EspMmuTable, EspMmuTableHandle,
+    EspRtcControl, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub, TimerHandle,
+    UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -497,8 +498,6 @@ impl XtensaMachine {
             ("radio-bb", 0x6001_d000),
             ("pwm0", 0x6001_e000),
             ("rtc-slowmem-controller", 0x6002_1000),
-            ("spi2", 0x6002_4000),
-            ("spi3", 0x6002_5000),
             ("syscon", 0x6002_6000),
             ("sdmmc", 0x6002_8000),
             ("peripheral-backup", 0x6002_a000),
@@ -564,6 +563,14 @@ impl XtensaMachine {
             0x1000,
             Box::new(EspSpiMem::new("esp32s3.spi0")),
         )?;
+        for (name, base) in [("spi2", 0x6002_4000), ("spi3", 0x6002_5000)] {
+            bus.map_device(
+                format!("esp32s3.{name}"),
+                base,
+                0x1000,
+                Box::new(Esp32s3Spi::new(format!("esp32s3.{name}"), signals.clone())?),
+            )?;
+        }
         bus.map_device(
             "esp32s3.rtc-control",
             0x6000_8000,

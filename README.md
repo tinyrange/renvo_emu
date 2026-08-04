@@ -139,6 +139,13 @@ transactions against the built-in SGP30 qualification device, with SDA/SCL
 waveform signals. This is a functional peripheral slice, not a clock-accurate
 electrical bus model or a complete device catalogue.
 
+The ESP32-S3 functional slice includes native-address SPI2 and SPI3 user
+transactions: firmware can fill the W0-W15 FIFO, start a bounded transfer, and
+observe deterministic MOSI, MISO, SCLK, CS0, and transfer-complete signals. The
+current model intentionally leaves DMA, clock-divider fidelity, additional
+chip-select electrical behavior, and full LCD-device semantics for later
+peripheral slices.
+
 ## Qualification and provenance
 
 The checked qualification suite covers more than workspace unit tests:
