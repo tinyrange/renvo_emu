@@ -499,7 +499,6 @@ impl XtensaMachine {
             ("syscon", 0x6002_6000),
             ("sdmmc", 0x6002_8000),
             ("peripheral-backup", 0x6002_a000),
-            ("twai", 0x6002_b000),
             ("pwm1", 0x6002_c000),
             ("usb-wrap", 0x6003_9000),
             ("aes", 0x6003_a000),
