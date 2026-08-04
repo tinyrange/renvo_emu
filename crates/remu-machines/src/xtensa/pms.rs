@@ -1,12 +1,13 @@
 use remu_bus::AddressSpace;
 use remu_core::{AccessKind, AccessWidth, Bus, BusFault, SimTime};
-use remu_devices::{Esp32S3PmsHandle, Esp32S3WorldControllerHandle};
+use remu_devices::{Esp32S3ExtmemHandle, Esp32S3PmsHandle, Esp32S3WorldControllerHandle};
 
 /// CPU-facing address-space wrapper that applies PMS before the underlying bus.
 pub(super) struct Esp32S3PmsBus<'a> {
     bus: &'a mut AddressSpace,
     pms: &'a Esp32S3PmsHandle,
     world_controller: &'a Esp32S3WorldControllerHandle,
+    extmem: &'a Esp32S3ExtmemHandle,
     core: u8,
 }
 
@@ -15,12 +16,14 @@ impl<'a> Esp32S3PmsBus<'a> {
         bus: &'a mut AddressSpace,
         pms: &'a Esp32S3PmsHandle,
         world_controller: &'a Esp32S3WorldControllerHandle,
+        extmem: &'a Esp32S3ExtmemHandle,
         core: u8,
     ) -> Self {
         Self {
             bus,
             pms,
             world_controller,
+            extmem,
             core,
         }
     }
@@ -42,7 +45,10 @@ impl Bus for Esp32S3PmsBus<'_> {
             self.pms
                 .check_cpu_access(self.core, world, address, width, kind)
         });
-        if checked {
+        let cache_allowed = checked
+            && u32::try_from(address)
+                .is_ok_and(|address| self.extmem.observe_access(self.core, address, kind));
+        if cache_allowed {
             self.bus.read(address, width, kind, at)
         } else {
             // The PMS fabric responds to denied internal/PIF reads with zero.
@@ -64,7 +70,12 @@ impl Bus for Esp32S3PmsBus<'_> {
             self.pms
                 .check_cpu_access(self.core, world, address, width, AccessKind::Write)
         });
-        if checked {
+        let cache_allowed = checked
+            && u32::try_from(address).is_ok_and(|address| {
+                self.extmem
+                    .observe_access(self.core, address, AccessKind::Write)
+            });
+        if cache_allowed {
             self.bus.write(address, width, value, at)?;
             if let Ok(address) = u32::try_from(address) {
                 self.world_controller

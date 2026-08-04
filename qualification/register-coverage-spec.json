@@ -91,6 +91,7 @@
         "esp32s3.aes",
         "esp32s3.digital-signature",
         "esp32s3.efuse",
+        "esp32s3.extmem",
         "esp32s3.gdma",
         "esp32s3.gpio",
         "esp32s3.hmac",
@@ -137,6 +138,7 @@
         "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
         "SYSCON radio-only clock/reset/configuration fields retain their documented register contract but have no radio side effects; radio behavior is tracked separately in issue #334.",
         "World Controller transitions, write-buffer sequencing, switch logs, and NMI masking occur at architecturally visible CPU accesses rather than pipeline-cycle timing.",
+        "EXTMEM cache commands complete at the issuing architectural write; tags, locks, miss counters and interrupts are functional without silicon refill latency or physical SPI timing.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ]

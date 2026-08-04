@@ -743,6 +743,7 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
         ("esp32s3.digital-signature", 0x6003_d000, 0x1000),
         ("esp32s3.rtc-control", 0x6000_8000, 0x0800),
         ("esp32s3.interrupt-matrix", 0x600c_2000, 0x1000),
+        ("esp32s3.extmem", 0x600c_4000, 0x1000),
         ("esp32s3.usb-serial-jtag", 0x6003_8000, 0x1000),
         ("esp32s3.usb-otg", 0x6008_0000, 0x1_0000),
     ];
@@ -798,6 +799,7 @@ fn esp32s3_rtc_slow_memory_aliases_and_reserved_legacy_pages_fault() {
         0x6000_5000,
         0x6000_b000,
         0x6000_c000,
+        0x6000_e000,
         0x6001_1000,
         0x6001_5000,
         0x6001_8000,
@@ -813,6 +815,81 @@ fn esp32s3_rtc_slow_memory_aliases_and_reserved_legacy_pages_fault() {
             "reserved ESP32-S3 address {address:#x} unexpectedly responded"
         );
     }
+}
+
+#[test]
+fn esp32s3_extmem_couples_cached_accesses_and_native_interrupts() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let extmem = 0x600c_4000;
+    machine.extmem.configure_boot_caches();
+
+    // Preload completion uses native interrupt-matrix source 61.
+    machine
+        .bus
+        .write(0x600c_2000 + 61 * 4, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(extmem + 0x140, AccessWidth::Word, 1 << 4, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            extmem + 0x044,
+            AccessWidth::Word,
+            0x3c00_0000,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(extmem + 0x048, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(extmem + 0x040, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert!(machine.update_extmem_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+
+    {
+        let mut guarded = pms::Esp32S3PmsBus::new(
+            &mut machine.bus,
+            &machine.pms,
+            &machine.world_controller,
+            &machine.extmem,
+            0,
+        );
+        assert_eq!(
+            guarded
+                .read(
+                    0x3c00_0000,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xffff_ffff
+        );
+    }
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                extmem + 0x0d8,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        1
+    );
+    machine
+        .bus
+        .write(extmem + 0x140, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    assert!(!machine.update_extmem_interrupt_lines().unwrap());
+    assert_eq!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
 }
 
 #[test]
@@ -1062,8 +1139,13 @@ fn esp32s3_pms_blocks_cpu_writes_and_routes_first_fault_interrupts() {
         .unwrap();
     assert!(machine.chip_uart.bytes().is_empty());
     {
-        let mut guarded =
-            pms::Esp32S3PmsBus::new(&mut machine.bus, &machine.pms, &machine.world_controller, 0);
+        let mut guarded = pms::Esp32S3PmsBus::new(
+            &mut machine.bus,
+            &machine.pms,
+            &machine.world_controller,
+            &machine.extmem,
+            0,
+        );
         guarded
             .write(0x6000_0000, AccessWidth::Word, b'X'.into(), SimTime::ZERO)
             .unwrap();
@@ -1148,8 +1230,13 @@ fn esp32s3_world_controller_switches_pms_worlds_and_masks_nmi() {
         .unwrap();
 
     {
-        let mut guarded =
-            pms::Esp32S3PmsBus::new(&mut machine.bus, &machine.pms, &machine.world_controller, 0);
+        let mut guarded = pms::Esp32S3PmsBus::new(
+            &mut machine.bus,
+            &machine.pms,
+            &machine.world_controller,
+            &machine.extmem,
+            0,
+        );
         guarded
             .read(
                 trigger,
@@ -1228,8 +1315,13 @@ fn esp32s3_world_controller_switches_pms_worlds_and_masks_nmi() {
         )
         .unwrap();
     {
-        let mut guarded =
-            pms::Esp32S3PmsBus::new(&mut machine.bus, &machine.pms, &machine.world_controller, 0);
+        let mut guarded = pms::Esp32S3PmsBus::new(
+            &mut machine.bus,
+            &machine.pms,
+            &machine.world_controller,
+            &machine.extmem,
+            0,
+        );
         guarded
             .write(0x6000_0000, AccessWidth::Word, b'Y'.into(), SimTime::ZERO)
             .unwrap();

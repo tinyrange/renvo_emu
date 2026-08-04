@@ -54,6 +54,15 @@ impl XtensaMachine {
         self.update_matrix_source(60, self.syscon.interrupt_pending())
     }
 
+    pub(super) fn update_extmem_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
+        let mut any_pending = false;
+        for source in [56, 61, 62, 63, 64] {
+            let pending = self.extmem.interrupt_pending(source);
+            any_pending |= self.update_matrix_source(source, pending)?;
+        }
+        Ok(any_pending)
+    }
+
     pub(super) fn update_pms_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
         let mut any_pending = false;
         for source in 84..=93 {

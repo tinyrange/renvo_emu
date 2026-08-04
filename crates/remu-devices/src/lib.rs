@@ -80,6 +80,8 @@ mod esp_pms;
 pub use esp_pms::*;
 mod esp_world_controller;
 pub use esp_world_controller::*;
+mod esp_extmem;
+pub use esp_extmem::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

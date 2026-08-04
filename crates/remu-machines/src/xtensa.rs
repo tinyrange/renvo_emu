@@ -14,19 +14,19 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, Esp32S3IoMux, Esp32S3IoMuxHandle,
-    Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc, Esp32S3LedcHandle, Esp32S3Mcpwm,
-    Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3Pms, Esp32S3PmsHandle,
-    Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha,
-    Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle,
-    Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32S3WorldController,
-    Esp32S3WorldControllerHandle, Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi,
-    EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix,
-    EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa, EspRtcControl,
-    EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
-    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg,
-    EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
-    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub,
+    DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, Esp32S3Extmem, Esp32S3ExtmemHandle,
+    Esp32S3IoMux, Esp32S3IoMuxHandle, Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc,
+    Esp32S3LedcHandle, Esp32S3Mcpwm, Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle,
+    Esp32S3Pms, Esp32S3PmsHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc,
+    Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle,
+    Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap,
+    Esp32S3UsbWrapHandle, Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32s3I2c,
+    Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle,
+    EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle,
+    EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
+    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
+    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
+    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, SignalHub,
     TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
@@ -102,6 +102,7 @@ pub struct XtensaMachine {
     usb_wrap: Esp32S3UsbWrapHandle,
     pms: Esp32S3PmsHandle,
     world_controller: Esp32S3WorldControllerHandle,
+    extmem: Esp32S3ExtmemHandle,
     usb_host: EspDwc2Host,
     saradc: Esp32S3SarAdcHandle,
     tsens: Esp32S3TsensHandle,
@@ -350,19 +351,6 @@ impl XtensaMachine {
             0x1000,
             Box::new(DeterministicRng::new("esp32s3.rng", 0x7c, 0x32f3_0001)),
         )?;
-        let mut analog_i2c_registers = vec![0; 0x1000 / 4];
-        // I2C_MST_ANA_CONF0.BBPLL_CAL_DONE. The functional clock tree locks
-        // immediately and retains the completion status through RMW setup.
-        analog_i2c_registers[0x40 / 4] = 1 << 24;
-        bus.map_device(
-            "esp32s3.analog-i2c",
-            0x6000_e000,
-            0x1000,
-            Box::new(Rp2040RegisterBank::new(
-                "esp32s3.analog-i2c",
-                analog_i2c_registers,
-            )),
-        )?;
         bus.map_device(
             "esp32s3.spi1",
             0x6000_2000,
@@ -437,14 +425,12 @@ impl XtensaMachine {
             0x1000,
             Box::new(mmu_table_device),
         )?;
-        let cache_registers = vec![0; 0x1000 / 4];
-        // CACHE_STATE reports both I-cache and D-cache idle/enabled state.
-        // A verified image starts before the application cache-mode call.
+        let (extmem_device, extmem) = Esp32S3Extmem::new("esp32s3.extmem");
         bus.map_device(
-            "esp32s3.cache",
+            "esp32s3.extmem",
             0x600c_4000,
             0x1000,
-            Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
+            Box::new(extmem_device),
         )?;
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
@@ -583,6 +569,7 @@ impl XtensaMachine {
             usb_wrap,
             pms,
             world_controller,
+            extmem,
             usb_host: EspDwc2Host::new(),
             saradc,
             tsens,
@@ -627,6 +614,7 @@ impl XtensaMachine {
         // Direct ELF execution is intentionally the weaker debugging mode:
         // it permits XIP reads without reproducing the bootloader handoff.
         self.instruction_cache_configured = true;
+        self.extmem.configure_boot_caches();
         self.windowed_handoff_pending = false;
         for segment in &image.segments {
             let initialized = segment
@@ -1045,6 +1033,7 @@ impl XtensaMachine {
         let mut usb_serial_was_pending = false;
         let mut uhci_was_pending = false;
         let mut syscon_was_pending = false;
+        let mut extmem_was_pending = false;
         let mut pms_was_pending = false;
         let mut rtc_was_pending = false;
         let mut crosscore_was_pending = [false; 2];
@@ -1089,6 +1078,11 @@ impl XtensaMachine {
                 stats.events = stats.events.saturating_add(1);
             }
             syscon_was_pending = syscon_pending;
+            let extmem_pending = self.update_extmem_interrupt_lines()?;
+            if extmem_pending && !extmem_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            extmem_was_pending = extmem_pending;
             let pms_pending = self.update_pms_interrupt_lines()?;
             if pms_pending && !pms_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -1418,6 +1412,7 @@ impl XtensaMachine {
                 &mut self.bus,
                 &self.pms,
                 &self.world_controller,
+                &self.extmem,
                 u8::from(running_cpu1),
             );
             let outcome = match self.cpu.step(&mut pms_bus, self.now) {

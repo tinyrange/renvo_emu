@@ -1,0 +1,73 @@
+#include <stdint.h>
+
+#include "soc/extmem_reg.h"
+
+#define READ32(address) (*(volatile uint32_t *)(uintptr_t)(address))
+#define WRITE32(address, value) (READ32(address) = (uint32_t)(value))
+
+__attribute__((noreturn, section(".text.start"))) void _start(void)
+{
+    volatile uint32_t *const exit_code = (volatile uint32_t *)0xfffffff0u;
+    uint32_t failure = 0;
+
+    /* Direct-ELF handoff starts with boot caches available. Recreate the
+     * documented controller reset before checking the vendor contract. */
+    WRITE32(EXTMEM_DCACHE_CTRL_REG, 0u);
+    WRITE32(EXTMEM_DCACHE_CTRL1_REG,
+            EXTMEM_DCACHE_SHUT_CORE0_BUS | EXTMEM_DCACHE_SHUT_CORE1_BUS);
+    WRITE32(EXTMEM_ICACHE_CTRL_REG, 0u);
+    WRITE32(EXTMEM_ICACHE_CTRL1_REG,
+            EXTMEM_ICACHE_SHUT_CORE0_BUS | EXTMEM_ICACHE_SHUT_CORE1_BUS);
+    if (READ32(EXTMEM_DCACHE_CTRL_REG) != 0u ||
+        READ32(EXTMEM_DCACHE_CTRL1_REG) != 3u ||
+        READ32(EXTMEM_ICACHE_CTRL_REG) != 0u ||
+        READ32(EXTMEM_ICACHE_CTRL1_REG) != 3u ||
+        READ32(EXTMEM_CACHE_STATE_REG) != 0x00001001u ||
+        READ32(EXTMEM_DATE_REG) != 0x02012310u) {
+        failure = 1;
+    }
+
+    WRITE32(EXTMEM_DCACHE_CTRL_REG,
+            EXTMEM_DCACHE_ENABLE | (3u << EXTMEM_DCACHE_BLOCKSIZE_MODE_S));
+    WRITE32(EXTMEM_DCACHE_CTRL1_REG, 0u);
+    WRITE32(EXTMEM_ICACHE_CTRL_REG,
+            EXTMEM_ICACHE_ENABLE | (2u << EXTMEM_ICACHE_BLOCKSIZE_MODE_S));
+    WRITE32(EXTMEM_ICACHE_CTRL1_REG, 0u);
+    if (READ32(EXTMEM_DCACHE_CTRL_REG) != 0x19u ||
+        READ32(EXTMEM_ICACHE_CTRL_REG) != 0x09u) {
+        failure = 2;
+    }
+
+    WRITE32(EXTMEM_DCACHE_PRELOAD_ADDR_REG, 0x3c000000u);
+    WRITE32(EXTMEM_DCACHE_PRELOAD_SIZE_REG, 2u);
+    WRITE32(EXTMEM_CACHE_PRELOAD_INT_CTRL_REG, EXTMEM_DCACHE_PRELOAD_INT_ENA);
+    WRITE32(EXTMEM_DCACHE_PRELOAD_CTRL_REG, EXTMEM_DCACHE_PRELOAD_ENA);
+    if ((READ32(EXTMEM_DCACHE_PRELOAD_CTRL_REG) & EXTMEM_DCACHE_PRELOAD_DONE) == 0u ||
+        (READ32(EXTMEM_CACHE_PRELOAD_INT_CTRL_REG) &
+         (EXTMEM_DCACHE_PRELOAD_INT_ENA | EXTMEM_DCACHE_PRELOAD_INT_ST)) !=
+            (EXTMEM_DCACHE_PRELOAD_INT_ENA | EXTMEM_DCACHE_PRELOAD_INT_ST)) {
+        failure = 3;
+    }
+    WRITE32(EXTMEM_CACHE_PRELOAD_INT_CTRL_REG, EXTMEM_DCACHE_PRELOAD_INT_CLR);
+
+    WRITE32(EXTMEM_DCACHE_SYNC_ADDR_REG, 0x3c000000u);
+    WRITE32(EXTMEM_DCACHE_SYNC_SIZE_REG, 2u);
+    WRITE32(EXTMEM_CACHE_SYNC_INT_CTRL_REG, EXTMEM_DCACHE_SYNC_INT_ENA);
+    WRITE32(EXTMEM_DCACHE_SYNC_CTRL_REG, EXTMEM_DCACHE_INVALIDATE_ENA);
+    if ((READ32(EXTMEM_DCACHE_SYNC_CTRL_REG) & EXTMEM_DCACHE_SYNC_DONE) == 0u ||
+        (READ32(EXTMEM_CACHE_SYNC_INT_CTRL_REG) & EXTMEM_DCACHE_SYNC_INT_ST) == 0u) {
+        failure = 4;
+    }
+
+    WRITE32(EXTMEM_CACHE_ACS_CNT_CLR_REG,
+            EXTMEM_ICACHE_ACS_CNT_CLR | EXTMEM_DCACHE_ACS_CNT_CLR);
+    if (READ32(EXTMEM_IBUS_ACS_CNT_REG) != 0u ||
+        READ32(EXTMEM_DBUS_ACS_CNT_REG) != 0u) {
+        failure = 5;
+    }
+
+    *exit_code = failure;
+    __asm__ volatile("break 0, 0");
+    for (;;) {
+    }
+}

@@ -729,9 +729,7 @@ impl XtensaMachine {
                     && self.cpu.register(XtensaRegister::A4) == 32;
                 if valid {
                     self.instruction_cache_configured = true;
-                    self.bus
-                        .write(0x600c_4130, AccessWidth::Word, 0x0000_1001, self.now)
-                        .map_err(|error| error.to_string())?;
+                    self.extmem.configure_boot_caches();
                 }
                 self.complete_functional_rom_call(u32::from(!valid))?;
             }

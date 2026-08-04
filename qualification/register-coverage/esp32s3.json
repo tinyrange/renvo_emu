@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "acf23d21399b918ce61aff34d96aac110081fd86f478ffd7543fc16f120e90ee"
+    "sha256": "98511d566f9881e13d299b2579c3c6a179ee03b3797d1452734b2793fb9188e3"
   },
   "proofs": [
     {
@@ -66,15 +66,15 @@
       "id": "esp32s3-peripherals",
       "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
-      "result_sha256": "cfa21c320e0e29e4ec9f580442879f2e8b2abb7dcc2ad899f1cca57437d820bb",
-      "bus_log_sha256": "6a5bf12c68887a3605f140289e996645a32cf98ed8b57cbff6106ebfef052314",
+      "result_sha256": "c6341087cd6c54f30bec95d45b0c6c94219b958ffe9becc69200e6fcd8baf3e4",
+      "bus_log_sha256": "ecec135fc0cb6a18f0949e86c348e9f3f34a5b057e61fa267dd44e604273279a",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
         "trace_digest": "5e40374583e5a196739610e3f08d96e9e80ac8a3015b06e77479fb8df5f2b614",
         "stats": {
-          "instructions": 277,
-          "time": 277,
+          "instructions": 295,
+          "time": 295,
           "events": 0
         }
       }
@@ -84,6 +84,7 @@
     "esp32s3.aes",
     "esp32s3.digital-signature",
     "esp32s3.efuse",
+    "esp32s3.extmem",
     "esp32s3.gdma",
     "esp32s3.gpio",
     "esp32s3.hmac",
@@ -118,7 +119,7 @@
     "esp32s3.usb-otg",
     "esp32s3.world-controller"
   ],
-  "covered_register_count": 49,
+  "covered_register_count": 51,
   "covered_registers": [
     {
       "region": "esp32s3.aes",
@@ -145,6 +146,28 @@
     {
       "region": "esp32s3.efuse",
       "address": 1610641916,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.extmem",
+      "address": 1611415856,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.extmem",
+      "address": 1611416572,
       "operations": [
         "Read"
       ],
@@ -673,6 +696,7 @@
     "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
     "SYSCON radio-only clock/reset/configuration fields retain their documented register contract but have no radio side effects; radio behavior is tracked separately in issue #334.",
     "World Controller transitions, write-buffer sequencing, switch logs, and NMI masking occur at architecturally visible CPU accesses rather than pipeline-cycle timing.",
+    "EXTMEM cache commands complete at the issuing architectural write; tags, locks, miss counters and interrupts are functional without silicon refill latency or physical SPI timing.",
     "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
     "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
   ]
