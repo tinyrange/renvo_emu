@@ -1089,6 +1089,15 @@ impl XtensaMachine {
         Ok(())
     }
 
+    /// Applies a host-supplied edge to an ESP32-S3 PCNT unit.
+    pub fn pulse_pcnt(
+        &self,
+        unit: usize,
+        edge: remu_devices::EspPcntEdge,
+    ) -> Result<bool, XtensaMachineError> {
+        Ok(self.pcnt.pulse(unit, edge, self.now)?)
+    }
+
     fn set_systimer_interrupt(
         &mut self,
         core: u32,
