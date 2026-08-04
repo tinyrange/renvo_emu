@@ -795,6 +795,48 @@ fn esp32s3_rtc_i2c_routes_completed_transfers_through_rtc_core_interrupt() {
 }
 
 #[test]
+fn esp32s3_sens_touch_scan_routes_ulp_interrupt_and_exposes_pad_status() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6000_8800;
+    machine.tsens.set_touch_raw(3, 100);
+    machine
+        .bus
+        .write(0x600c_2000 + 39 * 4, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x06c, AccessWidth::Word, 200, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            base + 0x0ec,
+            AccessWidth::Word,
+            (1 << 11) | 5,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x05c, AccessWidth::Word, 0x7fff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x0ac,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        (1 << 29) | 100
+    );
+    assert!(machine.update_rtc_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+}
+
+#[test]
 fn esp32s3_rtc_slow_memory_aliases_and_reserved_legacy_pages_fault() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine

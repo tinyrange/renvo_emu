@@ -65,6 +65,8 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x600c4130u, 0x00ffffffu, 0x00001001u, 41); /* cache state */
     CHECK(0x60008c00u, 0x000fffffu, 0x00000100u, 42); /* RTC-I2C SCL */
     CHECK(0x60008cfcu, 0x0fffffffu, 0x01905310u, 43); /* RTC-I2C date */
+    CHECK(0x60008814u, 0xffffffffu, 0xffffffffu, 44); /* SENS ADC1 atten */
+    CHECK(0x6000885cu, 0xffff7fffu, 0xfff07fffu, 45); /* SENS touch */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

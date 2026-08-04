@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #define BIT(number) (1U << (number))
+#define DR_REG_SENS_BASE 0x60008800U
 #define DR_REG_RTC_I2C_BASE 0x60008C00U
 #define DR_REG_IO_MUX_BASE 0x60009000U
 #define DR_REG_UHCI0_BASE 0x60014000U

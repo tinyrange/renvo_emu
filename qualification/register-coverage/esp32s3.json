@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "961a77ac2756d432df6e8dcf86eb6650413af1f4fceba890dc9d3ff4d85c48c9"
+    "sha256": "db8932b7771aaba20829289868c54badaaec5f89cce40035421178ba766a960f"
   },
   "proofs": [
     {
@@ -66,15 +66,15 @@
       "id": "esp32s3-peripherals",
       "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
-      "result_sha256": "ce7c2ec324a1fd1156b7c2537872a422fd451aa9bf75cebb7ccbd9828e9eef8b",
-      "bus_log_sha256": "a6ecbc2e95725e253d93143d989527fb497958fb6647bb38f659d4ffa87a56b2",
+      "result_sha256": "f9051a696affed1500009c90530f82cc829a1647181a8d99312cbcf625ab7b99",
+      "bus_log_sha256": "529a85377bf69a82e8fd98bd2c0e6f67172ac43357cc538a536e7fd05fb1a86d",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
         "trace_digest": "5e40374583e5a196739610e3f08d96e9e80ac8a3015b06e77479fb8df5f2b614",
         "stats": {
-          "instructions": 312,
-          "time": 312,
+          "instructions": 327,
+          "time": 327,
           "events": 0
         }
       }
@@ -120,7 +120,7 @@
     "esp32s3.usb-otg",
     "esp32s3.world-controller"
   ],
-  "covered_register_count": 53,
+  "covered_register_count": 55,
   "covered_registers": [
     {
       "region": "esp32s3.aes",
@@ -498,6 +498,28 @@
     },
     {
       "region": "esp32s3.tsens",
+      "address": 1610647572,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.tsens",
+      "address": 1610647644,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.tsens",
       "address": 1610648060,
       "operations": [
         "Read"
@@ -721,6 +743,7 @@
     "World Controller transitions, write-buffer sequencing, switch logs, and NMI masking occur at architecturally visible CPU accesses rather than pipeline-cycle timing.",
     "EXTMEM cache commands complete at the issuing architectural write; tags, locks, miss counters and interrupts are functional without silicon refill latency or physical SPI timing.",
     "RTC-I2C transfers complete at the issuing architectural write and use deterministic internal slave storage without electrical bus timing.",
+    "SENS implements the complete vendor register surface, deterministic touch counts/threshold scans, and ULP RTC-I2C coupling without analogue calibration or scan-cycle timing.",
     "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
     "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
   ]

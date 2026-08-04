@@ -195,6 +195,20 @@ impl Esp32S3RtcI2cHandle {
     pub fn interrupt_pending(&self) -> bool {
         self.state.borrow().register(0x02c) != 0
     }
+
+    /// Executes the compact SENS ULP-I2C command encoding used by ESP-IDF.
+    pub fn execute_from_sens(&self, control: u32) {
+        let address = control & 0xff;
+        let register = (control >> 11) & 0xff;
+        let tx = (control >> 19) & 0xff;
+        let write = control & (1 << 27) != 0;
+        let mut state = self.state.borrow_mut();
+        state.set_register(0x010, address);
+        state.pointers.insert(address as u16, register as u8);
+        state.set_register(0x034, tx << 8);
+        state.set_register(0x004, 0xa000_000c | if write { 0 } else { 1 << 5 });
+        state.execute();
+    }
 }
 
 /// Functional ESP32-S3 RTC-domain I²C controller.

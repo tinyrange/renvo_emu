@@ -304,8 +304,6 @@ impl XtensaMachine {
             0x1000,
             Box::new(saradc_device),
         )?;
-        let (tsens_device, tsens) = Esp32S3Tsens::new("esp32s3.tsens", signals.clone())?;
-        bus.map_device("esp32s3.tsens", 0x6000_8800, 0x200, Box::new(tsens_device))?;
         let (rtc_i2c_device, rtc_i2c) = remu_devices::Esp32S3RtcI2c::new("esp32s3.rtc-i2c");
         bus.map_device(
             "esp32s3.rtc-i2c",
@@ -313,6 +311,12 @@ impl XtensaMachine {
             0x400,
             Box::new(rtc_i2c_device),
         )?;
+        let (tsens_device, tsens) = Esp32S3Tsens::new_with_rtc_i2c(
+            "esp32s3.tsens",
+            signals.clone(),
+            Some(rtc_i2c.clone()),
+        )?;
+        bus.map_device("esp32s3.tsens", 0x6000_8800, 0x200, Box::new(tsens_device))?;
         let (lcd_cam_device, lcd_cam) = Esp32S3LcdCam::new("esp32s3.lcd-cam", signals.clone())?;
         bus.map_device(
             "esp32s3.lcd-cam",

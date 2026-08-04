@@ -303,4 +303,37 @@ fetch_exact \
 jq -e '.reason == "Halted" and .exit_code == 0' "$root/vendor-rtc-i2c-run.json" >/dev/null
 jq -e 'any(.[]; .region == "esp32s3.rtc-i2c")' "$root/vendor-rtc-i2c-bus.json" >/dev/null
 
+# Compile the complete SENS surface against Espressif's generated header and
+# prove touch scanning plus the ULP-facing RTC-I2C start path.
+sens_header_hash=f3d7fee900f7cdf5d063d1d339e95811f300e35eae6cd96a64d35aacebea2522
+vendor_sens_source="$root/vendor-sens-source"
+mkdir -p "$vendor_sens_source/soc" "$root/vendor-sens-out"
+cp corpus/smoke/xtensa-peripherals/link.ld "$vendor_sens_source/link.ld"
+cp corpus/vendor/esp-idf/sens_probe.c "$vendor_sens_source/sens_probe.c"
+cp corpus/vendor/esp-idf/soc/soc.h "$vendor_sens_source/soc/soc.h"
+fetch_exact \
+    "https://raw.githubusercontent.com/espressif/esp-idf/$esp_idf_commit/components/soc/esp32s3/register/soc/sens_reg.h" \
+    "$sens_header_hash" "$vendor_sens_source/soc/sens_reg.h"
+fetch_exact \
+    "https://raw.githubusercontent.com/espressif/esp-idf/$esp_idf_commit/components/soc/esp32s3/register/soc/rtc_i2c_reg.h" \
+    "$rtc_i2c_header_hash" "$vendor_sens_source/soc/rtc_i2c_reg.h"
+
+"$remu" corpus build \
+    --toolchain toolchains/xtensa-esp-gcc-esp32s3.toml \
+    --source "$vendor_sens_source" \
+    --output "$root/vendor-sens-out" \
+    --target esp32s3 \
+    --artifact "$root/vendor-sens-build.json" \
+    -- -O2 -I. sens_probe.c -Wl,-T,link.ld -o /workspace/out/probe.elf
+
+"$remu" run \
+    --target esp32s3 \
+    --elf "$root/vendor-sens-out/probe.elf" \
+    --max-instructions 10000 \
+    --bus-log "$root/vendor-sens-bus.json" \
+    --result "$root/vendor-sens-run.json"
+
+jq -e '.reason == "Halted" and .exit_code == 0' "$root/vendor-sens-run.json" >/dev/null
+jq -e 'any(.[]; .region == "esp32s3.tsens") and any(.[]; .region == "esp32s3.rtc-i2c")' "$root/vendor-sens-bus.json" >/dev/null
+
 echo "ESP32-S3 vendor-toolchain peripheral qualification passed; artifacts: $root"

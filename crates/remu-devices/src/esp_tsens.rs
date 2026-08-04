@@ -12,6 +12,111 @@ const TSENS_INTERRUPT: u32 = 1 << 5;
 const SAR_MEAS_START_FORCE: u32 = 1 << 18;
 const SAR_MEAS_START: u32 = 1 << 17;
 const SAR_MEAS_DONE: u32 = 1 << 16;
+const TOUCH_DONE_INTERRUPT: u32 = 1;
+const TOUCH_INACTIVE_INTERRUPT: u32 = 1 << 1;
+const TOUCH_ACTIVE_INTERRUPT: u32 = 1 << 2;
+const TOUCH_SCAN_DONE_INTERRUPT: u32 = 1 << 11;
+
+// Generated from ESP-IDF sens_reg.h at f992ff36f68a783d786d83178e5f85e9a9c76ead.
+// Header SHA-256: f3d7fee900f7cdf5d063d1d339e95811f300e35eae6cd96a64d35aacebea2522.
+#[derive(Clone, Copy)]
+struct RegisterSpec {
+    offset: u16,
+    reset: u32,
+    read_mask: u32,
+    write_mask: u32,
+}
+
+const fn spec(offset: u16, reset: u32, read_mask: u32, write_mask: u32) -> RegisterSpec {
+    RegisterSpec {
+        offset,
+        reset,
+        read_mask,
+        write_mask,
+    }
+}
+
+const SPECS: [RegisterSpec; 71] = [
+    spec(0x000, 0x20040002, 0x37fc00ff, 0x37fc00ff),
+    spec(0x004, 0, 0xffffffff, 0),
+    spec(0x008, 0, 0xff000000, 0xff000000),
+    spec(0x00c, 0, 0xffffffff, 0xfffe0000),
+    spec(0x010, 0, 0x80000000, 0x80000000),
+    spec(0x014, 0xffffffff, 0xffffffff, 0xffffffff),
+    spec(0x018, 0x000a000a, 0xffffffff, 0xffffffff),
+    spec(0x01c, 0x000a0000, 0xffff007f, 0xffff007f),
+    spec(0x020, 0x00fbb87b, 0x0fffffff, 0x0fffffff),
+    spec(0x024, 0x40050002, 0x67ff00ff, 0x67ff00ff),
+    spec(0x028, 0, 0xffffffff, 0),
+    spec(0x02c, 0x07020200, 0xffffffff, 0xfffffff8),
+    spec(0x030, 0, 0xffffffff, 0xfffe0000),
+    spec(0x034, 0, 0xf0000000, 0xf0000000),
+    spec(0x038, 0xffffffff, 0xffffffff, 0xffffffff),
+    spec(0x03c, 0, 0xe0000000, 0xe0000000),
+    spec(0x040, 0, 0x3fffffff, 0x003fffff),
+    spec(0x044, 0, 0x003fffff, 0x003fffff),
+    spec(0x048, 0, 0x003fffff, 0x003fffff),
+    spec(0x04c, 0, 0x003fffff, 0x003fffff),
+    spec(0x050, 0x00019000, 0x01fff1ff, 0x01fff000),
+    spec(0x054, 0x00004002, 0x00007fff, 0x00007fff),
+    spec(0x058, 0, 0x3fffffff, 0x3fffffff),
+    spec(0x05c, 0xfff07fff, 0xffff7fff, 0xfff3ffff),
+    spec(0x060, 0, 0x003fffff, 0),
+    spec(0x064, 0, 0x003fffff, 0x003fffff),
+    spec(0x068, 0, 0x003fffff, 0x003fffff),
+    spec(0x06c, 0, 0x003fffff, 0x003fffff),
+    spec(0x070, 0, 0x003fffff, 0x003fffff),
+    spec(0x074, 0, 0x003fffff, 0x003fffff),
+    spec(0x078, 0, 0x003fffff, 0x003fffff),
+    spec(0x07c, 0, 0x003fffff, 0x003fffff),
+    spec(0x080, 0, 0x003fffff, 0x003fffff),
+    spec(0x084, 0, 0x003fffff, 0x003fffff),
+    spec(0x088, 0, 0x003fffff, 0x003fffff),
+    spec(0x08c, 0, 0x003fffff, 0x003fffff),
+    spec(0x090, 0, 0x003fffff, 0x003fffff),
+    spec(0x094, 0, 0x003fffff, 0x003fffff),
+    spec(0x098, 0, 0x003fffff, 0x003fffff),
+    spec(0x09c, 0, 0x80007fff, 0x3fff8000),
+    spec(0x0a0, 0, 0x03ffffff, 0),
+    spec(0x0a4, 0, 0xe03fffff, 0),
+    spec(0x0a8, 0, 0xe03fffff, 0),
+    spec(0x0ac, 0, 0xe03fffff, 0),
+    spec(0x0b0, 0, 0xe03fffff, 0),
+    spec(0x0b4, 0, 0xe03fffff, 0),
+    spec(0x0b8, 0, 0xe03fffff, 0),
+    spec(0x0bc, 0, 0xe03fffff, 0),
+    spec(0x0c0, 0, 0xe03fffff, 0),
+    spec(0x0c4, 0, 0xe03fffff, 0),
+    spec(0x0c8, 0, 0xe03fffff, 0),
+    spec(0x0cc, 0, 0xe03fffff, 0),
+    spec(0x0d0, 0, 0xe03fffff, 0),
+    spec(0x0d4, 0, 0xe03fffff, 0),
+    spec(0x0d8, 0, 0xe03fffff, 0),
+    spec(0x0dc, 0, 0xe03fffff, 0),
+    spec(0x0e0, 0, 0xffffffff, 0),
+    spec(0x0e4, 0, 0x7c000000, 0x02000000),
+    spec(0x0e8, 0, 0x00000fff, 0),
+    spec(0x0ec, 0, 0x00000fff, 0x00000fff),
+    spec(0x0f0, 0, 0x00000fff, 0),
+    spec(0x0f4, 0, 0, 0x00000fff),
+    spec(0x0f8, 0, 0xffffffff, 0),
+    spec(0x0fc, 0xa0000000, 0xf0000000, 0xf0000000),
+    spec(0x100, 0, 0xffffffff, 0xffffffff),
+    spec(0x104, 0, 0xe8000000, 0xe8000000),
+    spec(0x108, 0, 0x6a000000, 0x6a000000),
+    spec(0x10c, 0, 0, 0x00000fff),
+    spec(0x110, 0, 0, 0x00000fff),
+    spec(0x114, 0, 0x0000001f, 0x0000001f),
+    spec(0x1fc, 0x02101180, 0x0fffffff, 0x0fffffff),
+];
+
+fn spec_for(offset: u64) -> Option<RegisterSpec> {
+    let offset = u16::try_from(offset).ok()?;
+    SPECS
+        .binary_search_by_key(&offset, |spec| spec.offset)
+        .ok()
+        .map(|index| SPECS[index])
+}
 
 /// Native register identifiers for the ESP32-S3 SENS aperture.
 ///
@@ -88,73 +193,15 @@ impl Esp32S3TsensRegister {
     }
 
     fn read_mask(self) -> u32 {
-        match self {
-            Self::SarReader1Ctrl => (1 << 29) | (1 << 28) | (0xff << 19) | (1 << 18) | 0xff,
-            Self::SarReader1Status => u32::MAX,
-            Self::SarMeas1Ctrl1 => 0xff00_0000,
-            Self::SarMeas1Ctrl2 => u32::MAX,
-            Self::SarReader2Ctrl => {
-                (1 << 30) | (1 << 29) | (0xff << 19) | (1 << 18) | (3 << 16) | 0xff
-            }
-            Self::SarReader2Status => u32::MAX,
-            Self::SarMeas2Ctrl1 => u32::MAX,
-            Self::SarMeas2Ctrl2 => u32::MAX,
-            Self::TsensCtrl => 0x01ff_f1ff,
-            Self::TsensCtrl2 => 0x0000_7fff,
-            Self::SarCocpuIntRaw | Self::SarCocpuIntStatus => 0x0000_0fff,
-            Self::SarCocpuIntEna => 0x0000_0fff,
-            Self::SarCocpuIntClear => 0,
-            Self::SarPeriClockGate => (1 << 31) | (1 << 30) | (1 << 29) | (1 << 27),
-            Self::SarPeriReset => (1 << 30) | (1 << 29) | (1 << 27) | (1 << 25),
-            Self::SarDate => 0x0fff_ffff,
-        }
+        spec_for(self.offset())
+            .expect("enumerated SENS register has a spec")
+            .read_mask
     }
 
     fn write_mask(self) -> u32 {
-        match self {
-            Self::SarReader1Ctrl => Self::SarReader1Ctrl.read_mask(),
-            Self::SarReader1Status => 0,
-            Self::SarMeas1Ctrl1 => 0xff00_0000,
-            Self::SarMeas1Ctrl2 => {
-                (1 << 31) | (0xfff << 19) | SAR_MEAS_START_FORCE | SAR_MEAS_START
-            }
-            Self::SarReader2Ctrl => Self::SarReader2Ctrl.read_mask(),
-            Self::SarReader2Status => 0,
-            Self::SarMeas2Ctrl1 => 0xffff_fff8,
-            Self::SarMeas2Ctrl2 => {
-                (1 << 31) | (0xfff << 19) | SAR_MEAS_START_FORCE | SAR_MEAS_START
-            }
-            Self::TsensCtrl => 0x01ff_f000,
-            Self::TsensCtrl2 => 0x0000_7fff,
-            Self::SarCocpuIntRaw | Self::SarCocpuIntStatus => 0,
-            Self::SarCocpuIntEna => 0x0000_0fff,
-            Self::SarCocpuIntClear => 0x0000_0fff,
-            Self::SarPeriClockGate => Self::SarPeriClockGate.read_mask(),
-            Self::SarPeriReset => Self::SarPeriReset.read_mask(),
-            Self::SarDate => 0x0fff_ffff,
-        }
-    }
-
-    fn reset_value(self) -> u32 {
-        match self {
-            Self::SarReader1Ctrl => (1 << 29) | (1 << 18) | 2,
-            Self::SarReader1Status
-            | Self::SarMeas1Ctrl1
-            | Self::SarMeas1Ctrl2
-            | Self::SarReader2Status
-            | Self::SarMeas2Ctrl2
-            | Self::SarCocpuIntRaw
-            | Self::SarCocpuIntEna
-            | Self::SarCocpuIntStatus
-            | Self::SarCocpuIntClear
-            | Self::SarPeriClockGate
-            | Self::SarPeriReset => 0,
-            Self::SarReader2Ctrl => (1 << 30) | (1 << 18) | (1 << 16) | 2,
-            Self::SarMeas2Ctrl1 => (7 << 24) | (2 << 16) | (2 << 8),
-            Self::TsensCtrl => (6 << 14) | TSENS_INT_ENABLE,
-            Self::TsensCtrl2 => (1 << 14) | 2,
-            Self::SarDate => 0x0210_1180,
-        }
+        spec_for(self.offset())
+            .expect("enumerated SENS register has a spec")
+            .write_mask
     }
 }
 
@@ -175,11 +222,29 @@ impl Esp32S3TsensHandle {
     pub fn raw(&self) -> u8 {
         self.state.borrow().raw
     }
+
+    /// Supplies a deterministic 22-bit capacitive count for touch pad 1..14.
+    pub fn set_touch_raw(&self, pad: usize, value: u32) {
+        assert!((1..=14).contains(&pad), "ESP32-S3 touch pad must be 1..14");
+        self.state.borrow_mut().touch_raw[pad] = value & 0x003f_ffff;
+    }
+
+    /// Completes one deterministic touch scan using the configured thresholds.
+    pub fn scan_touch(&self) {
+        self.state.borrow_mut().complete_touch_scan();
+    }
+
+    /// Returns whether any enabled SENS co-processor event is pending.
+    pub fn interrupt_pending(&self) -> bool {
+        self.state.borrow().register_offset(0xf0) != 0
+    }
 }
 
 struct Esp32S3TsensState {
     registers: Vec<u32>,
     raw: u8,
+    touch_raw: [u32; 15],
+    rtc_i2c: Option<Esp32S3RtcI2cHandle>,
     hub: SignalHub,
     signal: SignalId,
 }
@@ -193,10 +258,55 @@ impl Esp32S3TsensState {
         self.registers[register as usize / 4] = value & register.read_mask();
     }
 
+    fn register_offset(&self, offset: u64) -> u32 {
+        self.registers[offset as usize / 4]
+    }
+
+    fn set_register_offset(&mut self, offset: u64, value: u32) {
+        let spec = spec_for(offset).expect("internal SENS offset has a register spec");
+        self.registers[offset as usize / 4] = value & spec.read_mask;
+    }
+
     fn refresh_interrupt_status(&mut self) {
         let raw = self.register(Esp32S3TsensRegister::SarCocpuIntRaw);
         let enabled = self.register(Esp32S3TsensRegister::SarCocpuIntEna);
         self.set_register(Esp32S3TsensRegister::SarCocpuIntStatus, raw & enabled);
+    }
+
+    fn complete_touch_scan(&mut self) {
+        let old_active = self.register_offset(0x09c) & 0x7fff;
+        let enabled = self.register_offset(0x05c) & 0x7fff;
+        let mut active = 0;
+        self.set_register_offset(0x0a0, self.touch_raw[0]);
+        for pad in 1..=14 {
+            let sample = self.touch_raw[pad] & 0x003f_ffff;
+            let threshold = self.register_offset(0x060 + pad as u64 * 4) & 0x003f_ffff;
+            let touched = threshold != 0 && sample <= threshold && enabled & (1 << pad) != 0;
+            if touched {
+                active |= 1 << pad;
+            }
+            self.set_register_offset(
+                0x0a0 + pad as u64 * 4,
+                sample | if touched { 1 << 29 } else { 0 },
+            );
+        }
+        self.set_register_offset(0x09c, (1 << 31) | active);
+        self.set_register_offset(0x05c, self.register_offset(0x05c) | (3 << 18));
+        let mut event = TOUCH_DONE_INTERRUPT | TOUCH_SCAN_DONE_INTERRUPT;
+        if active & !old_active != 0 {
+            event |= TOUCH_ACTIVE_INTERRUPT;
+        }
+        if old_active & !active != 0 {
+            event |= TOUCH_INACTIVE_INTERRUPT;
+        }
+        self.set_register_offset(0x0e8, self.register_offset(0x0e8) | event);
+        self.refresh_interrupt_status();
+    }
+
+    fn start_rtc_i2c(&mut self, control: u32) {
+        if let Some(rtc_i2c) = &self.rtc_i2c {
+            rtc_i2c.execute_from_sens(control);
+        }
     }
 
     fn publish(&self, value: u8, at: SimTime) -> Result<(), DeviceError> {
@@ -251,26 +361,9 @@ impl Esp32S3TsensState {
     fn reset(&mut self) {
         self.registers.fill(0);
         self.raw = 128;
-        for register in [
-            Esp32S3TsensRegister::SarReader1Ctrl,
-            Esp32S3TsensRegister::SarReader1Status,
-            Esp32S3TsensRegister::SarMeas1Ctrl1,
-            Esp32S3TsensRegister::SarMeas1Ctrl2,
-            Esp32S3TsensRegister::SarReader2Ctrl,
-            Esp32S3TsensRegister::SarReader2Status,
-            Esp32S3TsensRegister::SarMeas2Ctrl1,
-            Esp32S3TsensRegister::SarMeas2Ctrl2,
-            Esp32S3TsensRegister::TsensCtrl,
-            Esp32S3TsensRegister::TsensCtrl2,
-            Esp32S3TsensRegister::SarCocpuIntRaw,
-            Esp32S3TsensRegister::SarCocpuIntEna,
-            Esp32S3TsensRegister::SarCocpuIntStatus,
-            Esp32S3TsensRegister::SarCocpuIntClear,
-            Esp32S3TsensRegister::SarPeriClockGate,
-            Esp32S3TsensRegister::SarPeriReset,
-            Esp32S3TsensRegister::SarDate,
-        ] {
-            self.set_register(register, register.reset_value());
+        self.touch_raw.fill(0);
+        for spec in SPECS {
+            self.registers[spec.offset as usize / 4] = spec.reset & spec.read_mask;
         }
     }
 }
@@ -294,6 +387,15 @@ impl Esp32S3Tsens {
         name: impl Into<String>,
         hub: SignalHub,
     ) -> Result<(Self, Esp32S3TsensHandle), SignalError> {
+        Self::new_with_rtc_i2c(name, hub, None)
+    }
+
+    /// Creates SENS coupled to the RTC-domain I2C controller used by ULP code.
+    pub fn new_with_rtc_i2c(
+        name: impl Into<String>,
+        hub: SignalHub,
+        rtc_i2c: Option<Esp32S3RtcI2cHandle>,
+    ) -> Result<(Self, Esp32S3TsensHandle), SignalError> {
         let signal = hub.declare(
             "board.esp32s3.tsens.temperature",
             SignalValue::from_u64(0, 8)?,
@@ -302,6 +404,8 @@ impl Esp32S3Tsens {
         let state = Rc::new(RefCell::new(Esp32S3TsensState {
             registers: vec![0; REGISTER_BYTES / 4],
             raw: 128,
+            touch_raw: [0; 15],
+            rtc_i2c,
             hub,
             signal,
         }));
@@ -334,10 +438,9 @@ impl Device for Esp32S3Tsens {
                 "ESP32-S3 SENS requires aligned word access",
             ));
         }
-        let register = Esp32S3TsensRegister::from_offset(offset)
-            .ok_or_else(|| self.unsupported("read", offset))?;
+        let spec = spec_for(offset).ok_or_else(|| self.unsupported("read", offset))?;
         Ok(u64::from(
-            self.state.borrow().register(register) & register.read_mask(),
+            self.state.borrow().register_offset(offset) & spec.read_mask,
         ))
     }
 
@@ -353,14 +456,14 @@ impl Device for Esp32S3Tsens {
                 "ESP32-S3 SENS requires aligned word access",
             ));
         }
-        let register = Esp32S3TsensRegister::from_offset(offset)
-            .ok_or_else(|| self.unsupported("write", offset))?;
+        let spec = spec_for(offset).ok_or_else(|| self.unsupported("write", offset))?;
         let value = u32::try_from(value)
             .map_err(|_| DeviceError::new("ESP32-S3 SENS word write exceeds 32 bits"))?;
         let mut state = self.state.borrow_mut();
-        match register {
-            Esp32S3TsensRegister::TsensCtrl => {
-                let requested = value & register.write_mask();
+        match offset {
+            0x050 => {
+                let register = Esp32S3TsensRegister::TsensCtrl;
+                let requested = value & spec.write_mask;
                 // The output and ready fields are read-only on native
                 // hardware.  A configuration write must not erase the last
                 // completed measurement while changing the writable bits.
@@ -370,26 +473,61 @@ impl Device for Esp32S3Tsens {
                     state.complete_measurement(at)?;
                 }
             }
-            Esp32S3TsensRegister::SarCocpuIntRaw
-            | Esp32S3TsensRegister::SarCocpuIntStatus
-            | Esp32S3TsensRegister::SarReader1Status
-            | Esp32S3TsensRegister::SarReader2Status
-            | Esp32S3TsensRegister::SarCocpuIntClear => {
-                if register == Esp32S3TsensRegister::SarCocpuIntClear {
-                    let raw = state.register(Esp32S3TsensRegister::SarCocpuIntRaw)
-                        & !(value & register.write_mask());
-                    state.set_register(Esp32S3TsensRegister::SarCocpuIntRaw, raw);
-                    state.refresh_interrupt_status();
-                }
-            }
-            Esp32S3TsensRegister::SarCocpuIntEna => {
-                state.set_register(register, value & register.write_mask());
+            0x0f4 => {
+                let raw = state.register_offset(0x0e8) & !(value & spec.write_mask);
+                state.set_register_offset(0x0e8, raw);
                 state.refresh_interrupt_status();
             }
-            Esp32S3TsensRegister::SarMeas1Ctrl2 | Esp32S3TsensRegister::SarMeas2Ctrl2 => {
+            0x0ec => {
+                state.set_register_offset(offset, value & spec.write_mask);
+                state.refresh_interrupt_status();
+            }
+            0x10c => {
+                let enabled = state.register_offset(0x0ec) | value;
+                state.set_register_offset(0x0ec, enabled);
+                state.refresh_interrupt_status();
+            }
+            0x110 => {
+                let enabled = state.register_offset(0x0ec) & !value;
+                state.set_register_offset(0x0ec, enabled);
+                state.refresh_interrupt_status();
+            }
+            0x00c | 0x030 => {
+                let register = Esp32S3TsensRegister::from_offset(offset)
+                    .expect("SAR measurement controls are enumerated");
                 state.complete_sar_measurement(register, value);
             }
-            _ => state.set_register(register, value & register.write_mask()),
+            0x058 => {
+                let next =
+                    (state.register_offset(offset) & !spec.write_mask) | (value & spec.write_mask);
+                state.set_register_offset(offset, next);
+                if next & (3 << 28) == (3 << 28) {
+                    state.start_rtc_i2c(next);
+                }
+            }
+            0x05c => {
+                let mut next =
+                    (state.register_offset(offset) & !spec.write_mask) | (value & spec.write_mask);
+                if value & (1 << 15) != 0 {
+                    let channel_state = state.register_offset(0x09c) & !0x7fff;
+                    state.set_register_offset(0x09c, channel_state);
+                    next &= !(3 << 18);
+                }
+                state.set_register_offset(offset, next);
+                if next & 0x7fff != 0 {
+                    state.complete_touch_scan();
+                }
+            }
+            0x09c => {
+                let clear = (value >> 15) & 0x7fff;
+                let next = state.register_offset(offset) & !clear;
+                state.set_register_offset(offset, next);
+            }
+            _ => {
+                let next =
+                    (state.register_offset(offset) & !spec.write_mask) | (value & spec.write_mask);
+                state.set_register_offset(offset, next);
+            }
         }
         Ok(())
     }
@@ -418,17 +556,30 @@ mod tests {
     }
 
     #[test]
-    fn register_enum_matches_native_offsets_and_rejects_unmodeled_accesses() {
+    fn complete_vendor_register_contract_rejects_only_reserved_holes() {
         assert_eq!(Esp32S3TsensRegister::TsensCtrl.offset(), 0x50);
         assert_eq!(Esp32S3TsensRegister::SarDate.offset(), 0x1fc);
         let hub = SignalHub::new();
         let (mut tsens, _) = Esp32S3Tsens::new("tsens", hub).unwrap();
-        assert!(tsens.read(0x100, AccessWidth::Word, SimTime::ZERO).is_err());
-        assert!(
-            tsens
-                .write(0x100, AccessWidth::Word, 0, SimTime::ZERO)
-                .is_err()
-        );
+        let mut count = 0;
+        for offset in (0..REGISTER_BYTES as u64).step_by(4) {
+            if let Some(spec) = spec_for(offset) {
+                count += 1;
+                assert_eq!(
+                    tsens
+                        .read(offset, AccessWidth::Word, SimTime::ZERO)
+                        .unwrap(),
+                    u64::from(spec.reset & spec.read_mask)
+                );
+            } else {
+                assert!(
+                    tsens
+                        .read(offset, AccessWidth::Word, SimTime::ZERO)
+                        .is_err()
+                );
+            }
+        }
+        assert_eq!(count, 71);
     }
 
     #[test]
@@ -520,5 +671,54 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn touch_scan_updates_samples_active_bitmap_and_interrupt_hierarchy() {
+        let hub = SignalHub::new();
+        let (mut sens, handle) = Esp32S3Tsens::new("sens", hub).unwrap();
+        handle.set_touch_raw(3, 100);
+        sens.write(0x06c, AccessWidth::Word, 200, SimTime::ZERO)
+            .unwrap();
+        sens.write(
+            0x0ec,
+            AccessWidth::Word,
+            u64::from(TOUCH_DONE_INTERRUPT | TOUCH_ACTIVE_INTERRUPT | TOUCH_SCAN_DONE_INTERRUPT),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        handle.scan_touch();
+        assert_eq!(
+            sens.read(0x0ac, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from((1u32 << 29) | 100)
+        );
+        assert_ne!(
+            sens.read(0x09c, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 3),
+            0
+        );
+        assert!(handle.interrupt_pending());
+        sens.write(0x0f4, AccessWidth::Word, 0xfff, SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.interrupt_pending());
+    }
+
+    #[test]
+    fn sens_ulp_i2c_start_drives_rtc_i2c_read_and_write_paths() {
+        let hub = SignalHub::new();
+        let (mut rtc, rtc_handle) = Esp32S3RtcI2c::new("rtc-i2c");
+        let (mut sens, _) =
+            Esp32S3Tsens::new_with_rtc_i2c("sens", hub, Some(rtc_handle.clone())).unwrap();
+        rtc_handle.set_slave_register(0x42, 7, 0x5a);
+        let read_control = (3 << 28) | (7 << 11) | 0x42;
+        sens.write(0x058, AccessWidth::Word, read_control, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            rtc.read(0x034, AccessWidth::Word, SimTime::ZERO).unwrap() & 0xff,
+            0x5a
+        );
+        let write_control = (3 << 28) | (1 << 27) | (0xa5 << 19) | (9 << 11) | 0x42;
+        sens.write(0x058, AccessWidth::Word, write_control, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(rtc_handle.slave_register(0x42, 9), 0xa5);
     }
 }

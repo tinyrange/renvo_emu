@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "82b72c2adbbb8fe1d00ad574f017f73e98df3697b96a2fecf76f67ca03b37040",
+        "manifest_sha256": "8642f4cd43b7d07cd57db645dd9d6df86b435173c809e3decac9233cfa06eb6f",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -192,7 +192,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "e429021f89878c7d870d1a87110ddfe17726c15ad937ba8d1671721575dcd6df",
+        "manifest_sha256": "45be6b7248f3482e71dd931091b1fd46ece0559b0fb45d120b4b13c1d7d59540",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -263,7 +263,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "bda53fc685b8f36fc5c3f8703bf482fadf188127443f35f423e3f07d3755cfb1",
+        "manifest_sha256": "3cc29363f794dd22bb1ad0d4bcf41f731b8235b0979e8adb9f514205de512c0d",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -338,7 +338,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "7158c8d6c888a87bbf56b60a7bd9bfb5c030a9cf001e261963870ea0d4d1c9d9",
+        "manifest_sha256": "005dbd6a76ddfd9d6de2ec5238b61b026362e1f758294516c86715848eb220e3",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -404,6 +404,7 @@
         "World Controller transitions, write-buffer sequencing, switch logs, and NMI masking occur at architecturally visible CPU accesses rather than pipeline-cycle timing.",
         "EXTMEM cache commands complete at the issuing architectural write; tags, locks, miss counters and interrupts are functional without silicon refill latency or physical SPI timing.",
         "RTC-I2C transfers complete at the issuing architectural write and use deterministic internal slave storage without electrical bus timing.",
+        "SENS implements the complete vendor register surface, deterministic touch counts/threshold scans, and ULP RTC-I2C coupling without analogue calibration or scan-cycle timing.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ],
@@ -415,9 +416,9 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 53,
+        "covered_register_count": 55,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "fd3b92545e38353ef94c387d5a607299310f74b457550eb6fb4a95968936ae88",
+        "manifest_sha256": "5693c5c443f40970b2fad5d11d17606a978a09b9a7c14dfe6d4d7971fc5618e3",
         "required_covered_regions": [
           "esp32s3.aes",
           "esp32s3.digital-signature",
@@ -522,7 +523,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "b0a880bf6735b1feca092a1215ff9dd3eb871bb7b1aab975a4a8208ae98ee327",
+        "manifest_sha256": "4c86e43efe4a0b1375c580aaad9ea87da47c448a20ded08233db133f62ec51c3",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",
