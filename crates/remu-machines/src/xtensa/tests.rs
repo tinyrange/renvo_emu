@@ -733,6 +733,7 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
         ("esp32s3.io-mux", 0x6000_9000, 0x1000),
         ("esp32s3.saradc", 0x6004_0000, 0x1000),
         ("esp32s3.tsens", 0x6000_8800, 0x0200),
+        ("esp32s3.rtc-i2c", 0x6000_8c00, 0x0400),
         ("esp32s3.lcd-cam", 0x6004_1000, 0x1000),
         ("esp32s3.sdmmc", 0x6002_8000, 0x1000),
         ("esp32s3.sha", 0x6003_b000, 0x1000),
@@ -755,6 +756,42 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
             "missing or incorrect native mapping for {name}"
         );
     }
+}
+
+#[test]
+fn esp32s3_rtc_i2c_routes_completed_transfers_through_rtc_core_interrupt() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x6000_8c00;
+    machine.rtc_i2c.set_pointer(0x42, 3);
+    machine
+        .bus
+        .write(0x600c_2000 + 39 * 4, AccessWidth::Word, 5, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x10, AccessWidth::Word, 0x42, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x34, AccessWidth::Word, 0x5a00, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x30, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x04, AccessWidth::Word, 0xa000_000c, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.rtc_i2c.slave_register(0x42, 3), 0x5a);
+    assert!(machine.update_rtc_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+    machine
+        .bus
+        .write(base + 0x24, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    assert!(!machine.update_rtc_interrupt_lines().unwrap());
+    assert_eq!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
 }
 
 #[test]

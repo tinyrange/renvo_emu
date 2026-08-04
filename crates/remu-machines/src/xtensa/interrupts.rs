@@ -63,6 +63,11 @@ impl XtensaMachine {
         Ok(any_pending)
     }
 
+    pub(super) fn update_rtc_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
+        let pending = self.rtc_control.ulp_pending(self.now) || self.rtc_i2c.interrupt_pending();
+        self.update_matrix_source(39, pending)
+    }
+
     pub(super) fn update_pms_interrupt_lines(&mut self) -> Result<bool, XtensaMachineError> {
         let mut any_pending = false;
         for source in 84..=93 {

@@ -82,6 +82,8 @@ mod esp_world_controller;
 pub use esp_world_controller::*;
 mod esp_extmem;
 pub use esp_extmem::*;
+mod esp_rtc_i2c;
+pub use esp_rtc_i2c::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

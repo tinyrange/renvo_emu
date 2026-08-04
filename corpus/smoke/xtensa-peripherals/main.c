@@ -63,6 +63,8 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x600d0544u, 0x00000003u, 0x00000000u, 39); /* CPU1 world prepare */
     CHECK(0x600c43fcu, 0x0fffffffu, 0x02012310u, 40); /* EXTMEM date */
     CHECK(0x600c4130u, 0x00ffffffu, 0x00001001u, 41); /* cache state */
+    CHECK(0x60008c00u, 0x000fffffu, 0x00000100u, 42); /* RTC-I2C SCL */
+    CHECK(0x60008cfcu, 0x0fffffffu, 0x01905310u, 43); /* RTC-I2C date */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

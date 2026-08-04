@@ -80,10 +80,8 @@ pub enum XtensaMachineError {
     #[error("simulation time overflow")]
     TimeOverflow,
 }
-
 mod usb_host;
 use usb_host::{EspDwc2Host, FunctionalSha256, appcpu_systimer_level};
-
 /// Runnable direct-ELF ESP32-S3 CPU0/unicore slice.
 pub struct XtensaMachine {
     cpu: XtensaCpu,
@@ -121,6 +119,7 @@ pub struct XtensaMachine {
     uhci: Esp32S3UhciHandle,
     syscon: Esp32S3SysconHandle,
     rtc_control: EspRtcControlHandle,
+    rtc_i2c: remu_devices::Esp32S3RtcI2cHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
@@ -137,7 +136,6 @@ pub struct XtensaMachine {
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
 }
-
 impl XtensaMachine {
     /// Creates the ESP32-S3 direct-mode map.
     pub fn new(target: TargetId) -> Result<Self, XtensaMachineError> {
@@ -308,6 +306,13 @@ impl XtensaMachine {
         )?;
         let (tsens_device, tsens) = Esp32S3Tsens::new("esp32s3.tsens", signals.clone())?;
         bus.map_device("esp32s3.tsens", 0x6000_8800, 0x200, Box::new(tsens_device))?;
+        let (rtc_i2c_device, rtc_i2c) = remu_devices::Esp32S3RtcI2c::new("esp32s3.rtc-i2c");
+        bus.map_device(
+            "esp32s3.rtc-i2c",
+            0x6000_8c00,
+            0x400,
+            Box::new(rtc_i2c_device),
+        )?;
         let (lcd_cam_device, lcd_cam) = Esp32S3LcdCam::new("esp32s3.lcd-cam", signals.clone())?;
         bus.map_device(
             "esp32s3.lcd-cam",
@@ -588,6 +593,7 @@ impl XtensaMachine {
             uhci,
             syscon,
             rtc_control,
+            rtc_i2c,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
@@ -605,7 +611,6 @@ impl XtensaMachine {
             signal_stops: Vec::new(),
         })
     }
-
     /// Loads an Xtensa ELF and establishes CPU0 direct state.
     pub fn load_firmware(&mut self, image: &FirmwareImage) -> Result<(), XtensaMachineError> {
         if image.architecture != FirmwareArchitecture::Xtensa {
@@ -640,7 +645,6 @@ impl XtensaMachine {
         self.cpu.set_direct_state(self.stack, entry);
         Ok(())
     }
-
     /// Performs the documented ESP ROM verified-image handoff to an ESP32-S3
     /// application using the official merged flash image.
     pub fn load_esp_application(
@@ -1191,23 +1195,11 @@ impl XtensaMachine {
                         .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
                 }
             }
-            let rtc_pending = self.rtc_control.ulp_pending(self.now);
+            let rtc_pending = self.update_rtc_interrupt_lines()?;
             if rtc_pending && !rtc_was_pending {
                 stats.events = stats.events.saturating_add(1);
             }
             rtc_was_pending = rtc_pending;
-            for core in 0..2_u32 {
-                self.interrupt_matrix
-                    .set_source_pending(core as usize, 39, rtc_pending);
-                let interrupt = self.interrupt_matrix.route(core as usize, 39);
-                if interrupt != u8::MAX {
-                    if core == 0 {
-                        self.cpu.set_interrupt(u16::from(interrupt), rtc_pending)?;
-                    } else if self.appcpu_boot_address.is_some() {
-                        self.cpu1.set_interrupt(u16::from(interrupt), rtc_pending)?;
-                    }
-                }
-            }
             for core in 0..2_u32 {
                 let crosscore_pending = self.system.from_cpu_pending(core as usize);
                 let newly_pending = crosscore_pending && !crosscore_was_pending[core as usize];
