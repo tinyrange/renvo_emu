@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 #define READ32(address) (*(volatile uint32_t *)(uintptr_t)(address))
+#define WRITE32(address, value) (READ32(address) = (uint32_t)(value))
 #define CHECK(address, mask, expected, code)                                      \
     do {                                                                           \
         if ((READ32(address) & (uint32_t)(mask)) != (uint32_t)(expected)) {        \
@@ -48,6 +49,10 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x600c27fcu, 0xffffffffu, 0x02012300u, 27); /* interrupt matrix */
     CHECK(0x600090fcu, 0xffffffffu, 0x01907160u, 28); /* IO MUX */
     CHECK(0x60014084u, 0xffffffffu, 0x02010090u, 29); /* UHCI0 */
+    WRITE32(0x50000120u, 0x52544353u);
+    CHECK(0x60021120u, 0xffffffffu, 0x52544353u, 30); /* RTC slow alias */
+    WRITE32(0x60021124u, 0x414c4941u);
+    CHECK(0x50000124u, 0xffffffffu, 0x414c4941u, 31); /* reverse alias */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

@@ -62,7 +62,7 @@ do
         [ .[][]
           | select(.kind != "Execute")
           | select(.region != "remu.test.exit")
-          | select(.region | test("(^|[.])(flash|ram|sram|dram|iram|rom|irom|xip)([.]|$)"; "i") | not)
+          | select(.region | test("(^|[._-])(flash|ram|sram|dram|iram|rom|irom|xip|memory)([._-]|$)"; "i") | not)
         ]
         | sort_by(.region, .address, .kind, .width)
         | group_by([.region, .address])

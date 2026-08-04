@@ -757,6 +757,65 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
 }
 
 #[test]
+fn esp32s3_rtc_slow_memory_aliases_and_reserved_legacy_pages_fault() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine
+        .bus
+        .write(0x5000_0120, AccessWidth::Word, 0x5254_4353, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6002_1120,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x5254_4353
+    );
+    machine
+        .bus
+        .write(0x6002_1124, AccessWidth::Word, 0x414c_4941, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x5000_0124,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x414c_4941
+    );
+
+    // These old reg_base constants fall in ranges explicitly marked Reserved
+    // by ESP32-S3 TRM table 4.3-3 and must not behave like writable devices.
+    for address in [
+        0x6000_5000,
+        0x6000_b000,
+        0x6000_c000,
+        0x6001_1000,
+        0x6001_5000,
+        0x6001_8000,
+        0x6001_c000,
+        0x6002_a000,
+        0x600c_e000,
+    ] {
+        assert!(
+            machine
+                .bus
+                .read(address, AccessWidth::Word, AccessKind::Read, SimTime::ZERO,)
+                .is_err(),
+            "reserved ESP32-S3 address {address:#x} unexpectedly responded"
+        );
+    }
+}
+
+#[test]
 fn esp32s3_uhci0_couples_gdma_uart_and_interrupt_matrix() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let uhci = 0x6001_4000;

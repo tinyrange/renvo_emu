@@ -212,22 +212,21 @@ impl XtensaMachine {
             0,
         )?;
         bus.map_ram("rtc-fast-memory", 0x600f_e000, 0x2000, true)?;
-        bus.map_ram("rtc-slow-memory", 0x5000_0000, 0x2000, true)?;
+        // ESP32-S3 TRM table 4.3-3 exposes the same 8 KiB RTC slow memory at
+        // the ULP data address and the CPU peripheral-bus address.
+        let rtc_slow_memory = bus.map_ram("rtc-slow-memory", 0x5000_0000, 0x2000, true)?;
+        bus.map_shared(
+            "esp32s3.rtc-slow-memory-alias",
+            0x6002_1000,
+            0x2000,
+            Permissions::RWX,
+            rtc_slow_memory,
+            0,
+        )?;
         for (name, base) in [
-            ("radio-fe2", 0x6000_5000),
-            ("radio-fe", 0x6000_6000),
-            ("hinf", 0x6000_b000),
-            ("bluetooth", 0x6001_1000),
-            ("slchost", 0x6001_5000),
-            ("slc", 0x6001_8000),
-            ("radio-nrx", 0x6001_c000),
-            ("radio-bb", 0x6001_d000),
-            ("rtc-slowmem-controller", 0x6002_1000),
             ("syscon", 0x6002_6000),
-            ("peripheral-backup", 0x6002_a000),
             ("usb-wrap", 0x6003_9000),
             ("sensitive", 0x600c_1000),
-            ("assist-debug", 0x600c_e000),
             ("world-controller", 0x600d_0000),
         ] {
             bus.map_device(

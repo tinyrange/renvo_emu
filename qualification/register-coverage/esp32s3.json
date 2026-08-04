@@ -66,15 +66,15 @@
       "id": "esp32s3-peripherals",
       "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
-      "result_sha256": "dbcbf5d05ee13b16210fd40dc991d8887bb5bbf1a6d819b1fd9660d6dbad2131",
-      "bus_log_sha256": "b2b0cb4d06fc4bcaf8a908003bba327c68688c32b26a8633e7aa1216b8d3f91a",
+      "result_sha256": "f3cca3794f1bca08c1d1282b072c92c262d4f049dadc9267b7a57b57985e3f95",
+      "bus_log_sha256": "07de4b65f1ab3075e6a6d9bcdd339db66a16bcf9e117c53dc847a74152e90043",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
         "trace_digest": "5e40374583e5a196739610e3f08d96e9e80ac8a3015b06e77479fb8df5f2b614",
         "stats": {
-          "instructions": 194,
-          "time": 194,
+          "instructions": 214,
+          "time": 214,
           "events": 0
         }
       }

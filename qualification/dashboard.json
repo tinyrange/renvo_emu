@@ -413,7 +413,7 @@
       "register_coverage": {
         "covered_register_count": 41,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "d870bd2a72ee14e79a18db83dd9a75f87211fbb2d6c79bd28c1394dfe9218601",
+        "manifest_sha256": "aca06cd272c7717248012207409662fa1f0600ad6b779e46b5c79bbf8608f7f0",
         "required_covered_regions": [
           "esp32s3.aes",
           "esp32s3.digital-signature",
