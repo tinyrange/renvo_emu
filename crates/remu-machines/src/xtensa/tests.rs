@@ -315,6 +315,17 @@ fn esp32s3_exposes_the_m5sticks3_octal_psram_window() {
 }
 
 #[test]
+fn esp32s3_machine_exposes_high_gpio_bank_signals() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    assert_eq!(machine.chip_gpio.pin_count(), 49);
+    machine
+        .add_signal_stop("board.esp32s3.chip_gpio.pin38", SignalEdge::Rising)
+        .unwrap();
+    machine.set_pin(38, Logic::One).unwrap();
+    assert_eq!(machine.chip_gpio.resolved(38).unwrap(), Logic::One);
+}
+
+#[test]
 fn appcpu_systimer_defers_to_a_logical_window_safe_point_during_usb_execution() {
     assert!(appcpu_systimer_level(true, false, false));
     assert!(!appcpu_systimer_level(true, true, false));
