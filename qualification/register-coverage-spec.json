@@ -122,7 +122,8 @@
         "esp32s3.uart1",
         "esp32s3.uart2",
         "esp32s3.usb-wrap",
-        "esp32s3.usb-otg"
+        "esp32s3.usb-otg",
+        "esp32s3.world-controller"
       ],
       "additional_evidence": [
         "scripts/qualify-micropython.sh",
@@ -135,6 +136,7 @@
         "UART0 is transmit-focused and does not model physical baud timing.",
         "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
         "SYSCON radio-only clock/reset/configuration fields retain their documented register contract but have no radio side effects; radio behavior is tracked separately in issue #334.",
+        "World Controller transitions, write-buffer sequencing, switch logs, and NMI masking occur at architecturally visible CPU accesses rather than pipeline-cycle timing.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ]

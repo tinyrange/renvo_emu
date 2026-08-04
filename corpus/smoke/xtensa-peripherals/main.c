@@ -59,6 +59,8 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x60039000u, 0x807fffffu, 0x001c0000u, 35); /* internal PHY */
     CHECK(0x600c1ffcu, 0x0fffffffu, 0x02101280u, 36); /* permission control */
     CHECK(0x600c1128u, 0xff33cfffu, 0xff33cfffu, 37); /* core-0 PIF */
+    CHECK(0x600d007cu, 0x00003ffeu, 0x00000002u, 38); /* world entry check */
+    CHECK(0x600d0544u, 0x00000003u, 0x00000000u, 39); /* CPU1 world prepare */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");

@@ -78,6 +78,8 @@ mod esp_usb_wrap;
 pub use esp_usb_wrap::*;
 mod esp_pms;
 pub use esp_pms::*;
+mod esp_world_controller;
+pub use esp_world_controller::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

@@ -19,14 +19,15 @@ use remu_devices::{
     Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3Pms, Esp32S3PmsHandle,
     Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha,
     Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle,
-    Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32s3I2c, Esp32s3I2s,
-    Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio,
-    EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa,
-    EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
-    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
-    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32S3WorldController,
+    Esp32S3WorldControllerHandle, Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi,
+    EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix,
+    EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa, EspRtcControl,
+    EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg,
+    EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub,
+    TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -34,11 +35,9 @@ use remu_trace::{TraceDigest, TraceError, TraceSink};
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
-
 mod functional_rom;
 mod interrupts;
 mod pms;
-
 /// ESP32-S3 machine construction or execution failure.
 #[derive(Debug, Error)]
 pub enum XtensaMachineError {
@@ -102,6 +101,7 @@ pub struct XtensaMachine {
     usb_otg: EspUsbOtgHandle,
     usb_wrap: Esp32S3UsbWrapHandle,
     pms: Esp32S3PmsHandle,
+    world_controller: Esp32S3WorldControllerHandle,
     usb_host: EspDwc2Host,
     saradc: Esp32S3SarAdcHandle,
     tsens: Esp32S3TsensHandle,
@@ -229,14 +229,13 @@ impl XtensaMachine {
             rtc_slow_memory,
             0,
         )?;
+        let (world_controller_device, world_controller) =
+            Esp32S3WorldController::new("esp32s3.world-controller");
         bus.map_device(
             "esp32s3.world-controller",
             0x600d_0000,
             0x1000,
-            Box::new(Rp2040RegisterBank::new(
-                "esp32s3.world-controller",
-                vec![0; 0x1000 / 4],
-            )),
+            Box::new(world_controller_device),
         )?;
         let (pms_device, pms) = Esp32S3Pms::new("esp32s3.sensitive");
         bus.map_device(
@@ -583,6 +582,7 @@ impl XtensaMachine {
             usb_otg,
             usb_wrap,
             pms,
+            world_controller,
             usb_host: EspDwc2Host::new(),
             saradc,
             tsens,
@@ -1417,8 +1417,8 @@ impl XtensaMachine {
             let mut pms_bus = pms::Esp32S3PmsBus::new(
                 &mut self.bus,
                 &self.pms,
+                &self.world_controller,
                 u8::from(running_cpu1),
-                remu_devices::Esp32S3World::Secure,
             );
             let outcome = match self.cpu.step(&mut pms_bus, self.now) {
                 Ok(outcome) => outcome,

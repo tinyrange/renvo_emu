@@ -954,6 +954,25 @@ mod tests {
         write(&mut device, 0x1a0, 3);
         assert!(!handle.interrupt_pending(87));
         assert_eq!(read(&mut device, 0x1a8), 0);
+
+        // World1 has an independent four-register table after World0's.
+        write(&mut device, 0x128, uart_permissions);
+        let nonsecure_uart_permissions = read(&mut device, 0x138);
+        write(&mut device, 0x138, nonsecure_uart_permissions & !1);
+        assert!(handle.check_cpu_access(
+            0,
+            Esp32S3World::Secure,
+            0x6000_0000,
+            AccessWidth::Word,
+            AccessKind::Write,
+        ));
+        assert!(!handle.check_cpu_access(
+            0,
+            Esp32S3World::NonSecure,
+            0x6000_0000,
+            AccessWidth::Word,
+            AccessKind::Write,
+        ));
     }
 
     #[test]

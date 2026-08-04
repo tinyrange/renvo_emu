@@ -1062,12 +1062,8 @@ fn esp32s3_pms_blocks_cpu_writes_and_routes_first_fault_interrupts() {
         .unwrap();
     assert!(machine.chip_uart.bytes().is_empty());
     {
-        let mut guarded = pms::Esp32S3PmsBus::new(
-            &mut machine.bus,
-            &machine.pms,
-            0,
-            remu_devices::Esp32S3World::Secure,
-        );
+        let mut guarded =
+            pms::Esp32S3PmsBus::new(&mut machine.bus, &machine.pms, &machine.world_controller, 0);
         guarded
             .write(0x6000_0000, AccessWidth::Word, b'X'.into(), SimTime::ZERO)
             .unwrap();
@@ -1107,4 +1103,143 @@ fn esp32s3_pms_blocks_cpu_writes_and_routes_first_fault_interrupts() {
         .unwrap();
     assert!(!machine.update_pms_interrupt_lines().unwrap());
     assert_eq!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+}
+
+#[test]
+fn esp32s3_world_controller_switches_pms_worlds_and_masks_nmi() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let wcl = 0x600d_0000;
+    let pms = 0x600c_1000;
+    let trigger = 0x4037_0000;
+    let secure_entry = 0x4037_0004;
+    let message = 0x3fc8_8000;
+
+    for (offset, value) in [
+        (0x000, secure_entry),
+        (0x07c, 2),
+        (0x100, message),
+        (0x104, 3),
+        (0x140, trigger),
+        (0x144, 2),
+        (0x148, 0),
+    ] {
+        machine
+            .bus
+            .write(wcl + offset, AccessWidth::Word, value, SimTime::ZERO)
+            .unwrap();
+    }
+    let world1_uart = machine
+        .bus
+        .read(
+            pms + 0x138,
+            AccessWidth::Word,
+            AccessKind::Read,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            pms + 0x138,
+            AccessWidth::Word,
+            world1_uart & !1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    {
+        let mut guarded =
+            pms::Esp32S3PmsBus::new(&mut machine.bus, &machine.pms, &machine.world_controller, 0);
+        guarded
+            .read(
+                trigger,
+                AccessWidth::Word,
+                AccessKind::Execute,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        guarded
+            .write(0x6000_0000, AccessWidth::Word, b'X'.into(), SimTime::ZERO)
+            .unwrap();
+        for value in 0..=3 {
+            guarded
+                .write(message, AccessWidth::Word, value, SimTime::ZERO)
+                .unwrap();
+        }
+        guarded
+            .read(
+                secure_entry,
+                AccessWidth::Word,
+                AccessKind::Execute,
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    assert!(machine.chip_uart.bytes().is_empty());
+    assert_eq!(
+        machine
+            .world_controller
+            .world_for_access(0, AccessKind::Read),
+        remu_devices::Esp32S3World::Secure
+    );
+    assert_eq!(
+        machine
+            .world_controller
+            .world_for_access(0, AccessKind::Execute),
+        remu_devices::Esp32S3World::Secure
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                wcl + 0x080,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x21
+    );
+
+    machine
+        .bus
+        .write(0x600c_2000 + 87 * 4, AccessWidth::Word, 14, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(wcl + 0x190, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    let world0_uart = machine
+        .bus
+        .read(
+            pms + 0x128,
+            AccessWidth::Word,
+            AccessKind::Read,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            pms + 0x128,
+            AccessWidth::Word,
+            world0_uart & !1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    {
+        let mut guarded =
+            pms::Esp32S3PmsBus::new(&mut machine.bus, &machine.pms, &machine.world_controller, 0);
+        guarded
+            .write(0x6000_0000, AccessWidth::Word, b'Y'.into(), SimTime::ZERO)
+            .unwrap();
+    }
+    assert!(machine.update_pms_interrupt_lines().unwrap());
+    assert_eq!(machine.cpu.interrupt_state().1 & (1 << 14), 0);
+    machine
+        .bus
+        .write(wcl + 0x190, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    assert!(machine.update_pms_interrupt_lines().unwrap());
+    assert_ne!(machine.cpu.interrupt_state().1 & (1 << 14), 0);
 }
