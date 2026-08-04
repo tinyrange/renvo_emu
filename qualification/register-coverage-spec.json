@@ -99,6 +99,7 @@
         "esp32s3.i2s0",
         "esp32s3.i2s1",
         "esp32s3.interrupt-matrix",
+        "esp32s3.io-mux",
         "esp32s3.lcd-cam",
         "esp32s3.ledc",
         "esp32s3.mcpwm0",

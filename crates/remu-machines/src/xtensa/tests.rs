@@ -729,6 +729,7 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
         ("esp32s3.mcpwm1", 0x6002_c000, 0x1000),
         ("esp32s3.twai", 0x6002_b000, 0x1000),
         ("esp32s3.gdma", 0x6003_f000, 0x1000),
+        ("esp32s3.io-mux", 0x6000_9000, 0x1000),
         ("esp32s3.saradc", 0x6004_0000, 0x1000),
         ("esp32s3.tsens", 0x6000_8800, 0x0200),
         ("esp32s3.lcd-cam", 0x6004_1000, 0x1000),
@@ -752,4 +753,25 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
             "missing or incorrect native mapping for {name}"
         );
     }
+}
+
+#[test]
+fn esp32s3_io_mux_native_writes_are_visible_to_pin_coupling() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let gpio2 = 0x6000_9000 + 0x0c;
+    let input_pullup_gpio_function = (1 << 8) | (1 << 9) | (1 << 12);
+    machine
+        .bus
+        .write(
+            gpio2,
+            AccessWidth::Word,
+            input_pullup_gpio_function,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let config = machine.io_mux().pin_config(2).unwrap();
+    assert!(config.pullup);
+    assert!(config.input_enable);
+    assert_eq!(config.function, 1);
 }

@@ -68,6 +68,8 @@ mod esp_rtc;
 pub use esp_rtc::*;
 mod esp_interrupt_matrix;
 pub use esp_interrupt_matrix::*;
+mod esp_io_mux;
+pub use esp_io_mux::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

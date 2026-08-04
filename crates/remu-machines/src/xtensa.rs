@@ -14,17 +14,18 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, Esp32S3LcdCam, Esp32S3LcdCamHandle,
-    Esp32S3Ledc, Esp32S3LedcHandle, Esp32S3Mcpwm, Esp32S3McpwmHandle, Esp32S3Pcnt,
-    Esp32S3PcntHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc, Esp32S3SdmmcHandle,
-    Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Tsens, Esp32S3TsensHandle, Esp32s3I2c, Esp32s3I2s,
-    Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio,
-    EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa,
-    EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
-    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
-    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, Esp32S3IoMux, Esp32S3IoMuxHandle,
+    Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc, Esp32S3LedcHandle, Esp32S3Mcpwm,
+    Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle,
+    Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Tsens,
+    Esp32S3TsensHandle, Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature,
+    EspEfuse, EspGdma, EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix,
+    EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa, EspRtcControl,
+    EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer, EspSystimerHandle,
+    EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg,
+    EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, Rp2040RegisterBank, SignalHub,
+    TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -119,6 +120,7 @@ pub struct XtensaMachine {
     windowed_handoff_pending: bool,
     appcpu_boot_address: Option<u32>,
     interrupt_matrix: EspInterruptMatrixHandle,
+    io_mux: Esp32S3IoMuxHandle,
     md5_contexts: BTreeMap<u32, Vec<u8>>,
     sha256_contexts: BTreeMap<u32, FunctionalSha256>,
     setjmp_contexts: BTreeMap<u32, XtensaCpu>,
@@ -213,7 +215,6 @@ impl XtensaMachine {
         for (name, base) in [
             ("radio-fe2", 0x6000_5000),
             ("radio-fe", 0x6000_6000),
-            ("io-mux", 0x6000_9000),
             ("hinf", 0x6000_b000),
             ("uhci1", 0x6000_c000),
             ("bluetooth", 0x6001_1000),
@@ -240,6 +241,13 @@ impl XtensaMachine {
                 )),
             )?;
         }
+        let (io_mux_device, io_mux) = Esp32S3IoMux::new("esp32s3.io-mux");
+        bus.map_device(
+            "esp32s3.io-mux",
+            0x6000_9000,
+            0x1000,
+            Box::new(io_mux_device),
+        )?;
         for (name, base) in [("i2c0", 0x6001_3000), ("i2c1", 0x6002_7000)] {
             let device = Esp32s3I2c::new(format!("esp32s3.{name}"), signals.clone())?;
             bus.map_device(format!("esp32s3.{name}"), base, 0x1000, Box::new(device))?;
@@ -569,6 +577,7 @@ impl XtensaMachine {
             windowed_handoff_pending: false,
             appcpu_boot_address: None,
             interrupt_matrix,
+            io_mux,
             md5_contexts: BTreeMap::new(),
             sha256_contexts: BTreeMap::new(),
             setjmp_contexts: BTreeMap::new(),
@@ -926,6 +935,11 @@ impl XtensaMachine {
     /// Returns the RTC-control host-side wakeup and interrupt handle.
     pub fn rtc_control(&self) -> EspRtcControlHandle {
         self.rtc_control.clone()
+    }
+
+    /// Returns the IO MUX host-side pad configuration handle.
+    pub fn io_mux(&self) -> Esp32S3IoMuxHandle {
+        self.io_mux.clone()
     }
 
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.

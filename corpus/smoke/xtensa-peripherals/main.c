@@ -46,6 +46,7 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     CHECK(0x6003de20u, 0xffffffffu, 0x20191217u, 25); /* digital signature */
     CHECK(0x600081fcu, 0xffffffffu, 0x02101271u, 26); /* RTC control */
     CHECK(0x600c27fcu, 0xffffffffu, 0x02012300u, 27); /* interrupt matrix */
+    CHECK(0x600090fcu, 0xffffffffu, 0x01907160u, 28); /* IO MUX */
 
     *exit_code = failure;
     __asm__ volatile("break 0, 0");
