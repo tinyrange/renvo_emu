@@ -508,7 +508,6 @@ impl XtensaMachine {
             ("digital-signature", 0x6003_d000),
             ("hmac", 0x6003_e000),
             ("saradc", 0x6004_0000),
-            ("lcd-cam", 0x6004_1000),
             ("sensitive", 0x600c_1000),
             ("interrupt-matrix", 0x600c_2000),
             ("assist-debug", 0x600c_e000),
