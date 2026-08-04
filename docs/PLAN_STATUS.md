@@ -42,6 +42,23 @@ Status meanings:
 | Identical results across supported hosts | Proven | `scripts/qualify-host-determinism.sh` publishes the same canonical fake-multicore/timer digest on the supported Linux/amd64 and Linux/arm64 hosts |
 | Separate CPU/device/trace/script/CLI boundaries | Proven | CPU, machine, device, trace, corpus, GDB and Starlark crates remain separate; `remu script` evaluates explicit JSON, while the later board DSL builds immutable scenarios without owning kernel state |
 
+## ESP32-S3 USB OTG closure
+
+The ESP32-S3 target includes a deterministic full-speed DWC2 device-facing
+functional slice. The model exposes the global interrupt hierarchy, reset and
+enumeration status, setup-packet receive status/FIFO ordering, endpoint
+completion and FIFO enable/disable behavior, and the existing host-side
+control/bulk exchange path. `crates/remu-devices/src/tests.rs` checks the
+register protocol directly, including native word-access masks, W1C interrupt
+fields, endpoint active/NAK status, and the documented seven-bit transfer-size
+fields. `corpus/smoke/xtensa-usb` exercises it through the native
+`0x6008_0000` MMIO window in the pinned Xtensa container.
+
+This closes the bounded USB-OTG item in the restored plan without changing its
+functional, non-cycle-accurate scope. PHY edge timing, DMA scatter/gather,
+host-channel scheduling, and complete USB class/device compatibility remain
+explicit limitations and are tracked separately.
+
 ## Phase 5 closure
 
 Phase 5 now meets its complete exit gate. `remu corpus reduce` detects the

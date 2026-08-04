@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
+    "sha256": "d8c1e7165593912dda484afe9b2f9b08a425ac2d5a2187ce78c0d1113c2c5440"
   },
   "proofs": [
     {
@@ -44,13 +44,31 @@
           "events": 0
         }
       }
+    },
+    {
+      "id": "esp32s3-usb",
+      "result": ".remu/portfolio-smoke/esp32s3-usb-run.json",
+      "bus_log": ".remu/portfolio-smoke/esp32s3-usb-bus.json",
+      "result_sha256": "3caba6af193af5c8d3335065a3d2920ad4a794cc454cca6638a8a47d5e41404f",
+      "bus_log_sha256": "935bbd1285254001bf07b6c1e74984d9e6c7c96407b5046a13774a92504c0b20",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "3ca497c22c93a225244a272465c80983e699c7d9842e0450748191a1212b80c6",
+        "stats": {
+          "instructions": 1086,
+          "time": 1086,
+          "events": 4
+        }
+      }
     }
   ],
   "required_covered_regions": [
     "esp32s3.gpio",
-    "esp32s3.uart0"
+    "esp32s3.uart0",
+    "esp32s3.usb-otg"
   ],
-  "covered_register_count": 3,
+  "covered_register_count": 12,
   "covered_registers": [
     {
       "region": "esp32s3.gpio",
@@ -84,6 +102,106 @@
         "Word"
       ],
       "access_count": 9
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611137032,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611137044,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 203
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611137048,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611137056,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139088,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139092,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139100,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139848,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611141120,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     }
   ],
   "additional_evidence": [
@@ -96,6 +214,7 @@
     "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
     "UART0 is transmit-focused and does not model physical baud timing.",
     "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
+    "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
     "Radio, analogue and security peripherals are outside the six-chip baseline."
   ]
 }

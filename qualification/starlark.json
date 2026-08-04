@@ -6,7 +6,7 @@
     {
       "name": "riscv_cpu",
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "950cccde713a284981b79779705f5a25a1fe43cc24709b02fa500d59281c9145"
     },
     {
       "name": "arm_cpu",

@@ -22,6 +22,8 @@ mod gpio;
 pub use gpio::*;
 mod rp;
 pub use rp::*;
+mod esp_usb_otg_register;
+pub use esp_usb_otg_register::*;
 mod esp;
 pub use esp::*;
 mod esp_i2c_s3;

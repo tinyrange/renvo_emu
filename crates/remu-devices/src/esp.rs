@@ -684,6 +684,10 @@ impl Device for EspSystimer {
 /// The core reset handshake is synchronous in Renvo Emulator's abstract-time model.
 /// Endpoint and host-enumeration behavior is layered onto this register file
 /// by the machine as qualification reaches the TinyUSB device path.
+///
+/// Register offsets, access types, reset values, and endpoint field widths are audited against
+/// Espressif's [ESP32-S3 USB register header](https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s3/register/soc/usb_reg.h)
+/// and the [ESP32-S3 Technical Reference Manual](https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf).
 pub struct EspUsbOtg {
     name: String,
     state: Arc<Mutex<EspUsbOtgState>>,
@@ -697,6 +701,112 @@ struct EspUsbOtgState {
     in_transfer_size: [usize; 16],
     reset_injected: bool,
 }
+
+const DWC2_EPENA: u32 = 1 << 31;
+const DWC2_EPDIS: u32 = 1 << 30;
+const DWC2_GINT_RXFLVL: u32 = 1 << 4;
+const DWC2_GINT_IEPINT: u32 = 1 << 18;
+const DWC2_GINT_OEPINT: u32 = 1 << 19;
+const DWC2_XFER_SIZE_MASK: u32 = 0x7f;
+const DWC2_IN_PKT_COUNT_MASK: u32 = 0x3 << 19;
+const DWC2_OUT_PKT_COUNT_MASK: u32 = 1 << 19;
+const DWC2_OUT_SETUP_COUNT_MASK: u32 = 0x3 << 29;
+const DWC2_DIEPCTL_CONFIG_MASK: u32 = 0x7 | (1 << 21) | (0xf << 22);
+const DWC2_DOEPCTL_CONFIG_MASK: u32 = (1 << 20) | (1 << 21);
+const DWC2_DCTL_CONFIG_MASK: u32 = (1 << 0)
+    | (1 << 1)
+    | (0x7 << 4)
+    | (1 << 11)
+    | (0x3 << 13)
+    | (1 << 15)
+    | (1 << 16)
+    | (1 << 17)
+    | (1 << 18);
+const DWC2_DCTL_NAK_STATUS_MASK: u32 = (1 << 2) | (1 << 3);
+const DWC2_DIEPINT_W1C_MASK: u32 = 0x3f | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 11);
+const DWC2_DOEPINT_W1C_MASK: u32 =
+    0x7f | (1 << 8) | (1 << 9) | (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15);
+const DWC2_GOTGINT_W1C_MASK: u32 =
+    (1 << 2) | (1 << 8) | (1 << 9) | (1 << 17) | (1 << 18) | (1 << 19);
+const DWC2_GINTSTS_W1C_MASK: u32 = (1 << 1)
+    | (1 << 3)
+    | (1 << 10)
+    | (1 << 11)
+    | (1 << 12)
+    | (1 << 13)
+    | (1 << 14)
+    | (1 << 15)
+    | (1 << 17)
+    | (1 << 20)
+    | (1 << 21)
+    | (1 << 22)
+    | (1 << 23)
+    | (1 << 28)
+    | (1 << 29)
+    | (1 << 30)
+    | (1 << 31);
+const DWC2_DAINT_MASK: u32 = 0x007f_007f;
+const DWC2_DIEPEMP_MASK: u32 = 0x0000_007f;
+const DWC2_DCFG_MASK: u32 = (1 << 2)
+    | (1 << 3)
+    | (0x7f << 4)
+    | (0x3 << 11)
+    | (1 << 13)
+    | (1 << 14)
+    | (1 << 15)
+    | (0x1f << 18)
+    | (1 << 23)
+    | (0x3 << 24)
+    | (0x3f << 26);
+const DWC2_GINTMSK_MASK: u32 = (1 << 1)
+    | (1 << 2)
+    | (1 << 3)
+    | (1 << 4)
+    | (1 << 5)
+    | (1 << 6)
+    | (1 << 7)
+    | (1 << 10)
+    | (1 << 11)
+    | (1 << 12)
+    | (1 << 13)
+    | (1 << 14)
+    | (1 << 15)
+    | (1 << 17)
+    | (1 << 18)
+    | (1 << 19)
+    | (1 << 20)
+    | (1 << 21)
+    | (1 << 22)
+    | (1 << 23)
+    | (1 << 24)
+    | (1 << 25)
+    | (1 << 26)
+    | (1 << 28)
+    | (1 << 29)
+    | (1 << 30)
+    | (1 << 31);
+const DWC2_DIEPMSK_MASK: u32 = (1 << 0)
+    | (1 << 1)
+    | (1 << 2)
+    | (1 << 3)
+    | (1 << 4)
+    | (1 << 5)
+    | (1 << 6)
+    | (1 << 8)
+    | (1 << 9)
+    | (1 << 13);
+const DWC2_DOEPMSK_MASK: u32 = (1 << 0)
+    | (1 << 1)
+    | (1 << 2)
+    | (1 << 3)
+    | (1 << 4)
+    | (1 << 5)
+    | (1 << 6)
+    | (1 << 8)
+    | (1 << 9)
+    | (1 << 12)
+    | (1 << 13)
+    | (1 << 14);
 
 /// Host-side control surface for an ESP32-S3 DWC2 device controller.
 #[derive(Clone)]
@@ -719,21 +829,31 @@ impl EspUsbOtg {
 }
 
 impl EspUsbOtgState {
+    fn register(&self, register: EspUsbOtgRegister) -> u32 {
+        self.registers[register.index()]
+    }
+
+    fn register_mut(&mut self, register: EspUsbOtgRegister) -> &mut u32 {
+        &mut self.registers[register.index()]
+    }
+
     fn reset() -> Self {
         let mut registers = vec![0; 0x1_0000 / 4];
         // GRSTCTL.AHBIDL and Espressif's fixed DWC2 release identifier.
-        registers[0x10 / 4] = 1 << 31;
-        registers[0x40 / 4] = 0x4f54_400a;
+        registers[EspUsbOtgRegister::GrstCtl.index()] = 1 << 31;
+        registers[EspUsbOtgRegister::GsnpsId.index()] = 0x4f54_400a;
         // Slave-only full-speed device core, six non-control endpoints and
         // dynamic FIFO sizing. TinyUSB uses NUM_DEV_EP to bound DAINT scans.
-        registers[0x48 / 4] = 4 | (1 << 8) | (6 << 10) | (1 << 19);
+        registers[EspUsbOtgRegister::GhwCfg2.index()] = 4 | (1 << 8) | (6 << 10) | (1 << 19);
         // DSTS.ENUMSPD reports full speed on the S3's dedicated 48-MHz PHY.
-        registers[0x808 / 4] = 3 << 1;
+        registers[EspUsbOtgRegister::Dsts.index()] = 3 << 1;
         // The functional FIFO drains synchronously into the host packet
         // queue, so each IN endpoint always reports the full 1-KiB shared
         // FIFO as available to TinyUSB.
         for endpoint in 0..16 {
-            registers[(0x918 + endpoint * 0x20) / 4] = 256;
+            registers[EspUsbOtgRegister::DiepCtl(endpoint as u8).index()] = 1 << 15;
+            registers[EspUsbOtgRegister::DoepCtl(endpoint as u8).index()] = 1 << 15;
+            registers[EspUsbOtgRegister::DtxfSts(endpoint as u8).index()] = 256;
         }
         Self {
             registers,
@@ -747,20 +867,23 @@ impl EspUsbOtgState {
 
     fn endpoint_interrupts(&self) -> u32 {
         let mut daint = 0_u32;
-        let diepmsk = self.registers[0x810 / 4];
-        let doepmsk = self.registers[0x814 / 4];
-        let fifo_empty_mask = self.registers[0x834 / 4];
+        let diepmsk = self.register(EspUsbOtgRegister::DiepMsk);
+        let doepmsk = self.register(EspUsbOtgRegister::DoepMsk);
+        let fifo_empty_mask = self.register(EspUsbOtgRegister::DiepEmpMsk);
         for endpoint in 0..16 {
-            let mut input = self.registers[(0x908 + endpoint * 0x20) / 4];
-            if fifo_empty_mask & (1 << endpoint) != 0 {
+            let endpoint = endpoint as u8;
+            let mut input = self.register(EspUsbOtgRegister::DiepInt(endpoint));
+            let fifo_empty = fifo_empty_mask & (1 << endpoint) != 0
+                && self.register(EspUsbOtgRegister::DiepCtl(endpoint)) & DWC2_EPENA != 0;
+            if fifo_empty {
                 input |= 1 << 7;
             }
             // TXFE has its own DIEPEMPMSK hierarchy and does not pass
             // through the common DIEPMSK register.
-            if input & diepmsk != 0 || fifo_empty_mask & (1 << endpoint) != 0 {
+            if input & diepmsk != 0 || fifo_empty {
                 daint |= 1 << endpoint;
             }
-            let output = self.registers[(0xb08 + endpoint * 0x20) / 4];
+            let output = self.register(EspUsbOtgRegister::DoepInt(endpoint));
             if output & doepmsk != 0 {
                 daint |= 1 << (16 + endpoint);
             }
@@ -769,30 +892,30 @@ impl EspUsbOtgState {
     }
 
     fn interrupt_status(&self) -> u32 {
-        let mut status = self.registers[0x14 / 4];
+        let mut status = self.register(EspUsbOtgRegister::GintSts);
         if !self.rx_status.is_empty() {
-            status |= 1 << 4;
+            status |= DWC2_GINT_RXFLVL;
         }
-        let endpoints = self.endpoint_interrupts() & self.registers[0x81c / 4];
+        let endpoints = self.endpoint_interrupts() & self.register(EspUsbOtgRegister::DaintMsk);
         if endpoints & 0x0000_ffff != 0 {
-            status |= 1 << 18;
+            status |= DWC2_GINT_IEPINT;
         }
         if endpoints & 0xffff_0000 != 0 {
-            status |= 1 << 19;
+            status |= DWC2_GINT_OEPINT;
         }
         status
     }
 
     fn pop_rx_status(&mut self) -> u32 {
         let status = self.rx_status.pop_front().unwrap_or(0);
-        let endpoint = usize::try_from(status & 0xf).expect("endpoint number fits");
+        let endpoint = u8::try_from(status & 0xf).expect("endpoint number fits");
         match (status >> 17) & 0xf {
             // SETUP_DONE asserts DOEPINT.SETUP after its status entry is popped.
-            4 => self.registers[(0xb08 + endpoint * 0x20) / 4] |= 1 << 3,
+            4 => *self.register_mut(EspUsbOtgRegister::DoepInt(endpoint)) |= 1 << 3,
             // RX_COMPLETE asserts the transfer-complete endpoint interrupt.
             3 => {
-                self.registers[(0xb00 + endpoint * 0x20) / 4] &= !(1 << 31);
-                self.registers[(0xb08 + endpoint * 0x20) / 4] |= 1;
+                *self.register_mut(EspUsbOtgRegister::DoepCtl(endpoint)) &= !(1 << 31);
+                *self.register_mut(EspUsbOtgRegister::DoepInt(endpoint)) |= 1;
             }
             _ => {}
         }
@@ -800,13 +923,16 @@ impl EspUsbOtgState {
     }
 
     fn write_fifo(&mut self, endpoint: usize, value: u32) {
-        let size_index = (0x910 + endpoint * 0x20) / 4;
-        let remaining = usize::try_from(self.registers[size_index] & 0x7ffff)
-            .expect("DWC2 transfer size fits usize");
+        let endpoint_id = endpoint as u8;
+        let size_index = EspUsbOtgRegister::DiepTsiz(endpoint_id).index();
+        let remaining = usize::try_from(
+            self.register(EspUsbOtgRegister::DiepTsiz(endpoint_id)) & DWC2_XFER_SIZE_MASK,
+        )
+        .expect("DWC2 transfer size fits usize");
         let count = remaining.min(4);
         self.tx_fifo[endpoint].extend_from_slice(&value.to_le_bytes()[..count]);
         self.registers[size_index] =
-            (self.registers[size_index] & !0x7ffff) | (remaining - count) as u32;
+            (self.registers[size_index] & !DWC2_XFER_SIZE_MASK) | (remaining - count) as u32;
     }
 }
 
@@ -814,32 +940,50 @@ impl EspUsbOtgHandle {
     /// Returns whether TinyUSB has connected the device and enabled interrupts.
     pub fn device_connected(&self) -> bool {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        state.registers[0x804 / 4] & (1 << 1) == 0 && state.registers[0x08 / 4] & 1 != 0
+        state.register(EspUsbOtgRegister::Dctl) & (1 << 1) == 0
+            && state.register(EspUsbOtgRegister::GahbCfg) & 1 != 0
     }
 
     /// Injects full-speed bus reset and enumeration-complete conditions once.
     pub fn inject_bus_reset(&self) {
         let mut state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        state.registers[0x14 / 4] |= (1 << 12) | (1 << 13);
+        // A USB reset returns the device address and endpoint enable state to their
+        // post-reset values while retaining the software interrupt masks.
+        *state.register_mut(EspUsbOtgRegister::Dcfg) &= !(0x7f << 4);
+        *state.register_mut(EspUsbOtgRegister::Dctl) &= !(DWC2_EPENA | DWC2_EPDIS);
+        for endpoint in 0..16 {
+            let endpoint_id = endpoint as u8;
+            *state.register_mut(EspUsbOtgRegister::DiepCtl(endpoint_id)) &=
+                !(DWC2_EPENA | DWC2_EPDIS);
+            *state.register_mut(EspUsbOtgRegister::DoepCtl(endpoint_id)) &=
+                !(DWC2_EPENA | DWC2_EPDIS);
+            *state.register_mut(EspUsbOtgRegister::DiepInt(endpoint_id)) = 0;
+            *state.register_mut(EspUsbOtgRegister::DoepInt(endpoint_id)) = 0;
+            state.in_transfer_size[endpoint] = 0;
+            state.tx_fifo[endpoint].clear();
+        }
+        state.rx_status.clear();
+        state.rx_fifo.clear();
+        *state.register_mut(EspUsbOtgRegister::GintSts) |= (1 << 12) | (1 << 13);
         state.reset_injected = true;
     }
 
     /// Returns whether a globally enabled DWC2 interrupt is asserted.
     pub fn interrupt_pending(&self) -> bool {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        state.registers[0x08 / 4] & 1 != 0
-            && state.interrupt_status() & state.registers[0x18 / 4] != 0
+        state.register(EspUsbOtgRegister::GahbCfg) & 1 != 0
+            && state.interrupt_status() & state.register(EspUsbOtgRegister::GintMsk) != 0
     }
 
     /// Returns key interrupt registers for deterministic diagnostics.
     pub fn interrupt_diagnostic(&self) -> (u32, u32, u32, u32, u32) {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
         (
-            state.registers[0x08 / 4],
+            state.register(EspUsbOtgRegister::GahbCfg),
             state.interrupt_status(),
-            state.registers[0x18 / 4],
+            state.register(EspUsbOtgRegister::GintMsk),
             state.endpoint_interrupts(),
-            state.registers[0x81c / 4],
+            state.register(EspUsbOtgRegister::DaintMsk),
         )
     }
 
@@ -848,13 +992,13 @@ impl EspUsbOtgHandle {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
         let endpoint = usize::from(endpoint);
         (
-            state.registers[(0x900 + endpoint * 0x20) / 4],
-            state.registers[(0x908 + endpoint * 0x20) / 4],
-            state.registers[(0x910 + endpoint * 0x20) / 4],
-            state.registers[(0xb00 + endpoint * 0x20) / 4],
-            state.registers[(0xb08 + endpoint * 0x20) / 4],
-            state.registers[(0xb10 + endpoint * 0x20) / 4],
-            state.registers[0x834 / 4],
+            state.register(EspUsbOtgRegister::DiepCtl(endpoint as u8)),
+            state.register(EspUsbOtgRegister::DiepInt(endpoint as u8)),
+            state.register(EspUsbOtgRegister::DiepTsiz(endpoint as u8)),
+            state.register(EspUsbOtgRegister::DoepCtl(endpoint as u8)),
+            state.register(EspUsbOtgRegister::DoepInt(endpoint as u8)),
+            state.register(EspUsbOtgRegister::DoepTsiz(endpoint as u8)),
+            state.register(EspUsbOtgRegister::DiepEmpMsk),
         )
     }
 
@@ -875,9 +1019,10 @@ impl EspUsbOtgHandle {
     pub fn input_ready(&self, endpoint: u8) -> bool {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
         let endpoint = usize::from(endpoint);
-        let control = state.registers[(0x900 + endpoint * 0x20) / 4];
-        let remaining = state.registers[(0x910 + endpoint * 0x20) / 4] & 0x7ffff;
-        control & (1 << 31) != 0
+        let control = state.register(EspUsbOtgRegister::DiepCtl(endpoint as u8));
+        let remaining =
+            state.register(EspUsbOtgRegister::DiepTsiz(endpoint as u8)) & DWC2_XFER_SIZE_MASK;
+        control & DWC2_EPENA != 0
             && remaining == 0
             && state.tx_fifo[endpoint].len() >= state.in_transfer_size[endpoint]
     }
@@ -886,47 +1031,48 @@ impl EspUsbOtgHandle {
     pub fn take_input(&self, endpoint: u8) -> Option<Vec<u8>> {
         let mut state = self.state.lock().expect("ESP USB OTG state lock poisoned");
         let endpoint = usize::from(endpoint);
-        let control_index = (0x900 + endpoint * 0x20) / 4;
-        let size_index = (0x910 + endpoint * 0x20) / 4;
-        if state.registers[control_index] & (1 << 31) == 0
-            || state.registers[size_index] & 0x7ffff != 0
+        let control = EspUsbOtgRegister::DiepCtl(endpoint as u8);
+        let size = EspUsbOtgRegister::DiepTsiz(endpoint as u8);
+        if state.register(control) & DWC2_EPENA == 0
+            || state.register(size) & DWC2_XFER_SIZE_MASK != 0
             || state.tx_fifo[endpoint].len() < state.in_transfer_size[endpoint]
         {
             return None;
         }
         let length = state.in_transfer_size[endpoint];
         let packet = state.tx_fifo[endpoint].drain(..length).collect();
-        state.registers[control_index] &= !(1 << 31);
-        state.registers[(0x908 + endpoint * 0x20) / 4] |= 1;
+        *state.register_mut(control) &= !DWC2_EPENA;
+        *state.register_mut(EspUsbOtgRegister::DiepInt(endpoint as u8)) |= 1;
         Some(packet)
     }
 
     /// Returns whether an OUT endpoint is armed to receive host data.
     pub fn output_ready(&self, endpoint: u8) -> bool {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        state.registers[(0xb00 + usize::from(endpoint) * 0x20) / 4] & (1 << 31) != 0
+        state.register(EspUsbOtgRegister::DoepCtl(endpoint)) & DWC2_EPENA != 0
     }
 
     /// Returns the number of bytes currently scheduled on an OUT endpoint.
     pub fn output_capacity(&self, endpoint: u8) -> usize {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        usize::try_from(state.registers[(0xb10 + usize::from(endpoint) * 0x20) / 4] & 0x7ffff)
+        usize::try_from(state.register(EspUsbOtgRegister::DoepTsiz(endpoint)) & DWC2_XFER_SIZE_MASK)
             .expect("DWC2 transfer size fits usize")
     }
 
     /// Delivers one host-to-device packet through the shared receive FIFO.
     pub fn inject_output(&self, endpoint: u8, bytes: &[u8]) {
         let mut state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        let endpoint_index = usize::from(endpoint);
         for chunk in bytes.chunks(4) {
             let mut word = [0_u8; 4];
             word[..chunk.len()].copy_from_slice(chunk);
             state.rx_fifo.push_back(u32::from_le_bytes(word));
         }
-        let size_index = (0xb10 + endpoint_index * 0x20) / 4;
-        let remaining = state.registers[size_index] & 0x7ffff;
-        state.registers[size_index] =
-            (state.registers[size_index] & !0x7ffff) | remaining.saturating_sub(bytes.len() as u32);
+        let size = EspUsbOtgRegister::DoepTsiz(endpoint);
+        let current = state.register(size);
+        let remaining = current & DWC2_XFER_SIZE_MASK;
+        let updated =
+            (current & !DWC2_XFER_SIZE_MASK) | remaining.saturating_sub(bytes.len() as u32);
+        *state.register_mut(size) = updated;
         state
             .rx_status
             .push_back(u32::from(endpoint) | ((bytes.len() as u32) << 4) | (2 << 17));
@@ -934,146 +1080,8 @@ impl EspUsbOtgHandle {
     }
 }
 
-impl Device for EspUsbOtg {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
-            return Err(DeviceError::new(
-                "ESP USB OTG core requires aligned word access",
-            ));
-        }
-        let mut state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        let value = match offset {
-            0x14 => state.interrupt_status(),
-            0x1c => state.rx_status.front().copied().unwrap_or(0),
-            0x20 => state.pop_rx_status(),
-            0x818 => state.endpoint_interrupts(),
-            offset if (0x1000..0x1_0000).contains(&offset) => {
-                state.rx_fifo.pop_front().unwrap_or(0)
-            }
-            offset if (0x908..0xb00).contains(&offset) && (offset - 0x908) % 0x20 == 0 => {
-                let endpoint =
-                    usize::try_from((offset - 0x908) / 0x20).expect("endpoint number fits usize");
-                let mut value = state.registers[offset as usize / 4];
-                if state.registers[0x834 / 4] & (1 << endpoint) != 0 {
-                    value |= 1 << 7;
-                }
-                value
-            }
-            _ => state
-                .registers
-                .get(usize::try_from(offset / 4).expect("USB OTG offset fits"))
-                .copied()
-                .ok_or_else(|| DeviceError::new(format!("{} read at {offset:#x}", self.name)))?,
-        };
-        if std::env::var_os("REMU_DEBUG_USB").is_some()
-            && (offset == 0x14
-                || offset == 0x818
-                || (0x908..0xd00).contains(&offset) && (offset - 0x908) % 0x20 == 0)
-        {
-            eprintln!("dwc2 reg read {offset:#x} -> {value:#x}");
-        }
-        Ok(u64::from(value))
-    }
-
-    fn write(
-        &mut self,
-        offset: u64,
-        width: AccessWidth,
-        value: u64,
-        _at: SimTime,
-    ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
-            return Err(DeviceError::new(
-                "ESP USB OTG core requires aligned word access",
-            ));
-        }
-        let index = usize::try_from(offset / 4).expect("USB OTG offset fits");
-        let mut state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        if std::env::var_os("REMU_DEBUG_USB").is_some()
-            && (offset == 0x14
-                || offset == 0x818
-                || (0x908..0xd00).contains(&offset) && (offset - 0x908) % 0x20 == 0)
-        {
-            eprintln!("dwc2 reg write {offset:#x} <- {value:#x}");
-        }
-        if (0x1000..0x1_0000).contains(&offset) {
-            let endpoint =
-                usize::try_from((offset - 0x1000) / 0x1000).expect("endpoint number fits usize");
-            state.write_fifo(endpoint, value as u32);
-            return Ok(());
-        }
-        let register = state
-            .registers
-            .get_mut(index)
-            .ok_or_else(|| DeviceError::new(format!("{} write at {offset:#x}", self.name)))?;
-        if offset == 0x04 || offset == 0x14 {
-            // GOTGINT and writable GINTSTS causes are write-one-to-clear.
-            *register &= !(value as u32);
-        } else if offset == 0x10 {
-            // CSRST and the FIFO flush strobes self-clear once the functional
-            // operation has completed. AHB remains idle for the next access.
-            *register = value as u32 & !((1 << 0) | (1 << 4) | (1 << 5));
-            *register |= 1 << 31;
-            if value & (1 << 4) != 0 {
-                state.rx_status.clear();
-                state.rx_fifo.clear();
-            }
-            if value & (1 << 5) != 0 {
-                for fifo in &mut state.tx_fifo {
-                    fifo.clear();
-                }
-            }
-        } else if offset == 0x804 {
-            *register = value as u32;
-            if value & (1 << 7) != 0 || value & (1 << 9) != 0 {
-                // Global NAK effective is observable synchronously.
-                state.registers[0x14 / 4] |= 1 << 7;
-            }
-            if value & (1 << 8) != 0 || value & (1 << 10) != 0 {
-                state.registers[0x14 / 4] &= !(1 << 7);
-            }
-        } else if (0x908..0xb00).contains(&offset) && (offset - 0x908) % 0x20 == 0
-            || (0xb08..0xd00).contains(&offset) && (offset - 0xb08) % 0x20 == 0
-        {
-            // Endpoint interrupt registers are write-one-to-clear.
-            *register &= !(value as u32);
-        } else if (0x900..0xb00).contains(&offset) && (offset - 0x900) % 0x20 == 0 {
-            let endpoint =
-                usize::try_from((offset - 0x900) / 0x20).expect("endpoint number fits usize");
-            *register = value as u32;
-            if value & (1 << 30) != 0 {
-                *register &= !(1 << 31);
-                state.registers[(0x908 + endpoint * 0x20) / 4] |= 1 << 1;
-            }
-            if value & (1 << 31) != 0 {
-                let size =
-                    usize::try_from(state.registers[(0x910 + endpoint * 0x20) / 4] & 0x7ffff)
-                        .expect("DWC2 transfer size fits usize");
-                state.in_transfer_size[endpoint] = size;
-                state.tx_fifo[endpoint].clear();
-            }
-        } else if (0xb00..0xd00).contains(&offset) && (offset - 0xb00) % 0x20 == 0 {
-            let endpoint =
-                usize::try_from((offset - 0xb00) / 0x20).expect("endpoint number fits usize");
-            *register = value as u32;
-            if value & (1 << 30) != 0 {
-                *register &= !(1 << 31);
-                state.registers[(0xb08 + endpoint * 0x20) / 4] |= 1 << 1;
-            }
-        } else {
-            *register = value as u32;
-        }
-        Ok(())
-    }
-
-    fn reset(&mut self, _kind: ResetKind) {
-        *self.state.lock().expect("ESP USB OTG state lock poisoned") = EspUsbOtgState::reset();
-    }
-}
+#[path = "esp_usb_otg_device.rs"]
+mod esp_usb_otg_device;
 
 /// ESP32-C6 analog-register I²C master and its internal byte registers.
 ///

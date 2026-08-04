@@ -8,7 +8,7 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "950cccde713a284981b79779705f5a25a1fe43cc24709b02fa500d59281c9145"
     },
     {
       "path": "qualification/arm-cpu.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "dff87cdf11a4ca63ec36435415dca6780fe2092c7acc71a7653d973f19189492",
+        "manifest_sha256": "8889bbcab456c8b7172cd4c8510416e52852b4947f0f86041efb8f74dd442c08",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -192,7 +192,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "f9183872e0295be232156081ca16457b0c7d655fa1a1280ac0885f92b29a85ca",
+        "manifest_sha256": "2da0c0cb7719ba340efa7e7bfee84180068d300bb7713875fdbe8371252efbc8",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -263,7 +263,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487",
+        "manifest_sha256": "377e4a13db9d40ed0cfb5079c334b275535c45828e9cc9a38c0a886cd920e6c1",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -338,7 +338,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95",
+        "manifest_sha256": "077667b480063c6ba1d0410e885e3f7ae67ee89ada44c4a459be5d342cbb4ff9",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -400,6 +400,7 @@
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
         "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
+        "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
         "Radio, analogue and security peripherals are outside the six-chip baseline."
       ],
       "name": "Espressif ESP32-S3",
@@ -410,12 +411,13 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 3,
+        "covered_register_count": 12,
         "manifest": "qualification/register-coverage/esp32s3.json",
         "manifest_sha256": "07679a61d563866694e55dfa8a9eee44350b6d3f24424325894e705dc6a7cebd",
         "required_covered_regions": [
           "esp32s3.gpio",
-          "esp32s3.uart0"
+          "esp32s3.uart0",
+          "esp32s3.usb-otg"
         ],
         "status": "passing"
       },
@@ -481,7 +483,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf",
+        "manifest_sha256": "520f01d0df351291c09556f28dcbe9f63e3935928e348c06a965a798cccb70ba",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",
