@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "2b0a48293e1ad7a4b6cbb24cae8acab9743e207574e7c4941b6a04099e1987d9"
+    "sha256": "e2b92c9d4af21d335aaf0c2a815918f5cd241c71c833244d6de42441a4b7e1b0"
   },
   "proofs": [
     {
@@ -44,14 +44,167 @@
           "events": 0
         }
       }
+    },
+    {
+      "id": "esp32s3-usb",
+      "result": ".remu/portfolio-smoke/esp32s3-usb-run.json",
+      "bus_log": ".remu/portfolio-smoke/esp32s3-usb-bus.json",
+      "result_sha256": "4d93be0b4da8c39dce715b979650867315612ab36f85ab161bfeef3852f83451",
+      "bus_log_sha256": "935bbd1285254001bf07b6c1e74984d9e6c7c96407b5046a13774a92504c0b20",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "5e40374583e5a196739610e3f08d96e9e80ac8a3015b06e77479fb8df5f2b614",
+        "stats": {
+          "instructions": 1086,
+          "time": 1086,
+          "events": 5
+        }
+      }
+    },
+    {
+      "id": "esp32s3-peripherals",
+      "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
+      "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
+      "result_sha256": "0b8e18e5786fc3cc1610f95a0abf83f4552d9bb87a0eccca31d647b7f11908c0",
+      "bus_log_sha256": "f1603c7d64797bedfeea133e6f0845a4fa04ac36d53066298a68307aef333e7a",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "54129d4762dc9bd3c8b75886f42847ac0a84d5004508c5c037e18b2f79bdb841",
+        "stats": {
+          "instructions": 380,
+          "time": 380,
+          "events": 0
+        }
+      }
     }
   ],
   "required_covered_regions": [
+    "esp32s3.aes",
+    "esp32s3.assist-debug",
+    "esp32s3.digital-signature",
+    "esp32s3.efuse",
+    "esp32s3.extmem",
+    "esp32s3.gdma",
     "esp32s3.gpio",
-    "esp32s3.uart0"
+    "esp32s3.hmac",
+    "esp32s3.i2c0",
+    "esp32s3.i2c1",
+    "esp32s3.i2s0",
+    "esp32s3.i2s1",
+    "esp32s3.interrupt-matrix",
+    "esp32s3.io-mux",
+    "esp32s3.lcd-cam",
+    "esp32s3.ledc",
+    "esp32s3.mcpwm0",
+    "esp32s3.mcpwm1",
+    "esp32s3.pcnt",
+    "esp32s3.peri-backup",
+    "esp32s3.rmt",
+    "esp32s3.rsa",
+    "esp32s3.rtc-control",
+    "esp32s3.rtc-i2c",
+    "esp32s3.rtc-io",
+    "esp32s3.saradc",
+    "esp32s3.sensitive",
+    "esp32s3.sdmmc",
+    "esp32s3.sdm",
+    "esp32s3.sha",
+    "esp32s3.spi2",
+    "esp32s3.spi3",
+    "esp32s3.syscon",
+    "esp32s3.tsens",
+    "esp32s3.twai",
+    "esp32s3.uhci0",
+    "esp32s3.uhci1",
+    "esp32s3.uart0",
+    "esp32s3.uart1",
+    "esp32s3.uart2",
+    "esp32s3.usb-wrap",
+    "esp32s3.usb-otg",
+    "esp32s3.world-controller",
+    "esp32s3.xts-aes"
   ],
-  "covered_register_count": 3,
+  "covered_register_count": 62,
   "covered_registers": [
+    {
+      "region": "esp32s3.aes",
+      "address": 1610850484,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.assist-debug",
+      "address": 1611457020,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.digital-signature",
+      "address": 1610866208,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.efuse",
+      "address": 1610641916,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.extmem",
+      "address": 1611415856,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.extmem",
+      "address": 1611416572,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.gdma",
+      "address": 1610871820,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
     {
       "region": "esp32s3.gpio",
       "address": 1610629128,
@@ -75,6 +228,369 @@
       "access_count": 1
     },
     {
+      "region": "esp32s3.hmac",
+      "address": 1610867196,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.i2c0",
+      "address": 1610690808,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.i2c1",
+      "address": 1610772728,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.i2s0",
+      "address": 1610674304,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.i2s1",
+      "address": 1610797184,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.interrupt-matrix",
+      "address": 1611409404,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.io-mux",
+      "address": 1610649852,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.lcd-cam",
+      "address": 1610879228,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.ledc",
+      "address": 1610715388,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.mcpwm0",
+      "address": 1610735908,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.mcpwm1",
+      "address": 1610793252,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.pcnt",
+      "address": 1610707196,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.peri-backup",
+      "address": 1610785020,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.rmt",
+      "address": 1610703052,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.rsa",
+      "address": 1610860592,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.rtc-control",
+      "address": 1610646012,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.rtc-i2c",
+      "address": 1610648576,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.rtc-i2c",
+      "address": 1610648828,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.rtc-io",
+      "address": 1610647036,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.saradc",
+      "address": 1610875900,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.sdm",
+      "address": 1610633000,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.sdmmc",
+      "address": 1610776684,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.sensitive",
+      "address": 1611403560,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.sensitive",
+      "address": 1611407356,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.sha",
+      "address": 1610854444,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.spi2",
+      "address": 1610760432,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.spi3",
+      "address": 1610764528,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.syscon",
+      "address": 1610768388,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.syscon",
+      "address": 1610769404,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.tsens",
+      "address": 1610647572,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.tsens",
+      "address": 1610647644,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.tsens",
+      "address": 1610648060,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.twai",
+      "address": 1610788864,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
       "region": "esp32s3.uart0",
       "address": 1610612736,
       "operations": [
@@ -84,6 +600,216 @@
         "Word"
       ],
       "access_count": 9
+    },
+    {
+      "region": "esp32s3.uart1",
+      "address": 1610678272,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.uart2",
+      "address": 1610801152,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.uhci0",
+      "address": 1610694788,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.uhci1",
+      "address": 1610662020,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611137032,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611137044,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 203
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611137048,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611137056,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139088,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139092,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139100,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139848,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611141120,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "esp32s3.usb-wrap",
+      "address": 1610846208,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-wrap",
+      "address": 1610847228,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.world-controller",
+      "address": 1611464828,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.world-controller",
+      "address": 1611466052,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.xts-aes",
+      "address": 1611448408,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.xts-aes",
+      "address": 1611448412,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
     }
   ],
   "additional_evidence": [
@@ -95,7 +821,16 @@
     "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
     "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
     "UART0 is transmit-focused and does not model physical baud timing.",
-    "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
-    "Radio, analogue and security peripherals are outside the six-chip baseline."
+    "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
+    "SYSCON radio-only clock/reset/configuration fields retain their documented register contract but have no radio side effects; radio behavior is tracked separately in issue #334.",
+    "World Controller transitions, write-buffer sequencing, switch logs, and NMI masking occur at architecturally visible CPU accesses rather than pipeline-cycle timing.",
+    "EXTMEM cache commands complete at the issuing architectural write; tags, locks, miss counters and interrupts are functional without silicon refill latency or physical SPI timing.",
+    "RTC-I2C transfers complete at the issuing architectural write and use deterministic internal slave storage without electrical bus timing.",
+    "SENS implements the complete vendor register surface, deterministic touch counts/threshold scans, and ULP RTC-I2C coupling without analogue calibration or scan-cycle timing.",
+    "XTS_AES manual encryption implements AES-XTS and SYSTEM gating with a deterministic replaceable key; RELEASE exposes ciphertext through a host/SPI-side handle because SPI1 transfer sequencing is not yet modeled.",
+    "PERI_BACKUP performs permission-checked APB/retention-memory copies at the next architectural machine service point without silicon burst or timeout-cycle timing.",
+    "ASSIST_DEBUG observes architectural CPU accesses and writes deterministic four-word trace records without reproducing internal pipeline-cycle exception timing.",
+    "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
+    "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
   ]
 }

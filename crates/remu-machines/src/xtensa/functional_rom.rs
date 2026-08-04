@@ -720,6 +720,19 @@ impl XtensaMachine {
                     self.complete_functional_rom_call(0)?;
                 }
             }
+            // rom_config_instruction_cache_mode(0x4000, 8, 32) enables the
+            // application IROM window after the IRAM bootstrap has validated
+            // its 64-KiB cache mode. Keep the handoff gated until this call.
+            0x4000_1a1c => {
+                let valid = self.cpu.register(XtensaRegister::A2) == 0x4000
+                    && self.cpu.register(XtensaRegister::A3) == 8
+                    && self.cpu.register(XtensaRegister::A4) == 32;
+                if valid {
+                    self.instruction_cache_configured = true;
+                    self.extmem.configure_boot_caches();
+                }
+                self.complete_functional_rom_call(u32::from(!valid))?;
+            }
             0x4000_15fc..=0x4000_1a28 => {
                 self.complete_functional_rom_call(0)?;
             }
@@ -794,16 +807,8 @@ impl XtensaMachine {
                 if std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some() {
                     eprintln!("interrupt route cpu={cpu} source={source} line={interrupt}");
                 }
-                if let Some(route) = usize::try_from(cpu)
-                    .ok()
-                    .and_then(|cpu| self.interrupt_routes.get_mut(cpu))
-                    .and_then(|routes| {
-                        usize::try_from(source)
-                            .ok()
-                            .and_then(|source| routes.get_mut(source))
-                    })
-                {
-                    *route = u8::try_from(interrupt).unwrap_or(u8::MAX);
+                if let (Ok(core), Ok(source)) = (usize::try_from(cpu), usize::try_from(source)) {
+                    self.interrupt_matrix.set_route(core, source, interrupt);
                 }
                 self.complete_functional_rom_call(0)?;
             }

@@ -3,6 +3,8 @@ use super::*;
 pub(crate) struct GpioState {
     pub(crate) direction: u32,
     pub(crate) output: u32,
+    pub(crate) direction_high: u32,
+    pub(crate) output_high: u32,
     pub(crate) nets: Vec<DigitalNet>,
 }
 
@@ -60,6 +62,31 @@ impl GpioHandle {
             .map(DigitalNet::resolved)
             .ok_or_else(|| DeviceError::new(format!("GPIO pin {pin} is out of range")))
     }
+
+    pub(crate) fn drive_peripheral(
+        &self,
+        pin: u8,
+        driver: u16,
+        value: Logic,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let index = usize::from(pin);
+        let mut state = self.state.lock().expect("GPIO lock poisoned");
+        let net = state
+            .nets
+            .get_mut(index)
+            .ok_or_else(|| DeviceError::new(format!("GPIO pin {pin} is out of range")))?;
+        let update = net.drive(DriverId(u32::from(driver)), value);
+        drop(state);
+        self.hub
+            .set(
+                self.signals[index],
+                SignalValue::repeat(update.value, 1)
+                    .expect("one-bit signal construction cannot fail"),
+                at,
+            )
+            .map_err(|error| DeviceError::new(error.to_string()))
+    }
 }
 
 /// Simple GPIO register facade with direction, output, and input registers.
@@ -102,6 +129,8 @@ impl FunctionalGpio {
         let state = Arc::new(Mutex::new(GpioState {
             direction: 0,
             output: 0,
+            direction_high: 0,
+            output_high: 0,
             nets: (0..pins).map(|_| DigitalNet::new()).collect(),
         }));
         let handle = GpioHandle {
@@ -146,9 +175,19 @@ pub(crate) fn refresh_gpio(
 ) -> Result<(), DeviceError> {
     let mut state = shared.lock().expect("GPIO lock poisoned");
     for pin in 0..pins {
-        let logic = if state.direction & (1_u32 << pin) == 0 {
+        let bit = if pin < 32 {
+            1_u32 << pin
+        } else {
+            1_u32 << (pin - 32)
+        };
+        let (direction, output) = if pin < 32 {
+            (state.direction, state.output)
+        } else {
+            (state.direction_high, state.output_high)
+        };
+        let logic = if direction & bit == 0 {
             Logic::Z
-        } else if state.output & (1_u32 << pin) == 0 {
+        } else if output & bit == 0 {
             Logic::Zero
         } else {
             Logic::One
@@ -166,14 +205,15 @@ pub(crate) fn refresh_gpio(
 
 type VendorGpioParts = (Arc<Mutex<GpioState>>, Vec<SignalId>, GpioHandle);
 
-pub(crate) fn vendor_gpio(
+fn vendor_gpio_with_limit(
     pins: u8,
     path: &str,
     hub: &SignalHub,
+    max_pins: u8,
 ) -> Result<VendorGpioParts, SignalError> {
-    if pins == 0 || pins > 32 {
+    if pins == 0 || pins > max_pins {
         return Err(SignalError::WidthMismatch {
-            expected: 32,
+            expected: u16::from(max_pins),
             actual: u16::from(pins),
         });
     }
@@ -188,6 +228,8 @@ pub(crate) fn vendor_gpio(
     let state = Arc::new(Mutex::new(GpioState {
         direction: 0,
         output: 0,
+        direction_high: 0,
+        output_high: 0,
         nets: (0..pins).map(|_| DigitalNet::new()).collect(),
     }));
     let handle = GpioHandle {
@@ -196,6 +238,22 @@ pub(crate) fn vendor_gpio(
         hub: hub.clone(),
     };
     Ok((state, signals, handle))
+}
+
+pub(crate) fn vendor_gpio(
+    pins: u8,
+    path: &str,
+    hub: &SignalHub,
+) -> Result<VendorGpioParts, SignalError> {
+    vendor_gpio_with_limit(pins, path, hub, 32)
+}
+
+pub(crate) fn vendor_gpio_wide(
+    pins: u8,
+    path: &str,
+    hub: &SignalHub,
+) -> Result<VendorGpioParts, SignalError> {
+    vendor_gpio_with_limit(pins, path, hub, 64)
 }
 
 impl Device for FunctionalGpio {

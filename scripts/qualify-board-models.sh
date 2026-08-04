@@ -50,4 +50,30 @@ target/debug/remu board \
 cmp "$artifact_root/result.json" "$artifact_root/replay.json"
 cmp "$artifact_root/signals.vcd" "$artifact_root/replay.vcd"
 
+target/debug/remu board \
+    --file qualification/m5sticks3-topology.star \
+    --load-root . \
+    --artifact "$artifact_root/m5sticks3.json" \
+    --vcd "$artifact_root/m5sticks3.vcd"
+
+jq -e '
+    .schema == "remu.board-simulation.v1" and
+    .board == "m5sticks3" and
+    .target == "esp32s3" and
+    .result == "pass" and
+    (.connectors == [
+        {"name":"lcd_spi3","protocol":"spi","data_pin":39,"clock_pin":40,"voltage_mv":3300},
+        {"name":"lcd_control","protocol":"digital","data_pin":45,"clock_pin":41,"voltage_mv":3300},
+        {"name":"lcd_reset","protocol":"digital","data_pin":21,"clock_pin":21,"voltage_mv":3300},
+        {"name":"m5pm1_i2c1","protocol":"i2c","data_pin":47,"clock_pin":48,"voltage_mv":3300}
+    ]) and
+    (.mounts | map({name:.component.name, pin:.pin}) | sort_by(.name)) == [
+        {"name":"button_a","pin":11},
+        {"name":"button_b","pin":12},
+        {"name":"lcd_backlight","pin":38}
+    ]
+' "$artifact_root/m5sticks3.json" >/dev/null
+
+grep -q '\$scope module m5sticks3' "$artifact_root/m5sticks3.vcd"
+
 echo "board model qualification passed; artifact: $artifact_root/result.json"

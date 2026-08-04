@@ -103,6 +103,13 @@ Direct ESP execution is an architectural/compiler oracle, not proof that a
 bootloader accepts the flash layout. Supplying `--esp-app-image` adds a separate
 esptool-compatible application-image validation step.
 
+The ESP32-S3 model also exposes a functional RMT transmitter slice. Channels
+0–3 accept native FIFO pulse items at `0x6001_6000`, set TX-complete status, and
+publish deterministic channel waveforms to VCD as
+`board.esp32s3.rmt.ch0`–`ch3`. This is sufficient for bounded WS2812-style
+firmware tests; carrier modulation, DMA, receive channels, and clock-accurate
+behavior are not claimed.
+
 There is not yet a published runtime container or binary release. Until that
 distribution path exists, the source build above is the supported installation
 method.
@@ -133,6 +140,23 @@ Each target has a public peripheral checklist in the repository’s
 peripheral may have address space reserved for startup compatibility, but it
 has no supported behavioral model until deterministic tests and documentation
 say otherwise.
+
+The ESP32-S3 model includes deterministic native I2C0 and I2C1 command/FIFO
+transactions against the built-in SGP30 qualification device, with SDA/SCL
+waveform signals. This is a functional peripheral slice, not a clock-accurate
+electrical bus model or a complete device catalogue.
+
+The ESP32-S3 functional slice includes native-address SPI2 and SPI3 user
+transactions: firmware can fill the W0-W15 FIFO, start a bounded transfer, and
+observe deterministic MOSI, MISO, SCLK, CS0, and transfer-complete signals. The
+current model intentionally leaves DMA, clock-divider fidelity, additional
+chip-select electrical behavior, and full LCD-device semantics for later
+peripheral slices.
+
+The ESP32-S3 I2S functional slice supports native I2S0/I2S1 register setup,
+single-data stereo-frame starts, TX/RX completion status, loopback samples, and
+deterministic MCLK/BCLK/WS/DOUT/DIN VCD signals. DMA audio streaming, PDM/TDM
+transforms, and clock-frequency fidelity remain outside this bounded model.
 
 ## Qualification and provenance
 
@@ -239,6 +263,9 @@ sensor with `board.connect("grove", sensor)`.
 The current board/component scenario validates topology and digital protocol
 models independently. Live ESP32-C6 firmware MMIO is not yet routed into the
 assembled board graph, so this is not yet an end-to-end firmware-driver model.
+The RISC-V, Arm RP, and Xtensa machine APIs now expose named `Compiler` and
+`Native` UART endpoints for the transport-coupling work that follows; vendor
+UART adapters remain target-specific for now.
 See [board simulation](docs/BOARD_SIMULATION.md) for the exact boundary.
 
 ## Architecture

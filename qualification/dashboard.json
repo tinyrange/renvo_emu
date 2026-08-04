@@ -1,38 +1,38 @@
 {
   "generator": {
     "path": "scripts/generate-dashboard.py",
-    "sha256": "259a3f1f792a524bceb3808c153b98077d771d26b5adb2bd2a79497b5b42a6c1",
+    "sha256": "65a1d185d62e94173df0b59fd3666cee11317c0210f0095eb623bcc335e0dc73",
     "spec": "qualification/dashboard-spec.json",
-    "spec_sha256": "c6cae39f15e7247520fda27dd508b20c63c66b7414f7a6208c783ffb62112af4"
+    "spec_sha256": "246d1781c1dd8b28a9f9bdb6a34e617c67928c5be811a2315e19adbbf194d9c6"
   },
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "05bce4173fb71f8aa99c535950052892ef4d02570679c9b62eeabb8ddf0ba957"
+      "sha256": "950cccde713a284981b79779705f5a25a1fe43cc24709b02fa500d59281c9145"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "8d67c3eacb71b777897985e31f1b63526177c4bf54c4ecfca04a0e5c2c2b55f4"
+      "sha256": "ad7f00ed30d548f58c2a2140bf87a67d9fffb94a0d8e40ef578f55b811ed7c63"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "155eacb1efda5f31b43839fccf633e51c7dce83b584618af1e3925129572996d"
+      "sha256": "0ed44527683f4bea773fc81ca3e615915bb3a8c4702572e3605e44c68b3c52cb"
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "7664050616ab60b6a53b1a1049233e85b29902ad7448a10921480d750bf0cfa6"
+      "sha256": "a8a4e55942499b347db0778506c05288f72b5b47edb092c9370823f13946a879"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "f7dde1520d959d650c5a78a027f7388df279d2233e0d228a77f8982260e5fe97"
+      "sha256": "ecd9ded76206e1460eac37727af32e58b5bb1e64b90c7677d70944b90c788dec"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "a3eb582cf2bf21b4734a918c772875172131b2cbf4d903d87c4b22b7ee2c42c7"
+      "sha256": "4764d176e8d253e06d239900bb1aa579b1e3f65f0fe2758e2ee4bd6bc76e5606"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "6d1e97bfc0acc2b0d1520861759400816e8d2f4a8e8186a5a35b8ad8516cd380"
+      "sha256": "d238df9418c6693bec871dca5576c2906ec22c526f40095616769b19ce3be675"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "214b303bcd7925395d867afffa7027dc3816e570a614c8220e7d74a7761a389f"
+      "sha256": "74a8d67294a06c0df7ee4a3a47d2287754ee0d202e1970584500a4cbcb75c35a"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -82,7 +82,7 @@
     ]
   },
   "result": "pass",
-  "schema": "remu.support-dashboard.v1",
+  "schema": "remu.support-dashboard.v2",
   "scope_note": "Baseline proven means deterministic functional compiler/firmware testing; it does not claim cycle accuracy, complete ISA coverage, or complete peripherals.",
   "targets": [
     {
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "dff87cdf11a4ca63ec36435415dca6780fe2092c7acc71a7653d973f19189492",
+        "manifest_sha256": "c01af6edc14edfc8adecc9a5eb920cc662dd4c91a2a2801ec60de18929528f11",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -129,7 +129,31 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tiers": [
+        {
+          "evidence": [
+            "riscv-cpu.json",
+            "rust-abi.json"
+          ],
+          "name": "compiler-execution"
+        },
+        {
+          "evidence": [
+            "vendor-samples.json",
+            "register-coverage/",
+            "stop-conditions.json"
+          ],
+          "name": "firmware-functional-slice"
+        },
+        {
+          "evidence": [
+            "starlark.json",
+            "native-images.json",
+            "acceptance-report.html"
+          ],
+          "name": "board-or-sdk-workflow"
+        }
+      ],
       "vendor_sample_profiles": [
         "ch32v003"
       ]
@@ -168,7 +192,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "f9183872e0295be232156081ca16457b0c7d655fa1a1280ac0885f92b29a85ca",
+        "manifest_sha256": "e1dc133bb85810e225be46da6e29839b4d53a4d6b247eb1bd6747aed9a07f1ed",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -178,7 +202,31 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tiers": [
+        {
+          "evidence": [
+            "riscv-cpu.json",
+            "rust-abi.json"
+          ],
+          "name": "compiler-execution"
+        },
+        {
+          "evidence": [
+            "vendor-samples.json",
+            "register-coverage/",
+            "stop-conditions.json"
+          ],
+          "name": "firmware-functional-slice"
+        },
+        {
+          "evidence": [
+            "starlark.json",
+            "native-images.json",
+            "acceptance-report.html"
+          ],
+          "name": "board-or-sdk-workflow"
+        }
+      ],
       "vendor_sample_profiles": [
         "ch32v006"
       ]
@@ -215,7 +263,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "351863fc41794b0047b9b71896974babf5fa0246b7660f42318e44fb6432f487",
+        "manifest_sha256": "dbdb0f016873eb5edf9c59218d0539649da7ae971d024802d32d4339ca210df0",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -224,7 +272,31 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tiers": [
+        {
+          "evidence": [
+            "arm-cpu.json",
+            "rust-abi.json"
+          ],
+          "name": "compiler-execution"
+        },
+        {
+          "evidence": [
+            "vendor-samples.json",
+            "register-coverage/",
+            "stop-conditions.json"
+          ],
+          "name": "firmware-functional-slice"
+        },
+        {
+          "evidence": [
+            "starlark.json",
+            "native-images.json",
+            "acceptance-report.html"
+          ],
+          "name": "board-or-sdk-workflow"
+        }
+      ],
       "vendor_sample_profiles": [
         "rp2040"
       ]
@@ -266,7 +338,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "7b44a3a9ff7e886970297a7eaedb420980f55ea7cadbcea47d8c2170c2a7ae95",
+        "manifest_sha256": "f0c2d1c4a923b05e54834ac0412143f0d6ba5f7b17926be0446f3b4d4f3ca85e",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -275,7 +347,32 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 Arm and Hazard3 functional MCU modes",
+      "support_tiers": [
+        {
+          "evidence": [
+            "riscv-cpu.json",
+            "arm-cpu.json",
+            "rust-abi.json"
+          ],
+          "name": "compiler-execution"
+        },
+        {
+          "evidence": [
+            "vendor-samples.json",
+            "register-coverage/",
+            "stop-conditions.json"
+          ],
+          "name": "firmware-functional-slice"
+        },
+        {
+          "evidence": [
+            "starlark.json",
+            "native-images.json",
+            "acceptance-report.html"
+          ],
+          "name": "board-or-sdk-workflow"
+        }
+      ],
       "vendor_sample_profiles": [
         "rp2350-arm",
         "rp2350-riscv"
@@ -298,12 +395,21 @@
       "known_gaps": [
         "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
         "windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy",
-        "exact SMP timing, wireless, ULP, and full USB are deferred",
+        "interrupt priority/nesting, exact SMP timing, wireless, full USB, and PSRAM initialization timing are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
-        "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
-        "Radio, analogue and security peripherals are outside the six-chip baseline."
+        "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
+        "SYSCON radio-only clock/reset/configuration fields retain their documented register contract but have no radio side effects; radio behavior is tracked separately in issue #334.",
+        "World Controller transitions, write-buffer sequencing, switch logs, and NMI masking occur at architecturally visible CPU accesses rather than pipeline-cycle timing.",
+        "EXTMEM cache commands complete at the issuing architectural write; tags, locks, miss counters and interrupts are functional without silicon refill latency or physical SPI timing.",
+        "RTC-I2C transfers complete at the issuing architectural write and use deterministic internal slave storage without electrical bus timing.",
+        "SENS implements the complete vendor register surface, deterministic touch counts/threshold scans, and ULP RTC-I2C coupling without analogue calibration or scan-cycle timing.",
+        "XTS_AES manual encryption implements AES-XTS and SYSTEM gating with a deterministic replaceable key; RELEASE exposes ciphertext through a host/SPI-side handle because SPI1 transfer sequencing is not yet modeled.",
+        "PERI_BACKUP performs permission-checked APB/retention-memory copies at the next architectural machine service point without silicon burst or timeout-cycle timing.",
+        "ASSIST_DEBUG observes architectural CPU accesses and writes deterministic four-word trace records without reproducing internal pipeline-cycle exception timing.",
+        "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
+        "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ],
       "name": "Espressif ESP32-S3",
       "passing_corpus": [
@@ -313,16 +419,82 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 3,
+        "covered_register_count": 62,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "bae6f156127b22bbb8027926225eb1c8b87ec05114a32cad4206c96c5cbafcb4",
+        "manifest_sha256": "02cd1135db66af2620d1b81cc112434c4c4ab81bf63f7f9b26f28511c6b58d18",
         "required_covered_regions": [
+          "esp32s3.aes",
+          "esp32s3.assist-debug",
+          "esp32s3.digital-signature",
+          "esp32s3.efuse",
+          "esp32s3.extmem",
+          "esp32s3.gdma",
           "esp32s3.gpio",
-          "esp32s3.uart0"
+          "esp32s3.hmac",
+          "esp32s3.i2c0",
+          "esp32s3.i2c1",
+          "esp32s3.i2s0",
+          "esp32s3.i2s1",
+          "esp32s3.interrupt-matrix",
+          "esp32s3.io-mux",
+          "esp32s3.lcd-cam",
+          "esp32s3.ledc",
+          "esp32s3.mcpwm0",
+          "esp32s3.mcpwm1",
+          "esp32s3.pcnt",
+          "esp32s3.peri-backup",
+          "esp32s3.rmt",
+          "esp32s3.rsa",
+          "esp32s3.rtc-control",
+          "esp32s3.rtc-i2c",
+          "esp32s3.rtc-io",
+          "esp32s3.saradc",
+          "esp32s3.sensitive",
+          "esp32s3.sdmmc",
+          "esp32s3.sdm",
+          "esp32s3.sha",
+          "esp32s3.spi2",
+          "esp32s3.spi3",
+          "esp32s3.syscon",
+          "esp32s3.tsens",
+          "esp32s3.twai",
+          "esp32s3.uhci0",
+          "esp32s3.uhci1",
+          "esp32s3.uart0",
+          "esp32s3.uart1",
+          "esp32s3.uart2",
+          "esp32s3.usb-wrap",
+          "esp32s3.usb-otg",
+          "esp32s3.world-controller",
+          "esp32s3.xts-aes"
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tiers": [
+        {
+          "evidence": [
+            "xtensa-cpu.json",
+            "rust-abi.json"
+          ],
+          "name": "compiler-execution"
+        },
+        {
+          "evidence": [
+            "vendor-samples.json",
+            "register-coverage/",
+            "stop-conditions.json"
+          ],
+          "name": "firmware-functional-slice"
+        },
+        {
+          "evidence": [
+            "starlark.json",
+            "native-images.json",
+            "acceptance-report.html"
+          ],
+          "name": "board-or-sdk-workflow"
+        }
+      ],
       "vendor_sample_profiles": [
         "esp32s3"
       ]
@@ -360,7 +532,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "84548d6560d9418d1694478174d2891ab25abbb4364b46fcfc7251aed24bdadf",
+        "manifest_sha256": "a13d2f210ebdcba4f1f0d28d4a7cef3b29bb439a51b082feef065a09f7d33b1a",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",
@@ -370,7 +542,31 @@
         ],
         "status": "passing"
       },
-      "support_tier": "Baseline proven \u2014 functional MCU model",
+      "support_tiers": [
+        {
+          "evidence": [
+            "riscv-cpu.json",
+            "rust-abi.json"
+          ],
+          "name": "compiler-execution"
+        },
+        {
+          "evidence": [
+            "vendor-samples.json",
+            "register-coverage/",
+            "stop-conditions.json"
+          ],
+          "name": "firmware-functional-slice"
+        },
+        {
+          "evidence": [
+            "starlark.json",
+            "native-images.json",
+            "acceptance-report.html"
+          ],
+          "name": "board-or-sdk-workflow"
+        }
+      ],
       "vendor_sample_profiles": [
         "esp32c6"
       ]

@@ -377,6 +377,17 @@ impl RiscVMachine {
         }
     }
 
+    /// Selects whether the ESP USB Serial/JTAG host is attached.
+    ///
+    /// The host is connected by default. When connected, the peripheral
+    /// asserts its SOF raw interrupt every fixed abstract USB frame period;
+    /// disconnected mode is useful for testing non-blocking console paths.
+    pub fn set_usb_host_connected(&mut self, connected: bool) {
+        if let Some(usb) = &self.esp_usb_serial_jtag {
+            usb.set_host_connected(connected, self.now);
+        }
+    }
+
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
     pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
         self.stop_on_usb_input_complete = enabled;

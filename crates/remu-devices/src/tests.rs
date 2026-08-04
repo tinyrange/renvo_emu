@@ -337,6 +337,58 @@ fn esp_usb_serial_jtag_moves_deterministic_host_packets() {
 }
 
 #[test]
+fn esp_usb_serial_jtag_models_host_connection_and_sof() {
+    let (mut usb, handle) = EspUsbSerialJtag::new("usb-serial-jtag");
+    let sof = 1_u64 << 1;
+    let enabled = 0x10;
+    let clear = 0x14;
+    let before_first_sof = SimTime::from_ticks(EspUsbSerialJtag::SOF_PERIOD_TICKS - 1);
+    let first_sof = SimTime::from_ticks(EspUsbSerialJtag::SOF_PERIOD_TICKS);
+
+    assert!(handle.host_connected());
+    usb.write(enabled, AccessWidth::Word, sof, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.poll(before_first_sof));
+    assert_eq!(
+        usb.read(0x08, AccessWidth::Word, before_first_sof).unwrap() & sof,
+        0
+    );
+    assert!(handle.poll(first_sof));
+    assert_eq!(
+        usb.read(0x08, AccessWidth::Word, first_sof).unwrap() & sof,
+        sof
+    );
+    assert!(handle.interrupt_pending());
+
+    // SOF is a latched raw status bit and clear-on-write registers acknowledge
+    // it. The next frame asserts it again after another fixed period.
+    usb.write(clear, AccessWidth::Word, sof, first_sof).unwrap();
+    assert!(!handle.interrupt_pending());
+    assert!(!handle.poll(SimTime::from_ticks(first_sof.ticks() + 1)));
+    assert!(handle.poll(SimTime::from_ticks(
+        first_sof.ticks() + EspUsbSerialJtag::SOF_PERIOD_TICKS,
+    )));
+
+    handle.set_host_connected(false, first_sof);
+    assert!(!handle.host_connected());
+    assert_eq!(
+        usb.read(0x08, AccessWidth::Word, first_sof).unwrap() & sof,
+        0
+    );
+    assert!(!handle.poll(SimTime::from_ticks(10 * EspUsbSerialJtag::SOF_PERIOD_TICKS)));
+
+    let reconnected = SimTime::from_ticks(20 * EspUsbSerialJtag::SOF_PERIOD_TICKS);
+    handle.set_host_connected(true, reconnected);
+    assert!(handle.host_connected());
+    assert!(!handle.poll(SimTime::from_ticks(
+        reconnected.ticks() + EspUsbSerialJtag::SOF_PERIOD_TICKS - 1,
+    )));
+    assert!(handle.poll(SimTime::from_ticks(
+        reconnected.ticks() + EspUsbSerialJtag::SOF_PERIOD_TICKS,
+    )));
+}
+
+#[test]
 fn vendor_gpio_set_clear_registers_drive_signals() {
     let hub = SignalHub::new();
     let (mut sio, handle) = RpSioGpio::new("sio", 4, "board.rp.gpio", hub.clone()).unwrap();
@@ -348,6 +400,37 @@ fn vendor_gpio_set_clear_registers_drive_signals() {
     assert_eq!(handle.output(), 1);
     let changes = hub.drain_changes();
     assert_eq!(changes.last().unwrap().value.bit(0), Some(Logic::One));
+}
+
+#[test]
+fn esp32s3_gpio_bank_one_exposes_and_drives_pin_38() {
+    let hub = SignalHub::new();
+    let (mut gpio, handle) =
+        EspGpio::new("esp32s3.gpio", 49, "board.esp32s3.chip_gpio", hub).unwrap();
+
+    assert_eq!(handle.pin_count(), 49);
+    gpio.write(0x30, AccessWidth::Word, 1 << 6, SimTime::ZERO)
+        .unwrap();
+    gpio.write(0x14, AccessWidth::Word, 1 << 6, SimTime::from_ticks(1))
+        .unwrap();
+
+    assert_eq!(
+        gpio.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 6
+    );
+    assert_eq!(
+        gpio.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 6
+    );
+    assert_eq!(handle.resolved(38).unwrap(), Logic::One);
+    assert_eq!(
+        gpio.read(0x40, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 6
+    );
+
+    gpio.write(0x18, AccessWidth::Word, 1 << 6, SimTime::from_ticks(2))
+        .unwrap();
+    assert_eq!(handle.resolved(38).unwrap(), Logic::Zero);
 }
 
 #[test]

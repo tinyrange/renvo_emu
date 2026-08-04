@@ -36,6 +36,17 @@ metadata. It rejects an unknown connector, incompatible protocol, or a second
 device on an occupied connector. Low-level direct wiring remains an internal
 extension point rather than the normal board API.
 
+The M5StickS3 topology is available as
+[`boards/m5sticks3.star`](../boards/m5sticks3.star). It records the LCD SPI3
+signals (MOSI GPIO39, SCLK GPIO40), DC/CS control pins (GPIO45/GPIO41), reset
+GPIO21, M5PM1 I2C1 (SDA GPIO47, SCL GPIO48), LCD backlight GPIO38, and the
+active-low A/B buttons on GPIO11/GPIO12. Its `lcd_spi3`, `lcd_control`,
+`lcd_reset`, and `m5pm1_i2c1` connector names are stable topology handles; the
+ST7789 and M5PM1 protocol models and live ESP32-S3 MMIO bridge remain separate
+qualification items. Board results include `mounts` and `connections` so a
+fixture can assert its physical wiring without exposing machine state to
+Starlark.
+
 Run a scenario and produce JSON plus VCD with:
 
 ```sh
@@ -56,6 +67,17 @@ results prove topology, device protocols, deterministic external behavior and
 waveforms—not execution of a firmware driver against the SGP30. That coupling
 can be added at the machine pin/bus boundary without moving CPU or scheduler
 state into Starlark.
+
+Machine models now expose the same boundary through the typed
+`UartEndpointProvider` API. A runner can discover the `Compiler` capture UART
+and the target's `Native` UART, then pass the selected `UartHandle` to a board
+transport. Endpoint roles are named rather than address- or index-based, and
+the returned handles share the machine's deterministic transmit state. Repeated
+discovery returns handles for the same role, while the compiler and native
+roles remain independent so a board connector cannot silently capture the
+other stream. This first slice covers the RISC-V, Arm RP, and Xtensa machines
+whose native UARTs use the common functional handle; vendor-specific peripheral
+handles remain target-specific until their receive/transmit adapters are added.
 
 Run the deterministic qualification, including byte-identical JSON and VCD
 replay, with:

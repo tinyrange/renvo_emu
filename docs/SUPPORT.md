@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO matrix low bank waveform and native-address UART0 FIFO transcript |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and RMT transactions and waveforms |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -44,6 +44,13 @@ See `scripts/qualify-micropython.sh` and
 
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+
+The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
+connection control surface. They start connected for existing console fixtures;
+tests can call `set_usb_host_connected(false)` to exercise a disconnected,
+non-blocking console. A connected host asserts `INT_RAW` SOF bit 1 every 1,000
+abstract ticks, and `INT_CLR`/raw writes clear the latched status. This is a
+functional USB-frame model, not a claim of USB clock or PHY accuracy.
 
 ## Implemented CPU surface
 
@@ -77,6 +84,23 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+ESP32-S3 DRAM and IRAM power on with the deterministic nonzero byte pattern
+`0xa5`. Direct ELF loading copies only each segment's file-backed bytes, so
+the synthesized `.bss` tail remains poisoned until firmware clears it. This
+keeps direct ELF tests from accidentally depending on loader-provided zeroing.
+
+Verified-image handoff starts with IROM instruction fetch disabled; the ROM
+`rom_config_instruction_cache_mode(0x4000, 8, 32)` entry point enables it and
+publishes the corresponding `CACHE_STATE` value. A fetch before that call
+stops with a diagnostic instead of appearing to work through a coherent-cache
+shortcut.
+
+Verified ESP32-S3 application images enter through a modeled `CALLX8`
+windowed-ABI handoff. The first application instruction must be `ENTRY`; the
+emulator reports the pending `PS.CALLINC` and window depth when that prologue
+is absent. Direct ELF loading remains the intentionally weaker debugging mode
+with synthetic direct state.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
@@ -86,9 +110,28 @@ instruction per abstract tick and intentionally ignores divider and delay
 timing. VCD uses one nanosecond per abstract tick as a display convention, not
 a hardware timing claim.
 
+The ESP32-S3 eFuse slice retains the native staging, read-data, error, timing,
+command, status, and interrupt registers. `Esp32S3EfuseRegister` names every
+implemented native register and applies the official read/write masks, reset
+defaults, reserved-hole rejection, strict aligned 32-bit access, and
+read-only/write-only/W1C semantics. It provides deterministic factory identity
+words, read-only OTP views, one-way bitwise programming for the documented
+blocks, including the native `BLOCK0` staging split between `PGM_DATA0` and
+`PGM_DATA1..5`. Programming and read command strobes require the documented
+`0x5A5A`/`0x5AA5` opcodes, clear staging registers after programming, redact
+key blocks through `RD_DIS`, and expose read/program completion interrupts. It
+intentionally does not model programming voltage, Reed-Solomon correction
+timing, secure-boot policy, or physical-fuse failure characteristics.
+
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
+
+The ESP32-S3 RMT slice maps transmitter channels 0–3 at the native `0x6001_6000`
+block. Firmware can write the APB FIFO item format, start a channel, receive a
+TX-complete interrupt, and observe the deterministic pulse stream at
+`board.esp32s3.rmt.ch0` through `ch3` in VCD. Carrier modulation, DMA, receive
+channels, and source-clock fidelity remain outside this functional model.
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
@@ -98,6 +141,17 @@ overlaps the named byte, and records the access address and kind in JSON.
 Signal stops use stable hierarchical paths and preserve the triggering change
 in VCD/digest output. `scripts/qualify-stop-conditions.sh` checks every stop
 class on RISC-V, Arm, and Xtensa.
+
+The ESP32-S3 AES accelerator is mapped at `0x6003_a000` using the native
+`hwcrypto_reg.h` offsets. The functional slice supports AES-128 and AES-256
+single-block encryption/decryption through the text-in/text-out window,
+completion busy/interrupt state, and the VCD path
+`board.esp32s3.aes.text_out`. DMA cipher modes, GCM/CTR/CBC/CFB/OFB
+chaining, eFuse-backed keys, and cycle timing remain unsupported. The model
+exposes a named `Esp32S3AesRegister` enum for the complete native key/text,
+mode, IV/GCM, DMA, interrupt, and DATE map, applies conservative access masks,
+treats trigger/continue/interrupt-clear fields as write-only strobes, and
+rejects reserved holes, read-only output writes, and values wider than 32 bits.
 
 The supported host matrix is Linux/amd64 and Linux/arm64. A pinned Rust
 container runs the fake dual-core/timer scheduler test on both architectures;
@@ -140,6 +194,19 @@ hard-float/DSP gates recorded in `qualification/arm-cpu.json`.
 The same gate also runs the windowed Xtensa ABI, exception, atomic, FPU, memory
 view, and deterministic-repeat matrix recorded in
 `qualification/xtensa-cpu.json`.
+
+The ESP32-S3 digital-signature slice follows the native page layout: a
+contiguous 396-word C/Y/M/RB/BOX write-only window, four-word IV window, and
+128-word X write-only and Z read-only windows, followed by the SetStart,
+SetMe, SetFinish, QueryBusy, QueryKeyWrong, QueryCheck, and Date registers.
+`Esp32S3DigitalSignatureRegister` enforces the documented masks, reset date,
+reserved holes, aligned 32-bit accesses, and access directions. The functional
+operation uses a deterministic SHA-256 baseline for protocol testing; secure
+key provisioning, RSA-PSS padding and hardware timing remain outside this
+qualification slice. `QueryKeyWrong` is reserved for the HMAC-to-DS key
+handoff: malformed encrypted parameters set the MD check bit instead. The
+model can select ready, not-activated, or failed HMAC handoff states for
+deterministic tests. SetFinish clears the native data windows as documented.
 
 The final distillation gate adds four bounded capabilities:
 
@@ -206,7 +273,8 @@ the target manifests and `PLAN.html`, principally:
   [OpenWCH CH32V003 EVT sources](https://github.com/openwch/ch32v003)
 - Raspberry Pi RP2040 and RP2350 datasheets and the official
   [Pico SDK PIO register definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
-- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals
+- Espressif ESP32-S3 and ESP32-C6 datasheets and technical reference manuals,
+  including the official [ESP32-S3 RMT register definitions](https://raw.githubusercontent.com/espressif/esp-idf/master/components/soc/esp32s3/register/soc/rmt_reg.h)
 - Espressif’s official tool package index and crosstool-NG releases
 
 Register behavior not covered by a passing firmware proof remains either

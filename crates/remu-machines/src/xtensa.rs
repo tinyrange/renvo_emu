@@ -14,11 +14,20 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, EspGpio, EspMmuTable, EspMmuTableHandle, EspRtcControl, EspSpiMem, EspSystem,
+    DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, Esp32S3Extmem, Esp32S3ExtmemHandle,
+    Esp32S3IoMux, Esp32S3IoMuxHandle, Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc,
+    Esp32S3LedcHandle, Esp32S3Mcpwm, Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle,
+    Esp32S3Pms, Esp32S3PmsHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc,
+    Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle,
+    Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap,
+    Esp32S3UsbWrapHandle, Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32S3XtsAes,
+    Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma,
+    EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable,
+    EspMmuTableHandle, EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem,
     EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle,
-    Rp2040RegisterBank, SignalHub, TimerHandle, UartHandle,
+    EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -26,9 +35,11 @@ use remu_trace::{TraceDigest, TraceError, TraceSink};
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
-
 mod functional_rom;
-
+mod interrupts;
+mod peripheral_dma;
+mod peripheral_handles;
+mod pms;
 /// ESP32-S3 machine construction or execution failure.
 #[derive(Debug, Error)]
 pub enum XtensaMachineError {
@@ -71,296 +82,8 @@ pub enum XtensaMachineError {
     #[error("simulation time overflow")]
     TimeOverflow,
 }
-
-#[derive(Clone, Copy)]
-enum Dwc2ControlResponse {
-    DeviceDescriptor,
-    ConfigurationDescriptor,
-    None,
-}
-
-fn appcpu_systimer_level(pending: bool, usb_input_started: bool, safe_point: bool) -> bool {
-    pending && (!usb_input_started || safe_point)
-}
-
-struct Dwc2ControlRequest {
-    setup: [u8; 8],
-    response: Dwc2ControlResponse,
-}
-
-struct Dwc2ControlTransfer {
-    request: Dwc2ControlRequest,
-    response: Vec<u8>,
-    data_complete: bool,
-}
-
-#[derive(Clone, Debug, Default)]
-struct FunctionalSha256 {
-    sha224: bool,
-    input: Vec<u8>,
-}
-
-struct EspDwc2Host {
-    reset_sent: bool,
-    next_setup_at: u64,
-    requests: VecDeque<Dwc2ControlRequest>,
-    active: Option<Dwc2ControlTransfer>,
-    bulk_in: Option<u8>,
-    bulk_out: Option<u8>,
-    input: VecDeque<u8>,
-    input_queued: bool,
-    output: Vec<u8>,
-    input_started: bool,
-    sending_raw_chunk: bool,
-    raw_prompt_ready: bool,
-}
-
-impl EspDwc2Host {
-    fn new() -> Self {
-        Self {
-            reset_sent: false,
-            next_setup_at: 0,
-            requests: VecDeque::from([
-                Dwc2ControlRequest {
-                    setup: [0x80, 6, 0, 1, 0, 0, 18, 0],
-                    response: Dwc2ControlResponse::DeviceDescriptor,
-                },
-                Dwc2ControlRequest {
-                    setup: [0x00, 5, 1, 0, 0, 0, 0, 0],
-                    response: Dwc2ControlResponse::None,
-                },
-                Dwc2ControlRequest {
-                    setup: [0x80, 6, 0, 2, 0, 0, 255, 0],
-                    response: Dwc2ControlResponse::ConfigurationDescriptor,
-                },
-                Dwc2ControlRequest {
-                    setup: [0x00, 9, 1, 0, 0, 0, 0, 0],
-                    response: Dwc2ControlResponse::None,
-                },
-                Dwc2ControlRequest {
-                    setup: [0x21, 0x22, 3, 0, 0, 0, 0, 0],
-                    response: Dwc2ControlResponse::None,
-                },
-            ]),
-            active: None,
-            bulk_in: None,
-            bulk_out: None,
-            input: VecDeque::new(),
-            input_queued: false,
-            output: Vec::new(),
-            input_started: false,
-            sending_raw_chunk: false,
-            raw_prompt_ready: false,
-        }
-    }
-
-    fn queue_input(&mut self, bytes: &[u8]) {
-        self.input.extend(bytes.iter().copied());
-        self.input_queued |= !bytes.is_empty();
-        self.sending_raw_chunk |= !bytes.is_empty();
-    }
-
-    fn output(&self) -> Vec<u8> {
-        self.output.clone()
-    }
-
-    fn input_complete(&self) -> bool {
-        self.input_queued
-            && self
-                .output
-                .windows(HOST_SCRIPT_COMPLETE_MARKER.len())
-                .any(|window| window == HOST_SCRIPT_COMPLETE_MARKER.as_bytes())
-            && self.output.ends_with(b"\x04\x04>")
-    }
-
-    fn input_started(&self) -> bool {
-        self.input_started
-    }
-
-    fn can_poll(&self) -> bool {
-        self.sending_raw_chunk || self.raw_prompt_ready
-    }
-
-    fn discover_bulk_endpoints(&mut self, descriptor: &[u8]) {
-        let mut offset = 0;
-        while offset + 2 <= descriptor.len() {
-            let length = usize::from(descriptor[offset]);
-            if length < 2 || offset + length > descriptor.len() {
-                break;
-            }
-            if descriptor[offset + 1] == 5 && length >= 7 && descriptor[offset + 3] & 3 == 2 {
-                let address = descriptor[offset + 2];
-                if address & 0x80 != 0 {
-                    self.bulk_in = Some(address & 0x0f);
-                } else {
-                    self.bulk_out = Some(address & 0x0f);
-                }
-            }
-            offset += length;
-        }
-    }
-
-    fn finish_control(&mut self, now: SimTime) {
-        let transfer = self.active.take().expect("active DWC2 control transfer");
-        if std::env::var_os("REMU_DEBUG_USB").is_some() {
-            eprintln!(
-                "dwc2 control done setup={:02x?} response={} at={}",
-                transfer.request.setup,
-                transfer.response.len(),
-                now.ticks()
-            );
-        }
-        if matches!(
-            transfer.request.response,
-            Dwc2ControlResponse::ConfigurationDescriptor
-        ) {
-            self.discover_bulk_endpoints(&transfer.response);
-        }
-        self.next_setup_at = now.ticks().saturating_add(256);
-    }
-
-    fn poll_control(&mut self, now: SimTime, usb: &EspUsbOtgHandle) -> u64 {
-        if std::env::var_os("REMU_DEBUG_USB").is_some() && now.ticks().is_multiple_of(100_000) {
-            let (ahb, status, mask, daint, daint_mask) = usb.interrupt_diagnostic();
-            let (ictl, iint, itsiz, octl, oint, otsiz, empty) = usb.endpoint_diagnostic(0);
-            eprintln!(
-                "dwc2 active at={} ahb={ahb:#x} status={status:#x} mask={mask:#x} daint={daint:#x} daint_mask={daint_mask:#x} ep0={ictl:#x}/{iint:#x}/{itsiz:#x} {octl:#x}/{oint:#x}/{otsiz:#x} empty={empty:#x}",
-                now.ticks()
-            );
-        }
-        let Some(transfer) = &mut self.active else {
-            return 0;
-        };
-        if transfer.request.setup[0] & 0x80 != 0 {
-            if !transfer.data_complete {
-                if let Some(packet) = usb.take_input(0) {
-                    if std::env::var_os("REMU_DEBUG_USB").is_some() {
-                        eprintln!("dwc2 ep0 IN {} bytes at={}", packet.len(), now.ticks());
-                    }
-                    transfer.response.extend_from_slice(&packet);
-                    let requested = usize::from(u16::from_le_bytes([
-                        transfer.request.setup[6],
-                        transfer.request.setup[7],
-                    ]));
-                    transfer.data_complete =
-                        packet.len() < 64 || transfer.response.len() >= requested;
-                    return 1;
-                }
-            } else if usb.output_ready(0) && !usb.interrupt_pending() {
-                if std::env::var_os("REMU_DEBUG_USB").is_some() {
-                    eprintln!("dwc2 ep0 status OUT at={}", now.ticks());
-                }
-                usb.inject_output(0, &[]);
-                self.finish_control(now);
-                return 1;
-            }
-        } else if let Some(packet) = usb.take_input(0) {
-            if std::env::var_os("REMU_DEBUG_USB").is_some() {
-                eprintln!(
-                    "dwc2 ep0 status IN {} bytes at={}",
-                    packet.len(),
-                    now.ticks()
-                );
-            }
-            if packet.is_empty() {
-                self.finish_control(now);
-            }
-            return 1;
-        }
-        0
-    }
-
-    fn poll(&mut self, now: SimTime, usb: &EspUsbOtgHandle) -> u64 {
-        if !self.reset_sent {
-            if usb.device_connected() {
-                if std::env::var_os("REMU_DEBUG_USB").is_some() {
-                    eprintln!("dwc2 bus reset at={}", now.ticks());
-                }
-                usb.inject_bus_reset();
-                self.reset_sent = true;
-                self.next_setup_at = now.ticks().saturating_add(1024);
-                return 1;
-            }
-            return 0;
-        }
-        if self.active.is_some() {
-            return self.poll_control(now, usb);
-        }
-        if std::env::var_os("REMU_DEBUG_USB").is_some()
-            && now.ticks().is_multiple_of(100_000)
-            && usb.interrupt_pending()
-        {
-            let (ahb, status, mask, daint, daint_mask) = usb.interrupt_diagnostic();
-            let (ictl, iint, itsiz, octl, oint, otsiz, empty) = usb.endpoint_diagnostic(2);
-            eprintln!(
-                "dwc2 pending at={} ahb={ahb:#x} status={status:#x} mask={mask:#x} daint={daint:#x} daint_mask={daint_mask:#x} ep2={ictl:#x}/{iint:#x}/{itsiz:#x} {octl:#x}/{oint:#x}/{otsiz:#x} empty={empty:#x}",
-                now.ticks()
-            );
-        }
-        if now.ticks() >= self.next_setup_at
-            && !usb.interrupt_pending()
-            && let Some(request) = self.requests.pop_front()
-        {
-            if std::env::var_os("REMU_DEBUG_USB").is_some() {
-                eprintln!("dwc2 setup {:02x?} at={}", request.setup, now.ticks());
-            }
-            usb.inject_setup(request.setup);
-            self.active = Some(Dwc2ControlTransfer {
-                request,
-                response: Vec::new(),
-                data_complete: false,
-            });
-            return 1;
-        }
-
-        let mut events = 0;
-        for endpoint in 1..7_u8 {
-            if let Some(packet) = usb.take_input(endpoint) {
-                if self.bulk_in == Some(endpoint) {
-                    self.output.extend_from_slice(&packet);
-                    if self.output.ends_with(b"\x04\x04>")
-                        || self.output.ends_with(b"raw REPL; CTRL-B to exit\r\n>")
-                    {
-                        self.raw_prompt_ready = true;
-                    }
-                }
-                events += 1;
-            }
-        }
-        if !self.sending_raw_chunk && self.raw_prompt_ready && !self.input.is_empty() {
-            self.sending_raw_chunk = true;
-            self.raw_prompt_ready = false;
-        }
-        if let Some(endpoint) = self.bulk_out
-            && !self.input.is_empty()
-            && self.sending_raw_chunk
-            && usb.output_ready(endpoint)
-            && !usb.interrupt_pending()
-        {
-            let mut length = self.input.len().min(64).min(usb.output_capacity(endpoint));
-            if let Some(end) = self
-                .input
-                .iter()
-                .take(length)
-                .position(|byte| *byte == 0x04)
-            {
-                length = end + 1;
-            }
-            if length == 0 {
-                return events;
-            }
-            let packet = self.input.drain(..length).collect::<Vec<_>>();
-            usb.inject_output(endpoint, &packet);
-            self.input_started = true;
-            if packet.contains(&0x04) {
-                self.sending_raw_chunk = false;
-            }
-            events += 1;
-        }
-        events
-    }
-}
-
+mod usb_host;
+use usb_host::{EspDwc2Host, FunctionalSha256, appcpu_systimer_level};
 /// Runnable direct-ELF ESP32-S3 CPU0/unicore slice.
 pub struct XtensaMachine {
     cpu: XtensaCpu,
@@ -369,21 +92,50 @@ pub struct XtensaMachine {
     signals: SignalHub,
     gpio: GpioHandle,
     chip_gpio: GpioHandle,
-    uart: UartHandle,
-    chip_uart: UartHandle,
+    pub(crate) uart: UartHandle,
+    pub(crate) chip_uart: UartHandle,
+    auxiliary_uarts: Vec<UartHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     usb_serial_jtag: EspUsbSerialJtagHandle,
     usb_otg: EspUsbOtgHandle,
+    usb_wrap: Esp32S3UsbWrapHandle,
+    pms: Esp32S3PmsHandle,
+    world_controller: Esp32S3WorldControllerHandle,
+    extmem: Esp32S3ExtmemHandle,
     usb_host: EspDwc2Host,
+    saradc: Esp32S3SarAdcHandle,
+    tsens: Esp32S3TsensHandle,
+    lcd_cam: Esp32S3LcdCamHandle,
+    sdmmc: Esp32S3SdmmcHandle,
+    sha: Esp32S3ShaHandle,
+    aes: Esp32S3AesHandle,
+    xts_aes: remu_devices::Esp32S3XtsAesHandle,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
+    ledc: Esp32S3LedcHandle,
+    pcnt: Esp32S3PcntHandle,
+    mcpwm: Vec<Esp32S3McpwmHandle>,
+    twai: EspTwaiHandle,
+    gdma: EspGdmaHandle,
+    uhci: Esp32S3UhciHandle,
+    uhci1: Esp32S3UhciHandle,
+    peri_backup: remu_devices::Esp32S3PeriBackupHandle,
+    assist_debug: remu_devices::Esp32S3AssistDebugHandle,
+    syscon: Esp32S3SysconHandle,
+    rtc_control: EspRtcControlHandle,
+    rtc_i2c: remu_devices::Esp32S3RtcI2cHandle,
+    rtc_io: remu_devices::Esp32S3RtcIoHandle,
+    sdm: remu_devices::Esp32S3SdmHandle,
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
+    instruction_cache_configured: bool,
+    windowed_handoff_pending: bool,
     appcpu_boot_address: Option<u32>,
-    interrupt_routes: [[u8; 128]; 2],
+    interrupt_matrix: EspInterruptMatrixHandle,
+    io_mux: Esp32S3IoMuxHandle,
     md5_contexts: BTreeMap<u32, Vec<u8>>,
     sha256_contexts: BTreeMap<u32, FunctionalSha256>,
     setjmp_contexts: BTreeMap<u32, XtensaCpu>,
@@ -392,7 +144,6 @@ pub struct XtensaMachine {
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
 }
-
 impl XtensaMachine {
     /// Creates the ESP32-S3 direct-mode map.
     pub fn new(target: TargetId) -> Result<Self, XtensaMachineError> {
@@ -401,11 +152,24 @@ impl XtensaMachine {
         }
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
+        let signals = SignalHub::new();
         let mut stack = None;
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
-                    bus.map_ram(region.name, region.start, region.size, region.executable)?;
+                    let storage = SharedMemory::from_bytes(vec![0xa5; region.size]);
+                    bus.map_shared(
+                        region.name,
+                        region.start,
+                        region.size,
+                        if region.executable {
+                            Permissions::RWX
+                        } else {
+                            Permissions::RW
+                        },
+                        storage,
+                        0,
+                    )?;
                     if region.name == "dram" {
                         stack = Some(
                             u32::try_from(
@@ -461,80 +225,164 @@ impl XtensaMachine {
             0,
         )?;
         bus.map_ram("rtc-fast-memory", 0x600f_e000, 0x2000, true)?;
-        bus.map_ram("rtc-slow-memory", 0x5000_0000, 0x2000, true)?;
-        for (name, base) in [
-            ("radio-fe2", 0x6000_5000),
-            ("radio-fe", 0x6000_6000),
-            ("efuse", 0x6000_7000),
-            ("io-mux", 0x6000_9000),
-            ("hinf", 0x6000_b000),
-            ("uhci1", 0x6000_c000),
-            ("i2s0", 0x6000_f000),
-            ("uart1", 0x6001_0000),
-            ("bluetooth", 0x6001_1000),
-            ("i2c0", 0x6001_3000),
-            ("uhci0", 0x6001_4000),
-            ("slchost", 0x6001_5000),
-            ("rmt", 0x6001_6000),
-            ("pcnt", 0x6001_7000),
-            ("slc", 0x6001_8000),
-            ("ledc", 0x6001_9000),
-            ("radio-nrx", 0x6001_c000),
-            ("radio-bb", 0x6001_d000),
-            ("pwm0", 0x6001_e000),
-            ("rtc-slowmem-controller", 0x6002_1000),
-            ("spi2", 0x6002_4000),
-            ("spi3", 0x6002_5000),
-            ("syscon", 0x6002_6000),
-            ("i2c1", 0x6002_7000),
-            ("sdmmc", 0x6002_8000),
-            ("peripheral-backup", 0x6002_a000),
-            ("twai", 0x6002_b000),
-            ("pwm1", 0x6002_c000),
-            ("i2s1", 0x6002_d000),
-            ("uart2", 0x6002_e000),
-            ("usb-wrap", 0x6003_9000),
-            ("aes", 0x6003_a000),
-            ("sha", 0x6003_b000),
-            ("rsa", 0x6003_c000),
-            ("digital-signature", 0x6003_d000),
-            ("hmac", 0x6003_e000),
-            ("gdma", 0x6003_f000),
-            ("saradc", 0x6004_0000),
-            ("lcd-cam", 0x6004_1000),
-            ("sensitive", 0x600c_1000),
-            ("interrupt-matrix", 0x600c_2000),
-            ("assist-debug", 0x600c_e000),
-            ("world-controller", 0x600d_0000),
-        ] {
+        // ESP32-S3 TRM table 4.3-3 exposes the same 8 KiB RTC slow memory at
+        // the ULP data address and the CPU peripheral-bus address.
+        let rtc_slow_memory = bus.map_ram("rtc-slow-memory", 0x5000_0000, 0x2000, true)?;
+        bus.map_shared(
+            "esp32s3.rtc-slow-memory-alias",
+            0x6002_1000,
+            0x2000,
+            Permissions::RWX,
+            rtc_slow_memory,
+            0,
+        )?;
+        let (world_controller_device, world_controller) =
+            Esp32S3WorldController::new("esp32s3.world-controller");
+        bus.map_device(
+            "esp32s3.world-controller",
+            0x600d_0000,
+            0x1000,
+            Box::new(world_controller_device),
+        )?;
+        let (pms_device, pms) = Esp32S3Pms::new("esp32s3.sensitive");
+        bus.map_device(
+            "esp32s3.sensitive",
+            0x600c_1000,
+            0x1000,
+            Box::new(pms_device),
+        )?;
+        let (syscon_device, syscon) = Esp32S3Syscon::new("esp32s3.syscon");
+        bus.map_device(
+            "esp32s3.syscon",
+            0x6002_6000,
+            0x1000,
+            Box::new(syscon_device),
+        )?;
+        let (usb_wrap_device, usb_wrap) = Esp32S3UsbWrap::new("esp32s3.usb-wrap");
+        bus.map_device(
+            "esp32s3.usb-wrap",
+            0x6003_9000,
+            0x1000,
+            Box::new(usb_wrap_device),
+        )?;
+        let (io_mux_device, io_mux) = Esp32S3IoMux::new("esp32s3.io-mux");
+        bus.map_device(
+            "esp32s3.io-mux",
+            0x6000_9000,
+            0x1000,
+            Box::new(io_mux_device),
+        )?;
+        for (name, base) in [("i2c0", 0x6001_3000), ("i2c1", 0x6002_7000)] {
+            let device = Esp32s3I2c::new(format!("esp32s3.{name}"), signals.clone())?;
+            bus.map_device(format!("esp32s3.{name}"), base, 0x1000, Box::new(device))?;
+        }
+        let rmt_device = Esp32s3Rmt::new("esp32s3.rmt", signals.clone())?;
+        bus.map_device("esp32s3.rmt", 0x6001_6000, 0x1000, Box::new(rmt_device))?;
+        let (ledc_device, ledc) =
+            Esp32S3Ledc::new("esp32s3.ledc", "board.esp32s3.ledc", signals.clone())?;
+        bus.map_device("esp32s3.ledc", 0x6001_9000, 0x1000, Box::new(ledc_device))?;
+        let (pcnt_device, pcnt) =
+            Esp32S3Pcnt::new("esp32s3.pcnt", "board.esp32s3.pcnt", signals.clone())?;
+        bus.map_device("esp32s3.pcnt", 0x6001_7000, 0x1000, Box::new(pcnt_device))?;
+        let mut mcpwm = Vec::new();
+        for (instance, base) in [(0, 0x6001_e000), (1, 0x6002_c000)] {
+            let (device, handle) = Esp32S3Mcpwm::new(
+                format!("esp32s3.mcpwm{instance}"),
+                &format!("board.esp32s3.mcpwm{instance}"),
+                signals.clone(),
+            )?;
             bus.map_device(
-                format!("esp32s3.{name}"),
+                format!("esp32s3.mcpwm{instance}"),
                 base,
                 0x1000,
-                Box::new(Rp2040RegisterBank::new(
-                    format!("esp32s3.{name}"),
-                    vec![0; 0x1000 / 4],
-                )),
+                Box::new(device),
             )?;
+            mcpwm.push(handle);
         }
+        let (twai_device, twai) =
+            EspTwai::new("esp32s3.twai", "board.esp32s3.twai", signals.clone())?;
+        bus.map_device("esp32s3.twai", 0x6002_b000, 0x1000, Box::new(twai_device))?;
+        let (peri_backup_device, peri_backup) =
+            remu_devices::Esp32S3PeriBackup::new("esp32s3.peri-backup");
+        bus.map_device(
+            "esp32s3.peri-backup",
+            0x6002_a000,
+            0x1000,
+            Box::new(peri_backup_device),
+        )?;
+        let (assist_debug_device, assist_debug) =
+            remu_devices::Esp32S3AssistDebug::new("esp32s3.assist-debug");
+        bus.map_device(
+            "esp32s3.assist-debug",
+            0x600c_e000,
+            0x1000,
+            Box::new(assist_debug_device),
+        )?;
+        let (gdma_device, gdma) =
+            EspGdma::new("esp32s3.gdma", "board.esp32s3.gdma", signals.clone())?;
+        bus.map_device("esp32s3.gdma", 0x6003_f000, 0x1000, Box::new(gdma_device))?;
+        let (saradc_device, saradc) = Esp32S3SarAdc::new("esp32s3.saradc", signals.clone())?;
+        bus.map_device(
+            "esp32s3.saradc",
+            0x6004_0000,
+            0x1000,
+            Box::new(saradc_device),
+        )?;
+        let (rtc_i2c_device, rtc_i2c) = remu_devices::Esp32S3RtcI2c::new("esp32s3.rtc-i2c");
+        bus.map_device(
+            "esp32s3.rtc-i2c",
+            0x6000_8c00,
+            0x400,
+            Box::new(rtc_i2c_device),
+        )?;
+        let (tsens_device, tsens) = Esp32S3Tsens::new_with_rtc_i2c(
+            "esp32s3.tsens",
+            signals.clone(),
+            Some(rtc_i2c.clone()),
+        )?;
+        bus.map_device("esp32s3.tsens", 0x6000_8800, 0x200, Box::new(tsens_device))?;
+        let (lcd_cam_device, lcd_cam) = Esp32S3LcdCam::new("esp32s3.lcd-cam", signals.clone())?;
+        bus.map_device(
+            "esp32s3.lcd-cam",
+            0x6004_1000,
+            0x1000,
+            Box::new(lcd_cam_device),
+        )?;
+        let (sdmmc_device, sdmmc) = Esp32S3Sdmmc::new("esp32s3.sdmmc", signals.clone())?;
+        bus.map_device("esp32s3.sdmmc", 0x6002_8000, 0x1000, Box::new(sdmmc_device))?;
+        let (sha_device, sha) = Esp32S3Sha::new("esp32s3.sha", signals.clone())?;
+        bus.map_device("esp32s3.sha", 0x6003_b000, 0x1000, Box::new(sha_device))?;
+        let (aes_device, aes) = Esp32S3Aes::new("esp32s3.aes", signals.clone())?;
+        bus.map_device("esp32s3.aes", 0x6003_a000, 0x1000, Box::new(aes_device))?;
+        bus.map_device(
+            "esp32s3.efuse",
+            0x6000_7000,
+            0x1000,
+            Box::new(EspEfuse::new("esp32s3.efuse")),
+        )?;
+        bus.map_device(
+            "esp32s3.hmac",
+            0x6003_e000,
+            0x1000,
+            Box::new(EspHmac::new("esp32s3.hmac")),
+        )?;
+        bus.map_device(
+            "esp32s3.rsa",
+            0x6003_c000,
+            0x1000,
+            Box::new(EspRsa::new("esp32s3.rsa")),
+        )?;
+        bus.map_device(
+            "esp32s3.digital-signature",
+            0x6003_d000,
+            0x1000,
+            Box::new(EspDigitalSignature::new("esp32s3.digital-signature")),
+        )?;
         bus.map_device(
             "esp32s3.rng",
             0x6003_5000,
             0x1000,
             Box::new(DeterministicRng::new("esp32s3.rng", 0x7c, 0x32f3_0001)),
-        )?;
-        let mut analog_i2c_registers = vec![0; 0x1000 / 4];
-        // I2C_MST_ANA_CONF0.BBPLL_CAL_DONE. The functional clock tree locks
-        // immediately and retains the completion status through RMW setup.
-        analog_i2c_registers[0x40 / 4] = 1 << 24;
-        bus.map_device(
-            "esp32s3.analog-i2c",
-            0x6000_e000,
-            0x1000,
-            Box::new(Rp2040RegisterBank::new(
-                "esp32s3.analog-i2c",
-                analog_i2c_registers,
-            )),
         )?;
         bus.map_device(
             "esp32s3.spi1",
@@ -548,11 +396,37 @@ impl XtensaMachine {
             0x1000,
             Box::new(EspSpiMem::new("esp32s3.spi0")),
         )?;
+        for (name, base) in [("spi2", 0x6002_4000), ("spi3", 0x6002_5000)] {
+            bus.map_device(
+                format!("esp32s3.{name}"),
+                base,
+                0x1000,
+                Box::new(Esp32s3Spi::new(format!("esp32s3.{name}"), signals.clone())?),
+            )?;
+        }
+        for (name, base) in [("i2s0", 0x6000_f000), ("i2s1", 0x6002_d000)] {
+            bus.map_device(
+                format!("esp32s3.{name}"),
+                base,
+                0x1000,
+                Box::new(Esp32s3I2s::new(format!("esp32s3.{name}"), signals.clone())?),
+            )?;
+        }
+        let (rtc_control_device, rtc_control) =
+            EspRtcControl::new_with_signals("esp32s3.rtc-control", signals.clone())?;
         bus.map_device(
             "esp32s3.rtc-control",
             0x6000_8000,
+            0x400,
+            Box::new(rtc_control_device),
+        )?;
+        let (interrupt_matrix_device, interrupt_matrix) =
+            EspInterruptMatrix::new("esp32s3.interrupt-matrix");
+        bus.map_device(
+            "esp32s3.interrupt-matrix",
+            0x600c_2000,
             0x1000,
-            Box::new(EspRtcControl::new("esp32s3.rtc-control")),
+            Box::new(interrupt_matrix_device),
         )?;
         let mut timer_groups = Vec::new();
         for (name, base) in [
@@ -577,6 +451,13 @@ impl XtensaMachine {
             0x1000,
             Box::new(system_device),
         )?;
+        let (xts_aes_device, xts_aes) = Esp32S3XtsAes::new("esp32s3.xts-aes", system.clone());
+        bus.map_device(
+            "esp32s3.xts-aes",
+            0x600c_c000,
+            0x1000,
+            Box::new(xts_aes_device),
+        )?;
         let (mmu_table_device, mmu_table) = EspMmuTable::new("esp32s3.mmu-table");
         bus.map_device(
             "esp32s3.mmu-table",
@@ -584,17 +465,13 @@ impl XtensaMachine {
             0x1000,
             Box::new(mmu_table_device),
         )?;
-        let mut cache_registers = vec![0; 0x1000 / 4];
-        // CACHE_STATE reports both I-cache and D-cache idle/enabled state.
-        // The direct verified-image handoff starts with coherent caches.
-        cache_registers[0x130 / 4] = 0x0000_1001;
+        let (extmem_device, extmem) = Esp32S3Extmem::new("esp32s3.extmem");
         bus.map_device(
-            "esp32s3.cache",
+            "esp32s3.extmem",
             0x600c_4000,
             0x1000,
-            Box::new(Rp2040RegisterBank::new("esp32s3.cache", cache_registers)),
+            Box::new(extmem_device),
         )?;
-        let signals = SignalHub::new();
         let (gpio_device, gpio) = FunctionalGpio::new(
             "esp32s3.compiler-gpio",
             32,
@@ -633,16 +510,30 @@ impl XtensaMachine {
         )?;
         let (chip_gpio_device, chip_gpio) = EspGpio::new(
             "esp32s3.gpio",
-            32,
+            49,
             "board.esp32s3.chip_gpio",
             signals.clone(),
         )?;
         bus.map_device(
             "esp32s3.gpio",
             0x6000_4000,
-            0x1000,
+            0x0f00,
             Box::new(chip_gpio_device),
         )?;
+        let (rtc_io_device, rtc_io) = remu_devices::Esp32S3RtcIo::new(
+            "esp32s3.rtc-io",
+            chip_gpio.clone(),
+            rtc_control.clone(),
+        );
+        bus.map_device(
+            "esp32s3.rtc-io",
+            0x6000_8400,
+            0x400,
+            Box::new(rtc_io_device),
+        )?;
+        let (sdm_device, sdm) =
+            remu_devices::Esp32S3Sdm::new("esp32s3.sdm", "board.esp32s3.sdm", signals.clone())?;
+        bus.map_device("esp32s3.sdm", 0x6000_4f00, 0x100, Box::new(sdm_device))?;
         let (chip_uart_device, chip_uart) =
             FunctionalUart::new_lenient("esp32s3.uart0", 0, 0x1c, 0);
         bus.map_device(
@@ -651,6 +542,31 @@ impl XtensaMachine {
             0x1000,
             Box::new(chip_uart_device),
         )?;
+        let mut auxiliary_uarts = Vec::new();
+        for (name, base) in [("uart1", 0x6001_0000), ("uart2", 0x6002_e000)] {
+            let (device, handle) =
+                FunctionalUart::new_lenient(format!("esp32s3.{name}"), 0, 0x1c, 0);
+            bus.map_device(format!("esp32s3.{name}"), base, 0x1000, Box::new(device))?;
+            auxiliary_uarts.push(handle);
+        }
+        let (uhci_device, uhci) = Esp32S3Uhci::new(
+            "esp32s3.uhci0",
+            [
+                chip_uart.clone(),
+                auxiliary_uarts[0].clone(),
+                auxiliary_uarts[1].clone(),
+            ],
+        );
+        bus.map_device("esp32s3.uhci0", 0x6001_4000, 0x1000, Box::new(uhci_device))?;
+        let (uhci1_device, uhci1) = Esp32S3Uhci::new(
+            "esp32s3.uhci1",
+            [
+                chip_uart.clone(),
+                auxiliary_uarts[0].clone(),
+                auxiliary_uarts[1].clone(),
+            ],
+        );
+        bus.map_device("esp32s3.uhci1", 0x6000_c000, 0x1000, Box::new(uhci1_device))?;
         let (usb_serial_jtag_device, usb_serial_jtag) =
             EspUsbSerialJtag::new("esp32s3.usb-serial-jtag");
         bus.map_device(
@@ -708,19 +624,48 @@ impl XtensaMachine {
             chip_gpio,
             uart,
             chip_uart,
+            auxiliary_uarts,
             timer,
             exit,
             usb_serial_jtag,
             usb_otg,
+            usb_wrap,
+            pms,
+            world_controller,
+            extmem,
             usb_host: EspDwc2Host::new(),
+            saradc,
+            tsens,
+            lcd_cam,
+            sdmmc,
+            sha,
+            aes,
+            xts_aes,
             system,
             systimer,
             timer_groups,
+            ledc,
+            pcnt,
+            mcpwm,
+            twai,
+            gdma,
+            uhci,
+            uhci1,
+            peri_backup,
+            assist_debug,
+            syscon,
+            rtc_control,
+            rtc_i2c,
+            rtc_io,
+            sdm,
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
+            instruction_cache_configured: false,
+            windowed_handoff_pending: false,
             appcpu_boot_address: None,
-            interrupt_routes: [[u8::MAX; 128]; 2],
+            interrupt_matrix,
+            io_mux,
             md5_contexts: BTreeMap::new(),
             sha256_contexts: BTreeMap::new(),
             setjmp_contexts: BTreeMap::new(),
@@ -730,15 +675,30 @@ impl XtensaMachine {
             signal_stops: Vec::new(),
         })
     }
-
     /// Loads an Xtensa ELF and establishes CPU0 direct state.
     pub fn load_firmware(&mut self, image: &FirmwareImage) -> Result<(), XtensaMachineError> {
         if image.architecture != FirmwareArchitecture::Xtensa {
             return Err(XtensaMachineError::Architecture(image.architecture));
         }
+        // Direct ELF execution is intentionally the weaker debugging mode:
+        // it permits XIP reads without reproducing the bootloader handoff.
+        self.instruction_cache_configured = true;
+        self.extmem.configure_boot_caches();
+        self.windowed_handoff_pending = false;
         for segment in &image.segments {
+            let initialized = segment
+                .data
+                .get(..segment.initialized_size)
+                .ok_or_else(|| XtensaMachineError::Load {
+                    address: segment.address,
+                    message: format!(
+                        "initialized ELF bytes ({}) exceed segment data ({})",
+                        segment.initialized_size,
+                        segment.data.len()
+                    ),
+                })?;
             self.bus
-                .load(segment.address, &segment.data)
+                .load(segment.address, initialized)
                 .map_err(|error| XtensaMachineError::Load {
                     address: segment.address,
                     message: error.to_string(),
@@ -749,7 +709,6 @@ impl XtensaMachine {
         self.cpu.set_direct_state(self.stack, entry);
         Ok(())
     }
-
     /// Performs the documented ESP ROM verified-image handoff to an ESP32-S3
     /// application using the official merged flash image.
     pub fn load_esp_application(
@@ -757,7 +716,28 @@ impl XtensaMachine {
         image: &EspFlashImage,
     ) -> Result<(), XtensaMachineError> {
         const PAGE_SIZE: u32 = 64 * 1024;
+        self.instruction_cache_configured = false;
+        self.windowed_handoff_pending = true;
         for segment in &image.application.segments {
+            let segment_end = usize::try_from(segment.flash_offset)
+                .ok()
+                .and_then(|start| start.checked_add(segment.data.len()))
+                .ok_or_else(|| XtensaMachineError::Load {
+                    address: u64::from(segment.address),
+                    message: "ESP application segment flash range overflows the host address space"
+                        .to_owned(),
+                })?;
+            if segment_end > self.flash.len() {
+                return Err(XtensaMachineError::Load {
+                    address: u64::from(segment.address),
+                    message: format!(
+                        "ESP application segment flash range {:#x}..{:#x} exceeds simulated flash size {:#x}",
+                        segment.flash_offset,
+                        segment_end,
+                        self.flash.len()
+                    ),
+                });
+            }
             self.bus
                 .load(u64::from(segment.address), &segment.data)
                 .map_err(|error| XtensaMachineError::Load {
@@ -854,7 +834,7 @@ impl XtensaMachine {
                 })?;
         }
         self.cpu
-            .set_direct_state(self.stack, image.application.header.entry);
+            .set_windowed_entry_state(self.stack, image.application.header.entry);
         Ok(())
     }
 
@@ -990,40 +970,18 @@ impl XtensaMachine {
         self.usb_host.queue_input(bytes);
     }
 
+    /// Selects whether the ESP USB Serial/JTAG host is attached.
+    ///
+    /// The host is connected by default. When connected, the peripheral
+    /// asserts its SOF raw interrupt every fixed abstract USB frame period;
+    /// disconnected mode is useful for testing non-blocking console paths.
+    pub fn set_usb_host_connected(&mut self, connected: bool) {
+        self.usb_serial_jtag.set_host_connected(connected, self.now);
+    }
+
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
     pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
         self.stop_on_usb_input_complete = enabled;
-    }
-
-    /// Drives or releases one low GPIO bank pin.
-    pub fn set_pin(&self, pin: u8, value: Logic) -> Result<(), XtensaMachineError> {
-        self.gpio.set_input(pin, value, self.now)?;
-        self.chip_gpio.set_input(pin, value, self.now)?;
-        Ok(())
-    }
-
-    fn set_systimer_interrupt(
-        &mut self,
-        core: u32,
-        interrupt: u32,
-        pending: bool,
-    ) -> Result<(), XtensaMachineError> {
-        if core == 0 {
-            self.cpu.set_interrupt(interrupt as u16, pending)?;
-        } else if core == 1 && self.appcpu_boot_address.is_some() {
-            // Once an external script is running, retain a pending CPU1 tick
-            // until the application core reaches WAITI or another shallow
-            // logical-window safe point. This gives the functional model a
-            // deterministic preemption boundary while still waking delayed
-            // and newly runnable tasks.
-            let asserted = appcpu_systimer_level(
-                pending,
-                self.usb_host.input_started(),
-                self.cpu1.functional_interrupt_safe_point(),
-            );
-            self.cpu1.set_interrupt(interrupt as u16, asserted)?;
-        }
-        Ok(())
     }
 
     /// Runs until a terminal condition.
@@ -1062,6 +1020,14 @@ impl XtensaMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut usb_was_pending = false;
+        let mut usb_serial_was_pending = false;
+        let mut uhci_was_pending = false;
+        let mut peri_backup_was_pending = false;
+        let mut assist_debug_was_pending = false;
+        let mut syscon_was_pending = false;
+        let mut extmem_was_pending = false;
+        let mut pms_was_pending = false;
+        let mut rtc_was_pending = false;
         let mut crosscore_was_pending = [false; 2];
         let mut systimer_was_pending = [false; 3];
         let mut timer_group_was_pending = [[false; 2]; 2];
@@ -1088,6 +1054,48 @@ impl XtensaMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
+            if self.usb_serial_jtag.poll(self.now) {
+                stats.events = stats.events.saturating_add(1);
+            }
+            if self.uhci.poll_gdma(&self.gdma) != 0 {
+                stats.events = stats.events.saturating_add(1);
+            }
+            if self.uhci1.poll_gdma(&self.gdma) != 0
+                || self.service_peri_backup()?
+                || self.service_assist_debug_logs()?
+            {
+                stats.events = stats.events.saturating_add(1);
+            }
+            let uhci_pending = self.update_uhci_interrupt_lines()?;
+            if uhci_pending && !uhci_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            uhci_was_pending = uhci_pending;
+            let peri_backup_pending = self.update_peri_backup_interrupt_lines()?;
+            if peri_backup_pending && !peri_backup_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            peri_backup_was_pending = peri_backup_pending;
+            let assist_debug_pending = self.update_assist_debug_interrupt_lines()?;
+            if assist_debug_pending && !assist_debug_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            assist_debug_was_pending = assist_debug_pending;
+            let syscon_pending = self.update_syscon_interrupt_lines()?;
+            if syscon_pending && !syscon_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            syscon_was_pending = syscon_pending;
+            let extmem_pending = self.update_extmem_interrupt_lines()?;
+            if extmem_pending && !extmem_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            extmem_was_pending = extmem_pending;
+            let pms_pending = self.update_pms_interrupt_lines()?;
+            if pms_pending && !pms_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            pms_was_pending = pms_pending;
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -1103,9 +1111,11 @@ impl XtensaMachine {
                 || self.usb_host.can_poll()
                 || self.cpu1.waiting_for_interrupt()
             {
-                stats.events = stats
-                    .events
-                    .saturating_add(self.usb_host.poll(self.now, &self.usb_otg));
+                stats.events = stats.events.saturating_add(self.usb_host.poll(
+                    self.now,
+                    &self.usb_otg,
+                    &self.usb_wrap,
+                ));
             }
             if self.stop_on_usb_input_complete && self.usb_host.input_complete() {
                 break StopReason::HostInputComplete;
@@ -1154,9 +1164,13 @@ impl XtensaMachine {
                 );
             }
             for core in 0..2_u32 {
-                // IDF maps every unused source to CPU interrupt 6, the
-                // architecture's disabled/reserved matrix sink.
-                let interrupt = self.interrupt_routes[core as usize][38];
+                // Native ESP32-S3 treats the internal CPU interrupt
+                // destinations (including the reset value 16) as disabled
+                // for peripheral sources; the matrix handle normalizes them
+                // to its disabled sentinel.
+                self.interrupt_matrix
+                    .set_source_pending(core as usize, 38, usb_pending);
+                let interrupt = self.interrupt_matrix.route(core as usize, 38);
                 if interrupt != u8::MAX && interrupt != 6 {
                     if core == 0 {
                         self.cpu.set_interrupt(u16::from(interrupt), usb_pending)?;
@@ -1165,6 +1179,31 @@ impl XtensaMachine {
                     }
                 }
             }
+            let usb_serial_pending = self.usb_serial_jtag.interrupt_pending();
+            if usb_serial_pending && !usb_serial_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            usb_serial_was_pending = usb_serial_pending;
+            for core in 0..2_u32 {
+                // ESP-IDF uses interrupt-matrix source 48 for the USB
+                // Serial/JTAG controller on ESP32-S3.
+                let interrupt = self.interrupt_matrix.route(core as usize, 48);
+                if interrupt == u8::MAX || interrupt == 6 {
+                    continue;
+                }
+                if core == 0 {
+                    self.cpu
+                        .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
+                } else if self.appcpu_boot_address.is_some() {
+                    self.cpu1
+                        .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
+                }
+            }
+            let rtc_pending = self.update_rtc_interrupt_lines()?;
+            if rtc_pending && !rtc_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            rtc_was_pending = rtc_pending;
             for core in 0..2_u32 {
                 let crosscore_pending = self.system.from_cpu_pending(core as usize);
                 let newly_pending = crosscore_pending && !crosscore_was_pending[core as usize];
@@ -1173,7 +1212,12 @@ impl XtensaMachine {
                 }
                 crosscore_was_pending[core as usize] = crosscore_pending;
                 let source = 79 + core;
-                let interrupt = self.interrupt_routes[core as usize][source as usize];
+                self.interrupt_matrix.set_source_pending(
+                    core as usize,
+                    source as usize,
+                    crosscore_pending,
+                );
+                let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
                 if interrupt != u8::MAX {
                     if newly_pending && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some() {
                         let (ps, pending_bits, enable_bits) = if core == 0 {
@@ -1203,10 +1247,9 @@ impl XtensaMachine {
                 systimer_was_pending[target] = pending;
                 let source = 57 + u32::try_from(target).expect("three timer targets fit u32");
                 let core = u32::try_from(target).expect("three timer targets fit u32");
-                let interrupt = self
-                    .interrupt_routes
-                    .get(core as usize)
-                    .map_or(u8::MAX, |routes| routes[source as usize]);
+                self.interrupt_matrix
+                    .set_source_pending(core as usize, source as usize, pending);
+                let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
                 if interrupt != u8::MAX {
                     if pending
                         && newly_pending
@@ -1247,7 +1290,12 @@ impl XtensaMachine {
                     }
                     timer_group_was_pending[group][timer] = pending;
                     for core in 0..2_u32 {
-                        let interrupt = self.interrupt_routes[core as usize][source as usize];
+                        self.interrupt_matrix.set_source_pending(
+                            core as usize,
+                            source as usize,
+                            pending,
+                        );
+                        let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
                         if interrupt == u8::MAX || interrupt == 6 {
                             continue;
                         }
@@ -1283,6 +1331,10 @@ impl XtensaMachine {
                         .checked_add(remu_core::SimDuration::TICK)
                         .map_err(|_| XtensaMachineError::TimeOverflow)?;
                     stats.time = self.now;
+                    self.ledc.poll(self.now)?;
+                    for handle in &self.mcpwm {
+                        handle.poll(self.now)?;
+                    }
                     if let Some(hit) = self.bus.take_watchpoint_hit() {
                         break StopReason::Watchpoint {
                             address: hit.address,
@@ -1304,7 +1356,67 @@ impl XtensaMachine {
                     break StopReason::Fault(message);
                 }
             }
-            let outcome = match self.cpu.step(&mut self.bus, self.now) {
+            if (0x4200_0000..0x4400_0000).contains(&self.cpu.pc())
+                && !self.instruction_cache_configured
+            {
+                let pc = self.cpu.pc();
+                if running_cpu1 {
+                    std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                }
+                break StopReason::Fault(format!(
+                    "ESP32-S3 IROM fetch at {pc:#010x} before instruction-cache configuration"
+                ));
+            }
+            if self.windowed_handoff_pending {
+                let pc = self.cpu.pc();
+                let instruction = match (
+                    self.bus.read(
+                        u64::from(pc),
+                        AccessWidth::HalfWord,
+                        AccessKind::Execute,
+                        self.now,
+                    ),
+                    self.bus.read(
+                        u64::from(pc.wrapping_add(2)),
+                        AccessWidth::Byte,
+                        AccessKind::Execute,
+                        self.now,
+                    ),
+                ) {
+                    (Ok(low), Ok(high)) => (low as u32) | ((high as u32) << 16),
+                    (Err(error), _) | (_, Err(error)) => {
+                        if running_cpu1 {
+                            std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                        }
+                        break StopReason::Fault(format!(
+                            "ESP32-S3 verified handoff fetch at {pc:#010x} failed: {error}"
+                        ));
+                    }
+                };
+                if instruction & 0x0000_0fff != 0x0136 {
+                    let (ps, depth) = self.cpu.window_state();
+                    if running_cpu1 {
+                        std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                    }
+                    break StopReason::Fault(format!(
+                        "ESP32-S3 verified handoff at {pc:#010x} requires ENTRY for CALLX8 window setup (PS={ps:#010x}, window_depth={depth})"
+                    ));
+                }
+                self.windowed_handoff_pending = false;
+            }
+            let assist_pc = self.cpu.pc();
+            let assist_sp = self.cpu.register(XtensaRegister::A1);
+            let mut pms_bus = pms::Esp32S3PmsBus::new(
+                &mut self.bus,
+                &self.pms,
+                &self.world_controller,
+                &self.extmem,
+                &self.assist_debug,
+                u8::from(running_cpu1),
+                assist_pc,
+                assist_sp,
+            );
+            let outcome = match self.cpu.step(&mut pms_bus, self.now) {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     if running_cpu1 {
@@ -1323,6 +1435,11 @@ impl XtensaMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
             stats.time = self.now;
+            self.ledc.poll(self.now)?;
+            self.sdm.poll(self.now)?;
+            for handle in &self.mcpwm {
+                handle.poll(self.now)?;
+            }
             next_core = if self.appcpu_boot_address.is_some() {
                 next_core ^ 1
             } else {
@@ -1357,6 +1474,9 @@ impl XtensaMachine {
         }
         let mut uart = self.uart.bytes();
         uart.extend(self.chip_uart.bytes());
+        for auxiliary_uart in &self.auxiliary_uarts {
+            uart.extend(auxiliary_uart.bytes());
+        }
         let mut usb = self.usb_host.output();
         usb.extend(self.usb_serial_jtag.output());
         Ok(RunResult {
@@ -1373,5 +1493,7 @@ impl XtensaMachine {
     }
 }
 
+#[cfg(test)]
+mod aux_tests;
 #[cfg(test)]
 mod tests;
