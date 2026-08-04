@@ -339,6 +339,11 @@ impl EspSystemHandle {
             .copied()
             .unwrap_or(false)
     }
+
+    /// Reports whether SPI-boot manual external-memory encryption is enabled.
+    pub fn manual_encryption_enabled(&self) -> bool {
+        self.state.borrow().registers[0x4c / 4] & 1 != 0
+    }
 }
 
 /// Functional ESP32-S3 system register page.

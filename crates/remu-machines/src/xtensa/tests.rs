@@ -745,6 +745,7 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
         ("esp32s3.rtc-control", 0x6000_8000, 0x0800),
         ("esp32s3.interrupt-matrix", 0x600c_2000, 0x1000),
         ("esp32s3.extmem", 0x600c_4000, 0x1000),
+        ("esp32s3.xts-aes", 0x600c_c000, 0x1000),
         ("esp32s3.usb-serial-jtag", 0x6003_8000, 0x1000),
         ("esp32s3.usb-otg", 0x6008_0000, 0x1_0000),
     ];
@@ -834,6 +835,49 @@ fn esp32s3_sens_touch_scan_routes_ulp_interrupt_and_exposes_pad_status() {
     );
     assert!(machine.update_rtc_interrupt_lines().unwrap());
     assert_ne!(machine.cpu.interrupt_state().1 & (1 << 5), 0);
+}
+
+#[test]
+fn esp32s3_xts_aes_obeys_system_gate_and_releases_ciphertext_to_spi_side() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let base = 0x600c_c000;
+    machine
+        .bus
+        .write(0x600c_004c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    for index in 0..4_u64 {
+        machine
+            .bus
+            .write(
+                base + index * 4,
+                AccessWidth::Word,
+                0x0302_0100 + index * 0x0404_0404,
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(base + 0x4c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x58,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        2
+    );
+    assert!(machine.xts_aes.released_ciphertext().is_none());
+    machine
+        .bus
+        .write(base + 0x50, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.xts_aes.released_ciphertext().unwrap().len(), 16);
 }
 
 #[test]

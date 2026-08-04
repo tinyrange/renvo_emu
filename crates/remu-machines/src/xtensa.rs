@@ -20,14 +20,14 @@ use remu_devices::{
     Esp32S3Pms, Esp32S3PmsHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc,
     Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle,
     Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap,
-    Esp32S3UsbWrapHandle, Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32s3I2c,
-    Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle,
-    EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle,
-    EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
-    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
-    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, SignalHub,
-    TimerHandle, UartHandle,
+    Esp32S3UsbWrapHandle, Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32S3XtsAes,
+    Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma,
+    EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable,
+    EspMmuTableHandle, EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem,
+    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -108,6 +108,7 @@ pub struct XtensaMachine {
     sdmmc: Esp32S3SdmmcHandle,
     sha: Esp32S3ShaHandle,
     aes: Esp32S3AesHandle,
+    xts_aes: remu_devices::Esp32S3XtsAesHandle,
     system: EspSystemHandle,
     systimer: EspSystimerHandle,
     timer_groups: Vec<EspTimerGroupHandle>,
@@ -427,6 +428,13 @@ impl XtensaMachine {
             0x1000,
             Box::new(system_device),
         )?;
+        let (xts_aes_device, xts_aes) = Esp32S3XtsAes::new("esp32s3.xts-aes", system.clone());
+        bus.map_device(
+            "esp32s3.xts-aes",
+            0x600c_c000,
+            0x1000,
+            Box::new(xts_aes_device),
+        )?;
         let (mmu_table_device, mmu_table) = EspMmuTable::new("esp32s3.mmu-table");
         bus.map_device(
             "esp32s3.mmu-table",
@@ -586,6 +594,7 @@ impl XtensaMachine {
             sdmmc,
             sha,
             aes,
+            xts_aes,
             system,
             systimer,
             timer_groups,

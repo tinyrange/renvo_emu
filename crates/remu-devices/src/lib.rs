@@ -84,6 +84,8 @@ mod esp_extmem;
 pub use esp_extmem::*;
 mod esp_rtc_i2c;
 pub use esp_rtc_i2c::*;
+mod esp_xts_aes;
+pub use esp_xts_aes::*;
 mod arm;
 pub use arm::*;
 mod esp_gpio;

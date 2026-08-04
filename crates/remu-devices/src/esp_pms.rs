@@ -707,7 +707,7 @@ fn peripheral_permission(address: u32) -> Option<(u8, u8)> {
         0x600c_0000 | 0x600c_5000 => Some((4, 16)),
         0x600c_1000 => Some((4, 18)),
         0x600c_2000 => Some((4, 20)),
-        0x600c_4000 => Some((4, 24)),
+        0x600c_4000 | 0x600c_c000 => Some((4, 24)),
         0x600d_0000 => Some((4, 30)),
         _ => None,
     }
