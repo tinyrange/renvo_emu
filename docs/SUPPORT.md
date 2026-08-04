@@ -88,6 +88,12 @@ publishes the corresponding `CACHE_STATE` value. A fetch before that call
 stops with a diagnostic instead of appearing to work through a coherent-cache
 shortcut.
 
+Verified ESP32-S3 application images enter through a modeled `CALLX8`
+windowed-ABI handoff. The first application instruction must be `ENTRY`; the
+emulator reports the pending `PS.CALLINC` and window depth when that prologue
+is absent. Direct ELF loading remains the intentionally weaker debugging mode
+with synthetic direct state.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.
