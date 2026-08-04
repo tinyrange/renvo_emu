@@ -45,6 +45,13 @@ See `scripts/qualify-micropython.sh` and
 This milestone does not yet cover the complete upstream MicroPython suite,
 PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
 
+The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
+connection control surface. They start connected for existing console fixtures;
+tests can call `set_usb_host_connected(false)` to exercise a disconnected,
+non-blocking console. A connected host asserts `INT_RAW` SOF bit 1 every 1,000
+abstract ticks, and `INT_CLR`/raw writes clear the latched status. This is a
+functional USB-frame model, not a claim of USB clock or PHY accuracy.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed

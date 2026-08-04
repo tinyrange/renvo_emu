@@ -1041,6 +1041,15 @@ impl XtensaMachine {
         self.usb_host.queue_input(bytes);
     }
 
+    /// Selects whether the ESP USB Serial/JTAG host is attached.
+    ///
+    /// The host is connected by default. When connected, the peripheral
+    /// asserts its SOF raw interrupt every fixed abstract USB frame period;
+    /// disconnected mode is useful for testing non-blocking console paths.
+    pub fn set_usb_host_connected(&mut self, connected: bool) {
+        self.usb_serial_jtag.set_host_connected(connected, self.now);
+    }
+
     /// Stops a bounded run once all queued USB input returns to the raw-REPL prompt.
     pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
         self.stop_on_usb_input_complete = enabled;
@@ -1115,6 +1124,7 @@ impl XtensaMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut usb_was_pending = false;
+        let mut usb_serial_was_pending = false;
         let mut crosscore_was_pending = [false; 2];
         let mut systimer_was_pending = [false; 3];
         let mut timer_group_was_pending = [[false; 2]; 2];
@@ -1140,6 +1150,9 @@ impl XtensaMachine {
             }
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
+            }
+            if self.usb_serial_jtag.poll(self.now) {
+                stats.events = stats.events.saturating_add(1);
             }
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
@@ -1216,6 +1229,26 @@ impl XtensaMachine {
                     } else if self.appcpu_boot_address.is_some() {
                         self.cpu1.set_interrupt(u16::from(interrupt), usb_pending)?;
                     }
+                }
+            }
+            let usb_serial_pending = self.usb_serial_jtag.interrupt_pending();
+            if usb_serial_pending && !usb_serial_was_pending {
+                stats.events = stats.events.saturating_add(1);
+            }
+            usb_serial_was_pending = usb_serial_pending;
+            for core in 0..2_u32 {
+                // ESP-IDF uses interrupt-matrix source 48 for the USB
+                // Serial/JTAG controller on ESP32-S3.
+                let interrupt = self.interrupt_routes[core as usize][48];
+                if interrupt == u8::MAX || interrupt == 6 {
+                    continue;
+                }
+                if core == 0 {
+                    self.cpu
+                        .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
+                } else if self.appcpu_boot_address.is_some() {
+                    self.cpu1
+                        .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
                 }
             }
             for core in 0..2_u32 {
