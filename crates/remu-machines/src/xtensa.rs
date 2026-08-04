@@ -382,6 +382,7 @@ pub struct XtensaMachine {
     mmu_table: EspMmuTableHandle,
     now: SimTime,
     stack: u32,
+    instruction_cache_configured: bool,
     appcpu_boot_address: Option<u32>,
     interrupt_routes: [[u8; 128]; 2],
     md5_contexts: BTreeMap<u32, Vec<u8>>,
@@ -596,10 +597,9 @@ impl XtensaMachine {
             0x1000,
             Box::new(mmu_table_device),
         )?;
-        let mut cache_registers = vec![0; 0x1000 / 4];
+        let cache_registers = vec![0; 0x1000 / 4];
         // CACHE_STATE reports both I-cache and D-cache idle/enabled state.
-        // The direct verified-image handoff starts with coherent caches.
-        cache_registers[0x130 / 4] = 0x0000_1001;
+        // A verified image starts before the application cache-mode call.
         bus.map_device(
             "esp32s3.cache",
             0x600c_4000,
@@ -731,6 +731,7 @@ impl XtensaMachine {
             mmu_table,
             now: SimTime::ZERO,
             stack: stack.expect("ESP32-S3 manifest includes DRAM"),
+            instruction_cache_configured: false,
             appcpu_boot_address: None,
             interrupt_routes: [[u8::MAX; 128]; 2],
             md5_contexts: BTreeMap::new(),
@@ -748,6 +749,9 @@ impl XtensaMachine {
         if image.architecture != FirmwareArchitecture::Xtensa {
             return Err(XtensaMachineError::Architecture(image.architecture));
         }
+        // Direct ELF execution is intentionally the weaker debugging mode:
+        // it permits XIP reads without reproducing the bootloader handoff.
+        self.instruction_cache_configured = true;
         for segment in &image.segments {
             let initialized = segment
                 .data
@@ -780,6 +784,7 @@ impl XtensaMachine {
         image: &EspFlashImage,
     ) -> Result<(), XtensaMachineError> {
         const PAGE_SIZE: u32 = 64 * 1024;
+        self.instruction_cache_configured = false;
         for segment in &image.application.segments {
             let segment_end = usize::try_from(segment.flash_offset)
                 .ok()
@@ -1345,6 +1350,17 @@ impl XtensaMachine {
                     }
                     break StopReason::Fault(message);
                 }
+            }
+            if (0x4200_0000..0x4400_0000).contains(&self.cpu.pc())
+                && !self.instruction_cache_configured
+            {
+                let pc = self.cpu.pc();
+                if running_cpu1 {
+                    std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                }
+                break StopReason::Fault(format!(
+                    "ESP32-S3 IROM fetch at {pc:#010x} before instruction-cache configuration"
+                ));
             }
             let outcome = match self.cpu.step(&mut self.bus, self.now) {
                 Ok(outcome) => outcome,

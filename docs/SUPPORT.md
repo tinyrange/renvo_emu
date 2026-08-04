@@ -82,6 +82,12 @@ ESP32-S3 DRAM and IRAM power on with the deterministic nonzero byte pattern
 the synthesized `.bss` tail remains poisoned until firmware clears it. This
 keeps direct ELF tests from accidentally depending on loader-provided zeroing.
 
+Verified-image handoff starts with IROM instruction fetch disabled; the ROM
+`rom_config_instruction_cache_mode(0x4000, 8, 32)` entry point enables it and
+publishes the corresponding `CACHE_STATE` value. A fetch before that call
+stops with a diagnostic instead of appearing to work through a coherent-cache
+shortcut.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

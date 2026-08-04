@@ -86,6 +86,46 @@ fn merged_flash_image() -> EspFlashImage {
 }
 
 #[test]
+fn verified_xip_requires_the_rom_instruction_cache_configuration() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine.bus.load(0x4200_0000, &[0x3d, 0xf0]).unwrap();
+    machine.cpu.set_direct_state(0x3fc8_0100, 0x4200_0000);
+
+    let blocked = machine
+        .run(
+            RunLimits {
+                instructions: Some(1),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert!(matches!(
+        blocked.reason,
+        StopReason::Fault(message) if message.contains("instruction-cache configuration")
+    ));
+
+    machine.cpu.set_direct_state(0x3fc8_0100, 0x4000_1a1c);
+    machine.cpu.set_register(XtensaRegister::A2, 0x4000);
+    machine.cpu.set_register(XtensaRegister::A3, 8);
+    machine.cpu.set_register(XtensaRegister::A4, 32);
+    assert!(machine.service_functional_rom().unwrap());
+    assert!(machine.instruction_cache_configured);
+
+    machine.cpu.set_direct_state(0x3fc8_0100, 0x4200_0000);
+    let allowed = machine
+        .run(
+            RunLimits {
+                instructions: Some(1),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(allowed.reason, StopReason::InstructionLimit);
+}
+
+#[test]
 fn direct_load_starts_with_appcpu_reset_and_parked() {
     let machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     assert!(machine.appcpu_boot_address.is_none());
