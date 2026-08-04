@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, esp32s3]
   pull_request:
 
 permissions:
@@ -39,3 +39,30 @@ jobs:
 
       - name: Check package manifests
         run: cargo package --workspace --locked --allow-dirty --no-verify --list >/dev/null
+
+  esp32s3-vendor:
+    name: ESP32-S3 vendor peripheral qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Build pinned Espressif GCC image
+        run: docker build --tag remu/xtensa-esp-gcc:local toolchains/xtensa-esp-gcc
+
+      - name: Run native peripheral qualification
+        run: ./scripts/qualify-esp32s3-peripherals.sh
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: esp32s3-peripheral-qualification
+          path: .remu/qualification/esp32s3-peripherals
+          if-no-files-found: ignore

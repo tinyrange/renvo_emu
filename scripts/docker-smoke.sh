@@ -187,6 +187,11 @@ build_case esp32s3-usb toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtens
     -O2 main.c
 run_case esp32s3-usb esp32s3 "$artifact_root/esp32s3-usb/smoke.elf"
 
+build_case esp32s3-peripherals toolchains/xtensa-esp-gcc-esp32s3.toml \
+    corpus/smoke/xtensa-peripherals esp32s3 -O2 main.c
+run_case esp32s3-peripherals esp32s3 \
+    "$artifact_root/esp32s3-peripherals/smoke.elf"
+
 build_case stop-riscv-fault toolchains/riscv-gcc-rv32ec.toml corpus/smoke/wch-gpio ch32v003 \
     -O2 start.S fault.c
 build_case stop-arm-fault toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp2040 \
@@ -211,6 +216,7 @@ jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-ESP\n")' "$artifact_root/esp32c6-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-ESP\n")' "$artifact_root/esp32s3-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events >= 2' "$artifact_root/esp32s3-usb-run.json" >/dev/null
+jq -e '.exit_code == 0' "$artifact_root/esp32s3-peripherals-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2040-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-arm-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-riscv-native-timer-run.json" >/dev/null

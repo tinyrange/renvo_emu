@@ -702,3 +702,54 @@ fn esp32s3_rmt_native_mmio_emits_a_named_channel_waveform() {
             .any(|change| change.at == SimTime::from_ticks(2))
     );
 }
+
+#[test]
+fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
+    let machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let regions = machine
+        .bus
+        .region_map()
+        .into_iter()
+        .map(|(name, start, end, _)| (name.to_owned(), (start, end - start)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    let expected = [
+        ("esp32s3.uart1", 0x6001_0000, 0x1000),
+        ("esp32s3.uart2", 0x6002_e000, 0x1000),
+        ("esp32s3.i2c0", 0x6001_3000, 0x1000),
+        ("esp32s3.i2c1", 0x6002_7000, 0x1000),
+        ("esp32s3.spi2", 0x6002_4000, 0x1000),
+        ("esp32s3.spi3", 0x6002_5000, 0x1000),
+        ("esp32s3.i2s0", 0x6000_f000, 0x1000),
+        ("esp32s3.i2s1", 0x6002_d000, 0x1000),
+        ("esp32s3.rmt", 0x6001_6000, 0x1000),
+        ("esp32s3.ledc", 0x6001_9000, 0x1000),
+        ("esp32s3.pcnt", 0x6001_7000, 0x1000),
+        ("esp32s3.mcpwm0", 0x6001_e000, 0x1000),
+        ("esp32s3.mcpwm1", 0x6002_c000, 0x1000),
+        ("esp32s3.twai", 0x6002_b000, 0x1000),
+        ("esp32s3.gdma", 0x6003_f000, 0x1000),
+        ("esp32s3.saradc", 0x6004_0000, 0x1000),
+        ("esp32s3.tsens", 0x6000_8800, 0x0200),
+        ("esp32s3.lcd-cam", 0x6004_1000, 0x1000),
+        ("esp32s3.sdmmc", 0x6002_8000, 0x1000),
+        ("esp32s3.sha", 0x6003_b000, 0x1000),
+        ("esp32s3.aes", 0x6003_a000, 0x1000),
+        ("esp32s3.efuse", 0x6000_7000, 0x1000),
+        ("esp32s3.hmac", 0x6003_e000, 0x1000),
+        ("esp32s3.rsa", 0x6003_c000, 0x1000),
+        ("esp32s3.digital-signature", 0x6003_d000, 0x1000),
+        ("esp32s3.rtc-control", 0x6000_8000, 0x0800),
+        ("esp32s3.interrupt-matrix", 0x600c_2000, 0x1000),
+        ("esp32s3.usb-serial-jtag", 0x6003_8000, 0x1000),
+        ("esp32s3.usb-otg", 0x6008_0000, 0x1_0000),
+    ];
+
+    for (name, start, size) in expected {
+        assert_eq!(
+            regions.get(name),
+            Some(&(start, size)),
+            "missing or incorrect native mapping for {name}"
+        );
+    }
+}

@@ -482,7 +482,7 @@ const MANIFESTS: &[TargetManifest] = &[
         limitations: &[
             "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
             "windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy",
-            "exact SMP timing, wireless, ULP, full USB, and PSRAM initialization timing are deferred",
+            "interrupt priority/nesting, exact SMP timing, wireless, full USB, and PSRAM initialization timing are deferred",
         ],
     },
     TargetManifest {

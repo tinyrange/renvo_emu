@@ -86,8 +86,39 @@
     },
     "esp32s3": {
       "cpu_profiles": ["Xtensa LX7"],
-      "proofs": ["esp32s3", "esp32s3-uart", "esp32s3-usb"],
-      "required_covered_regions": ["esp32s3.gpio", "esp32s3.uart0", "esp32s3.usb-otg"],
+      "proofs": ["esp32s3", "esp32s3-uart", "esp32s3-usb", "esp32s3-peripherals"],
+      "required_covered_regions": [
+        "esp32s3.aes",
+        "esp32s3.digital-signature",
+        "esp32s3.efuse",
+        "esp32s3.gdma",
+        "esp32s3.gpio",
+        "esp32s3.hmac",
+        "esp32s3.i2c0",
+        "esp32s3.i2c1",
+        "esp32s3.i2s0",
+        "esp32s3.i2s1",
+        "esp32s3.interrupt-matrix",
+        "esp32s3.lcd-cam",
+        "esp32s3.ledc",
+        "esp32s3.mcpwm0",
+        "esp32s3.mcpwm1",
+        "esp32s3.pcnt",
+        "esp32s3.rmt",
+        "esp32s3.rsa",
+        "esp32s3.rtc-control",
+        "esp32s3.saradc",
+        "esp32s3.sdmmc",
+        "esp32s3.sha",
+        "esp32s3.spi2",
+        "esp32s3.spi3",
+        "esp32s3.tsens",
+        "esp32s3.twai",
+        "esp32s3.uart0",
+        "esp32s3.uart1",
+        "esp32s3.uart2",
+        "esp32s3.usb-otg"
+      ],
       "additional_evidence": [
         "scripts/qualify-micropython.sh",
         "qualification/acceptance-report.html",
@@ -97,9 +128,9 @@
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
-        "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
+        "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
-        "Radio, analogue and security peripherals are outside the six-chip baseline."
+        "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ]
     },
     "esp32c6": {

@@ -1446,6 +1446,7 @@ name = "remu-devices"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "num-bigint",
  "remu-bus",
  "remu-core",
  "remu-signals",

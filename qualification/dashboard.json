@@ -12,27 +12,27 @@
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "c6857ee1a3ba10f9b7d6faa5f724ce9cc16aa6f6da9caed9be7c8a7712d451a9"
+      "sha256": "ad7f00ed30d548f58c2a2140bf87a67d9fffb94a0d8e40ef578f55b811ed7c63"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "55cfe9e7525dcf4e2ef907af97888642cfe78ca9bb828f3c97926afde5b7d7a9"
+      "sha256": "0ed44527683f4bea773fc81ca3e615915bb3a8c4702572e3605e44c68b3c52cb"
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "66211fd4d941fc0e562477694452c27620985f62a9446d65e97f3c35dca0143e"
+      "sha256": "a8a4e55942499b347db0778506c05288f72b5b47edb092c9370823f13946a879"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "969cb27758d175d04dd9db93abd370d6b060dc93c4f5ae9348bd534ffc44a2dc"
+      "sha256": "ecd9ded76206e1460eac37727af32e58b5bb1e64b90c7677d70944b90c788dec"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "71df0d9e1801adc5194ae3c42fa77ea203bc343938065bac441d798df7fc4944"
+      "sha256": "4764d176e8d253e06d239900bb1aa579b1e3f65f0fe2758e2ee4bd6bc76e5606"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "e6d71b717356d4cf2bbe273746cc2b413ddef5a4baf0585b75553055a967010e"
+      "sha256": "d238df9418c6693bec871dca5576c2906ec22c526f40095616769b19ce3be675"
     },
     {
       "path": "qualification/rust-abi.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "2d65f145b27c935b82b56c4f96e82d322c0fb60836b01620a4c93898b4858e9c"
+      "sha256": "74a8d67294a06c0df7ee4a3a47d2287754ee0d202e1970584500a4cbcb75c35a"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "8889bbcab456c8b7172cd4c8510416e52852b4947f0f86041efb8f74dd442c08",
+        "manifest_sha256": "f53bde9a11ec31053dc857267e09d58e97d819e034a71b1e65feb2ba8ddb9155",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -192,7 +192,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "2da0c0cb7719ba340efa7e7bfee84180068d300bb7713875fdbe8371252efbc8",
+        "manifest_sha256": "a228d1172ae057ae1206f2bdd603ec86016145b59af96e7e55fdab3674e9dfaa",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -263,7 +263,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "377e4a13db9d40ed0cfb5079c334b275535c45828e9cc9a38c0a886cd920e6c1",
+        "manifest_sha256": "835f921657b2eab1f4479a661c7fd776068c33ef896349ff22ff4e9d67f87316",
         "required_covered_regions": [
           "rp2040.pio0",
           "rp2040.sio",
@@ -338,7 +338,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "077667b480063c6ba1d0410e885e3f7ae67ee89ada44c4a459be5d342cbb4ff9",
+        "manifest_sha256": "b61ac92c147aff64f8f224596fce91b885b6834119439404bff401f98d8e33bd",
         "required_covered_regions": [
           "rp2350.pio0",
           "rp2350.sio",
@@ -395,13 +395,13 @@
       "known_gaps": [
         "the LX7 interpreter is a compiler-baseline subset, not a complete Xtensa ISA model",
         "windowed ABI, level-one exceptions, S32C1I atomics, and FPv5 compiler cases are tested without claiming cycle accuracy",
-        "exact SMP timing, wireless, ULP, full USB, and PSRAM initialization timing are deferred",
+        "interrupt priority/nesting, exact SMP timing, wireless, full USB, and PSRAM initialization timing are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",
-        "Timer-group and interrupt-matrix support is functionally exercised by official MicroPython qualification but is not cycle accurate.",
+        "Timer-group, RTC/ULP, GDMA and interrupt-matrix behavior is functional and deterministic rather than cycle accurate.",
         "USB-OTG covers deterministic full-speed device reset, setup receive FIFO/status, endpoint completion, native word-access masks, W1C interrupt fields, endpoint active/NAK status, documented seven-bit transfer-size fields, and host control/bulk exchanges; PHY edge timing, DMA scatter/gather, host channels, and complete USB classes remain outside the functional slice.",
-        "Radio, analogue and security peripherals are outside the six-chip baseline."
+        "Wi-Fi/BLE radio support is intentionally deferred for a separate design; analogue inputs use deterministic host-supplied samples."
       ],
       "name": "Espressif ESP32-S3",
       "passing_corpus": [
@@ -411,12 +411,39 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 12,
+        "covered_register_count": 39,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "07679a61d563866694e55dfa8a9eee44350b6d3f24424325894e705dc6a7cebd",
+        "manifest_sha256": "880af86f3a79c0b70784a1c18c84139c894b802fa1093ac9e2ab60e1d78b5ed5",
         "required_covered_regions": [
+          "esp32s3.aes",
+          "esp32s3.digital-signature",
+          "esp32s3.efuse",
+          "esp32s3.gdma",
           "esp32s3.gpio",
+          "esp32s3.hmac",
+          "esp32s3.i2c0",
+          "esp32s3.i2c1",
+          "esp32s3.i2s0",
+          "esp32s3.i2s1",
+          "esp32s3.interrupt-matrix",
+          "esp32s3.lcd-cam",
+          "esp32s3.ledc",
+          "esp32s3.mcpwm0",
+          "esp32s3.mcpwm1",
+          "esp32s3.pcnt",
+          "esp32s3.rmt",
+          "esp32s3.rsa",
+          "esp32s3.rtc-control",
+          "esp32s3.saradc",
+          "esp32s3.sdmmc",
+          "esp32s3.sha",
+          "esp32s3.spi2",
+          "esp32s3.spi3",
+          "esp32s3.tsens",
+          "esp32s3.twai",
           "esp32s3.uart0",
+          "esp32s3.uart1",
+          "esp32s3.uart2",
           "esp32s3.usb-otg"
         ],
         "status": "passing"
@@ -483,7 +510,7 @@
       "register_coverage": {
         "covered_register_count": 9,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "520f01d0df351291c09556f28dcbe9f63e3935928e348c06a965a798cccb70ba",
+        "manifest_sha256": "040dbc34973e02518c102a3059d8dac8850edc075eeda8f79e80885a31a5a197",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.interrupt-controller-cpu0",
