@@ -364,8 +364,8 @@ const MANIFESTS: &[TargetManifest] = &[
         memory: &[
             MemoryRegion {
                 name: "dram",
-                start: 0x3fc8_0000,
-                size: 512 * 1024,
+                start: 0x3fc8_8000,
+                size: 480 * 1024,
                 kind: MemoryKind::Ram,
                 executable: false,
             },

@@ -4,7 +4,7 @@ ENTRY(_start)
 MEMORY
 {
     IRAM (rx)  : ORIGIN = 0x40370000, LENGTH = 512K
-    DRAM (rwx) : ORIGIN = 0x3fc80000, LENGTH = 512K
+    DRAM (rwx) : ORIGIN = 0x3fc88000, LENGTH = 480K
     IROM (rx)  : ORIGIN = 0x42000000, LENGTH = 16M
     DROM (r)   : ORIGIN = 0x3c000000, LENGTH = 16M
 }
