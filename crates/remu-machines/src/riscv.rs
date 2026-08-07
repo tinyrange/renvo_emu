@@ -431,7 +431,6 @@ impl RiscVMachine {
                 )),
             )?;
             for (name, base) in [
-                ("rp2350.uart1", 0x4007_8000),
                 ("rp2350.spi0", 0x4008_0000),
                 ("rp2350.spi1", 0x4008_8000),
                 ("rp2350.i2c0", 0x4009_0000),
@@ -742,6 +741,10 @@ impl RiscVMachine {
                 let (uart0, handle) =
                     FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
                 bus.map_device("rp2350.uart0", 0x4007_0000, 0x1000, Box::new(uart0))?;
+                chip_uarts.push(handle);
+                let (uart1, handle) =
+                    FunctionalUart::new_lenient("rp2350.uart1", 0x00, 0x18, 0x0090);
+                bus.map_device("rp2350.uart1", 0x4007_8000, 0x1000, Box::new(uart1))?;
                 chip_uarts.push(handle);
                 let (pio0, handle) = RpPio::new(
                     "rp2350.pio0",
