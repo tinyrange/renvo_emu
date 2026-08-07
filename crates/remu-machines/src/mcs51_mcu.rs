@@ -4,8 +4,8 @@ use crate::{
 };
 use remu_bus::{AddressSpace, BusAccessRecord, Endianness, SharedBusAccessObserver};
 use remu_core::{
-    AccessKind, AccessWidth, Bus, Cpu, ResetKind, RunLimits, RunStats, SimTime, StepReason,
-    StopReason,
+    AccessKind, AccessWidth, Bus, Cpu, EventQueue, ResetKind, RunLimits, RunStats, SimTime,
+    StepReason, StopReason,
 };
 use remu_cpu_mcs51::{Mcs51Cpu, Mcs51Register};
 use remu_devices::{Efm8Peripherals, Efm8PeripheralsHandle, GpioHandle, SignalHub};
@@ -54,6 +54,9 @@ pub enum Mcs51MachineError {
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] remu_trace::TraceError),
+    /// Timestamped stimulus could not be inserted into the stable event queue.
+    #[error(transparent)]
+    Queue(#[from] remu_core::QueueError),
 }
 
 /// Byte-code EFM8BB52F32G machine with the selected functional peripheral slice.
@@ -265,17 +268,17 @@ impl Mcs51McuMachine {
             time: self.now,
             events: 0,
         };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
+        let mut stimulus_queue = EventQueue::new();
+        for stimulus in stimuli.iter().copied() {
+            stimulus_queue.schedule_at(stimulus.at, stimulus)?;
+        }
         let reason = loop {
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
+            while stimulus_queue.next_time().is_some_and(|at| at <= self.now) {
+                let stimulus = stimulus_queue
+                    .pop()
+                    .expect("stimulus queue reported a due event")
+                    .payload;
                 self.set_pin(stimulus.pin, stimulus.value)?;
-                next_stimulus += 1;
                 stats.events = stats.events.saturating_add(1);
             }
             if limits
