@@ -76,6 +76,7 @@ pub struct ArmMcuMachine {
     gpio: GpioHandle,
     compiler_gpio: GpioHandle,
     uart: VendorUart,
+    samd_extra_uarts: Vec<(u16, Samd21UsartHandle)>,
     compiler_uart: UartHandle,
     timer: VendorTimer,
     eic: Option<Samd21EicHandle>,
@@ -230,7 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, samd_extra_uarts, timer, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -242,6 +243,9 @@ impl ArmMcuMachine {
                 let (eic_device, eic) = Samd21Eic::new("atsamd21e18.eic");
                 let (watchdog_device, watchdog) = Samd21Wdt::new("atsamd21e18.wdt");
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
+                let (sercom1_device, sercom1) = Samd21Usart::new("atsamd21e18.sercom1");
+                let (sercom2_device, sercom2) = Samd21Usart::new("atsamd21e18.sercom2");
+                let (sercom3_device, sercom3) = Samd21Usart::new("atsamd21e18.sercom3");
                 Self::map_samd21(
                     &mut bus,
                     port_device,
@@ -249,10 +253,14 @@ impl ArmMcuMachine {
                     watchdog_device,
                     tc3_device,
                     sercom0_device,
+                    sercom1_device,
+                    sercom2_device,
+                    sercom3_device,
                 )?;
                 (
                     gpio,
                     VendorUart::Samd21(uart),
+                    vec![(10, sercom1), (11, sercom2), (12, sercom3)],
                     VendorTimer::Samd21(timer),
                     Some(eic),
                     None,
@@ -291,6 +299,7 @@ impl ArmMcuMachine {
                 (
                     gpio,
                     VendorUart::Stm32(uart),
+                    Vec::new(),
                     VendorTimer::Stm32(timer),
                     None,
                     None,
@@ -317,6 +326,7 @@ impl ArmMcuMachine {
                 (
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
+                    Vec::new(),
                     VendorTimer::Ra4m1(timer),
                     None,
                     Some(icu),
@@ -334,6 +344,7 @@ impl ArmMcuMachine {
             gpio,
             compiler_gpio,
             uart,
+            samd_extra_uarts,
             compiler_uart,
             timer,
             eic,
@@ -362,6 +373,9 @@ impl ArmMcuMachine {
         watchdog: Samd21Wdt,
         tc3: Samd21Tc,
         sercom0: Samd21Usart,
+        sercom1: Samd21Usart,
+        sercom2: Samd21Usart,
+        sercom3: Samd21Usart,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "atsamd21e18.pm",
@@ -389,6 +403,9 @@ impl ArmMcuMachine {
         bus.map_device("atsamd21e18.wdt", 0x4000_1000, 0x100, Box::new(watchdog))?;
         bus.map_device("atsamd21e18.eic", 0x4000_1800, 0x100, Box::new(eic))?;
         bus.map_device("atsamd21e18.sercom0", 0x4200_0800, 0x40, Box::new(sercom0))?;
+        bus.map_device("atsamd21e18.sercom1", 0x4200_0c00, 0x40, Box::new(sercom1))?;
+        bus.map_device("atsamd21e18.sercom2", 0x4200_1000, 0x40, Box::new(sercom2))?;
+        bus.map_device("atsamd21e18.sercom3", 0x4200_1400, 0x40, Box::new(sercom3))?;
         bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
         // NVMCTRL.INTFLAG.READY is set after reset.
         bus.map_device(
@@ -785,6 +802,12 @@ impl ArmMcuMachine {
                     }
                 }
             }
+            for (line, uart) in &self.samd_extra_uarts {
+                let pending = uart.interrupt_pending();
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
             match self.target {
                 TargetId::Atsamd21e18 | TargetId::Stm32l432kc => {
                     let uart_line = if self.target == TargetId::Atsamd21e18 {
@@ -942,6 +965,42 @@ mod tests {
         assert_eq!(machine.gpio_output(), 1 << 7);
         assert_eq!(result.reason, StopReason::InstructionLimit);
         assert_ne!(result.trace_digest, "");
+    }
+
+    #[test]
+    fn samd21_maps_sercom1_to_sercom3_usart_windows() {
+        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
+        for (base, byte) in [
+            (0x4200_0c00, b'1'),
+            (0x4200_1000, b'2'),
+            (0x4200_1400, b'3'),
+        ] {
+            machine
+                .bus
+                .write(base + 0x16, AccessWidth::Byte, 1, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(
+                    base + 0x28,
+                    AccessWidth::HalfWord,
+                    u64::from(byte),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            assert_eq!(
+                machine
+                    .bus
+                    .read(
+                        base + 0x18,
+                        AccessWidth::Byte,
+                        AccessKind::Read,
+                        SimTime::ZERO
+                    )
+                    .unwrap(),
+                1
+            );
+        }
     }
 
     #[test]
