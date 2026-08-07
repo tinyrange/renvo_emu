@@ -250,6 +250,58 @@ fn wch_usart_requires_enable_and_preserves_configuration() {
 }
 
 #[test]
+fn wch_power_models_pvd_awu_and_standby_controls() {
+    let (mut power, handle) = WchPower::new("pwr");
+    let at = SimTime::ZERO;
+    const PVDE: u64 = 1 << 4;
+    const PDDS: u64 = 1 << 1;
+    const PVDO: u64 = 1 << 2;
+
+    power
+        .write(0x00, AccessWidth::Word, PVDE | (3 << 5), at)
+        .unwrap();
+    handle.set_supply_low(true);
+    assert_eq!(power.read(0x04, AccessWidth::Word, at).unwrap(), PVDO);
+    handle.set_supply_low(false);
+    assert_eq!(power.read(0x04, AccessWidth::Word, at).unwrap(), 0);
+
+    power.write(0x08, AccessWidth::Word, 0xffff, at).unwrap();
+    power.write(0x0c, AccessWidth::Word, 0xffff, at).unwrap();
+    power.write(0x10, AccessWidth::Word, 0xffff, at).unwrap();
+    assert_eq!(power.read(0x08, AccessWidth::Word, at).unwrap(), 1 << 1);
+    assert_eq!(power.read(0x0c, AccessWidth::Word, at).unwrap(), 0x3f);
+    assert_eq!(power.read(0x10, AccessWidth::Word, at).unwrap(), 0x0f);
+
+    power
+        .write(0x00, AccessWidth::Word, PVDE | PDDS, at)
+        .unwrap();
+    assert!(handle.standby_requested());
+    handle.clear_standby();
+    assert!(!handle.standby_requested());
+}
+
+#[test]
+fn wch_power_uses_target_specific_control_masks_and_resets() {
+    let (mut ch32v003, _) = WchPower::new_for_variant("v003", WchPowerVariant::Ch32v003);
+    let (mut ch32v006, _) = WchPower::new_for_variant("v006", WchPowerVariant::Ch32v006);
+    let at = SimTime::ZERO;
+
+    assert_eq!(ch32v003.read(0x00, AccessWidth::Word, at).unwrap(), 0);
+    assert_eq!(ch32v003.read(0x0c, AccessWidth::Word, at).unwrap(), 0x3f);
+    assert_eq!(ch32v006.read(0x00, AccessWidth::Word, at).unwrap(), 0x0408);
+    assert_eq!(ch32v006.read(0x0c, AccessWidth::Word, at).unwrap(), 0x3f);
+
+    ch32v003
+        .write(0x00, AccessWidth::Word, u32::MAX.into(), at)
+        .unwrap();
+    ch32v006
+        .write(0x00, AccessWidth::Word, u32::MAX.into(), at)
+        .unwrap();
+    assert_eq!(ch32v003.read(0x00, AccessWidth::Word, at).unwrap(), 0x00f2);
+    assert_eq!(ch32v006.read(0x00, AccessWidth::Word, at).unwrap(), 0x0e7e);
+}
+
+#[test]
 fn wch_timer_raises_and_vendor_clear_sequence_lowers_update_interrupt() {
     let (mut timer, handle) = WchTimer::new("tim2");
     timer

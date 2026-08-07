@@ -18,8 +18,8 @@ use remu_devices::{
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchPower,
+    WchPowerHandle, WchPowerVariant, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -30,7 +30,6 @@ use serde::Serialize;
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
-
 mod bootrom_support;
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
@@ -38,7 +37,6 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
-
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
 /// Synthetic, stable UART facade used by compiler cases.
@@ -64,13 +62,11 @@ const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
 const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
 const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
 const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;
-
 #[derive(Clone, Debug, Default)]
 struct EspFunctionalSha256 {
     sha224: bool,
     input: Vec<u8>,
 }
-
 /// Failure while constructing, loading, or running a machine.
 #[derive(Debug, Error)]
 pub enum MachineError {
@@ -138,7 +134,6 @@ pub enum MachineError {
     #[error("ESP32-C6 application image is not boot-compatible: {0}")]
     Esp32c6BootLayout(String),
 }
-
 /// Stable machine-readable outcome of one invocation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RunResult {
@@ -162,7 +157,6 @@ pub struct RunResult {
     /// Canonical digest over signal declarations and changes.
     pub trace_digest: String,
 }
-
 /// Runnable direct-ELF RISC-V vertical slice.
 pub struct RiscVMachine {
     target: TargetId,
@@ -202,6 +196,7 @@ pub struct RiscVMachine {
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
     wch_timer: Option<WchTimerHandle>,
+    wch_power: Option<WchPowerHandle>,
     wch_pfic: Option<WchPficHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -242,6 +237,7 @@ impl RiscVMachine {
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
+        let mut wch_power = None;
         let mut wch_pfic = None;
         let mut sio = None;
         if target == TargetId::Rp2350 {
@@ -478,7 +474,6 @@ impl RiscVMachine {
             usb = Some(usb_handle);
             usb_host = Some(Rp2040UsbHost::new());
         }
-
         let signals = SignalHub::new();
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
@@ -517,7 +512,6 @@ impl RiscVMachine {
             TEST_EXIT_SIZE,
             Box::new(exit_device),
         )?;
-
         let mut chip_gpio = Vec::new();
         let mut chip_uarts = Vec::new();
         match target {
@@ -563,6 +557,14 @@ impl RiscVMachine {
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 wch_timer = Some(handle);
+                let variant = match target {
+                    TargetId::Ch32v003 => WchPowerVariant::Ch32v003,
+                    TargetId::Ch32v006 => WchPowerVariant::Ch32v006,
+                    _ => unreachable!("WCH PWR is only constructed for WCH targets"),
+                };
+                let (power, handle) = WchPower::new_for_variant(format!("{target}.pwr"), variant);
+                bus.map_device(format!("{target}.pwr"), 0x4000_7000, 0x400, Box::new(power))?;
+                wch_power = Some(handle);
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
@@ -762,7 +764,6 @@ impl RiscVMachine {
             | TargetId::Pic16f15376
             | TargetId::Efm8bb52f32g => unreachable!(),
         }
-
         Ok(Self {
             target,
             cpu: RiscVCpu::new(profile.clone())?,
@@ -801,6 +802,7 @@ impl RiscVMachine {
             chip_timers,
             pio,
             wch_timer,
+            wch_power,
             wch_pfic,
             usb,
             usb_dpram,
@@ -811,7 +813,6 @@ impl RiscVMachine {
             signal_stops: Vec::new(),
         })
     }
-
     fn service_functional_bootrom(&mut self) -> Result<bool, String> {
         if self.target == TargetId::Esp32c6 {
             let pc = self.cpu.pc();
@@ -826,10 +827,14 @@ impl RiscVMachine {
         }
         self.service_rp2350_bootrom()
     }
-
     /// Selected target.
     pub const fn target(&self) -> TargetId {
         self.target
+    }
+
+    /// Returns the host-facing WCH power-control handle for CH32V003/006.
+    pub fn wch_power(&self) -> Option<WchPowerHandle> {
+        self.wch_power.clone()
     }
 
     /// Enables or disables completed bus-access recording.
