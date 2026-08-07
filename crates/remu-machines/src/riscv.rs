@@ -38,6 +38,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
+mod wch_flash;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -278,6 +279,10 @@ impl RiscVMachine {
                     }
                 }
                 MemoryKind::Flash | MemoryKind::Rom => {
+                    if region.kind == MemoryKind::Flash && wch_flash::is_target(target) {
+                        wch_flash::map_wch_flash(&mut bus, target, region.start, region.size)?;
+                        continue;
+                    }
                     let storage = if region.kind == MemoryKind::Flash {
                         SharedMemory::from_bytes(vec![0xff; region.size])
                     } else {

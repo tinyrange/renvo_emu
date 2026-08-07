@@ -16,6 +16,8 @@ mod uart;
 pub use uart::*;
 mod wch;
 pub use wch::*;
+mod wch_flash;
+pub use wch_flash::*;
 mod esp_usb_serial_jtag;
 pub use esp_usb_serial_jtag::*;
 mod gpio;

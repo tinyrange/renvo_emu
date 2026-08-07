@@ -199,6 +199,102 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 }
 
 #[test]
+fn wch_flash_controller_programs_and_erases_the_mapped_alias() {
+    const KEY1: u64 = 0x4567_0123;
+    const KEY2: u64 = 0xcdef_89ab;
+    const PG: u64 = 1;
+    const PAGE_PG: u64 = 1 << 16;
+    const BUF_LOAD: u64 = 1 << 18;
+    const PER_AND_STRT: u64 = (1 << 1) | (1 << 6);
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        machine
+            .load_bytes(0x400, &[0xff, 0xff, 0xff, 0xff])
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2004, AccessWidth::Word, KEY1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2004, AccessWidth::Word, KEY2, SimTime::ZERO)
+            .unwrap();
+        if target == TargetId::Ch32v003 {
+            machine
+                .bus
+                .write(0x4002_2010, AccessWidth::Word, PG, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x400, AccessWidth::HalfWord, 0x1234, SimTime::ZERO)
+                .unwrap();
+        } else {
+            machine
+                .bus
+                .write(0x4002_2024, AccessWidth::Word, KEY1, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x4002_2024, AccessWidth::Word, KEY2, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x4002_2010, AccessWidth::Word, PAGE_PG, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x400, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(
+                    0x4002_2010,
+                    AccessWidth::Word,
+                    PAGE_PG | BUF_LOAD,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x0800_0400,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            if target == TargetId::Ch32v003 {
+                0xffff_1234
+            } else {
+                0x1234_5678
+            }
+        );
+        machine
+            .bus
+            .write(0x4002_2014, AccessWidth::Word, 0x400, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2010, AccessWidth::Word, PER_AND_STRT, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x400,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            0xffff
+        );
+    }
+}
+
+#[test]
 fn gpio_facade_streams_valid_vcd() {
     // lui x1,0xffff0; addi x2,x0,1; sw x2,0(x1); sw x2,4(x1); ebreak
     let program = [
