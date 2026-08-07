@@ -104,6 +104,8 @@ mod samd;
 pub use samd::*;
 mod stm32;
 pub use stm32::*;
+mod stm32_rtc;
+pub use stm32_rtc::*;
 mod ra;
 pub use ra::*;
 mod avr;

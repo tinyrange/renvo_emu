@@ -332,3 +332,9 @@ The human-readable portfolio view is
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
+
+The STM32L432KC model includes the RTC at `0x40002800`, with BCD time reads,
+deterministic simulated seconds, alarm-A/B control and flag latching, and the
+native initialization/status register surface. Calendar rollover, backup-domain
+retention, tamper pins, and subsecond clock calibration remain outside this
+functional slice.
