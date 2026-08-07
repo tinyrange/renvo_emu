@@ -16,8 +16,16 @@ The exact functional register surface is RSTSRC, CLKSEL, WDTCN, Ports 0–3,
 port modes and crossbar, Timer0/2, UART0 and IE/IP routing. The machine boots
 from CODE address zero with 32 KiB flash, 256-byte IDATA and 2304-byte XRAM;
 CODE, IDATA, XDATA, paged SFR and bit-addressable accesses remain distinct.
-Timing, analog peripherals, PCA, SMBus and SPI remain explicitly
-functional/deferred as stated by the target manifest.
+The clock/power slice now applies the documented `CLKSEL` source/divider mask
+and reset state, exposes the named `CLKGRP0`, `HFO0CN` and `LFO0CN` control
+registers, reports nominal system-clock frequency, and models the `PCON0`
+idle/stop and `PCON1` snooze/pin-retain modes. Idle and snooze can be woken by
+the host or an enabled functional interrupt; stop remains reset-only. Nominal
+source frequencies are deterministic values for compiler and firmware tests.
+
+Oscillator settling, missing-clock detection, external-clock input, exact
+blanking periods, peripheral clock domains, and analog peripherals, PCA, SMBus
+and SPI remain explicitly functional/deferred as stated by the target manifest.
 
 The register fixtures are original project code written from the public data
 sheet and reference manual; no Silicon Labs SDK source is distributed or
