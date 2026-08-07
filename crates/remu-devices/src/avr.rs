@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const IO_BASE: u16 = 0x20;
@@ -36,6 +37,27 @@ const OCR1AH: u16 = 0x89;
 const UCSR0A: u16 = 0xc0;
 const UCSR0B: u16 = 0xc1;
 const UDR0: u16 = 0xc6;
+const TWBR: u16 = 0xb8;
+const TWSR: u16 = 0xb9;
+const TWAR: u16 = 0xba;
+const TWDR: u16 = 0xbb;
+const TWCR: u16 = 0xbc;
+const TWAMR: u16 = 0xbd;
+
+const TWI_STATUS_RESET: u8 = 0xf8;
+const TWI_STATUS_MASK: u8 = 0xf8;
+const TWI_PRESCALER_MASK: u8 = 0x03;
+const TWI_ADDRESS_MASK: u8 = 0xff;
+const TWI_ADDRESS_MASK_MASK: u8 = 0xfe;
+const TWINT: u8 = 1 << 7;
+const TWEA: u8 = 1 << 6;
+const TWSTA: u8 = 1 << 5;
+const TWSTO: u8 = 1 << 4;
+const TWWC: u8 = 1 << 3;
+const TWEN: u8 = 1 << 2;
+const TWIE: u8 = 1;
+const TWCR_CONFIG_MASK: u8 = TWEA | TWSTA | TWSTO | TWEN | TWIE;
+const TWCR_READ_MASK: u8 = TWINT | TWEA | TWSTA | TWSTO | TWWC | TWEN | TWIE;
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -52,6 +74,9 @@ struct AtmegaState {
     previous_pind: u8,
     watchdog_started: u64,
     watchdog_reset: bool,
+    twi_tx: Vec<u8>,
+    twi_rx: VecDeque<u8>,
+    twi_started: bool,
     uart_tx_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
@@ -114,6 +139,10 @@ impl AtmegaIoHandle {
         if state.registers[usize::from(UCSR0B - IO_BASE)] & (1 << 5) != 0 {
             lines.push(18);
         }
+        let twcr = state.registers[usize::from(TWCR - IO_BASE)];
+        if twcr & TWINT != 0 && twcr & TWIE != 0 {
+            lines.push(24);
+        }
         let pinb = resolved(&state.ports[0]);
         let changed = pinb ^ state.previous_pinb;
         state.previous_pinb = pinb;
@@ -159,6 +188,21 @@ impl AtmegaIoHandle {
                 .watchdog_reset,
         )
     }
+
+    /// Queues one byte that the TWI controller should receive from its host.
+    pub fn queue_twi_rx(&self, byte: u8) {
+        self.0
+            .lock()
+            .expect("ATmega I/O lock poisoned")
+            .twi_rx
+            .push_back(byte);
+    }
+
+    /// Returns bytes transferred by the functional TWI0 controller.
+    pub fn take_twi_tx(&self) -> Vec<u8> {
+        let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
+        std::mem::take(&mut state.twi_tx)
+    }
 }
 
 fn set_bit_signal(state: &AtmegaState, signal: SignalId, value: bool, at: SimTime) {
@@ -182,6 +226,13 @@ fn resolved(state: &Arc<Mutex<GpioState>>) -> u8 {
         .fold(0_u8, |value, (pin, net)| {
             value | (u8::from(net.resolved() == Logic::One) << pin)
         })
+}
+
+fn reset_registers(registers: &mut [u8; 224]) {
+    registers.fill(0);
+    registers[usize::from(TWSR - IO_BASE)] = TWI_STATUS_RESET;
+    registers[usize::from(TWAR - IO_BASE)] = 0x02;
+    registers[usize::from(TWDR - IO_BASE)] = 0x01;
 }
 
 /// Unified ATmega328PB memory-mapped I/O window.
@@ -229,8 +280,10 @@ impl AtmegaIo {
             SignalValue::from_u64(0, 1)?,
             Some("functional watchdog reset request".to_owned()),
         )?;
+        let mut registers = [0; 224];
+        reset_registers(&mut registers);
         let state = Arc::new(Mutex::new(AtmegaState {
-            registers: [0; 224],
+            registers,
             ports: [portb, portc, portd],
             port_signals: [signals_b, signals_c, signals_d],
             hub,
@@ -244,6 +297,9 @@ impl AtmegaIo {
             previous_pind: 0,
             watchdog_started: 0,
             watchdog_reset: false,
+            twi_tx: Vec::new(),
+            twi_rx: VecDeque::new(),
+            twi_started: false,
             uart_tx_signal,
             timer0_irq_signal,
             timer1_irq_signal,
@@ -314,6 +370,11 @@ impl Device for AtmegaIo {
         let value = match address {
             UCSR0A => state.registers[usize::from(address - IO_BASE)] | (1 << 5) | (1 << 6),
             EEDR => state.registers[usize::from(EEDR - IO_BASE)],
+            TWCR => state.registers[usize::from(TWCR - IO_BASE)] & TWCR_READ_MASK,
+            TWSR => state.registers[usize::from(TWSR - IO_BASE)],
+            TWAR => state.registers[usize::from(TWAR - IO_BASE)] & TWI_ADDRESS_MASK,
+            TWDR => state.registers[usize::from(TWDR - IO_BASE)],
+            TWAMR => state.registers[usize::from(TWAMR - IO_BASE)] & TWI_ADDRESS_MASK_MASK,
             _ => state.registers[usize::from(address - IO_BASE)],
         };
         Ok(u64::from(value))
@@ -404,6 +465,68 @@ impl Device for AtmegaIo {
                 state.registers[usize::from(WDTCSR - IO_BASE)] = value;
                 state.watchdog_started = at.ticks();
             }
+            TWCR => {
+                let index = usize::from(TWCR - IO_BASE);
+                let mut twcr =
+                    (state.registers[index] & (TWINT | TWWC)) | (value & TWCR_CONFIG_MASK);
+                let command = value & TWINT != 0;
+                if command {
+                    // TWINT is cleared by writing one; hardware may set it again
+                    // below once the functional operation has completed.
+                    twcr &= !TWINT;
+                }
+                if value & TWEN == 0 {
+                    state.twi_started = false;
+                }
+                if command && value & TWEN != 0 {
+                    let status = if value & TWSTA != 0 {
+                        state.twi_started = true;
+                        0x08
+                    } else if value & TWSTO != 0 {
+                        state.twi_started = false;
+                        TWI_STATUS_RESET
+                    } else if let Some(byte) = state.twi_rx.pop_front() {
+                        state.registers[usize::from(TWDR - IO_BASE)] = byte;
+                        if value & TWEA != 0 { 0x50 } else { 0x58 }
+                    } else if state.twi_started {
+                        let byte = state.registers[usize::from(TWDR - IO_BASE)];
+                        state.twi_tx.push(byte);
+                        0x28
+                    } else {
+                        // No START has been observed, so there is no bus
+                        // transaction to complete. Keep the controller idle.
+                        TWI_STATUS_RESET
+                    };
+                    state.registers[usize::from(TWSR - IO_BASE)] =
+                        (state.registers[usize::from(TWSR - IO_BASE)] & TWI_PRESCALER_MASK)
+                            | (status & TWI_STATUS_MASK);
+                    if value & TWSTO == 0 {
+                        twcr |= TWINT;
+                    }
+                    twcr &= !(TWSTA | TWSTO);
+                }
+                state.registers[index] = twcr & TWCR_READ_MASK;
+            }
+            TWSR => {
+                let index = usize::from(TWSR - IO_BASE);
+                state.registers[index] =
+                    (state.registers[index] & TWI_STATUS_MASK) | (value & TWI_PRESCALER_MASK);
+            }
+            TWDR => {
+                let twcr_index = usize::from(TWCR - IO_BASE);
+                if state.registers[twcr_index] & TWINT != 0 {
+                    state.registers[usize::from(TWDR - IO_BASE)] = value;
+                    state.registers[twcr_index] &= !TWWC;
+                } else {
+                    state.registers[twcr_index] |= TWWC;
+                }
+            }
+            TWAMR => {
+                state.registers[usize::from(TWAMR - IO_BASE)] = value & TWI_ADDRESS_MASK_MASK;
+            }
+            TWBR | TWAR => {
+                state.registers[usize::from(address - IO_BASE)] = value;
+            }
             _ => state.registers[usize::from(address - IO_BASE)] = value,
         }
         Ok(())
@@ -411,11 +534,14 @@ impl Device for AtmegaIo {
 
     fn reset(&mut self, _kind: ResetKind) {
         let mut state = self.state.lock().expect("ATmega I/O lock poisoned");
-        state.registers.fill(0);
+        reset_registers(&mut state.registers);
         state.uart.clear();
         state.timer_pending = false;
         state.timer1_pending = false;
         state.watchdog_reset = false;
+        state.twi_tx.clear();
+        state.twi_rx.clear();
+        state.twi_started = false;
         set_bit_signal(&state, state.timer0_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.timer1_irq_signal, false, SimTime::ZERO);
         set_bit_signal(&state, state.pcint0_irq_signal, false, SimTime::ZERO);
@@ -482,5 +608,174 @@ mod tests {
         )
         .unwrap();
         assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15]);
+    }
+
+    #[test]
+    fn twi0_start_transmit_and_receive_have_deterministic_status() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        let twcr = u64::from(TWCR - IO_BASE);
+        io.write(
+            u64::from(TWBR - IO_BASE),
+            AccessWidth::Byte,
+            12,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TWAR - IO_BASE),
+            AccessWidth::Byte,
+            0x22,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            u64::from(TWAMR - IO_BASE),
+            AccessWidth::Byte,
+            0,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(twcr, AccessWidth::Byte, 0xA5 | 0x20, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            io.read(u64::from(TWSR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x08
+        );
+        io.write(
+            u64::from(TWDR - IO_BASE),
+            AccessWidth::Byte,
+            0x55,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(twcr, AccessWidth::Byte, 0x85, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.take_twi_tx(), vec![0x55]);
+        handle.queue_twi_rx(0xa5);
+        io.write(twcr, AccessWidth::Byte, 0xc5, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            io.read(u64::from(TWDR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xa5
+        );
+        assert_eq!(
+            io.read(u64::from(TWSR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x50
+        );
+        assert!(handle.poll(SimTime::ZERO).contains(&24));
+    }
+
+    #[test]
+    fn twi0_reset_values_and_reserved_bits_match_datasheet() {
+        let hub = SignalHub::new();
+        let (mut io, _, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        let read = |io: &mut AtmegaIo, register: u16| {
+            io.read(
+                u64::from(register - IO_BASE),
+                AccessWidth::Byte,
+                SimTime::ZERO,
+            )
+            .unwrap() as u8
+        };
+        assert_eq!(read(&mut io, TWSR), TWI_STATUS_RESET);
+        assert_eq!(read(&mut io, TWAR), 0x02);
+        assert_eq!(read(&mut io, TWDR), 0x01);
+        assert_eq!(read(&mut io, TWAMR), 0);
+        assert_eq!(read(&mut io, TWCR), 0);
+
+        io.write(
+            u64::from(TWSR - IO_BASE),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(read(&mut io, TWSR), 0xfb);
+        io.write(
+            u64::from(TWAMR - IO_BASE),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(read(&mut io, TWAMR), 0xfe);
+        io.write(
+            u64::from(TWCR - IO_BASE),
+            AccessWidth::Byte,
+            0xff,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(read(&mut io, TWCR) & 0x02, 0);
+        assert_eq!(read(&mut io, TWCR) & TWWC, 0);
+    }
+
+    #[test]
+    fn twi0_data_collision_sets_twwc_until_interrupt_is_set() {
+        let hub = SignalHub::new();
+        let (mut io, _, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        let twdr = u64::from(TWDR - IO_BASE);
+        let twcr = u64::from(TWCR - IO_BASE);
+        io.write(twdr, AccessWidth::Byte, 0x55, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            io.read(twdr, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x01
+        );
+        assert_ne!(
+            io.read(twcr, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8 & TWWC,
+            0
+        );
+
+        io.write(
+            twcr,
+            AccessWidth::Byte,
+            u64::from(TWINT | TWSTA | TWEN),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(twdr, AccessWidth::Byte, 0x55, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            io.read(twdr, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x55
+        );
+        assert_eq!(
+            io.read(twcr, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8 & TWWC,
+            0
+        );
+    }
+
+    #[test]
+    fn twi0_stop_clears_twsto_without_requesting_interrupt() {
+        let hub = SignalHub::new();
+        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
+        let twcr = u64::from(TWCR - IO_BASE);
+        io.write(
+            twcr,
+            AccessWidth::Byte,
+            u64::from(TWINT | TWSTA | TWEN | TWIE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        io.write(
+            twcr,
+            AccessWidth::Byte,
+            u64::from(TWINT | TWSTO | TWEN | TWIE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        let twcr_value = io.read(twcr, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8;
+        assert_eq!(twcr_value & (TWSTO | TWINT), 0);
+        assert!(!handle.poll(SimTime::ZERO).contains(&24));
+        assert_eq!(
+            io.read(u64::from(TWSR - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
+                .unwrap(),
+            u64::from(TWI_STATUS_RESET)
+        );
     }
 }
