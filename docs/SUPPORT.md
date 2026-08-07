@@ -26,6 +26,15 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The WCH DMA1 block at `0x4002_0000` exposes all seven channel register sets,
+transfer-count/address configuration, byte/halfword/word widths (including
+different source and destination widths), direction, memory-to-memory mode,
+address-increment flags, circular mode, transfer/half/error flags, and PFIC
+lines 22–28. The scheduler services one transfer unit per abstract tick
+through the guest bus. Peripheral request mux details and exact arbitration or
+bus timing are intentionally omitted; memory-to-memory circular mode is
+disabled as on the hardware.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
