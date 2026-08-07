@@ -18,8 +18,8 @@ use remu_devices::{
     FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
     Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
     Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchI2c, WchI2cHandle, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -30,7 +30,6 @@ use serde::Serialize;
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
-
 mod bootrom_support;
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
@@ -38,7 +37,6 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod rp_bootrom;
-
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
 /// Synthetic, stable UART facade used by compiler cases.
@@ -64,13 +62,11 @@ const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
 const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
 const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
 const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;
-
 #[derive(Clone, Debug, Default)]
 struct EspFunctionalSha256 {
     sha224: bool,
     input: Vec<u8>,
 }
-
 /// Failure while constructing, loading, or running a machine.
 #[derive(Debug, Error)]
 pub enum MachineError {
@@ -138,7 +134,6 @@ pub enum MachineError {
     #[error("ESP32-C6 application image is not boot-compatible: {0}")]
     Esp32c6BootLayout(String),
 }
-
 /// Stable machine-readable outcome of one invocation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RunResult {
@@ -162,7 +157,6 @@ pub struct RunResult {
     /// Canonical digest over signal declarations and changes.
     pub trace_digest: String,
 }
-
 /// Runnable direct-ELF RISC-V vertical slice.
 pub struct RiscVMachine {
     target: TargetId,
@@ -202,6 +196,7 @@ pub struct RiscVMachine {
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
     wch_timer: Option<WchTimerHandle>,
+    wch_i2c: Option<WchI2cHandle>,
     wch_pfic: Option<WchPficHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
@@ -211,7 +206,6 @@ pub struct RiscVMachine {
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
 }
-
 impl RiscVMachine {
     /// Builds a RISC-V mode for WCH, ESP32-C6, or RP2350 Hazard3.
     pub fn new(target: TargetId) -> Result<Self, MachineError> {
@@ -242,6 +236,7 @@ impl RiscVMachine {
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
         let mut wch_timer = None;
+        let mut wch_i2c = None;
         let mut wch_pfic = None;
         let mut sio = None;
         if target == TargetId::Rp2350 {
@@ -478,7 +473,6 @@ impl RiscVMachine {
             usb = Some(usb_handle);
             usb_host = Some(Rp2040UsbHost::new());
         }
-
         let signals = SignalHub::new();
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
@@ -517,7 +511,6 @@ impl RiscVMachine {
             TEST_EXIT_SIZE,
             Box::new(exit_device),
         )?;
-
         let mut chip_gpio = Vec::new();
         let mut chip_uarts = Vec::new();
         match target {
@@ -563,6 +556,9 @@ impl RiscVMachine {
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
                 wch_timer = Some(handle);
+                let (i2c1, handle) = WchI2c::new(format!("{target}.i2c1"));
+                bus.map_device(format!("{target}.i2c1"), 0x4000_5400, 0x400, Box::new(i2c1))?;
+                wch_i2c = Some(handle);
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
@@ -762,7 +758,6 @@ impl RiscVMachine {
             | TargetId::Pic16f15376
             | TargetId::Efm8bb52f32g => unreachable!(),
         }
-
         Ok(Self {
             target,
             cpu: RiscVCpu::new(profile.clone())?,
@@ -801,6 +796,7 @@ impl RiscVMachine {
             chip_timers,
             pio,
             wch_timer,
+            wch_i2c,
             wch_pfic,
             usb,
             usb_dpram,
@@ -811,7 +807,6 @@ impl RiscVMachine {
             signal_stops: Vec::new(),
         })
     }
-
     fn service_functional_bootrom(&mut self) -> Result<bool, String> {
         if self.target == TargetId::Esp32c6 {
             let pc = self.cpu.pc();
@@ -826,42 +821,38 @@ impl RiscVMachine {
         }
         self.service_rp2350_bootrom()
     }
-
     /// Selected target.
     pub const fn target(&self) -> TargetId {
         self.target
     }
-
+    /// Returns the host-facing WCH I2C1 handle for CH32V003/006 targets.
+    pub fn wch_i2c(&self) -> Option<WchI2cHandle> {
+        self.wch_i2c.clone()
+    }
     /// Enables or disables completed bus-access recording.
     pub fn set_access_recording(&mut self, enabled: bool) {
         self.bus.set_access_recording(enabled);
     }
-
     /// Installs or removes a streaming completed-access observer.
     pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
         self.bus.set_access_observer(observer);
     }
-
     /// Returns completed bus operations when recording is enabled.
     pub fn access_log(&self) -> &[remu_bus::BusAccessRecord] {
         self.bus.access_log()
     }
-
     /// Stops before executing an instruction at `address`.
     pub fn add_breakpoint(&mut self, address: u64) {
         self.breakpoints.insert(address);
     }
-
     /// Removes one debugger execution breakpoint.
     pub fn remove_breakpoint(&mut self, address: u64) {
         self.breakpoints.remove(&address);
     }
-
     /// Returns the current CPU0 snapshot for debugger adapters.
     pub fn debug_snapshot(&self) -> CpuSnapshot {
         self.cpu.snapshot()
     }
-
     /// Reads guest-visible bytes for a debugger.
     pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         (0..length)
@@ -878,7 +869,6 @@ impl RiscVMachine {
             })
             .collect()
     }
-
     /// Writes guest-visible bytes for a debugger.
     pub fn debug_write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), String> {
         for (offset, byte) in bytes.iter().enumerate() {
@@ -990,6 +980,7 @@ impl RiscVMachine {
         let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
+        let mut wch_i2c_was_pending = [false; 2];
         let mut chip_timer_was_pending = 0_u16;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
@@ -1057,6 +1048,20 @@ impl RiscVMachine {
                 wch_timer_was_pending = deliver;
                 self.cpu
                     .set_qingke_external_interrupt(TIM2_INTERRUPT, deliver)?;
+            }
+            if let (Some(i2c), Some(pfic)) = (&self.wch_i2c, &self.wch_pfic) {
+                let (event, error) = i2c.interrupt_pending();
+                for (index, (interrupt, pending)) in
+                    [(30_u16, event), (31, error)].into_iter().enumerate()
+                {
+                    pfic.set_pending(interrupt, pending);
+                    let deliver = pfic.next_pending() == Some(interrupt);
+                    if deliver && !wch_i2c_was_pending[index] {
+                        stats.events = stats.events.saturating_add(1);
+                    }
+                    wch_i2c_was_pending[index] = deliver;
+                    self.cpu.set_qingke_external_interrupt(interrupt, deliver)?;
+                }
             }
             if self.target == TargetId::Rp2350 {
                 let chip_timer_pending =
