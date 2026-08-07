@@ -11,6 +11,8 @@ const TCON: usize = 0x88;
 const TMOD: usize = 0x89;
 const TL0: usize = 0x8a;
 const TH0: usize = 0x8c;
+const TL1: usize = 0x8b;
+const TH1: usize = 0x8d;
 const P1: usize = 0x90;
 const WDTCN: usize = 0x97;
 const SCON0: usize = 0x98;
@@ -45,10 +47,13 @@ const PORT_MDIN: [usize; 4] = [P0MDIN, P1MDIN, P2MDIN, P3MDIN];
 
 const IE_EA: u8 = 0x80;
 const IE_ET0: u8 = 0x02;
+const IE_ET1: u8 = 0x08;
 const IE_ES0: u8 = 0x10;
 const IE_ET2: u8 = 0x20;
 const TCON_TR0: u8 = 0x10;
 const TCON_TF0: u8 = 0x20;
+const TCON_TR1: u8 = 0x40;
+const TCON_TF1: u8 = 0x80;
 const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
 const SCON0_RI: u8 = 0x01;
@@ -63,6 +68,7 @@ struct Efm8State {
     hub: SignalHub,
     uart: Vec<u8>,
     timer0_epoch: u64,
+    timer1_epoch: u64,
     timer2_epoch: u64,
     watchdog_epoch: u64,
     watchdog_key: u8,
@@ -71,6 +77,7 @@ struct Efm8State {
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
+    timer1_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
@@ -140,6 +147,7 @@ impl Efm8State {
         };
         self.uart.clear();
         self.timer0_epoch = at.ticks();
+        self.timer1_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
         self.watchdog_key = 0;
@@ -148,6 +156,7 @@ impl Efm8State {
         for signal in [
             self.uart_strobe_signal,
             self.timer0_irq_signal,
+            self.timer1_irq_signal,
             self.timer2_irq_signal,
             self.interrupt_signal,
             self.watchdog_reset_signal,
@@ -183,22 +192,29 @@ impl Efm8State {
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 6] {
+    fn interrupt_levels(&self) -> [bool; 8] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 6];
+            return [false; 8];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
             enabled & IE_ES0 != 0 && self.registers[SCON0] & (SCON0_RI | SCON0_TI) != 0,
             enabled & IE_ET2 != 0 && self.registers[TMR2CN0] & TMR2_TF2H != 0,
+            enabled & IE_ET1 != 0 && self.registers[TCON] & TCON_TF1 != 0,
         ];
-        let priorities = [IE_ET0, IE_ES0, IE_ET2];
-        let mut levels = [false; 6];
-        for source in 0..3 {
+        let priorities = [IE_ET0, IE_ES0, IE_ET2, IE_ET1];
+        let mut levels = [false; 8];
+        let low_lines = [0, 1, 2, 6];
+        let high_lines = [3, 4, 5, 7];
+        for source in 0..4 {
             if active[source] {
                 let high = self.registers[IP] & priorities[source] != 0;
-                levels[source + if high { 3 } else { 0 }] = true;
+                levels[if high {
+                    high_lines[source]
+                } else {
+                    low_lines[source]
+                }] = true;
             }
         }
         levels
@@ -208,6 +224,12 @@ impl Efm8State {
         self.set_signal(
             self.timer0_irq_signal,
             u64::from(self.registers[TCON] & TCON_TF0 != 0),
+            1,
+            at,
+        );
+        self.set_signal(
+            self.timer1_irq_signal,
+            u64::from(self.registers[TCON] & TCON_TF1 != 0),
             1,
             at,
         );
@@ -244,8 +266,20 @@ impl Efm8PeripheralsHandle {
         state.update_interrupt_signals(at);
     }
 
+    /// Applies the native Timer1 side effect of vectoring to its interrupt.
+    ///
+    /// EFM8 hardware clears TF1 when the core acknowledges the Timer1
+    /// interrupt. The machine calls this only after the MCS-51 core has
+    /// actually selected the Timer1 vector, so a masked flag remains visible
+    /// until it is serviced or explicitly cleared by firmware.
+    pub fn acknowledge_timer1_interrupt(&self, at: SimTime) {
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        state.registers[TCON] &= !TCON_TF1;
+        state.update_interrupt_signals(at);
+    }
+
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 6] {
+    pub fn poll(&self, now: SimTime) -> [bool; 8] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -271,6 +305,44 @@ impl Efm8PeripheralsHandle {
                 if total > u64::from(u16::MAX) {
                     state.registers[TCON] |= TCON_TF0;
                 }
+            }
+        }
+        if state.registers[TCON] & TCON_TR1 != 0 {
+            let mode = (state.registers[TMOD] >> 4) & 3;
+            let elapsed = now.ticks().saturating_sub(state.timer1_epoch);
+            match mode {
+                1 => {
+                    let initial = u16::from_be_bytes([state.registers[TH1], state.registers[TL1]]);
+                    let total = u64::from(initial).saturating_add(elapsed);
+                    let [low, high] = (total as u16).to_le_bytes();
+                    state.registers[TL1] = low;
+                    state.registers[TH1] = high;
+                    if total > u64::from(u16::MAX) {
+                        state.registers[TCON] |= TCON_TF1;
+                    }
+                    state.timer1_epoch = now.ticks();
+                }
+                2 => {
+                    // In auto-reload mode the first overflow depends on the
+                    // current TL1 value. Subsequent overflows reload TH1.
+                    let initial = u64::from(state.registers[TL1]);
+                    let total = initial.saturating_add(elapsed);
+                    let reload = state.registers[TH1];
+                    let period = u64::from(256_u16 - u16::from(reload)).max(1);
+                    if total >= 256 {
+                        let after_first = total - 256;
+                        state.registers[TL1] = reload.wrapping_add((after_first % period) as u8);
+                        state.registers[TCON] |= TCON_TF1;
+                    } else {
+                        state.registers[TL1] = total as u8;
+                    }
+                    state.timer1_epoch = now.ticks();
+                }
+                // Mode 0 is the legacy 13-bit form and mode 3 leaves Timer1
+                // inactive on the EFM8. Neither mode is part of this
+                // functional slice; rebase time so changing modes while the
+                // timer is running cannot count the unsupported interval.
+                _ => state.timer1_epoch = now.ticks(),
             }
         }
         if state.registers[TMR2CN0] & TMR2_TR2 != 0 {
@@ -337,6 +409,11 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer0 overflow request".to_owned()),
         )?;
+        let timer1_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer1.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer1 overflow request".to_owned()),
+        )?;
         let timer2_irq_signal = hub.declare(
             "board.efm8bb52f32g.timer2.irq",
             SignalValue::from_u64(0, 1)?,
@@ -359,6 +436,7 @@ impl Efm8Peripherals {
             hub,
             uart: Vec::new(),
             timer0_epoch: 0,
+            timer1_epoch: 0,
             timer2_epoch: 0,
             watchdog_epoch: 0,
             watchdog_key: 0,
@@ -367,6 +445,7 @@ impl Efm8Peripherals {
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
+            timer1_irq_signal,
             timer2_irq_signal,
             interrupt_signal,
             watchdog_reset_signal,
@@ -461,8 +540,22 @@ impl Device for Efm8Peripherals {
             }
             state.watchdog_key = value;
             state.watchdog_epoch = at.ticks();
-        } else if address == TCON && value & TCON_TR0 != 0 {
-            state.timer0_epoch = at.ticks();
+        } else if address == TCON {
+            if value & TCON_TR0 != 0 {
+                state.timer0_epoch = at.ticks();
+            }
+            if value & TCON_TR1 != 0 {
+                state.timer1_epoch = at.ticks();
+            }
+        } else if address == TMOD {
+            if state.registers[TCON] & TCON_TR0 != 0 {
+                state.timer0_epoch = at.ticks();
+            }
+            if state.registers[TCON] & TCON_TR1 != 0 {
+                state.timer1_epoch = at.ticks();
+            }
+        } else if (address == TL1 || address == TH1) && state.registers[TCON] & TCON_TR1 != 0 {
+            state.timer1_epoch = at.ticks();
         } else if address == TMR2CN0 && value & TMR2_TR2 != 0 {
             state.timer2_epoch = at.ticks();
         }
@@ -481,8 +574,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, IE_ET1, P0, P0MDOUT, SBUF0, SimTime, TCON,
+        TCON_TF1, TCON_TR0, TCON_TR1, TH1, TL1, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +635,168 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn timer1_mode2_sets_its_dedicated_interrupt_line() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(TMOD as u64, AccessWidth::Byte, 0x20, SimTime::ZERO)
+            .unwrap();
+        // The first overflow is measured from TL1; TH1 is only the reload
+        // value after that overflow.
+        device
+            .write(TH1 as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(TL1 as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                IE as u64,
+                AccessWidth::Byte,
+                (IE_EA | IE_ET1).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                TCON as u64,
+                AccessWidth::Byte,
+                TCON_TR1.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        let interrupts = handle.poll(SimTime::from_ticks(4));
+        assert!(interrupts[6]);
+        assert_eq!(
+            device
+                .read(TCON as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap() as u8
+                & 0x80,
+            0x80
+        );
+        assert_eq!(
+            device
+                .read(TL1 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xfc
+        );
+
+        handle.acknowledge_timer1_interrupt(SimTime::from_ticks(4));
+        assert!(!handle.poll(SimTime::from_ticks(5))[6]);
+        assert_eq!(
+            device
+                .read(TCON as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap() as u8
+                & TCON_TF1,
+            0
+        );
+    }
+
+    #[test]
+    fn timer1_mode1_overflows_from_the_programmed_16_bit_value() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(TMOD as u64, AccessWidth::Byte, 0x10, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(TH1 as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(TL1 as u64, AccessWidth::Byte, 0xfe, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                IE as u64,
+                AccessWidth::Byte,
+                (IE_EA | IE_ET1).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                TCON as u64,
+                AccessWidth::Byte,
+                TCON_TR1.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+
+        assert!(!handle.poll(SimTime::from_ticks(1))[6]);
+        assert!(handle.poll(SimTime::from_ticks(2))[6]);
+        assert_eq!(
+            device
+                .read(TCON as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap() as u8
+                & TCON_TF1,
+            TCON_TF1
+        );
+        assert_eq!(
+            device
+                .read(TL1 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            device
+                .read(TH1 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn timer1_mode3_remains_inactive() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(TMOD as u64, AccessWidth::Byte, 0x30, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(TH1 as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(TL1 as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                IE as u64,
+                AccessWidth::Byte,
+                (IE_EA | IE_ET1).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                TCON as u64,
+                AccessWidth::Byte,
+                TCON_TR1.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+
+        assert!(!handle.poll(SimTime::from_ticks(100_000))[6]);
+        assert_eq!(
+            device
+                .read(TL1 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xff
+        );
+        assert_eq!(
+            device
+                .read(TH1 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xff
+        );
+        assert_eq!(
+            device
+                .read(TCON as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap() as u8
+                & TCON_TF1,
+            0
+        );
     }
 }
