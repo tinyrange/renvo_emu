@@ -16,8 +16,9 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Tim7,
+    Stm32Tim7Handle, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -78,6 +79,7 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    stm32_tim7: Option<Stm32Tim7Handle>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -230,7 +232,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, stm32_tim7, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -254,6 +256,7 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    None,
                     Some(eic),
                     None,
                     Some(watchdog),
@@ -281,17 +284,21 @@ impl ArmMcuMachine {
                     signals.clone(),
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
+                let (tim7_device, stm32_tim7) =
+                    Stm32Tim7::new("stm32l432kc.tim7", signals.clone())?;
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
+                    tim7_device,
                     usart2_device,
                 )?;
                 (
                     gpio,
                     VendorUart::Stm32(uart),
                     VendorTimer::Stm32(timer),
+                    Some(stm32_tim7),
                     None,
                     None,
                     None,
@@ -319,6 +326,7 @@ impl ArmMcuMachine {
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -336,6 +344,7 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            stm32_tim7,
             eic,
             ra_icu,
             watchdog,
@@ -409,6 +418,7 @@ impl ArmMcuMachine {
         bus: &mut AddressSpace,
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
+        tim7: Stm32Tim7,
         usart2: Stm32Usart,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
@@ -473,6 +483,7 @@ impl ArmMcuMachine {
             )),
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
+        bus.map_device("stm32l432kc.tim7", 0x4000_1400, 0x400, Box::new(tim7))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
@@ -760,8 +771,12 @@ impl ArmMcuMachine {
             }
 
             let (timer_line, timer_pending) = self.timer.poll(self.now);
+            let tim7_pending = self
+                .stm32_tim7
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending;
+            let mut interrupt_requested = timer_pending || tim7_pending;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -784,6 +799,10 @@ impl ArmMcuMachine {
                             .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
                     }
                 }
+            }
+            if self.stm32_tim7.is_some() {
+                self.cpu
+                    .set_interrupt(55, tim7_pending && self.ppb.interrupt_enabled(55))?;
             }
             match self.target {
                 TargetId::Atsamd21e18 | TargetId::Stm32l432kc => {
@@ -957,6 +976,40 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_native_tim7_maps_basic_update_and_interrupt_registers() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        let base = 0x4000_1400;
+        machine
+            .bus
+            .write(base + 0x28, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x2c, AccessWidth::Word, 3, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x0c, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        let tim7 = machine.stm32_tim7.as_ref().expect("STM32 owns TIM7");
+        assert!(!tim7.poll(SimTime::from_ticks(7)));
+        assert!(tim7.poll(SimTime::from_ticks(8)));
+        assert_eq!(
+            machine.bus.read(
+                base + 0x10,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(1)
+        );
     }
 
     #[test]
