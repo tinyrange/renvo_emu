@@ -298,6 +298,15 @@ pretty-printed ordering remain compatible with existing qualification
 artifacts. Coverage uses the same event stream but retains only unique executed
 addresses.
 
+The ATSAMD21E18 slice also maps the native DAC at `0x42004800`. Its
+functional boundary follows the typed register map from Microchip
+DS40001882H §35: enable/reset, reference and event-control register state,
+interrupt enable/flag semantics, 10-bit right/left-adjusted `DATA`/`DATABUF`
+latches, buffered start/EMPTY/UNDERRUN behavior, IRQ 25, and deterministic
+host/VCD output-code observation. Analog settling, voltage/reference accuracy,
+clock synchronization, Event System/DMAC coupling, and the physical output
+buffer remain outside the model.
+
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the
 corresponding esptool application binary with `--esp-app-image` enables a
