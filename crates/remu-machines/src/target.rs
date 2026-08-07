@@ -734,14 +734,18 @@ const MANIFESTS: &[TargetManifest] = &[
             "PORT/PPS GPIO",
             "Timer0/1",
             "EUSART",
+            "CLKR reference-clock output",
             "interrupt routing",
             "VCD",
         ],
         sources: &[
             "https://www.microchip.com/en-us/product/PIC16F15376",
+            "https://ww1.microchip.com/downloads/en/DeviceDoc/40001866A.pdf",
             "https://packs.download.microchip.com/Microchip.PIC16F1xxxx_DFP.1.31.465.atpack",
         ],
-        limitations: &["analog, CLC, NCO, PWM, and exact oscillator timing are deferred"],
+        limitations: &[
+            "analog, CLC/NCO source generators, PWM, and exact oscillator timing are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,
