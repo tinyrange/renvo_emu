@@ -268,6 +268,19 @@ by an executable 512-byte stack-reserve assertion. It passes the distinct
 upstream 1,200-byte profile-generation workload for behavioral coverage.
 See [COREMARK.md](COREMARK.md) for scores and methodology.
 
+## MSP430FR2433 CRC16 slice
+
+The MSP430FR2433 peripheral window includes the native CRC block at
+`0x01c0`: `CRC16DI`, `CRCDIRB`, `CRCINIRES`, and `CRCRESR`. Firmware can seed
+the signature, feed 8- or 16-bit data, select the documented per-byte
+bit-reversed input path, and read either the normal or bit-reversed result.
+The functional model uses the MSP430 CRC-16 polynomial (`0x1021`) and keeps
+all updates deterministic; the module has no interrupt or timing behavior.
+
+Register placement and the data/reversal API follow TI's official
+[MSP430FR2433 datasheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf)
+and [FR2xx/4xx CRC driver documentation](https://software-dl.ti.com/msp430/msp430_public_sw/mcu/msp430/MSPWare/2_10_00_15/exports/MSPWare/2_10_00_15/driverlib/doc/MSP430FR2xx_4xx/html/group__crc__api.html).
+
 ## Research sources
 
 Machine facts and register choices are based on the vendor sources linked from
