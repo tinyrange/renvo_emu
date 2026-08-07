@@ -439,8 +439,6 @@ impl RiscVMachine {
                 ("rp2350.adc", 0x400a_0000),
                 ("rp2350.pwm", 0x400a_8000),
                 ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio1", 0x5030_0000),
-                ("rp2350.pio2", 0x5040_0000),
             ] {
                 bus.map_device(
                     name,
@@ -743,14 +741,17 @@ impl RiscVMachine {
                     FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
                 bus.map_device("rp2350.uart0", 0x4007_0000, 0x1000, Box::new(uart0))?;
                 chip_uarts.push(handle);
-                let (pio0, handle) = RpPio::new(
-                    "rp2350.pio0",
-                    u16::from(manifest.gpio_count.min(32)),
-                    "board.rp2350.pio0.gpio",
-                    signals.clone(),
-                )?;
-                bus.map_device("rp2350.pio0", 0x5020_0000, 0x4000, Box::new(pio0))?;
-                pio.push(handle);
+                for (index, base) in [(0, 0x5020_0000), (1, 0x5030_0000), (2, 0x5040_0000)] {
+                    let name = format!("rp2350.pio{index}");
+                    let (device, handle) = RpPio::new_rp2350(
+                        &name,
+                        u16::from(manifest.gpio_count.min(32)),
+                        &format!("board.{name}.gpio"),
+                        signals.clone(),
+                    )?;
+                    bus.map_device(name, base, 0x4000, Box::new(device))?;
+                    pio.push(handle);
+                }
             }
             TargetId::Rp2040
             | TargetId::Esp32s3
