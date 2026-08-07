@@ -1,7 +1,7 @@
 use crate::arm::Rp2040UsbHost;
 use crate::{
-    MemoryKind, PinStimulus, SignalEdge, SignalStop, TargetId, matching_signal_stop,
-    resolve_signal_stop, target_manifest,
+    MemoryKind, PinStimulus, SignalEdge, SignalStop, TargetId, resolve_signal_stop,
+    run_control::RunControl, target_manifest,
 };
 use md5::{Digest, Md5};
 use remu_bus::{
@@ -25,7 +25,7 @@ use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
 };
 use remu_signals::{Logic, SignalError};
-use remu_trace::{TraceDigest, TraceError, TraceSink};
+use remu_trace::{TraceError, TraceSink};
 use serde::Serialize;
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -970,24 +970,14 @@ impl RiscVMachine {
             return Err(MachineError::MissingRunLimit);
         }
 
-        let mut digest = TraceDigest::new();
-        self.signals.with_registry(|registry| {
-            digest.begin(registry);
-            if let Some(sink) = trace.as_deref_mut() {
-                sink.begin(registry)
-            } else {
-                Ok(())
-            }
-        })?;
+        let mut control = RunControl::new(limits, stimuli);
+        control.begin_trace(&self.signals, &mut trace)?;
 
         let mut stats = RunStats {
             instructions: 0,
             time: self.now,
             events: 0,
         };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
@@ -998,15 +988,9 @@ impl RiscVMachine {
             if let Some(sio) = &self.sio {
                 sio.select_core(0);
             }
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
-                self.set_pin(stimulus.pin, stimulus.value)?;
-                stats.events = stats.events.saturating_add(1);
-                next_stimulus += 1;
-            }
+            control.apply_stimuli(self.now, &mut stats, |stimulus| {
+                self.set_pin(stimulus.pin, stimulus.value)
+            })?;
             if let Some(code) = self.exit.code() {
                 let _ = code;
                 break StopReason::Halted;
@@ -1023,14 +1007,8 @@ impl RiscVMachine {
             {
                 break StopReason::HostInputComplete;
             }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
+            if let Some(reason) = control.limit_reason(self.now, &stats) {
+                break reason;
             }
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
@@ -1325,16 +1303,9 @@ impl RiscVMachine {
                 .map_err(|_| MachineError::TimeOverflow)?;
             stats.time = self.now;
 
-            let mut signal_stop = None;
-            for change in self.signals.drain_changes() {
-                signal_stop =
-                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                digest.change(&change);
-                if let Some(sink) = trace.as_deref_mut() {
-                    sink.change(&change)?;
-                }
-            }
-            if let Some(path) = signal_stop {
+            if let Some(path) =
+                control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+            {
                 break StopReason::Signal(path);
             }
             if let Some(hit) = self.bus.take_watchpoint_hit() {
@@ -1450,16 +1421,9 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(0);
                 }
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
+                if let Some(path) =
+                    control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+                {
                     break StopReason::Signal(path);
                 }
             }
@@ -1490,7 +1454,7 @@ impl RiscVMachine {
                 },
                 EspUsbSerialJtagHandle::output,
             ),
-            trace_digest: digest.finish(),
+            trace_digest: control.digest.finish(),
         })
     }
 }
