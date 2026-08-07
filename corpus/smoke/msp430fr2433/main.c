@@ -119,6 +119,23 @@ int main(void)
     TA0CCTL0 = CCIE;
     TA0CTL = TASSEL__SMCLK | MC__UP | TACLR;
 
+    /* Exercise the functional eUSCI_B0 I²C host contract: a 7-bit target,
+       START, one data byte, and STOP. The emulator exposes the transaction
+       through VCD; electrical SCL/SDA timing is intentionally out of scope. */
+    UCB0CTLW0 = UCSWRST;
+    UCB0CTLW0 = UCSWRST | UCMST | UCMODE_3 | UCSYNC;
+    UCB0I2CSA = 0x50;
+    UCB0CTLW0 &= (uint16_t)~UCSWRST;
+    UCB0CTLW0 |= UCTR | UCTXSTT;
+    while ((UCB0CTLW0 & UCTXSTT) != 0u) {
+    }
+    UCB0TXBUF = 0x10;
+    while ((UCB0IFG & UCTXIFG) == 0u) {
+    }
+    UCB0CTLW0 |= UCTXSTP;
+    while ((UCB0CTLW0 & UCTXSTP) != 0u) {
+    }
+
     while (timer_interrupts == 0u || port_interrupts == 0u) {
         __bis_SR_register(LPM0_bits | GIE);
     }
