@@ -1,6 +1,6 @@
 use crate::{
-    PinStimulus, RunResult, SignalEdge, SignalStop, TargetId, matching_signal_stop,
-    resolve_signal_stop,
+    PinStimulus, RunResult, SignalEdge, SignalStop, TargetId, resolve_signal_stop,
+    run_control::RunControl,
 };
 use remu_bus::{AddressSpace, BusAccessRecord, Endianness, SharedBusAccessObserver};
 use remu_core::{
@@ -11,7 +11,7 @@ use remu_cpu_avr::{AvrCpu, AvrRegister};
 use remu_devices::{AtmegaIo, AtmegaIoHandle, GpioHandle, SignalHub};
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::Logic;
-use remu_trace::{TraceDigest, TraceSink};
+use remu_trace::TraceSink;
 use std::collections::BTreeSet;
 use thiserror::Error;
 
@@ -267,39 +267,19 @@ impl AvrMcuMachine {
         if limits.instructions.is_none() && limits.deadline.is_none() {
             return Err(AvrMachineError::MissingRunLimit);
         }
-        let mut digest = TraceDigest::new();
-        self.signals.with_registry(|registry| {
-            digest.begin(registry);
-            trace
-                .as_deref_mut()
-                .map_or(Ok(()), |sink| sink.begin(registry))
-        })?;
+        let mut control = RunControl::new(limits, stimuli);
+        control.begin_trace(&self.signals, &mut trace)?;
         let mut stats = RunStats {
             instructions: 0,
             time: self.now,
             events: 0,
         };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
         let reason = loop {
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
-                self.set_pin(stimulus.pin, stimulus.value)?;
-                next_stimulus += 1;
-                stats.events = stats.events.saturating_add(1);
-            }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
+            control.apply_stimuli(self.now, &mut stats, |stimulus| {
+                self.set_pin(stimulus.pin, stimulus.value)
+            })?;
+            if let Some(reason) = control.limit_reason(self.now, &stats) {
+                break reason;
             }
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
@@ -323,16 +303,9 @@ impl AvrMcuMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| AvrMachineError::TimeOverflow)?;
             stats.time = self.now;
-            let mut signal_stop = None;
-            for change in self.signals.drain_changes() {
-                signal_stop =
-                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                digest.change(&change);
-                if let Some(sink) = trace.as_deref_mut() {
-                    sink.change(&change)?;
-                }
-            }
-            if let Some(path) = signal_stop {
+            if let Some(path) =
+                control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+            {
                 break StopReason::Signal(path);
             }
             if let Some(hit) = self.bus.take_watchpoint_hit() {
@@ -359,7 +332,7 @@ impl AvrMcuMachine {
             exit_code: Some(self.cpu.register(AvrRegister::R24) as u32),
             uart: self.io.uart_bytes(),
             usb: Vec::new(),
-            trace_digest: digest.finish(),
+            trace_digest: control.digest.finish(),
         })
     }
 }
