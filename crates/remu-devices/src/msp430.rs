@@ -7,6 +7,15 @@ use std::sync::{Arc, Mutex};
 const REGISTER_BYTES: usize = 0x1000;
 
 const PM5CTL0: usize = 0x0130;
+const CSCTL0: usize = 0x0180;
+const CSCTL1: usize = 0x0182;
+const CSCTL2: usize = 0x0184;
+const CSCTL3: usize = 0x0186;
+const CSCTL4: usize = 0x0188;
+const CSCTL5: usize = 0x018a;
+const CSCTL6: usize = 0x018c;
+const CSCTL7: usize = 0x018e;
+const CSCTL8: usize = 0x0190;
 const FRCTL0: usize = 0x01a0;
 const WDTCTL: usize = 0x01cc;
 
@@ -43,6 +52,16 @@ const CCIE: u16 = 0x0010;
 const CCIFG: u16 = 0x0001;
 const UCRXIFG: u16 = 0x0001;
 const UCTXIFG: u16 = 0x0002;
+
+const CSCTL0_RESET: u16 = 0x0000;
+const CSCTL1_RESET: u16 = 0x0033;
+const CSCTL2_RESET: u16 = 0x101f;
+const CSCTL3_RESET: u16 = 0x0000;
+const CSCTL4_RESET: u16 = 0x0100;
+const CSCTL5_RESET: u16 = 0x1000;
+const CSCTL6_RESET: u16 = 0x08c1;
+const CSCTL7_RESET: u16 = 0x0740;
+const CSCTL8_RESET: u16 = 0x0007;
 
 /// FR2433 interrupt vector addresses consumed by the MSP430 CPU adapter.
 pub const MSP430_PORT1_VECTOR: u16 = 0xffdc;
@@ -153,6 +172,15 @@ impl Msp430State {
     fn reset_registers(&mut self, at: SimTime) {
         self.registers.fill(0);
         self.set_word(PM5CTL0, LOCKLPM5);
+        self.set_word(CSCTL0, CSCTL0_RESET);
+        self.set_word(CSCTL1, CSCTL1_RESET);
+        self.set_word(CSCTL2, CSCTL2_RESET);
+        self.set_word(CSCTL3, CSCTL3_RESET);
+        self.set_word(CSCTL4, CSCTL4_RESET);
+        self.set_word(CSCTL5, CSCTL5_RESET);
+        self.set_word(CSCTL6, CSCTL6_RESET);
+        self.set_word(CSCTL7, CSCTL7_RESET);
+        self.set_word(CSCTL8, CSCTL8_RESET);
         self.set_word(WDTCTL, 0x6900);
         self.set_word(UCA0CTLW0, UCSWRST);
         self.set_word(UCA0IFG, UCTXIFG);
@@ -180,6 +208,37 @@ impl Msp430PeripheralsHandle {
             .expect("MSP430 peripheral lock poisoned")
             .uart
             .clone()
+    }
+
+    /// Returns the functional MCLK divider selected by CSCTL5.DIVM.
+    ///
+    /// The emulator's abstract instruction duration is expressed in the
+    /// undivided MCLK domain.  Applying this divider to elapsed execution
+    /// time gives firmware a deterministic way to reason about timer and
+    /// watchdog progress without pretending to model oscillator phase.
+    pub fn mclk_divider(&self) -> u64 {
+        let state = self.0.lock().expect("MSP430 peripheral lock poisoned");
+        1_u64 << u32::from(state.word(CSCTL5) & 0x0007)
+    }
+
+    /// Returns the functional SMCLK divider selected by CSCTL5.DIVS.
+    pub fn smclk_divider(&self) -> u64 {
+        let state = self.0.lock().expect("MSP430 peripheral lock poisoned");
+        1_u64 << u32::from((state.word(CSCTL5) >> 4) & 0x0003)
+    }
+
+    /// Returns the programmed FLL multiplier, with the hardware's zero-is-one
+    /// encoding normalized for callers.
+    pub fn fll_multiplier(&self) -> u16 {
+        let state = self.0.lock().expect("MSP430 peripheral lock poisoned");
+        let multiplier = state.word(CSCTL2) & 0x03ff;
+        multiplier.max(1)
+    }
+
+    /// Returns the selected MCLK/SMCLK source encoding from CSCTL4.SELMS.
+    pub fn mclk_source(&self) -> u16 {
+        let state = self.0.lock().expect("MSP430 peripheral lock poisoned");
+        state.word(CSCTL4) & 0x0007
     }
 
     /// Advances functional timers and edge detection, returning pending vector addresses.
@@ -349,6 +408,47 @@ fn overlaps(start: usize, length: usize, register: usize, register_length: usize
     start < register.saturating_add(register_length) && register < start.saturating_add(length)
 }
 
+fn normalize_clock_register(register: usize, value: u16) -> u16 {
+    match register {
+        CSCTL0 => value & 0x3fff,
+        CSCTL1 => value & 0x00ff,
+        CSCTL2 => {
+            let value = value & 0x7fff;
+            if value & 0x03ff == 0 {
+                value | 1
+            } else {
+                value
+            }
+        }
+        // FR2433 has a 32-kHz XT1 input, so FLLREFDIV and the enhanced
+        // reference selection bits are unavailable on this device.
+        CSCTL3 => value & 0x00b0,
+        CSCTL4 => value & 0x0707,
+        CSCTL5 => value & 0x10f7,
+        // XT1 high-frequency mode is not present on FR2433.  Keep the
+        // device-valid divider, drive, bypass, AGC and auto-off fields.
+        CSCTL6 => value & 0x2fd3,
+        // FLLUNLOCK[1:0] and REFOREADY are status fields.  The functional
+        // model keeps those oscillator statuses at their reset values while
+        // allowing the documented control flags and unlock history to be
+        // written by firmware.
+        CSCTL7 => (value & 0x3c53) | (CSCTL7_RESET & 0x0304),
+        CSCTL8 => value & 0x000f,
+        _ => value,
+    }
+}
+
+fn normalize_clock_registers(state: &mut Msp430State, start: usize, length: usize) {
+    for register in [
+        CSCTL0, CSCTL1, CSCTL2, CSCTL3, CSCTL4, CSCTL5, CSCTL6, CSCTL7, CSCTL8,
+    ] {
+        if overlaps(start, length, register, 2) {
+            let current = state.word(register);
+            state.set_word(register, normalize_clock_register(register, current));
+        }
+    }
+}
+
 impl Device for Msp430Peripherals {
     fn name(&self) -> &str {
         &self.name
@@ -368,6 +468,7 @@ impl Device for Msp430Peripherals {
         }
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
         state.update_inputs();
+        normalize_clock_registers(&mut state, start, length);
         if start == FRCTL0 && length >= 2 {
             let low = state.word(FRCTL0) & 0x00ff;
             state.set_word(FRCTL0, 0x9600 | low);
@@ -431,6 +532,7 @@ impl Device for Msp430Peripherals {
         for index in 0..length {
             state.registers[start + index] = (value >> (index * 8)) as u8;
         }
+        normalize_clock_registers(&mut state, start, length);
         if overlaps(start, length, WDTCTL, 2) {
             let written = state.word(WDTCTL);
             if written & 0xff00 != WDTPW {
@@ -563,6 +665,85 @@ mod tests {
         assert_eq!(
             device.read(UCA0IFG as u64, AccessWidth::HalfWord, SimTime::ZERO),
             Ok(UCTXIFG.into())
+        );
+    }
+
+    #[test]
+    fn clock_system_has_fr2433_reset_values_and_masks() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+
+        for (address, expected) in [
+            (CSCTL0, CSCTL0_RESET),
+            (CSCTL1, CSCTL1_RESET),
+            (CSCTL2, CSCTL2_RESET),
+            (CSCTL3, CSCTL3_RESET),
+            (CSCTL4, CSCTL4_RESET),
+            (CSCTL5, CSCTL5_RESET),
+            (CSCTL6, CSCTL6_RESET),
+            (CSCTL7, CSCTL7_RESET),
+            (CSCTL8, CSCTL8_RESET),
+        ] {
+            assert_eq!(
+                device.read(address as u64, AccessWidth::HalfWord, SimTime::ZERO),
+                Ok(u64::from(expected)),
+                "unexpected CS reset at {address:#x}"
+            );
+        }
+        assert_eq!(handle.mclk_divider(), 1);
+        assert_eq!(handle.smclk_divider(), 1);
+        assert_eq!(handle.fll_multiplier(), 0x1f);
+        assert_eq!(handle.mclk_source(), 0);
+
+        device
+            .write(
+                CSCTL5 as u64,
+                AccessWidth::HalfWord,
+                u16::MAX.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(CSCTL5 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x10f7)
+        );
+        assert_eq!(handle.mclk_divider(), 128);
+        assert_eq!(handle.smclk_divider(), 8);
+
+        device
+            .write(
+                CSCTL7 as u64,
+                AccessWidth::HalfWord,
+                u16::MAX.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(CSCTL7 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x3f53)
+        );
+
+        device
+            .write(CSCTL2 as u64, AccessWidth::HalfWord, 0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device.read(CSCTL2 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(1)
+        );
+        assert_eq!(handle.fll_multiplier(), 1);
+
+        device
+            .write(
+                CSCTL8 as u64,
+                AccessWidth::HalfWord,
+                u16::MAX.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(CSCTL8 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x000f)
         );
     }
 }

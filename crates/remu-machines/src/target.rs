@@ -698,13 +698,16 @@ const MANIFESTS: &[TargetManifest] = &[
             "Timer_A",
             "eUSCI_A0 UART",
             "FRAM",
+            "CSCTL clock/FLL control",
             "VCD",
         ],
         sources: &[
             "https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf",
             "https://www.ti.com/lit/ug/slau445/slau445.pdf",
         ],
-        limitations: &["ADC, capacitive touch, BSL, and clock accuracy are deferred"],
+        limitations: &[
+            "ADC, capacitive touch, BSL, FLL lock timing, oscillator faults, and exact clock accuracy are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,

@@ -340,9 +340,13 @@ impl Msp430McuMachine {
                 Err(error) => break StopReason::Fault(error.to_string()),
             };
             stats.instructions = stats.instructions.saturating_add(1);
+            let elapsed = outcome
+                .elapsed
+                .checked_mul(self.peripherals.mclk_divider())
+                .map_err(|_| Msp430MachineError::TimeOverflow)?;
             self.now = self
                 .now
-                .checked_add(outcome.elapsed)
+                .checked_add(elapsed)
                 .map_err(|_| Msp430MachineError::TimeOverflow)?;
             stats.time = self.now;
             let mut signal_stop = None;
@@ -435,5 +439,58 @@ mod tests {
         machine.debug_write_memory(0xfffe, &[0x00, 0xc4]).unwrap();
         machine.reset(ResetKind::Watchdog).unwrap();
         assert_eq!(machine.debug_read_memory(0xc123, 1).unwrap(), [0x5a]);
+    }
+
+    #[test]
+    fn mclk_divider_scales_abstract_execution_time() {
+        let mut fram = vec![0; FRAM_SIZE];
+        let code_offset = 0x0400;
+        // mov #0x2a, r12; .word 0
+        fram[code_offset..code_offset + 6].copy_from_slice(&[0x3c, 0x40, 0x2a, 0x00, 0x00, 0x00]);
+        fram[FRAM_SIZE - 2..].copy_from_slice(&0xc400_u16.to_le_bytes());
+        let image = FirmwareImage {
+            architecture: FirmwareArchitecture::Msp430X,
+            entry: 0xc400,
+            segments: vec![FirmwareSegment {
+                address: FRAM_START,
+                load_address: None,
+                initialized_size: fram.len(),
+                data: fram,
+                executable: true,
+                writable: true,
+                alignment: 2,
+            }],
+            symbols: Vec::new(),
+        };
+
+        let mut default_clock = Msp430McuMachine::new(TargetId::Msp430fr2433).unwrap();
+        default_clock.load_firmware(&image).unwrap();
+        let default_result = default_clock
+            .run(
+                RunLimits {
+                    instructions: Some(1),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+
+        let mut divided_clock = Msp430McuMachine::new(TargetId::Msp430fr2433).unwrap();
+        divided_clock.load_firmware(&image).unwrap();
+        divided_clock
+            .debug_write_memory(0x018a, &[4, 0])
+            .expect("CSCTL5 should be writable through the unified bus");
+        let divided_result = divided_clock
+            .run(
+                RunLimits {
+                    instructions: Some(1),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(default_result.stats.time, SimTime::from_ticks(1));
+        assert_eq!(divided_result.stats.time, SimTime::from_ticks(16));
     }
 }
