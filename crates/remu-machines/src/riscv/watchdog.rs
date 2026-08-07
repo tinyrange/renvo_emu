@@ -1,5 +1,6 @@
 use super::{MachineError, RiscVMachine};
 use remu_core::{Cpu, ResetKind, RunStats};
+use remu_devices::EspWatchdogAction;
 
 impl RiscVMachine {
     /// Dispatches one functional LP-WDT CPU/system reset.
@@ -7,17 +8,50 @@ impl RiscVMachine {
         &mut self,
         stats: &mut RunStats,
     ) -> Result<bool, MachineError> {
-        if !self
-            .esp32c6_peripherals
-            .as_ref()
-            .is_some_and(|peripherals| peripherals.lp_watchdog.take_reset(self.now))
-        {
+        let mut selected = self.esp32c6_peripherals.as_ref().and_then(|peripherals| {
+            peripherals
+                .lp_watchdog
+                .take_action(self.now)
+                .map(|action| (action, 0x0d, 0x09))
+        });
+        for (group, watchdog) in self.esp_timer_groups.iter().enumerate() {
+            if selected.is_none()
+                && let Some(action) = watchdog.take_watchdog_action(self.now)
+            {
+                let cpu_reason = if group == 0 { 0x0b } else { 0x11 };
+                let system_reason = if group == 0 { 0x07 } else { 0x08 };
+                selected = Some((action, cpu_reason, system_reason));
+            }
+        }
+        let Some((action, cpu_reason, system_reason)) = selected else {
+            return Ok(false);
+        };
+        if action == EspWatchdogAction::Interrupt {
+            stats.events = stats.events.saturating_add(1);
             return Ok(false);
         }
-        self.bus.reset_devices(ResetKind::Watchdog);
+        if action == EspWatchdogAction::ResetCpu {
+            self.esp_reset_reason = cpu_reason;
+            self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
+            stats.events = stats.events.saturating_add(1);
+            return Ok(true);
+        }
+        self.esp_reset_reason = if action == EspWatchdogAction::ResetRtc {
+            0x10
+        } else {
+            system_reason
+        };
+        self.bus
+            .reset_devices(if action == EspWatchdogAction::ResetRtc {
+                ResetKind::PowerOn
+            } else {
+                ResetKind::Watchdog
+            });
         self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
-        self.cpu1.reset(ResetKind::Watchdog, &mut self.bus)?;
-        self.cpu1_active = false;
+        if action == EspWatchdogAction::ResetRtc {
+            self.cpu1.reset(ResetKind::Watchdog, &mut self.bus)?;
+            self.cpu1_active = false;
+        }
         stats.events = stats.events.saturating_add(1);
         Ok(true)
     }

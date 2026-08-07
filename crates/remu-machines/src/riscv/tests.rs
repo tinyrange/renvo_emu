@@ -344,6 +344,118 @@ fn esp32c6_host_bridges_cover_spi_audio_can_etm_parlio_dma_lp_i2c_and_sdio() {
 }
 
 #[test]
+fn esp32c6_lp_core_wakes_and_executes_from_retained_sram() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let hp_wfi = 0x1050_0073_u32.to_le_bytes();
+    machine.bus.load(0x4080_1000, &hp_wfi).unwrap();
+    machine.cpu.set_pc(0x4080_1000).unwrap();
+    // addi a0,x0,42; lui t0,0x40800; sw a0,0(t0); ebreak
+    let lp = [0x02a0_0513_u32, 0x4080_02b7, 0x00a2_a023, 0x0010_0073]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>();
+    let image = esp32c6_elf(0x5000_0080, 0x5000_0080, lp);
+    machine.load_esp32c6_lp_firmware(&image).unwrap();
+    // Hand LP SRAM ownership to the LP core, then trigger it from HP.
+    machine
+        .bus
+        .write(0x600b_1048, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600b_0184, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+        .unwrap();
+
+    let result = machine
+        .run(
+            RunLimits {
+                instructions: Some(16),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.reason, StopReason::InstructionLimit);
+    assert_eq!(
+        machine.debug_read_memory(0x4080_0000, 4).unwrap(),
+        42_u32.to_le_bytes()
+    );
+    assert_eq!(machine.cpu1.snapshot().registers[10].value, 42);
+}
+
+#[test]
+fn esp32c6_cache_sync_refreshes_stale_rom_mmap_data() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine.set_esp_flash_image(&[0x11, 0x22, 0x33, 0x44]);
+    machine
+        .refresh_esp32c6_cache(ESP_FUNCTIONAL_MMAP_BASE, 4)
+        .unwrap();
+    machine.esp_flash[0] = 0xaa;
+    assert_eq!(
+        machine
+            .debug_read_memory(u64::from(ESP_FUNCTIONAL_MMAP_BASE), 1)
+            .unwrap(),
+        [0x11]
+    );
+    machine
+        .bus
+        .write(
+            0x600c_80a0,
+            AccessWidth::Word,
+            u64::from(ESP_FUNCTIONAL_MMAP_BASE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600c_80a4, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600c_8098, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    let (address, size) = machine.esp_c6_extmem.as_ref().unwrap().take_sync().unwrap();
+    machine.refresh_esp32c6_cache(address, size).unwrap();
+    assert_eq!(
+        machine
+            .debug_read_memory(u64::from(ESP_FUNCTIONAL_MMAP_BASE), 1)
+            .unwrap(),
+        [0xaa]
+    );
+}
+
+#[test]
+fn esp32c6_main_watchdog_cpu_reset_reports_vendor_reset_reason() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(0x6000_8064, AccessWidth::Word, 0x50d8_3aa1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_8050, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6000_8048,
+            AccessWidth::Word,
+            (1 << 31) | (2 << 29),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(2);
+    let mut stats = RunStats {
+        instructions: 0,
+        time: machine.now,
+        events: 0,
+    };
+    assert!(machine.poll_esp32c6_watchdog(&mut stats).unwrap());
+    assert_eq!(machine.esp_reset_reason, 0x0b);
+    assert_eq!(machine.cpu.pc(), 0x4000_0000);
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]

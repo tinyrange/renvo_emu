@@ -58,7 +58,9 @@ for region in \
     esp32c6.lp-watchdog esp32c6.aes esp32c6.sha esp32c6.hmac esp32c6.rsa \
     esp32c6.digital-signature esp32c6.ecc esp32c6.efuse esp32c6.io-mux \
     esp32c6.interrupt-matrix esp32c6.interrupt-priority esp32c6.uhci0 \
-    esp32c6.twai0 esp32c6.hinf esp32c6.timer-group0
+    esp32c6.twai0 esp32c6.hinf esp32c6.timer-group0 \
+    esp32c6.plic-machine esp32c6.plic-user esp32c6.clint esp32c6.extmem \
+    esp32c6.pmu esp32c6.lp-aon esp32c6.lp-timer
 do
     jq -e --arg region "$region" 'any(.[]; .region == $region)' "$root/bus.json" >/dev/null
 done

@@ -17,11 +17,14 @@ out explicitly and is not counted as functional peripheral support.
 | PCNT | Routed edge counting, limits and interrupt state | Metastability and glitch-filter timing |
 | TWAI0 and TWAI1 | Frame transmit/receive queues and controller interrupt state | Arbitration, error confinement and physical bus contention |
 | SDIO slave | HINF/SLC function queues, packet interrupts and host exchange | SD electrical timing and a native SD/MMC host, which ESP32-C6 does not contain |
-| Timers | Both timer groups, system timer comparators and LP watchdog reset | Clock drift and later LP-watchdog stages |
+| Timers | Both timer groups, system timer comparators, staged MWDT/LP watchdog actions, reset scope and reset-cause reporting | Cycle-accurate clock drift |
 | GDMA and ETM | Descriptor-facing transfers and observable event/task routing | Concurrent bus arbitration and cycle timing |
 | Analog | SAR ADC conversion values and temperature-sensor input | Calibration drift, noise and analog settling |
 | Security | AES, SHA, RSA, ECC, HMAC, digital signature and one-way eFuse programming | Secure-boot policy, flash-encryption policy, protected key provisioning and physical fuse failures |
-| Startup interfaces | SPI0/SPI1 flash memory, USB Serial/JTAG, PCR startup and analog-I2C startup behavior | Complete cache-coherency and USB PHY timing |
+| Startup interfaces | SPI0/SPI1 flash memory, coherent cache maintenance, USB Serial/JTAG, PCR startup and analog-I2C startup behavior | USB PHY timing |
+| CPU-local interrupts | Machine/user PLIC contexts, machine/user CLINT software and timer interrupts, interrupt delegation | Cycle-accurate arbitration |
+| Low-power domain | RV32IMAC LP core, retained LP SRAM, PMU sleep/wake transitions, LP timer wakeups and LP-AON reset controls | Analog power-transition timing |
+| Memory protection | TOR, NA4 and NAPOT PMP permission enforcement, lock semantics and instruction/load/store access faults | Physical memory attributes beyond PMP |
 
 Dedicated GPIO is represented by the GPIO block and CPU instruction behavior;
 LCD output uses the chip's SPI/PARLIO paths; SD cards use SPI2; and asynchronous
@@ -30,15 +33,13 @@ blocks for those API-level names.
 
 ## Register facades
 
-The native address space also contains strict aligned register storage for the
-atomic, SLCHOST, PVT monitor, memory monitor, PAU, HP system, PCR, TEE/APM,
-miscellaneous, power-detector, PMU/LP clock and timer, LP IO/analog/protection,
-trace, assist-debug, external-memory, PLIC and CLINT pages. These mappings let
-startup code retain and inspect configuration without substituting an
-unrelated device model. Power transitions, retention, access protection,
-debug trace, complete PLIC/CLINT delivery, PMP permission enforcement and
-cache coherency remain architectural work rather than supported peripheral
-behavior.
+PMU/LP-AON/LP timer, EXTMEM cache control, and machine/user PLIC and CLINT now
+have dedicated functional models. Atomic, SLCHOST, PVT/memory monitor, PAU, HP
+system, PCR, TEE/APM, miscellaneous system, power detector, LP clock/reset, LP
+IO, LP analog, LP protection, trace and assist-debug remain strict register
+facades. These remaining blocks reject undocumented offsets and preserve normal
+word/halfword/byte register semantics; trace capture, analog behavior and the
+full monitor/APM policy engines are not modeled.
 
 ## Radio boundary
 
@@ -52,6 +53,8 @@ unmapped. Radio behavior will use one shared Wi-Fi 6, Bluetooth LE and IEEE
 set of ESP-IDF v6.0.2 register headers, compiles a bare-metal probe with the
 pinned official `riscv32-esp-elf` 14.2.0 toolchain, and runs it on the ESP32-C6
 machine. The probe checks native reset identities, configuration semantics,
-SPI transfer behavior and bus-log coverage across every functional family.
-Rust unit and machine tests additionally cover data paths, interrupts, signals,
-resets, reserved accesses and the absence of radio mappings.
+SPI transfer behavior, PLIC/CLINT delivery, PMU/LP-timer state, cache sync,
+PMP configuration and bus-log coverage across every functional family. Rust
+unit and machine tests additionally cover data paths, interrupts, LP-core
+execution, cache coherency, staged resets, reserved accesses and the absence of
+radio mappings.

@@ -529,8 +529,8 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
         ],
         limitations: &[
-            "PMP permission enforcement, complete interrupt-matrix behavior, and vendor cache behavior are not implemented yet",
-            "LP core and wireless peripherals are deferred",
+            "PMU, cache, interrupt and watchdog timing is instruction ordered rather than cycle accurate",
+            "Trace capture, analog physics, full monitor/APM policy engines and wireless peripherals are deferred",
         ],
     },
     TargetManifest {

@@ -83,7 +83,7 @@ impl RiscVMachine {
             // esp_rom_get_reset_reason. A cold functional boot reports
             // POWERON_RESET for CPU0.
             0x4000_0018 => {
-                self.complete_host_call(1)?;
+                self.complete_host_call(self.esp_reset_reason)?;
                 Ok(true)
             }
             // ets_printf decodes the guest's RISC-V varargs and emits to
@@ -327,12 +327,6 @@ impl RiscVMachine {
                 {
                     *current &= requested;
                 }
-                self.bus
-                    .load(
-                        u64::from(ESP_FUNCTIONAL_MMAP_BASE.wrapping_add(address as u32)),
-                        &self.esp_flash[address..end],
-                    )
-                    .map_err(|error| error.to_string())?;
                 self.complete_host_call(0)?;
                 Ok(true)
             }
@@ -350,6 +344,16 @@ impl RiscVMachine {
                     .register(RiscVRegister::A2)
                     .map_err(|error| error.to_string())?;
                 self.esp_interrupt_routes.insert(source, cpu_interrupt);
+                if source < 77 {
+                    self.bus
+                        .write(
+                            u64::from(0x6001_0000_u32 + source * 4),
+                            remu_core::AccessWidth::Word,
+                            u64::from(cpu_interrupt),
+                            self.now,
+                        )
+                        .map_err(|error| error.to_string())?;
+                }
                 self.complete_host_call(0)?;
                 Ok(true)
             }

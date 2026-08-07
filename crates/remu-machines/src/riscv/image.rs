@@ -161,6 +161,36 @@ impl RiscVMachine {
         Ok(())
     }
 
+    /// Loads an ESP32-C6 LP-core ELF into the retained 16 KiB LP SRAM.
+    /// Execution begins when an enabled PMU wake source triggers the LP core.
+    pub fn load_esp32c6_lp_firmware(&mut self, image: &FirmwareImage) -> Result<(), MachineError> {
+        if self.target != TargetId::Esp32c6 || image.architecture != FirmwareArchitecture::RiscV32 {
+            return Err(MachineError::Architecture {
+                target: self.target,
+                actual: image.architecture,
+            });
+        }
+        for segment in &image.segments {
+            let end = segment.address.saturating_add(segment.data.len() as u64);
+            if segment.address < 0x5000_0000 || end > 0x5000_4000 {
+                return Err(MachineError::Load {
+                    address: segment.address,
+                    message: "ESP32-C6 LP firmware must fit in 0x50000000..0x50004000".to_owned(),
+                });
+            }
+            self.bus
+                .load(segment.address, &segment.data)
+                .map_err(|error| MachineError::Load {
+                    address: segment.address,
+                    message: error.to_string(),
+                })?;
+        }
+        let entry =
+            u32::try_from(image.entry).map_err(|_| MachineError::EntryRange(image.entry))?;
+        self.cpu1.set_pc(entry)?;
+        Ok(())
+    }
+
     /// Retains the complete merged flash artifact for ROM flash and mmap APIs.
     pub fn set_esp_flash_image(&mut self, bytes: &[u8]) {
         self.esp_flash.clear();
@@ -171,6 +201,37 @@ impl RiscVMachine {
     /// Returns the complete mutable SPI-flash state for persistence.
     pub fn esp_flash_image(&self) -> &[u8] {
         &self.esp_flash
+    }
+
+    pub(super) fn refresh_esp32c6_cache(
+        &mut self,
+        virtual_address: u32,
+        size: u32,
+    ) -> Result<(), MachineError> {
+        if self.esp_flash.is_empty() {
+            return Ok(());
+        }
+        let requested = virtual_address
+            .checked_sub(ESP_FUNCTIONAL_MMAP_BASE)
+            .filter(|offset| (*offset as usize) < self.esp_flash.len());
+        let (start, end) = if let Some(start) = requested {
+            let start = start as usize;
+            let end = start
+                .saturating_add(size.max(1) as usize)
+                .min(self.esp_flash.len());
+            (start, end)
+        } else {
+            (0, self.esp_flash.len())
+        };
+        self.bus
+            .load(
+                u64::from(ESP_FUNCTIONAL_MMAP_BASE) + start as u64,
+                &self.esp_flash[start..end],
+            )
+            .map_err(|error| MachineError::Load {
+                address: u64::from(ESP_FUNCTIONAL_MMAP_BASE) + start as u64,
+                message: error.to_string(),
+            })
     }
 
     /// Performs the documented ESP ROM verified-image handoff to an ESP32-C6

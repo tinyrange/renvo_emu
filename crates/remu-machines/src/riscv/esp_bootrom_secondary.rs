@@ -26,6 +26,8 @@ impl RiscVMachine {
             // Renvo Emulator's deterministic flash view, so enabling the ROM
             // instruction cache is an ordering point.
             0x4000_0694 | 0x4000_06a8 => {
+                self.refresh_esp32c6_cache(ESP_FUNCTIONAL_MMAP_BASE, u32::MAX)
+                    .map_err(|error| error.to_string())?;
                 self.complete_host_call(0)?;
                 Ok(true)
             }

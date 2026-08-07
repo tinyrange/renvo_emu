@@ -175,6 +175,40 @@ fn esp_timer_group_schedules_and_clears_alarm_interrupts() {
 }
 
 #[test]
+fn esp_timer_group_main_watchdog_advances_interrupt_then_reset_stage() {
+    let (mut group, handle) = EspTimerGroup::new("timer-group", EspTimerGroupKind::Esp32C6);
+    group
+        .write(0x64, AccessWidth::Word, 0x50d8_3aa1, SimTime::ZERO)
+        .unwrap();
+    group
+        .write(0x50, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    group
+        .write(0x54, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    group
+        .write(0x70, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    group
+        .write(
+            0x48,
+            AccessWidth::Word,
+            (1 << 31) | (1 << 29) | (3 << 27),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        handle.take_watchdog_action(SimTime::from_ticks(3)),
+        Some(EspWatchdogAction::Interrupt)
+    );
+    assert_eq!(handle.pending(SimTime::from_ticks(3)), [false, true]);
+    assert_eq!(
+        handle.take_watchdog_action(SimTime::from_ticks(7)),
+        Some(EspWatchdogAction::ResetSystem)
+    );
+}
+
+#[test]
 fn esp32s3_timer_group_exposes_second_timer_interrupt() {
     let (mut group, handle) = EspTimerGroup::new("timer-group", EspTimerGroupKind::Esp32S3);
     group

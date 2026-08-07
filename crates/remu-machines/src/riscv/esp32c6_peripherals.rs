@@ -2,13 +2,14 @@ use remu_bus::{AddressSpace, DeviceError};
 use remu_core::SimTime;
 use remu_devices::{
     Esp32c6I2c, EspAes, EspC6ControlBlock, EspC6Ecc, EspC6Efuse, EspC6Gdma, EspC6GdmaHandle,
-    EspC6Hmac, EspC6InterruptMatrix, EspC6InterruptPriority, EspC6IoMux, EspC6Twai,
-    EspC6TwaiHandle, EspC6Uhci, EspDigitalSignature, EspEtm, EspEtmHandle, EspI2s, EspI2sHandle,
-    EspLedc, EspLedcHandle, EspLpI2c, EspLpI2cHandle, EspLpUart, EspLpUartHandle, EspLpWatchdog,
-    EspLpWatchdogHandle, EspMcpwm, EspParlio, EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt,
-    EspRmtHandle, EspRsa, EspSarAdc, EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, FunctionalUart, SignalHub, UartHandle,
-    new_esp_sdio_slave,
+    EspC6Hmac, EspC6InterruptMatrix, EspC6InterruptMatrixHandle, EspC6InterruptPriority,
+    EspC6IoMux, EspC6LpAon, EspC6LpAonHandle, EspC6LpTimer, EspC6LpTimerHandle, EspC6Pmu,
+    EspC6PmuHandle, EspC6Twai, EspC6TwaiHandle, EspC6Uhci, EspDigitalSignature, EspEtm,
+    EspEtmHandle, EspI2s, EspI2sHandle, EspLedc, EspLedcHandle, EspLpI2c, EspLpI2cHandle,
+    EspLpUart, EspLpUartHandle, EspLpWatchdog, EspLpWatchdogHandle, EspMcpwm, EspParlio,
+    EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt, EspRmtHandle, EspRsa, EspSarAdc,
+    EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, FunctionalUart, SignalHub, UartHandle, new_esp_sdio_slave,
 };
 use remu_signals::Logic;
 
@@ -28,6 +29,10 @@ pub(super) struct Esp32c6PeripheralHandles {
     pub(super) lp_uart: EspLpUartHandle,
     pub(super) lp_i2c: EspLpI2cHandle,
     pub(super) lp_watchdog: EspLpWatchdogHandle,
+    pub(super) pmu: EspC6PmuHandle,
+    pub(super) lp_aon: EspC6LpAonHandle,
+    pub(super) lp_timer: EspC6LpTimerHandle,
+    pub(super) interrupt_matrix: EspC6InterruptMatrixHandle,
     pub(super) sdio: EspSdioSlaveHandle,
 }
 
@@ -134,6 +139,12 @@ pub(super) fn map_esp32c6_peripherals(
         0x400,
         Box::new(lp_watchdog),
     )?;
+    let (pmu, pmu_handle) = EspC6Pmu::new("esp32c6.pmu");
+    bus.map_device("esp32c6.pmu", 0x600b_0000, 0x400, Box::new(pmu))?;
+    let (lp_aon, lp_aon_handle) = EspC6LpAon::new("esp32c6.lp-aon");
+    bus.map_device("esp32c6.lp-aon", 0x600b_1000, 0x400, Box::new(lp_aon))?;
+    let (lp_timer, lp_timer_handle) = EspC6LpTimer::new("esp32c6.lp-timer");
+    bus.map_device("esp32c6.lp-timer", 0x600b_0c00, 0x400, Box::new(lp_timer))?;
 
     let (hinf, slc, sdio_handle) = new_esp_sdio_slave("esp32c6.sdio");
     bus.map_device("esp32c6.hinf", 0x6001_6000, 0x1000, Box::new(hinf))?;
@@ -187,7 +198,7 @@ pub(super) fn map_esp32c6_peripherals(
     let (systimer, _systimer_handle) = EspSystimer::new_esp32c6("esp32c6.systimer");
     bus.map_device("esp32c6.systimer", 0x6000_a000, 0x1000, Box::new(systimer))?;
 
-    let (interrupt_matrix, _interrupt_matrix_handle) =
+    let (interrupt_matrix, interrupt_matrix_handle) =
         EspC6InterruptMatrix::new("esp32c6.interrupt-matrix");
     bus.map_device(
         "esp32c6.interrupt-matrix",
@@ -267,9 +278,7 @@ pub(super) fn map_esp32c6_peripherals(
     }
 
     for (name, base) in [
-        ("esp32c6.pmu", 0x600b_0000),
         ("esp32c6.lp-clkrst", 0x600b_0400),
-        ("esp32c6.lp-timer", 0x600b_0c00),
         ("esp32c6.lp-io", 0x600b_2000),
         ("esp32c6.lp-i2c-analog", 0x600b_2400),
         ("esp32c6.lp-peripheral", 0x600b_2800),
@@ -308,6 +317,10 @@ pub(super) fn map_esp32c6_peripherals(
         lp_uart: lp_uart_handle,
         lp_i2c: lp_i2c_handle,
         lp_watchdog: lp_watchdog_handle,
+        pmu: pmu_handle,
+        lp_aon: lp_aon_handle,
+        lp_timer: lp_timer_handle,
+        interrupt_matrix: interrupt_matrix_handle,
         sdio: sdio_handle,
     };
     peripherals.clear_host_queues();

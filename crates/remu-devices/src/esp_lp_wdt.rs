@@ -1,4 +1,18 @@
 use super::*;
+use std::collections::VecDeque;
+
+/// Action emitted when an ESP watchdog stage expires.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EspWatchdogAction {
+    /// Raise the watchdog interrupt and continue to the next stage.
+    Interrupt,
+    /// Reset the currently executing CPU core.
+    ResetCpu,
+    /// Reset the HP system while retaining the always-on domain.
+    ResetSystem,
+    /// Reset the HP system and always-on/LP domain.
+    ResetRtc,
+}
 
 /// Host-facing state for the ESP32-C6 LP watchdog.
 #[derive(Clone)]
@@ -14,35 +28,33 @@ impl EspLpWatchdogHandle {
         state.registers[EspLpWatchdogState::INT_RAW / 4] & (1 << 31) != 0
     }
 
-    /// Consumes a stage configured as CPU/system reset at the supplied time.
-    pub fn take_reset(&self, now: SimTime) -> bool {
+    /// Consumes the next expired-stage action at the supplied time.
+    pub fn take_action(&self, now: SimTime) -> Option<EspWatchdogAction> {
         let mut state = self.state.borrow_mut();
         state.advance(now);
-        if !state.reset_pending {
-            return false;
-        }
-        state.reset_pending = false;
-        true
+        state.actions.pop_front()
     }
 }
 
 struct EspLpWatchdogState {
     registers: Vec<u32>,
     epoch: SimTime,
-    reset_pending: bool,
+    stage: usize,
+    actions: VecDeque<EspWatchdogAction>,
+    write_enabled: bool,
 }
 
 impl EspLpWatchdogState {
     const CONFIG0: usize = 0x00;
     const STAGE0_HOLD: usize = 0x04;
     const FEED: usize = 0x14;
+    const WPROTECT: usize = 0x18;
     const INT_RAW: usize = 0x24;
     const INT_STATUS: usize = 0x28;
     const INT_ENABLE: usize = 0x2c;
     const INT_CLEAR: usize = 0x30;
     const DATE: usize = 0x3fc;
     const ENABLE: u32 = 1 << 31;
-    const STAGE0_ACTION_SHIFT: u32 = 28;
     const LP_INT: u32 = 1 << 31;
 
     fn new() -> Self {
@@ -58,23 +70,39 @@ impl EspLpWatchdogState {
         Self {
             registers,
             epoch: SimTime::ZERO,
-            reset_pending: false,
+            stage: 0,
+            actions: VecDeque::new(),
+            write_enabled: false,
         }
     }
 
     fn advance(&mut self, now: SimTime) {
-        if self.registers[Self::CONFIG0 / 4] & Self::ENABLE == 0
-            || self.registers[Self::INT_RAW / 4] & Self::LP_INT != 0
-        {
+        if self.registers[Self::CONFIG0 / 4] & Self::ENABLE == 0 {
             return;
         }
-        let hold = u64::from(self.registers[Self::STAGE0_HOLD / 4]);
-        if now.ticks().saturating_sub(self.epoch.ticks()) < hold {
-            return;
+        while self.stage < 4 {
+            let hold = u64::from(self.registers[(Self::STAGE0_HOLD / 4) + self.stage]).max(1);
+            if now.ticks().saturating_sub(self.epoch.ticks()) < hold {
+                break;
+            }
+            self.epoch = SimTime::from_ticks(self.epoch.ticks().saturating_add(hold));
+            let shift = [28, 25, 22, 19][self.stage];
+            let action = (self.registers[Self::CONFIG0 / 4] >> shift) & 0x7;
+            self.stage += 1;
+            match action {
+                1 => {
+                    self.registers[Self::INT_RAW / 4] |= Self::LP_INT;
+                    self.actions.push_back(EspWatchdogAction::Interrupt);
+                }
+                2 => self.actions.push_back(EspWatchdogAction::ResetCpu),
+                3 => self.actions.push_back(EspWatchdogAction::ResetSystem),
+                4 => self.actions.push_back(EspWatchdogAction::ResetRtc),
+                _ => {}
+            }
+            if action >= 2 {
+                break;
+            }
         }
-        self.registers[Self::INT_RAW / 4] |= Self::LP_INT;
-        let action = (self.registers[Self::CONFIG0 / 4] >> Self::STAGE0_ACTION_SHIFT) & 0x7;
-        self.reset_pending = action >= 1;
     }
 
     fn interrupt_status(&self) -> u32 {
@@ -126,7 +154,9 @@ impl Device for EspLpWatchdog {
         let value =
             match offset {
                 EspLpWatchdogState::INT_STATUS => state.interrupt_status(),
-                EspLpWatchdogState::INT_CLEAR | EspLpWatchdogState::FEED => 0,
+                EspLpWatchdogState::INT_CLEAR
+                | EspLpWatchdogState::FEED
+                | EspLpWatchdogState::WPROTECT => 0,
                 _ => state.registers.get(offset / 4).copied().ok_or_else(|| {
                     DeviceError::new(format!("{} read at {offset:#x}", self.name))
                 })?,
@@ -149,11 +179,21 @@ impl Device for EspLpWatchdog {
         let offset = usize::try_from(offset).expect("LP watchdog offset fits");
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits");
         let mut state = self.state.borrow_mut();
+        if offset == EspLpWatchdogState::WPROTECT {
+            state.write_enabled = value == 0x50d8_3aa1;
+            return Ok(());
+        }
+        if !state.write_enabled {
+            return Ok(());
+        }
         match offset {
-            EspLpWatchdogState::FEED => state.epoch = at,
+            EspLpWatchdogState::FEED => {
+                state.epoch = at;
+                state.stage = 0;
+                state.actions.clear();
+            }
             EspLpWatchdogState::INT_CLEAR => {
                 state.registers[EspLpWatchdogState::INT_RAW / 4] &= !value;
-                state.reset_pending = false;
             }
             EspLpWatchdogState::INT_STATUS => {}
             _ => {
@@ -164,6 +204,7 @@ impl Device for EspLpWatchdog {
                 if offset == EspLpWatchdogState::CONFIG0 && value & EspLpWatchdogState::ENABLE != 0
                 {
                     state.epoch = at;
+                    state.stage = 0;
                 }
             }
         }
@@ -172,5 +213,39 @@ impl Device for EspLpWatchdog {
 
     fn reset(&mut self, _kind: ResetKind) {
         *self.state.borrow_mut() = EspLpWatchdogState::new();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_four_lp_watchdog_stages_advance_in_order() {
+        let (mut watchdog, handle) = EspLpWatchdog::new("wdt");
+        watchdog
+            .write(0x18, AccessWidth::Word, 0x50d8_3aa1, SimTime::ZERO)
+            .unwrap();
+        for offset in [0x04, 0x08, 0x0c, 0x10] {
+            watchdog
+                .write(offset, AccessWidth::Word, 2, SimTime::ZERO)
+                .unwrap();
+        }
+        let config = (1 << 31) | (1 << 28) | (2 << 25) | (3 << 22) | (4 << 19);
+        watchdog
+            .write(0, AccessWidth::Word, config, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            handle.take_action(SimTime::from_ticks(2)),
+            Some(EspWatchdogAction::Interrupt)
+        );
+        assert_eq!(
+            handle.take_action(SimTime::from_ticks(4)),
+            Some(EspWatchdogAction::ResetCpu)
+        );
+        watchdog
+            .write(0x14, AccessWidth::Word, 1, SimTime::from_ticks(4))
+            .unwrap();
+        assert_eq!(handle.take_action(SimTime::from_ticks(5)), None);
     }
 }
