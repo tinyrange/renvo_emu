@@ -13,7 +13,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
-| ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
+| ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
 All targets also expose a stable compiler-test block:
 
@@ -52,6 +52,19 @@ non-blocking console. A connected host asserts `INT_RAW` SOF bit 1 every 1,000
 abstract ticks, and `INT_CLR`/raw writes clear the latched status. This is a
 functional USB-frame model, not a claim of USB clock or PHY accuracy.
 
+The ESP32-C6 machine maps every public non-radio register block in the ESP-IDF
+v6.0.2 inventory at its vendor address. GPIO/IO MUX; UART0/1 and LP UART; UHCI;
+SPI2; I2C0 and LP I2C; I2S; RMT; LEDC; MCPWM; PCNT; PARLIO; TWAI0/1; SDIO
+slave; timer groups and system timer; GDMA; SAR ADC/temperature; ETM; staged
+watchdogs; PMU, LP-AON and LP timer; EXTMEM cache maintenance; machine/user PLIC
+and CLINT; and the AES, SHA, RSA, ECC, HMAC, digital-signature and eFuse blocks
+have deterministic functional slices. The RV32IMAC LP core executes from
+retained LP SRAM and participates in modeled sleep, wake and reset transitions.
+Remaining analog, trace, debug and monitor/APM blocks are strict target-specific
+register facades where no behavioral contract is claimed. Wi-Fi, Bluetooth LE and IEEE 802.15.4 remain
+deliberately excluded pending a shared radio architecture. See
+`docs/ESP32C6_PERIPHERALS.md` for the fidelity matrix and omissions.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
@@ -59,9 +72,10 @@ instructions, M and A where selected by the profile, Zicsr, WFI/MRET, basic
 machine interrupt entry, QingKe PFIC table-mode entry, all eight QingKe XW
 compressed byte/halfword memory operations, the V2C multiply-only Zmmul
 subset, and the compiler-facing Hazard3 bit-manipulation subset. Exact PFIC
-nesting/HPE and PMP permission enforcement remain unsupported. ESP32-C6 supports
-machine/user transitions, user ECALL, illegal privileged-CSR traps, interrupt
-entry, MRET, and PMP CSR visibility. `qualification/riscv-cpu.json` contains
+nesting/HPE remains unsupported. ESP32-C6 supports machine/user transitions,
+user ECALL, illegal privileged-CSR traps, delegated interrupt entry, MRET/URET,
+and TOR/NA4/NAPOT PMP permission enforcement with architectural access faults.
+`qualification/riscv-cpu.json` contains
 Docker and negative-profile proofs for XW, Zmmul, ESP privilege/trap behavior,
 and the complete RP2350 compiler `-march` baseline.
 

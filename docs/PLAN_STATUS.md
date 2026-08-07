@@ -111,8 +111,9 @@ that passes in both RP2350 Cortex-M33 and Hazard3 modes.
 ## Previous Phase 1 closure
 
 Phase 1 now meets its complete exit gate. ESP32-C6 implements named
-machine/user privilege state, ECALL and illegal privileged-CSR traps, MRET,
-user-mode interrupt entry, and PMP CSR visibility; a Docker-built ELF proves
+machine/user privilege state, ECALL and illegal privileged-CSR traps, MRET/URET,
+delegated user-mode interrupt entry, and TOR/NA4/NAPOT PMP permission
+enforcement; a Docker-built ELF proves
 those transitions. The RP2350 Hazard3 harness makes GCC accept the documented
 `rv32imac_zicsr_zifencei_zba_zbb_zbs_zbkb_zcb_zcmp` string, executes the
 compiler-generated cases, and runs explicit Zbkb, Zcb, and Zcmp operations.

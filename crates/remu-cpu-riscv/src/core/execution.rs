@@ -243,6 +243,18 @@ impl RiscVCpu {
                     self.pc = self.csrs[usize::from(CSR_MEPC)];
                     Ok(StepReason::Advanced)
                 }
+                0x0020_0073 if self.profile.user_mode => {
+                    let status = self.csrs[usize::from(CSR_USTATUS)];
+                    let restored_ie = (status & USTATUS_UPIE) >> 4;
+                    self.csrs[usize::from(CSR_USTATUS)] =
+                        ((status | USTATUS_UPIE) & !USTATUS_UIE) | restored_ie;
+                    self.privilege = RiscVPrivilege::User;
+                    if self.profile.esp32c6_memory_protection_csrs {
+                        self.esp32c6_active_interrupts.pop();
+                    }
+                    self.pc = self.csrs[usize::from(CSR_UEPC)];
+                    Ok(StepReason::Advanced)
+                }
                 _ => self.illegal(instruction),
             };
         }

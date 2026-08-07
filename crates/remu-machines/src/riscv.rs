@@ -13,13 +13,14 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    EspAnalogI2c, EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic,
+    EspC6PlicHandle, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank,
+    Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc,
+    Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout,
+    SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle,
+    WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -32,12 +33,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 mod bootrom_support;
+mod esp32c6_peripherals;
+use esp32c6_peripherals::{Esp32c6PeripheralHandles, map_esp32c6_peripherals};
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;
+mod lp_uart;
 mod rp_bootrom;
+mod runtime;
+mod watchdog;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -196,8 +202,13 @@ pub struct RiscVMachine {
     esp_systimer_interrupt_enabled: [bool; 3],
     esp_systimer_raw: u8,
     esp_flash_guard: u32,
+    esp_reset_reason: u32,
     esp_flash: Vec<u8>,
     esp_timer_groups: Vec<EspTimerGroupHandle>,
+    esp_c6_plic: Option<EspC6PlicHandle>,
+    esp_c6_clint: Option<EspC6ClintHandle>,
+    esp_c6_extmem: Option<EspC6ExtmemHandle>,
+    esp32c6_peripherals: Option<Esp32c6PeripheralHandles>,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
@@ -241,6 +252,10 @@ impl RiscVMachine {
         let mut usb_host = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
+        let mut esp_c6_plic = None;
+        let mut esp_c6_clint = None;
+        let mut esp_c6_extmem = None;
+        let mut esp32c6_peripherals = None;
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
@@ -573,57 +588,33 @@ impl RiscVMachine {
                 wch_pfic = Some(handle);
             }
             TargetId::Esp32c6 => {
+                let (plic_machine, plic_user, plic_handle) =
+                    EspC6Plic::new_pair("esp32c6.plic-machine", "esp32c6.plic-user");
                 bus.map_device(
-                    "esp32c6.interrupt-controller",
-                    0x2000_0000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new(
-                        "esp32c6.interrupt-controller",
-                        vec![0; 0x1000 / 4],
-                    )),
-                )?;
-                bus.map_device(
-                    "esp32c6.interrupt-controller-cpu0",
+                    "esp32c6.plic-machine",
                     0x2000_1000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new(
-                        "esp32c6.interrupt-controller-cpu0",
-                        vec![0; 0x1000 / 4],
-                    )),
+                    0x400,
+                    Box::new(plic_machine),
                 )?;
+                bus.map_device("esp32c6.plic-user", 0x2000_1400, 0x400, Box::new(plic_user))?;
+                esp_c6_plic = Some(plic_handle);
+                let (clint, clint_handle) = EspC6Clint::new("esp32c6.clint");
+                bus.map_device("esp32c6.clint", 0x2000_1800, 0x800, Box::new(clint))?;
+                esp_c6_clint = Some(clint_handle);
                 bus.map_device(
                     "esp32c6.assist-debug",
                     0x600c_2000,
                     0x1000,
-                    Box::new(Rp2040RegisterBank::new(
+                    Box::new(remu_devices::EspC6ControlBlock::new(
                         "esp32c6.assist-debug",
-                        vec![0; 0x1000 / 4],
+                        0x1000,
+                        Some(0x3fc),
+                        35_656_192,
                     )),
                 )?;
-                bus.map_device(
-                    "esp32c6.extmem",
-                    0x600c_8000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new(
-                        "esp32c6.extmem",
-                        vec![0; 0x1000 / 4],
-                    )),
-                )?;
-                bus.map_device(
-                    "esp32c6.pcr",
-                    0x6009_6000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new("esp32c6.pcr", vec![0; 0x1000 / 4])),
-                )?;
-                bus.map_device(
-                    "esp32c6.lp-aon",
-                    0x600b_1000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new(
-                        "esp32c6.lp-aon",
-                        vec![0; 0x1000 / 4],
-                    )),
-                )?;
+                let (extmem, extmem_handle) = EspC6Extmem::new("esp32c6.extmem");
+                bus.map_device("esp32c6.extmem", 0x600c_8000, 0x1000, Box::new(extmem))?;
+                esp_c6_extmem = Some(extmem_handle);
                 bus.map_device(
                     "esp32c6.modem-lpcon",
                     0x600a_f000,
@@ -642,73 +633,10 @@ impl RiscVMachine {
                     0x1000,
                     Box::new(EspSpiMem::new("esp32c6.spimem1")),
                 )?;
-                for (name, base) in [
-                    ("esp32c6.i2c0", 0x6000_4000),
-                    ("esp32c6.uhci0", 0x6000_5000),
-                    ("esp32c6.rmt", 0x6000_6000),
-                    ("esp32c6.ledc", 0x6000_7000),
-                    ("esp32c6.systimer", 0x6000_a000),
-                    ("esp32c6.twai0", 0x6000_b000),
-                    ("esp32c6.i2s", 0x6000_c000),
-                    ("esp32c6.twai1", 0x6000_d000),
-                    ("esp32c6.interrupt-matrix", 0x6001_0000),
-                    ("esp32c6.atomic", 0x6001_1000),
-                    ("esp32c6.pcnt", 0x6001_2000),
-                    ("esp32c6.etm", 0x6001_3000),
-                    ("esp32c6.mcpwm", 0x6001_4000),
-                    ("esp32c6.parlio", 0x6001_5000),
-                    ("esp32c6.hinf", 0x6001_6000),
-                    ("esp32c6.slc", 0x6001_7000),
-                    ("esp32c6.slchost", 0x6001_8000),
-                    ("esp32c6.pvt-monitor", 0x6001_9000),
-                    ("esp32c6.gdma", 0x6008_0000),
-                    ("esp32c6.spi2", 0x6008_1000),
-                    ("esp32c6.aes", 0x6008_8000),
-                    ("esp32c6.sha", 0x6008_9000),
-                    ("esp32c6.rsa", 0x6008_a000),
-                    ("esp32c6.ecc", 0x6008_b000),
-                    ("esp32c6.ds", 0x6008_c000),
-                    ("esp32c6.hmac", 0x6008_d000),
-                    ("esp32c6.io-mux", 0x6009_0000),
-                    ("esp32c6.mem-monitor", 0x6009_2000),
-                    ("esp32c6.pau", 0x6009_3000),
-                    ("esp32c6.hp-system", 0x6009_5000),
-                    ("esp32c6.tee", 0x6009_8000),
-                    ("esp32c6.hp-apm", 0x6009_9000),
-                    ("esp32c6.misc", 0x6009_f000),
-                    ("esp32c6.power-detector", 0x600a_0000),
-                    ("esp32c6.ieee802154", 0x600a_3000),
-                    ("esp32c6.modem-syscon", 0x600a_9800),
-                    ("esp32c6.pmu-efuse-lp-timer", 0x600b_0000),
-                    ("esp32c6.lp-io-analog", 0x600b_2000),
-                    ("esp32c6.lp-security-debug", 0x600b_3000),
-                    ("esp32c6.trace", 0x600c_0000),
-                    ("esp32c6.interrupt-priority", 0x600c_5000),
-                ] {
-                    bus.map_device(
-                        name,
-                        base,
-                        0x1000,
-                        Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
-                    )?;
-                }
-                let (usb_serial_jtag, handle) = EspUsbSerialJtag::new("esp32c6.usb-serial-jtag");
-                bus.map_device(
-                    "esp32c6.usb-serial-jtag",
-                    0x6000_f000,
-                    0x1000,
-                    Box::new(usb_serial_jtag),
-                )?;
-                esp_usb_serial_jtag = Some(handle);
-                let mut saradc_reset = vec![0; 0x1000 / 4];
-                saradc_reset[0x2c / 4] = 2048;
-                saradc_reset[0x44 / 4] = (1 << 31) | (1 << 30);
-                bus.map_device(
-                    "esp32c6.saradc",
-                    0x6000_e000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new("esp32c6.saradc", saradc_reset)),
-                )?;
+                let (peripherals, usb_serial_jtag) =
+                    map_esp32c6_peripherals(&mut bus, &signals, &mut chip_uarts)?;
+                esp32c6_peripherals = Some(peripherals);
+                esp_usb_serial_jtag = Some(usb_serial_jtag);
                 for (name, base) in [
                     ("esp32c6.timer-group0", 0x6000_8000),
                     ("esp32c6.timer-group1", 0x6000_9000),
@@ -725,9 +653,6 @@ impl RiscVMachine {
                 )?;
                 bus.map_device("esp32c6.gpio", 0x6009_1000, 0x1000, Box::new(device))?;
                 chip_gpio.push(handle);
-                let (uart0, handle) = FunctionalUart::new_lenient("esp32c6.uart0", 0x00, 0x1c, 0);
-                bus.map_device("esp32c6.uart0", 0x6000_0000, 0x1000, Box::new(uart0))?;
-                chip_uarts.push(handle);
             }
             TargetId::Rp2350 => {
                 let (device, handle, multicore) = RpSioGpio::new_rp2350_with_multicore(
@@ -763,10 +688,15 @@ impl RiscVMachine {
             | TargetId::Efm8bb52f32g => unreachable!(),
         }
 
+        let secondary_profile = if target == TargetId::Esp32c6 {
+            RiscVProfile::esp32c6_lp()
+        } else {
+            profile.clone()
+        };
         Ok(Self {
             target,
             cpu: RiscVCpu::new(profile.clone())?,
-            cpu1: RiscVCpu::new(profile)?,
+            cpu1: RiscVCpu::new(secondary_profile)?,
             cpu1_active: false,
             sio,
             bus,
@@ -795,8 +725,13 @@ impl RiscVMachine {
             esp_systimer_interrupt_enabled: [false; 3],
             esp_systimer_raw: 0,
             esp_flash_guard: 0,
+            esp_reset_reason: 1,
             esp_flash: Vec::new(),
             esp_timer_groups,
+            esp_c6_plic,
+            esp_c6_clint,
+            esp_c6_extmem,
+            esp32c6_peripherals,
             flash_storage,
             chip_timers,
             pio,
@@ -913,43 +848,6 @@ impl RiscVMachine {
         self.signal_stops.clear();
     }
 
-    /// Drives or releases one compiler-facade GPIO input.
-    pub fn set_pin(&self, pin: u8, value: Logic) -> Result<(), MachineError> {
-        self.gpio.set_input(pin, value, self.now)?;
-        for gpio in &self.chip_gpio {
-            if usize::from(pin) < gpio.pin_count() {
-                gpio.set_input(pin, value, self.now)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Applies a power-on reset to the CPU and devices.
-    pub fn reset(&mut self) -> Result<(), MachineError> {
-        self.bus.reset_devices(ResetKind::PowerOn);
-        self.cpu.reset(ResetKind::PowerOn, &mut self.bus)?;
-        self.cpu1.reset(ResetKind::PowerOn, &mut self.bus)?;
-        self.cpu1_active = false;
-        self.now = SimTime::ZERO;
-        self.esp_cpu_frequency_mhz = 40;
-        self.esp_enabled_watchdogs.clear();
-        self.esp_interrupt_routes.clear();
-        self.esp_enabled_interrupts.clear();
-        self.esp_interrupt_priorities.clear();
-        self.esp_interrupt_threshold = 0;
-        self.esp_md5_contexts.clear();
-        self.esp_sha256_contexts.clear();
-        self.esp_heaps.clear();
-        self.esp_systimer_offset = 0;
-        self.esp_systimer_alarms = [u64::MAX; 3];
-        self.esp_systimer_periods = [0; 3];
-        self.esp_systimer_next = [u64::MAX; 3];
-        self.esp_systimer_interrupt_enabled = [false; 3];
-        self.esp_systimer_raw = 0;
-        self.esp_flash_guard = 0;
-        Ok(())
-    }
-
     /// Runs until a terminal condition and optionally streams signal changes.
     pub fn run(
         &mut self,
@@ -1035,6 +933,9 @@ impl RiscVMachine {
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;
             }
+            if self.poll_esp32c6_runtime(&mut stats)? {
+                continue;
+            }
             stats.events = stats.events.saturating_add(u64::from(
                 self.esp_usb_serial_jtag
                     .as_ref()
@@ -1104,6 +1005,11 @@ impl RiscVMachine {
                     )
                     .map_err(MachineError::Bus)?
                     != 0;
+                if let Some(peripherals) = &self.esp32c6_peripherals {
+                    peripherals
+                        .interrupt_matrix
+                        .set_source(22, crosscore_pending);
+                }
                 let interrupt = self.esp_interrupt_routes.get(&22).copied().unwrap_or(2);
                 let priority = if interrupt < 32 {
                     self.bus
@@ -1134,15 +1040,25 @@ impl RiscVMachine {
                 }
                 esp_crosscore_was_pending = deliver;
                 if interrupt < 32 {
+                    if let Some(plic) = &self.esp_c6_plic {
+                        plic.set_line(interrupt as u8, crosscore_pending);
+                    }
                     self.cpu.set_interrupt(interrupt as u16, deliver)?;
                 }
                 for (group, handle) in self.esp_timer_groups.iter().enumerate() {
                     for (timer, pending) in handle.pending(self.now).into_iter().enumerate() {
                         let source = match (group, timer) {
                             (0, 0) => 51,
+                            (0, 1) => 52,
                             (1, 0) => 54,
+                            (1, 1) => 55,
                             _ => continue,
                         };
+                        if let Some(peripherals) = &self.esp32c6_peripherals {
+                            peripherals
+                                .interrupt_matrix
+                                .set_source(source as u8, pending);
+                        }
                         let Some(interrupt) = self.esp_interrupt_routes.get(&source).copied()
                         else {
                             continue;
@@ -1160,6 +1076,9 @@ impl RiscVMachine {
                         }
                         esp_timer_was_pending[group][timer] = deliver;
                         if interrupt < 32 {
+                            if let Some(plic) = &self.esp_c6_plic {
+                                plic.set_line(interrupt as u8, pending);
+                            }
                             self.cpu.set_interrupt(interrupt as u16, deliver)?;
                         }
                     }
@@ -1196,6 +1115,11 @@ impl RiscVMachine {
                         };
                     }
                     let source = 57 + alarm as u32;
+                    if let Some(peripherals) = &self.esp32c6_peripherals {
+                        peripherals
+                            .interrupt_matrix
+                            .set_source(source as u8, self.esp_systimer_raw & (1 << alarm) != 0);
+                    }
                     let Some(interrupt) = self.esp_interrupt_routes.get(&source).copied() else {
                         continue;
                     };
@@ -1227,6 +1151,12 @@ impl RiscVMachine {
                         stats.events = stats.events.saturating_add(1);
                     }
                     if interrupt < 32 {
+                        if let Some(plic) = &self.esp_c6_plic {
+                            plic.set_line(
+                                interrupt as u8,
+                                self.esp_systimer_raw & (1 << alarm) != 0,
+                            );
+                        }
                         self.cpu.set_interrupt(interrupt as u16, deliver)?;
                     }
                 }
@@ -1256,6 +1186,11 @@ impl RiscVMachine {
                 if let Some(usb) = &self.esp_usb_serial_jtag
                     && let Some(interrupt) = self.esp_interrupt_routes.get(&48).copied()
                 {
+                    if let Some(peripherals) = &self.esp32c6_peripherals {
+                        peripherals
+                            .interrupt_matrix
+                            .set_source(48, usb.interrupt_pending());
+                    }
                     let priority = if interrupt < 32 {
                         self.bus
                             .read(
@@ -1285,8 +1220,47 @@ impl RiscVMachine {
                     }
                     esp_usb_was_pending = deliver;
                     if interrupt < 32 {
+                        if let Some(plic) = &self.esp_c6_plic {
+                            plic.set_line(interrupt as u8, usb.interrupt_pending());
+                        }
                         self.cpu.set_interrupt(interrupt as u16, deliver)?;
                     }
+                }
+                let clint = self
+                    .esp_c6_clint
+                    .as_ref()
+                    .map_or([false; 4], |clint| clint.pending(self.now));
+                if let (Some(peripherals), Some(plic)) =
+                    (&self.esp32c6_peripherals, &self.esp_c6_plic)
+                {
+                    for line in 0..32_u8 {
+                        plic.set_line(
+                            line,
+                            peripherals.interrupt_matrix.cpu_interrupt_pending(line),
+                        );
+                    }
+                }
+                let plic_machine = self
+                    .esp_c6_plic
+                    .as_ref()
+                    .map_or(0, |plic| plic.deliverable(false));
+                let plic_user = self
+                    .esp_c6_plic
+                    .as_ref()
+                    .map_or(0, |plic| plic.deliverable(true));
+                for line in 0..32_u16 {
+                    let bit = 1_u32 << line;
+                    let local = match line {
+                        0 => clint[2],
+                        3 => clint[0],
+                        4 => clint[3],
+                        7 => clint[1],
+                        _ => false,
+                    };
+                    self.cpu.set_interrupt(
+                        line,
+                        local || plic_machine & bit != 0 || plic_user & bit != 0,
+                    )?;
                 }
             }
             self.bus.clear_watchpoint_hit();
@@ -1324,6 +1298,11 @@ impl RiscVMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| MachineError::TimeOverflow)?;
             stats.time = self.now;
+            if let Some(peripherals) = &self.esp32c6_peripherals {
+                stats.events = stats
+                    .events
+                    .saturating_add(peripherals.poll_outputs(self.now)?);
+            }
 
             let mut signal_stop = None;
             for change in self.signals.drain_changes() {

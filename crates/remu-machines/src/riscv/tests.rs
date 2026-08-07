@@ -166,6 +166,296 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
 }
 
 #[test]
+fn esp32c6_non_radio_inventory_is_mapped_at_vendor_addresses() {
+    let machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let regions = machine
+        .bus
+        .region_map()
+        .into_iter()
+        .map(|(name, start, end, _)| (name.to_owned(), (start, end - start)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let expected = [
+        ("esp32c6.uart0", 0x6000_0000, 0x1000),
+        ("esp32c6.uart1", 0x6000_1000, 0x1000),
+        ("esp32c6.i2c0", 0x6000_4000, 0x1000),
+        ("esp32c6.uhci0", 0x6000_5000, 0x1000),
+        ("esp32c6.rmt", 0x6000_6000, 0x1000),
+        ("esp32c6.ledc", 0x6000_7000, 0x1000),
+        ("esp32c6.timer-group0", 0x6000_8000, 0x1000),
+        ("esp32c6.timer-group1", 0x6000_9000, 0x1000),
+        ("esp32c6.systimer", 0x6000_a000, 0x1000),
+        ("esp32c6.twai0", 0x6000_b000, 0x1000),
+        ("esp32c6.i2s", 0x6000_c000, 0x1000),
+        ("esp32c6.twai1", 0x6000_d000, 0x1000),
+        ("esp32c6.saradc", 0x6000_e000, 0x1000),
+        ("esp32c6.usb-serial-jtag", 0x6000_f000, 0x1000),
+        ("esp32c6.interrupt-matrix", 0x6001_0000, 0x800),
+        ("esp32c6.pcnt", 0x6001_2000, 0x1000),
+        ("esp32c6.etm", 0x6001_3000, 0x1000),
+        ("esp32c6.mcpwm", 0x6001_4000, 0x1000),
+        ("esp32c6.parlio", 0x6001_5000, 0x1000),
+        ("esp32c6.hinf", 0x6001_6000, 0x1000),
+        ("esp32c6.slc", 0x6001_7000, 0x1000),
+        ("esp32c6.gdma", 0x6008_0000, 0x2b0),
+        ("esp32c6.spi2", 0x6008_1000, 0x1000),
+        ("esp32c6.aes", 0x6008_8000, 0x1000),
+        ("esp32c6.sha", 0x6008_9000, 0x1000),
+        ("esp32c6.rsa", 0x6008_a000, 0x1000),
+        ("esp32c6.ecc", 0x6008_b000, 0x1000),
+        ("esp32c6.digital-signature", 0x6008_c000, 0x1000),
+        ("esp32c6.hmac", 0x6008_d000, 0x1000),
+        ("esp32c6.io-mux", 0x6009_0000, 0x1000),
+        ("esp32c6.gpio", 0x6009_1000, 0x1000),
+        ("esp32c6.pcr", 0x6009_6000, 0x1000),
+        ("esp32c6.efuse", 0x600b_0800, 0x400),
+        ("esp32c6.lp-uart", 0x600b_1400, 0x400),
+        ("esp32c6.lp-i2c", 0x600b_1800, 0x400),
+        ("esp32c6.lp-watchdog", 0x600b_1c00, 0x400),
+        ("esp32c6.interrupt-priority", 0x600c_5000, 0x400),
+        ("esp32c6.extmem", 0x600c_8000, 0x1000),
+    ];
+    for (name, start, size) in expected {
+        assert_eq!(regions.get(name), Some(&(start, size)), "{name}");
+    }
+    assert!(!regions.contains_key("esp32c6.ieee802154"));
+}
+
+#[test]
+fn esp32c6_host_bridges_cover_spi_audio_can_etm_parlio_dma_lp_i2c_and_sdio() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let handles = machine.esp32c6_peripherals.as_ref().unwrap();
+
+    handles.spi2.queue_rx(&[9, 8]);
+    machine
+        .bus
+        .write(0x6008_1080, AccessWidth::Word, 0x0201, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6008_1028, AccessWidth::Word, 15, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6008_102c, AccessWidth::Word, 15, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6008_101c,
+            AccessWidth::Word,
+            (1 << 27) | (1 << 28),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x6008_1000, AccessWidth::Word, 1 << 24, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handles.spi2.take_tx(), vec![1, 2]);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6008_1080,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap()
+            & 0xffff,
+        0x0809
+    );
+
+    machine
+        .bus
+        .write(0x6000_c000, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handles.i2s.take_tx_words(), vec![0x1234_5678]);
+    machine
+        .bus
+        .write(0x6000_b040, AccessWidth::Word, 0x5a, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_b004, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handles.twai[0].take_tx_frames()[0][0], 0x5a);
+
+    machine
+        .bus
+        .write(0x6001_3018, AccessWidth::Word, 7, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6001_301c, AccessWidth::Word, 9, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6001_3004, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        handles.etm.trigger(7, SimTime::from_ticks(1)).unwrap(),
+        vec![9]
+    );
+    machine
+        .bus
+        .write(0x6001_5024, AccessWidth::Word, 0xabcd, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handles.parlio.take_tx_words(), vec![0xabcd]);
+    machine
+        .bus
+        .write(
+            0x6008_00dc,
+            AccessWidth::Word,
+            (1 << 9) | 0x155,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(handles.gdma.take_output_words(), vec![0x155]);
+
+    machine
+        .bus
+        .write(0x600b_181c, AccessWidth::Word, 0xa5, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600b_1858, AccessWidth::Word, (1 << 11) | 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600b_1804, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handles.lp_i2c.take_tx(), vec![0xa5]);
+    handles.sdio.queue_rx(0, &[0x123, 0x456]);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x6001_7024,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap()
+            >> 2
+            & 0x3fff,
+        2
+    );
+}
+
+#[test]
+fn esp32c6_lp_core_wakes_and_executes_from_retained_sram() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let hp_wfi = 0x1050_0073_u32.to_le_bytes();
+    machine.bus.load(0x4080_1000, &hp_wfi).unwrap();
+    machine.cpu.set_pc(0x4080_1000).unwrap();
+    // addi a0,x0,42; lui t0,0x40800; sw a0,0(t0); ebreak
+    let lp = [0x02a0_0513_u32, 0x4080_02b7, 0x00a2_a023, 0x0010_0073]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>();
+    let image = esp32c6_elf(0x5000_0080, 0x5000_0080, lp);
+    machine.load_esp32c6_lp_firmware(&image).unwrap();
+    // Hand LP SRAM ownership to the LP core, then trigger it from HP.
+    machine
+        .bus
+        .write(0x600b_1048, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600b_0184, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+        .unwrap();
+
+    let result = machine
+        .run(
+            RunLimits {
+                instructions: Some(16),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.reason, StopReason::InstructionLimit);
+    assert_eq!(
+        machine.debug_read_memory(0x4080_0000, 4).unwrap(),
+        42_u32.to_le_bytes()
+    );
+    assert_eq!(machine.cpu1.snapshot().registers[10].value, 42);
+}
+
+#[test]
+fn esp32c6_cache_sync_refreshes_stale_rom_mmap_data() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine.set_esp_flash_image(&[0x11, 0x22, 0x33, 0x44]);
+    machine
+        .refresh_esp32c6_cache(ESP_FUNCTIONAL_MMAP_BASE, 4)
+        .unwrap();
+    machine.esp_flash[0] = 0xaa;
+    assert_eq!(
+        machine
+            .debug_read_memory(u64::from(ESP_FUNCTIONAL_MMAP_BASE), 1)
+            .unwrap(),
+        [0x11]
+    );
+    machine
+        .bus
+        .write(
+            0x600c_80a0,
+            AccessWidth::Word,
+            u64::from(ESP_FUNCTIONAL_MMAP_BASE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600c_80a4, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600c_8098, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    let (address, size) = machine.esp_c6_extmem.as_ref().unwrap().take_sync().unwrap();
+    machine.refresh_esp32c6_cache(address, size).unwrap();
+    assert_eq!(
+        machine
+            .debug_read_memory(u64::from(ESP_FUNCTIONAL_MMAP_BASE), 1)
+            .unwrap(),
+        [0xaa]
+    );
+}
+
+#[test]
+fn esp32c6_main_watchdog_cpu_reset_reports_vendor_reset_reason() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(0x6000_8064, AccessWidth::Word, 0x50d8_3aa1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_8050, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6000_8048,
+            AccessWidth::Word,
+            (1 << 31) | (2 << 29),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(2);
+    let mut stats = RunStats {
+        instructions: 0,
+        time: machine.now,
+        events: 0,
+    };
+    assert!(machine.poll_esp32c6_watchdog(&mut stats).unwrap());
+    assert_eq!(machine.esp_reset_reason, 0x0b);
+    assert_eq!(machine.cpu.pc(), 0x4000_0000);
+}
+
+#[test]
 fn all_initial_riscv_modes_execute_and_halt_deterministically() {
     // addi x1,x0,7; addi x2,x0,5; add x3,x1,x2; ebreak
     let program = [0x0070_0093_u32, 0x0050_0113, 0x0020_81b3, 0x0010_0073]

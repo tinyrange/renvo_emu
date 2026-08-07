@@ -129,6 +129,71 @@ fn esp32c6_memory_protection_csrs_are_profile_gated() {
 }
 
 #[test]
+fn esp32c6_pmp_execute_only_napot_region_traps_user_loads() {
+    // lw x1,0(x0) lies in a 4 KiB execute-only NAPOT region.
+    let (mut cpu, mut bus) = cpu_and_bus(&[0x0000_2083], RiscVProfile::esp32c6());
+    cpu.write_csr(CSR_PMPADDR0, 0x1ff).unwrap();
+    cpu.write_csr(CSR_PMPCFG0, 0x1c).unwrap();
+    cpu.write_csr(CSR_MTVEC, 0x100).unwrap();
+    cpu.write_csr(CSR_MEPC, 0).unwrap();
+    cpu.write_csr(CSR_MSTATUS, 0).unwrap();
+    cpu.execute_system(0x3020_0073, 0, 0, 0).unwrap();
+
+    assert_eq!(
+        cpu.step(&mut bus, SimTime::ZERO).unwrap().reason,
+        StepReason::Advanced
+    );
+    assert_eq!(cpu.privilege(), RiscVPrivilege::Machine);
+    assert_eq!(cpu.pc(), 0x100);
+    assert_eq!(cpu.read_csr(CSR_MCAUSE).unwrap(), 5);
+    assert_eq!(cpu.read_csr(CSR_MTVAL).unwrap(), 0);
+    assert_eq!(cpu.read_csr(CSR_MEPC).unwrap(), 0);
+}
+
+#[test]
+fn esp32c6_pmp_locked_config_and_tor_lower_bound_are_immutable() {
+    let mut cpu = RiscVCpu::new(RiscVProfile::esp32c6()).unwrap();
+    cpu.write_csr(CSR_PMPADDR0, 0x100).unwrap();
+    cpu.write_csr(CSR_PMPADDR0 + 1, 0x200).unwrap();
+    // Entry 1 is a locked TOR region, which also locks entry 0's address.
+    cpu.write_csr(CSR_PMPCFG0, 0x89_00).unwrap();
+    cpu.write_csr(CSR_PMPADDR0, 0x300).unwrap();
+    cpu.write_csr(CSR_PMPADDR0 + 1, 0x400).unwrap();
+    cpu.write_csr(CSR_PMPCFG0, 0).unwrap();
+
+    assert_eq!(cpu.read_csr(CSR_PMPADDR0).unwrap(), 0x100);
+    assert_eq!(cpu.read_csr(CSR_PMPADDR0 + 1).unwrap(), 0x200);
+    assert_eq!(cpu.read_csr(CSR_PMPCFG0).unwrap(), 0x89_00);
+}
+
+#[test]
+fn esp32c6_pmp_checks_a_complete_instruction_and_machine_bypasses_unlocked_entries() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("memory", 0, 4096, true).unwrap();
+    bus.load(2, &0x0010_0073_u32.to_le_bytes()).unwrap();
+
+    let mut machine = RiscVCpu::new(RiscVProfile::esp32c6()).unwrap();
+    machine.write_csr(CSR_PMPADDR0, 0).unwrap();
+    machine.write_csr(CSR_PMPCFG0, 0x10).unwrap();
+    machine.set_pc(2).unwrap();
+    assert_eq!(
+        machine.step(&mut bus, SimTime::ZERO).unwrap().reason,
+        StepReason::Halted
+    );
+
+    let mut user = RiscVCpu::new(RiscVProfile::esp32c6()).unwrap();
+    user.write_csr(CSR_PMPADDR0, 0).unwrap();
+    user.write_csr(CSR_PMPCFG0, 0x15).unwrap();
+    user.write_csr(CSR_MTVEC, 0x100).unwrap();
+    user.write_csr(CSR_MEPC, 2).unwrap();
+    user.write_csr(CSR_MSTATUS, 0).unwrap();
+    user.execute_system(0x3020_0073, 0, 0, 0).unwrap();
+    user.step(&mut bus, SimTime::ZERO).unwrap();
+    assert_eq!(user.read_csr(CSR_MCAUSE).unwrap(), 1);
+    assert_eq!(user.read_csr(CSR_MTVAL).unwrap(), 2);
+}
+
+#[test]
 fn esp32c6_user_mode_ecall_and_privileged_csr_access_trap_to_machine() {
     let mut cpu = RiscVCpu::new(RiscVProfile::esp32c6()).unwrap();
     cpu.write_csr(CSR_MTVEC, 0x100).unwrap();
@@ -176,6 +241,32 @@ fn user_mode_machine_interrupt_saves_user_privilege_in_mpp() {
     assert_eq!(cpu.pc(), 0x100);
     assert_eq!(cpu.read_csr(CSR_MCAUSE).unwrap(), 0x8000_0007);
     assert_eq!(cpu.read_csr(CSR_MSTATUS).unwrap() & MSTATUS_MPP, 0);
+}
+
+#[test]
+fn esp32c6_delegated_user_interrupt_enters_utvec_and_uret_restores_user_code() {
+    let mut cpu = RiscVCpu::new(RiscVProfile::esp32c6()).unwrap();
+    cpu.write_csr(CSR_MEPC, 0x40).unwrap();
+    cpu.execute_system(0x3020_0073, 0, 0, 0).unwrap();
+    cpu.write_csr(CSR_UTVEC, 0x200).unwrap();
+    cpu.write_csr(CSR_MIDELEG, 1 << 4).unwrap();
+    cpu.write_csr(CSR_UIE, 1 << 4).unwrap();
+    cpu.write_csr(CSR_USTATUS, USTATUS_UIE).unwrap();
+    cpu.set_interrupt(4, true).unwrap();
+
+    assert_eq!(cpu.pending_interrupt(), Some(4));
+    cpu.take_interrupt(4);
+    assert_eq!(cpu.privilege(), RiscVPrivilege::User);
+    assert_eq!(cpu.pc(), 0x200);
+    assert_eq!(cpu.read_csr(CSR_UCAUSE).unwrap(), 0x8000_0004);
+    assert_eq!(cpu.read_csr(CSR_UEPC).unwrap(), 0x40);
+    cpu.set_interrupt(4, false).unwrap();
+    cpu.execute_system(0x0020_0073, 0, 0, 0).unwrap();
+    assert_eq!(cpu.pc(), 0x40);
+    assert_eq!(
+        cpu.read_csr(CSR_USTATUS).unwrap() & USTATUS_UIE,
+        USTATUS_UIE
+    );
 }
 
 #[test]

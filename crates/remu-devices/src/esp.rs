@@ -29,6 +29,10 @@ struct EspTimerGroupState {
     registers: Vec<u32>,
     counters: [EspTimerCounter; 2],
     kind: EspTimerGroupKind,
+    watchdog_epoch: SimTime,
+    watchdog_stage: usize,
+    watchdog_actions: VecDeque<EspWatchdogAction>,
+    watchdog_write_enabled: bool,
 }
 
 impl EspTimerGroupState {
@@ -58,6 +62,10 @@ impl EspTimerGroupState {
             registers: vec![0; 0x1000 / 4],
             counters: [counter; 2],
             kind,
+            watchdog_epoch: SimTime::ZERO,
+            watchdog_stage: 0,
+            watchdog_actions: VecDeque::new(),
+            watchdog_write_enabled: false,
         };
         state.reset();
         state
@@ -70,12 +78,21 @@ impl EspTimerGroupState {
             base_time: SimTime::ZERO,
             latched_value: 0,
         });
+        self.watchdog_epoch = SimTime::ZERO;
+        self.watchdog_stage = 0;
+        self.watchdog_actions.clear();
+        self.watchdog_write_enabled = false;
         // The RTC calibration block completes synchronously in the functional
         // timing model. This represents a nominal 136 kHz slow clock measured
         // against a 40 MHz crystal.
         self.registers[0x68 / 4] = (1 << 12) | (1 << 15);
         self.registers[0x6c / 4] = (301_176 << 7) | 1;
         self.registers[0x80 / 4] = (3 << 3) | (0x01ff_ffff << 7);
+        self.registers[0x48 / 4] = (1 << 14) | (1 << 15) | (1 << 18);
+        self.registers[0x50 / 4] = 26_000_000;
+        self.registers[0x54 / 4] = 134_217_727;
+        self.registers[0x58 / 4] = 1_048_575;
+        self.registers[0x5c / 4] = 1_048_575;
         self.registers[0xf8 / 4] = 35_676_274;
     }
 
@@ -169,6 +186,37 @@ impl EspTimerGroupState {
         }
         self.registers[Self::INTERRUPT_STATUS / 4] =
             self.registers[Self::INTERRUPT_RAW / 4] & self.registers[Self::INTERRUPT_ENABLE / 4];
+
+        if self.registers[0x48 / 4] & (1 << 31) != 0 {
+            while self.watchdog_stage < 4 {
+                let hold = u64::from(self.registers[(0x50 / 4) + self.watchdog_stage]).max(1);
+                if now.ticks().saturating_sub(self.watchdog_epoch.ticks()) < hold {
+                    break;
+                }
+                self.watchdog_epoch =
+                    SimTime::from_ticks(self.watchdog_epoch.ticks().saturating_add(hold));
+                let shift = [29, 27, 25, 23][self.watchdog_stage];
+                let action = (self.registers[0x48 / 4] >> shift) & 3;
+                self.watchdog_stage += 1;
+                match action {
+                    1 => {
+                        self.registers[Self::INTERRUPT_RAW / 4] |= 1 << 1;
+                        self.watchdog_actions
+                            .push_back(EspWatchdogAction::Interrupt);
+                    }
+                    2 => self.watchdog_actions.push_back(EspWatchdogAction::ResetCpu),
+                    3 => self
+                        .watchdog_actions
+                        .push_back(EspWatchdogAction::ResetSystem),
+                    _ => {}
+                }
+                if action >= 2 {
+                    break;
+                }
+            }
+            self.registers[Self::INTERRUPT_STATUS / 4] = self.registers[Self::INTERRUPT_RAW / 4]
+                & self.registers[Self::INTERRUPT_ENABLE / 4];
+        }
     }
 }
 
@@ -185,6 +233,13 @@ impl EspTimerGroupHandle {
         state.advance(now);
         let status = state.registers[EspTimerGroupState::INTERRUPT_STATUS / 4];
         [status & 1 != 0, status & 2 != 0]
+    }
+
+    /// Consumes the next main-watchdog stage action.
+    pub fn take_watchdog_action(&self, now: SimTime) -> Option<EspWatchdogAction> {
+        let mut state = self.state.borrow_mut();
+        state.advance(now);
+        state.watchdog_actions.pop_front()
     }
 }
 
@@ -261,7 +316,27 @@ impl Device for EspTimerGroup {
             );
         }
 
-        if let Some((timer, register)) = state.timer_register(offset) {
+        if (0x48..=0x64).contains(&offset) {
+            if offset == 0x64 {
+                state.watchdog_write_enabled = value == 0x50d8_3aa1;
+            } else if state.watchdog_write_enabled {
+                match offset {
+                    0x48 => {
+                        state.registers[index] = value & !((1 << 22) | 0x7ff);
+                        state.watchdog_epoch = at;
+                        state.watchdog_stage = 0;
+                        state.watchdog_actions.clear();
+                    }
+                    0x4c..=0x5c => state.registers[index] = value,
+                    0x60 => {
+                        state.watchdog_epoch = at;
+                        state.watchdog_stage = 0;
+                        state.watchdog_actions.clear();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        } else if let Some((timer, register)) = state.timer_register(offset) {
             match register {
                 EspTimerGroupState::CONFIG => {
                     state.materialize(timer, at);
@@ -607,6 +682,13 @@ impl EspSystimer {
             },
             EspSystimerHandle { state },
         )
+    }
+
+    /// Creates an ESP32-C6 system timer with the native version register reset.
+    pub fn new_esp32c6(name: impl Into<String>) -> (Self, EspSystimerHandle) {
+        let (device, handle) = Self::new(name);
+        device.state.borrow_mut().registers[0xfc / 4] = 35_655_795;
+        (device, handle)
     }
 }
 

@@ -18,6 +18,14 @@ use std::collections::BTreeSet;
 
 mod execution;
 const CSR_MSTATUS: u16 = 0x300;
+const CSR_USTATUS: u16 = 0x000;
+const CSR_UIE: u16 = 0x004;
+const CSR_UTVEC: u16 = 0x005;
+const CSR_USCRATCH: u16 = 0x040;
+const CSR_UEPC: u16 = 0x041;
+const CSR_UCAUSE: u16 = 0x042;
+const CSR_UTVAL: u16 = 0x043;
+const CSR_UIP: u16 = 0x044;
 const CSR_MISA: u16 = 0x301;
 const CSR_MEDELEG: u16 = 0x302;
 const CSR_MIDELEG: u16 = 0x303;
@@ -54,6 +62,8 @@ const CSR_QINGKE_INTSYSCR: u16 = 0x804;
 const MSTATUS_MIE: u32 = 1 << 3;
 const MSTATUS_MPIE: u32 = 1 << 7;
 const MSTATUS_MPP: u32 = 3 << 11;
+const USTATUS_UIE: u32 = 1;
+const USTATUS_UPIE: u32 = 1 << 4;
 const HAZARD3_IRQ_WINDOWS: usize = 32;
 
 /// Interrupt and trap behaviour selected by a chip profile.
@@ -267,6 +277,17 @@ impl RiscVProfile {
         }
     }
 
+    /// ESP32-C6 low-power RV32IMAC core profile.
+    pub fn esp32c6_lp() -> Self {
+        Self {
+            name: "espressif-esp32c6-lp".to_owned(),
+            esp32c6_memory_protection_csrs: false,
+            user_mode: false,
+            reset_vector: 0x5000_0080,
+            ..Self::esp32c6()
+        }
+    }
+
     /// RP2350 Hazard3 compiler profile.
     pub fn rp2350_hazard3() -> Self {
         Self {
@@ -324,6 +345,7 @@ pub struct RiscVCpu {
     hazard3_external_active: bool,
     esp32c6_active_interrupts: Vec<u16>,
     reservation: Option<u32>,
+    pending_memory_trap: Option<(u32, u32)>,
 }
 
 impl RiscVCpu {
@@ -349,6 +371,7 @@ impl RiscVCpu {
             hazard3_external_active: false,
             esp32c6_active_interrupts: Vec::new(),
             reservation: None,
+            pending_memory_trap: None,
         };
         cpu.initialize_csrs();
         Ok(cpu)
@@ -367,6 +390,11 @@ impl RiscVCpu {
     /// Current architectural privilege level.
     pub const fn privilege(&self) -> RiscVPrivilege {
         self.privilege
+    }
+
+    /// Releases a WFI wait after a platform power-controller wake event.
+    pub fn wake_from_wait(&mut self) {
+        self.waiting = false;
     }
 
     /// Sets the direct-load entry point.
@@ -677,6 +705,7 @@ impl RiscVCpu {
     }
 
     fn fetch16(&mut self, bus: &mut dyn Bus, address: u32, now: SimTime) -> Result<u16, CpuFault> {
+        self.check_pmp_access(address, AccessWidth::HalfWord, AccessKind::Execute)?;
         bus.read(
             u64::from(address),
             AccessWidth::HalfWord,
@@ -700,6 +729,7 @@ impl RiscVCpu {
         width: AccessWidth,
         now: SimTime,
     ) -> Result<u32, CpuFault> {
+        self.check_pmp_access(address, width, AccessKind::Read)?;
         bus.read(u64::from(address), width, AccessKind::Read, now)
             .map(|value| value as u32)
             .map_err(|fault| {
@@ -719,6 +749,7 @@ impl RiscVCpu {
         value: u32,
         now: SimTime,
     ) -> Result<(), CpuFault> {
+        self.check_pmp_access(address, width, AccessKind::Write)?;
         self.reservation = None;
         bus.write(u64::from(address), width, u64::from(value), now)
             .map_err(|fault| {
@@ -728,6 +759,94 @@ impl RiscVCpu {
                     format!("store failed: {fault}"),
                 )
             })
+    }
+
+    fn pmp_config(&self, entry: usize) -> u8 {
+        let csr = CSR_PMPCFG0 + u16::try_from(entry / 4).expect("PMP entry index fits");
+        ((self.csrs[usize::from(csr)] >> ((entry % 4) * 8)) & 0xff) as u8
+    }
+
+    fn pmp_range(&self, entry: usize, config: u8) -> Option<(u64, u64)> {
+        let encoded = u64::from(
+            self.csrs
+                [usize::from(CSR_PMPADDR0 + u16::try_from(entry).expect("PMP entry index fits"))],
+        );
+        match (config >> 3) & 3 {
+            0 => None,
+            1 => {
+                let lower = if entry == 0 {
+                    0
+                } else {
+                    u64::from(
+                        self.csrs[usize::from(
+                            CSR_PMPADDR0 + u16::try_from(entry - 1).expect("PMP entry index fits"),
+                        )],
+                    ) << 2
+                };
+                Some((lower, encoded << 2))
+            }
+            2 => Some((encoded << 2, (encoded << 2).saturating_add(4))),
+            3 => {
+                let trailing_ones = encoded.trailing_ones().min(29);
+                let size = 1_u64 << (trailing_ones + 3);
+                let encoded_mask = (1_u64 << trailing_ones) - 1;
+                let base = (encoded & !encoded_mask) << 2;
+                Some((base, base.saturating_add(size)))
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn check_pmp_access(
+        &mut self,
+        address: u32,
+        width: AccessWidth,
+        kind: AccessKind,
+    ) -> Result<(), CpuFault> {
+        if !self.profile.esp32c6_memory_protection_csrs {
+            return Ok(());
+        }
+        let bytes = match width {
+            AccessWidth::Byte => 1,
+            AccessWidth::HalfWord => 2,
+            AccessWidth::Word => 4,
+            AccessWidth::DoubleWord => 8,
+        };
+        let start = u64::from(address);
+        let end = start.saturating_add(bytes);
+        let mut permission = None;
+        for entry in 0..16 {
+            let config = self.pmp_config(entry);
+            let Some((lower, upper)) = self.pmp_range(entry, config) else {
+                continue;
+            };
+            if start < upper && end > lower {
+                let wholly_contained = start >= lower && end <= upper;
+                let applies = config & 0x80 != 0 || self.privilege == RiscVPrivilege::User;
+                let allowed = match kind {
+                    AccessKind::Execute => config & 4 != 0,
+                    AccessKind::Read => config & 1 != 0,
+                    AccessKind::Write => config & 2 != 0 && config & 1 != 0,
+                };
+                permission = Some(!applies || wholly_contained && allowed);
+                break;
+            }
+        }
+        let allowed = permission.unwrap_or(self.privilege == RiscVPrivilege::Machine);
+        if allowed {
+            return Ok(());
+        }
+        let cause = match kind {
+            AccessKind::Execute => 1,
+            AccessKind::Read => 5,
+            AccessKind::Write => 7,
+        };
+        self.pending_memory_trap = Some((cause, address));
+        Err(CpuFault::new(
+            CpuFaultKind::Architecture,
+            u64::from(address),
+            format!("PMP denied {kind:?} access at {address:#010x}"),
+        ))
     }
 
     fn read_csr(&self, address: u16) -> Result<u32, CpuFault> {
@@ -762,6 +881,12 @@ impl RiscVCpu {
             }
             CSR_MSTATUS | CSR_MISA | CSR_MEDELEG | CSR_MIDELEG | CSR_MIE | CSR_MTVEC
             | CSR_MCOUNTEREN | CSR_MSCRATCH | CSR_MEPC | CSR_MCAUSE | CSR_MTVAL | CSR_MIP => {
+                self.csrs[usize::from(address)]
+            }
+            CSR_USTATUS | CSR_UIE | CSR_UTVEC | CSR_USCRATCH | CSR_UEPC | CSR_UCAUSE
+            | CSR_UTVAL | CSR_UIP
+                if self.profile.user_mode =>
+            {
                 self.csrs[usize::from(address)]
             }
             _ => {
@@ -814,9 +939,26 @@ impl RiscVCpu {
                 self.csrs[usize::from(address)] = (value & WRITABLE_CONTEXT) | (value & MRETEIRQ);
                 self.refresh_hazard3_machine_external();
             }
-            CSR_PMPCFG0..=CSR_PMPCFG3
-            | CSR_PMPADDR0..=CSR_PMPADDR15
-            | CSR_PMACFG0..=CSR_PMACFG15
+            CSR_PMPCFG0..=CSR_PMPCFG3 if self.profile.esp32c6_memory_protection_csrs => {
+                let first = usize::from(address - CSR_PMPCFG0) * 4;
+                let mut merged = self.csrs[usize::from(address)];
+                for byte in 0..4 {
+                    if self.pmp_config(first + byte) & 0x80 == 0 {
+                        let mask = 0xff_u32 << (byte * 8);
+                        merged = (merged & !mask) | (value & mask);
+                    }
+                }
+                self.csrs[usize::from(address)] = merged;
+            }
+            CSR_PMPADDR0..=CSR_PMPADDR15 if self.profile.esp32c6_memory_protection_csrs => {
+                let entry = usize::from(address - CSR_PMPADDR0);
+                let own_locked = self.pmp_config(entry) & 0x80 != 0;
+                let tor_locked = entry < 15 && self.pmp_config(entry + 1) & 0x98 == 0x88;
+                if !own_locked && !tor_locked {
+                    self.csrs[usize::from(address)] = value;
+                }
+            }
+            CSR_PMACFG0..=CSR_PMACFG15
             | CSR_PMAADDR0..=CSR_PMAADDR15
             | CSR_ESP_PCER_MACHINE
             | CSR_ESP_PCMR_MACHINE
@@ -832,6 +974,15 @@ impl RiscVCpu {
             }
             CSR_MSTATUS | CSR_MEDELEG | CSR_MIDELEG | CSR_MIE | CSR_MTVEC | CSR_MCOUNTEREN
             | CSR_MSCRATCH | CSR_MEPC | CSR_MCAUSE | CSR_MTVAL | CSR_MIP => {
+                self.csrs[usize::from(address)] = value;
+                if address == CSR_MIDELEG {
+                    self.csrs[usize::from(CSR_UIP)] = self.csrs[usize::from(CSR_MIP)] & value;
+                }
+            }
+            CSR_USTATUS | CSR_UIE | CSR_UTVEC | CSR_USCRATCH | CSR_UEPC | CSR_UCAUSE
+            | CSR_UTVAL | CSR_UIP
+                if self.profile.user_mode =>
+            {
                 self.csrs[usize::from(address)] = value;
             }
             CSR_MCYCLE => self.cycle = (self.cycle & 0xffff_ffff_0000_0000) | u64::from(value),
@@ -883,7 +1034,18 @@ impl RiscVCpu {
                         && self.profile.interrupt_model == InterruptModel::Hazard3
                         && self.hazard3_external_active)
             })
-            .find(|line| self.csrs[usize::from(CSR_MIE)] & (1_u32 << line) != 0)
+            .find(|line| {
+                let bit = 1_u32 << line;
+                let delegated = self.privilege == RiscVPrivilege::User
+                    && self.profile.user_mode
+                    && self.csrs[usize::from(CSR_MIDELEG)] & bit != 0;
+                if delegated {
+                    self.csrs[usize::from(CSR_USTATUS)] & USTATUS_UIE != 0
+                        && self.csrs[usize::from(CSR_UIE)] & bit != 0
+                } else {
+                    self.csrs[usize::from(CSR_MIE)] & bit != 0
+                }
+            })
     }
 
     fn take_interrupt(&mut self, line: u16) {
@@ -904,6 +1066,28 @@ impl RiscVCpu {
     }
 
     fn enter_trap(&mut self, cause: u32, trap_value: u32, interrupt: bool) {
+        let delegation = if interrupt { CSR_MIDELEG } else { CSR_MEDELEG };
+        let delegated_to_user = self.profile.user_mode
+            && self.privilege == RiscVPrivilege::User
+            && cause < 32
+            && self.csrs[usize::from(delegation)] & (1_u32 << cause) != 0;
+        if delegated_to_user {
+            self.csrs[usize::from(CSR_UEPC)] = self.pc;
+            self.csrs[usize::from(CSR_UCAUSE)] = cause | if interrupt { 1 << 31 } else { 0 };
+            self.csrs[usize::from(CSR_UTVAL)] = trap_value;
+            let status = self.csrs[usize::from(CSR_USTATUS)];
+            let previous_ie = (status & USTATUS_UIE) << 4;
+            self.csrs[usize::from(CSR_USTATUS)] =
+                (status & !(USTATUS_UIE | USTATUS_UPIE)) | previous_ie;
+            let utvec = self.csrs[usize::from(CSR_UTVEC)];
+            self.pc = if interrupt && utvec & 3 == 1 {
+                (utvec & !3).wrapping_add(cause.wrapping_mul(4))
+            } else {
+                utvec & !3
+            };
+            self.waiting = false;
+            return;
+        }
         self.csrs[usize::from(CSR_MEPC)] = self.pc;
         self.csrs[usize::from(CSR_MCAUSE)] = cause | if interrupt { 1 << 31 } else { 0 };
         self.csrs[usize::from(CSR_MTVAL)] = trap_value;
@@ -966,6 +1150,7 @@ impl Cpu for RiscVCpu {
         self.hazard3_external_active = false;
         self.esp32c6_active_interrupts.clear();
         self.reservation = None;
+        self.pending_memory_trap = None;
         self.initialize_csrs();
         Ok(())
     }
@@ -989,14 +1174,30 @@ impl Cpu for RiscVCpu {
             });
         }
 
-        let low = self.fetch16(bus, self.pc, now)?;
-        let reason = if low & 0x3 == 0x3 {
-            let high = self.fetch16(bus, self.pc.wrapping_add(2), now)?;
-            self.execute32(u32::from(low) | (u32::from(high) << 16), bus, now)?
-        } else if self.profile.extension_c {
-            self.execute16(low, bus, now)?
-        } else {
-            return self.illegal16(low);
+        self.pending_memory_trap = None;
+        let execution = (|| {
+            let low = self.fetch16(bus, self.pc, now)?;
+            if low & 0x3 == 0x3 {
+                self.check_pmp_access(self.pc, AccessWidth::Word, AccessKind::Execute)?;
+                let high = self.fetch16(bus, self.pc.wrapping_add(2), now)?;
+                self.execute32(u32::from(low) | (u32::from(high) << 16), bus, now)
+            } else if self.profile.extension_c {
+                self.execute16(low, bus, now)
+            } else {
+                self.illegal16(low)
+            }
+        })();
+        let reason = match execution {
+            Ok(reason) => reason,
+            Err(error) => {
+                if let Some((cause, address)) = self.pending_memory_trap.take() {
+                    self.enter_trap(cause, address, false);
+                    self.registers[0] = 0;
+                    self.cycle = self.cycle.wrapping_add(1);
+                    return Ok(StepOutcome::advanced(SimDuration::TICK));
+                }
+                return Err(error);
+            }
         };
         self.registers[0] = 0;
         self.cycle = self.cycle.wrapping_add(1);
@@ -1018,9 +1219,13 @@ impl Cpu for RiscVCpu {
         if asserted {
             self.asserted_interrupts.insert(line);
             self.csrs[usize::from(CSR_MIP)] |= 1_u32 << line;
+            if self.csrs[usize::from(CSR_MIDELEG)] & (1_u32 << line) != 0 {
+                self.csrs[usize::from(CSR_UIP)] |= 1_u32 << line;
+            }
         } else {
             self.asserted_interrupts.remove(&line);
             self.csrs[usize::from(CSR_MIP)] &= !(1_u32 << line);
+            self.csrs[usize::from(CSR_UIP)] &= !(1_u32 << line);
         }
         Ok(())
     }

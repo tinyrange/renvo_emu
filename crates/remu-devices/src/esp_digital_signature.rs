@@ -312,6 +312,13 @@ impl EspDigitalSignature {
         Self::with_hmac_status(name, EspDigitalSignatureHmacStatus::Ready)
     }
 
+    /// Creates the register-identical ESP32-C6 DS block with its native version word.
+    pub fn new_esp32c6(name: impl Into<String>) -> Self {
+        let mut device = Self::new(name);
+        device.state.date = 538_969_624;
+        device
+    }
+
     /// Creates a digital-signature block with an explicit HMAC handoff state.
     pub fn with_hmac_status(
         name: impl Into<String>,
