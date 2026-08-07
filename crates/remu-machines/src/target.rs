@@ -734,6 +734,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "PORT/PPS GPIO",
             "Timer0/1",
             "EUSART",
+            "MSSP1 I²C host",
             "interrupt routing",
             "VCD",
         ],
@@ -741,7 +742,9 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.microchip.com/en-us/product/PIC16F15376",
             "https://packs.download.microchip.com/Microchip.PIC16F1xxxx_DFP.1.31.465.atpack",
         ],
-        limitations: &["analog, CLC, NCO, PWM, and exact oscillator timing are deferred"],
+        limitations: &[
+            "MSSP1 10-bit/slave and pin-level I²C behavior, analog, CLC, NCO, PWM, and exact oscillator timing are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,
