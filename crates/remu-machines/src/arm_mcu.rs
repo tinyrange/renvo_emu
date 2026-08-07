@@ -17,7 +17,8 @@ use remu_devices::{
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
     Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, Stm32Wwdg, Stm32WwdgHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -78,6 +79,7 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    stm32_wwdg: Option<Stm32WwdgHandle>,
     eic: Option<Samd21EicHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
@@ -230,7 +232,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, stm32_wwdg, eic, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -254,6 +256,7 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    None,
                     Some(eic),
                     None,
                     Some(watchdog),
@@ -282,16 +285,20 @@ impl ArmMcuMachine {
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
                 let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (wwdg_device, stm32_wwdg) =
+                    Stm32Wwdg::new("stm32l432kc.wwdg", signals.clone())?;
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
                     tim2_device,
                     usart2_device,
+                    wwdg_device,
                 )?;
                 (
                     gpio,
                     VendorUart::Stm32(uart),
                     VendorTimer::Stm32(timer),
+                    Some(stm32_wwdg),
                     None,
                     None,
                     None,
@@ -319,6 +326,7 @@ impl ArmMcuMachine {
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -336,6 +344,7 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            stm32_wwdg,
             eic,
             ra_icu,
             watchdog,
@@ -410,6 +419,7 @@ impl ArmMcuMachine {
         gpio: [Stm32Gpio; 4],
         tim2: Stm32Timer,
         usart2: Stm32Usart,
+        wwdg: Stm32Wwdg,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",
@@ -474,6 +484,7 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device("stm32l432kc.wwdg", 0x4000_2c00, 0x400, Box::new(wwdg))?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -759,9 +770,23 @@ impl ArmMcuMachine {
                 continue;
             }
 
+            let wwdg_early = if let Some(wwdg) = &self.stm32_wwdg {
+                let (early, reset) = wwdg.poll(self.now);
+                if reset {
+                    self.bus.reset_devices(ResetKind::Watchdog);
+                    if let Err(error) = self.cpu.reset(ResetKind::Watchdog, &mut self.bus) {
+                        break StopReason::Fault(error.to_string());
+                    }
+                    stats.events = stats.events.saturating_add(1);
+                    continue;
+                }
+                early
+            } else {
+                false
+            };
             let (timer_line, timer_pending) = self.timer.poll(self.now);
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending;
+            let mut interrupt_requested = timer_pending || wwdg_early;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -821,7 +846,10 @@ impl ArmMcuMachine {
                 SignalValue::from_u64(u64::from(interrupt_requested), 1)?,
                 self.now,
             )?;
-            self.cpu.set_interrupt(0, compiler_pending)?;
+            self.cpu.set_interrupt(
+                0,
+                compiler_pending || (wwdg_early && self.ppb.interrupt_enabled(0)),
+            )?;
             if self.ppb.take_systick_pending(self.now) {
                 self.cpu.set_systick_interrupt(true);
             }
@@ -957,6 +985,29 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_native_wwdg_window_exposes_early_wakeup_and_reset() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        let base = 0x4000_2c00;
+        machine
+            .bus
+            .write(base + 4, AccessWidth::Word, 1 << 9 | 0x60, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base, AccessWidth::Word, 1 << 7 | 0x45, SimTime::ZERO)
+            .unwrap();
+        let wwdg = machine.stm32_wwdg.as_ref().expect("STM32 owns WWDG");
+        assert_eq!(wwdg.poll(SimTime::from_ticks(16 * 5)), (true, false));
+        assert_eq!(
+            machine
+                .bus
+                .read(base + 8, AccessWidth::Word, AccessKind::Read, SimTime::ZERO),
+            Ok(1)
+        );
+        assert_eq!(wwdg.poll(SimTime::from_ticks(16 * 6)), (true, true));
     }
 
     #[test]

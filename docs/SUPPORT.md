@@ -26,6 +26,13 @@ This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
 
+The STM32L432KC model additionally maps the native window watchdog (WWDG) at
+`0x40002c00`. Its functional slice supports CR/CFR/SR, deterministic
+prescaled down-counting, refresh-window validation, the early-wakeup interrupt,
+reset requests, and VCD-visible IRQ/reset signals. It uses an abstract
+simulation divisor rather than physical PCLK1 frequency; IWDG remains a
+separate model.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
