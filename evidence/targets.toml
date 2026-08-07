@@ -207,21 +207,21 @@ manual_urls = [
 device_pack = "Microchip.PIC16F1xxxx_DFP.1.31.465.atpack"
 device_pack_url = "https://packs.download.microchip.com/Microchip.PIC16F1xxxx_DFP.1.31.465.atpack"
 device_pack_sha256 = "4ab50366f9ab7609c14c1b93e65cd9222d15d62d29fb2252e3ea0b9255dc125f"
-sample_url = "qualification/pic16f15376/fixture/remu_timer0.c"
-sample_revision = "original Renvo Emulator PIC16F15376 Timer0 register fixture"
+sample_url = "qualification/pic16f15376/fixture/"
+sample_revision = "original Renvo Emulator PIC16F15376 Timer0 and PPS output register fixtures"
 sample_adaptation = "project-authored fixture written from the public device data sheet; no vendor application-note source is incorporated"
 toolchain = "MPLAB XC8 4.00 for PIC plus PIC16F1xxxx DFP 1.31.465"
 compiler_flags = ["-mcpu=16F15376"]
-peripherals = ["OSC", "PORT", "LAT", "TRIS", "ANSEL", "PPS", "PIR", "PIE", "TMR0", "TMR1", "EUSART", "WDT"]
+peripherals = ["OSC", "PORT", "LAT", "TRIS", "ANSEL", "PPS (RxyPPS/PPSLOCK)", "PIR", "PIE", "TMR0", "TMR1", "EUSART", "WDT"]
 image_formats = ["Intel HEX reconstructed as 14-bit little-endian program words", "XC8 ELF retained for map/disassembly evidence"]
 memory_map = ["program memory 0x0000..0x3fff in 14-bit words", "banked data/SFR space 0x0000..0x1fff", "linear GPR alias 0x2000..0x29ef", "16-entry hardware return stack"]
 reset_assumptions = "Power-on reset starts at program word 0; XC8 startup establishes software data stack, initialized data and main; interrupt entry uses word address 0x0004"
 vectors = ["reset word address 0x0000", "combined interrupt word address 0x0004"]
-selected_pins = ["RA1 external digital input", "RA0 GPIO/timer ISR output", "RE0 Microchip Timer0 oracle output", "EUSART1 logical TX"]
+selected_pins = ["RA1 external digital input", "RA0 GPIO/PPS TMR0 output", "RE0 Microchip Timer0 oracle output", "EUSART1 logical TX"]
 interrupt_routes = ["Timer0 PIR0/PIE0 plus PEIE/GIE -> vector 0x0004", "Timer1 PIR4/PIE4 -> vector 0x0004", "EUSART1 PIR3/PIE3 -> vector 0x0004"]
 vcd_signals = ["board.pic16f15376.porta", "board.pic16f15376.timer0.irq", "board.pic16f15376.eusart1", "board.pic16f15376.interrupt.request"]
 fidelity_tier = "functional enhanced mid-range PIC16 and selected peripherals, deterministic timing"
-unsupported = ["analog peripherals", "CLC/NCO/PWM", "serial receive bit timing", "exact oscillator and instruction-cycle timing"]
+unsupported = ["PPS input routing and unmodeled output sources", "PPS key-sequence timing fidelity", "analog peripherals", "CLC/NCO/PWM", "serial receive bit timing", "exact oscillator and instruction-cycle timing"]
 vendor_sample_license = "MIT OR Apache-2.0; original Renvo Emulator fixture"
 
 [[target]]

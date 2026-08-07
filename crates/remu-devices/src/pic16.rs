@@ -2,6 +2,7 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 const DATA_BYTES: usize = 0x2000;
@@ -27,8 +28,6 @@ const PIE3: usize = 0x719;
 const PIE4: usize = 0x71a;
 const WDTCON0: usize = 0x80c;
 const OSCSTAT: usize = 0x890;
-const PPSLOCK: usize = 0x1e8f;
-const PPS_OUTPUT_BASES: [usize; 5] = [0x1f10, 0x1f18, 0x1f20, 0x1f28, 0x1f30];
 const ANSEL: [usize; 5] = [0x1f38, 0x1f43, 0x1f4e, 0x1f59, 0x1f64];
 
 const PORT_WIDTHS: [u8; 5] = [8, 8, 8, 8, 4];
@@ -41,6 +40,161 @@ const TX1IF: u8 = 1 << 4;
 const RC1IF: u8 = 1 << 5;
 const TXEN: u8 = 1 << 5;
 const SPEN: u8 = 1 << 7;
+const PPS_OUTPUT_TX1: u8 = 0x0f;
+const PPS_OUTPUT_TMR0: u8 = 0x19;
+const PPS_OUTPUT_MASK: u8 = 0x1f;
+const PPSLOCKED: u8 = 1;
+
+/// Named PIC16F15376 PPS registers used by the functional output-routing model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+#[allow(missing_docs)]
+pub enum Pic16PpsRegister {
+    /// PPS lock state register.
+    Ppslock,
+    /// PORTA PPS output registers.
+    Ra0Pps,
+    Ra1Pps,
+    Ra2Pps,
+    Ra3Pps,
+    Ra4Pps,
+    Ra5Pps,
+    Ra6Pps,
+    Ra7Pps,
+    /// PORTB PPS output registers.
+    Rb0Pps,
+    Rb1Pps,
+    Rb2Pps,
+    Rb3Pps,
+    Rb4Pps,
+    Rb5Pps,
+    Rb6Pps,
+    Rb7Pps,
+    /// PORTC PPS output registers.
+    Rc0Pps,
+    Rc1Pps,
+    Rc2Pps,
+    Rc3Pps,
+    Rc4Pps,
+    Rc5Pps,
+    Rc6Pps,
+    Rc7Pps,
+    /// PORTD PPS output registers.
+    Rd0Pps,
+    Rd1Pps,
+    Rd2Pps,
+    Rd3Pps,
+    Rd4Pps,
+    Rd5Pps,
+    Rd6Pps,
+    Rd7Pps,
+    /// PORTE PPS output registers.
+    Re0Pps,
+    Re1Pps,
+    Re2Pps,
+    Re3Pps,
+}
+
+impl Pic16PpsRegister {
+    /// Stable register order.
+    pub const ALL: [Self; 37] = [
+        Self::Ppslock,
+        Self::Ra0Pps,
+        Self::Ra1Pps,
+        Self::Ra2Pps,
+        Self::Ra3Pps,
+        Self::Ra4Pps,
+        Self::Ra5Pps,
+        Self::Ra6Pps,
+        Self::Ra7Pps,
+        Self::Rb0Pps,
+        Self::Rb1Pps,
+        Self::Rb2Pps,
+        Self::Rb3Pps,
+        Self::Rb4Pps,
+        Self::Rb5Pps,
+        Self::Rb6Pps,
+        Self::Rb7Pps,
+        Self::Rc0Pps,
+        Self::Rc1Pps,
+        Self::Rc2Pps,
+        Self::Rc3Pps,
+        Self::Rc4Pps,
+        Self::Rc5Pps,
+        Self::Rc6Pps,
+        Self::Rc7Pps,
+        Self::Rd0Pps,
+        Self::Rd1Pps,
+        Self::Rd2Pps,
+        Self::Rd3Pps,
+        Self::Rd4Pps,
+        Self::Rd5Pps,
+        Self::Rd6Pps,
+        Self::Rd7Pps,
+        Self::Re0Pps,
+        Self::Re1Pps,
+        Self::Re2Pps,
+        Self::Re3Pps,
+    ];
+
+    /// Canonical data-space address.
+    pub const fn offset(self) -> usize {
+        match self as u8 {
+            0 => 0x1e8f,
+            1..=8 => 0x1f10 + (self as usize - 1),
+            9..=16 => 0x1f18 + (self as usize - 9),
+            17..=24 => 0x1f20 + (self as usize - 17),
+            25..=32 => 0x1f28 + (self as usize - 25),
+            33..=36 => 0x1f30 + (self as usize - 33),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Stable numeric index for metadata tables.
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// Stable lowercase register name.
+    pub const fn name(self) -> &'static str {
+        const NAMES: [&str; 37] = [
+            "ppslock", "ra0pps", "ra1pps", "ra2pps", "ra3pps", "ra4pps", "ra5pps", "ra6pps",
+            "ra7pps", "rb0pps", "rb1pps", "rb2pps", "rb3pps", "rb4pps", "rb5pps", "rb6pps",
+            "rb7pps", "rc0pps", "rc1pps", "rc2pps", "rc3pps", "rc4pps", "rc5pps", "rc6pps",
+            "rc7pps", "rd0pps", "rd1pps", "rd2pps", "rd3pps", "rd4pps", "rd5pps", "rd6pps",
+            "rd7pps", "re0pps", "re1pps", "re2pps", "re3pps",
+        ];
+        NAMES[self.index()]
+    }
+
+    /// Returns the output port/pin for an RxyPPS register.
+    pub const fn port_pin(self) -> Option<(usize, usize)> {
+        match self as u8 {
+            1..=8 => Some((0, self as usize - 1)),
+            9..=16 => Some((1, self as usize - 9)),
+            17..=24 => Some((2, self as usize - 17)),
+            25..=32 => Some((3, self as usize - 25)),
+            33..=36 => Some((4, self as usize - 33)),
+            _ => None,
+        }
+    }
+
+    /// Returns a named output register for a port/pin pair.
+    pub fn output(port: usize, pin: usize) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|register| register.port_pin() == Some((port, pin)))
+    }
+
+    /// Resolves a raw data-space address to its named PPS register.
+    pub fn from_data_address(address: usize) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|register| register.offset() == address)
+    }
+}
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -84,9 +238,36 @@ impl Pic16State {
             & PORT_MASKS[port]
     }
 
+    fn signal_level(&self, signal: SignalId) -> Logic {
+        self.hub.with_registry(|registry| {
+            registry
+                .value(signal)
+                .and_then(|value| value.bit(0))
+                .unwrap_or(Logic::Zero)
+        })
+    }
+
+    fn pps_output_level(&self, source: u8) -> Logic {
+        match source {
+            0 => Logic::Zero,
+            PPS_OUTPUT_TX1 => self.signal_level(self.uart_strobe_signal),
+            PPS_OUTPUT_TMR0 => self.signal_level(self.timer0_irq_signal),
+            _ => Logic::Zero,
+        }
+    }
+
     fn refresh_port(&mut self, port: usize, at: SimTime) -> Result<(), DeviceError> {
         let direction = (!self.registers[TRIS_BASE + port]) & PORT_MASKS[port];
-        let output = self.registers[LAT_BASE + port] & PORT_MASKS[port];
+        let latch = self.registers[LAT_BASE + port] & PORT_MASKS[port];
+        let mut output = latch;
+        for pin in 0..usize::from(PORT_WIDTHS[port]) {
+            let register = Pic16PpsRegister::output(port, pin).expect("PIC16 PPS pin is mapped");
+            let source = self.registers[register.offset()] & PPS_OUTPUT_MASK;
+            if source != 0 {
+                output = (output & !(1 << pin))
+                    | (u8::from(self.pps_output_level(source) == Logic::One) << pin);
+            }
+        }
         {
             let mut gpio = self.ports[port].lock().expect("PIC16 GPIO lock poisoned");
             gpio.direction = u32::from(direction);
@@ -113,7 +294,7 @@ impl Pic16State {
         self.registers[PIR3] = TX1IF;
         self.registers[TX1STA] = 1 << 1; // TRMT
         self.registers[OSCSTAT] = 1 << 6; // internal HF oscillator ready
-        self.registers[PPSLOCK] = 1;
+        self.registers[Pic16PpsRegister::Ppslock.offset()] = 0;
         self.uart.clear();
         self.timer0_epoch = at.ticks();
         self.timer1_epoch = at.ticks();
@@ -189,6 +370,9 @@ impl Pic16PeripheralsHandle {
                 state.watchdog_reset = true;
                 state.set_signal(state.watchdog_reset_signal, 1, 1, now);
             }
+        }
+        for port in 0..5 {
+            let _ = state.refresh_port(port, now);
         }
         let pending = state.interrupt_pending();
         state.set_signal(state.interrupt_signal, u64::from(pending), 1, now);
@@ -337,6 +521,15 @@ impl Device for Pic16Peripherals {
         let value = match address {
             OSCSTAT => state.registers[address] | (1 << 6),
             TX1STA => state.registers[address] | (1 << 1),
+            address
+                if Pic16PpsRegister::from_data_address(address)
+                    == Some(Pic16PpsRegister::Ppslock) =>
+            {
+                state.registers[address] & PPSLOCKED
+            }
+            address if Pic16PpsRegister::from_data_address(address).is_some() => {
+                state.registers[address] & PPS_OUTPUT_MASK
+            }
             RC1REG => {
                 state.registers[PIR3] &= !RC1IF;
                 state.registers[address]
@@ -432,15 +625,23 @@ impl Device for Pic16Peripherals {
                 state.registers[address] = value & 0x3f;
                 state.watchdog_epoch = at.ticks();
             }
+            address if Pic16PpsRegister::from_data_address(address).is_some() => {
+                let register = Pic16PpsRegister::from_data_address(address)
+                    .expect("PPS address was checked above");
+                if register == Pic16PpsRegister::Ppslock {
+                    state.registers[address] = value & PPSLOCKED;
+                } else if state.registers[Pic16PpsRegister::Ppslock.offset()] & PPSLOCKED == 0 {
+                    state.registers[address] = value & PPS_OUTPUT_MASK;
+                    if let Some((port, _pin)) = register.port_pin() {
+                        state.refresh_port(port, at)?;
+                    }
+                }
+            }
             _ => {
                 state.registers[address] = value;
                 if let Some(port) = Self::port_for(address, &ANSEL) {
                     state.refresh_port(port, at)?;
                 }
-                // PPS output registers are retained verbatim so firmware can read them back.
-                let _is_output_pps = PPS_OUTPUT_BASES
-                    .iter()
-                    .any(|base| (*base..*base + 8).contains(&address));
             }
         }
         Ok(())
@@ -502,5 +703,138 @@ mod tests {
             .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn pps_routes_timer0_and_eusart_strobes_to_gpio_outputs() {
+        let hub = SignalHub::new();
+        let (mut device, handle, ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        device
+            .write(ANSEL[0] as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(TRIS_BASE as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                Pic16PpsRegister::Ra0Pps.offset() as u64,
+                AccessWidth::Byte,
+                PPS_OUTPUT_TMR0.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(TMR0H as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(ports[0].output() & 1, 0);
+        handle.poll(SimTime::from_ticks(2));
+        assert_eq!(ports[0].output() & 1, 1);
+
+        device
+            .write(
+                Pic16PpsRegister::Ra0Pps.offset() as u64,
+                AccessWidth::Byte,
+                PPS_OUTPUT_TX1.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                RC1STA as u64,
+                AccessWidth::Byte,
+                SPEN.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                TX1STA as u64,
+                AccessWidth::Byte,
+                TXEN.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        device
+            .write(
+                TX1REG as u64,
+                AccessWidth::Byte,
+                b'P'.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        handle.poll(SimTime::from_ticks(2));
+        assert_eq!(ports[0].output() & 1, 1);
+    }
+
+    #[test]
+    fn pps_registers_are_named_cover_all_pins_and_honor_the_lock() {
+        assert_eq!(Pic16PpsRegister::ALL.len(), 37);
+        for (index, register) in Pic16PpsRegister::ALL.iter().copied().enumerate() {
+            assert_eq!(register.index(), index);
+            assert_eq!(
+                Pic16PpsRegister::from_data_address(register.offset()),
+                Some(register)
+            );
+        }
+        assert_eq!(Pic16PpsRegister::Ra7Pps.port_pin(), Some((0, 7)));
+        assert_eq!(Pic16PpsRegister::Re3Pps.port_pin(), Some((4, 3)));
+        assert_eq!(
+            Pic16PpsRegister::output(3, 7),
+            Some(Pic16PpsRegister::Rd7Pps)
+        );
+
+        let hub = SignalHub::new();
+        let (mut device, handle, ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        let at = SimTime::ZERO;
+        device
+            .write(ANSEL[0] as u64, AccessWidth::Byte, 0, at)
+            .unwrap();
+        device
+            .write(TRIS_BASE as u64, AccessWidth::Byte, 0x7f, at)
+            .unwrap();
+        device
+            .write(
+                Pic16PpsRegister::Ra7Pps.offset() as u64,
+                AccessWidth::Byte,
+                PPS_OUTPUT_TMR0.into(),
+                at,
+            )
+            .unwrap();
+        device
+            .write(TMR0H as u64, AccessWidth::Byte, 1, at)
+            .unwrap();
+        device
+            .write(T0CON0 as u64, AccessWidth::Byte, 0x80, at)
+            .unwrap();
+        handle.poll(SimTime::from_ticks(2));
+        assert_eq!(ports[0].output() & 0x80, 0x80);
+
+        device
+            .write(
+                Pic16PpsRegister::Ppslock.offset() as u64,
+                AccessWidth::Byte,
+                PPSLOCKED.into(),
+                at,
+            )
+            .unwrap();
+        device
+            .write(
+                Pic16PpsRegister::Ra7Pps.offset() as u64,
+                AccessWidth::Byte,
+                0,
+                at,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(
+                Pic16PpsRegister::Ra7Pps.offset() as u64,
+                AccessWidth::Byte,
+                at
+            ),
+            Ok(u64::from(PPS_OUTPUT_TMR0))
+        );
     }
 }
