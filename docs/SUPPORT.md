@@ -332,3 +332,9 @@ The human-readable portfolio view is
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
+
+The R7FA4M1AB3CFM model also includes the RA4M1 Clock Frequency Accuracy
+Measurement Circuit at `0x40044600`. Register programming, range comparison,
+status/interrupt flag clearing, and deterministic host-injected reference
+measurements are supported; clock-pin filtering and exact oscillator phase
+behavior remain outside the functional slice.
