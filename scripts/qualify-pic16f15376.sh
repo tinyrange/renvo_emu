@@ -117,6 +117,37 @@ grep -q 'timer0' "$fixture_run/signals.vcd"
 grep -q 'interrupt' "$fixture_run/signals.vcd"
 grep -q 'porte' "$fixture_run/signals.vcd"
 
+comparator_build="$artifact_root/register-comparator-build"
+comparator_run="$artifact_root/register-comparator-run"
+mkdir -p "$comparator_build" "$comparator_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$comparator_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-comparator-build.json" \
+    -- -Os remu_comparator.c \
+    -Wl,-Map=/workspace/out/comparator.map \
+    -o /workspace/out/comparator.elf
+docker run --rm --network=none \
+    -v "$repo_root/$comparator_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/comparator.elf \
+    >"$comparator_build/comparator.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$comparator_build/comparator.hex" \
+    --max-instructions 30000 \
+    --pin 0=0@0 \
+    --pin 2=1@0 \
+    --stop-signal board.pic16f15376.comparator1.output=rising \
+    --vcd "$comparator_run/signals.vcd" \
+    --bus-log "$comparator_run/bus.json" \
+    --result "$comparator_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.comparator1.output"}' \
+    "$comparator_run/result.json" >/dev/null
+grep -q 'comparator1' "$comparator_run/signals.vcd"
+
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \
     >"$artifact_root/SHA256SUMS"
 

@@ -41,6 +41,84 @@ const TX1IF: u8 = 1 << 4;
 const RC1IF: u8 = 1 << 5;
 const TXEN: u8 = 1 << 5;
 const SPEN: u8 = 1 << 7;
+const C1IF: u8 = 1;
+const CM1CON0_OUT: u8 = 1 << 6;
+const CMOUT_C1OUT: u8 = 1;
+const C1ON: u8 = 1 << 7;
+const C1POL: u8 = 1 << 4;
+const CM1CON0_WRITE_MASK: u8 = C1ON | C1POL | (1 << 1) | 1;
+const CM1CON1_MASK: u8 = 0x03;
+const CM1_CHANNEL_MASK: u8 = 0x07;
+
+/// PIC16F15376 Comparator C1 and interrupt register identifiers.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
+#[repr(usize)]
+pub enum Pic16ComparatorRegister {
+    /// Comparator interrupt flag register (C1IF is bit 0).
+    Pir2 = 0x70e,
+    /// Comparator interrupt enable register (C1IE is bit 0).
+    Pie2 = 0x718,
+    /// Read-only mirror of comparator outputs.
+    Cmout = 0x98f,
+    /// Comparator C1 enable, output, polarity, hysteresis and sync control.
+    Cm1Con0 = 0x990,
+    /// Comparator C1 edge interrupt enables.
+    Cm1Con1 = 0x991,
+    /// Comparator C1 negative input selection.
+    Cm1Nch = 0x992,
+    /// Comparator C1 positive input selection.
+    Cm1Pch = 0x993,
+}
+
+impl Pic16ComparatorRegister {
+    /// All comparator-related registers modelled by this peripheral slice.
+    pub const ALL: [Self; 7] = [
+        Self::Pir2,
+        Self::Pie2,
+        Self::Cmout,
+        Self::Cm1Con0,
+        Self::Cm1Con1,
+        Self::Cm1Nch,
+        Self::Cm1Pch,
+    ];
+
+    /// Data-space address of this register.
+    pub const fn offset(self) -> usize {
+        self as usize
+    }
+
+    /// Backing register-array index for this register.
+    pub const fn index(self) -> usize {
+        self.offset()
+    }
+
+    /// Lowercase datasheet register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Pir2 => "pir2",
+            Self::Pie2 => "pie2",
+            Self::Cmout => "cmout",
+            Self::Cm1Con0 => "cm1con0",
+            Self::Cm1Con1 => "cm1con1",
+            Self::Cm1Nch => "cm1nch",
+            Self::Cm1Pch => "cm1pch",
+        }
+    }
+
+    /// Converts a data-space address into a known comparator register.
+    pub const fn from_data_address(address: usize) -> Option<Self> {
+        match address {
+            0x70e => Some(Self::Pir2),
+            0x718 => Some(Self::Pie2),
+            0x98f => Some(Self::Cmout),
+            0x990 => Some(Self::Cm1Con0),
+            0x991 => Some(Self::Cm1Con1),
+            0x992 => Some(Self::Cm1Nch),
+            0x993 => Some(Self::Cm1Pch),
+            _ => None,
+        }
+    }
+}
 
 struct Pic16State {
     registers: Vec<u8>,
@@ -56,6 +134,7 @@ struct Pic16State {
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
+    comparator1_output_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
 }
@@ -82,6 +161,81 @@ impl Pic16State {
                 value | (u8::from(net.resolved() == Logic::One) << pin)
             })
             & PORT_MASKS[port]
+    }
+
+    fn comparator_pin(&self, channel: u8, positive: bool) -> Option<Logic> {
+        let (port, pin) = if positive {
+            match channel {
+                0 => (0, 2), // C1IN0+
+                1 => (0, 3), // C1IN1+
+                _ => return None,
+            }
+        } else {
+            match channel {
+                0 => (0, 0), // C1IN0-
+                1 => (0, 1), // C1IN1-
+                2 => (3, 3), // C1IN2- on RB3
+                3 => (1, 1), // C1IN3- on RB1
+                _ => return None,
+            }
+        };
+        Some(
+            self.ports[port]
+                .lock()
+                .expect("PIC16 GPIO lock poisoned")
+                .nets[pin]
+                .resolved(),
+        )
+    }
+
+    fn comparator_input(&self, channel: u8, positive: bool) -> Logic {
+        match channel {
+            5 if positive => Logic::Zero, // DAC output is not part of this slice.
+            6 => Logic::One,              // FVR buffer 2 is a deterministic high reference.
+            7 => Logic::Zero,             // AVSS.
+            _ => self
+                .comparator_pin(channel, positive)
+                .unwrap_or(Logic::Zero),
+        }
+    }
+
+    fn update_comparator(&mut self, at: SimTime) {
+        let enabled = self.registers[Pic16ComparatorRegister::Cm1Con0.index()] & C1ON != 0;
+        let previous = self.registers[Pic16ComparatorRegister::Cm1Con0.index()] & CM1CON0_OUT != 0;
+        let positive = self.comparator_input(
+            self.registers[Pic16ComparatorRegister::Cm1Pch.index()] & CM1_CHANNEL_MASK,
+            true,
+        ) == Logic::One;
+        let negative = self.comparator_input(
+            self.registers[Pic16ComparatorRegister::Cm1Nch.index()] & CM1_CHANNEL_MASK,
+            false,
+        ) == Logic::One;
+        let raw_output = enabled && (positive != negative) && positive;
+        let output =
+            if enabled && self.registers[Pic16ComparatorRegister::Cm1Con0.index()] & C1POL != 0 {
+                !raw_output
+            } else {
+                raw_output
+            };
+        let cm1con0 = Pic16ComparatorRegister::Cm1Con0.index();
+        self.registers[cm1con0] =
+            (self.registers[cm1con0] & !CM1CON0_OUT) | (u8::from(output) * CM1CON0_OUT);
+        let cmout = Pic16ComparatorRegister::Cmout.index();
+        self.registers[cmout] =
+            (self.registers[cmout] & !CMOUT_C1OUT) | (u8::from(output) * CMOUT_C1OUT);
+        // C1IF is edge-triggered even when a transition is caused by changing
+        // C1ON or C1POL; the data sheet explicitly calls out those cases.
+        if output != previous {
+            let edge_enable = if output {
+                self.registers[Pic16ComparatorRegister::Cm1Con1.index()] & (1 << 1) != 0
+            } else {
+                self.registers[Pic16ComparatorRegister::Cm1Con1.index()] & 1 != 0
+            };
+            if edge_enable {
+                self.registers[Pic16ComparatorRegister::Pir2.index()] |= C1IF;
+            }
+        }
+        self.set_signal(self.comparator1_output_signal, u64::from(output), 1, at);
     }
 
     fn refresh_port(&mut self, port: usize, at: SimTime) -> Result<(), DeviceError> {
@@ -122,6 +276,7 @@ impl Pic16State {
         self.set_signal(self.uart_strobe_signal, 0, 1, at);
         self.set_signal(self.timer0_irq_signal, 0, 1, at);
         self.set_signal(self.timer1_irq_signal, 0, 1, at);
+        self.set_signal(self.comparator1_output_signal, 0, 1, at);
         self.set_signal(self.interrupt_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
         for port in 0..5 {
@@ -133,6 +288,10 @@ impl Pic16State {
         let peripheral = self.registers[INTCON] & INTCON_PEIE != 0
             && ((self.registers[PIR0] & self.registers[PIE0] & TMR0IF != 0)
                 || (self.registers[PIR4] & self.registers[PIE4] & TMR1IF != 0)
+                || (self.registers[Pic16ComparatorRegister::Pir2.index()]
+                    & self.registers[Pic16ComparatorRegister::Pie2.index()]
+                    & C1IF
+                    != 0)
                 || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
     }
@@ -152,12 +311,23 @@ impl Pic16PeripheralsHandle {
             .clone()
     }
 
+    /// Returns the current logical C1 comparator output.
+    pub fn comparator1_output(&self) -> bool {
+        self.0
+            .lock()
+            .expect("PIC16 peripheral lock poisoned")
+            .registers[Pic16ComparatorRegister::Cm1Con0.index()]
+            & CM1CON0_OUT
+            != 0
+    }
+
     /// Advances functional timers and returns the combined interrupt request.
     pub fn poll(&self, now: SimTime) -> bool {
         let mut state = self.0.lock().expect("PIC16 peripheral lock poisoned");
         for port in 0..5 {
             let _ = state.refresh_port(port, now);
         }
+        state.update_comparator(now);
         if state.registers[T0CON0] & 0x80 != 0 {
             let period = u64::from(state.registers[TMR0H]).saturating_add(1).max(1);
             let elapsed = now.ticks().saturating_sub(state.timer0_epoch);
@@ -252,6 +422,11 @@ impl Pic16Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("functional Timer1 interrupt flag".to_owned()),
         )?;
+        let comparator1_output_signal = hub.declare(
+            "board.pic16f15376.comparator1.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional C1 comparator output".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.pic16f15376.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -276,6 +451,7 @@ impl Pic16Peripherals {
             uart_strobe_signal,
             timer0_irq_signal,
             timer1_irq_signal,
+            comparator1_output_signal,
             interrupt_signal,
             watchdog_reset_signal,
         }));
@@ -428,6 +604,31 @@ impl Device for Pic16Peripherals {
                 }
                 state.registers[address] = value;
             }
+            address if address == Pic16ComparatorRegister::Pir2.offset() => {
+                state.registers[address] = value & C1IF;
+            }
+            address if address == Pic16ComparatorRegister::Pie2.offset() => {
+                state.registers[address] = value & C1IF;
+            }
+            address if address == Pic16ComparatorRegister::Cmout.offset() => {
+                // CMOUT is a read-only mirror of comparator outputs.
+            }
+            address if address == Pic16ComparatorRegister::Cm1Con0.offset() => {
+                state.registers[address] =
+                    (state.registers[address] & CM1CON0_OUT) | (value & CM1CON0_WRITE_MASK);
+                state.update_comparator(at);
+            }
+            address if address == Pic16ComparatorRegister::Cm1Con1.offset() => {
+                state.registers[address] = value & CM1CON1_MASK;
+                state.update_comparator(at);
+            }
+            address
+                if address == Pic16ComparatorRegister::Cm1Nch.offset()
+                    || address == Pic16ComparatorRegister::Cm1Pch.offset() =>
+            {
+                state.registers[address] = value & CM1_CHANNEL_MASK;
+                state.update_comparator(at);
+            }
             WDTCON0 => {
                 state.registers[address] = value & 0x3f;
                 state.watchdog_epoch = at.ticks();
@@ -457,6 +658,19 @@ impl Device for Pic16Peripherals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comparator_register_ids_are_named_and_stable() {
+        assert_eq!(Pic16ComparatorRegister::ALL.len(), 7);
+        assert_eq!(Pic16ComparatorRegister::Pir2.offset(), 0x70e);
+        assert_eq!(Pic16ComparatorRegister::Cm1Con0.index(), 0x990);
+        assert_eq!(Pic16ComparatorRegister::Cm1Con0.name(), "cm1con0");
+        assert_eq!(
+            Pic16ComparatorRegister::from_data_address(0x993),
+            Some(Pic16ComparatorRegister::Cm1Pch)
+        );
+        assert_eq!(Pic16ComparatorRegister::from_data_address(0x994), None);
+    }
 
     #[test]
     fn gpio_uart_timer_and_watchdog_slice_is_functional() {
@@ -502,5 +716,134 @@ mod tests {
             .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn comparator1_selects_gpio_inputs_and_latches_edge_interrupts() {
+        let hub = SignalHub::new();
+        let (mut device, handle, ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        ports[0].set_input(0, Logic::Zero, SimTime::ZERO).unwrap(); // C1IN0-
+        ports[0].set_input(2, Logic::One, SimTime::ZERO).unwrap(); // C1IN0+
+        device
+            .write(
+                Pic16ComparatorRegister::Pie2.offset() as u64,
+                AccessWidth::Byte,
+                C1IF.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Pic16ComparatorRegister::Cm1Con1.offset() as u64,
+                AccessWidth::Byte,
+                0x02,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                INTCON as u64,
+                AccessWidth::Byte,
+                (INTCON_GIE | INTCON_PEIE).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Pic16ComparatorRegister::Cm1Con0.offset() as u64,
+                AccessWidth::Byte,
+                C1ON.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.comparator1_output());
+        assert!(handle.poll(SimTime::from_ticks(1)));
+        assert_eq!(
+            device
+                .read(
+                    Pic16ComparatorRegister::Cm1Con0.offset() as u64,
+                    AccessWidth::Byte,
+                    SimTime::from_ticks(1),
+                )
+                .unwrap(),
+            u64::from(C1ON | CM1CON0_OUT)
+        );
+        assert_eq!(
+            device
+                .read(
+                    Pic16ComparatorRegister::Cmout.offset() as u64,
+                    AccessWidth::Byte,
+                    SimTime::from_ticks(1),
+                )
+                .unwrap(),
+            u64::from(CMOUT_C1OUT)
+        );
+        device
+            .write(
+                Pic16ComparatorRegister::Cmout.offset() as u64,
+                AccessWidth::Byte,
+                u8::MAX.into(),
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Pic16ComparatorRegister::Cmout.offset() as u64,
+                    AccessWidth::Byte,
+                    SimTime::from_ticks(1),
+                )
+                .unwrap(),
+            u64::from(CMOUT_C1OUT)
+        );
+
+        device
+            .write(
+                Pic16ComparatorRegister::Pir2.offset() as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        ports[0]
+            .set_input(2, Logic::Zero, SimTime::from_ticks(2))
+            .unwrap();
+        assert!(!handle.poll(SimTime::from_ticks(2)));
+        assert!(!handle.comparator1_output());
+    }
+
+    #[test]
+    fn comparator1_stays_low_when_disabled_even_if_polarity_is_inverted() {
+        let hub = SignalHub::new();
+        let (mut device, handle, ports) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        ports[0].set_input(0, Logic::Zero, SimTime::ZERO).unwrap();
+        ports[0].set_input(2, Logic::One, SimTime::ZERO).unwrap();
+        device
+            .write(
+                Pic16ComparatorRegister::Cm1Con0.offset() as u64,
+                AccessWidth::Byte,
+                C1POL.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.comparator1_output());
+        device
+            .write(
+                Pic16ComparatorRegister::Cm1Con0.offset() as u64,
+                AccessWidth::Byte,
+                u64::from(C1ON | C1POL),
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        assert!(!handle.comparator1_output());
+        device
+            .write(
+                Pic16ComparatorRegister::Cm1Con0.offset() as u64,
+                AccessWidth::Byte,
+                C1ON.into(),
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        assert!(handle.comparator1_output());
     }
 }
