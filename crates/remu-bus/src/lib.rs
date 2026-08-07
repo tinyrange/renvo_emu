@@ -482,11 +482,27 @@ impl AddressSpace {
         size: usize,
         device: Box<dyn Device>,
     ) -> Result<(), MapError> {
+        self.map_device_with_permissions(name, start, size, Permissions::RW, device)
+    }
+
+    /// Maps an MMIO device with explicit access permissions.
+    ///
+    /// Most peripherals are read/write only and should use [`Self::map_device`].
+    /// A few memory-backed devices, such as executable FRAM or ROM windows,
+    /// also need to service instruction fetches and can opt into `RX`/`RWX`.
+    pub fn map_device_with_permissions(
+        &mut self,
+        name: impl Into<String>,
+        start: u64,
+        size: usize,
+        permissions: Permissions,
+        device: Box<dyn Device>,
+    ) -> Result<(), MapError> {
         self.insert_region(
             name.into(),
             start,
             size,
-            Permissions::RW,
+            permissions,
             Backing::Device(device),
         )
     }

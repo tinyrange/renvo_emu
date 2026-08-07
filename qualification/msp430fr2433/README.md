@@ -17,9 +17,21 @@ Implemented functionally: the CPUXv2 integer/interruption subset emitted by the
 pinned toolchain, the 20-bit unified address space, reset vectors, FRAM and
 SRAM, PM5 GPIO lock behavior, Ports 1–3, Port 1 edge interrupts, Timer0_A CCR0,
 eUSCI_A0 UART transmit/receive loopback, WDT_A reset and persistent FRAM.
+
+The FRAM controller slice also models the FR2433 reset values and protected
+access rules for `FRCTL0`, `GCCTL0`, `GCCTL1` and `SYSCFG0`: NWAITS masking,
+the `0xA5` controller password, FRPWR wake-up, write-zero-to-clear controller
+flags, mutually exclusive uncorrectable-bit actions, and independent program
+and information-FRAM write protection. Program FRAM (`0xC000` compatibility
+window) and information FRAM (`0x1800..0x19ff`) remain persistent across
+machine resets; firmware loading bypasses runtime protection as a hardware
+programmer would.
+
 Clock-tree, timer prescaling and UART bit timing are deterministic
-approximations. Analog peripherals and unlisted serial modes are outside this
-acceptance slice.
+approximations. FRAM cache/ECC timing, physical endurance exhaustion, and
+analog peripherals are outside this acceptance slice; writes are not aged
+toward a finite simulated silicon lifetime. Unlisted serial modes remain
+outside the slice.
 
 Run from the repository root:
 
