@@ -298,6 +298,11 @@ pretty-printed ordering remain compatible with existing qualification
 artifacts. Coverage uses the same event stream but retains only unique executed
 addresses.
 
+The STM32L432KC model includes the deterministic RNG at `0x50060800`. It
+models native enable/status/data registers with a replayable host-seeded stream
+for CI; this is an observability-friendly deterministic model, not a
+cryptographic entropy source or silicon noise model.
+
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the
 corresponding esptool application binary with `--esp-app-image` enables a
