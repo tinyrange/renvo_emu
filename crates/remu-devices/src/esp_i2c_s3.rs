@@ -17,10 +17,249 @@ pub struct Esp32s3I2c {
     int_raw: u32,
     int_ena: u32,
     nack: bool,
-    sensor: Sgp30,
+    targets: Arc<Mutex<Esp32s3I2cTargets>>,
     sda: SignalId,
     scl: SignalId,
     hub: SignalHub,
+}
+
+#[derive(Clone, Debug)]
+enum Esp32s3I2cTarget {
+    Sgp30(Sgp30),
+    M5Pm1(M5Pm1),
+    Bmi270(Bmi270),
+    Es8311(Es8311),
+}
+
+struct Esp32s3I2cTargets {
+    devices: BTreeMap<u8, Esp32s3I2cTarget>,
+    m5pm1_signals: Option<M5Pm1Signals>,
+    m5pm1_irq_gpio: Option<(GpioHandle, u8)>,
+    bmi270_transactions: Option<SignalId>,
+    es8311_transactions: Option<SignalId>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct M5Pm1Signals {
+    transactions: SignalId,
+    power_config: SignalId,
+    grove_powered: SignalId,
+}
+
+/// Host-side attachment and inspection handle for an ESP32-S3 I2C bus.
+#[derive(Clone)]
+pub struct Esp32s3I2cHandle {
+    targets: Arc<Mutex<Esp32s3I2cTargets>>,
+    hub: SignalHub,
+}
+
+impl Esp32s3I2cHandle {
+    /// Attaches the `M5StickS3` power-management companion at address `0x6e`.
+    pub fn attach_m5pm1(&self) -> Result<(), SignalError> {
+        let mut targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        targets
+            .devices
+            .insert(M5PM1_ADDRESS, Esp32s3I2cTarget::M5Pm1(M5Pm1::new()));
+        if targets.m5pm1_signals.is_none() {
+            targets.m5pm1_signals = Some(M5Pm1Signals {
+                transactions: self.hub.declare(
+                    "board.m5sticks3.component.m5pm1.transactions",
+                    SignalValue::from_u64(0, 64)?,
+                    Some("accepted M5PM1 I2C transactions".to_owned()),
+                )?,
+                power_config: self.hub.declare(
+                    "board.m5sticks3.component.m5pm1.power_config",
+                    SignalValue::from_u64(0x07, 8)?,
+                    Some("M5PM1 power-rail configuration".to_owned()),
+                )?,
+                grove_powered: self.hub.declare(
+                    "board.m5sticks3.component.m5pm1.grove_powered",
+                    SignalValue::from_u64(0, 1)?,
+                    Some("M5PM1 Grove/BOOST rail state".to_owned()),
+                )?,
+            });
+        }
+        Ok(())
+    }
+
+    /// Returns the attached M5PM1 state, if present.
+    pub fn m5pm1_snapshot(&self) -> Option<M5Pm1Snapshot> {
+        let targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        match targets.devices.get(&M5PM1_ADDRESS) {
+            Some(Esp32s3I2cTarget::M5Pm1(device)) => Some(device.snapshot()),
+            _ => None,
+        }
+    }
+
+    /// Connects the M5PM1 active-low IRQ output to one ESP32-S3 GPIO input.
+    pub fn bind_m5pm1_irq(
+        &self,
+        gpio: GpioHandle,
+        pin: u8,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        {
+            let mut targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+            targets.m5pm1_irq_gpio = Some((gpio, pin));
+        }
+        self.refresh_m5pm1_signals(at)
+    }
+
+    /// Attaches the `M5StickS3` BMI270 inertial sensor at address `0x68`.
+    pub fn attach_bmi270(&self) -> Result<(), SignalError> {
+        let mut targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        targets
+            .devices
+            .insert(BMI270_ADDRESS, Esp32s3I2cTarget::Bmi270(Bmi270::new()));
+        if targets.bmi270_transactions.is_none() {
+            targets.bmi270_transactions = Some(self.hub.declare(
+                "board.m5sticks3.component.bmi270.transactions",
+                SignalValue::from_u64(0, 64)?,
+                Some("accepted BMI270 I2C transactions".to_owned()),
+            )?);
+        }
+        Ok(())
+    }
+
+    /// Attaches the `M5StickS3` ES8311 audio codec at address `0x18`.
+    pub fn attach_es8311(&self) -> Result<(), SignalError> {
+        let mut targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        targets
+            .devices
+            .insert(ES8311_ADDRESS, Esp32s3I2cTarget::Es8311(Es8311::new()));
+        if targets.es8311_transactions.is_none() {
+            targets.es8311_transactions = Some(self.hub.declare(
+                "board.m5sticks3.component.es8311.transactions",
+                SignalValue::from_u64(0, 64)?,
+                Some("accepted ES8311 I2C transactions".to_owned()),
+            )?);
+        }
+        Ok(())
+    }
+
+    /// Supplies a deterministic physical IMU sample.
+    pub fn set_bmi270_sample(
+        &self,
+        accel: [i16; 3],
+        gyro: [i16; 3],
+        temperature: i16,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        {
+            let mut targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+            if let Some(Esp32s3I2cTarget::Bmi270(device)) = targets.devices.get_mut(&BMI270_ADDRESS)
+            {
+                device.set_sample(accel, gyro, temperature);
+            }
+            if let Some(Esp32s3I2cTarget::M5Pm1(power)) = targets.devices.get_mut(&M5PM1_ADDRESS) {
+                power
+                    .set_gpio_input(4, false)
+                    .expect("M5PM1 GPIO4 is a valid IMU interrupt input");
+                power
+                    .set_gpio_input(4, true)
+                    .expect("M5PM1 GPIO4 is a valid IMU interrupt input");
+            }
+        }
+        self.refresh_m5pm1_signals(at)
+    }
+
+    /// Returns the attached BMI270 state, if present.
+    pub fn bmi270_snapshot(&self) -> Option<Bmi270Snapshot> {
+        let targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        match targets.devices.get(&BMI270_ADDRESS) {
+            Some(Esp32s3I2cTarget::Bmi270(device)) => Some(device.snapshot()),
+            _ => None,
+        }
+    }
+
+    /// Returns the attached ES8311 state, if present.
+    pub fn es8311_snapshot(&self) -> Option<Es8311Snapshot> {
+        let targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        match targets.devices.get(&ES8311_ADDRESS) {
+            Some(Esp32s3I2cTarget::Es8311(device)) => Some(device.snapshot()),
+            _ => None,
+        }
+    }
+
+    fn refresh_m5pm1_signals(&self, at: SimTime) -> Result<(), DeviceError> {
+        let targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        let Some(signals) = targets.m5pm1_signals else {
+            return Ok(());
+        };
+        let Some(Esp32s3I2cTarget::M5Pm1(device)) = targets.devices.get(&M5PM1_ADDRESS) else {
+            return Ok(());
+        };
+        let snapshot = device.snapshot();
+        let irq_gpio = targets.m5pm1_irq_gpio.clone();
+        drop(targets);
+        for (signal, value, width) in [
+            (signals.transactions, snapshot.transactions, 64),
+            (signals.power_config, u64::from(snapshot.power_config), 8),
+            (
+                signals.grove_powered,
+                u64::from(snapshot.power_config & 0x08 != 0),
+                1,
+            ),
+        ] {
+            self.hub
+                .set(
+                    signal,
+                    SignalValue::from_u64(value, width).expect("fixed-width M5PM1 signal"),
+                    at,
+                )
+                .map_err(|error| DeviceError::new(error.to_string()))?;
+        }
+        if let Some((gpio, pin)) = irq_gpio {
+            gpio.set_input(
+                pin,
+                if snapshot.irq_asserted {
+                    Logic::Zero
+                } else {
+                    Logic::One
+                },
+                at,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn refresh_component_signals(&self, at: SimTime) -> Result<(), DeviceError> {
+        let targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        let values = [
+            (
+                targets.bmi270_transactions,
+                targets
+                    .devices
+                    .get(&BMI270_ADDRESS)
+                    .and_then(|target| match target {
+                        Esp32s3I2cTarget::Bmi270(device) => Some(device.snapshot().transactions),
+                        _ => None,
+                    }),
+            ),
+            (
+                targets.es8311_transactions,
+                targets
+                    .devices
+                    .get(&ES8311_ADDRESS)
+                    .and_then(|target| match target {
+                        Esp32s3I2cTarget::Es8311(device) => Some(device.snapshot().transactions),
+                        _ => None,
+                    }),
+            ),
+        ];
+        for (signal, value) in values {
+            if let (Some(signal), Some(value)) = (signal, value) {
+                self.hub
+                    .set(
+                        signal,
+                        SignalValue::from_u64(value, 64).expect("64-bit transaction count"),
+                        at,
+                    )
+                    .map_err(|error| DeviceError::new(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Named ESP32-S3 I2C register offsets exposed by the functional model.
@@ -171,6 +410,14 @@ impl Esp32s3I2c {
 
     /// Creates an I2C controller with a deterministic SGP30 at address `0x58`.
     pub fn new(name: impl Into<String>, hub: SignalHub) -> Result<Self, SignalError> {
+        Self::new_with_handle(name, hub).map(|(device, _)| device)
+    }
+
+    /// Creates an I2C controller and a handle for attaching board devices.
+    pub fn new_with_handle(
+        name: impl Into<String>,
+        hub: SignalHub,
+    ) -> Result<(Self, Esp32s3I2cHandle), SignalError> {
         let name = name.into();
         let sda = hub.declare(
             format!("board.{name}.sda"),
@@ -182,6 +429,17 @@ impl Esp32s3I2c {
             SignalValue::repeat(Logic::One, 1)?,
             Some("ESP32-S3 I2C SCL functional waveform".to_owned()),
         )?;
+        let targets = Arc::new(Mutex::new(Esp32s3I2cTargets {
+            devices: BTreeMap::from([(SGP30_ADDRESS, Esp32s3I2cTarget::Sgp30(Sgp30::new(420, 8)))]),
+            m5pm1_signals: None,
+            m5pm1_irq_gpio: None,
+            bmi270_transactions: None,
+            es8311_transactions: None,
+        }));
+        let handle = Esp32s3I2cHandle {
+            targets: targets.clone(),
+            hub: hub.clone(),
+        };
         let mut device = Self {
             name,
             registers: [0; 0x100 / 4],
@@ -191,13 +449,13 @@ impl Esp32s3I2c {
             int_raw: 1 << 1,
             int_ena: 0,
             nack: false,
-            sensor: Sgp30::new(420, 8),
+            targets,
             sda,
             scl,
             hub,
         };
         device.reset_registers();
-        Ok(device)
+        Ok((device, handle))
     }
 
     fn reset_registers(&mut self) {
@@ -378,17 +636,32 @@ impl Esp32s3I2c {
             self.nack = true;
         }
         if !self.nack {
-            match address {
-                Some(SGP30_ADDRESS) => {
-                    let response = self
-                        .sensor
-                        .transact(&write_payload, read_len, at)
-                        .map_err(|error| DeviceError::new(error.to_string()))?;
-                    if response.len() > Self::FIFO_CAPACITY {
-                        self.nack = true;
-                    } else {
-                        self.rx_fifo.extend(response);
-                    }
+            let response = address
+                .and_then(|address| {
+                    self.targets
+                        .lock()
+                        .expect("ESP32-S3 I2C lock poisoned")
+                        .devices
+                        .get_mut(&address)
+                        .map(|target| match target {
+                            Esp32s3I2cTarget::Sgp30(device) => device
+                                .transact(&write_payload, read_len, at)
+                                .map_err(|error| DeviceError::new(error.to_string())),
+                            Esp32s3I2cTarget::M5Pm1(device) => device
+                                .transact(&write_payload, read_len, at)
+                                .map_err(|error| DeviceError::new(error.to_string())),
+                            Esp32s3I2cTarget::Bmi270(device) => device
+                                .transact(&write_payload, read_len, at)
+                                .map_err(|error| DeviceError::new(error.to_string())),
+                            Esp32s3I2cTarget::Es8311(device) => device
+                                .transact(&write_payload, read_len, at)
+                                .map_err(|error| DeviceError::new(error.to_string())),
+                        })
+                })
+                .transpose()?;
+            match response {
+                Some(response) if response.len() <= Self::FIFO_CAPACITY => {
+                    self.rx_fifo.extend(response);
                 }
                 Some(_) | None => self.nack = true,
             }
@@ -405,6 +678,16 @@ impl Esp32s3I2c {
         }
         let response = self.rx_fifo.iter().copied().collect::<Vec<_>>();
         self.emit_waveform(&tx, &response, at)?;
+        Esp32s3I2cHandle {
+            targets: self.targets.clone(),
+            hub: self.hub.clone(),
+        }
+        .refresh_m5pm1_signals(at)?;
+        Esp32s3I2cHandle {
+            targets: self.targets.clone(),
+            hub: self.hub.clone(),
+        }
+        .refresh_component_signals(at)?;
         Ok(())
     }
 
@@ -552,7 +835,11 @@ impl Esp32s3I2c {
 
     /// Returns the deterministic sensor state for host-side qualification.
     pub fn sensor_snapshot(&self) -> Sgp30Snapshot {
-        self.sensor.snapshot()
+        let targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        match targets.devices.get(&SGP30_ADDRESS) {
+            Some(Esp32s3I2cTarget::Sgp30(sensor)) => sensor.snapshot(),
+            _ => Sgp30::new(420, 8).snapshot(),
+        }
     }
 }
 
@@ -594,7 +881,16 @@ impl Device for Esp32s3I2c {
 
     fn reset(&mut self, _kind: ResetKind) {
         self.reset_registers();
-        self.sensor = Sgp30::new(420, 8);
+        let mut targets = self.targets.lock().expect("ESP32-S3 I2C lock poisoned");
+        for target in targets.devices.values_mut() {
+            *target = match target {
+                Esp32s3I2cTarget::Sgp30(_) => Esp32s3I2cTarget::Sgp30(Sgp30::new(420, 8)),
+                Esp32s3I2cTarget::M5Pm1(_) => Esp32s3I2cTarget::M5Pm1(M5Pm1::new()),
+                Esp32s3I2cTarget::Bmi270(_) => Esp32s3I2cTarget::Bmi270(Bmi270::new()),
+                Esp32s3I2cTarget::Es8311(_) => Esp32s3I2cTarget::Es8311(Es8311::new()),
+            };
+        }
+        drop(targets);
         // Reset releases both open-drain lines to the idle high state. Signal
         // identifiers are owned by this device, so a reset cannot fail unless
         // the hub itself has been corrupted.
@@ -705,6 +1001,58 @@ mod tests {
             hub.with_registry(|registry| registry.value(clock).unwrap().bit(0)),
             Some(Logic::One)
         );
+    }
+
+    #[test]
+    fn routes_i2c1_transactions_to_an_attached_m5pm1() {
+        let hub = SignalHub::new();
+        let (mut device, handle) =
+            Esp32s3I2c::new_with_handle("esp32s3.i2c1", hub.clone()).unwrap();
+        let (_gpio_device, gpio) =
+            FunctionalGpio::new("gpio", 16, "board.gpio", hub, 0, 4, 8).unwrap();
+        handle.attach_m5pm1().unwrap();
+        handle
+            .bind_m5pm1_irq(gpio.clone(), 13, SimTime::ZERO)
+            .unwrap();
+        program(
+            &mut device,
+            &[M5PM1_ADDRESS << 1, 0x06, 0x0f],
+            &[
+                command(0, CommandOpcode::Restart),
+                command(3, CommandOpcode::Write),
+                command(0, CommandOpcode::Stop),
+                command(0, CommandOpcode::End),
+            ],
+            SimTime::from_ticks(10),
+        );
+        let snapshot = handle.m5pm1_snapshot().unwrap();
+        assert_eq!(snapshot.transactions, 1);
+        assert_eq!(snapshot.power_config, 0x0f);
+        assert_eq!(gpio.resolved(13).unwrap(), Logic::One);
+
+        for bytes in [
+            [M5PM1_ADDRESS << 1, 0x17, 0x01], // GPIO4 interrupt function.
+            [M5PM1_ADDRESS << 1, 0x19, 0x10], // GPIO4 rising edge.
+            [M5PM1_ADDRESS << 1, 0x43, 0x0f], // Unmask GPIO4.
+        ] {
+            program(
+                &mut device,
+                &bytes,
+                &[
+                    command(0, CommandOpcode::Restart),
+                    command(3, CommandOpcode::Write),
+                    command(0, CommandOpcode::Stop),
+                    command(0, CommandOpcode::End),
+                ],
+                SimTime::from_ticks(20),
+            );
+        }
+        handle.attach_bmi270().unwrap();
+        handle
+            .set_bmi270_sample([1, 2, 3], [4, 5, 6], 7, SimTime::from_ticks(30))
+            .unwrap();
+        assert!(handle.m5pm1_snapshot().unwrap().irq_asserted);
+        assert_eq!(gpio.resolved(13).unwrap(), Logic::Zero);
     }
 
     #[test]

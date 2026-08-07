@@ -4,7 +4,7 @@ use allocative::Allocative;
 use anyhow::{Context, Result, bail};
 use remu_machines::{
     BoardAction, BoardComponent, BoardComponentKind, BoardConnection, BoardConnector, BoardMount,
-    BoardScenario,
+    BoardScenario, ConnectorProtocol,
 };
 use starlark::environment::{
     FrozenModule, Globals, GlobalsBuilder, Methods, MethodsBuilder, Module,
@@ -109,7 +109,7 @@ fn board_from_value(value: Value<'_>) -> Result<&BoardValue> {
 fn device_from_value(value: Value<'_>) -> Result<&DeviceValue> {
     value
         .downcast_ref::<DeviceValue>()
-        .context("expected a device created by push_button(), led(), ws2812_rgb(), or sgp30()")
+        .context("expected a device created by a board component constructor")
 }
 
 fn gpio_pin(value: u32, label: &str) -> Result<u8> {
@@ -198,6 +198,63 @@ fn board_globals(builder: &mut GlobalsBuilder) {
                     eco2: word(eco2, "eCO2")?,
                     tvoc: word(tvoc, "TVOC")?,
                 },
+            },
+        })
+    }
+
+    /// Creates the `M5Stack` M5PM1 I2C companion controller.
+    fn m5pm1(name: &str) -> anyhow::Result<DeviceValue> {
+        Ok(DeviceValue {
+            component: BoardComponent {
+                name: name.to_owned(),
+                kind: BoardComponentKind::M5Pm1,
+            },
+        })
+    }
+
+    /// Creates the `M5StickS3` BMI270 six-axis IMU.
+    fn bmi270(name: &str) -> anyhow::Result<DeviceValue> {
+        Ok(DeviceValue {
+            component: BoardComponent {
+                name: name.to_owned(),
+                kind: BoardComponentKind::Bmi270,
+            },
+        })
+    }
+
+    /// Creates the `M5StickS3` ES8311 audio codec control-plane model.
+    fn es8311(name: &str) -> anyhow::Result<DeviceValue> {
+        Ok(DeviceValue {
+            component: BoardComponent {
+                name: name.to_owned(),
+                kind: BoardComponentKind::Es8311,
+            },
+        })
+    }
+
+    /// Creates a command-level ST7789 display with deterministic framebuffer state.
+    fn st7789(
+        name: &str,
+        #[starlark(default = 135)] width: u32,
+        #[starlark(default = 240)] height: u32,
+        #[starlark(default = 52)] x_offset: u32,
+        #[starlark(default = 40)] y_offset: u32,
+        #[starlark(default = true)] inverted: bool,
+    ) -> anyhow::Result<DeviceValue> {
+        let config = remu_devices::St7789Config {
+            width: word(width, "ST7789 width")?,
+            height: word(height, "ST7789 height")?,
+            x_offset: word(x_offset, "ST7789 x_offset")?,
+            y_offset: word(y_offset, "ST7789 y_offset")?,
+            inverted,
+        };
+        if config.width == 0 || config.height == 0 {
+            bail!("ST7789 dimensions must be non-zero");
+        }
+        Ok(DeviceValue {
+            component: BoardComponent {
+                name: name.to_owned(),
+                kind: BoardComponentKind::St7789 { config },
             },
         })
     }
@@ -480,6 +537,45 @@ fn board_methods(builder: &mut MethodsBuilder) {
             address,
             write,
             read_len,
+            at,
+        });
+        inner.advance(duration)?;
+        Ok(NoneType)
+    }
+
+    /// Sends one command or data phase through a named SPI connector.
+    fn spi_write<'v>(
+        #[starlark(this)] this: Value<'v>,
+        connector: &str,
+        data: UnpackList<u32>,
+        #[starlark(default = true)] data_phase: bool,
+    ) -> anyhow::Result<NoneType> {
+        let data = data
+            .items
+            .into_iter()
+            .map(|byte| u8::try_from(byte).context("SPI byte must fit u8"))
+            .collect::<Result<Vec<_>>>()?;
+        let board = board_from_value(this)?;
+        let mut inner = board
+            .inner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("board lock poisoned"))?;
+        let port = inner
+            .connectors
+            .iter()
+            .find(|item| item.name == connector)
+            .with_context(|| format!("board has no connector {connector:?}"))?;
+        if port.protocol != ConnectorProtocol::Spi {
+            bail!("connector {connector:?} is not SPI");
+        }
+        let duration = (data.len() as u64)
+            .checked_mul(16)
+            .context("SPI transfer duration overflow")?;
+        let at = inner.cursor;
+        inner.actions.push(BoardAction::SpiTransfer {
+            connector: connector.to_owned(),
+            data,
+            data_phase,
             at,
         });
         inner.advance(duration)?;

@@ -11,6 +11,7 @@
 use super::*;
 
 const TX_CHANNELS: usize = 4;
+const RX_CHANNELS: usize = 4;
 
 /// Named ESP32-S3 RMT register offsets covered by the functional model.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -123,12 +124,53 @@ const SYS_CONF_RESET: u32 = (1 << 4) | (1 << 24) | (1 << 26);
 const FIFO_LIMIT: usize = 256;
 
 /// A completed functional RMT transfer.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Esp32s3RmtTransfer {
     /// Number of completed transfers on this channel.
     pub frames: u64,
     /// The most recently transmitted RMT item words.
     pub last_items: Vec<u32>,
+}
+
+/// Host-side inspection handle for RMT waveforms routed to board devices.
+#[derive(Clone)]
+pub struct Esp32s3RmtHandle {
+    transfers: Arc<Mutex<[Esp32s3RmtTransfer; TX_CHANNELS]>>,
+    receivers: Arc<Mutex<[Esp32s3RmtTransfer; RX_CHANNELS]>>,
+}
+
+impl Esp32s3RmtHandle {
+    /// Returns completed TX evidence for CH0..CH3.
+    pub fn transfer(&self, channel: usize) -> Option<Esp32s3RmtTransfer> {
+        self.transfers
+            .lock()
+            .expect("ESP32-S3 RMT lock poisoned")
+            .get(channel)
+            .cloned()
+    }
+
+    /// Injects captured pulse items into one hardware RX channel (CH4..CH7).
+    pub fn inject_receive(&self, channel: usize, items: Vec<u32>) -> bool {
+        let mut receivers = self
+            .receivers
+            .lock()
+            .expect("ESP32-S3 RMT RX lock poisoned");
+        let Some(receiver) = receivers.get_mut(channel) else {
+            return false;
+        };
+        receiver.frames = receiver.frames.saturating_add(1);
+        receiver.last_items = items;
+        true
+    }
+
+    /// Returns the most recently injected pulse capture for CH4..CH7.
+    pub fn receiver(&self, channel: usize) -> Option<Esp32s3RmtTransfer> {
+        self.receivers
+            .lock()
+            .expect("ESP32-S3 RMT RX lock poisoned")
+            .get(channel)
+            .cloned()
+    }
 }
 
 /// Functional ESP32-S3 RMT transmitter slice.
@@ -137,7 +179,9 @@ pub struct Esp32s3Rmt {
     registers: [u32; 0x100 / 4],
     status: [u32; TX_CHANNELS],
     fifos: [Vec<u32>; TX_CHANNELS],
-    transfers: [Esp32s3RmtTransfer; TX_CHANNELS],
+    transfers: Arc<Mutex<[Esp32s3RmtTransfer; TX_CHANNELS]>>,
+    receivers: Arc<Mutex<[Esp32s3RmtTransfer; RX_CHANNELS]>>,
+    rx_read_index: [usize; RX_CHANNELS],
     interrupt_raw: u32,
     interrupt_enable: u32,
     signals: SignalHub,
@@ -147,6 +191,14 @@ pub struct Esp32s3Rmt {
 impl Esp32s3Rmt {
     /// Creates the ESP32-S3 transmitter channels and their waveform signals.
     pub fn new(name: impl Into<String>, signals: SignalHub) -> Result<Self, SignalError> {
+        Self::new_with_handle(name, signals).map(|(device, _)| device)
+    }
+
+    /// Creates the RMT controller and a board-side transfer handle.
+    pub fn new_with_handle(
+        name: impl Into<String>,
+        signals: SignalHub,
+    ) -> Result<(Self, Esp32s3RmtHandle), SignalError> {
         let mut output_vec = Vec::with_capacity(TX_CHANNELS);
         for channel in 0..TX_CHANNELS {
             output_vec.push(signals.declare(
@@ -158,24 +210,40 @@ impl Esp32s3Rmt {
         let outputs = output_vec
             .try_into()
             .expect("RMT output declaration count is fixed");
+        let transfers = Arc::new(Mutex::new(std::array::from_fn(|_| {
+            Esp32s3RmtTransfer::default()
+        })));
+        let receivers = Arc::new(Mutex::new(std::array::from_fn(|_| {
+            Esp32s3RmtTransfer::default()
+        })));
+        let handle = Esp32s3RmtHandle {
+            transfers: transfers.clone(),
+            receivers: receivers.clone(),
+        };
         let mut rmt = Self {
             name: name.into(),
             registers: [0; 0x100 / 4],
             status: [0; TX_CHANNELS],
             fifos: std::array::from_fn(|_| Vec::new()),
-            transfers: std::array::from_fn(|_| Esp32s3RmtTransfer::default()),
+            transfers,
+            receivers,
+            rx_read_index: [0; RX_CHANNELS],
             interrupt_raw: 0,
             interrupt_enable: 0,
             signals,
             outputs,
         };
         rmt.reset_registers();
-        Ok(rmt)
+        Ok((rmt, handle))
     }
 
     /// Returns the completed-transfer evidence for one transmitter channel.
-    pub fn transfer(&self, channel: usize) -> Option<&Esp32s3RmtTransfer> {
-        self.transfers.get(channel)
+    pub fn transfer(&self, channel: usize) -> Option<Esp32s3RmtTransfer> {
+        self.transfers
+            .lock()
+            .expect("ESP32-S3 RMT lock poisoned")
+            .get(channel)
+            .cloned()
     }
 
     fn reset_registers(&mut self) {
@@ -264,8 +332,10 @@ impl Esp32s3Rmt {
             self.set_output(channel, idle_level, cursor)?;
         }
 
-        self.transfers[channel].frames = self.transfers[channel].frames.saturating_add(1);
-        self.transfers[channel].last_items = items;
+        let mut transfers = self.transfers.lock().expect("ESP32-S3 RMT lock poisoned");
+        transfers[channel].frames = transfers[channel].frames.saturating_add(1);
+        transfers[channel].last_items = items;
+        drop(transfers);
         self.interrupt_raw |= 1 << channel;
         self.refresh_status(channel);
         Ok(())
@@ -277,12 +347,28 @@ impl Esp32s3Rmt {
         self.refresh_status(channel);
     }
 
-    fn read_register(&self, offset: u64) -> Result<u32, DeviceError> {
+    fn read_register(&mut self, offset: u64) -> Result<u32, DeviceError> {
         if let Some(channel) = Self::channel(offset, DATA_BASE, 4) {
             return Ok(self.fifos[channel].last().copied().unwrap_or(0));
         }
+        if let Some(channel) = Self::channel(offset, 0x10, 4) {
+            let receivers = self
+                .receivers
+                .lock()
+                .expect("ESP32-S3 RMT RX lock poisoned");
+            let value = receivers[channel]
+                .last_items
+                .get(self.rx_read_index[channel])
+                .copied()
+                .unwrap_or(0);
+            self.rx_read_index[channel] = self.rx_read_index[channel].saturating_add(1);
+            return Ok(value);
+        }
         if let Some(channel) = Self::channel(offset, CONF0_BASE, 4) {
             return Ok(self.registers[(CONF0_BASE as usize / 4) + channel]);
+        }
+        if (0x30..=0x4c).contains(&offset) {
+            return Ok(self.registers[Self::register_index(offset)?]);
         }
         if let Some(channel) = Self::channel(offset, STATUS_BASE, 4) {
             return Ok(self.status[channel]);
@@ -354,6 +440,28 @@ impl Device for Esp32s3Rmt {
             }
             return Ok(());
         }
+        if (0x30..=0x4c).contains(&offset) {
+            let relative = offset - 0x30;
+            let channel = usize::try_from(relative / 8).expect("RX channel fits usize");
+            if channel < RX_CHANNELS {
+                self.registers[Self::register_index(offset)?] = value;
+                if relative % 8 == 4 {
+                    if value & (1 << 1) != 0 {
+                        self.rx_read_index[channel] = 0;
+                    }
+                    if value & 1 != 0 {
+                        let receivers = self
+                            .receivers
+                            .lock()
+                            .expect("ESP32-S3 RMT RX lock poisoned");
+                        if !receivers[channel].last_items.is_empty() {
+                            self.interrupt_raw |= 1 << (16 + channel);
+                        }
+                    }
+                }
+                return Ok(());
+            }
+        }
         match offset {
             INT_ENA => self.interrupt_enable = value & INT_MASK,
             INT_CLR => self.interrupt_raw &= !(value & INT_MASK),
@@ -393,7 +501,14 @@ impl Device for Esp32s3Rmt {
     fn reset(&mut self, _kind: ResetKind) {
         self.reset_registers();
         self.fifos.iter_mut().for_each(Vec::clear);
-        self.transfers = std::array::from_fn(|_| Esp32s3RmtTransfer::default());
+        *self.transfers.lock().expect("ESP32-S3 RMT lock poisoned") =
+            std::array::from_fn(|_| Esp32s3RmtTransfer::default());
+        *self
+            .receivers
+            .lock()
+            .expect("ESP32-S3 RMT RX lock poisoned") =
+            std::array::from_fn(|_| Esp32s3RmtTransfer::default());
+        self.rx_read_index = [0; RX_CHANNELS];
         self.interrupt_raw = 0;
         self.interrupt_enable = 0;
         for channel in 0..TX_CHANNELS {
@@ -409,6 +524,27 @@ mod tests {
 
     fn item(duration0: u32, level0: bool, duration1: u32, level1: bool) -> u32 {
         duration0 | (u32::from(level0) << 15) | (duration1 << 16) | (u32::from(level1) << 31)
+    }
+
+    #[test]
+    fn host_injected_rx_items_reach_hardware_channel_four() {
+        let hub = SignalHub::new();
+        let (mut rmt, handle) = Esp32s3Rmt::new_with_handle("esp32s3.rmt", hub).unwrap();
+        let pulse = item(9_000, true, 4_500, false);
+        assert!(handle.inject_receive(0, vec![pulse]));
+        rmt.write(0x34, AccessWidth::Word, 3, SimTime::ZERO)
+            .unwrap();
+        rmt.write(0x34, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            rmt.read(INT_RAW, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            1 << 16
+        );
+        assert_eq!(
+            rmt.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            u64::from(pulse)
+        );
+        assert_eq!(handle.receiver(0).unwrap().frames, 1);
     }
 
     #[test]

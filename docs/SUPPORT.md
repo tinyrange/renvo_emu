@@ -12,7 +12,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
-| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and RMT transactions and waveforms |
+| ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
 All targets also expose a stable compiler-test block:
@@ -127,11 +127,13 @@ Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
 
-The ESP32-S3 RMT slice maps transmitter channels 0–3 at the native `0x6001_6000`
-block. Firmware can write the APB FIFO item format, start a channel, receive a
-TX-complete interrupt, and observe the deterministic pulse stream at
-`board.esp32s3.rmt.ch0` through `ch3` in VCD. Carrier modulation, DMA, receive
-channels, and source-clock fidelity remain outside this functional model.
+The ESP32-S3 RMT slice maps transmitter channels 0–3 and receiver channels 4–7
+at the native `0x6001_6000` block. Firmware can write the APB FIFO item format,
+start a transmit channel, receive a completion interrupt, and observe the
+deterministic pulse stream at `board.esp32s3.rmt.ch0` through `ch3` in VCD.
+Bounded host-injected receive pulses populate the native receive memory and
+interrupt state. Carrier modulation, DMA and source-clock fidelity remain
+outside this functional model.
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
@@ -218,7 +220,10 @@ The final distillation gate adds four bounded capabilities:
   `qualification/starlark.json`.
 - `remu board` resolves loaded Starlark board definitions into immutable
   topology/actions, then hands that scenario to the Rust board runner. It does
-  not expose live CPU, scheduler, or peripheral state to the Starlark VM. See
+  not expose live CPU, scheduler, or peripheral state to the Starlark VM. With
+  `--elf`, the M5StickS3 scenario binds native ESP32-S3 GPIO, SPI3, I2C1,
+  I2S0/I2S1 and RMT activity to the complete published non-radio board graph:
+  ST7789, M5PM1, BMI270, ES8311 audio, buttons, infrared, Grove and Hat2. See
   `docs/BOARD_SIMULATION.md` and `scripts/qualify-board-models.sh`.
 - `remu gdb` serves one GDB remote-protocol session with registers, memory,
   breakpoints, step and continue. Direct runs additionally accept `--coverage`

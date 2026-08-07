@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 allocative.workspace = true
 anyhow = "1.0.100"
+remu-devices.workspace = true
 remu-machines.workspace = true
 serde_json.workspace = true
 starlark.workspace = true

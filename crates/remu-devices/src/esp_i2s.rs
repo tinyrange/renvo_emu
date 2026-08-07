@@ -78,6 +78,36 @@ pub struct Esp32s3I2sTransfer {
     pub last_rx: u32,
 }
 
+#[derive(Clone, Debug, Default)]
+struct Esp32s3I2sEndpoint {
+    transfer: Esp32s3I2sTransfer,
+    input_sample: u32,
+}
+
+/// Host-side audio endpoint used to inject microphone data and inspect output.
+#[derive(Clone)]
+pub struct Esp32s3I2sHandle {
+    endpoint: Arc<Mutex<Esp32s3I2sEndpoint>>,
+}
+
+impl Esp32s3I2sHandle {
+    /// Supplies the sample returned by the next non-loopback RX frame.
+    pub fn set_input_sample(&self, sample: u32) {
+        self.endpoint
+            .lock()
+            .expect("ESP32-S3 I2S lock poisoned")
+            .input_sample = sample;
+    }
+
+    /// Returns the completed TX/RX frame evidence.
+    pub fn transfer(&self) -> Esp32s3I2sTransfer {
+        self.endpoint
+            .lock()
+            .expect("ESP32-S3 I2S lock poisoned")
+            .transfer
+    }
+}
+
 /// Functional ESP32-S3 I2S0/I2S1 controller model.
 ///
 /// The model covers the register and signal path useful for deterministic
@@ -92,7 +122,7 @@ pub struct Esp32s3I2s {
     registers: [u32; Self::REGISTER_WORDS],
     interrupt_raw: u32,
     interrupt_enable: u32,
-    transfer: Esp32s3I2sTransfer,
+    endpoint: Arc<Mutex<Esp32s3I2sEndpoint>>,
     hub: SignalHub,
     mclk: SignalId,
     bclk: SignalId,
@@ -215,6 +245,14 @@ impl Esp32s3I2s {
 
     /// Creates an I2S controller and declares its digital waveform signals.
     pub fn new(name: impl Into<String>, hub: SignalHub) -> Result<Self, SignalError> {
+        Self::new_with_handle(name, hub).map(|(device, _)| device)
+    }
+
+    /// Creates an I2S controller and its board audio endpoint.
+    pub fn new_with_handle(
+        name: impl Into<String>,
+        hub: SignalHub,
+    ) -> Result<(Self, Esp32s3I2sHandle), SignalError> {
         let name = name.into();
         let mclk = hub.declare(
             format!("{name}.mclk"),
@@ -252,12 +290,16 @@ impl Esp32s3I2s {
             Some("I2S RX completion strobe".to_owned()),
         )?;
 
+        let endpoint = Arc::new(Mutex::new(Esp32s3I2sEndpoint::default()));
+        let handle = Esp32s3I2sHandle {
+            endpoint: endpoint.clone(),
+        };
         let mut i2s = Self {
             name,
             registers: [0; Self::REGISTER_WORDS],
             interrupt_raw: 0,
             interrupt_enable: 0,
-            transfer: Esp32s3I2sTransfer::default(),
+            endpoint,
             hub,
             mclk,
             bclk,
@@ -270,7 +312,7 @@ impl Esp32s3I2s {
         };
         i2s.reset_signals(SimTime::ZERO)?;
         i2s.reset_registers();
-        Ok(i2s)
+        Ok((i2s, handle))
     }
 
     fn reset_registers(&mut self) {
@@ -288,7 +330,10 @@ impl Esp32s3I2s {
 
     /// Returns a copy of the most recent deterministic transfer summary.
     pub fn transfer(&self) -> Esp32s3I2sTransfer {
-        self.transfer
+        self.endpoint
+            .lock()
+            .expect("ESP32-S3 I2S lock poisoned")
+            .transfer
     }
 
     fn register_index(offset: u64) -> Result<usize, DeviceError> {
@@ -395,23 +440,30 @@ impl Esp32s3I2s {
         let sample = self.registers[Self::SINGLE_DATA as usize / 4];
         let mut now = at.ticks();
         self.emit_frame(sample, self.sample_bits(true), &mut now)?;
-        self.transfer.tx_frames = self.transfer.tx_frames.saturating_add(1);
-        self.transfer.last_tx = sample;
+        let mut endpoint = self.endpoint.lock().expect("ESP32-S3 I2S lock poisoned");
+        endpoint.transfer.tx_frames = endpoint.transfer.tx_frames.saturating_add(1);
+        endpoint.transfer.last_tx = sample;
+        drop(endpoint);
         self.interrupt_raw |= Self::TX_DONE_INT;
         self.pulse(self.tx_done, &mut now)
             .map_err(Self::signal_error)
     }
 
     fn execute_rx(&mut self, at: SimTime) -> Result<(), DeviceError> {
+        let endpoint = self.endpoint.lock().expect("ESP32-S3 I2S lock poisoned");
         let sample = if self.registers[Self::TX_CONF as usize / 4] & Self::TX_LOOPBACK != 0 {
-            self.transfer.last_tx
+            endpoint.transfer.last_tx
         } else {
-            0
+            endpoint.input_sample
         };
+        drop(endpoint);
         let mut now = at.ticks();
         self.emit_rx_frame(sample, self.sample_bits(false), &mut now)?;
-        self.transfer.rx_frames = self.transfer.rx_frames.saturating_add(1);
-        self.transfer.last_rx = sample;
+        let mut endpoint = self.endpoint.lock().expect("ESP32-S3 I2S lock poisoned");
+        endpoint.transfer.rx_frames = endpoint.transfer.rx_frames.saturating_add(1);
+        endpoint.transfer.last_rx = sample;
+        drop(endpoint);
+        self.registers[Self::SINGLE_DATA as usize / 4] = sample;
         self.interrupt_raw |= Self::RX_DONE_INT;
         self.pulse(self.rx_done, &mut now)
             .map_err(Self::signal_error)
@@ -569,7 +621,7 @@ impl Device for Esp32s3I2s {
         self.reset_registers();
         self.interrupt_raw = 0;
         self.interrupt_enable = 0;
-        self.transfer = Esp32s3I2sTransfer::default();
+        *self.endpoint.lock().expect("ESP32-S3 I2S lock poisoned") = Esp32s3I2sEndpoint::default();
         self.mclk_level = false;
         self.reset_signals(SimTime::ZERO)
             .expect("I2S reset signals remain declared");

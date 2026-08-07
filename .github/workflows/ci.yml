@@ -41,7 +41,7 @@ jobs:
         run: cargo package --workspace --locked --allow-dirty --no-verify --list >/dev/null
 
   esp32s3-vendor:
-    name: ESP32-S3 vendor peripheral qualification
+    name: ESP32-S3 vendor and M5StickS3 qualification
     needs: rust
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -59,10 +59,15 @@ jobs:
       - name: Run native peripheral qualification
         run: ./scripts/qualify-esp32s3-peripherals.sh
 
+      - name: Run M5StickS3 firmware/component qualification
+        run: ./scripts/qualify-board-models.sh
+
       - name: Upload qualification evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: esp32s3-peripheral-qualification
-          path: .remu/qualification/esp32s3-peripherals
+          path: |
+            .remu/qualification/esp32s3-peripherals
+            .remu/qualification/board-models
           if-no-files-found: ignore
