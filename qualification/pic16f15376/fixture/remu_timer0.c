@@ -7,9 +7,10 @@
 #pragma config LVP = ON
 
 /*
- * Original Renvo Emulator register-level Timer0 fixture based only on the
- * PIC16F15376 data sheet. It exercises oscillator setup, digital output,
- * Timer0 interrupt routing, and an observable RE0 transition.
+ * Original Renvo Emulator register-level fixture based only on the PIC16F15376
+ * data sheet. It exercises oscillator setup, digital output, the functional
+ * MSSP1 I2C host path, Timer0 interrupt routing, and an observable RE0
+ * transition.
  */
 static void configure_fixture(void)
 {
@@ -17,6 +18,16 @@ static void configure_fixture(void)
     OSCFRQ = 0x00;
     TRISEbits.TRISE0 = 0;
     LATEbits.LATE0 = 0;
+
+    /* 7-bit MSSP1 I2C master: START, address, one data byte, STOP. */
+    SSP1CON1 = 0x28;
+    SSP1CON2 = 0x01;
+    SSP1BUF = 0xa0;
+    PIR3bits.SSP1IF = 0;
+    SSP1BUF = 0x10;
+    PIR3bits.SSP1IF = 0;
+    SSP1CON2 = 0x04;
+    PIR3bits.SSP1IF = 0;
 
     T0CON1 = 0x94;
     TMR0H = 0xC1;
