@@ -15,6 +15,8 @@ use remu_trace::{TraceDigest, TraceSink};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
+const ADC_INTERRUPT_LINE: u16 = 20;
+
 /// ATmega machine construction, loading, and execution error.
 #[derive(Debug, Error)]
 pub enum AvrMachineError {
@@ -216,6 +218,11 @@ impl AvrMcuMachine {
         self.gpio[0].output()
     }
 
+    /// Drives one deterministic 10-bit ADC channel sample.
+    pub fn set_adc_input(&self, channel: u8, value: u16) {
+        self.io.set_adc_input(channel, value);
+    }
+
     /// Reads guest-visible AVR data-space bytes.
     pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         (0..length)
@@ -309,9 +316,16 @@ impl AvrMcuMachine {
                 self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
                 stats.events = stats.events.saturating_add(1);
             }
-            for line in self.io.poll(self.now) {
+            let interrupt_lines = self.io.poll(self.now);
+            for line in interrupt_lines.iter().copied() {
                 self.cpu.set_interrupt(line, true)?;
             }
+            // ADC completion is a level derived from ADIF/ADIE. Clear the
+            // core's pending input when firmware clears ADIF before vectoring.
+            self.cpu.set_interrupt(
+                ADC_INTERRUPT_LINE,
+                interrupt_lines.contains(&ADC_INTERRUPT_LINE),
+            )?;
             self.bus.clear_watchpoint_hit();
             let outcome = match self.cpu.step(&mut self.bus, self.now) {
                 Ok(outcome) => outcome,
@@ -323,6 +337,9 @@ impl AvrMcuMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| AvrMachineError::TimeOverflow)?;
             stats.time = self.now;
+            if self.cpu.last_interrupt_line() == Some(ADC_INTERRUPT_LINE) {
+                self.io.acknowledge_adc_interrupt(self.now);
+            }
             let mut signal_stop = None;
             for change in self.signals.drain_changes() {
                 signal_stop =
@@ -405,5 +422,34 @@ mod tests {
         assert_eq!(result.reason, StopReason::Halted);
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(machine.gpio_output(), 1);
+    }
+
+    #[test]
+    fn atmega_exposes_scripted_adc_samples_through_native_registers() {
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.set_adc_input(2, 0x0155);
+        machine
+            .bus
+            .write(0x7c, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x7a, AccessWidth::Byte, 0x88, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x7a, AccessWidth::Byte, 0xc8, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine.io.poll(SimTime::from_ticks(50)),
+            vec![ADC_INTERRUPT_LINE]
+        );
+        assert_eq!(
+            machine
+                .bus
+                .read(0x78, AccessWidth::Byte, AccessKind::Read, SimTime::ZERO)
+                .unwrap(),
+            0x55
+        );
     }
 }

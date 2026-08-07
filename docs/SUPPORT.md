@@ -327,6 +327,16 @@ UART/USB output, trace digest, and byte-identical VCD for all 14 target modes.
 PIC16 and EFM8 use their direct Intel HEX boundary because their toolchains do
 not emit a runnable ELF; every other mode compares native boot with ELF.
 
+The ATmega328PB slice includes a deterministic 10-bit ADC path at the native
+`ADCSRA`/`ADMUX`/`ADCL`/`ADCH` registers. Tests can inject per-channel samples,
+select right- or left-adjusted results, and observe the conversion-complete
+flag/interrupt (vector 22 at program address `0x002a`). The functional timing
+uses the documented 13/25-conversion-cycle shape and ADPS prescaler without
+claiming clock-level fidelity. Auto-trigger sources, reference-voltage and
+analog electrical behavior, and the temperature/bandgap ADC multiplexer inputs
+remain deferred. The register behavior is based on the [Microchip ATmega328PB
+ADC reference](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-AD160391-6A79-47DE-A064-2E438B4A9AA3.html).
+
 The human-readable portfolio view is
 [`qualification/dashboard.html`](../qualification/dashboard.html), with the
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
