@@ -1,0 +1,115 @@
+name: Scheduled firmware qualification
+
+on:
+  schedule:
+    - cron: "23 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-qualification
+  cancel-in-progress: true
+
+jobs:
+  public-smoke:
+    name: Open-toolchain portfolio qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Build pinned public toolchain images
+        run: scripts/bootstrap-toolchains.sh
+
+      - name: Run representative firmware smoke
+        run: scripts/docker-smoke.sh
+
+      - name: Run immutable vendor samples
+        run: scripts/qualify-vendor-samples.sh
+
+      - name: Run stop-condition qualification
+        run: scripts/qualify-stop-conditions.sh
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: public-smoke-qualification
+          path: |
+            .remu/portfolio-smoke/
+            .remu/qualification/vendor-samples/
+            .remu/stop-conditions/
+            qualification/vendor-samples.json
+            qualification/stop-conditions.json
+          if-no-files-found: warn
+
+  official-firmware:
+    name: Official MicroPython and MQuickJS qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Fetch and verify pinned official firmware
+        run: scripts/fetch-micropython.sh
+
+      - name: Build release interpreter
+        run: cargo build --release -p remu-cli --locked
+
+      - name: Run the four-board acceptance gate
+        env:
+          REMU_ACCEPTANCE_MAX_SECONDS: 60
+          REMU_ACCEPTANCE_JOBS: 2
+        run: scripts/qualify-micropython.sh
+
+      - name: Upload official-firmware evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: official-firmware-qualification
+          path: |
+            .remu/qualification/acceptance/
+            .remu/firmware/micropython-v1.28.0/verified.json
+          if-no-files-found: warn
+
+  coremark:
+    name: CoreMark correctness and throughput
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Build pinned public toolchain images
+        run: scripts/bootstrap-toolchains.sh
+
+      - name: Build release interpreter
+        run: cargo build --release -p remu-cli --locked
+
+      - name: Run CoreMark qualification
+        run: scripts/qualify-coremark.sh
+
+      - name: Upload CoreMark evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coremark-qualification
+          path: .remu/qualification/coremark/
+          if-no-files-found: warn
+
