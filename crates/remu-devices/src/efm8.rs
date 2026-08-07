@@ -29,6 +29,11 @@ const TMR2RLL: usize = 0xca;
 const TMR2RLH: usize = 0xcb;
 const TMR2L: usize = 0xce;
 const TMR2H: usize = 0xcf;
+const CRC0IN: usize = (PAGE3 << 8) | 0xca;
+const CRC0DAT: usize = (PAGE3 << 8) | 0xcb;
+const CRC0CN0: usize = (PAGE3 << 8) | 0xce;
+const CRC0FLIP: usize = (PAGE3 << 8) | 0xcf;
+const CRC0CN0_MASK: u8 = 0x05;
 const XBR0: usize = 0xe1;
 const XBR2: usize = 0xe3;
 const RSTSRC: usize = 0xef;
@@ -56,6 +61,22 @@ const SCON0_TI: u8 = 0x02;
 const XBR0_URT0E: u8 = 0x01;
 const XBR2_XBARE: u8 = 0x40;
 
+fn crc16_ccitt(mut crc: u16, input: u8) -> u16 {
+    crc ^= u16::from(input) << 8;
+    for _ in 0..8 {
+        crc = if crc & 0x8000 != 0 {
+            (crc << 1) ^ 0x1021
+        } else {
+            crc << 1
+        };
+    }
+    crc
+}
+
+fn reverse_bits(value: u8) -> u8 {
+    value.reverse_bits()
+}
+
 struct Efm8State {
     registers: Box<[u8]>,
     ports: [Arc<Mutex<GpioState>>; 4],
@@ -64,6 +85,7 @@ struct Efm8State {
     uart: Vec<u8>,
     timer0_epoch: u64,
     timer2_epoch: u64,
+    crc_result: u16,
     watchdog_epoch: u64,
     watchdog_key: u8,
     watchdog_enabled: bool,
@@ -141,6 +163,7 @@ impl Efm8State {
         self.uart.clear();
         self.timer0_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
+        self.crc_result = 0;
         self.watchdog_epoch = at.ticks();
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
@@ -162,6 +185,9 @@ impl Efm8State {
     fn canonical(raw: usize) -> usize {
         let page = raw >> 8;
         let address = raw & 0xff;
+        if page == PAGE3 && matches!(address, 0x86 | 0x9c | 0xca..=0xcf | 0xd2..=0xd3 | 0xf4) {
+            return raw;
+        }
         match address {
             0x80
             | 0x88..=0x8e
@@ -360,6 +386,7 @@ impl Efm8Peripherals {
             uart: Vec::new(),
             timer0_epoch: 0,
             timer2_epoch: 0,
+            crc_result: 0,
             watchdog_epoch: 0,
             watchdog_key: 0,
             watchdog_enabled: true,
@@ -406,14 +433,30 @@ impl Device for Efm8Peripherals {
             state.refresh_port(port, at)?;
             return Ok(u64::from(state.port_read(port)));
         }
-        let mut value = *state
-            .registers
-            .get(address)
-            .ok_or_else(|| DeviceError::new(format!("EFM8 read outside SFR space: {raw:#x}")))?;
+        let value = if address == CRC0DAT {
+            let value = if state.registers[CRC0CN0] & 1 == 0 {
+                state.crc_result.to_le_bytes()[0]
+            } else {
+                state.crc_result.to_be_bytes()[0]
+            };
+            state.registers[CRC0CN0] ^= 1;
+            value
+        } else {
+            *state
+                .registers
+                .get(address)
+                .ok_or_else(|| DeviceError::new(format!("EFM8 read outside SFR space: {raw:#x}")))?
+        };
+        let value = if address == CRC0CN0 {
+            value & CRC0CN0_MASK
+        } else {
+            value
+        };
         if address == CLKSEL {
-            value |= 0x80;
+            Ok(u64::from(value | 0x80))
+        } else {
+            Ok(u64::from(value))
         }
-        Ok(u64::from(value))
     }
 
     fn write(
@@ -435,14 +478,34 @@ impl Device for Efm8Peripherals {
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
         }
-        state.registers[address] = value;
-        if let Some(port) = Self::port_index(address) {
+        if address == CRC0CN0 {
+            state.registers[address] = value & CRC0CN0_MASK;
+            if value & 0x08 != 0 {
+                state.crc_result = if value & 0x04 != 0 { u16::MAX } else { 0 };
+            }
+        } else if address == CRC0IN {
+            state.registers[address] = value;
+            state.crc_result = crc16_ccitt(state.crc_result, value);
+        } else if address == CRC0DAT {
+            let [low, high] = state.crc_result.to_le_bytes();
+            state.crc_result = if state.registers[CRC0CN0] & 1 == 0 {
+                u16::from_le_bytes([value, high])
+            } else {
+                u16::from_le_bytes([low, value])
+            };
+            state.registers[CRC0CN0] ^= 1;
+        } else if address == CRC0FLIP {
+            state.registers[address] = reverse_bits(value);
+        } else if let Some(port) = Self::port_index(address) {
+            state.registers[address] = value;
             state.registers[address] &= PORT_MASKS[port];
             state.refresh_port(port, at)?;
         } else if let Some(port) = PORT_MDOUT.iter().position(|item| *item == address) {
+            state.registers[address] = value;
             state.registers[address] &= PORT_MASKS[port];
             state.refresh_port(port, at)?;
         } else if address == SBUF0 {
+            state.registers[address] = value;
             if state.registers[XBR0] & XBR0_URT0E != 0 && state.registers[XBR2] & XBR2_XBARE != 0 {
                 state.uart.push(value);
                 state.set_signal(state.uart_byte_signal, u64::from(value), 8, at);
@@ -456,15 +519,20 @@ impl Device for Efm8Peripherals {
             }
             state.registers[SCON0] |= SCON0_TI;
         } else if address == WDTCN {
+            state.registers[address] = value;
             if state.watchdog_key == 0xde && value == 0xad {
                 state.watchdog_enabled = false;
             }
             state.watchdog_key = value;
             state.watchdog_epoch = at.ticks();
         } else if address == TCON && value & TCON_TR0 != 0 {
+            state.registers[address] = value;
             state.timer0_epoch = at.ticks();
         } else if address == TMR2CN0 && value & TMR2_TR2 != 0 {
+            state.registers[address] = value;
             state.timer2_epoch = at.ticks();
+        } else {
+            state.registers[address] = value;
         }
         state.update_interrupt_signals(at);
         Ok(())
@@ -481,8 +549,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, CRC0CN0, CRC0DAT, CRC0FLIP, CRC0IN, Efm8Peripherals, IE, IE_EA, IE_ET0, P0,
+        P0MDOUT, SBUF0, SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +610,80 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn crc16_stream_and_bit_reverse_follow_efm8_register_contract() {
+        let hub = super::SignalHub::new();
+        let (mut device, _, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(CRC0CN0 as u64, AccessWidth::Byte, 0x0c, SimTime::ZERO)
+            .unwrap();
+        for byte in [0xaa, 0xbb, 0xcc] {
+            device
+                .write(CRC0IN as u64, AccessWidth::Byte, byte, SimTime::ZERO)
+                .unwrap();
+        }
+        assert_eq!(
+            device
+                .read(CRC0DAT as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xf6
+        );
+        assert_eq!(
+            device
+                .read(CRC0DAT as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x6c
+        );
+        device
+            .write(CRC0FLIP as u64, AccessWidth::Byte, 0xc0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device
+                .read(CRC0FLIP as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x03
+        );
+    }
+
+    #[test]
+    fn crc0_control_masks_reserved_bits_and_supports_result_writes() {
+        let hub = super::SignalHub::new();
+        let (mut device, _, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(CRC0CN0 as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device
+                .read(CRC0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x05
+        );
+
+        device
+            .write(CRC0CN0 as u64, AccessWidth::Byte, 0x0c, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(CRC0DAT as u64, AccessWidth::Byte, 0x34, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(CRC0DAT as u64, AccessWidth::Byte, 0x12, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(CRC0CN0 as u64, AccessWidth::Byte, 0x00, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device
+                .read(CRC0DAT as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x34
+        );
+        assert_eq!(
+            device
+                .read(CRC0DAT as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x12
+        );
     }
 }

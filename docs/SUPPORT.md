@@ -332,3 +332,11 @@ The human-readable portfolio view is
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
+
+The EFM8BB52F32G slice also models the native CRC0 data path: CCITT-16 stream
+updates through `CRC0IN`, pointer-selected result reads/writes through
+`CRC0DAT`, CRC seed initialization, and byte bit reversal through `CRC0FLIP`.
+Register masks and pointer behavior follow Silicon Labs' [EFM8BB52 reference
+manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf),
+section 18. Automatic flash-sector CRC, SMBus, and the remaining analog/control
+blocks are outside this functional boundary.
