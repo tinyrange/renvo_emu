@@ -20,9 +20,11 @@ const TMR0L: usize = 0x59c;
 const TMR0H: usize = 0x59d;
 const T0CON0: usize = 0x59e;
 const PIR0: usize = 0x70c;
+const PIR1: usize = 0x70d;
 const PIR3: usize = 0x70f;
 const PIR4: usize = 0x710;
 const PIE0: usize = 0x716;
+const PIE1: usize = 0x717;
 const PIE3: usize = 0x719;
 const PIE4: usize = 0x71a;
 const WDTCON0: usize = 0x80c;
@@ -30,6 +32,10 @@ const OSCSTAT: usize = 0x890;
 const PPSLOCK: usize = 0x1e8f;
 const PPS_OUTPUT_BASES: [usize; 5] = [0x1f10, 0x1f18, 0x1f20, 0x1f28, 0x1f30];
 const ANSEL: [usize; 5] = [0x1f38, 0x1f43, 0x1f4e, 0x1f59, 0x1f64];
+const ADRESL: usize = 0x09b;
+const ADRESH: usize = 0x09c;
+const ADCON0: usize = 0x09d;
+const ADCON1: usize = 0x09e;
 
 const PORT_WIDTHS: [u8; 5] = [8, 8, 8, 8, 4];
 const PORT_MASKS: [u8; 5] = [0xff, 0xff, 0xff, 0xff, 0x0f];
@@ -39,6 +45,10 @@ const TMR0IF: u8 = 1 << 5;
 const TMR1IF: u8 = 1;
 const TX1IF: u8 = 1 << 4;
 const RC1IF: u8 = 1 << 5;
+const ADIF: u8 = 1 << 6;
+const ADIE: u8 = 1 << 6;
+const ADCON0_GO: u8 = 1 << 1;
+const ADCON0_ADON: u8 = 1;
 const TXEN: u8 = 1 << 5;
 const SPEN: u8 = 1 << 7;
 
@@ -52,6 +62,8 @@ struct Pic16State {
     timer1_epoch: u64,
     watchdog_epoch: u64,
     watchdog_reset: bool,
+    adc_inputs: [u16; 64],
+    adc_started: Option<(u8, u64)>,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     timer0_irq_signal: SignalId,
@@ -119,6 +131,8 @@ impl Pic16State {
         self.timer1_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
+        self.adc_inputs = [0; 64];
+        self.adc_started = None;
         self.set_signal(self.uart_strobe_signal, 0, 1, at);
         self.set_signal(self.timer0_irq_signal, 0, 1, at);
         self.set_signal(self.timer1_irq_signal, 0, 1, at);
@@ -133,6 +147,7 @@ impl Pic16State {
         let peripheral = self.registers[INTCON] & INTCON_PEIE != 0
             && ((self.registers[PIR0] & self.registers[PIE0] & TMR0IF != 0)
                 || (self.registers[PIR4] & self.registers[PIE4] & TMR1IF != 0)
+                || (self.registers[PIR1] & ADIF != 0 && self.registers[PIE1] & ADIE != 0)
                 || (self.registers[PIR3] & self.registers[PIE3] & (TX1IF | RC1IF) != 0));
         self.registers[INTCON] & INTCON_GIE != 0 && peripheral
     }
@@ -190,9 +205,30 @@ impl Pic16PeripheralsHandle {
                 state.set_signal(state.watchdog_reset_signal, 1, 1, now);
             }
         }
+        if let Some((channel, started)) = state.adc_started {
+            if now.ticks() > started {
+                let sample = state.adc_inputs[usize::from(channel.min(63))] & 0x03ff;
+                if state.registers[ADCON1] & (1 << 7) != 0 {
+                    state.registers[ADRESL] = sample as u8;
+                    state.registers[ADRESH] = (sample >> 8) as u8;
+                } else {
+                    state.registers[ADRESH] = (sample >> 2) as u8;
+                    state.registers[ADRESL] = ((sample & 0x3) << 6) as u8;
+                }
+                state.registers[ADCON0] &= !ADCON0_GO;
+                state.registers[PIR1] |= ADIF;
+                state.adc_started = None;
+            }
+        }
         let pending = state.interrupt_pending();
         state.set_signal(state.interrupt_signal, u64::from(pending), 1, now);
         pending
+    }
+
+    /// Drives a deterministic 10-bit analog value for one ADC channel.
+    pub fn set_adc_input(&self, channel: u8, value: u16) {
+        let mut state = self.0.lock().expect("PIC16 peripheral lock poisoned");
+        state.adc_inputs[usize::from(channel.min(63))] = value & 0x03ff;
     }
 
     /// Restarts the functional watchdog interval after CLRWDT.
@@ -272,6 +308,8 @@ impl Pic16Peripherals {
             timer1_epoch: 0,
             watchdog_epoch: 0,
             watchdog_reset: false,
+            adc_inputs: [0; 64],
+            adc_started: None,
             uart_byte_signal,
             uart_strobe_signal,
             timer0_irq_signal,
@@ -432,6 +470,14 @@ impl Device for Pic16Peripherals {
                 state.registers[address] = value & 0x3f;
                 state.watchdog_epoch = at.ticks();
             }
+            ADCON0 => {
+                let previous = state.registers[address];
+                state.registers[address] = value;
+                if value & ADCON0_GO != 0 && value & ADCON0_ADON != 0 && previous & ADCON0_GO == 0 {
+                    state.adc_started = Some(((value >> 2) & 0x3f, at.ticks()));
+                }
+            }
+            PIR1 => state.registers[address] = value,
             _ => {
                 state.registers[address] = value;
                 if let Some(port) = Self::port_for(address, &ANSEL) {
@@ -502,5 +548,55 @@ mod tests {
             .write(T0CON0 as u64, AccessWidth::Byte, 0x80, SimTime::ZERO)
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4)));
+    }
+
+    #[test]
+    fn adc_conversion_formats_result_and_sets_interrupt() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _) = Pic16Peripherals::new("pic16f15376.data", hub).unwrap();
+        handle.set_adc_input(3, 0x2a5);
+        device
+            .write(PIE1 as u64, AccessWidth::Byte, ADIE.into(), SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                INTCON as u64,
+                AccessWidth::Byte,
+                (INTCON_GIE | INTCON_PEIE).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(ADCON1 as u64, AccessWidth::Byte, 1 << 7, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                ADCON0 as u64,
+                AccessWidth::Byte,
+                ((3 << 2) | ADCON0_GO | ADCON0_ADON).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.poll(SimTime::ZERO));
+        assert!(handle.poll(SimTime::from_ticks(1)));
+        assert_eq!(
+            device
+                .read(ADRESL as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0xa5
+        );
+        assert_eq!(
+            device
+                .read(ADRESH as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap(),
+            0x02
+        );
+        assert_eq!(
+            device
+                .read(ADCON0 as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & u64::from(ADCON0_GO),
+            0
+        );
     }
 }
