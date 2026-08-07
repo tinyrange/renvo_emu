@@ -14,10 +14,10 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Adc,
+    Samd21AdcHandle, Samd21Eic, Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc,
+    Samd21TcHandle, Samd21Usart, Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub,
+    Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -79,6 +79,7 @@ pub struct ArmMcuMachine {
     compiler_uart: UartHandle,
     timer: VendorTimer,
     eic: Option<Samd21EicHandle>,
+    adc: Option<Samd21AdcHandle>,
     ra_icu: Option<RaIcuHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
@@ -230,7 +231,7 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, ra_icu, watchdog) = match target {
+        let (gpio, uart, timer, eic, adc, ra_icu, watchdog) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -242,6 +243,7 @@ impl ArmMcuMachine {
                 let (eic_device, eic) = Samd21Eic::new("atsamd21e18.eic");
                 let (watchdog_device, watchdog) = Samd21Wdt::new("atsamd21e18.wdt");
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
+                let (adc_device, adc) = Samd21Adc::new("atsamd21e18.adc");
                 Self::map_samd21(
                     &mut bus,
                     port_device,
@@ -249,12 +251,14 @@ impl ArmMcuMachine {
                     watchdog_device,
                     tc3_device,
                     sercom0_device,
+                    adc_device,
                 )?;
                 (
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
                     Some(eic),
+                    Some(adc),
                     None,
                     Some(watchdog),
                 )
@@ -295,6 +299,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -319,6 +324,7 @@ impl ArmMcuMachine {
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     None,
+                    None,
                     Some(icu),
                     None,
                 )
@@ -337,6 +343,7 @@ impl ArmMcuMachine {
             compiler_uart,
             timer,
             eic,
+            adc,
             ra_icu,
             watchdog,
             compiler_timer,
@@ -362,6 +369,7 @@ impl ArmMcuMachine {
         watchdog: Samd21Wdt,
         tc3: Samd21Tc,
         sercom0: Samd21Usart,
+        adc: Samd21Adc,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "atsamd21e18.pm",
@@ -389,6 +397,7 @@ impl ArmMcuMachine {
         bus.map_device("atsamd21e18.wdt", 0x4000_1000, 0x100, Box::new(watchdog))?;
         bus.map_device("atsamd21e18.eic", 0x4000_1800, 0x100, Box::new(eic))?;
         bus.map_device("atsamd21e18.sercom0", 0x4200_0800, 0x40, Box::new(sercom0))?;
+        bus.map_device("atsamd21e18.adc", 0x4200_4000, 0x40, Box::new(adc))?;
         bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
         // NVMCTRL.INTFLAG.READY is set after reset.
         bus.map_device(
@@ -762,6 +771,12 @@ impl ArmMcuMachine {
             let (timer_line, timer_pending) = self.timer.poll(self.now);
             let compiler_pending = self.compiler_timer.poll(self.now);
             let mut interrupt_requested = timer_pending;
+            if let Some(adc) = &self.adc {
+                let adc_pending = adc.interrupt_pending();
+                interrupt_requested |= adc_pending;
+                self.cpu
+                    .set_interrupt(23, adc_pending && self.ppb.interrupt_enabled(23))?;
+            }
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)

@@ -332,3 +332,11 @@ The human-readable portfolio view is
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
+
+The ATSAMD21 slice includes the native 12-bit ADC register window with
+selectable positive-input channels, host-supplied analog values, software
+triggered conversions, RESRDY status/interrupt behavior, and deterministic
+result reads. Its register offsets and command bits follow the [Microchip SAM
+D21/DA1 family data sheet](https://ww1.microchip.com/downloads/en/DeviceDoc/SAM-D21-DA1-Family-Data-Sheet-DS40001882H.pdf).
+Differential inputs, averaging, window monitoring, calibration, and analog
+electrical modeling remain outside this functional boundary.
