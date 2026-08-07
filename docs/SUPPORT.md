@@ -15,6 +15,13 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr machine/user subset | ROM, HP/LP SRAM, 16 MiB IROM window | GPIO matrix pin 2 waveform, native UART0 transcript, user traps, and PMP CSR visibility |
 
+EFM8BB52F32G also models the native SPI0 SFR transaction slice
+(`SPI0CFG`/`SPI0CKR`/`SPI0CN0`/`SPI0DAT`): master writes are captured,
+host-injected MISO bytes are returned, `SPIF`/`TXNF` status is exposed, and
+the ESPI0 interrupt participates in the low/high priority interrupt inputs.
+FIFO operation, crossbar pin assignment, and exact serial clock timing remain
+outside this functional model.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
