@@ -332,3 +332,8 @@ The human-readable portfolio view is
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
+
+The STM32L432KC model includes the CRC engine at `0x40023000`, with reset/init,
+polynomial selection, data feeding, and register-visible results. It is a
+deterministic software model of the register contract; hardware bus packing,
+DMA coupling, and exact reflected-polynomial timing are not implied.
