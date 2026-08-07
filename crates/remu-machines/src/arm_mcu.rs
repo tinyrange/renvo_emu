@@ -14,9 +14,9 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
-    Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
+    RaGptHandle, RaIcu, RaIcuHandle, RaIic, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank,
+    Samd21Eic, Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle,
+    Samd21Usart, Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
     Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
@@ -313,7 +313,18 @@ impl ArmMcuMachine {
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
-                Self::map_ra4m1(&mut bus, ports, pfs, icu_device, gpt0_device, sci9_device)?;
+                let (iic0_device, _) = RaIic::new("r7fa4m1ab3cfm.iic0");
+                let (iic1_device, _) = RaIic::new("r7fa4m1ab3cfm.iic1");
+                Self::map_ra4m1(
+                    &mut bus,
+                    ports,
+                    pfs,
+                    icu_device,
+                    gpt0_device,
+                    sci9_device,
+                    iic0_device,
+                    iic1_device,
+                )?;
                 (
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
@@ -489,6 +500,8 @@ impl ArmMcuMachine {
         icu: RaIcu,
         gpt0: RaGpt,
         sci9: RaSci,
+        iic0: RaIic,
+        iic1: RaIic,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -510,6 +523,8 @@ impl ArmMcuMachine {
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
         bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
+        bus.map_device("r7fa4m1ab3cfm.iic0", 0x4005_3000, 0x20, Box::new(iic0))?;
+        bus.map_device("r7fa4m1ab3cfm.iic1", 0x4005_3100, 0x20, Box::new(iic1))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
@@ -981,5 +996,44 @@ mod tests {
                 SimTime::ZERO,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn ra4m1_maps_both_native_iic_windows() {
+        let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+        for base in [0x4005_3000, 0x4005_3100] {
+            machine
+                .bus
+                .write(base, AccessWidth::Byte, 0x80, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base + 1, AccessWidth::Byte, 0x02, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base + 0x12, AccessWidth::Byte, 0x6e, SimTime::ZERO)
+                .unwrap();
+            assert_eq!(
+                machine
+                    .bus
+                    .read(
+                        base + 0x12,
+                        AccessWidth::Byte,
+                        AccessKind::Read,
+                        SimTime::ZERO,
+                    )
+                    .unwrap(),
+                0x6e
+            );
+            assert_eq!(
+                machine
+                    .bus
+                    .read(base + 1, AccessWidth::Byte, AccessKind::Read, SimTime::ZERO,)
+                    .unwrap()
+                    & 0x80,
+                0x80
+            );
+        }
     }
 }

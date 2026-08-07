@@ -285,6 +285,15 @@ the target manifests and `PLAN.html`, principally:
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
 
+The RA4M1 slice maps both native IIC controllers at `0x40053000` and
+`0x40053100`. The deterministic functional boundary covers controller enable,
+start/stop state, transmit and host-injected receive bytes, TDRE/TEND/RDRF/
+NACKF/START/STOP status, and status-interrupt enables. Bit-level arbitration,
+clock stretching, and electrical open-drain resolution are not modeled.
+The register offsets and reset/clear semantics follow Renesas RA4M1 Group
+User's Manual Hardware R01UH0887EJ0110 §29:
+<https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware>.
+
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
 bus logs, verifies the portfolio, and regenerates all six manifests. The
