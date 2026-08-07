@@ -325,6 +325,10 @@ impl Msp430McuMachine {
                 self.reset(ResetKind::Watchdog)?;
                 stats.events = stats.events.saturating_add(1);
             }
+            if let Some(kind) = self.peripherals.take_pmm_reset() {
+                self.reset(kind)?;
+                stats.events = stats.events.saturating_add(1);
+            }
             let pending_vectors = self.peripherals.poll(self.now);
             for vector in [
                 MSP430_PORT1_VECTOR,
@@ -435,5 +439,45 @@ mod tests {
         machine.debug_write_memory(0xfffe, &[0x00, 0xc4]).unwrap();
         machine.reset(ResetKind::Watchdog).unwrap();
         assert_eq!(machine.debug_read_memory(0xc123, 1).unwrap(), [0x5a]);
+    }
+
+    #[test]
+    fn pmm_software_por_resets_cpu_and_preserves_reset_cause_flag() {
+        let mut fram = vec![0; FRAM_SIZE];
+        // The MSP430 halt convention is a zero word. Put it at the reset
+        // vector so the post-reset machine has a deterministic stopping point.
+        fram[FRAM_SIZE - 2..].copy_from_slice(&0xc400_u16.to_le_bytes());
+        let image = FirmwareImage {
+            architecture: FirmwareArchitecture::Msp430X,
+            entry: 0xc400,
+            segments: vec![FirmwareSegment {
+                address: FRAM_START,
+                load_address: None,
+                initialized_size: fram.len(),
+                data: fram,
+                executable: true,
+                writable: true,
+                alignment: 2,
+            }],
+            symbols: Vec::new(),
+        };
+        let mut machine = Msp430McuMachine::new(TargetId::Msp430fr2433).unwrap();
+        machine.load_firmware(&image).unwrap();
+        machine
+            .bus
+            .write(0x0120, AccessWidth::HalfWord, 0xa508, SimTime::ZERO)
+            .unwrap();
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(4),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::Halted);
+        assert_eq!(result.stats.events, 1);
+        assert_eq!(machine.debug_read_memory(0x012a, 2).unwrap(), [0x00, 0x04]);
     }
 }

@@ -6,6 +6,11 @@ use std::sync::{Arc, Mutex};
 
 const REGISTER_BYTES: usize = 0x1000;
 
+const PMMCTL0: usize = 0x0120;
+const PMMCTL1: usize = 0x0122;
+const PMMCTL2: usize = 0x0124;
+const PMMIFG: usize = 0x012a;
+const PMMIE: usize = 0x012e;
 const PM5CTL0: usize = 0x0130;
 const FRCTL0: usize = 0x01a0;
 const WDTCTL: usize = 0x01cc;
@@ -35,6 +40,17 @@ const UCA0IFG: usize = 0x051c;
 const UCA0IV: usize = 0x051e;
 
 const LOCKLPM5: u16 = 0x0001;
+const LPM5SW: u16 = 0x0010;
+const LPM5SM: u16 = 0x0020;
+const PMMCTL0_SVSHE: u16 = 0x0040;
+const PMMCTL0_REG_OFF: u16 = 0x0010;
+const PMMCTL0_SWPOR: u16 = 0x0008;
+const PMMCTL0_SWBOR: u16 = 0x0004;
+const PMMCTL0_VALUE_MASK: u16 = PMMCTL0_SVSHE | PMMCTL0_REG_OFF | PMMCTL0_SWPOR | PMMCTL0_SWBOR;
+const PMMCTL2_VALUE_MASK: u16 = 0x00fb;
+const PMMIFG_VALUE_MASK: u16 = 0xa700;
+const PMMPW: u16 = 0x9600;
+const PMM_UNLOCK: u8 = 0xa5;
 const WDTHOLD: u16 = 0x0080;
 const WDTPW: u16 = 0x5a00;
 const UCSWRST: u16 = 0x0001;
@@ -51,6 +67,27 @@ pub const MSP430_USCI_A0_VECTOR: u16 = 0xffe4;
 /// Timer0_A0 capture/compare vector address.
 pub const MSP430_TIMER0_A0_VECTOR: u16 = 0xfff8;
 
+/// Functional low-power mode selected by the MSP430 status register and PMM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Msp430LowPowerMode {
+    /// CPU and clocks are running.
+    Active,
+    /// CPUOFF is set, but no clock-gating bit is set.
+    Lpm0,
+    /// CPUOFF and SCG0 are set.
+    Lpm1,
+    /// CPUOFF and SCG1 are set.
+    Lpm2,
+    /// CPUOFF, SCG0, and SCG1 are set while the regulator remains on.
+    Lpm3,
+    /// CPUOFF, SCG0, SCG1, and OSCOFF are set while the regulator remains on.
+    Lpm4,
+    /// LPM3 with the PMM regulator switched off.
+    Lpm3_5,
+    /// LPM4 with the PMM regulator switched off.
+    Lpm4_5,
+}
+
 struct Msp430State {
     registers: [u8; REGISTER_BYTES],
     ports: [Arc<Mutex<GpioState>>; 3],
@@ -61,6 +98,9 @@ struct Msp430State {
     timer_epoch: u64,
     watchdog_epoch: u64,
     watchdog_reset: bool,
+    pmm_unlocked: bool,
+    pmm_reset: Option<ResetKind>,
+    pmm_reset_flags: u16,
     loopback_pending: Option<(u8, u64)>,
     uart_strobe: bool,
     uart_byte_signal: SignalId,
@@ -68,6 +108,7 @@ struct Msp430State {
     timer_irq_signal: SignalId,
     port1_irq_signal: SignalId,
     watchdog_reset_signal: SignalId,
+    pmm_reset_signal: SignalId,
 }
 
 impl Msp430State {
@@ -81,6 +122,142 @@ impl Msp430State {
 
     fn gpio_unlocked(&self) -> bool {
         self.word(PM5CTL0) & LOCKLPM5 == 0
+    }
+
+    fn normalized_pmmctl0(&self) -> u16 {
+        PMMPW | (self.word(PMMCTL0) & PMMCTL0_VALUE_MASK)
+    }
+
+    fn normalized_pm5ctl0(&self) -> u16 {
+        let value = self.word(PM5CTL0) & (LPM5SM | LPM5SW | LOCKLPM5);
+        if value & LPM5SM == 0 {
+            // In automatic switch mode LPM5SW is status-only and writes do
+            // not change its reset/default connection state.
+            value | LPM5SW
+        } else {
+            value
+        }
+    }
+
+    fn request_pmm_reset(&mut self, kind: ResetKind, flag: u16, at: SimTime) {
+        self.pmm_reset = Some(kind);
+        self.pmm_reset_flags |= flag;
+        self.set_signal(self.pmm_reset_signal, 1, 1, at);
+    }
+
+    fn pmm_write_fault(&mut self, at: SimTime) {
+        // TI specifies a PUC for a wrong word password or an access to a
+        // protected PMM register. Software is the closest architectural
+        // reset class exposed by the shared simulator API.
+        self.request_pmm_reset(ResetKind::Software, 0, at);
+    }
+
+    fn write_pmmctl0_word(&mut self, value: u16, at: SimTime) {
+        if value.to_be_bytes()[0] != PMM_UNLOCK {
+            self.pmm_unlocked = false;
+            self.pmm_write_fault(at);
+            return;
+        }
+        self.pmm_unlocked = true;
+        self.apply_pmmctl0(value, at);
+    }
+
+    fn write_pmmctl0_byte(&mut self, address: usize, value: u8, at: SimTime) {
+        if address == PMMCTL0 + 1 {
+            self.pmm_unlocked = value == PMM_UNLOCK;
+            return;
+        }
+        if !self.pmm_unlocked {
+            self.pmm_write_fault(at);
+            return;
+        }
+        self.apply_pmmctl0(PMMPW | u16::from(value), at);
+    }
+
+    fn apply_pmmctl0(&mut self, value: u16, at: SimTime) {
+        let value = value & PMMCTL0_VALUE_MASK;
+        let swpor = value & PMMCTL0_SWPOR != 0;
+        let swbor = value & PMMCTL0_SWBOR != 0;
+        self.set_word(PMMCTL0, value & !(PMMCTL0_SWPOR | PMMCTL0_SWBOR));
+        if swpor {
+            self.request_pmm_reset(ResetKind::Software, 1 << 10, at);
+        } else if swbor {
+            self.request_pmm_reset(ResetKind::Software, 1 << 8, at);
+        }
+    }
+
+    fn write_protected_pmm_register(
+        &mut self,
+        register: usize,
+        value: u16,
+        width: usize,
+        at: SimTime,
+    ) {
+        if !self.pmm_unlocked {
+            self.pmm_write_fault(at);
+            return;
+        }
+        match register {
+            PMMCTL1 => {
+                // PMMCTL1 is a read-only reserved value on FR2433 and is
+                // word-access only.
+                if width == 2 {
+                    self.set_word(PMMCTL1, PMMPW);
+                }
+            }
+            PMMCTL2 => {
+                let mut stored = value & PMMCTL2_VALUE_MASK;
+                // REFBGEN and REFGEN are hardware triggers. A functional
+                // model records the other controls and consumes the trigger
+                // in the same abstract instant; readiness remains deferred.
+                stored &= !(0x00c0);
+                self.set_word(PMMCTL2, stored);
+            }
+            PMMIFG => self.set_word(PMMIFG, value & PMMIFG_VALUE_MASK),
+            PMMIE => self.set_word(PMMIE, 0),
+            _ => unreachable!("unsupported protected PMM register"),
+        }
+    }
+
+    fn write_protected_pmm_byte(
+        &mut self,
+        register: usize,
+        address: usize,
+        value: u8,
+        at: SimTime,
+    ) {
+        let current = self.word(register);
+        let merged = if address == register {
+            (current & 0xff00) | u16::from(value)
+        } else {
+            (current & 0x00ff) | (u16::from(value) << 8)
+        };
+        self.write_protected_pmm_register(register, merged, 1, at);
+    }
+
+    fn low_power_mode(&self, status: u16) -> Msp430LowPowerMode {
+        const CPUOFF: u16 = 1 << 4;
+        const SCG0: u16 = 1 << 5;
+        const SCG1: u16 = 1 << 6;
+        const OSCOFF: u16 = 1 << 7;
+        let clock_bits = status & (SCG0 | SCG1 | OSCOFF);
+        let mode = match (status & CPUOFF != 0, clock_bits) {
+            (false, _) => Msp430LowPowerMode::Active,
+            (true, 0) => Msp430LowPowerMode::Lpm0,
+            (true, bits) if bits == SCG0 => Msp430LowPowerMode::Lpm1,
+            (true, bits) if bits == SCG1 => Msp430LowPowerMode::Lpm2,
+            (true, bits) if bits == (SCG0 | SCG1) => Msp430LowPowerMode::Lpm3,
+            (true, bits) if bits == (SCG0 | SCG1 | OSCOFF) => Msp430LowPowerMode::Lpm4,
+            (true, _) => Msp430LowPowerMode::Lpm4,
+        };
+        if self.word(PMMCTL0) & PMMCTL0_REG_OFF == 0 {
+            return mode;
+        }
+        match mode {
+            Msp430LowPowerMode::Lpm3 => Msp430LowPowerMode::Lpm3_5,
+            Msp430LowPowerMode::Lpm4 => Msp430LowPowerMode::Lpm4_5,
+            _ => mode,
+        }
     }
 
     fn resolved_port(&self, port: usize) -> u8 {
@@ -151,8 +328,12 @@ impl Msp430State {
     }
 
     fn reset_registers(&mut self, at: SimTime) {
+        let pmm_reset_flags = self.pmm_reset_flags;
         self.registers.fill(0);
-        self.set_word(PM5CTL0, LOCKLPM5);
+        self.set_word(PMMCTL0, PMMCTL0_SVSHE);
+        self.set_word(PMMCTL1, PMMPW);
+        self.set_word(PMMIFG, pmm_reset_flags & PMMIFG_VALUE_MASK);
+        self.set_word(PM5CTL0, LPM5SW | LOCKLPM5);
         self.set_word(WDTCTL, 0x6900);
         self.set_word(UCA0CTLW0, UCSWRST);
         self.set_word(UCA0IFG, UCTXIFG);
@@ -160,10 +341,14 @@ impl Msp430State {
         self.timer_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
         self.watchdog_reset = false;
+        self.pmm_unlocked = false;
+        self.pmm_reset = None;
+        self.pmm_reset_flags = 0;
         self.loopback_pending = None;
         self.set_signal(self.timer_irq_signal, 0, 1, at);
         self.set_signal(self.port1_irq_signal, 0, 1, at);
         self.set_signal(self.watchdog_reset_signal, 0, 1, at);
+        self.set_signal(self.pmm_reset_signal, 0, 1, at);
         let _ = self.refresh_ports(at);
     }
 }
@@ -180,6 +365,33 @@ impl Msp430PeripheralsHandle {
             .expect("MSP430 peripheral lock poisoned")
             .uart
             .clone()
+    }
+
+    /// Returns whether the PMM register password currently permits writes.
+    pub fn pmm_unlocked(&self) -> bool {
+        self.0
+            .lock()
+            .expect("MSP430 peripheral lock poisoned")
+            .pmm_unlocked
+    }
+
+    /// Classifies an MSP430 status register value using the PMM regulator
+    /// setting. The CPU still owns interrupt wake-up; this helper exposes the
+    /// power mode a board model or test harness should observe.
+    pub fn low_power_mode(&self, status: u16) -> Msp430LowPowerMode {
+        self.0
+            .lock()
+            .expect("MSP430 peripheral lock poisoned")
+            .low_power_mode(status)
+    }
+
+    /// Consumes a pending PMM software POR/BOR or protected-access reset.
+    pub fn take_pmm_reset(&self) -> Option<ResetKind> {
+        self.0
+            .lock()
+            .expect("MSP430 peripheral lock poisoned")
+            .pmm_reset
+            .take()
     }
 
     /// Advances functional timers and edge detection, returning pending vector addresses.
@@ -302,6 +514,11 @@ impl Msp430Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("WDT_A reset request".to_owned()),
         )?;
+        let pmm_reset_signal = hub.declare(
+            "board.msp430fr2433.pmm.reset",
+            SignalValue::from_u64(0, 1)?,
+            Some("PMM software/reset request".to_owned()),
+        )?;
         let state = Arc::new(Mutex::new(Msp430State {
             registers: [0; REGISTER_BYTES],
             ports: [p1, p2, p3],
@@ -312,6 +529,9 @@ impl Msp430Peripherals {
             timer_epoch: 0,
             watchdog_epoch: 0,
             watchdog_reset: false,
+            pmm_unlocked: false,
+            pmm_reset: None,
+            pmm_reset_flags: 0,
             loopback_pending: None,
             uart_strobe: false,
             uart_byte_signal,
@@ -319,6 +539,7 @@ impl Msp430Peripherals {
             timer_irq_signal,
             port1_irq_signal,
             watchdog_reset_signal,
+            pmm_reset_signal,
         }));
         state
             .lock()
@@ -368,6 +589,28 @@ impl Device for Msp430Peripherals {
         }
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
         state.update_inputs();
+        if overlaps(start, length, PMMCTL0, 2) {
+            let value = state.normalized_pmmctl0();
+            state.set_word(PMMCTL0, value);
+        }
+        if overlaps(start, length, PMMCTL1, 2) {
+            state.set_word(PMMCTL1, PMMPW);
+        }
+        if overlaps(start, length, PMMCTL2, 2) {
+            let value = state.word(PMMCTL2) & PMMCTL2_VALUE_MASK;
+            state.set_word(PMMCTL2, value);
+        }
+        if overlaps(start, length, PMMIFG, 2) {
+            let value = state.word(PMMIFG) & PMMIFG_VALUE_MASK;
+            state.set_word(PMMIFG, value);
+        }
+        if overlaps(start, length, PMMIE, 2) {
+            state.set_word(PMMIE, 0);
+        }
+        if overlaps(start, length, PM5CTL0, 2) {
+            let value = state.normalized_pm5ctl0();
+            state.set_word(PM5CTL0, value);
+        }
         if start == FRCTL0 && length >= 2 {
             let low = state.word(FRCTL0) & 0x00ff;
             state.set_word(FRCTL0, 0x9600 | low);
@@ -428,8 +671,84 @@ impl Device for Msp430Peripherals {
             )));
         }
         let mut state = self.state.lock().expect("MSP430 peripheral lock poisoned");
+
+        // PMM password and register access rules must be handled before the
+        // generic byte store below, otherwise a firmware write could bypass
+        // the FR2433 protection mechanism.
+        if start == PMMCTL0 && length == 2 {
+            state.write_pmmctl0_word(value as u16, at);
+            return Ok(());
+        }
+        if start == PMMCTL0 && length == 1 {
+            state.write_pmmctl0_byte(start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMCTL0 + 1 && length == 1 {
+            state.write_pmmctl0_byte(start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMCTL1 && length == 2 {
+            state.write_protected_pmm_register(PMMCTL1, value as u16, 2, at);
+            return Ok(());
+        }
+        if start == PMMCTL1 && length == 1 {
+            state.write_protected_pmm_byte(PMMCTL1, start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMCTL1 + 1 && length == 1 {
+            state.write_protected_pmm_byte(PMMCTL1, start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMCTL2 && length == 2 {
+            state.write_protected_pmm_register(PMMCTL2, value as u16, 2, at);
+            return Ok(());
+        }
+        if start == PMMCTL2 && length == 1 {
+            state.write_protected_pmm_byte(PMMCTL2, start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMCTL2 + 1 && length == 1 {
+            state.write_protected_pmm_byte(PMMCTL2, start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMIFG && length == 2 {
+            state.write_protected_pmm_register(PMMIFG, value as u16, 2, at);
+            return Ok(());
+        }
+        if start == PMMIFG && length == 1 {
+            state.write_protected_pmm_byte(PMMIFG, start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMIFG + 1 && length == 1 {
+            state.write_protected_pmm_byte(PMMIFG, start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMIE && length == 2 {
+            state.write_protected_pmm_register(PMMIE, value as u16, 2, at);
+            return Ok(());
+        }
+        if start == PMMIE && length == 1 {
+            state.write_protected_pmm_byte(PMMIE, start, value as u8, at);
+            return Ok(());
+        }
+        if start == PMMIE + 1 && length == 1 {
+            state.write_protected_pmm_byte(PMMIE, start, value as u8, at);
+            return Ok(());
+        }
+
         for index in 0..length {
             state.registers[start + index] = (value >> (index * 8)) as u8;
+        }
+        if overlaps(start, length, PM5CTL0, 2) {
+            let value = state.word(PM5CTL0) & (LPM5SM | LPM5SW | LOCKLPM5);
+            state.set_word(
+                PM5CTL0,
+                if value & LPM5SM == 0 {
+                    value | LPM5SW
+                } else {
+                    value
+                },
+            );
         }
         if overlaps(start, length, WDTCTL, 2) {
             let written = state.word(WDTCTL);
@@ -509,6 +828,143 @@ mod tests {
             .unwrap();
         assert_eq!(gpio[0].direction(), 1);
         assert_eq!(gpio[0].resolved(0).unwrap(), Logic::One);
+    }
+
+    #[test]
+    fn pmm_registers_follow_reset_values_and_password_gate() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        assert_eq!(
+            device.read(PMMCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x9640)
+        );
+        assert_eq!(
+            device.read(PMMCTL1 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x9600)
+        );
+        assert_eq!(
+            device.read(PM5CTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x0011)
+        );
+        assert!(!handle.pmm_unlocked());
+
+        device
+            .write(PMMCTL2 as u64, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.take_pmm_reset(), Some(ResetKind::Software));
+        assert_eq!(
+            device.read(PMMCTL2 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0)
+        );
+
+        // A byte write to PMMCTL0_H unlocks the other PMM registers. The
+        // password itself is never visible in reads.
+        device
+            .write(
+                (PMMCTL0 + 1) as u64,
+                AccessWidth::Byte,
+                u64::from(PMM_UNLOCK),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.pmm_unlocked());
+        device
+            .write(
+                PMMCTL0 as u64,
+                AccessWidth::Byte,
+                u64::from(PMMCTL0_REG_OFF | PMMCTL0_SVSHE),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(PMMCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x9650)
+        );
+        device
+            .write(PMMCTL2 as u64, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device.read(PMMCTL2 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x003b)
+        );
+        device
+            .write(PMMIFG as u64, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device.read(PMMIFG as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(PMMIFG_VALUE_MASK.into())
+        );
+        device
+            .write(PMMIE as u64, AccessWidth::HalfWord, 0xffff, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            device.read(PMMIE as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0)
+        );
+
+        // A wrong upper-byte password locks access again without itself
+        // triggering a reset; the next protected write is the PUC case.
+        device
+            .write(PMMCTL0 as u64 + 1, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.pmm_unlocked());
+        device
+            .write(PMMCTL2 as u64, AccessWidth::HalfWord, 0x55, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.take_pmm_reset(), Some(ResetKind::Software));
+    }
+
+    #[test]
+    fn pmm_software_resets_self_clear_and_classify_low_power_modes() {
+        let hub = SignalHub::new();
+        let (mut device, handle, _gpio) =
+            Msp430Peripherals::new("fr2433", hub).expect("signals should construct");
+        device
+            .write(
+                PMMCTL0 as u64,
+                AccessWidth::HalfWord,
+                u64::from((u16::from(PMM_UNLOCK) << 8) | PMMCTL0_SWPOR),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(handle.take_pmm_reset(), Some(ResetKind::Software));
+        assert_eq!(
+            device.read(PMMCTL0 as u64, AccessWidth::HalfWord, SimTime::ZERO),
+            Ok(0x9600)
+        );
+
+        assert_eq!(handle.low_power_mode(0), Msp430LowPowerMode::Active);
+        assert_eq!(handle.low_power_mode(1 << 4), Msp430LowPowerMode::Lpm0);
+        assert_eq!(
+            handle.low_power_mode((1 << 4) | (1 << 5)),
+            Msp430LowPowerMode::Lpm1
+        );
+        assert_eq!(
+            handle.low_power_mode((1 << 4) | (1 << 6)),
+            Msp430LowPowerMode::Lpm2
+        );
+        assert_eq!(
+            handle.low_power_mode((1 << 4) | (1 << 5) | (1 << 6)),
+            Msp430LowPowerMode::Lpm3
+        );
+
+        device
+            .write(
+                PMMCTL0 as u64,
+                AccessWidth::HalfWord,
+                u64::from((u16::from(PMM_UNLOCK) << 8) | PMMCTL0_REG_OFF),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            handle.low_power_mode((1 << 4) | (1 << 5) | (1 << 6)),
+            Msp430LowPowerMode::Lpm3_5
+        );
+        assert_eq!(
+            handle.low_power_mode((1 << 4) | (1 << 5) | (1 << 6) | (1 << 7)),
+            Msp430LowPowerMode::Lpm4_5
+        );
     }
 
     #[test]
