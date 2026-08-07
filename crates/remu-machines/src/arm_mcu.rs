@@ -16,7 +16,7 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Eic,
     Samd21EicHandle, Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
+    Samd21UsartHandle, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Can, Stm32Gpio, Stm32Timer,
     Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
@@ -474,6 +474,12 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
         bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        bus.map_device(
+            "stm32l432kc.can1",
+            0x4000_6400,
+            0x400,
+            Box::new(Stm32Can::new("stm32l432kc.can1")),
+        )?;
         let [gpioa, gpiob, gpioc, gpioh] = gpio;
         bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
         bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
@@ -957,6 +963,59 @@ mod tests {
             .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
             .unwrap();
         assert_eq!(machine.gpio_output(), 1 << 5);
+    }
+
+    #[test]
+    fn stm32l432_native_can_window_supports_loopback_mailbox() {
+        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+        let base = 0x4000_6400;
+        machine
+            .bus
+            .write(base, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x1c, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x184, AccessWidth::Word, 4, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x188, AccessWidth::Word, 0x4433_2211, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x18c, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(
+                base + 0x180,
+                AccessWidth::Word,
+                (0x123 << 21) | 1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            machine.bus.read(
+                base + 0x0c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(1)
+        );
+        assert_eq!(
+            machine.bus.read(
+                base + 0x1b8,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            ),
+            Ok(0x4433_2211)
+        );
     }
 
     #[test]
