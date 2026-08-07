@@ -8,6 +8,10 @@ use std::sync::{Arc, Mutex};
 pub const RA4M1_EVENT_GPT0_OVERFLOW: u16 = 0x05d;
 /// RA4M1 ELC event number for SCI9 transmit-data-empty.
 pub const RA4M1_EVENT_SCI9_TXI: u16 = 0x0a9;
+/// RA4M1 ELC event number for AGT0 underflow/interrupt.
+pub const RA4M1_EVENT_AGT0_INT: u16 = 0x01e;
+/// RA4M1 ELC event number for AGT1 underflow/interrupt.
+pub const RA4M1_EVENT_AGT1_INT: u16 = 0x021;
 
 fn input_bits(state: &Arc<Mutex<GpioState>>) -> u16 {
     state
@@ -363,6 +367,170 @@ impl Device for RaGpt {
 }
 
 #[derive(Default)]
+struct AgtState {
+    running: bool,
+    pending: bool,
+    underflow: bool,
+    started: u64,
+    counter: u16,
+    reload: u16,
+    compare_a: u16,
+    compare_b: u16,
+    mode1: u8,
+    mode2: u8,
+    ioc: u8,
+    isr: u8,
+    cmsr: u8,
+    iosel: u8,
+}
+
+/// Machine-facing RA4M1 AGT event handle.
+#[derive(Clone)]
+pub struct RaAgtHandle(Arc<Mutex<AgtState>>);
+
+impl RaAgtHandle {
+    /// Advances the timer and consumes one underflow event.
+    pub fn poll(&self, now: SimTime) -> bool {
+        let mut state = self.0.lock().expect("RA AGT lock poisoned");
+        if state.running {
+            let period = u64::from(state.reload).saturating_add(1);
+            let elapsed = now.ticks().saturating_sub(state.started);
+            if elapsed >= period {
+                state.started = now.ticks();
+                state.counter = state.reload;
+                state.pending = true;
+                state.underflow = true;
+            } else {
+                state.counter = state
+                    .reload
+                    .wrapping_sub(u16::try_from(elapsed).unwrap_or(u16::MAX));
+            }
+        }
+        std::mem::take(&mut state.pending)
+    }
+}
+
+/// Functional RA4M1 AGT0/AGT1 down-counter and underflow-event slice.
+pub struct RaAgt {
+    name: String,
+    state: Arc<Mutex<AgtState>>,
+    registers: [u8; 0x20],
+}
+
+impl RaAgt {
+    /// Constructs an AGT channel and event handle.
+    pub fn new(name: impl Into<String>) -> (Self, RaAgtHandle) {
+        let state = Arc::new(Mutex::new(AgtState {
+            compare_a: 0,
+            counter: 0,
+            reload: 0,
+            ..AgtState::default()
+        }));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+                registers: [0; 0x20],
+            },
+            RaAgtHandle(state),
+        )
+    }
+}
+
+impl Device for RaAgt {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        let state = self.state.lock().expect("RA AGT lock poisoned");
+        let value = match offset {
+            0x00 => u32::from(state.counter),
+            0x02 => u32::from(state.compare_a),
+            0x04 => u32::from(state.compare_b),
+            0x08 => {
+                u32::from(state.running)
+                    | (u32::from(state.running) << 1)
+                    | (u32::from(state.underflow) << 5)
+            }
+            0x09 => u32::from(state.mode1),
+            0x0a => u32::from(state.mode2),
+            0x0c => u32::from(state.ioc),
+            0x0d => u32::from(state.isr),
+            0x0e => u32::from(state.cmsr),
+            0x0f => u32::from(state.iosel),
+            _ => u32::from(self.registers[usize::try_from(offset).unwrap_or(0).min(0x1f)]),
+        };
+        match width {
+            AccessWidth::Byte => Ok(u64::from(value & 0xff)),
+            AccessWidth::HalfWord if offset & 1 == 0 => Ok(u64::from(value & 0xffff)),
+            AccessWidth::Word if offset & 3 == 0 => Ok(u64::from(value)),
+            _ => Err(DeviceError::new("RA AGT access is not aligned")),
+        }
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if !matches!(
+            width,
+            AccessWidth::Byte | AccessWidth::HalfWord | AccessWidth::Word
+        ) {
+            return Err(DeviceError::new("RA AGT access width is unsupported"));
+        }
+        let mut state = self.state.lock().expect("RA AGT lock poisoned");
+        match offset {
+            0x00 => {
+                state.counter = value as u16;
+                state.reload = value as u16;
+                state.started = at.ticks();
+            }
+            0x02 => state.compare_a = value as u16,
+            0x04 => state.compare_b = value as u16,
+            0x08 => {
+                state.running = value & 1 != 0;
+                if value & 4 != 0 {
+                    state.running = false;
+                    state.counter = u16::MAX;
+                    state.pending = false;
+                }
+                if value & (1 << 5) == 0 {
+                    state.underflow = false;
+                }
+                state.started = at.ticks();
+            }
+            0x09 => state.mode1 = value as u8,
+            0x0a => state.mode2 = value as u8,
+            0x0c => state.ioc = value as u8,
+            0x0d => state.isr = value as u8,
+            0x0e => state.cmsr = value as u8,
+            0x0f => state.iosel = value as u8,
+            _ => {
+                if let Some(register) = self.registers.get_mut(usize::try_from(offset).unwrap_or(0))
+                {
+                    *register = value as u8;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        *self.state.lock().expect("RA AGT lock poisoned") = AgtState {
+            compare_a: 0,
+            counter: 0,
+            reload: 0,
+            ..AgtState::default()
+        };
+        self.registers = [0; 0x20];
+    }
+}
+
+#[derive(Default)]
 struct SciState {
     scr: u8,
     bytes: Vec<u8>,
@@ -590,5 +758,34 @@ mod tests {
         sci.write(3, AccessWidth::Byte, b'R'.into(), SimTime::ZERO)
             .unwrap();
         assert_eq!(sci_handle.bytes(), b"R");
+    }
+
+    #[test]
+    fn agt_channels_count_down_and_emit_underflow_events() {
+        let (mut agt0, handle0) = RaAgt::new("agt0");
+        agt0.write(0x00, AccessWidth::HalfWord, 3, SimTime::ZERO)
+            .unwrap();
+        agt0.write(0x08, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        assert!(!handle0.poll(SimTime::from_ticks(3)));
+        assert!(handle0.poll(SimTime::from_ticks(4)));
+        assert!(!handle0.poll(SimTime::from_ticks(4)));
+        assert_eq!(
+            agt0.read(0x08, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x23
+        );
+        agt0.write(0x08, AccessWidth::Byte, 1, SimTime::from_ticks(4))
+            .unwrap();
+        assert_eq!(
+            agt0.read(0x08, AccessWidth::Byte, SimTime::ZERO).unwrap(),
+            0x03
+        );
+
+        let (mut agt1, handle1) = RaAgt::new("agt1");
+        agt1.write(0x00, AccessWidth::HalfWord, 1, SimTime::ZERO)
+            .unwrap();
+        agt1.write(0x08, AccessWidth::Byte, 1, SimTime::ZERO)
+            .unwrap();
+        assert!(handle1.poll(SimTime::from_ticks(2)));
     }
 }
