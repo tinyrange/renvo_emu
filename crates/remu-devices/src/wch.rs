@@ -37,6 +37,11 @@ struct WchTimerState {
 
 impl WchTimerState {
     const CEN: u16 = 1;
+    const UDIS: u16 = 1 << 1;
+    const URS: u16 = 1 << 2;
+    const OPM: u16 = 1 << 3;
+    const DIR: u16 = 1 << 4;
+    const CMS_MASK: u16 = 0x60;
     const UPDATE: u16 = 1;
 
     fn reset() -> Self {
@@ -74,13 +79,23 @@ impl WchTimerState {
         if elapsed >= interval {
             let periods = elapsed / interval;
             self.epoch = self.epoch.saturating_add(periods.saturating_mul(interval));
-            self.intfr |= Self::UPDATE;
+            if self.ctlr1 & Self::UDIS == 0 {
+                self.intfr |= Self::UPDATE;
+                if self.ctlr1 & Self::OPM != 0 {
+                    self.ctlr1 &= !Self::CEN;
+                }
+            }
         }
-        self.cnt = u16::try_from(
+        let phase = u16::try_from(
             ((now.ticks().saturating_sub(self.epoch)) / (u64::from(self.psc) + 1))
                 .min(u64::from(u16::MAX)),
         )
         .expect("clamped WCH timer counter fits u16");
+        self.cnt = if self.ctlr1 & Self::CMS_MASK == 0 && self.ctlr1 & Self::DIR != 0 {
+            self.atrlr.saturating_sub(phase)
+        } else {
+            phase
+        };
     }
 
     fn restart(&mut self, now: SimTime) {
@@ -89,7 +104,7 @@ impl WchTimerState {
     }
 }
 
-/// Functional WCH TIM2-style general-purpose timer.
+/// Functional WCH general-purpose/advanced timer register subset.
 ///
 /// One prescaled counter period advances in deterministic abstract ticks. The
 /// model implements the update-event, interrupt-enable, status, prescaler,
@@ -188,8 +203,12 @@ impl Device for WchTimer {
             0x10 => state.intfr &= value,
             0x14 => {
                 if value & WchTimerState::UPDATE != 0 {
-                    state.intfr |= WchTimerState::UPDATE;
                     state.restart(at);
+                    if state.ctlr1 & WchTimerState::UDIS == 0
+                        && state.ctlr1 & WchTimerState::URS == 0
+                    {
+                        state.intfr |= WchTimerState::UPDATE;
+                    }
                 }
             }
             0x18 => state.chctlr1 = value,
@@ -211,6 +230,10 @@ impl Device for WchTimer {
             0x30 => state.rptcr = value,
             0x34 | 0x38 | 0x3c | 0x40 => {
                 let channel = usize::try_from((offset - 0x34) / 4).expect("channel index fits");
+                // CHxCVR is a 32-bit register, but only the low 16-bit
+                // compare/capture value is writable. Bit 16 is a
+                // read-only capture-level indication and the upper bits are
+                // reserved on both CH32V003 and CH32V006.
                 state.chcv[channel] = value;
             }
             0x44 => state.bdtr = value,
