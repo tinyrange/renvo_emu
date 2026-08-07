@@ -248,6 +248,23 @@ source hashes, build/run hashes and licence treatment. WCH source is fetched on
 demand and not redistributed because its file notice restricts its use;
 Pico's sample is BSD-3-Clause and the ESP-IDF sample is CC0-1.0.
 
+## RP2040 Pico SDK regression slice
+
+`scripts/qualify-rp2040-sdk.sh` adds two byte-exact upstream Pico Examples
+cases beyond the baseline blink sample:
+
+- `uart/hello_uart/hello_uart.c` exercises UART0 transmit, SDK newline
+  conversion, and GPIO0/GPIO1 function selection;
+- `pwm/hello_pwm/hello_pwm.c` exercises PWM GPIO function selection, slice-0
+  wrap and channel compare registers, and the enable mask.
+
+Both cases are compiled in the pinned Docker Cortex-M0+ toolchain and run as
+bounded RP2040 ELFs. The adapter supplies only the freestanding headers,
+startup, and native register calls required by the unchanged examples. Bus
+logs and UART output are checked against the native addresses and recorded in
+`qualification/rp2040-sdk.json`. This is a narrow SDK evidence slice; it does
+not imply complete UART receive, PWM timing, or general Pico SDK compatibility.
+
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five
 Docker-only ELF layouts and runs seven CPU/target combinations. The checked
