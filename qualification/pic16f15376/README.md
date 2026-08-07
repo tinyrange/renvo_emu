@@ -13,10 +13,12 @@ EUSART1 output. Every build must emit `PIC16F15376:OK\nIRQ\n`.
 Implemented functionally: all 49 enhanced mid-range instruction families,
 14-bit word program memory, banked/common/linear RAM, the 16-level hardware
 stack, reset and interrupt vectors, oscillator-ready state, PORT/LAT/TRIS/
-ANSEL A–E, PPS register storage, PIR/PIE routing, Timer0/1, EUSART1 transmit and
-watchdog reset. Timer and serial timing are deterministic approximations.
-Analog modules, serial receive timing and unlisted peripherals remain
-unsupported and are not represented as hardware-accurate.
+ANSEL A–E, PPS register storage, PIR/PIE routing, Timer0/1, NCO1 fixed-duty
+and pulse-frequency overflow/output, EUSART1 transmit and watchdog reset.
+Timer, NCO and serial timing are deterministic approximations; NCO clock-source
+selection and exact pulse-width timing are not hardware-accurate. Analog
+modules, serial receive timing and unlisted peripherals remain unsupported and
+are not represented as hardware-accurate.
 
 Run from the repository root:
 
@@ -25,7 +27,7 @@ scripts/qualify-pic16f15376.sh
 ```
 
 That command also assembles the complete 49-instruction fixture and compiles
-and runs the original register-level Timer0 program described under
-[`fixture`](fixture/README.md). It is written from the public PIC16F15376 data
-sheet and must produce the first RE0 Timer0 edge without incorporating
-Microchip application-note or SDK source.
+and runs the original register-level Timer0 and NCO1 programs described under
+[`fixture`](fixture/README.md). They are written from the public PIC16F15376 data
+sheet and must produce the first RE0 Timer0 edge and NCO1 output edge without
+incorporating Microchip application-note or SDK source.
