@@ -126,6 +126,36 @@ mkdir -p "$uart_build"
     -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
 
+smbus_build="$artifact_root/register-smbus-build"
+smbus_run="$artifact_root/register-smbus-run"
+mkdir -p "$smbus_build" "$smbus_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$smbus_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-smbus-source-build.json" \
+    -- -I. -c remu_smbus.c -o /workspace/out/smbus.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$smbus_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-smbus-link.json" \
+    -- /workspace/out/smbus.rel -o /workspace/out/smbus.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$smbus_build/smbus.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.smb0.tx_strobe=rising \
+    --vcd "$smbus_run/signals.vcd" \
+    --bus-log "$smbus_run/bus.json" \
+    --result "$smbus_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.smb0.tx_strobe"}' \
+    "$smbus_run/result.json" >/dev/null
+grep -q 'smb0' "$smbus_run/signals.vcd"
+
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \

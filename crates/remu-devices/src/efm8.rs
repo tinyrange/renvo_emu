@@ -2,6 +2,8 @@ use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const SFR_BYTES: usize = 0x1_0000;
@@ -36,7 +38,6 @@ const P0MDIN: usize = 0xf1;
 const P1MDIN: usize = 0xf2;
 const P2MDIN: usize = 0xf3;
 const P3MDIN: usize = (PAGE3 << 8) | 0xf4;
-
 const PORTS: [usize; 4] = [P0, P1, P2, P3];
 const PORT_WIDTHS: [u8; 4] = [8, 8, 8, 5];
 const PORT_MASKS: [u8; 4] = [0xff, 0xff, 0xff, 0x1f];
@@ -53,8 +54,165 @@ const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
+const SMB0CN0_MASTER: u8 = 1 << 7;
+const SMB0CN0_TXMODE: u8 = 1 << 6;
+const SMB0CN0_STA: u8 = 1 << 5;
+const SMB0CN0_STO: u8 = 1 << 4;
+const SMB0CN0_ACKRQ: u8 = 1 << 3;
+const SMB0CN0_ARBLOST: u8 = 1 << 2;
+const SMB0CN0_ACK: u8 = 1 << 1;
+const SMB0CN0_SI: u8 = 1;
+const SMB0CF_ENSMB: u8 = 1 << 7;
+const SMB0CF_INH: u8 = 1 << 6;
+const SMB0CF_BUSY: u8 = 1 << 5;
+const EIE1_ESMB0: u8 = 1;
+const EIP1_PSMB0: u8 = 1;
 const XBR0_URT0E: u8 = 0x01;
 const XBR2_XBARE: u8 = 0x40;
+const SMB0TC_PAGE3: usize = (PAGE3 << 8) | 0xac;
+const SMB0CN0_PAGE3: usize = (PAGE3 << 8) | 0xc0;
+const SMB0CF_PAGE3: usize = (PAGE3 << 8) | 0xc1;
+const SMB0DAT_PAGE3: usize = (PAGE3 << 8) | 0xc2;
+const EIE1_PAGE10: usize = (0x10 << 8) | 0xe6;
+const EIP1_ADDRESS: usize = (0x10 << 8) | 0xbb;
+const EIP1H_ADDRESS: usize = (0x10 << 8) | 0xee;
+const SMB0ADM_PAGE3: usize = (PAGE3 << 8) | 0xd6;
+const SMB0ADR_PAGE3: usize = (PAGE3 << 8) | 0xd7;
+const SMB0FCN0_ADDRESS: usize = (PAGE3 << 8) | 0xc3;
+const SMB0FCN1_ADDRESS: usize = (PAGE3 << 8) | 0xc4;
+const SMB0RXLN_ADDRESS: usize = (PAGE3 << 8) | 0xc5;
+const SMB0FCT_ADDRESS: usize = (PAGE3 << 8) | 0xef;
+
+/// Named EFM8 SFRs used by the functional SMBus 0 model.
+///
+/// The SMBus registers are available on SFR page 0 and, where documented,
+/// page 3. `offset` returns the canonical bus address used by the device
+/// model; `from_data_address` accepts both aliases for dual-page registers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Efm8SmbusRegister {
+    /// SMBus timing and pin control (SMB0TC).
+    Smb0Tc,
+    /// SMBus control/status (SMB0CN0).
+    Smb0Cn0,
+    /// SMBus configuration (SMB0CF).
+    Smb0Cf,
+    /// SMBus data FIFO access (SMB0DAT).
+    Smb0Dat,
+    /// SMBus FIFO control 0 (SMB0FCN0).
+    Smb0Fcn0,
+    /// SMBus FIFO control/status 1 (SMB0FCN1).
+    Smb0Fcn1,
+    /// SMBus receive length counter (SMB0RXLN).
+    Smb0Rxln,
+    /// SMBus follower address mask (SMB0ADM).
+    Smb0Adm,
+    /// SMBus follower address (SMB0ADR).
+    Smb0Adr,
+    /// Extended interrupt enable 1 (EIE1), including ESMB0.
+    Eie1,
+    /// Extended interrupt priority 1 low (EIP1), including PSMB0.
+    Eip1,
+    /// Extended interrupt priority 1 high (EIP1H), including PHSMB0.
+    Eip1h,
+    /// SMBus FIFO count (SMB0FCT).
+    Smb0Fct,
+}
+
+impl Efm8SmbusRegister {
+    /// Stable debugger/configuration order.
+    pub const ALL: [Self; 13] = [
+        Self::Smb0Tc,
+        Self::Smb0Cn0,
+        Self::Smb0Cf,
+        Self::Smb0Dat,
+        Self::Smb0Fcn0,
+        Self::Smb0Fcn1,
+        Self::Smb0Rxln,
+        Self::Smb0Adm,
+        Self::Smb0Adr,
+        Self::Eie1,
+        Self::Eip1,
+        Self::Eip1h,
+        Self::Smb0Fct,
+    ];
+
+    /// Canonical byte address in the paged SFR bus.
+    pub const fn offset(self) -> usize {
+        match self {
+            Self::Smb0Tc => 0xac,
+            Self::Smb0Cn0 => 0xc0,
+            Self::Smb0Cf => 0xc1,
+            Self::Smb0Dat => 0xc2,
+            Self::Smb0Fcn0 => (PAGE3 << 8) | 0xc3,
+            Self::Smb0Fcn1 => (PAGE3 << 8) | 0xc4,
+            Self::Smb0Rxln => (PAGE3 << 8) | 0xc5,
+            Self::Smb0Adm => 0xd6,
+            Self::Smb0Adr => 0xd7,
+            Self::Eie1 => 0xe6,
+            Self::Eip1 => (0x10 << 8) | 0xbb,
+            Self::Eip1h => (0x10 << 8) | 0xee,
+            Self::Smb0Fct => (PAGE3 << 8) | 0xef,
+        }
+    }
+
+    /// Stable numeric index for tables and serialized register metadata.
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Smb0Tc => 0,
+            Self::Smb0Cn0 => 1,
+            Self::Smb0Cf => 2,
+            Self::Smb0Dat => 3,
+            Self::Smb0Fcn0 => 4,
+            Self::Smb0Fcn1 => 5,
+            Self::Smb0Rxln => 6,
+            Self::Smb0Adm => 7,
+            Self::Smb0Adr => 8,
+            Self::Eie1 => 9,
+            Self::Eip1 => 10,
+            Self::Eip1h => 11,
+            Self::Smb0Fct => 12,
+        }
+    }
+
+    /// Stable lowercase register name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Smb0Tc => "smb0tc",
+            Self::Smb0Cn0 => "smb0cn0",
+            Self::Smb0Cf => "smb0cf",
+            Self::Smb0Dat => "smb0dat",
+            Self::Smb0Fcn0 => "smb0fcn0",
+            Self::Smb0Fcn1 => "smb0fcn1",
+            Self::Smb0Rxln => "smb0rxln",
+            Self::Smb0Adm => "smb0adm",
+            Self::Smb0Adr => "smb0adr",
+            Self::Eie1 => "eie1",
+            Self::Eip1 => "eip1",
+            Self::Eip1h => "eip1h",
+            Self::Smb0Fct => "smb0fct",
+        }
+    }
+
+    /// Resolves a raw paged-SFR address to its named SMBus register.
+    pub fn from_data_address(address: usize) -> Option<Self> {
+        match address {
+            0xac | SMB0TC_PAGE3 => Some(Self::Smb0Tc),
+            0xc0 | SMB0CN0_PAGE3 => Some(Self::Smb0Cn0),
+            0xc1 | SMB0CF_PAGE3 => Some(Self::Smb0Cf),
+            0xc2 | SMB0DAT_PAGE3 => Some(Self::Smb0Dat),
+            SMB0FCN0_ADDRESS => Some(Self::Smb0Fcn0),
+            SMB0FCN1_ADDRESS => Some(Self::Smb0Fcn1),
+            SMB0RXLN_ADDRESS => Some(Self::Smb0Rxln),
+            0xd6 | SMB0ADM_PAGE3 => Some(Self::Smb0Adm),
+            0xd7 | SMB0ADR_PAGE3 => Some(Self::Smb0Adr),
+            0xe6 | EIE1_PAGE10 => Some(Self::Eie1),
+            EIP1_ADDRESS => Some(Self::Eip1),
+            EIP1H_ADDRESS => Some(Self::Eip1h),
+            SMB0FCT_ADDRESS => Some(Self::Smb0Fct),
+            _ => None,
+        }
+    }
+}
 
 struct Efm8State {
     registers: Box<[u8]>,
@@ -62,6 +220,9 @@ struct Efm8State {
     port_signals: [Vec<SignalId>; 4],
     hub: SignalHub,
     uart: Vec<u8>,
+    smbus0_tx: Vec<u8>,
+    smbus0_tx_fifo: VecDeque<u8>,
+    smbus0_rx: VecDeque<u8>,
     timer0_epoch: u64,
     timer2_epoch: u64,
     watchdog_epoch: u64,
@@ -70,6 +231,10 @@ struct Efm8State {
     watchdog_reset: bool,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
+    smbus0_tx_byte_signal: SignalId,
+    smbus0_tx_strobe_signal: SignalId,
+    smbus0_busy_signal: SignalId,
+    smbus0_interrupt_signal: SignalId,
     timer0_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
     interrupt_signal: SignalId,
@@ -98,6 +263,46 @@ impl Efm8State {
                 value | (u8::from(net.resolved() == Logic::One) << pin)
             })
             & PORT_MASKS[port]
+    }
+
+    fn update_smbus0_signals(&self, at: SimTime) {
+        let enabled = self.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_ENSMB != 0;
+        let busy = enabled && self.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_BUSY != 0;
+        let master = self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_MASTER != 0;
+        let interrupt = enabled
+            && self.registers[Efm8SmbusRegister::Eie1.offset()] & EIE1_ESMB0 != 0
+            && self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_SI != 0
+            && (master || self.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_INH == 0);
+        self.set_signal(self.smbus0_busy_signal, u64::from(busy), 1, at);
+        self.set_signal(self.smbus0_interrupt_signal, u64::from(interrupt), 1, at);
+    }
+
+    fn smbus0_start(&mut self) {
+        self.registers[Efm8SmbusRegister::Smb0Cf.offset()] |= SMB0CF_BUSY;
+        self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] |=
+            SMB0CN0_MASTER | SMB0CN0_STA | SMB0CN0_SI;
+        self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &= !SMB0CN0_STO;
+    }
+
+    fn smbus0_stop(&mut self) {
+        self.registers[Efm8SmbusRegister::Smb0Cf.offset()] &= !SMB0CF_BUSY;
+        self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &=
+            !(SMB0CN0_MASTER | SMB0CN0_TXMODE | SMB0CN0_STA | SMB0CN0_STO | SMB0CN0_ACKRQ);
+    }
+
+    fn smbus0_fcn1(&self) -> u8 {
+        let control = self.registers[Efm8SmbusRegister::Smb0Fcn0.offset()];
+        let tx_threshold = (control >> 4) & 0x03;
+        let tfrq = self.smbus0_tx_fifo.len() <= usize::from(tx_threshold);
+        let txnf = true;
+        let rx_threshold = control & 0x03;
+        let rfrq = self.smbus0_rx.len() > usize::from(rx_threshold);
+        let rxe = self.smbus0_rx.is_empty();
+        (u8::from(tfrq) << 7) | (u8::from(txnf) << 6) | (u8::from(rfrq) << 3) | (u8::from(rxe) << 2)
+    }
+
+    fn smbus0_fct(&self) -> u8 {
+        (u8::from(!self.smbus0_tx_fifo.is_empty()) << 4) | u8::from(!self.smbus0_rx.is_empty())
     }
 
     fn refresh_port(&mut self, port: usize, at: SimTime) -> Result<(), DeviceError> {
@@ -139,6 +344,10 @@ impl Efm8State {
             ResetKind::Watchdog => 0x08,
         };
         self.uart.clear();
+        self.smbus0_tx.clear();
+        self.smbus0_tx_fifo.clear();
+        self.smbus0_rx.clear();
+        self.registers[Efm8SmbusRegister::Smb0Adm.offset()] = 0x7f;
         self.timer0_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
         self.watchdog_epoch = at.ticks();
@@ -147,6 +356,7 @@ impl Efm8State {
         self.watchdog_reset = false;
         for signal in [
             self.uart_strobe_signal,
+            self.smbus0_tx_strobe_signal,
             self.timer0_irq_signal,
             self.timer2_irq_signal,
             self.interrupt_signal,
@@ -154,12 +364,17 @@ impl Efm8State {
         ] {
             self.set_signal(signal, 0, 1, at);
         }
+        self.set_signal(self.smbus0_tx_byte_signal, 0, 8, at);
+        self.update_smbus0_signals(at);
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
         }
     }
 
     fn canonical(raw: usize) -> usize {
+        if let Some(register) = Efm8SmbusRegister::from_data_address(raw) {
+            return register.offset();
+        }
         let page = raw >> 8;
         let address = raw & 0xff;
         match address {
@@ -170,35 +385,46 @@ impl Efm8State {
             | 0xa0
             | 0xa4..=0xa6
             | 0xa8..=0xa9
+            | 0xac
             | 0xb0
             | 0xb8
+            | 0xc0..=0xc2
             | 0xc8
             | 0xca..=0xcf
-            | 0xd4..=0xd5
+            | 0xd4..=0xd7
             | 0xe1..=0xe3
-            | 0xef
+            | 0xe6
             | 0xf1..=0xf3 => address,
-            0x9c | 0xf4 if page == PAGE3 => (PAGE3 << 8) | address,
+            0x9c | 0xc3..=0xc5 | 0xef | 0xf4 if page == PAGE3 => (PAGE3 << 8) | address,
             _ => raw,
         }
     }
 
-    fn interrupt_levels(&self) -> [bool; 6] {
+    fn interrupt_levels(&self) -> [bool; 8] {
         let enabled = self.registers[IE];
         if enabled & IE_EA == 0 {
-            return [false; 6];
+            return [false; 8];
         }
         let active = [
             enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
             enabled & IE_ES0 != 0 && self.registers[SCON0] & (SCON0_RI | SCON0_TI) != 0,
             enabled & IE_ET2 != 0 && self.registers[TMR2CN0] & TMR2_TF2H != 0,
+            self.registers[Efm8SmbusRegister::Eie1.offset()] & EIE1_ESMB0 != 0
+                && self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_SI != 0
+                && (self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_MASTER != 0
+                    || self.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_INH == 0),
         ];
-        let priorities = [IE_ET0, IE_ES0, IE_ET2];
-        let mut levels = [false; 6];
-        for source in 0..3 {
+        let priorities = [
+            self.registers[IP] & IE_ET0 != 0,
+            self.registers[IP] & IE_ES0 != 0,
+            self.registers[IP] & IE_ET2 != 0,
+            self.registers[Efm8SmbusRegister::Eip1.offset()] & EIP1_PSMB0 != 0,
+        ];
+        let mut levels = [false; 8];
+        for source in 0..4 {
             if active[source] {
-                let high = self.registers[IP] & priorities[source] != 0;
-                levels[source + if high { 3 } else { 0 }] = true;
+                let high = priorities[source];
+                levels[source + if high { 4 } else { 0 }] = true;
             }
         }
         levels
@@ -236,6 +462,44 @@ impl Efm8PeripheralsHandle {
         self.0.lock().expect("EFM8 lock poisoned").uart.clone()
     }
 
+    /// Captured SMBus 0 bytes written by the guest to the transmit FIFO.
+    pub fn smbus0_tx_bytes(&self) -> Vec<u8> {
+        self.0.lock().expect("EFM8 lock poisoned").smbus0_tx.clone()
+    }
+
+    /// Returns whether the functional SMBus 0 state machine owns the bus.
+    pub fn smbus0_busy(&self) -> bool {
+        let state = self.0.lock().expect("EFM8 lock poisoned");
+        state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_BUSY != 0
+    }
+
+    /// Returns whether SMBus 0 has an enabled service request pending.
+    pub fn smbus0_interrupt(&self) -> bool {
+        let state = self.0.lock().expect("EFM8 lock poisoned");
+        state.registers[Efm8SmbusRegister::Eie1.offset()] & EIE1_ESMB0 != 0
+            && state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_SI != 0
+            && (state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_MASTER != 0
+                || state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_INH == 0)
+    }
+
+    /// Queues bytes as a deterministic follower-side SMBus 0 receive event.
+    pub fn inject_smbus0_rx(&self, bytes: &[u8], at: SimTime) {
+        let mut state = self.0.lock().expect("EFM8 lock poisoned");
+        if state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_ENSMB == 0 {
+            return;
+        }
+        state.smbus0_rx.extend(bytes.iter().copied());
+        if let Some(&first) = state.smbus0_rx.front() {
+            state.registers[Efm8SmbusRegister::Smb0Dat.offset()] = first;
+            state.registers[Efm8SmbusRegister::Smb0Cf.offset()] |= SMB0CF_BUSY;
+            state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &=
+                !(SMB0CN0_MASTER | SMB0CN0_TXMODE);
+            state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] |= SMB0CN0_ACKRQ | SMB0CN0_SI;
+        }
+        state.update_smbus0_signals(at);
+        state.update_interrupt_signals(at);
+    }
+
     /// Supplies one received UART0 byte and raises RI.
     pub fn inject_uart_rx(&self, value: u8, at: SimTime) {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
@@ -245,7 +509,7 @@ impl Efm8PeripheralsHandle {
     }
 
     /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 6] {
+    pub fn poll(&self, now: SimTime) -> [bool; 8] {
         let mut state = self.0.lock().expect("EFM8 lock poisoned");
         for port in 0..4 {
             let _ = state.refresh_port(port, now);
@@ -296,6 +560,7 @@ impl Efm8PeripheralsHandle {
             state.watchdog_reset = true;
             state.set_signal(state.watchdog_reset_signal, 1, 1, now);
         }
+        state.update_smbus0_signals(now);
         state.update_interrupt_signals(now);
         state.interrupt_levels()
     }
@@ -332,6 +597,26 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("toggles for every UART0 transmit byte".to_owned()),
         )?;
+        let smbus0_tx_byte_signal = hub.declare(
+            "board.efm8bb52f32g.smb0.tx_byte",
+            SignalValue::from_u64(0, 8)?,
+            Some("last SMBus 0 byte written by the guest".to_owned()),
+        )?;
+        let smbus0_tx_strobe_signal = hub.declare(
+            "board.efm8bb52f32g.smb0.tx_strobe",
+            SignalValue::from_u64(0, 1)?,
+            Some("toggles for every SMBus 0 transmit byte".to_owned()),
+        )?;
+        let smbus0_busy_signal = hub.declare(
+            "board.efm8bb52f32g.smb0.busy",
+            SignalValue::from_u64(0, 1)?,
+            Some("functional SMBus 0 bus-busy state".to_owned()),
+        )?;
+        let smbus0_interrupt_signal = hub.declare(
+            "board.efm8bb52f32g.smb0.interrupt",
+            SignalValue::from_u64(0, 1)?,
+            Some("enabled SMBus 0 service request".to_owned()),
+        )?;
         let timer0_irq_signal = hub.declare(
             "board.efm8bb52f32g.timer0.irq",
             SignalValue::from_u64(0, 1)?,
@@ -358,6 +643,9 @@ impl Efm8Peripherals {
             port_signals: [signals0, signals1, signals2, signals3],
             hub,
             uart: Vec::new(),
+            smbus0_tx: Vec::new(),
+            smbus0_tx_fifo: VecDeque::new(),
+            smbus0_rx: VecDeque::new(),
             timer0_epoch: 0,
             timer2_epoch: 0,
             watchdog_epoch: 0,
@@ -366,6 +654,10 @@ impl Efm8Peripherals {
             watchdog_reset: false,
             uart_byte_signal,
             uart_strobe_signal,
+            smbus0_tx_byte_signal,
+            smbus0_tx_strobe_signal,
+            smbus0_busy_signal,
+            smbus0_interrupt_signal,
             timer0_irq_signal,
             timer2_irq_signal,
             interrupt_signal,
@@ -406,13 +698,25 @@ impl Device for Efm8Peripherals {
             state.refresh_port(port, at)?;
             return Ok(u64::from(state.port_read(port)));
         }
-        let mut value = *state
-            .registers
-            .get(address)
-            .ok_or_else(|| DeviceError::new(format!("EFM8 read outside SFR space: {raw:#x}")))?;
-        if address == CLKSEL {
-            value |= 0x80;
-        }
+        let value = match Efm8SmbusRegister::from_data_address(address) {
+            Some(Efm8SmbusRegister::Smb0Dat) => {
+                let value = state.registers[Efm8SmbusRegister::Smb0Dat.offset()];
+                state.smbus0_rx.pop_front();
+                if let Some(&next) = state.smbus0_rx.front() {
+                    state.registers[Efm8SmbusRegister::Smb0Dat.offset()] = next;
+                } else {
+                    state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &= !SMB0CN0_ACKRQ;
+                }
+                state.update_smbus0_signals(at);
+                value
+            }
+            Some(Efm8SmbusRegister::Smb0Fcn1) => state.smbus0_fcn1(),
+            Some(Efm8SmbusRegister::Smb0Fct) => state.smbus0_fct(),
+            Some(_) if address == CLKSEL => state.registers[address] | 0x80,
+            _ => *state.registers.get(address).ok_or_else(|| {
+                DeviceError::new(format!("EFM8 read outside SFR space: {raw:#x}"))
+            })?,
+        };
         Ok(u64::from(value))
     }
 
@@ -435,37 +739,138 @@ impl Device for Efm8Peripherals {
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
         }
-        state.registers[address] = value;
-        if let Some(port) = Self::port_index(address) {
-            state.registers[address] &= PORT_MASKS[port];
-            state.refresh_port(port, at)?;
-        } else if let Some(port) = PORT_MDOUT.iter().position(|item| *item == address) {
-            state.registers[address] &= PORT_MASKS[port];
-            state.refresh_port(port, at)?;
-        } else if address == SBUF0 {
-            if state.registers[XBR0] & XBR0_URT0E != 0 && state.registers[XBR2] & XBR2_XBARE != 0 {
-                state.uart.push(value);
-                state.set_signal(state.uart_byte_signal, u64::from(value), 8, at);
-                let previous = state.hub.with_registry(|registry| {
-                    registry
-                        .value(state.uart_strobe_signal)
-                        .and_then(|signal| signal.bit(0))
-                        .map_or(0, |logic| u64::from(logic == Logic::One))
-                });
-                state.set_signal(state.uart_strobe_signal, previous ^ 1, 1, at);
+        let smbus_register = Efm8SmbusRegister::from_data_address(address);
+        match smbus_register {
+            Some(Efm8SmbusRegister::Smb0Cf) => {
+                let busy = state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_BUSY;
+                state.registers[Efm8SmbusRegister::Smb0Cf.offset()] = (value & !SMB0CF_BUSY) | busy;
+                if value & SMB0CF_ENSMB == 0 {
+                    state.smbus0_stop();
+                    state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &= !SMB0CN0_SI;
+                }
             }
-            state.registers[SCON0] |= SCON0_TI;
-        } else if address == WDTCN {
-            if state.watchdog_key == 0xde && value == 0xad {
-                state.watchdog_enabled = false;
+            Some(Efm8SmbusRegister::Smb0Tc) => {
+                state.registers[Efm8SmbusRegister::Smb0Tc.offset()] = value & 0x93;
             }
-            state.watchdog_key = value;
-            state.watchdog_epoch = at.ticks();
-        } else if address == TCON && value & TCON_TR0 != 0 {
-            state.timer0_epoch = at.ticks();
-        } else if address == TMR2CN0 && value & TMR2_TR2 != 0 {
-            state.timer2_epoch = at.ticks();
+            Some(Efm8SmbusRegister::Smb0Adr) => {
+                state.registers[Efm8SmbusRegister::Smb0Adr.offset()] = value;
+            }
+            Some(Efm8SmbusRegister::Smb0Adm) => {
+                state.registers[Efm8SmbusRegister::Smb0Adm.offset()] = value;
+            }
+            Some(Efm8SmbusRegister::Smb0Fcn0) => {
+                let flush_tx = value & (1 << 6) != 0;
+                let flush_rx = value & (1 << 2) != 0;
+                state.registers[Efm8SmbusRegister::Smb0Fcn0.offset()] = value & !(1 << 6 | 1 << 2);
+                if flush_tx {
+                    state.smbus0_tx_fifo.clear();
+                }
+                if flush_rx {
+                    state.smbus0_rx.clear();
+                    state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &= !SMB0CN0_ACKRQ;
+                }
+            }
+            Some(Efm8SmbusRegister::Smb0Fcn1) | Some(Efm8SmbusRegister::Smb0Fct) => {
+                // Both registers are read-only status surfaces on this device.
+            }
+            Some(Efm8SmbusRegister::Smb0Rxln) => {
+                state.registers[Efm8SmbusRegister::Smb0Rxln.offset()] = value;
+            }
+            Some(Efm8SmbusRegister::Eie1) => {
+                state.registers[Efm8SmbusRegister::Eie1.offset()] = value;
+            }
+            Some(Efm8SmbusRegister::Eip1) => {
+                state.registers[Efm8SmbusRegister::Eip1.offset()] = value;
+            }
+            Some(Efm8SmbusRegister::Eip1h) => {
+                state.registers[Efm8SmbusRegister::Eip1h.offset()] = value;
+            }
+            Some(Efm8SmbusRegister::Smb0Cn0) => {
+                let request_start = value & SMB0CN0_STA != 0;
+                let request_stop = value & SMB0CN0_STO != 0;
+                let old_hardware = state.registers[Efm8SmbusRegister::Smb0Cn0.offset()]
+                    & (SMB0CN0_MASTER | SMB0CN0_TXMODE | SMB0CN0_ACKRQ | SMB0CN0_ARBLOST);
+                let software = value & (SMB0CN0_STA | SMB0CN0_STO | SMB0CN0_ACK | SMB0CN0_SI);
+                state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] = old_hardware | software;
+                if value & SMB0CN0_SI == 0 {
+                    state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &= !SMB0CN0_ARBLOST;
+                }
+                if request_stop {
+                    state.smbus0_stop();
+                }
+                if request_start {
+                    state.smbus0_start();
+                }
+            }
+            Some(Efm8SmbusRegister::Smb0Dat) => {
+                state.registers[Efm8SmbusRegister::Smb0Dat.offset()] = value;
+                if state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_ENSMB != 0 {
+                    state.smbus0_tx.push(value);
+                    state.smbus0_tx_fifo.push_back(value);
+                    state.registers[Efm8SmbusRegister::Smb0Cf.offset()] |= SMB0CF_BUSY;
+                    state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] |=
+                        SMB0CN0_MASTER | SMB0CN0_TXMODE | SMB0CN0_SI;
+                    state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &= !SMB0CN0_ACKRQ;
+                    state.set_signal(state.smbus0_tx_byte_signal, u64::from(value), 8, at);
+                    let previous = state.hub.with_registry(|registry| {
+                        registry
+                            .value(state.smbus0_tx_strobe_signal)
+                            .and_then(|signal| signal.bit(0))
+                            .map_or(0, |logic| u64::from(logic == Logic::One))
+                    });
+                    state.set_signal(state.smbus0_tx_strobe_signal, previous ^ 1, 1, at);
+                }
+            }
+            None if address == CLKSEL => {
+                state.registers[address] = value;
+            }
+            None => {
+                state.registers[address] = value;
+            }
         }
+        if smbus_register.is_none() {
+            if let Some(port) = Self::port_index(address) {
+                state.registers[address] = value;
+                state.registers[address] &= PORT_MASKS[port];
+                state.refresh_port(port, at)?;
+            } else if let Some(port) = PORT_MDOUT.iter().position(|item| *item == address) {
+                state.registers[address] = value;
+                state.registers[address] &= PORT_MASKS[port];
+                state.refresh_port(port, at)?;
+            } else if address == SBUF0 {
+                state.registers[address] = value;
+                if state.registers[XBR0] & XBR0_URT0E != 0
+                    && state.registers[XBR2] & XBR2_XBARE != 0
+                {
+                    state.uart.push(value);
+                    state.set_signal(state.uart_byte_signal, u64::from(value), 8, at);
+                    let previous = state.hub.with_registry(|registry| {
+                        registry
+                            .value(state.uart_strobe_signal)
+                            .and_then(|signal| signal.bit(0))
+                            .map_or(0, |logic| u64::from(logic == Logic::One))
+                    });
+                    state.set_signal(state.uart_strobe_signal, previous ^ 1, 1, at);
+                }
+                state.registers[SCON0] |= SCON0_TI;
+            } else if address == WDTCN {
+                state.registers[address] = value;
+                if state.watchdog_key == 0xde && value == 0xad {
+                    state.watchdog_enabled = false;
+                }
+                state.watchdog_key = value;
+                state.watchdog_epoch = at.ticks();
+            } else if address == TCON && value & TCON_TR0 != 0 {
+                state.registers[address] = value;
+                state.timer0_epoch = at.ticks();
+            } else if address == TMR2CN0 && value & TMR2_TR2 != 0 {
+                state.registers[address] = value;
+                state.timer2_epoch = at.ticks();
+            } else {
+                state.registers[address] = value;
+            }
+        }
+        state.update_smbus0_signals(at);
         state.update_interrupt_signals(at);
         Ok(())
     }
@@ -481,8 +886,8 @@ impl Device for Efm8Peripherals {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessWidth, Efm8Peripherals, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0, SimTime, TCON,
-        TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
+        AccessWidth, Efm8Peripherals, Efm8SmbusRegister, IE, IE_EA, IE_ET0, P0, P0MDOUT, SBUF0,
+        SimTime, TCON, TCON_TR0, TMOD, XBR0, XBR0_URT0E, XBR2, XBR2_XBARE,
     };
     use remu_bus::Device;
 
@@ -542,5 +947,204 @@ mod tests {
             )
             .unwrap();
         assert!(handle.poll(SimTime::from_ticks(4))[0]);
+    }
+
+    #[test]
+    fn smbus0_master_and_follower_byte_paths_are_observable() {
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _ports) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        device
+            .write(
+                Efm8SmbusRegister::Smb0Cf.offset() as u64,
+                AccessWidth::Byte,
+                0x80,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Efm8SmbusRegister::Eie1.offset() as u64,
+                AccessWidth::Byte,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                Efm8SmbusRegister::Smb0Cn0.offset() as u64,
+                AccessWidth::Byte,
+                0x20,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.smbus0_busy());
+        assert!(handle.smbus0_interrupt());
+        device
+            .write(
+                Efm8SmbusRegister::Smb0Cn0.offset() as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::from_ticks(1),
+            )
+            .unwrap();
+        device
+            .write(
+                Efm8SmbusRegister::Smb0Dat.offset() as u64,
+                AccessWidth::Byte,
+                0xa0,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        assert_eq!(handle.smbus0_tx_bytes(), vec![0xa0]);
+        assert!(handle.smbus0_interrupt());
+
+        device
+            .write(
+                Efm8SmbusRegister::Smb0Cn0.offset() as u64,
+                AccessWidth::Byte,
+                0,
+                SimTime::from_ticks(3),
+            )
+            .unwrap();
+        handle.inject_smbus0_rx(&[0x12, 0x34], SimTime::from_ticks(4));
+        assert!(handle.smbus0_interrupt());
+        assert_eq!(
+            device.read(
+                Efm8SmbusRegister::Smb0Dat.offset() as u64,
+                AccessWidth::Byte,
+                SimTime::from_ticks(5),
+            ),
+            Ok(0x12)
+        );
+        assert_eq!(
+            device.read(
+                Efm8SmbusRegister::Smb0Dat.offset() as u64,
+                AccessWidth::Byte,
+                SimTime::from_ticks(6),
+            ),
+            Ok(0x34)
+        );
+    }
+
+    #[test]
+    fn smbus0_named_registers_and_status_bits_match_reference_surface() {
+        assert_eq!(Efm8SmbusRegister::ALL.len(), 13);
+        for (index, register) in Efm8SmbusRegister::ALL.iter().copied().enumerate() {
+            assert_eq!(register.index(), index);
+            assert_eq!(
+                Efm8SmbusRegister::from_data_address(register.offset()),
+                Some(register)
+            );
+        }
+        assert_eq!(
+            Efm8SmbusRegister::from_data_address(0x20c0),
+            Some(Efm8SmbusRegister::Smb0Cn0)
+        );
+        assert_eq!(
+            Efm8SmbusRegister::from_data_address(0x10bb),
+            Some(Efm8SmbusRegister::Eip1)
+        );
+        assert_eq!(
+            Efm8SmbusRegister::from_data_address(0x10e6),
+            Some(Efm8SmbusRegister::Eie1)
+        );
+
+        let hub = super::SignalHub::new();
+        let (mut device, handle, _ports) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+        let at = SimTime::ZERO;
+        let offset = |register: Efm8SmbusRegister| register.offset() as u64;
+        device
+            .write(
+                offset(Efm8SmbusRegister::Smb0Tc),
+                AccessWidth::Byte,
+                0xff,
+                at,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(offset(Efm8SmbusRegister::Smb0Tc), AccessWidth::Byte, at),
+            Ok(0x93)
+        );
+        device
+            .write(
+                offset(Efm8SmbusRegister::Smb0Adr),
+                AccessWidth::Byte,
+                0xff,
+                at,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(offset(Efm8SmbusRegister::Smb0Adr), AccessWidth::Byte, at),
+            Ok(0xff)
+        );
+
+        device
+            .write(
+                offset(Efm8SmbusRegister::Smb0Cf),
+                AccessWidth::Byte,
+                0x80,
+                at,
+            )
+            .unwrap();
+        device
+            .write(offset(Efm8SmbusRegister::Eie1), AccessWidth::Byte, 1, at)
+            .unwrap();
+        device
+            .write(IE as u64, AccessWidth::Byte, IE_EA.into(), at)
+            .unwrap();
+        device
+            .write(
+                offset(Efm8SmbusRegister::Smb0Cn0),
+                AccessWidth::Byte,
+                0x20,
+                at,
+            )
+            .unwrap();
+        assert!(handle.poll(at)[3]);
+        device
+            .write(offset(Efm8SmbusRegister::Smb0Cn0), AccessWidth::Byte, 0, at)
+            .unwrap();
+        assert!(!handle.smbus0_interrupt());
+
+        device
+            .write(
+                offset(Efm8SmbusRegister::Smb0Dat),
+                AccessWidth::Byte,
+                0xa0,
+                at,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(offset(Efm8SmbusRegister::Smb0Fct), AccessWidth::Byte, at),
+            Ok(0x10)
+        );
+        assert_eq!(
+            device.read(offset(Efm8SmbusRegister::Smb0Fcn1), AccessWidth::Byte, at),
+            Ok(0x44)
+        );
+        device
+            .write(
+                offset(Efm8SmbusRegister::Smb0Fct),
+                AccessWidth::Byte,
+                0xff,
+                at,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(offset(Efm8SmbusRegister::Smb0Fct), AccessWidth::Byte, at),
+            Ok(0x10)
+        );
+        device
+            .write(
+                offset(Efm8SmbusRegister::Smb0Fcn0),
+                AccessWidth::Byte,
+                1 << 6,
+                at,
+            )
+            .unwrap();
+        assert_eq!(
+            device.read(offset(Efm8SmbusRegister::Smb0Fct), AccessWidth::Byte, at),
+            Ok(0)
+        );
     }
 }

@@ -27,6 +27,9 @@ __sfr __at (0x90) P1;
 __sfr __at (0x97) WDTCN;
 __sfr __at (0x98) SCON0;
 __sfr __at (0x99) SBUF0;
+__sfr __at (0xc0) SMB0CN0;
+__sfr __at (0xc1) SMB0CF;
+__sfr __at (0xc2) SMB0DAT;
 __sfr __at (0xa4) P0MDOUT;
 __sfr __at (0xa5) P1MDOUT;
 __sfr __at (0xa7) SFRPAGE;
@@ -38,6 +41,7 @@ __sfr __at (0xce) TMR2L;
 __sfr __at (0xcf) TMR2H;
 __sfr __at (0xe1) XBR0;
 __sfr __at (0xe3) XBR2;
+__sfr __at (0xe6) EIE1;
 __sfr __at (0xf1) P0MDIN;
 __sfr __at (0xf2) P1MDIN;
 
