@@ -580,54 +580,69 @@ impl RiscVMachine {
             }
             TargetId::Esp32c6 => {
                 bus.map_device(
-                    "esp32c6.interrupt-controller",
-                    0x2000_0000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new(
-                        "esp32c6.interrupt-controller",
-                        vec![0; 0x1000 / 4],
+                    "esp32c6.plic-machine",
+                    0x2000_1000,
+                    0x400,
+                    Box::new(remu_devices::EspC6ControlBlock::new(
+                        "esp32c6.plic-machine",
+                        0x400,
+                        None,
+                        0,
                     )),
                 )?;
                 bus.map_device(
-                    "esp32c6.interrupt-controller-cpu0",
-                    0x2000_1000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new(
-                        "esp32c6.interrupt-controller-cpu0",
-                        vec![0; 0x1000 / 4],
+                    "esp32c6.plic-user",
+                    0x2000_1400,
+                    0x400,
+                    Box::new(remu_devices::EspC6ControlBlock::new(
+                        "esp32c6.plic-user",
+                        0x400,
+                        None,
+                        0,
+                    )),
+                )?;
+                bus.map_device(
+                    "esp32c6.clint",
+                    0x2000_1800,
+                    0x800,
+                    Box::new(remu_devices::EspC6ControlBlock::new(
+                        "esp32c6.clint",
+                        0x800,
+                        None,
+                        0,
                     )),
                 )?;
                 bus.map_device(
                     "esp32c6.assist-debug",
                     0x600c_2000,
                     0x1000,
-                    Box::new(Rp2040RegisterBank::new(
+                    Box::new(remu_devices::EspC6ControlBlock::new(
                         "esp32c6.assist-debug",
-                        vec![0; 0x1000 / 4],
+                        0x1000,
+                        Some(0x3fc),
+                        35_656_192,
                     )),
                 )?;
                 bus.map_device(
                     "esp32c6.extmem",
                     0x600c_8000,
                     0x1000,
-                    Box::new(Rp2040RegisterBank::new(
+                    Box::new(remu_devices::EspC6ControlBlock::new(
                         "esp32c6.extmem",
-                        vec![0; 0x1000 / 4],
+                        0x1000,
+                        Some(0x3fc),
+                        35_656_192,
                     )),
-                )?;
-                bus.map_device(
-                    "esp32c6.pcr",
-                    0x6009_6000,
-                    0x1000,
-                    Box::new(Rp2040RegisterBank::new("esp32c6.pcr", vec![0; 0x1000 / 4])),
                 )?;
                 bus.map_device(
                     "esp32c6.lp-aon",
                     0x600b_1000,
                     0x400,
-                    Box::new(Rp2040RegisterBank::new(
+                    Box::new(remu_devices::EspC6ControlBlock::new(
                         "esp32c6.lp-aon",
-                        vec![0; 0x1000 / 4],
+                        0x400,
+                        Some(0xfc),
+                        35_656_192,
                     )),
                 )?;
                 bus.map_device(

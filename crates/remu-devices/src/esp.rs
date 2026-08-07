@@ -608,6 +608,13 @@ impl EspSystimer {
             EspSystimerHandle { state },
         )
     }
+
+    /// Creates an ESP32-C6 system timer with the native version register reset.
+    pub fn new_esp32c6(name: impl Into<String>) -> (Self, EspSystimerHandle) {
+        let (device, handle) = Self::new(name);
+        device.state.borrow_mut().registers[0xfc / 4] = 35_655_795;
+        (device, handle)
+    }
 }
 
 impl Device for EspSystimer {

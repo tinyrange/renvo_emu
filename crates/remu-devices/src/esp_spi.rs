@@ -36,11 +36,13 @@ impl EspSpiState {
     const USER_MISO: u32 = 1 << 28;
 
     fn new() -> Self {
-        Self {
+        let mut state = Self {
             registers: vec![0; 0x1000 / 4],
             tx: Vec::new(),
             rx: VecDeque::new(),
-        }
+        };
+        state.registers[0xf0 / 4] = 35_656_448;
+        state
     }
 
     fn words_for_bits(bits_minus_one: u32) -> usize {

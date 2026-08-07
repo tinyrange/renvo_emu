@@ -107,7 +107,7 @@ impl EspPcntState {
             self.registers[(base + CONF0) / 4] = (16 & 0x3ff) | (0xf << 10);
         }
         self.registers[CTRL / 4] = 0;
-        self.registers[0xfc / 4] = 0x0100_0000;
+        self.registers[0xfc / 4] = 419_898_881;
     }
 
     fn paused(&self, unit: usize) -> bool {

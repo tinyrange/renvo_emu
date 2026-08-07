@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, esp32s3]
+    branches: [main, esp32s3, esp32c6-omnibus]
   pull_request:
 
 permissions:
@@ -70,4 +70,31 @@ jobs:
           path: |
             .remu/qualification/esp32s3-peripherals
             .remu/qualification/board-models
+          if-no-files-found: ignore
+
+  esp32c6-vendor:
+    name: ESP32-C6 vendor peripheral qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Build pinned Espressif RISC-V GCC image
+        run: docker build --tag remu/riscv32-esp-gcc:local toolchains/riscv32-esp-gcc
+
+      - name: Run native peripheral qualification
+        run: ./scripts/qualify-esp32c6-peripherals.sh
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: esp32c6-peripheral-qualification
+          path: .remu/qualification/esp32c6-peripherals
           if-no-files-found: ignore

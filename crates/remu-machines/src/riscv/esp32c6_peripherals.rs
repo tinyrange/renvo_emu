@@ -1,12 +1,14 @@
 use remu_bus::{AddressSpace, DeviceError};
 use remu_core::SimTime;
 use remu_devices::{
-    Esp32c6I2c, EspAes, EspC6Gdma, EspC6GdmaHandle, EspC6Hmac, EspC6Twai, EspC6TwaiHandle, EspEtm,
-    EspEtmHandle, EspI2s, EspI2sHandle, EspLedc, EspLedcHandle, EspLpI2c, EspLpI2cHandle,
-    EspLpUart, EspLpUartHandle, EspLpWatchdog, EspLpWatchdogHandle, EspMcpwm, EspParlio,
-    EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt, EspRmtHandle, EspSarAdc, EspSdioSlaveHandle,
-    EspSha, EspSpi, EspSpiHandle, EspSystimer, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    FunctionalUart, Rp2040RegisterBank, SignalHub, UartHandle, new_esp_sdio_slave,
+    Esp32c6I2c, EspAes, EspC6ControlBlock, EspC6Ecc, EspC6Efuse, EspC6Gdma, EspC6GdmaHandle,
+    EspC6Hmac, EspC6InterruptMatrix, EspC6InterruptPriority, EspC6IoMux, EspC6Twai,
+    EspC6TwaiHandle, EspC6Uhci, EspDigitalSignature, EspEtm, EspEtmHandle, EspI2s, EspI2sHandle,
+    EspLedc, EspLedcHandle, EspLpI2c, EspLpI2cHandle, EspLpUart, EspLpUartHandle, EspLpWatchdog,
+    EspLpWatchdogHandle, EspMcpwm, EspParlio, EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt,
+    EspRmtHandle, EspRsa, EspSarAdc, EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, FunctionalUart, SignalHub, UartHandle,
+    new_esp_sdio_slave,
 };
 use remu_signals::Logic;
 
@@ -30,6 +32,21 @@ pub(super) struct Esp32c6PeripheralHandles {
 }
 
 impl Esp32c6PeripheralHandles {
+    fn clear_host_queues(&self) {
+        let _ = self.spi2.take_tx();
+        let _ = self.i2s.take_tx_words();
+        for twai in &self.twai {
+            let _ = twai.take_tx_frames();
+        }
+        let _ = self.etm.take_tasks();
+        let _ = self.parlio.take_tx_words();
+        let _ = self.gdma.take_output_words();
+        let _ = self.lp_i2c.take_tx();
+        for function in 0..8 {
+            let _ = self.sdio.take_tx(function);
+        }
+    }
+
     pub(super) fn poll_outputs(&self, at: SimTime) -> Result<u64, DeviceError> {
         Ok(u64::from(self.ledc.poll(at)?) + u64::from(self.rmt.poll(at)?))
     }
@@ -44,13 +61,19 @@ impl Esp32c6PeripheralHandles {
     }
 }
 
-/// Maps every carried ESP32-C6 PR implementation and reserves the remaining
-/// official non-radio pages for the completion pass.
+/// Maps the complete ESP32-C6 non-radio peripheral inventory.
 pub(super) fn map_esp32c6_peripherals(
     bus: &mut AddressSpace,
     signals: &SignalHub,
     chip_uarts: &mut Vec<UartHandle>,
 ) -> Result<(Esp32c6PeripheralHandles, EspUsbSerialJtagHandle), MachineError> {
+    let (uart0, uart0_handle) = FunctionalUart::new_lenient("esp32c6.uart0", 0x00, 0x1c, 0);
+    bus.map_device("esp32c6.uart0", 0x6000_0000, 0x1000, Box::new(uart0))?;
+    chip_uarts.push(uart0_handle.clone());
+    let (uart1, uart1_handle) = FunctionalUart::new_lenient("esp32c6.uart1", 0x00, 0x1c, 0);
+    bus.map_device("esp32c6.uart1", 0x6000_1000, 0x1000, Box::new(uart1))?;
+    chip_uarts.push(uart1_handle.clone());
+
     let i2c = Esp32c6I2c::new("esp32c6.i2c0", signals.clone())?;
     bus.map_device("esp32c6.i2c0", 0x6000_4000, 0x1000, Box::new(i2c))?;
 
@@ -101,7 +124,7 @@ pub(super) fn map_esp32c6_peripherals(
     let (lp_uart, lp_uart_output, lp_uart_handle) =
         EspLpUart::new("esp32c6.lp-uart", "board.esp32c6.lp_uart", signals.clone())?;
     bus.map_device("esp32c6.lp-uart", 0x600b_1400, 0x400, Box::new(lp_uart))?;
-    chip_uarts.push(lp_uart_output);
+    chip_uarts.push(lp_uart_output.clone());
     let (lp_i2c, lp_i2c_handle) = EspLpI2c::new("esp32c6.lp-i2c");
     bus.map_device("esp32c6.lp-i2c", 0x600b_1800, 0x400, Box::new(lp_i2c))?;
     let (lp_watchdog, lp_watchdog_handle) = EspLpWatchdog::new("esp32c6.lp-watchdog");
@@ -134,40 +157,132 @@ pub(super) fn map_esp32c6_peripherals(
         0x1000,
         Box::new(EspC6Hmac::new("esp32c6.hmac")),
     )?;
+    bus.map_device(
+        "esp32c6.rsa",
+        0x6008_a000,
+        0x1000,
+        Box::new(EspRsa::new_esp32c6("esp32c6.rsa")),
+    )?;
+    bus.map_device(
+        "esp32c6.ecc",
+        0x6008_b000,
+        0x1000,
+        Box::new(EspC6Ecc::new("esp32c6.ecc")),
+    )?;
+    bus.map_device(
+        "esp32c6.digital-signature",
+        0x6008_c000,
+        0x1000,
+        Box::new(EspDigitalSignature::new_esp32c6(
+            "esp32c6.digital-signature",
+        )),
+    )?;
+    bus.map_device(
+        "esp32c6.efuse",
+        0x600b_0800,
+        0x400,
+        Box::new(EspC6Efuse::new("esp32c6.efuse")),
+    )?;
 
-    let (systimer, _systimer_handle) = EspSystimer::new("esp32c6.systimer");
+    let (systimer, _systimer_handle) = EspSystimer::new_esp32c6("esp32c6.systimer");
     bus.map_device("esp32c6.systimer", 0x6000_a000, 0x1000, Box::new(systimer))?;
 
-    for (name, base) in [
-        ("esp32c6.uhci0", 0x6000_5000),
-        ("esp32c6.interrupt-matrix", 0x6001_0000),
-        ("esp32c6.atomic", 0x6001_1000),
-        ("esp32c6.slchost", 0x6001_8000),
-        ("esp32c6.pvt-monitor", 0x6001_9000),
-        ("esp32c6.rsa", 0x6008_a000),
-        ("esp32c6.ecc", 0x6008_b000),
-        ("esp32c6.ds", 0x6008_c000),
-        ("esp32c6.io-mux", 0x6009_0000),
-        ("esp32c6.mem-monitor", 0x6009_2000),
-        ("esp32c6.pau", 0x6009_3000),
-        ("esp32c6.hp-system", 0x6009_5000),
-        ("esp32c6.tee", 0x6009_8000),
-        ("esp32c6.hp-apm", 0x6009_9000),
-        ("esp32c6.misc", 0x6009_f000),
-        ("esp32c6.power-detector", 0x600a_0000),
-        ("esp32c6.ieee802154", 0x600a_3000),
-        ("esp32c6.modem-syscon", 0x600a_9800),
-        ("esp32c6.pmu-efuse-lp-timer", 0x600b_0000),
-        ("esp32c6.lp-io-analog", 0x600b_2000),
-        ("esp32c6.lp-security-debug", 0x600b_3000),
-        ("esp32c6.trace", 0x600c_0000),
-        ("esp32c6.interrupt-priority", 0x600c_5000),
+    let (interrupt_matrix, _interrupt_matrix_handle) =
+        EspC6InterruptMatrix::new("esp32c6.interrupt-matrix");
+    bus.map_device(
+        "esp32c6.interrupt-matrix",
+        0x6001_0000,
+        0x800,
+        Box::new(interrupt_matrix),
+    )?;
+    bus.map_device(
+        "esp32c6.interrupt-priority",
+        0x600c_5000,
+        0x400,
+        Box::new(EspC6InterruptPriority::new("esp32c6.interrupt-priority")),
+    )?;
+    bus.map_device(
+        "esp32c6.io-mux",
+        0x6009_0000,
+        0x1000,
+        Box::new(EspC6IoMux::new("esp32c6.io-mux")),
+    )?;
+    let (uhci, _uhci_handle) = EspC6Uhci::new(
+        "esp32c6.uhci0",
+        [uart0_handle, uart1_handle, lp_uart_output],
+    );
+    bus.map_device("esp32c6.uhci0", 0x6000_5000, 0x1000, Box::new(uhci))?;
+
+    for (name, base, size, date_offset, date) in [
+        ("esp32c6.atomic", 0x6001_1000, 0x1000, None, 0),
+        ("esp32c6.slchost", 0x6001_8000, 0x1000, None, 0),
+        ("esp32c6.pvt-monitor", 0x6001_9000, 0x1000, None, 0),
+        (
+            "esp32c6.mem-monitor",
+            0x6009_2000,
+            0x1000,
+            Some(0x3fc),
+            35_656_192,
+        ),
+        ("esp32c6.pau", 0x6009_3000, 0x1000, Some(0x3fc), 35_656_192),
+        (
+            "esp32c6.hp-system",
+            0x6009_5000,
+            0x1000,
+            Some(0x3fc),
+            35_656_192,
+        ),
+        ("esp32c6.pcr", 0x6009_6000, 0x1000, Some(0xffc), 35_656_192),
+        ("esp32c6.tee", 0x6009_8000, 0x1000, Some(0x3fc), 35_656_192),
+        (
+            "esp32c6.hp-apm",
+            0x6009_9000,
+            0x800,
+            Some(0x3fc),
+            35_656_192,
+        ),
+        (
+            "esp32c6.lp-apm0",
+            0x6009_9800,
+            0x800,
+            Some(0x3fc),
+            35_656_192,
+        ),
+        ("esp32c6.misc", 0x6009_f000, 0x1000, None, 0),
+        ("esp32c6.power-detector", 0x600a_0000, 0x1000, None, 0),
+        (
+            "esp32c6.trace",
+            0x600c_0000,
+            0x1000,
+            Some(0x3fc),
+            35_656_192,
+        ),
     ] {
         bus.map_device(
             name,
             base,
-            0x1000,
-            Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
+            size,
+            Box::new(EspC6ControlBlock::new(name, size, date_offset, date)),
+        )?;
+    }
+
+    for (name, base) in [
+        ("esp32c6.pmu", 0x600b_0000),
+        ("esp32c6.lp-clkrst", 0x600b_0400),
+        ("esp32c6.lp-timer", 0x600b_0c00),
+        ("esp32c6.lp-io", 0x600b_2000),
+        ("esp32c6.lp-i2c-analog", 0x600b_2400),
+        ("esp32c6.lp-peripheral", 0x600b_2800),
+        ("esp32c6.lp-analog", 0x600b_2c00),
+        ("esp32c6.lp-tee", 0x600b_3400),
+        ("esp32c6.lp-apm", 0x600b_3800),
+        ("esp32c6.otp-debug", 0x600b_3c00),
+    ] {
+        bus.map_device(
+            name,
+            base,
+            0x400,
+            Box::new(EspC6ControlBlock::new(name, 0x400, Some(0xfc), 35_656_192)),
         )?;
     }
 
@@ -180,29 +295,21 @@ pub(super) fn map_esp32c6_peripherals(
         Box::new(usb_serial_jtag),
     )?;
 
-    let (uart0, uart0_handle) = FunctionalUart::new_lenient("esp32c6.uart0", 0x00, 0x1c, 0);
-    bus.map_device("esp32c6.uart0", 0x6000_0000, 0x1000, Box::new(uart0))?;
-    chip_uarts.push(uart0_handle);
-    let (uart1, uart1_handle) = FunctionalUart::new_lenient("esp32c6.uart1", 0x00, 0x1c, 0);
-    bus.map_device("esp32c6.uart1", 0x6000_1000, 0x1000, Box::new(uart1))?;
-    chip_uarts.push(uart1_handle);
-
-    Ok((
-        Esp32c6PeripheralHandles {
-            ledc: ledc_handle,
-            rmt: rmt_handle,
-            pcnt: pcnt_handle,
-            spi2: spi2_handle,
-            i2s: i2s_handle,
-            twai: [twai0_handle, twai1_handle],
-            etm: etm_handle,
-            parlio: parlio_handle,
-            gdma: gdma_handle,
-            lp_uart: lp_uart_handle,
-            lp_i2c: lp_i2c_handle,
-            lp_watchdog: lp_watchdog_handle,
-            sdio: sdio_handle,
-        },
-        usb_serial_jtag_handle,
-    ))
+    let peripherals = Esp32c6PeripheralHandles {
+        ledc: ledc_handle,
+        rmt: rmt_handle,
+        pcnt: pcnt_handle,
+        spi2: spi2_handle,
+        i2s: i2s_handle,
+        twai: [twai0_handle, twai1_handle],
+        etm: etm_handle,
+        parlio: parlio_handle,
+        gdma: gdma_handle,
+        lp_uart: lp_uart_handle,
+        lp_i2c: lp_i2c_handle,
+        lp_watchdog: lp_watchdog_handle,
+        sdio: sdio_handle,
+    };
+    peripherals.clear_host_queues();
+    Ok((peripherals, usb_serial_jtag_handle))
 }

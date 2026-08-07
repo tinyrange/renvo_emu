@@ -1,0 +1,15 @@
+name = "espressif-gcc-14-esp32c6"
+image = "sha256:634d2ca3820e772fe162a100465589cd57dbb1a387b9df4175c055ef360f90f6"
+local_image = "remu/riscv32-esp-gcc:local"
+program = "riscv32-esp-elf-gcc"
+args = [
+    "-march=rv32imac_zicsr",
+    "-mabi=ilp32",
+    "-ffreestanding",
+    "-nostdlib",
+    "-Wl,--build-id=none,--discard-all",
+]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

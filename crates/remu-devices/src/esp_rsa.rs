@@ -318,6 +318,13 @@ impl EspRsa {
             state: EspRsaState::default(),
         }
     }
+
+    /// Creates the register-identical ESP32-C6 RSA block with its native version word.
+    pub fn new_esp32c6(name: impl Into<String>) -> Self {
+        let mut device = Self::new(name);
+        device.state.date = 538_969_624;
+        device
+    }
 }
 
 impl Device for EspRsa {

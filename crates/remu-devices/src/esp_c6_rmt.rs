@@ -23,11 +23,13 @@ struct EspRmtState {
 
 impl EspRmtState {
     fn new() -> Self {
-        Self {
+        let mut state = Self {
             registers: vec![0; 0x100 / 4],
             channels: core::array::from_fn(|_| RmtChannel::default()),
             outputs: [Logic::Z; CHANNEL_COUNT],
-        }
+        };
+        state.registers[0xcc / 4] = 34_636_307;
+        state
     }
 
     fn idle_level(channel: &RmtChannel) -> Logic {

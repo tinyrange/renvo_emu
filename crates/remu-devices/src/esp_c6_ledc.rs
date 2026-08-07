@@ -63,6 +63,7 @@ impl EspLedcState {
         for timer in 0..TIMER_COUNT {
             self.registers[(TIMER_BASE as usize / 4) + timer * 2] = 1 << 24;
         }
+        self.registers[0x1fc / 4] = 34_672_976;
     }
 
     fn timer_counter(&self, timer: usize, at: SimTime) -> u32 {
