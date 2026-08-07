@@ -132,6 +132,15 @@ struct BoardArgs {
     /// Root used to resolve confined `load("//package:file.star", ...)` labels.
     #[arg(long, default_value = ".")]
     load_root: PathBuf,
+    /// Optional Xtensa ELF to run against a live `M5StickS3` component graph.
+    #[arg(long)]
+    elf: Option<PathBuf>,
+    /// Maximum interpreted instructions for a live firmware board run.
+    #[arg(long, default_value_t = 1_000_000)]
+    max_instructions: u64,
+    /// Optional virtual-time deadline for a live firmware board run.
+    #[arg(long)]
+    deadline: Option<u64>,
     /// Stable board-simulation JSON artifact.
     #[arg(long)]
     artifact: PathBuf,

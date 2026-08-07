@@ -11,7 +11,14 @@ The initial reusable models are:
 - active-high or active-low digital LEDs with accumulated on-time;
 - WS2812 RGB chains with GRB waveform decoding and reset-latch timing;
 - SGP30 at I2C address `0x58`, including identity, feature, IAQ init/measure,
-  baseline, self-test, raw measurement, humidity and Sensirion CRC-8 behavior.
+  baseline, self-test, raw measurement, humidity and Sensirion CRC-8 behavior;
+- ST7789 displays with command/data phases, address windows, RGB565 framebuffer,
+  reset, inversion, sleep/display state and deterministic frame hashes;
+- M5PM1 power-management companions with identity, rails, telemetry, GPIO,
+  active-low host IRQ, ADC, timer, button, NeoPixel and retained-RAM behavior;
+- BMI270 inertial sensors with configuration upload, power modes, status and
+  deterministic accelerometer, gyroscope and temperature samples; and
+- ES8311 audio codecs with the control and power sequences used by M5Unified.
 
 The M5Stack NanoC6 definition is
 [`boards/m5stack_nanoc6.star`](../boards/m5stack_nanoc6.star). It contains the
@@ -38,14 +45,25 @@ extension point rather than the normal board API.
 
 The M5StickS3 topology is available as
 [`boards/m5sticks3.star`](../boards/m5sticks3.star). It records the LCD SPI3
-signals (MOSI GPIO39, SCLK GPIO40), DC/CS control pins (GPIO45/GPIO41), reset
-GPIO21, M5PM1 I2C1 (SDA GPIO47, SCL GPIO48), LCD backlight GPIO38, and the
-active-low A/B buttons on GPIO11/GPIO12. Its `lcd_spi3`, `lcd_control`,
-`lcd_reset`, and `m5pm1_i2c1` connector names are stable topology handles; the
-ST7789 and M5PM1 protocol models and live ESP32-S3 MMIO bridge remain separate
-qualification items. Board results include `mounts` and `connections` so a
-fixture can assert its physical wiring without exposing machine state to
-Starlark.
+signals (MOSI GPIO39, SCLK GPIO40, CS GPIO41, DC GPIO45, reset GPIO21 and
+backlight GPIO38); internal I2C1 on SDA GPIO47/SCL GPIO48 with the M5PM1 at
+`0x6e`, BMI270 at `0x68`, and ES8311 at `0x18`; audio MCLK GPIO18, DOUT GPIO14,
+BCLK GPIO17, LRCK GPIO15 and DIN GPIO16; active-low buttons on GPIO11/GPIO12;
+IR TX/RX on GPIO46/GPIO42; Grove SDA/SCL on GPIO9/GPIO10; and the published
+Hat2 expansion pins. M5PM1 GPIO1 drives the active-low host interrupt on
+ESP32-S3 GPIO13, GPIO2 controls the LCD/audio L3B domain, GPIO3 controls the
+speaker amplifier, and GPIO4 receives the BMI270 interrupt.
+
+The standalone scenario in
+[`qualification/m5sticks3-components.star`](../qualification/m5sticks3-components.star)
+qualifies the component protocols. The live scenario in
+[`qualification/m5sticks3-live.star`](../qualification/m5sticks3-live.star)
+attaches the same topology to the Xtensa machine. Firmware accesses the native
+ESP32-S3 SPI3, I2C1, I2S0/I2S1, RMT and GPIO registers; the resulting JSON
+contains the LCD framebuffer, power/IRQ state, IMU sample, codec and audio
+frames, IR pulses, buttons, Grove, and Hat2 state. Starlark still describes only
+immutable topology and bounded external actions—it never owns CPU or scheduler
+state.
 
 Run a scenario and produce JSON plus VCD with:
 
@@ -57,16 +75,28 @@ cargo run -p remu-cli -- board \
   --vcd .remu/board/signals.vcd
 ```
 
+Run a vendor-toolchain-built M5StickS3 probe against the live board with:
+
+```sh
+cargo run -p remu-cli -- board \
+  --file qualification/m5sticks3-live.star \
+  --load-root . \
+  --elf build/m5sticks3/probe.elf \
+  --max-instructions 10000 \
+  --artifact build/m5sticks3/result.json \
+  --vcd build/m5sticks3/signals.vcd
+```
+
 `load()` labels are confined beneath `--load-root`; absolute paths, parent
 traversal and cyclic imports are rejected. The script's final expression must
 be a board instance.
 
-The current board runner is a protocol/component qualification layer. It does
-not yet route ESP32-C6 firmware MMIO activity into the assembled board, so its
-results prove topology, device protocols, deterministic external behavior and
-waveforms—not execution of a firmware driver against the SGP30. That coupling
-can be added at the machine pin/bus boundary without moving CPU or scheduler
-state into Starlark.
+The generic board runner and ESP32-C6 NanoC6 scenario remain a
+protocol/component qualification layer; live ESP32-C6 firmware MMIO is not yet
+routed into that graph. M5StickS3 is the first live board attachment and does
+execute firmware drivers against its assembled non-radio peripherals. The
+models are functional and deterministic, not cycle-accurate electrical,
+analogue, acoustic or optical simulations.
 
 Machine models now expose the same boundary through the typed
 `UartEndpointProvider` API. A runner can discover the `Compiler` capture UART
@@ -90,4 +120,8 @@ Hardware and protocol references:
 
 - [M5Stack NanoC6 pin map](https://docs.m5stack.com/en/core/M5NanoC6)
 - [M5Stack NanoC6 RGB control guide](https://docs.m5stack.com/en/arduino/m5nanoc6/program)
+- [M5Stack StickS3 pin map and specifications](https://docs.m5stack.com/en/core/StickS3)
+- [M5Stack M5Unified board drivers](https://github.com/m5stack/M5Unified)
+- [M5Stack StickS3 infrared API](https://docs.m5stack.com/en/arduino/m5sticks3/ir_nec)
+- [M5Stack StickS3 M5PM1 API](https://docs.m5stack.com/en/arduino/m5sticks3/m5pm1)
 - [Sensirion SGP30 datasheet](https://sensirion.com/media/documents/984E0DD5/61644B8B/Sensirion_Gas_Sensors_Datasheet_SGP30.pdf)

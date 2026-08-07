@@ -2,8 +2,10 @@
 
 use remu_core::SimTime;
 use remu_devices::{
-    DigitalLed, LedSnapshot, PushButton, Rgb, SGP30_ADDRESS, Sgp30, Sgp30Error, Sgp30Snapshot,
-    Ws2812, Ws2812Error,
+    BMI270_ADDRESS, Bmi270, Bmi270Error, Bmi270Snapshot, DigitalLed, ES8311_ADDRESS, Es8311,
+    Es8311Error, Es8311Snapshot, LedSnapshot, M5PM1_ADDRESS, M5Pm1, M5Pm1Error, M5Pm1Snapshot,
+    PushButton, Rgb, SGP30_ADDRESS, Sgp30, Sgp30Error, Sgp30Snapshot, St7789, St7789Config,
+    St7789Error, St7789Snapshot, Ws2812, Ws2812Error,
 };
 use remu_signals::{Logic, SignalError, SignalId, SignalRegistry, SignalValue};
 use remu_trace::{TraceDigest, TraceError, TraceSink};
@@ -82,13 +84,27 @@ pub enum BoardComponentKind {
         /// Initial total-VOC value.
         tvoc: u16,
     },
+    /// `M5Stack` M5PM1 power-management companion.
+    M5Pm1,
+    /// Bosch BMI270 six-axis IMU.
+    Bmi270,
+    /// Everest ES8311 audio codec control plane.
+    Es8311,
+    /// Command-level ST7789 display controller.
+    St7789 {
+        /// Panel geometry and controller offsets.
+        config: St7789Config,
+    },
 }
 
 impl BoardComponentKind {
     /// Protocol required when connected through a named connector.
     pub const fn connector_protocol(&self) -> Option<ConnectorProtocol> {
         match self {
-            Self::Sgp30 { .. } => Some(ConnectorProtocol::I2c),
+            Self::Sgp30 { .. } | Self::M5Pm1 | Self::Bmi270 | Self::Es8311 => {
+                Some(ConnectorProtocol::I2c)
+            }
+            Self::St7789 { .. } => Some(ConnectorProtocol::Spi),
             Self::PushButton { .. } | Self::Led { .. } | Self::Ws2812 { .. } => {
                 Some(ConnectorProtocol::Digital)
             }
@@ -181,6 +197,17 @@ pub enum BoardAction {
         /// Transfer start timestamp.
         at: u64,
     },
+    /// Sends one command or data phase through an SPI connector.
+    SpiTransfer {
+        /// Connector name.
+        connector: String,
+        /// Bytes clocked out by the host.
+        data: Vec<u8>,
+        /// True when the panel data/command line is high.
+        data_phase: bool,
+        /// Transfer start timestamp.
+        at: u64,
+    },
 }
 
 /// Immutable board scenario emitted by Starlark and consumed by Rust.
@@ -259,6 +286,19 @@ pub enum BoardEvent {
         /// Transfer finish.
         completed_at: u64,
     },
+    /// A complete SPI phase finished.
+    Spi {
+        /// Connector name.
+        connector: String,
+        /// Host output bytes.
+        data: Vec<u8>,
+        /// True for a data phase and false for a command phase.
+        data_phase: bool,
+        /// Transfer start.
+        at: u64,
+        /// Transfer finish.
+        completed_at: u64,
+    },
 }
 
 /// Final state of one simulated component.
@@ -294,6 +334,34 @@ pub enum BoardComponentSnapshot {
         name: String,
         /// Sensor state.
         state: Sgp30Snapshot,
+    },
+    /// M5PM1 companion state.
+    M5Pm1 {
+        /// Component name.
+        name: String,
+        /// Register-model state.
+        state: M5Pm1Snapshot,
+    },
+    /// BMI270 inertial sensor state.
+    Bmi270 {
+        /// Component name.
+        name: String,
+        /// Register and physical sample state.
+        state: Bmi270Snapshot,
+    },
+    /// ES8311 audio codec control state.
+    Es8311 {
+        /// Component name.
+        name: String,
+        /// Codec register state.
+        state: Es8311Snapshot,
+    },
+    /// ST7789 panel state.
+    St7789 {
+        /// Component name.
+        name: String,
+        /// Controller and framebuffer state.
+        state: St7789Snapshot,
     },
 }
 
@@ -379,6 +447,18 @@ pub enum BoardError {
     /// A model-specific SGP30 command failed.
     #[error(transparent)]
     Sgp30(#[from] Sgp30Error),
+    /// A model-specific M5PM1 transaction failed.
+    #[error(transparent)]
+    M5Pm1(#[from] M5Pm1Error),
+    /// A model-specific BMI270 transaction failed.
+    #[error(transparent)]
+    Bmi270(#[from] Bmi270Error),
+    /// A model-specific ES8311 transaction failed.
+    #[error(transparent)]
+    Es8311(#[from] Es8311Error),
+    /// A model-specific ST7789 command failed.
+    #[error(transparent)]
+    St7789(#[from] St7789Error),
     /// A WS2812 waveform was malformed.
     #[error(transparent)]
     Ws2812(#[from] Ws2812Error),
@@ -395,6 +475,38 @@ enum RuntimeComponent {
     Led(DigitalLed),
     Ws2812(Ws2812),
     Sgp30(Sgp30),
+    M5Pm1(M5Pm1),
+    Bmi270(Bmi270),
+    Es8311(Es8311),
+    St7789(BoardSt7789),
+}
+
+struct BoardSt7789 {
+    panel: St7789,
+    pending_command: Option<u8>,
+    streaming_command: Option<u8>,
+}
+
+impl BoardSt7789 {
+    fn transfer(&mut self, data: &[u8], data_phase: bool) -> Result<(), St7789Error> {
+        if data_phase {
+            let command = self.pending_command.or(self.streaming_command).unwrap_or(0);
+            self.panel.command(command, data)?;
+            self.pending_command = None;
+            self.streaming_command = (command == 0x2c).then_some(command);
+        } else {
+            for command in data {
+                self.pending_command = None;
+                self.streaming_command = None;
+                if matches!(command, 0x2a | 0x2b | 0x2c) {
+                    self.pending_command = Some(*command);
+                } else {
+                    self.panel.command(*command, &[])?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 struct ComponentSignals {
@@ -669,20 +781,36 @@ pub fn run_board_scenario(
                     .iter()
                     .find(|connection| {
                         connection.connector == *connector
-                            && matches!(connection.component.kind, BoardComponentKind::Sgp30 { .. })
-                            && *address == SGP30_ADDRESS
+                            && match connection.component.kind {
+                                BoardComponentKind::Sgp30 { .. } => *address == SGP30_ADDRESS,
+                                BoardComponentKind::M5Pm1 => *address == M5PM1_ADDRESS,
+                                BoardComponentKind::Bmi270 => *address == BMI270_ADDRESS,
+                                BoardComponentKind::Es8311 => *address == ES8311_ADDRESS,
+                                _ => false,
+                            }
                     })
                     .ok_or_else(|| BoardError::I2cAddress {
                         connector: connector.clone(),
                         address: *address,
                     })?;
-                let RuntimeComponent::Sgp30(sensor) = runtime
+                let device = runtime
                     .get_mut(&connection.component.name)
-                    .expect("validated connection has runtime component")
-                else {
-                    unreachable!("SGP30 connection constructed an SGP30 runtime")
+                    .expect("validated connection has runtime component");
+                let response = match device {
+                    RuntimeComponent::Sgp30(sensor) => {
+                        sensor.transact(write, *read_len, SimTime::from_ticks(*at))?
+                    }
+                    RuntimeComponent::M5Pm1(power) => {
+                        power.transact(write, *read_len, SimTime::from_ticks(*at))?
+                    }
+                    RuntimeComponent::Bmi270(imu) => {
+                        imu.transact(write, *read_len, SimTime::from_ticks(*at))?
+                    }
+                    RuntimeComponent::Es8311(codec) => {
+                        codec.transact(write, *read_len, SimTime::from_ticks(*at))?
+                    }
+                    _ => unreachable!("I2C connection constructed an I2C runtime"),
                 };
-                let response = sensor.transact(write, *read_len, SimTime::from_ticks(*at))?;
                 let (data, clock) = connector_signals
                     .get(connector)
                     .copied()
@@ -703,6 +831,66 @@ pub fn run_board_scenario(
                     address: *address,
                     write: write.clone(),
                     read: response,
+                    at: *at,
+                    completed_at: completed_at.ticks(),
+                });
+            }
+            BoardAction::SpiTransfer {
+                connector,
+                data,
+                data_phase,
+                at,
+            } => {
+                let connection = scenario
+                    .connections
+                    .iter()
+                    .find(|connection| {
+                        connection.connector == *connector
+                            && matches!(
+                                connection.component.kind,
+                                BoardComponentKind::St7789 { .. }
+                            )
+                    })
+                    .ok_or_else(|| BoardError::Unknown {
+                        kind: "SPI target",
+                        name: connector.clone(),
+                    })?;
+                let RuntimeComponent::St7789(panel) = runtime
+                    .get_mut(&connection.component.name)
+                    .expect("validated connection has runtime component")
+                else {
+                    unreachable!("ST7789 connection constructed an ST7789 runtime")
+                };
+                panel.transfer(data, *data_phase)?;
+                let (mosi, clock) = connector_signals
+                    .get(connector)
+                    .copied()
+                    .expect("validated connector has signals");
+                let completed_at = emit_spi(
+                    data,
+                    SimTime::from_ticks(*at),
+                    &mut registry,
+                    mosi,
+                    clock,
+                    &mut trace,
+                    &mut digest,
+                )?;
+                let ids = signals
+                    .get(&connection.component.name)
+                    .expect("validated ST7789 has signals");
+                emit_u64(
+                    &mut registry,
+                    ids.state,
+                    panel.panel.frame_hash(),
+                    64,
+                    completed_at,
+                    &mut trace,
+                    &mut digest,
+                )?;
+                events.push(BoardEvent::Spi {
+                    connector: connector.clone(),
+                    data: data.clone(),
+                    data_phase: *data_phase,
                     at: *at,
                     completed_at: completed_at.ticks(),
                 });
@@ -729,6 +917,22 @@ pub fn run_board_scenario(
             RuntimeComponent::Sgp30(sensor) => BoardComponentSnapshot::Sgp30 {
                 name: name.clone(),
                 state: sensor.snapshot(),
+            },
+            RuntimeComponent::M5Pm1(power) => BoardComponentSnapshot::M5Pm1 {
+                name: name.clone(),
+                state: power.snapshot(),
+            },
+            RuntimeComponent::Bmi270(imu) => BoardComponentSnapshot::Bmi270 {
+                name: name.clone(),
+                state: imu.snapshot(),
+            },
+            RuntimeComponent::Es8311(codec) => BoardComponentSnapshot::Es8311 {
+                name: name.clone(),
+                state: codec.snapshot(),
+            },
+            RuntimeComponent::St7789(panel) => BoardComponentSnapshot::St7789 {
+                name: name.clone(),
+                state: panel.panel.snapshot(),
             },
         });
     }
@@ -840,6 +1044,42 @@ fn install_component(
             (u64::from(eco2) << 16) | u64::from(tvoc),
             "SGP30 eCO2 and TVOC environmental input",
         ),
+        BoardComponentKind::M5Pm1 => (
+            RuntimeComponent::M5Pm1(M5Pm1::new()),
+            8,
+            0,
+            0x07,
+            "M5PM1 power-rail configuration",
+        ),
+        BoardComponentKind::Bmi270 => (
+            RuntimeComponent::Bmi270(Bmi270::new()),
+            64,
+            0,
+            0x24,
+            "BMI270 sample and status",
+        ),
+        BoardComponentKind::Es8311 => (
+            RuntimeComponent::Es8311(Es8311::new()),
+            8,
+            0,
+            0,
+            "ES8311 audio codec control state",
+        ),
+        BoardComponentKind::St7789 { config } => {
+            let panel = St7789::new(config);
+            let frame_hash = panel.frame_hash();
+            (
+                RuntimeComponent::St7789(BoardSt7789 {
+                    panel,
+                    pending_command: None,
+                    streaming_command: None,
+                }),
+                64,
+                0,
+                frame_hash,
+                "ST7789 framebuffer hash",
+            )
+        }
     };
     let pin = if mounted {
         Some(registry.declare(
@@ -866,7 +1106,8 @@ fn action_at(action: &BoardAction) -> u64 {
         | BoardAction::SetLed { at, .. }
         | BoardAction::Ws2812Frame { at, .. }
         | BoardAction::SetAirQuality { at, .. }
-        | BoardAction::I2cTransfer { at, .. } => *at,
+        | BoardAction::I2cTransfer { at, .. }
+        | BoardAction::SpiTransfer { at, .. } => *at,
     }
 }
 
@@ -970,6 +1211,62 @@ fn emit_ws2812(
     let completed = SimTime::from_ticks(now);
     ws.finish(completed)?;
     Ok(completed)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_spi(
+    bytes: &[u8],
+    start: SimTime,
+    registry: &mut SignalRegistry,
+    data: SignalId,
+    clock: SignalId,
+    trace: &mut Option<&mut dyn TraceSink>,
+    digest: &mut TraceDigest,
+) -> Result<SimTime, BoardError> {
+    let mut now = start.ticks();
+    for byte in bytes {
+        for bit in (0..8).rev() {
+            emit_logic(
+                registry,
+                clock,
+                Logic::Zero,
+                SimTime::from_ticks(now),
+                trace,
+                digest,
+            )?;
+            emit_logic(
+                registry,
+                data,
+                if byte & (1 << bit) == 0 {
+                    Logic::Zero
+                } else {
+                    Logic::One
+                },
+                SimTime::from_ticks(now),
+                trace,
+                digest,
+            )?;
+            now = now.saturating_add(1);
+            emit_logic(
+                registry,
+                clock,
+                Logic::One,
+                SimTime::from_ticks(now),
+                trace,
+                digest,
+            )?;
+            now = now.saturating_add(1);
+        }
+    }
+    emit_logic(
+        registry,
+        clock,
+        Logic::Zero,
+        SimTime::from_ticks(now),
+        trace,
+        digest,
+    )?;
+    Ok(SimTime::from_ticks(now))
 }
 
 #[allow(clippy::too_many_arguments)]

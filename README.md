@@ -103,12 +103,12 @@ Direct ESP execution is an architectural/compiler oracle, not proof that a
 bootloader accepts the flash layout. Supplying `--esp-app-image` adds a separate
 esptool-compatible application-image validation step.
 
-The ESP32-S3 model also exposes a functional RMT transmitter slice. Channels
-0–3 accept native FIFO pulse items at `0x6001_6000`, set TX-complete status, and
+The ESP32-S3 model also exposes a functional RMT slice. Transmit channels 0–3
+accept native FIFO pulse items at `0x6001_6000`, set completion status, and
 publish deterministic channel waveforms to VCD as
-`board.esp32s3.rmt.ch0`–`ch3`. This is sufficient for bounded WS2812-style
-firmware tests; carrier modulation, DMA, receive channels, and clock-accurate
-behavior are not claimed.
+`board.esp32s3.rmt.ch0`–`ch3`. Receive channels 4–7 accept bounded host-injected
+pulse items through their native memory windows and interrupt state. Carrier
+modulation, DMA and clock-accurate behavior are not claimed.
 
 There is not yet a published runtime container or binary release. Until that
 distribution path exists, the source build above is the supported installation
@@ -142,21 +142,33 @@ has no supported behavioral model until deterministic tests and documentation
 say otherwise.
 
 The ESP32-S3 model includes deterministic native I2C0 and I2C1 command/FIFO
-transactions against the built-in SGP30 qualification device, with SDA/SCL
-waveform signals. This is a functional peripheral slice, not a clock-accurate
-electrical bus model or a complete device catalogue.
+transactions, attachable board devices, and SDA/SCL waveform signals. The
+qualified catalogue includes SGP30, M5PM1, BMI270 and ES8311 behavior. This is a
+functional peripheral slice, not a clock-accurate electrical bus model.
 
 The ESP32-S3 functional slice includes native-address SPI2 and SPI3 user
 transactions: firmware can fill the W0-W15 FIFO, start a bounded transfer, and
 observe deterministic MOSI, MISO, SCLK, CS0, and transfer-complete signals. The
-current model intentionally leaves DMA, clock-divider fidelity, additional
-chip-select electrical behavior, and full LCD-device semantics for later
-peripheral slices.
+current general-purpose model intentionally leaves DMA, clock-divider fidelity,
+and additional chip-select electrical behavior for later peripheral slices. The
+M5StickS3 attachment couples SPI3 to a functional ST7789 framebuffer.
 
 The ESP32-S3 I2S functional slice supports native I2S0/I2S1 register setup,
 single-data stereo-frame starts, TX/RX completion status, loopback samples, and
 deterministic MCLK/BCLK/WS/DOUT/DIN VCD signals. DMA audio streaming, PDM/TDM
 transforms, and clock-frequency fidelity remain outside this bounded model.
+
+The selected M5StickS3 workflow couples a vendor-toolchain-built Xtensa ELF to
+the complete published non-radio board graph: ST7789 display and backlight,
+M5PM1 power/IRQ/telemetry, BMI270 IMU, ES8311 microphone and speaker paths,
+buttons, bidirectional infrared, Grove and Hat2 pins. Native GPIO, SPI3, I2C1,
+I2S0/I2S1 and RMT register activity updates one deterministic board snapshot
+and VCD. Radio behavior is intentionally tracked separately. Run a built ELF
+with:
+
+```sh
+remu board --file qualification/m5sticks3-live.star --elf FILE
+```
 
 ## Qualification and provenance
 
@@ -260,9 +272,10 @@ button, blue LED, WS2812, and Grove connector. Reusable Rust components include
 push buttons, LEDs, WS2812 RGB LEDs, and an SGP30 sensor; a test can attach the
 sensor with `board.connect("grove", sensor)`.
 
-The current board/component scenario validates topology and digital protocol
-models independently. Live ESP32-C6 firmware MMIO is not yet routed into the
-assembled board graph, so this is not yet an end-to-end firmware-driver model.
+The generic board/component scenario validates topology and digital protocol
+models independently. Live ESP32-C6 firmware MMIO is not yet routed into its
+assembled board graph. The M5StickS3 scenario does bind live ESP32-S3 firmware
+to its complete non-radio board graph end to end.
 The RISC-V, Arm RP, and Xtensa machine APIs now expose named `Compiler` and
 `Native` UART endpoints for the transport-coupling work that follows; vendor
 UART adapters remain target-specific for now.
@@ -300,7 +313,8 @@ target. Those are emulator-throughput measurements, never MCU silicon scores.
   partial or absent.
 - Direct ELF execution may bypass boot-image behavior; use native-image paths
   where the distinction matters.
-- Starlark board components are not yet coupled to live machine MMIO.
+- Live machine-MMIO coupling currently exists for the M5StickS3 non-radio
+  board graph; other Starlark boards remain component/protocol scenarios.
 - The interpreter prioritises repeatability and instrumentation over QEMU-class
   throughput; there is no JIT.
 

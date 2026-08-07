@@ -1,4 +1,5 @@
 use super::*;
+use serde::Serialize;
 
 /// Named ESP32-S3 general-purpose SPI register offsets covered by this model.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -105,6 +106,234 @@ pub struct Esp32s3SpiTransfer {
     pub bytes: Vec<u8>,
 }
 
+/// Fixed GPIO wiring used to bind an ST7789 panel to a functional SPI host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Esp32s3St7789Pins {
+    /// Data/command selection GPIO, high for data.
+    pub dc: u8,
+    /// Active-low hardware reset GPIO.
+    pub reset: u8,
+    /// Active-high panel backlight GPIO.
+    pub backlight: u8,
+}
+
+impl Esp32s3St7789Pins {
+    /// Published `M5StickS3` ST7789 control wiring.
+    pub const fn m5stick_s3() -> Self {
+        Self {
+            dc: 45,
+            reset: 21,
+            backlight: 38,
+        }
+    }
+}
+
+/// Host-observable state for a panel attached to an ESP32-S3 SPI controller.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Esp32s3St7789Snapshot {
+    /// ST7789 controller and framebuffer state.
+    pub panel: St7789Snapshot,
+    /// Whether GPIO38 currently illuminates the backlight.
+    pub backlight_on: bool,
+    /// Whether the active-low panel reset is asserted.
+    pub reset_asserted: bool,
+    /// Number of SPI transfers delivered to the panel.
+    pub transfers: u64,
+}
+
+#[derive(Clone, Copy)]
+struct St7789Signals {
+    display_on: SignalId,
+    backlight_on: SignalId,
+    reset_asserted: SignalId,
+    frame_hash: SignalId,
+    transfers: SignalId,
+}
+
+struct Esp32s3St7789Attachment {
+    panel: St7789,
+    config: St7789Config,
+    gpio: GpioHandle,
+    pins: Esp32s3St7789Pins,
+    pending_command: Option<u8>,
+    streaming_command: Option<u8>,
+    reset_was_asserted: bool,
+    transfers: u64,
+    signals: St7789Signals,
+}
+
+impl Esp32s3St7789Attachment {
+    fn reset_asserted(&self) -> bool {
+        self.gpio.resolved(self.pins.reset).ok() == Some(Logic::Zero)
+    }
+
+    fn backlight_on(&self) -> bool {
+        self.gpio.resolved(self.pins.backlight).ok() == Some(Logic::One)
+    }
+
+    fn snapshot(&self) -> Esp32s3St7789Snapshot {
+        let reset_asserted = self.reset_asserted();
+        Esp32s3St7789Snapshot {
+            panel: if reset_asserted {
+                St7789::new(self.config).snapshot()
+            } else {
+                self.panel.snapshot()
+            },
+            backlight_on: self.backlight_on(),
+            reset_asserted,
+            transfers: self.transfers,
+        }
+    }
+
+    fn process(&mut self, bytes: &[u8]) -> Result<(), DeviceError> {
+        let reset_asserted = self.reset_asserted();
+        if reset_asserted && !self.reset_was_asserted {
+            self.panel = St7789::new(self.config);
+            self.pending_command = None;
+            self.streaming_command = None;
+        }
+        self.reset_was_asserted = reset_asserted;
+        if reset_asserted {
+            return Ok(());
+        }
+        self.transfers = self.transfers.saturating_add(1);
+        let data_phase = self.gpio.resolved(self.pins.dc).ok() == Some(Logic::One);
+        if data_phase {
+            let command = self
+                .pending_command
+                .or(self.streaming_command)
+                .ok_or_else(|| DeviceError::new("ST7789 data transfer has no preceding command"))?;
+            self.panel
+                .command(command, bytes)
+                .map_err(|error| DeviceError::new(error.to_string()))?;
+            self.pending_command = None;
+            self.streaming_command = (command == 0x2c).then_some(command);
+            return Ok(());
+        }
+        for command in bytes {
+            self.pending_command = None;
+            self.streaming_command = None;
+            if matches!(command, 0x2a | 0x2b | 0x2c) {
+                self.pending_command = Some(*command);
+            } else {
+                self.panel
+                    .command(*command, &[])
+                    .map_err(|error| DeviceError::new(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Host-side attachment and inspection handle for a functional SPI host.
+#[derive(Clone)]
+pub struct Esp32s3SpiHandle {
+    attachment: Arc<Mutex<Option<Esp32s3St7789Attachment>>>,
+    hub: SignalHub,
+}
+
+impl Esp32s3SpiHandle {
+    /// Attaches one command-level ST7789 panel to this SPI host.
+    pub fn attach_st7789(
+        &self,
+        config: St7789Config,
+        gpio: GpioHandle,
+        pins: Esp32s3St7789Pins,
+    ) -> Result<(), SignalError> {
+        let signals = St7789Signals {
+            display_on: self.hub.declare(
+                "board.m5sticks3.component.lcd.display_on",
+                SignalValue::from_u64(0, 1)?,
+                Some("ST7789 display enable state".to_owned()),
+            )?,
+            backlight_on: self.hub.declare(
+                "board.m5sticks3.component.lcd.backlight_on",
+                SignalValue::from_u64(0, 1)?,
+                Some("M5StickS3 LCD backlight state".to_owned()),
+            )?,
+            reset_asserted: self.hub.declare(
+                "board.m5sticks3.component.lcd.reset_asserted",
+                SignalValue::from_u64(0, 1)?,
+                Some("ST7789 active-low reset state".to_owned()),
+            )?,
+            frame_hash: self.hub.declare(
+                "board.m5sticks3.component.lcd.frame_hash",
+                SignalValue::from_u64(St7789::new(config).frame_hash(), 64)?,
+                Some("deterministic ST7789 framebuffer hash".to_owned()),
+            )?,
+            transfers: self.hub.declare(
+                "board.m5sticks3.component.lcd.transfers",
+                SignalValue::from_u64(0, 64)?,
+                Some("SPI transfers delivered to the ST7789".to_owned()),
+            )?,
+        };
+        *self
+            .attachment
+            .lock()
+            .expect("ESP32-S3 SPI attachment lock poisoned") = Some(Esp32s3St7789Attachment {
+            panel: St7789::new(config),
+            config,
+            gpio,
+            pins,
+            pending_command: None,
+            streaming_command: None,
+            reset_was_asserted: false,
+            transfers: 0,
+            signals,
+        });
+        Ok(())
+    }
+
+    /// Returns the attached panel state, if present.
+    pub fn st7789_snapshot(&self) -> Option<Esp32s3St7789Snapshot> {
+        self.attachment
+            .lock()
+            .expect("ESP32-S3 SPI attachment lock poisoned")
+            .as_ref()
+            .map(Esp32s3St7789Attachment::snapshot)
+    }
+
+    fn deliver(&self, bytes: &[u8], at: SimTime) -> Result<(), DeviceError> {
+        let mut attachment = self
+            .attachment
+            .lock()
+            .expect("ESP32-S3 SPI attachment lock poisoned");
+        let Some(attachment) = attachment.as_mut() else {
+            return Ok(());
+        };
+        attachment.process(bytes)?;
+        let snapshot = attachment.snapshot();
+        for (signal, value, width) in [
+            (
+                attachment.signals.display_on,
+                u64::from(snapshot.panel.display_on),
+                1,
+            ),
+            (
+                attachment.signals.backlight_on,
+                u64::from(snapshot.backlight_on),
+                1,
+            ),
+            (
+                attachment.signals.reset_asserted,
+                u64::from(snapshot.reset_asserted),
+                1,
+            ),
+            (attachment.signals.frame_hash, snapshot.panel.frame_hash, 64),
+            (attachment.signals.transfers, snapshot.transfers, 64),
+        ] {
+            self.hub
+                .set(
+                    signal,
+                    SignalValue::from_u64(value, width).expect("fixed-width ST7789 signal"),
+                    at,
+                )
+                .map_err(|error| DeviceError::new(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
 /// Functional ESP32-S3 SPI2/SPI3 controller model.
 ///
 /// The model deliberately implements the host-visible user transaction path:
@@ -126,6 +355,7 @@ pub struct Esp32s3Spi {
     sclk: SignalId,
     cs0: SignalId,
     transfer_done: SignalId,
+    attachment: Arc<Mutex<Option<Esp32s3St7789Attachment>>>,
 }
 
 impl Esp32s3Spi {
@@ -192,6 +422,14 @@ impl Esp32s3Spi {
     /// Creates a reset general-purpose SPI controller and its waveform
     /// signals. `name` should be `esp32s3.spi2` or `esp32s3.spi3`.
     pub fn new(name: impl Into<String>, hub: SignalHub) -> Result<Self, SignalError> {
+        Self::new_with_handle(name, hub).map(|(device, _)| device)
+    }
+
+    /// Creates a controller and a handle for attaching an SPI board device.
+    pub fn new_with_handle(
+        name: impl Into<String>,
+        hub: SignalHub,
+    ) -> Result<(Self, Esp32s3SpiHandle), SignalError> {
         let name = name.into();
         let mosi = hub.declare(
             format!("{name}.mosi"),
@@ -219,6 +457,11 @@ impl Esp32s3Spi {
             Some("Functional transfer completion strobe".to_owned()),
         )?;
 
+        let attachment = Arc::new(Mutex::new(None));
+        let handle = Esp32s3SpiHandle {
+            attachment: attachment.clone(),
+            hub: hub.clone(),
+        };
         let mut spi = Self {
             name,
             registers: [0; Self::REGISTER_WORDS],
@@ -232,10 +475,11 @@ impl Esp32s3Spi {
             sclk,
             cs0,
             transfer_done,
+            attachment,
         };
         spi.reset_registers();
         spi.reset_signals(SimTime::ZERO)?;
-        Ok(spi)
+        Ok((spi, handle))
     }
 
     /// Returns a copy of the host-observable transfer summary.
@@ -372,6 +616,13 @@ impl Esp32s3Spi {
         if user & (Self::USER_MISO | Self::USER_DOUTDIN) != 0 {
             self.store_rx_bytes(&bytes);
         }
+        if user & (Self::USER_MOSI | Self::USER_DOUTDIN) != 0 {
+            Esp32s3SpiHandle {
+                attachment: self.attachment.clone(),
+                hub: self.hub.clone(),
+            }
+            .deliver(&bytes, SimTime::from_ticks(now))?;
+        }
         self.transfer.count = self.transfer.count.saturating_add(1);
         self.transfer.bytes = bytes;
         self.dma_raw |= Self::TRANS_DONE_INT;
@@ -462,6 +713,112 @@ impl Device for Esp32s3Spi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_transfer(spi: &mut Esp32s3Spi, bytes: &[u8], at: u64) {
+        let word = bytes.iter().enumerate().fold(0_u32, |word, (index, byte)| {
+            word | (u32::from(*byte) << (24 - index * 8))
+        });
+        spi.write(
+            Esp32s3Spi::W0,
+            AccessWidth::Word,
+            u64::from(word),
+            SimTime::from_ticks(at),
+        )
+        .unwrap();
+        spi.write(
+            Esp32s3Spi::MS_DLEN,
+            AccessWidth::Word,
+            (bytes.len() * 8 - 1) as u64,
+            SimTime::from_ticks(at),
+        )
+        .unwrap();
+        spi.write(
+            Esp32s3Spi::USER,
+            AccessWidth::Word,
+            u64::from(Esp32s3Spi::USER_MOSI),
+            SimTime::from_ticks(at),
+        )
+        .unwrap();
+        spi.write(
+            Esp32s3Spi::CMD,
+            AccessWidth::Word,
+            u64::from(Esp32s3Spi::USER_TRANSACTION),
+            SimTime::from_ticks(at),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn routes_spi3_command_and_data_phases_to_m5sticks3_panel() {
+        let hub = SignalHub::new();
+        let (mut gpio_device, gpio) =
+            EspGpio::new("gpio", 49, "board.esp32s3.chip_gpio", hub.clone()).unwrap();
+        let high_direction = (1_u32 << (38 - 32)) | (1_u32 << (45 - 32));
+        gpio_device
+            .write(0x20, AccessWidth::Word, 1 << 21, SimTime::ZERO)
+            .unwrap();
+        gpio_device
+            .write(0x04, AccessWidth::Word, 1 << 21, SimTime::ZERO)
+            .unwrap();
+        gpio_device
+            .write(
+                0x2c,
+                AccessWidth::Word,
+                u64::from(high_direction),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        let (mut spi, handle) = Esp32s3Spi::new_with_handle("esp32s3.spi3", hub).unwrap();
+        handle
+            .attach_st7789(
+                St7789Config::m5stick_s3(),
+                gpio,
+                Esp32s3St7789Pins::m5stick_s3(),
+            )
+            .unwrap();
+
+        gpio_device
+            .write(0x10, AccessWidth::Word, 1 << (38 - 32), SimTime::ZERO)
+            .unwrap();
+        write_transfer(&mut spi, &[0x29], 10);
+        write_transfer(&mut spi, &[0x2a], 100);
+        gpio_device
+            .write(
+                0x10,
+                AccessWidth::Word,
+                (1 << (38 - 32)) | (1 << (45 - 32)),
+                SimTime::from_ticks(200),
+            )
+            .unwrap();
+        write_transfer(&mut spi, &[0, 52, 0, 186], 200);
+        gpio_device
+            .write(
+                0x10,
+                AccessWidth::Word,
+                1 << (38 - 32),
+                SimTime::from_ticks(300),
+            )
+            .unwrap();
+        write_transfer(&mut spi, &[0x2c], 300);
+        gpio_device
+            .write(
+                0x10,
+                AccessWidth::Word,
+                (1 << (38 - 32)) | (1 << (45 - 32)),
+                SimTime::from_ticks(400),
+            )
+            .unwrap();
+        write_transfer(&mut spi, &[0xf8, 0x00], 400);
+
+        let snapshot = handle.st7789_snapshot().unwrap();
+        assert!(snapshot.panel.display_on);
+        assert!(snapshot.backlight_on);
+        assert_eq!(snapshot.transfers, 5);
+        assert_ne!(
+            snapshot.panel.frame_hash,
+            St7789::new(St7789Config::m5stick_s3()).frame_hash()
+        );
+    }
 
     #[test]
     fn executes_loopback_transaction_and_reports_completion() {

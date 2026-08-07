@@ -14,6 +14,7 @@ const REG_DEVICE_MODEL: u8 = 0x01;
 const REG_HW_REVISION: u8 = 0x02;
 const REG_SW_REVISION: u8 = 0x03;
 const REG_WAKE_SOURCE: u8 = 0x05;
+const REG_POWER_SOURCE: u8 = 0x04;
 const REG_POWER_CONFIG: u8 = 0x06;
 const REG_HOLD_CONFIG: u8 = 0x07;
 const REG_WATCHDOG_COUNT: u8 = 0x0a;
@@ -28,6 +29,10 @@ const REG_GPIO_FUNCTION_0: u8 = 0x16;
 const REG_GPIO_FUNCTION_1: u8 = 0x17;
 const REG_GPIO_WAKE_EDGE: u8 = 0x19;
 
+const REG_VBAT_LOW: u8 = 0x22;
+const REG_VIN_LOW: u8 = 0x24;
+const REG_5VOUT_LOW: u8 = 0x26;
+
 // ADC registers.
 const REG_ADC_RESULT_LOW: u8 = 0x28;
 const REG_ADC_RESULT_HIGH: u8 = 0x29;
@@ -41,7 +46,11 @@ const REG_TIMER_KEY: u8 = 0x3d;
 
 // Interrupt and button registers.
 const REG_IRQ_GPIO: u8 = 0x40;
+const REG_IRQ_SYSTEM: u8 = 0x41;
 const REG_IRQ_BUTTON: u8 = 0x42;
+const REG_IRQ_MASK_GPIO: u8 = 0x43;
+const REG_IRQ_MASK_SYSTEM: u8 = 0x44;
+const REG_IRQ_MASK_BUTTON: u8 = 0x45;
 const REG_BUTTON_STATUS: u8 = 0x48;
 
 // NeoPixel and retained RAM windows.
@@ -84,6 +93,14 @@ pub struct M5Pm1Snapshot {
     pub transactions: u64,
     /// Power rail enable bits: charge, DCDC, LDO and BOOST/Grove.
     pub power_config: u8,
+    /// Selected input power source: VIN, 5 V output path, or battery.
+    pub power_source: u8,
+    /// Deterministic battery voltage in millivolts.
+    pub battery_mv: u16,
+    /// Deterministic USB/VIN voltage in millivolts.
+    pub vbus_mv: u16,
+    /// Deterministic Grove/boost output voltage in millivolts.
+    pub output_5v_mv: u16,
     /// Power-hold bits for rails and GPIO outputs.
     pub hold_config: u8,
     /// GPIO direction bitmap, one bit per GPIO.
@@ -92,6 +109,12 @@ pub struct M5Pm1Snapshot {
     pub gpio_output: u8,
     /// GPIO input bitmap, one bit per GPIO.
     pub gpio_input: u8,
+    /// Whether the board's L3B display/audio power domain is enabled by GPIO2.
+    pub l3b_powered: bool,
+    /// Whether the speaker amplifier pulse/enable output on GPIO3 is high.
+    pub speaker_amp_enabled: bool,
+    /// Whether active-low charge status on GPIO0 reports charging.
+    pub charging: bool,
     /// GPIO function fields, encoded as two-bit values.
     pub gpio_function_0: u8,
     /// GPIO4 function field.
@@ -102,6 +125,12 @@ pub struct M5Pm1Snapshot {
     pub button_pressed: bool,
     /// Whether a button event has occurred since the status was read.
     pub button_flag: bool,
+    /// Raw GPIO, system, and button interrupt status bytes.
+    pub irq_status: [u8; 3],
+    /// GPIO, system, and button interrupt masks.
+    pub irq_masks: [u8; 3],
+    /// Whether any unmasked event is asserting the active-low host IRQ output.
+    pub irq_asserted: bool,
     /// Configured NeoPixel count.
     pub neopixel_count: u8,
     /// Number of retained RTC-RAM bytes that have been written.
@@ -139,7 +168,17 @@ impl M5Pm1 {
         // CHG, DCDC and LDO are enabled at power-on; Grove/BOOST is off on
         // the StickS3 until the host explicitly enables external power.
         registers[usize::from(REG_POWER_CONFIG)] = 0x07;
+        registers[usize::from(REG_POWER_SOURCE)] = 0x00;
         registers[usize::from(REG_GPIO_INPUT)] = 0x1f;
+        registers[usize::from(REG_IRQ_MASK_GPIO)] = 0x1f;
+        registers[usize::from(REG_IRQ_MASK_SYSTEM)] = 0x3f;
+        registers[usize::from(REG_IRQ_MASK_BUTTON)] = 0x07;
+        registers[usize::from(REG_VBAT_LOW)..=usize::from(REG_VBAT_LOW + 1)]
+            .copy_from_slice(&3_950_u16.to_le_bytes());
+        registers[usize::from(REG_VIN_LOW)..=usize::from(REG_VIN_LOW + 1)]
+            .copy_from_slice(&5_000_u16.to_le_bytes());
+        registers[usize::from(REG_5VOUT_LOW)..=usize::from(REG_5VOUT_LOW + 1)]
+            .copy_from_slice(&5_000_u16.to_le_bytes());
         registers[usize::from(REG_ADC_RESULT_LOW)] = 0x00;
         registers[usize::from(REG_ADC_RESULT_HIGH)] = 0x04;
         Self {
@@ -229,6 +268,36 @@ impl M5Pm1 {
         self.registers[REG_POWER_CONFIG as usize] & 0x08 != 0
     }
 
+    /// Returns whether the active-low IRQ output is asserted.
+    pub fn irq_asserted(&self) -> bool {
+        [
+            (REG_IRQ_GPIO, REG_IRQ_MASK_GPIO),
+            (REG_IRQ_SYSTEM, REG_IRQ_MASK_SYSTEM),
+            (REG_IRQ_BUTTON, REG_IRQ_MASK_BUTTON),
+        ]
+        .into_iter()
+        .any(|(status, mask)| self.register(status) & !self.register(mask) != 0)
+    }
+
+    /// Sets deterministic board power telemetry exposed by the official driver.
+    pub fn set_power_telemetry(
+        &mut self,
+        source: u8,
+        battery_mv: u16,
+        vbus_mv: u16,
+        output_5v_mv: u16,
+    ) {
+        self.registers[usize::from(REG_POWER_SOURCE)] = source.min(3);
+        for (register, value) in [
+            (REG_VBAT_LOW, battery_mv),
+            (REG_VIN_LOW, vbus_mv),
+            (REG_5VOUT_LOW, output_5v_mv),
+        ] {
+            self.registers[usize::from(register)..=usize::from(register + 1)]
+                .copy_from_slice(&value.to_le_bytes());
+        }
+    }
+
     /// Returns the most recent NeoPixel RGB565 data bytes.
     pub fn neopixel_data(&self) -> &[u8] {
         &self.registers[REG_NEO_DATA_START as usize..=REG_NEO_DATA_END as usize]
@@ -246,10 +315,17 @@ impl M5Pm1 {
             reset_count: self.reset_count,
             transactions: self.transactions,
             power_config: self.register(REG_POWER_CONFIG),
+            power_source: self.register(REG_POWER_SOURCE) & 0x07,
+            battery_mv: self.read_u16(REG_VBAT_LOW),
+            vbus_mv: self.read_u16(REG_VIN_LOW),
+            output_5v_mv: self.read_u16(REG_5VOUT_LOW),
             hold_config: self.register(REG_HOLD_CONFIG),
             gpio_mode: self.register(REG_GPIO_MODE),
             gpio_output: self.register(REG_GPIO_OUTPUT),
             gpio_input: self.register(REG_GPIO_INPUT),
+            l3b_powered: self.register(REG_GPIO_OUTPUT) & (1 << 2) != 0,
+            speaker_amp_enabled: self.register(REG_GPIO_OUTPUT) & (1 << 3) != 0,
+            charging: self.register(REG_GPIO_INPUT) & 1 == 0,
             gpio_function_0: self.register(REG_GPIO_FUNCTION_0),
             gpio_function_1: self.register(REG_GPIO_FUNCTION_1),
             adc_result: u16::from_le_bytes([
@@ -258,6 +334,17 @@ impl M5Pm1 {
             ]),
             button_pressed: self.register(REG_BUTTON_STATUS) & 1 != 0,
             button_flag: self.register(REG_BUTTON_STATUS) & 0x80 != 0,
+            irq_status: [
+                self.register(REG_IRQ_GPIO),
+                self.register(REG_IRQ_SYSTEM),
+                self.register(REG_IRQ_BUTTON),
+            ],
+            irq_masks: [
+                self.register(REG_IRQ_MASK_GPIO),
+                self.register(REG_IRQ_MASK_SYSTEM),
+                self.register(REG_IRQ_MASK_BUTTON),
+            ],
+            irq_asserted: self.irq_asserted(),
             neopixel_count: self.register(REG_NEO_CONFIG) & 0x3f,
             rtc_bytes_written,
         }
@@ -276,6 +363,10 @@ impl M5Pm1 {
         } else {
             Err(M5Pm1Error::Gpio(pin))
         }
+    }
+
+    fn read_u16(&self, register: u8) -> u16 {
+        u16::from_le_bytes([self.register(register), self.register(register + 1)])
     }
 
     fn irq_function(&self, pin: u8) -> bool {
@@ -323,8 +414,13 @@ impl M5Pm1 {
     fn write_register(&mut self, register: u8, value: u8, at: SimTime) {
         let index = usize::from(register);
         match register {
-            REG_DEVICE_ID | REG_DEVICE_MODEL | REG_HW_REVISION | REG_SW_REVISION
-            | REG_GPIO_INPUT => {}
+            REG_DEVICE_ID
+            | REG_DEVICE_MODEL
+            | REG_HW_REVISION
+            | REG_SW_REVISION
+            | REG_POWER_SOURCE
+            | REG_GPIO_INPUT
+            | REG_VBAT_LOW..=0x27 => {}
             REG_WAKE_SOURCE => self.registers[index] &= !value,
             REG_SYSTEM_COMMAND => {
                 if value & 0xf0 == 0xa0 {
@@ -375,6 +471,12 @@ impl M5Pm1 {
                 self.timer_started_at = (self.timer_seconds != 0).then_some(at);
             }
             REG_NEO_CONFIG => self.registers[index] = value & 0x7f,
+            REG_IRQ_GPIO | REG_IRQ_SYSTEM | REG_IRQ_BUTTON if value == 0 => {
+                self.registers[index] = 0;
+            }
+            REG_IRQ_MASK_GPIO => self.registers[index] = value & 0x1f,
+            REG_IRQ_MASK_SYSTEM => self.registers[index] = value & 0x3f,
+            REG_IRQ_MASK_BUTTON => self.registers[index] = value & 0x07,
             _ => self.registers[index] = value,
         }
     }
@@ -424,6 +526,10 @@ mod tests {
         pm1.set_gpio_input(0, false).unwrap();
         pm1.set_gpio_input(0, true).unwrap();
         assert_eq!(pm1.register(REG_IRQ_GPIO), 0x01);
+        assert!(!pm1.irq_asserted());
+        pm1.transact(&[REG_IRQ_MASK_GPIO, 0x1e], 0, SimTime::ZERO)
+            .unwrap();
+        assert!(pm1.irq_asserted());
         pm1.transact(&[REG_POWER_CONFIG, 0x0f], 0, SimTime::ZERO)
             .unwrap();
         assert!(pm1.grove_powered());

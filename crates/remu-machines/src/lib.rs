@@ -10,6 +10,8 @@ mod arm;
 mod arm_mcu;
 mod avr_mcu;
 mod board;
+mod m5sticks3;
+mod m5sticks3_firmware;
 mod mcs51_mcu;
 mod msp430_mcu;
 mod pic16_mcu;
@@ -22,6 +24,10 @@ pub use arm::{ArmMachine, ArmMachineError};
 pub use arm_mcu::ArmMcuMachine;
 pub use avr_mcu::{AvrMachineError, AvrMcuMachine};
 pub use board::*;
+pub use m5sticks3::{M5StickS3Button, M5StickS3Handle, M5StickS3Snapshot};
+pub use m5sticks3_firmware::{
+    M5StickS3FirmwareError, M5StickS3FirmwareResult, run_m5sticks3_firmware_scenario,
+};
 pub use mcs51_mcu::{Mcs51MachineError, Mcs51McuMachine};
 pub use msp430_mcu::{Msp430MachineError, Msp430McuMachine};
 pub use pic16_mcu::{Pic16MachineError, Pic16McuMachine};

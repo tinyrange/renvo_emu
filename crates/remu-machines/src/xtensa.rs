@@ -21,13 +21,14 @@ use remu_devices::{
     Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle,
     Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap,
     Esp32S3UsbWrapHandle, Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32S3XtsAes,
-    Esp32s3I2c, Esp32s3I2s, Esp32s3Rmt, Esp32s3Spi, EspDigitalSignature, EspEfuse, EspGdma,
-    EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable,
-    EspMmuTableHandle, EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem,
-    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
-    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, SignalHub, TimerHandle, UartHandle,
+    Esp32s3I2c, Esp32s3I2cHandle, Esp32s3I2s, Esp32s3I2sHandle, Esp32s3Rmt, Esp32s3RmtHandle,
+    Esp32s3Spi, Esp32s3SpiHandle, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio,
+    EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa,
+    EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
+    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
+    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
+    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, SignalHub,
+    TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalError};
@@ -92,6 +93,10 @@ pub struct XtensaMachine {
     signals: SignalHub,
     gpio: GpioHandle,
     chip_gpio: GpioHandle,
+    i2c: Vec<Esp32s3I2cHandle>,
+    spi: Vec<Esp32s3SpiHandle>,
+    i2s: Vec<Esp32s3I2sHandle>,
+    rmt: Esp32s3RmtHandle,
     pub(crate) uart: UartHandle,
     pub(crate) chip_uart: UartHandle,
     auxiliary_uarts: Vec<UartHandle>,
@@ -272,12 +277,7 @@ impl XtensaMachine {
             0x1000,
             Box::new(io_mux_device),
         )?;
-        for (name, base) in [("i2c0", 0x6001_3000), ("i2c1", 0x6002_7000)] {
-            let device = Esp32s3I2c::new(format!("esp32s3.{name}"), signals.clone())?;
-            bus.map_device(format!("esp32s3.{name}"), base, 0x1000, Box::new(device))?;
-        }
-        let rmt_device = Esp32s3Rmt::new("esp32s3.rmt", signals.clone())?;
-        bus.map_device("esp32s3.rmt", 0x6001_6000, 0x1000, Box::new(rmt_device))?;
+        let (i2c, spi, i2s, rmt) = Self::map_board_serial_peripherals(&mut bus, &signals)?;
         let (ledc_device, ledc) =
             Esp32S3Ledc::new("esp32s3.ledc", "board.esp32s3.ledc", signals.clone())?;
         bus.map_device("esp32s3.ledc", 0x6001_9000, 0x1000, Box::new(ledc_device))?;
@@ -396,22 +396,6 @@ impl XtensaMachine {
             0x1000,
             Box::new(EspSpiMem::new("esp32s3.spi0")),
         )?;
-        for (name, base) in [("spi2", 0x6002_4000), ("spi3", 0x6002_5000)] {
-            bus.map_device(
-                format!("esp32s3.{name}"),
-                base,
-                0x1000,
-                Box::new(Esp32s3Spi::new(format!("esp32s3.{name}"), signals.clone())?),
-            )?;
-        }
-        for (name, base) in [("i2s0", 0x6000_f000), ("i2s1", 0x6002_d000)] {
-            bus.map_device(
-                format!("esp32s3.{name}"),
-                base,
-                0x1000,
-                Box::new(Esp32s3I2s::new(format!("esp32s3.{name}"), signals.clone())?),
-            )?;
-        }
         let (rtc_control_device, rtc_control) =
             EspRtcControl::new_with_signals("esp32s3.rtc-control", signals.clone())?;
         bus.map_device(
@@ -582,8 +566,7 @@ impl XtensaMachine {
             0x1_0000,
             Box::new(usb_otg_device),
         )?;
-        // The mask ROM normally initializes this pointer before handing off
-        // to the second-stage bootloader. Direct verified-image handoff keeps
+        // Direct handoff keeps the ROM-initialized pointer functional.
         // a zeroed functional legacy-flash data table in unused DRAM.
         bus.write(0x3fce_ffe4, AccessWidth::Word, 0x3fce_0000, SimTime::ZERO)
             .map_err(|error| XtensaMachineError::Load {
@@ -622,6 +605,10 @@ impl XtensaMachine {
             signals,
             gpio,
             chip_gpio,
+            i2c,
+            spi,
+            i2s,
+            rmt,
             uart,
             chip_uart,
             auxiliary_uarts,
@@ -1446,7 +1433,15 @@ impl XtensaMachine {
                 0
             };
             let mut signal_stop = None;
-            for change in self.signals.drain_changes() {
+            let mut changes = self.signals.drain_changes();
+            changes.sort_by_key(|change| change.at);
+            if let Some(change) = changes.last()
+                && change.at > self.now
+            {
+                self.now = change.at;
+                stats.time = self.now;
+            }
+            for change in changes {
                 signal_stop =
                     signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
                 digest.change(&change);
