@@ -167,23 +167,23 @@ manuals = [
 ]
 manual_urls = [
   "https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf",
-  "https://www.ti.com/lit/ug/slau445/slau445.pdf",
+  "https://www.ti.com/lit/ug/slau445i/slau445i.pdf",
   "https://www.ti.com/lit/an/slau132/slau132.pdf",
 ]
 sample_url = "https://www.ti.com/tool/download/SLAC700"
 sample_revision = "SLAC700 01.00.00.0E (2020-07-01), archive SHA-256 9d8b339b98949afd26a31609d16baed06257eeb06126043ac0a3eda09397e12d"
 toolchain = "TI MSP430 GCC 9.3.1.11 plus MSP430 support files 1.212"
 compiler_flags = ["-mmcu=msp430fr2433", "-mhwmult=none"]
-peripherals = ["CS", "FRCTL", "PMM", "WDT_A", "GPIO", "TIMER_A", "EUSCI_A0"]
+peripherals = ["CS", "FRCTL", "PMM", "WDT_A", "GPIO", "TIMER_A", "EUSCI_A0", "EUSCI_B0 I2C host (typed register map, reset masks, status/byte counter, ACK/NACK, automatic STOP, IV priorities)"]
 image_formats = ["ELF32 little-endian MSP430 executable"]
 memory_map = ["FRAM 0x0000c000..0x0000ffff", "SRAM 0x00002000..0x00002fff", "unified 20-bit CPUXv2 address space", "selected peripheral MMIO below 0x2000"]
 reset_assumptions = "Power-on reset loads the 16-bit reset PC from 0xfffe, applies FRAM/PM5 reset state, and lets the pinned TI CRT initialize data and stack"
-vectors = ["PORT1 vector word at 0xffdc", "eUSCI_A0 vector word at 0xffe4", "Timer0_A0 vector word at 0xfff8", "reset vector word at 0xfffe"]
+vectors = ["PORT1 vector word at 0xffdc", "eUSCI_A0 vector word at 0xffe4", "eUSCI_B0 vector word at 0xffe0", "Timer0_A0 vector word at 0xfff8", "reset vector word at 0xfffe"]
 selected_pins = ["P1.1 smoke external input", "P1.3 TI sample external input", "P1.0 GPIO output", "eUSCI_A0 logical TX/RX loopback"]
-interrupt_routes = ["Port 1 IFG/IE -> 0xffdc", "eUSCI_A0 IFG/IE -> 0xffe4", "Timer0_A CCR0 CCIFG/CCIE -> 0xfff8"]
-vcd_signals = ["board.msp430fr2433.port1", "board.msp430fr2433.timer_a0.ccr0_irq", "board.msp430fr2433.uart0", "board.msp430fr2433.interrupt.port1"]
+interrupt_routes = ["Port 1 IFG/IE -> 0xffdc", "eUSCI_A0 IFG/IE -> 0xffe4", "eUSCI_B0 I2C IFG/IE -> 0xffe0", "Timer0_A CCR0 CCIFG/CCIE -> 0xfff8"]
+vcd_signals = ["board.msp430fr2433.port1", "board.msp430fr2433.timer_a0.ccr0_irq", "board.msp430fr2433.uart0", "board.msp430fr2433.i2c0.byte", "board.msp430fr2433.i2c0.strobe", "board.msp430fr2433.interrupt.port1"]
 fidelity_tier = "functional CPUXv2/compiler subset and selected peripherals, deterministic timing"
-unsupported = ["ADC and capacitive touch", "BSL", "hardware multiplier in the compiler corpus", "exact clock and UART bit timing"]
+unsupported = ["ADC and capacitive touch", "BSL", "hardware multiplier in the compiler corpus", "exact clock and UART bit timing", "pin-level arbitration, slave mode, 10-bit I2C, and electrical ACK timing"]
 vendor_sample_license = "TI SLAC700 source retains the licence/copyright notices shipped in archive version 01.00.00.0E"
 
 [[target]]
