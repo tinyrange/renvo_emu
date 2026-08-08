@@ -130,7 +130,7 @@ pub struct Mcs51Cpu {
     sp: u8,
     pc: u16,
     sfr_page: u8,
-    interrupts: [bool; 6],
+    interrupts: [bool; 7],
     active_priority: Option<bool>,
     priority_stack: Vec<Option<bool>>,
     waiting: bool,
@@ -156,7 +156,7 @@ impl Mcs51Cpu {
             sp: 7,
             pc: 0,
             sfr_page: 0,
-            interrupts: [false; 6],
+            interrupts: [false; 7],
             active_priority: None,
             priority_stack: Vec::new(),
             waiting: false,
@@ -458,7 +458,7 @@ impl Mcs51Cpu {
         self.sp = 7;
         self.pc = 0;
         self.sfr_page = 0;
-        self.interrupts = [false; 6];
+        self.interrupts = [false; 7];
         self.active_priority = None;
         self.priority_stack.clear();
         self.waiting = false;
@@ -477,16 +477,25 @@ impl Mcs51Cpu {
             if let Some(line) = (base..base + 3).find(|line| self.interrupts[*line]) {
                 return Some((line, high));
             }
+            if high && self.interrupts[6] {
+                return Some((6, true));
+            }
         }
         None
     }
 
     fn enter_interrupt(&mut self, line: usize, high: bool) {
-        const VECTORS: [u16; 3] = [0x000b, 0x0023, 0x002b];
+        let vector = match line {
+            0 | 3 => 0x000b,
+            1 | 4 => 0x0023,
+            2 | 5 => 0x002b,
+            6 => 0x0033,
+            _ => 0,
+        };
         self.push_pc();
         self.priority_stack.push(self.active_priority);
         self.active_priority = Some(high);
-        self.pc = VECTORS[line % 3];
+        self.pc = vector;
         self.waiting = false;
     }
 }
@@ -524,7 +533,7 @@ impl Cpu for Mcs51Cpu {
             CpuFault::new(
                 CpuFaultKind::Architecture,
                 u64::from(self.pc),
-                format!("MCS-51 interrupt line {line} is outside 0..5"),
+                format!("MCS-51 interrupt line {line} is outside 0..6"),
             )
         })?;
         *slot = asserted;
