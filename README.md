@@ -88,6 +88,12 @@ digest. The VCD can be opened with GTKWave or another standard waveform viewer.
 Long-running firmware should use an explicit signal, breakpoint, deadline, or
 instruction limit as its stopping contract.
 
+Renvo can also run in a browser as a WASI Preview 2 component. The component
+exports a versioned WIT API for target discovery, ELF inspection, ELF execution,
+and Intel HEX execution; `jco` turns that component into browser-loadable ES
+modules. See [the WebAssembly guide](docs/WEBASSEMBLY.md) and the runnable
+example in [`web/`](web/).
+
 For compiler and ABI work, run an ELF directly:
 
 ```sh

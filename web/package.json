@@ -1,0 +1,26 @@
+{
+  "name": "renvo-emulator-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:component": "cargo build --release -p remu-web --target wasm32-wasip2 --locked --manifest-path ../Cargo.toml",
+    "transpile": "jco transpile ../target/wasm32-wasip2/release/remu_web.wasm -o generated --name renvo --no-nodejs-compat --no-namespaced-exports",
+    "transpile:node": "jco transpile ../target/wasm32-wasip2/release/remu_web.wasm -o generated-node --name renvo --no-namespaced-exports",
+    "test:component": "npm run transpile:node && node smoke.mjs",
+    "build:site": "vite build",
+    "build": "npm run build:component && npm run transpile && npm run build:site",
+    "dev": "npm run build:component && npm run transpile && vite",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@bytecodealliance/preview2-shim": "0.19.0"
+  },
+  "devDependencies": {
+    "@bytecodealliance/jco": "1.17.9",
+    "vite": "8.1.5"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

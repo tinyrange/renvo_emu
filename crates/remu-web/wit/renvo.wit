@@ -1,0 +1,31 @@
+package renvo:emulator@0.1.0;
+
+interface api {
+    enum logic {
+        zero,
+        one,
+        high-z,
+        unknown,
+    }
+
+    record pin-stimulus {
+        at: u64,
+        pin: u8,
+        value: logic,
+    }
+
+    record run-options {
+        max-instructions: u64,
+        deadline-ticks: option<u64>,
+        stimuli: list<pin-stimulus>,
+    }
+
+    list-targets: func() -> result<string, string>;
+    inspect-elf: func(firmware: list<u8>) -> result<string, string>;
+    run-elf: func(target: string, firmware: list<u8>, options: run-options) -> result<string, string>;
+    run-intel-hex: func(target: string, firmware: list<u8>, options: run-options) -> result<string, string>;
+}
+
+world renvo {
+    export api;
+}

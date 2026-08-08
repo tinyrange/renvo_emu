@@ -1,0 +1,34 @@
+[package]
+name = "remu-web"
+description = "WASI component and JavaScript-facing API for Renvo Emulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+remu-core.workspace = true
+remu-image.workspace = true
+remu-machines.workspace = true
+remu-signals.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "wasi"))'.dependencies]
+wit-bindgen.workspace = true
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

@@ -2,3 +2,7 @@
 /.remu/
 *.vcd
 *.trace.json
+/web/dist/
+/web/generated/
+/web/generated-node/
+/web/node_modules/

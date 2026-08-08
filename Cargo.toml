@@ -20,6 +20,7 @@ members = [
     "crates/remu-signals",
     "crates/remu-starlark",
     "crates/remu-trace",
+    "crates/remu-web",
 ]
 
 [workspace.package]
@@ -61,6 +62,7 @@ starlark = "0.14.2"
 tempfile = "3.21.0"
 thiserror = "2.0.16"
 toml = "1.1.4"
+wit-bindgen = "0.60.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

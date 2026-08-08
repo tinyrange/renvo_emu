@@ -1,0 +1,133 @@
+:root {
+  color: #18211d;
+  background: #eef2ec;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+main {
+  width: min(960px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 4rem 0;
+}
+
+header {
+  margin-bottom: 2.5rem;
+}
+
+h1 {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(2.5rem, 8vw, 5rem);
+  letter-spacing: -0.08em;
+}
+
+.eyebrow,
+#status {
+  color: #28634a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+form,
+section {
+  border: 1px solid #c7d1c8;
+  border-radius: 12px;
+  background: #f8faf7;
+  box-shadow: 0 16px 40px rgb(35 62 48 / 8%);
+}
+
+form {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.firmware {
+  grid-column: span 2;
+}
+
+select,
+input,
+button {
+  min-height: 2.8rem;
+  border: 1px solid #aebcaf;
+  border-radius: 7px;
+  padding: 0.6rem 0.75rem;
+  background: white;
+  color: inherit;
+  font: inherit;
+}
+
+button {
+  align-self: end;
+  border-color: #28634a;
+  background: #28634a;
+  color: white;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+section {
+  margin-top: 1rem;
+  overflow: hidden;
+}
+
+.result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #dbe2da;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+pre {
+  min-height: 14rem;
+  max-height: 36rem;
+  margin: 0;
+  overflow: auto;
+  padding: 1.25rem;
+  background: #101713;
+  color: #c7f1d6;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 700px) {
+  main {
+    padding-top: 2rem;
+  }
+
+  form {
+    grid-template-columns: 1fr;
+  }
+
+  .firmware {
+    grid-column: auto;
+  }
+}

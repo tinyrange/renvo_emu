@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Renvo Emulator WebAssembly</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">WASI Preview 2 · WebAssembly Component</p>
+        <h1>Renvo Emulator</h1>
+        <p>Run bounded microcontroller firmware directly in this browser.</p>
+      </header>
+
+      <form id="runner">
+        <label>
+          Target
+          <select id="target" required></select>
+        </label>
+        <label>
+          Firmware format
+          <select id="format">
+            <option value="elf">ELF</option>
+            <option value="ihex">Intel HEX</option>
+          </select>
+        </label>
+        <label>
+          Instruction limit
+          <input id="instructions" type="number" min="1" value="1000000" required />
+        </label>
+        <label class="firmware">
+          Firmware file
+          <input id="firmware" type="file" required />
+        </label>
+        <button type="submit">Run firmware</button>
+      </form>
+
+      <section aria-live="polite">
+        <div class="result-heading">
+          <h2>Result</h2>
+          <span id="status">Loading component…</span>
+        </div>
+        <pre id="result"></pre>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
