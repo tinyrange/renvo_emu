@@ -165,6 +165,42 @@ fn esp32s3_shared_radio_reset_cancels_active_coexistence_ownership() {
 }
 
 #[test]
+fn esp32s3_radio_power_gate_truncates_active_airtime() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine
+        .wifi_engine()
+        .unwrap()
+        .start(remu_radio::WifiMode::Station)
+        .unwrap();
+    machine
+        .wifi_engine()
+        .unwrap()
+        .queue_tx(vec![0_u8; 24])
+        .unwrap();
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    machine
+        .bus
+        .write(0x6002_6014, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+
+    machine.service_radio().unwrap();
+
+    assert_eq!(machine.radio_coexistence.owner(), None);
+    assert!(matches!(
+        machine.radio_coexistence.events().last(),
+        Some(remu_radio::CoexistenceEvent::PowerDown {
+            protocol: remu_radio::RadioProtocol::Wifi,
+            at,
+            ..
+        }) if *at == SimTime::ZERO
+    ));
+    assert!(matches!(
+        machine.radio_replay_artifact().events.last(),
+        Some(remu_radio::MediumEvent::Truncated { at, .. }) if *at == SimTime::ZERO
+    ));
+}
+
+#[test]
 fn esp32s3_illegal_native_wifi_dma_is_a_hard_machine_error() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine

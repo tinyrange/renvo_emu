@@ -784,6 +784,52 @@ fn esp32c6_modem_reset_cancels_active_coexistence_ownership() {
 }
 
 #[test]
+fn esp32c6_radio_power_gate_truncates_active_airtime() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10) | (1 << 17) | (1 << 18),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .wifi_engine()
+        .unwrap()
+        .start(remu_radio::WifiMode::Station)
+        .unwrap();
+    machine
+        .wifi_engine()
+        .unwrap()
+        .queue_tx(vec![0_u8; 24])
+        .unwrap();
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    machine
+        .bus
+        .write(0x600a_9814, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+
+    machine.service_radio().unwrap();
+
+    let arbiter = machine.radio_coexistence.as_ref().unwrap();
+    assert_eq!(arbiter.owner(), None);
+    assert!(matches!(
+        arbiter.events().last(),
+        Some(remu_radio::CoexistenceEvent::PowerDown {
+            protocol: remu_radio::RadioProtocol::Wifi,
+            at,
+            ..
+        }) if *at == SimTime::ZERO
+    ));
+    assert!(matches!(
+        machine.radio_replay_artifact().unwrap().events.last(),
+        Some(remu_radio::MediumEvent::Truncated { at, .. }) if *at == SimTime::ZERO
+    ));
+}
+
+#[test]
 fn esp32c6_illegal_native_wifi_dma_is_a_hard_machine_error() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine

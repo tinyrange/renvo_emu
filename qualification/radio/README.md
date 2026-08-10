@@ -80,9 +80,10 @@ emulator state and terminates with the stable hard-error diagnostic defined by
 public IEEE 802.15.4 driver and transmits while Wi-Fi remains active and BLE is
 scanning, so all three silicon radio families cross the same ownership gate.
 Firmware radio-reset assertions cancel pending native work, active ownership,
-and its exact in-flight medium transmission; the append-only artifacts retain
-both the reset boundary and truncated-airtime evidence. Focused C6/S3 machine
-tests force both priority preemption and denial: the preempted packet is
+and its exact in-flight medium transmission. Firmware clock/power gating also
+cancels active ownership and airtime. The append-only artifacts retain the
+reset or power-down boundary and truncated-airtime evidence. Focused C6/S3
+machine tests force priority preemption and denial: the preempted packet is
 truncated by stable transmission ID, while denied work creates no airtime.
 
 Vendor-independent execution is a focused low-level regression track. The two
@@ -167,11 +168,11 @@ energy scan, and sleep/wake through the native C6 port. A secured Thread CLI
 exchange and Zigbee-facing firmware qualification still remain. Disputed
 ESP32-S3 RF pages remain intentionally unmapped until a revision-
 specific primary-source or authorized-hardware probe resolves them. Coexistence
-denial, priority preemption, and reset cancellation now have deterministic
-chip-level negative-path coverage; genuine-firmware power-transition stress
-still remains. Genuine Wi-Fi/BLE simultaneous traffic is covered on both chips,
-and the C6 image also qualifies active three-radio Wi-Fi/BLE/IEEE 802.15.4
-ownership.
+denial, priority preemption, reset cancellation, and active clock/power gating
+now have deterministic chip-level negative-path coverage; genuine-firmware
+power-transition stress still remains. Genuine Wi-Fi/BLE simultaneous traffic
+is covered on both chips, and the C6 image also qualifies active three-radio
+Wi-Fi/BLE/IEEE 802.15.4 ownership.
 
 Do not close issue #338 or describe these radios as vendor-compatible while any
 of those gates remains open.

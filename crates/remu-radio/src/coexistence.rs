@@ -102,6 +102,15 @@ pub enum CoexistenceEvent {
         /// Reset observation time.
         at: SimTime,
     },
+    /// Firmware clock/power gating canceled active ownership.
+    PowerDown {
+        /// Canceled grant identifier.
+        id: CoexistenceGrantId,
+        /// Protocol that lost RF power.
+        protocol: RadioProtocol,
+        /// Power-down observation time.
+        at: SimTime,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,6 +270,12 @@ impl CoexistenceArbiter {
         self.active.map(|active| (active.protocol, active.end))
     }
 
+    /// Active grant identity, protocol, and exclusive end timestamp.
+    pub fn active_grant(&self) -> Option<(CoexistenceGrantId, RadioProtocol, SimTime)> {
+        self.active
+            .map(|active| (active.id, active.protocol, active.end))
+    }
+
     /// Append-only arbitration evidence.
     pub fn events(&self) -> &[CoexistenceEvent] {
         &self.events
@@ -273,6 +288,22 @@ impl CoexistenceArbiter {
         self.active = None;
         self.events.push(CoexistenceEvent::Reset { at });
         Ok(())
+    }
+
+    /// Cancels active ownership when firmware removes the required radio
+    /// clock/power domain. Idle power transitions do not add noise to the
+    /// arbitration artifact.
+    pub fn power_down(&mut self, at: SimTime) -> Result<bool, CoexistenceError> {
+        self.advance_to(at)?;
+        let Some(active) = self.active.take() else {
+            return Ok(false);
+        };
+        self.events.push(CoexistenceEvent::PowerDown {
+            id: active.id,
+            protocol: active.protocol,
+            at,
+        });
+        Ok(true)
     }
 }
 
@@ -377,6 +408,28 @@ mod tests {
             arbiter.events(),
             [CoexistenceEvent::Granted { .. }, CoexistenceEvent::Reset { at }]
                 if *at == SimTime::from_ticks(8)
+        ));
+    }
+
+    #[test]
+    fn power_down_cancels_only_active_ownership() {
+        let mut arbiter = CoexistenceArbiter::new();
+        assert!(!arbiter.power_down(SimTime::ZERO).unwrap());
+        let CoexistenceDecision::Granted { id, .. } = arbiter
+            .request(request(RadioProtocol::Wifi, 4, 20, 1, true))
+            .unwrap()
+        else {
+            panic!("Wi-Fi request was denied");
+        };
+        assert!(arbiter.power_down(SimTime::from_ticks(8)).unwrap());
+        assert_eq!(arbiter.owner(), None);
+        assert!(matches!(
+            arbiter.events().last(),
+            Some(CoexistenceEvent::PowerDown {
+                id: event_id,
+                protocol: RadioProtocol::Wifi,
+                at,
+            }) if *event_id == id && *at == SimTime::from_ticks(8)
         ));
     }
 }

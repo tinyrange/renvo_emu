@@ -164,8 +164,8 @@ pub enum MediumEvent {
         /// Full immutable request.
         request: TxRequest,
     },
-    /// Coexistence preemption or a radio-domain reset stopped an accepted
-    /// transmission before its original end time.
+    /// Coexistence preemption, radio-domain reset, or clock/power gating
+    /// stopped an accepted transmission before its original end time.
     Truncated {
         /// Stable transmission identifier.
         id: TransmissionId,

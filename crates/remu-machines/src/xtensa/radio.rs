@@ -41,6 +41,27 @@ impl XtensaMachine {
         Ok(())
     }
 
+    fn power_down_coexistence(&mut self) -> Result<(), XtensaMachineError> {
+        let Some((grant, _, end)) = self.radio_coexistence.active_grant() else {
+            return Ok(());
+        };
+        if end <= self.now {
+            return Ok(());
+        }
+        let prior = self.radio_coexistence_transmission.take();
+        self.radio_legality.require(
+            RadioSubsystem::Coexistence,
+            RadioLegalityRule::CoexistenceOwnership,
+            prior.is_some_and(|(mapped, _)| mapped == grant),
+            self.now,
+            format!("power-gated grant {grant:?} has no matching RF transmission"),
+        )?;
+        let (_, transmission) = prior.expect("validated coexistence transmission exists");
+        self.radio_medium.truncate(transmission, self.now)?;
+        self.radio_coexistence.power_down(self.now)?;
+        Ok(())
+    }
+
     fn apply_coexistence_preemption(
         &mut self,
         preempted: Option<CoexistenceGrantId>,
@@ -170,6 +191,20 @@ impl XtensaMachine {
             self.pending_native_ble_receptions.clear();
             self.pending_native_ble_slot_completions.clear();
             self.radio_reset_generation = reset_generation;
+        }
+        if self
+            .radio_coexistence
+            .active_grant()
+            .is_some_and(|(_, protocol, _)| {
+                !coexistence_ready
+                    || match protocol {
+                        RadioProtocol::Wifi => !wifi_ready,
+                        RadioProtocol::BluetoothLe => !ble_ready,
+                        RadioProtocol::Ieee802154 => true,
+                    }
+            })
+        {
+            self.power_down_coexistence()?;
         }
         self.radio_legality.observe_domain(
             RadioSubsystem::Wifi,

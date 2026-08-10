@@ -40,6 +40,41 @@ impl RiscVMachine {
         Ok(())
     }
 
+    fn power_down_coexistence(&mut self) -> Result<(), MachineError> {
+        let Some((grant, _, end)) = self
+            .radio_coexistence
+            .as_ref()
+            .expect("ESP32-C6 machine has a coexistence arbiter")
+            .active_grant()
+        else {
+            return Ok(());
+        };
+        if end <= self.now {
+            return Ok(());
+        }
+        let prior = self.radio_coexistence_transmission.take();
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Coexistence,
+                RadioLegalityRule::CoexistenceOwnership,
+                prior.is_some_and(|(mapped, _)| mapped == grant),
+                self.now,
+                format!("power-gated grant {grant:?} has no matching RF transmission"),
+            )?;
+        let (_, transmission) = prior.expect("validated coexistence transmission exists");
+        self.radio_medium
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio medium")
+            .truncate(transmission, self.now)?;
+        self.radio_coexistence
+            .as_mut()
+            .expect("ESP32-C6 machine has a coexistence arbiter")
+            .power_down(self.now)?;
+        Ok(())
+    }
+
     fn apply_coexistence_preemption(
         &mut self,
         preempted: Option<CoexistenceGrantId>,
@@ -194,6 +229,19 @@ impl RiscVMachine {
         });
         if reset_changed.iter().any(|changed| *changed) {
             self.reset_coexistence()?;
+        }
+        if self
+            .radio_coexistence
+            .as_ref()
+            .expect("ESP32-C6 machine has a coexistence arbiter")
+            .active_grant()
+            .is_some_and(|(_, protocol, _)| match protocol {
+                RadioProtocol::Wifi => !modem.wifi_ready(),
+                RadioProtocol::BluetoothLe => !modem.ble_ready(),
+                RadioProtocol::Ieee802154 => !modem.ieee802154_ready(),
+            })
+        {
+            self.power_down_coexistence()?;
         }
         if reset_changed[1] {
             self.radio_c6_ble_scan = None;
