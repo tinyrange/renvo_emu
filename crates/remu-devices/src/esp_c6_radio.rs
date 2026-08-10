@@ -699,6 +699,11 @@ const C6_WIFI_MAC_RX_BASE: u64 = 0x084;
 const C6_WIFI_MAC_RX_NEXT: u64 = 0x088;
 const C6_WIFI_MAC_RX_LAST: u64 = 0x08c;
 const C6_WIFI_MAC_RX_ADDRESS_HIGH: u64 = 0xc70;
+const C6_WIFI_MAC_INTERFACE_ADDRESS_LOW: u64 = 0x05c;
+const C6_WIFI_MAC_INTERFACE_ADDRESS_HIGH: u64 = 0x060;
+const C6_WIFI_MAC_INTERFACE_ADDRESS_STRIDE: u64 = 8;
+const C6_WIFI_MAC_INTERFACE_ADDRESS_COUNT: usize = 4;
+const C6_WIFI_MAC_INTERFACE_ADDRESS_VALID: u32 = 1 << 16;
 const C6_WIFI_MAC_TX_QUEUE_STATE_CLEAR: u64 = 0xcb4;
 const C6_WIFI_MAC_TX_QUEUE_STATE: u64 = 0xcb8;
 const C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH: u64 = 0xd6c;
@@ -766,6 +771,51 @@ impl EspC6WifiMacHandle {
             .expect("ESP32-C6 Wi-Fi MAC lock poisoned")
             .rx_descriptor
             .map(|address| EspC6WifiRxDescriptor { address })
+    }
+
+    /// Returns the native RX-interface match bitmap for an 802.11 receiver address.
+    ///
+    /// Vendor firmware programs one address-filter slot per virtual interface.
+    /// Exact receiver addresses select their configured slot. Other group frames
+    /// match every valid slot. A reset MAC has no valid slots, in which case
+    /// freestanding firmware receives through the hardware-default slot zero.
+    pub fn rx_match_mask(&self, receiver: &[u8]) -> u8 {
+        let Some(receiver) = receiver.get(..6) else {
+            return 0;
+        };
+        let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        let mut configured = 0_u8;
+        let mut matches = 0_u8;
+        for interface in 0..C6_WIFI_MAC_INTERFACE_ADDRESS_COUNT {
+            let offset = interface as u64 * C6_WIFI_MAC_INTERFACE_ADDRESS_STRIDE;
+            let low = state.registers[(C6_WIFI_MAC_INTERFACE_ADDRESS_LOW + offset) as usize / 4];
+            let high = state.registers[(C6_WIFI_MAC_INTERFACE_ADDRESS_HIGH + offset) as usize / 4];
+            if high & C6_WIFI_MAC_INTERFACE_ADDRESS_VALID == 0 {
+                continue;
+            }
+            let bit = 1_u8 << interface;
+            configured |= bit;
+            let address = [
+                low as u8,
+                (low >> 8) as u8,
+                (low >> 16) as u8,
+                (low >> 24) as u8,
+                high as u8,
+                (high >> 8) as u8,
+            ];
+            if receiver == address {
+                matches |= bit;
+            }
+        }
+        if configured == 0 {
+            1
+        } else if matches != 0 {
+            matches
+        } else if receiver[0] & 1 != 0 {
+            configured
+        } else {
+            0
+        }
     }
 
     /// Advances the native receive ring and raises the hardware RX event.

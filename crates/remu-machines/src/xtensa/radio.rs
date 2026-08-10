@@ -845,7 +845,11 @@ impl XtensaMachine {
             return false;
         };
         let capacity = (control as usize) & 0x0fff;
-        let metadata = s3_wifi_rx_metadata(frame.len(), self.now);
+        let rx_match = wifi_mac.rx_match_mask(frame.get(4..10).unwrap_or_default());
+        if rx_match == 0 {
+            return false;
+        }
+        let metadata = s3_wifi_rx_metadata(frame, rx_match, self.now);
         let total = metadata.len().saturating_add(frame.len()).saturating_add(4);
         if buffer == 0 || total > capacity || total > 0x0fff {
             return false;
@@ -954,15 +958,15 @@ fn s3_ble_event_index(control: u16) -> u8 {
     (control & 0x1f) as u8
 }
 
-fn s3_wifi_rx_metadata(frame_length: usize, at: remu_core::SimTime) -> [u8; 48] {
+fn s3_wifi_rx_metadata(frame: &[u8], rx_match: u8, at: remu_core::SimTime) -> [u8; 48] {
     let mut metadata = [0_u8; 48];
     metadata[0] = (-40_i8) as u8;
-    metadata[3] = 1 << 4;
+    metadata[3] = (rx_match & 0x0f) << 4;
     metadata[8] = 1 << 1;
-    metadata[11] = (1 << 7) | 1;
+    metadata[11] = (u8::from(frame.get(4).is_some_and(|address| address & 1 != 0)) << 7) | 1;
     metadata[12..16].copy_from_slice(&(at.ticks() as u32).to_le_bytes());
     metadata[20] = (-95_i8) as u8;
-    let signal_length = frame_length.saturating_add(4).min(0x0fff) as u32;
+    let signal_length = frame.len().saturating_add(4).min(0x0fff) as u32;
     metadata[44..48].copy_from_slice(&signal_length.to_le_bytes());
     metadata
 }

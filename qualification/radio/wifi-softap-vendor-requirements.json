@@ -1,0 +1,59 @@
+{
+  "schema": "remu.radio-wifi-softap-vendor-requirements.v1",
+  "source_ledger_entry": "esp-rom-elfs-20260528",
+  "rom_release": "20260528",
+  "rom_archive_sha256": "caa463d3cbef2430a5a35847c1d9f2f152403b17a802050927ff60c8da54fe46",
+  "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+  "firmware_project": "qualification/radio/vendor-wifi-ap-probe",
+  "firmware_elf": "remu_vendor_wifi_ap_probe.elf",
+  "deterministic_replay_required": true,
+  "symbol_dispatch_allowed": false,
+  "chips": {
+    "esp32c6": {
+      "rom_file": "esp32c6_rev0_rom.elf",
+      "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+      "rom_start": "0x40000000",
+      "rom_end": "0x40050000",
+      "minimum_instructions": 20000000,
+      "radio_input": "qualification/radio/wifi-softap-esp-now-vendor-esp32c6.json",
+      "expected_ap_mac": [82, 69, 2, 0, 0, 1],
+      "expected_beacon_length": 171,
+      "expected_authentication_response_length": 30,
+      "expected_association_response_length": 47,
+      "required_uart_substrings": [
+        "wifi:mode : softAP (52:45:02:00:00:01)",
+        "REMU_VENDOR_SOFTAP_STARTED",
+        "REMU_VENDOR_SOFTAP_CONFIG mac=52:45:02:00:00:01",
+        "channel=1 ssid=REMU-SOFTAP",
+        "REMU_VENDOR_ESPNOW_TX_START result=0",
+        "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1",
+        "REMU_VENDOR_SOFTAP_STATION_CONNECTED mac=02:aa:bb:cc:dd:01 aid=1",
+        "REMU_VENDOR_ESPNOW_RX source=02:aa:bb:cc:dd:01 destination=52:45:02:00:00:01 length=4 data=deadbeef",
+        "REMU_VENDOR_SOFTAP_DONE started=1 station=1 espnow_rx=1"
+      ]
+    },
+    "esp32s3": {
+      "rom_file": "esp32s3_rev0_rom.elf",
+      "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
+      "rom_start": "0x40000000",
+      "rom_end": "0x40070000",
+      "minimum_instructions": 30000000,
+      "radio_input": "qualification/radio/wifi-softap-esp-now-vendor-esp32s3.json",
+      "expected_ap_mac": [85, 68, 51, 34, 17, 1],
+      "expected_beacon_length": 168,
+      "expected_authentication_response_length": 30,
+      "expected_association_response_length": 44,
+      "required_uart_substrings": [
+        "wifi:mode : softAP (55:44:33:22:11:01)",
+        "REMU_VENDOR_SOFTAP_STARTED",
+        "REMU_VENDOR_SOFTAP_CONFIG mac=55:44:33:22:11:01",
+        "channel=1 ssid=REMU-SOFTAP",
+        "REMU_VENDOR_ESPNOW_TX_START result=0",
+        "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1",
+        "REMU_VENDOR_SOFTAP_STATION_CONNECTED mac=02:aa:bb:cc:dd:01 aid=1",
+        "REMU_VENDOR_ESPNOW_RX source=02:aa:bb:cc:dd:01 destination=55:44:33:22:11:01 length=4 data=deadbeef",
+        "REMU_VENDOR_SOFTAP_DONE started=1 station=1 espnow_rx=1"
+      ]
+    }
+  }
+}

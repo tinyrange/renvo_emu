@@ -26,6 +26,10 @@ const WIFI_MAC_RX_BASE: u64 = 0x0088;
 const WIFI_MAC_RX_NEXT: u64 = 0x008c;
 const WIFI_MAC_RX_LAST: u64 = 0x0090;
 const WIFI_MAC_RX_ADDRESS_HIGH: u64 = 0x0c64;
+const WIFI_MAC_INTERFACE_ADDRESS_LOW: u64 = 0x040;
+const WIFI_MAC_INTERFACE_ADDRESS_HIGH: u64 = 0x044;
+const WIFI_MAC_INTERFACE_ADDRESS_STRIDE: u64 = 8;
+const WIFI_MAC_INTERFACE_ADDRESS_COUNT: usize = 4;
 const WIFI_MAC_TX_QUEUE_CONTROL_HIGH: u64 = 0x0d08;
 const WIFI_MAC_TX_QUEUE_CONTROL_LOW: u64 = 0x0cd0;
 const WIFI_MAC_TX_QUEUE_ENABLE: u32 = 3 << 30;
@@ -521,6 +525,50 @@ impl Esp32S3WifiMacHandle {
             .map(|address| Esp32S3WifiRxDescriptor { address })
     }
 
+    /// Returns the firmware-programmed RX-interface match bitmap for a receiver address.
+    pub fn rx_match_mask(&self, receiver: &[u8]) -> u8 {
+        let Some(receiver) = receiver.get(..6) else {
+            return 0;
+        };
+        let state = self.state.lock().expect("ESP32-S3 Wi-Fi MAC lock poisoned");
+        let mut configured = 0_u8;
+        let mut matches = 0_u8;
+        for interface in 0..WIFI_MAC_INTERFACE_ADDRESS_COUNT {
+            let offset = interface as u64 * WIFI_MAC_INTERFACE_ADDRESS_STRIDE;
+            let low = state.registers[(WIFI_MAC_INTERFACE_ADDRESS_LOW + offset) as usize / 4];
+            let high = state.registers[(WIFI_MAC_INTERFACE_ADDRESS_HIGH + offset) as usize / 4];
+            // Unlike C6, S3 stores only the upper two address bytes here.
+            // hal_mac_set_addr enables a separate companion group-address
+            // slot; a nonzero individual address therefore identifies a
+            // configured interface without a validity bit in this word.
+            if low == 0 && high & 0xffff == 0 {
+                continue;
+            }
+            let bit = 1_u8 << interface;
+            configured |= bit;
+            let address = [
+                low as u8,
+                (low >> 8) as u8,
+                (low >> 16) as u8,
+                (low >> 24) as u8,
+                high as u8,
+                (high >> 8) as u8,
+            ];
+            if receiver == address {
+                matches |= bit;
+            }
+        }
+        if configured == 0 {
+            1
+        } else if matches != 0 {
+            matches
+        } else if receiver[0] & 1 != 0 {
+            configured
+        } else {
+            0
+        }
+    }
+
     /// Advances the native receive ring and raises the hardware RX event.
     pub fn complete_rx_descriptor(&self, address: u32, next: u32) {
         let mut state = self.state.lock().expect("ESP32-S3 Wi-Fi MAC lock poisoned");
@@ -845,117 +893,11 @@ impl Device for Esp32S3PhyRegisters {
 }
 
 #[cfg(test)]
+include!("esp32s3_radio_basic_tests.rs");
+
+#[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn ble_time_latch_acknowledges_and_exposes_deterministic_native_time() {
-        let mut ble = Esp32S3BleExchangeMemoryRegisters::new("ble");
-        let at = SimTime::from_ticks(BLE_HALF_SLOT_TICKS * 7 + 25);
-        ble.write(
-            BLE_TIME_LATCH,
-            AccessWidth::Word,
-            u64::from(BLE_TIME_LATCH_REQUEST),
-            at,
-        )
-        .unwrap();
-
-        assert_eq!(ble.read(BLE_TIME_LATCH, AccessWidth::Word, at).unwrap(), 7);
-        assert_eq!(
-            ble.read(BLE_FINE_TIME, AccessWidth::Word, at).unwrap(),
-            BLE_FINE_POSITIONS_PER_HALF_SLOT - 1 - 25 / BLE_FINE_POSITION_TICKS
-        );
-    }
-
-    #[test]
-    fn ble_core_version_is_native_read_only_reset_state() {
-        let mut ble = Esp32S3BleExchangeMemoryRegisters::new("ble");
-        assert_eq!(
-            ble.read(BLE_CORE_VERSION, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            u64::from(BLE_CORE_VERSION_ESP32S3)
-        );
-        ble.write(BLE_CORE_VERSION, AccessWidth::Word, 0, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            ble.read(BLE_CORE_VERSION, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            u64::from(BLE_CORE_VERSION_ESP32S3)
-        );
-        ble.reset(ResetKind::Software);
-        assert_eq!(
-            ble.read(BLE_CORE_VERSION, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            u64::from(BLE_CORE_VERSION_ESP32S3)
-        );
-    }
-
-    #[test]
-    fn ble_core_soft_reset_strobe_self_clears() {
-        let mut ble = Esp32S3BleExchangeMemoryRegisters::new("ble");
-        assert_eq!(
-            ble.read(BLE_RX_BUFFER_CURRENT, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            u64::from(BLE_RX_BUFFER_RING_BASE)
-        );
-        ble.write(
-            BLE_RX_BUFFER_CURRENT,
-            AccessWidth::Word,
-            0x1140,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        ble.write(
-            BLE_CORE_CONTROL,
-            AccessWidth::Word,
-            u64::from(BLE_CORE_SOFT_RESET | 0x100),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(
-            ble.read(BLE_CORE_CONTROL, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0x100
-        );
-        assert_eq!(
-            ble.read(BLE_RX_BUFFER_CURRENT, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            u64::from(BLE_RX_BUFFER_RING_BASE)
-        );
-    }
-
-    #[test]
-    fn ble_core_software_interrupt_strobe_raises_rom_scheduler_cause() {
-        let mut ble = Esp32S3BleExchangeMemoryRegisters::new("ble");
-        let handle = ble.handle();
-        ble.write(
-            BLE_CORE_CONTROL,
-            AccessWidth::Word,
-            u64::from(BLE_CORE_SW_INTERRUPT_REQUEST | 0x070f),
-            SimTime::ZERO,
-        )
-        .unwrap();
-
-        assert_eq!(
-            ble.read(BLE_CORE_CONTROL, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0x070f
-        );
-        assert!(handle.interrupt_pending());
-        assert_eq!(
-            ble.read(BLE_INTERRUPT_STATUS, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            u64::from(BLE_SOFTWARE_INTERRUPT)
-        );
-        ble.write(
-            BLE_INTERRUPT_CLEAR,
-            AccessWidth::Word,
-            u64::from(BLE_SOFTWARE_INTERRUPT),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(!handle.interrupt_pending());
-    }
 
     #[test]
     fn ble_half_slot_timer_raises_one_native_interrupt_at_programmed_fine_time() {
@@ -1307,6 +1249,38 @@ mod tests {
             status & (WIFI_MAC_RESET_START | WIFI_MAC_RESET_READY),
             WIFI_MAC_RESET_START | WIFI_MAC_RESET_READY
         );
+    }
+
+    #[test]
+    fn wifi_mac_rx_match_uses_firmware_programmed_interface_address() {
+        let mut mac = Esp32S3WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        assert_eq!(handle.rx_match_mask(&[0xff; 6]), 1);
+
+        mac.write(
+            WIFI_MAC_INTERFACE_ADDRESS_LOW + WIFI_MAC_INTERFACE_ADDRESS_STRIDE,
+            AccessWidth::Word,
+            0x2233_4455,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            WIFI_MAC_INTERFACE_ADDRESS_HIGH + WIFI_MAC_INTERFACE_ADDRESS_STRIDE,
+            AccessWidth::Word,
+            0x0111,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        assert_eq!(
+            handle.rx_match_mask(&[0x55, 0x44, 0x33, 0x22, 0x11, 0x01]),
+            1 << 1
+        );
+        assert_eq!(
+            handle.rx_match_mask(&[0x54, 0x44, 0x33, 0x22, 0x11, 0x02]),
+            0
+        );
+        assert_eq!(handle.rx_match_mask(&[0xff; 6]), 1 << 1);
     }
 
     #[test]

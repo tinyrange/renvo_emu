@@ -11,6 +11,8 @@ python3 scripts/check-radio-sources.py
 scripts/fetch-esp-rom-elfs.sh
 scripts/qualify-esp-radio-rom.sh esp32c6
 scripts/qualify-esp-radio-rom.sh esp32s3
+scripts/qualify-esp-radio-wifi-softap-vendor.sh esp32c6
+scripts/qualify-esp-radio-wifi-softap-vendor.sh esp32s3
 scripts/qualify-esp-radio-ble-vendor.sh esp32c6
 scripts/qualify-esp-radio-ble-vendor.sh esp32s3
 scripts/qualify-esp-radio-ieee802154-vendor.sh esp32c6
@@ -54,6 +56,16 @@ bytes. Every run is repeated from reset and its RF artifact must be
 byte-for-byte identical. The C6 and S3 ROMs are separate required inputs and
 matrix jobs: passing with one chip's ROM does not satisfy the other chip's ROM
 requirement.
+
+The complementary genuine SoftAP/ESP-NOW gate configures an open channel-one
+AP through public ESP-IDF APIs, emits native beacons and a broadcast ESP-NOW
+action frame, and injects authentication, association, and directed ESP-NOW
+frames through the vendor-owned RX ring. C6 and S3 must select the AP virtual
+interface from the MAC address slots programmed by their respective firmware,
+emit native authentication and association responses, report the peer with AID
+1, and deliver the exact `deadbeef` payload to the public ESP-NOW callback. The
+gate uses each required real ROM, forbids runtime symbol dispatch, and requires
+byte-identical RF replay from reset.
 
 Vendor-independent execution is a focused low-level regression track. The two
 `custom-stack-probe` ELFs are original freestanding firmware: they include no
@@ -128,8 +140,8 @@ hardware contracts; they do not need to duplicate every vendor-stack behavior.
 The presence of a functional host API is not treated as vendor-firmware
 compatibility. The definition of done still requires pinned, unmodified
 ESP-IDF applications to initialize through their real controller/ROM/shared
-memory ABI. Wi-Fi still needs SoftAP client/beacon, ESP-NOW, ACK/retry,
-fragmentation/aggregation, hardware crypto, and C6 HE/TWT acceptance. BLE still
+memory ABI. Wi-Fi still needs ACK/retry, fragmentation/aggregation, hardware
+crypto, and C6 HE/TWT acceptance. BLE still
 needs the chip-specific controller transport, extended advertising, adaptive
 hopping, supervision timeout, privacy list behavior, and sleep/wake acceptance.
 The genuine OpenThread radio build now passes raw TX/RX, source matching,

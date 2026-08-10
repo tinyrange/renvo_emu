@@ -367,6 +367,38 @@ mod tests {
     }
 
     #[test]
+    fn wifi_mac_rx_match_uses_firmware_programmed_interface_address() {
+        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        assert_eq!(handle.rx_match_mask(&[0xff; 6]), 1);
+
+        mac.write(
+            C6_WIFI_MAC_INTERFACE_ADDRESS_LOW + C6_WIFI_MAC_INTERFACE_ADDRESS_STRIDE,
+            AccessWidth::Word,
+            0x0002_4552,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_INTERFACE_ADDRESS_HIGH + C6_WIFI_MAC_INTERFACE_ADDRESS_STRIDE,
+            AccessWidth::Word,
+            u64::from(C6_WIFI_MAC_INTERFACE_ADDRESS_VALID | 0x0100),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        assert_eq!(
+            handle.rx_match_mask(&[0x52, 0x45, 0x02, 0x00, 0x00, 0x01]),
+            1 << 1
+        );
+        assert_eq!(
+            handle.rx_match_mask(&[0x52, 0x45, 0x02, 0x00, 0x00, 0x02]),
+            0
+        );
+        assert_eq!(handle.rx_match_mask(&[0xff; 6]), 1 << 1);
+    }
+
+    #[test]
     fn wifi_mac_tx_completion_drives_native_event_and_queue_state() {
         let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
         let handle = mac.handle();
