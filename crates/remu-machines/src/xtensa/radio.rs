@@ -95,6 +95,8 @@ pub(super) struct PendingNativeBleTransmission {
     start: u64,
     slot_address: u32,
     channel: u8,
+    phy: &'static str,
+    complete_event: bool,
     pdu: Vec<u8>,
 }
 
@@ -353,39 +355,95 @@ impl XtensaMachine {
             }
             let tx_descriptor =
                 self.require_native_ble_mapping(tx_descriptor_offset, "TX descriptor")?;
-            let header =
-                self.require_native_ble_u16(tx_descriptor.wrapping_add(2), "TX PDU header")?;
-            let payload_offset =
-                self.require_native_ble_u16(tx_descriptor.wrapping_add(4), "TX payload reference")?;
-            let payload_address = self.require_native_ble_mapping(payload_offset, "TX payload")?;
-            let header_byte = header as u8;
-            let declared_length = usize::from((header >> 8) as u8);
-            let advertising_pdu_with_local_address = access_address
-                == BLE_ADVERTISING_ACCESS_ADDRESS
-                && matches!(header_byte & 0x0f, 0 | 1 | 2 | 4 | 6);
-            let payload_length = if advertising_pdu_with_local_address {
-                self.radio_legality.require(
-                    RadioSubsystem::BluetoothLe,
-                    RadioLegalityRule::SchedulerState,
-                    declared_length >= 6,
-                    self.now,
-                    format!(
-                        "advertising PDU length {declared_length} cannot contain the six-byte local address"
-                    ),
+            let (mut pdu, extended) =
+                self.read_native_ble_tx_pdu(cs_address, tx_descriptor, access_address)?;
+            let mut complete_event = true;
+            let mut auxiliary = None;
+            if extended {
+                let auxiliary_descriptor_offset = self.require_native_ble_u16(
+                    cs_address.wrapping_add(52),
+                    "auxiliary TX descriptor reference",
                 )?;
-                declared_length - 6
-            } else {
-                declared_length
-            };
-            let payload =
-                self.require_native_ble_bytes(payload_address, payload_length, "TX PDU payload")?;
-            let mut pdu = Vec::with_capacity(2 + declared_length);
-            pdu.extend_from_slice(&[header_byte, declared_length as u8]);
-            if advertising_pdu_with_local_address {
-                let address = self.require_native_bluetooth_address()?;
-                pdu.extend_from_slice(&address);
+                if auxiliary_descriptor_offset != 0 {
+                    let auxiliary_descriptor = self.require_native_ble_mapping(
+                        auxiliary_descriptor_offset,
+                        "auxiliary TX descriptor",
+                    )?;
+                    let (auxiliary_pdu, auxiliary_extended) = self.read_native_ble_tx_pdu(
+                        cs_address,
+                        auxiliary_descriptor,
+                        access_address,
+                    )?;
+                    self.radio_legality.require(
+                        RadioSubsystem::BluetoothLe,
+                        RadioLegalityRule::SchedulerState,
+                        auxiliary_extended,
+                        self.now,
+                        "native auxiliary descriptor is not an extended advertising PDU",
+                    )?;
+                    let channel_control = self.require_native_ble_u16(
+                        auxiliary_descriptor.wrapping_add(10),
+                        "auxiliary channel control",
+                    )?;
+                    let offset_phy = self.require_native_ble_u16(
+                        auxiliary_descriptor.wrapping_add(12),
+                        "auxiliary offset and PHY control",
+                    )?;
+                    let auxiliary_channel = (channel_control & 0x3f) as u8;
+                    let auxiliary_offset = offset_phy & 0x1fff;
+                    let auxiliary_phy = match offset_phy >> 13 {
+                        0 => Some("ble-1m"),
+                        1 => Some("ble-2m"),
+                        2 => Some("ble-coded"),
+                        _ => None,
+                    };
+                    self.radio_legality.require(
+                        RadioSubsystem::BluetoothLe,
+                        RadioLegalityRule::SchedulerState,
+                        auxiliary_channel <= 36
+                            && auxiliary_offset != 0
+                            && auxiliary_phy.is_some(),
+                        self.now,
+                        format!(
+                            "native auxiliary control is invalid: channel={auxiliary_channel} offset={auxiliary_offset} phy={}",
+                            offset_phy >> 13
+                        ),
+                    )?;
+                    let replaced =
+                        replace_s3_ble_aux_pointer(&mut pdu, channel_control as u8, offset_phy);
+                    self.radio_legality.require(
+                        RadioSubsystem::BluetoothLe,
+                        RadioLegalityRule::SchedulerState,
+                        replaced,
+                        self.now,
+                        "primary extended advertising PDU has no valid AuxPtr field",
+                    )?;
+                    let offset_unit_us = if channel_control & (1 << 7) != 0 {
+                        300_u64
+                    } else {
+                        30_u64
+                    };
+                    let primary_end = tx_start
+                        .checked_add(frame_duration(pdu.len()))
+                        .map_err(|_| XtensaMachineError::TimeOverflow)?;
+                    let auxiliary_start = primary_end
+                        .checked_add(SimDuration::from_ticks(
+                            u64::from(auxiliary_offset)
+                                .saturating_mul(offset_unit_us)
+                                .saturating_mul(16),
+                        ))
+                        .map_err(|_| XtensaMachineError::TimeOverflow)?;
+                    auxiliary = Some(PendingNativeBleTransmission {
+                        start: auxiliary_start.ticks(),
+                        slot_address,
+                        channel: auxiliary_channel,
+                        phy: auxiliary_phy.expect("legality check established auxiliary PHY"),
+                        complete_event: true,
+                        pdu: auxiliary_pdu,
+                    });
+                    complete_event = false;
+                }
             }
-            pdu.extend_from_slice(&payload);
 
             let insertion = self
                 .pending_native_ble_transmissions
@@ -398,11 +456,113 @@ impl XtensaMachine {
                     start: tx_start.ticks(),
                     slot_address,
                     channel,
+                    phy: "ble-1m",
+                    complete_event,
                     pdu,
                 },
             );
+            if let Some(auxiliary) = auxiliary {
+                let insertion = self
+                    .pending_native_ble_transmissions
+                    .iter()
+                    .position(|pending| pending.start > auxiliary.start)
+                    .unwrap_or(self.pending_native_ble_transmissions.len());
+                self.pending_native_ble_transmissions
+                    .insert(insertion, auxiliary);
+            }
         }
         Ok(0)
+    }
+
+    fn read_native_ble_tx_pdu(
+        &mut self,
+        cs_address: u32,
+        tx_descriptor: u32,
+        access_address: u32,
+    ) -> Result<(Vec<u8>, bool), XtensaMachineError> {
+        let header = self.require_native_ble_u16(tx_descriptor.wrapping_add(2), "TX PDU header")?;
+        let payload_offset =
+            self.require_native_ble_u16(tx_descriptor.wrapping_add(4), "TX payload reference")?;
+        let payload_address = self.require_native_ble_mapping(payload_offset, "TX payload")?;
+        let header_byte = header as u8;
+        let declared_length = usize::from((header >> 8) as u8);
+        let extended = header_byte & 0x0f == 7;
+        let advertising_pdu_with_local_address = access_address == BLE_ADVERTISING_ACCESS_ADDRESS
+            && matches!(header_byte & 0x0f, 0 | 1 | 2 | 4 | 6);
+        let payload_length = if advertising_pdu_with_local_address {
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                declared_length >= 6,
+                self.now,
+                format!(
+                    "advertising PDU length {declared_length} cannot contain the six-byte local address"
+                ),
+            )?;
+            declared_length - 6
+        } else {
+            declared_length
+        };
+        let mut pdu = Vec::with_capacity(2 + declared_length);
+        pdu.extend_from_slice(&[header_byte, declared_length as u8]);
+        if extended {
+            let extended_header_length = usize::from(
+                self.require_native_ble_bytes(
+                    tx_descriptor.wrapping_add(6),
+                    1,
+                    "extended-header length",
+                )?[0]
+                    & 0x3f,
+            );
+            let flags = self.require_native_ble_bytes(
+                tx_descriptor.wrapping_add(7),
+                1,
+                "extended-header flags",
+            )?[0];
+            let inserted_address_length: usize = if flags & 1 != 0 { 6 } else { 0 };
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                extended_header_length >= inserted_address_length.saturating_add(1)
+                    && declared_length >= extended_header_length.saturating_add(1),
+                self.now,
+                "native extended advertising header has inconsistent lengths",
+            )?;
+            let sidecar_length = extended_header_length
+                .saturating_add(1)
+                .saturating_sub(inserted_address_length);
+            let sidecar = self.require_native_ble_bytes(
+                tx_descriptor.wrapping_add(6),
+                sidecar_length,
+                "extended advertising header sidecar",
+            )?;
+            pdu.extend_from_slice(&sidecar[..2]);
+            if inserted_address_length != 0 {
+                pdu.extend_from_slice(&self.require_native_ble_bytes(
+                    cs_address.wrapping_add(6),
+                    6,
+                    "extended advertiser address",
+                )?);
+            }
+            pdu.extend_from_slice(&sidecar[2..]);
+            let advertising_data_length =
+                declared_length.saturating_sub(extended_header_length.saturating_add(1));
+            pdu.extend_from_slice(&self.require_native_ble_bytes(
+                payload_address,
+                advertising_data_length,
+                "extended advertising data",
+            )?);
+        } else {
+            if advertising_pdu_with_local_address {
+                pdu.extend_from_slice(&self.require_native_bluetooth_address()?);
+            }
+            pdu.extend_from_slice(&self.require_native_ble_bytes(
+                payload_address,
+                payload_length,
+                "TX PDU payload",
+            )?);
+        }
+        Ok((pdu, extended))
     }
 
     fn service_pending_native_ble_frames(&mut self) -> Result<u64, XtensaMachineError> {
@@ -449,7 +609,7 @@ impl XtensaMachine {
                     frame: RadioFrame {
                         protocol: RadioProtocol::BluetoothLe,
                         spectrum: s3_ble_spectrum(pending.channel),
-                        phy: "ble-1m".to_owned(),
+                        phy: pending.phy.to_owned(),
                         bytes: pending.pdu,
                         origin: FrameOrigin::Emulated,
                     },
@@ -461,12 +621,14 @@ impl XtensaMachine {
                 // for this slot type. Hardware reports the completed event via
                 // END after the inter-frame response window instead.
                 self.schedule_native_ble_slot_state(due, pending.slot_address, 2);
-                let end_due = due
-                    .checked_add(SimDuration::from_ticks(S3_BLE_INTERFRAME_SPACE_TICKS))
-                    .map_err(|_| XtensaMachineError::TimeOverflow)?;
-                self.ble_exchange_memory
-                    .schedule_radio_completion(end_due, S3_RWBLE_END_INTERRUPT);
-                self.schedule_native_ble_slot_state(end_due, pending.slot_address, 4);
+                if pending.complete_event {
+                    let end_due = due
+                        .checked_add(SimDuration::from_ticks(S3_BLE_INTERFRAME_SPACE_TICKS))
+                        .map_err(|_| XtensaMachineError::TimeOverflow)?;
+                    self.ble_exchange_memory
+                        .schedule_radio_completion(end_due, S3_RWBLE_END_INTERRUPT);
+                    self.schedule_native_ble_slot_state(end_due, pending.slot_address, 4);
+                }
                 submitted = submitted.saturating_add(1);
             } else {
                 self.ble_exchange_memory
@@ -1101,6 +1263,41 @@ fn s3_ble_spectrum(channel: u8) -> Spectrum {
     Spectrum::new(center_khz, 2_000)
 }
 
+fn replace_s3_ble_aux_pointer(frame: &mut [u8], channel_control: u8, offset_phy: u16) -> bool {
+    if frame.len() < 4 || frame[0] & 0x0f != 7 {
+        return false;
+    }
+    let extended_header_length = usize::from(frame[2] & 0x3f);
+    let Some(extended_header_end) = 3_usize.checked_add(extended_header_length) else {
+        return false;
+    };
+    if extended_header_length == 0 || extended_header_end > frame.len() {
+        return false;
+    }
+    let flags = frame[3];
+    if flags & (1 << 4) == 0 {
+        return false;
+    }
+    let mut cursor = 4_usize;
+    for (bit, length) in [(0, 6_usize), (1, 6), (2, 1), (3, 2)] {
+        if flags & (1 << bit) != 0 {
+            let Some(next) = cursor.checked_add(length) else {
+                return false;
+            };
+            cursor = next;
+        }
+    }
+    if cursor
+        .checked_add(3)
+        .is_none_or(|end| end > extended_header_end)
+    {
+        return false;
+    }
+    frame[cursor] = channel_control;
+    frame[cursor + 1..cursor + 3].copy_from_slice(&offset_phy.to_le_bytes());
+    true
+}
+
 // The native control structure retains the controller event identity in the
 // low five bits of CS+2. Scheduler table slots are recycled independently, so
 // their rolling slot number cannot be used in RX descriptor metadata.
@@ -1123,12 +1320,19 @@ fn s3_wifi_rx_metadata(frame: &[u8], rx_match: u8, at: remu_core::SimTime) -> [u
 
 #[cfg(test)]
 mod tests {
-    use super::s3_ble_event_index;
+    use super::{replace_s3_ble_aux_pointer, s3_ble_event_index};
 
     #[test]
     fn ble_event_index_comes_from_control_structure_not_scheduler_slot() {
         assert_eq!(s3_ble_event_index(0x0880), 0);
         assert_eq!(s3_ble_event_index(0x0881), 1);
         assert_eq!(s3_ble_event_index(0xffff), 31);
+    }
+
+    #[test]
+    fn extended_advertising_aux_pointer_uses_native_channel_offset_and_phy() {
+        let mut frame = [0x27, 0x07, 0x06, 0x18, 0x07, 0x27, 0x20, 0x00, 0x00];
+        assert!(replace_s3_ble_aux_pointer(&mut frame, 32, 0x2005));
+        assert_eq!(frame, [0x27, 0x07, 0x06, 0x18, 0x07, 0x27, 32, 5, 32]);
     }
 }

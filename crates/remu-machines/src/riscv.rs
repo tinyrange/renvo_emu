@@ -250,7 +250,7 @@ pub struct RiscVMachine {
     radio_c6_ble_scan: Option<(u32, u32)>,
     radio_c6_ble_completion_anchors: BTreeMap<u32, u32>,
     radio_c6_ble_schedule_records: Vec<u32>,
-    radio_c6_pending_ble_transmissions: Vec<(SimTime, remu_radio::Spectrum, Vec<u8>)>,
+    radio_c6_pending_ble_transmissions: Vec<(SimTime, remu_radio::Spectrum, &'static str, Vec<u8>)>,
     radio_c6_reset_generations: [u64; 4],
     radio_coexistence_transmission: Option<(CoexistenceGrantId, TransmissionId)>,
     radio_event_cursor: usize,

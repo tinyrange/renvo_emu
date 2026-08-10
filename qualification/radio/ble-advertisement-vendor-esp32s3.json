@@ -2,7 +2,55 @@
   "schema": "remu.radio-input.v1",
   "frames": [
     {
-      "at": 11000000,
+      "at": 11350000,
+      "protocol": "bluetooth-le",
+      "center_khz": 2402000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [
+        66,
+        12,
+        170,
+        187,
+        204,
+        221,
+        238,
+        193,
+        2,
+        1,
+        6,
+        2,
+        9,
+        82
+      ],
+      "power_dbm": -40
+    },
+    {
+      "at": 11350000,
+      "protocol": "bluetooth-le",
+      "center_khz": 2426000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [
+        66,
+        12,
+        170,
+        187,
+        204,
+        221,
+        238,
+        193,
+        2,
+        1,
+        6,
+        2,
+        9,
+        82
+      ],
+      "power_dbm": -40
+    },
+    {
+      "at": 11350000,
       "protocol": "bluetooth-le",
       "center_khz": 2480000,
       "bandwidth_khz": 2000,

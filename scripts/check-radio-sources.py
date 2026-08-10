@@ -271,7 +271,7 @@ EXPECTED_CUSTOM_STACK_REQUIREMENTS = {
     },
 }
 EXPECTED_BLE_VENDOR_REQUIREMENTS = {
-    "schema": "remu.radio-ble-vendor-requirements.v2",
+    "schema": "remu.radio-ble-vendor-requirements.v3",
     "source_ledger_entry": "esp-rom-elfs-20260528",
     "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
     "firmware_project": "qualification/radio/vendor-ble-probe",
@@ -286,11 +286,33 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
             "radio_input": "qualification/radio/ble-advertisement-vendor-esp32c6.json",
             "required_uart_substrings": [
                 "REMU_VENDOR_BLE_INIT result=0",
+                "REMU_VENDOR_BLE_SEQUENCE result=1",
                 "REMU_VENDOR_BLE_ADV_START result=0",
                 "REMU_VENDOR_BLE_ADV_STOP result=0",
+                "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
                 "REMU_VENDOR_BLE_SCAN_START result=0",
-                "REMU_VENDOR_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52",
+                "REMU_VENDOR_BLE_EXT_SCAN_REPORT props=16 status=0 legacy=3 length=6 rssi=-80 02 01 06 02 09 52",
             ],
+            "expected_native_tx": {
+                "legacy": {
+                    "center_khz": 2_480_000,
+                    "phy": "ble-1m",
+                    "bytes": [66, 21, 6, 5, 4, 3, 2, 193, 2, 1, 6, 11, 9, 82, 101, 110, 118, 111, 45, 66, 76, 69, 49],
+                },
+                "extended_primary": {
+                    "center_khz": 2_480_000,
+                    "phy": "ble-1m",
+                    "bytes": [71, 7, 6, 24, 1, 48, 13, 15, 32],
+                },
+                "extended_auxiliary": {
+                    "center_khz": 2_432_000,
+                    "phy": "ble-2m",
+                    "bytes": [71, 24, 9, 9, 6, 5, 4, 3, 2, 193, 1, 48, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84],
+                },
+            },
         },
         "esp32s3": {
             "rom_file": "esp32s3_rev0_rom.elf",
@@ -301,11 +323,33 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
             "radio_input": "qualification/radio/ble-advertisement-vendor-esp32s3.json",
             "required_uart_substrings": [
                 "REMU_VENDOR_BLE_INIT result=0",
+                "REMU_VENDOR_BLE_SEQUENCE result=1",
                 "REMU_VENDOR_BLE_ADV_START result=0",
                 "REMU_VENDOR_BLE_ADV_STOP result=0",
+                "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
                 "REMU_VENDOR_BLE_SCAN_START result=0",
-                "REMU_VENDOR_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52",
+                "REMU_VENDOR_BLE_EXT_SCAN_REPORT props=16 status=0 legacy=3 length=6 rssi=-80 02 01 06 02 09 52",
             ],
+            "expected_native_tx": {
+                "legacy": {
+                    "center_khz": 2_480_000,
+                    "phy": "ble-1m",
+                    "bytes": [98, 21, 2, 17, 34, 51, 68, 85, 2, 1, 6, 11, 9, 82, 101, 110, 118, 111, 45, 66, 76, 69, 49],
+                },
+                "extended_primary": {
+                    "center_khz": 2_480_000,
+                    "phy": "ble-1m",
+                    "bytes": [39, 7, 6, 24, 7, 39, 32, 5, 32],
+                },
+                "extended_auxiliary": {
+                    "center_khz": 2_470_000,
+                    "phy": "ble-2m",
+                    "bytes": [103, 24, 9, 9, 6, 5, 4, 3, 2, 193, 7, 0, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84],
+                },
+            },
         },
     },
 }

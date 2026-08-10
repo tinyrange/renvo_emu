@@ -154,6 +154,54 @@ mod tests {
     }
 
     #[test]
+    fn ble_baseband_stop_cancels_future_schedule_work() {
+        let (mut device, handle) = EspC6BleBaseband::new("ble-baseband");
+        device
+            .write(
+                C6_BLE_BASEBAND_SCHEDULER_HEAD,
+                AccessWidth::Word,
+                0x0007_ef84,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                C6_BLE_BASEBAND_SCHEDULER_KICK,
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        handle.schedule_event_end(SimTime::from_ticks(100), 0x4087_ef84, None);
+
+        device
+            .write(
+                C6_BLE_BASEBAND_SCHEDULER_STOP,
+                AccessWidth::Word,
+                1,
+                SimTime::from_ticks(50),
+            )
+            .unwrap();
+
+        assert!(handle.take_stop_request());
+        assert!(!handle.take_stop_request());
+        assert!(handle.take_schedule().is_none());
+        handle.advance_to(SimTime::from_ticks(100));
+        assert!(handle.take_completed_schedule().is_none());
+        assert_eq!(
+            device
+                .read(
+                    C6_BLE_BASEBAND_SCHEDULER_CURRENT,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(101),
+                )
+                .unwrap()
+                & 0x8000_0000,
+            0
+        );
+    }
+
+    #[test]
     fn ble_modem_security_ecb_captures_native_dma_command_and_completes() {
         let (mut device, handle) = EspC6BleControl::new("ble-control");
         let key = [

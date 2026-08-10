@@ -11,6 +11,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_hs_adv.h"
 #include "host/ble_gap.h"
+#include "host/ble_hs_mbuf.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "freertos/FreeRTOS.h"
@@ -41,12 +42,72 @@ static int on_gap_event(struct ble_gap_event *event, void *argument)
         }
         printf("\n");
         fflush(stdout);
+    } else if (event->type == BLE_GAP_EVENT_EXT_DISC) {
+        const struct ble_gap_ext_disc_desc *report = &event->ext_disc;
+        printf("REMU_VENDOR_BLE_EXT_SCAN_REPORT props=%u status=%u legacy=%u "
+               "length=%u rssi=%d",
+               report->props, report->data_status, report->legacy_event_type,
+               report->length_data, report->rssi);
+        for (uint8_t index = 0; index < report->length_data; ++index) {
+            printf(" %02x", report->data[index]);
+        }
+        printf("\n");
+        fflush(stdout);
     }
     return 0;
 }
 
-static void on_sync(void)
+static int configure_advertising(const uint8_t *advertisement,
+                                 size_t advertisement_length,
+                                 bool legacy_pdu)
 {
+    struct ble_gap_ext_adv_params parameters = {0};
+    struct os_mbuf *data;
+    const uint8_t instance = 0;
+    int result;
+
+    parameters.legacy_pdu = legacy_pdu;
+    parameters.own_addr_type = BLE_OWN_ADDR_RANDOM;
+    parameters.primary_phy = BLE_HCI_LE_PHY_1M;
+    parameters.secondary_phy = BLE_HCI_LE_PHY_2M;
+    parameters.tx_power = 127;
+    parameters.sid = legacy_pdu ? 0 : 3;
+    parameters.itvl_min = BLE_GAP_ADV_ITVL_MS(20);
+    parameters.itvl_max = BLE_GAP_ADV_ITVL_MS(20);
+
+    result = ble_gap_ext_adv_configure(instance, &parameters, NULL,
+                                       on_gap_event, NULL);
+    if (result != 0) {
+        return result;
+    }
+
+    data = ble_hs_mbuf_from_flat(advertisement, advertisement_length);
+    if (data == NULL) {
+        return BLE_HS_ENOMEM;
+    }
+    result = ble_gap_ext_adv_set_data(instance, data);
+    if (result != 0) {
+        return result;
+    }
+
+    return ble_gap_ext_adv_start(instance, 0, 0);
+}
+
+static int run_extended_advertising(void)
+{
+    static const uint8_t extended_advertisement[] = {
+        0x02, BLE_HS_ADV_TYPE_FLAGS,
+        BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP,
+        0x0a, BLE_HS_ADV_TYPE_COMP_NAME,
+        'R', 'e', 'n', 'v', 'o', '-', 'E', 'X', 'T',
+    };
+    return configure_advertising(extended_advertisement,
+                                 sizeof(extended_advertisement), false);
+}
+
+static void radio_sequence_task(void *argument)
+{
+    (void)argument;
     static const uint8_t random_static_address[6] = {
         0x06, 0x05, 0x04, 0x03, 0x02, 0xc1,
     };
@@ -56,18 +117,12 @@ static void on_sync(void)
         0x0b, BLE_HS_ADV_TYPE_COMP_NAME,
         'R', 'e', 'n', 'v', 'o', '-', 'B', 'L', 'E', '1',
     };
-    struct ble_gap_adv_params parameters = {0};
     struct ble_gap_disc_params discovery = {0};
 
     int result = ble_hs_id_set_rnd(random_static_address);
     if (result == 0) {
-        result = ble_gap_adv_set_data(advertisement, sizeof(advertisement));
-    }
-    parameters.conn_mode = BLE_GAP_CONN_MODE_NON;
-    parameters.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    if (result == 0) {
-        result = ble_gap_adv_start(BLE_OWN_ADDR_RANDOM, NULL, BLE_HS_FOREVER,
-                                   &parameters, NULL, NULL);
+        result = configure_advertising(advertisement,
+                                       sizeof(advertisement), true);
     }
 
     printf("REMU_VENDOR_BLE_ADV_START result=%d\n", result);
@@ -80,8 +135,28 @@ static void on_sync(void)
      * path before the scanner takes ownership of the same scheduler.
      */
     vTaskDelay(pdMS_TO_TICKS(20));
-    int stop_result = ble_gap_adv_stop();
+    int stop_result = ble_gap_ext_adv_stop(0);
     printf("REMU_VENDOR_BLE_ADV_STOP result=%d\n", stop_result);
+    fflush(stdout);
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+    int remove_result = ble_gap_ext_adv_remove(0);
+    printf("REMU_VENDOR_BLE_ADV_REMOVE result=%d\n", remove_result);
+    fflush(stdout);
+
+    int extended_result = run_extended_advertising();
+    printf("REMU_VENDOR_BLE_EXT_ADV_START result=%d\n", extended_result);
+    fflush(stdout);
+
+    vTaskDelay(pdMS_TO_TICKS(20));
+    int extended_stop_result = ble_gap_ext_adv_stop(0);
+    printf("REMU_VENDOR_BLE_EXT_ADV_STOP result=%d\n", extended_stop_result);
+    fflush(stdout);
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+    int extended_remove_result = ble_gap_ext_adv_remove(0);
+    printf("REMU_VENDOR_BLE_EXT_ADV_REMOVE result=%d\n",
+           extended_remove_result);
     fflush(stdout);
 
     discovery.itvl = 16;
@@ -91,6 +166,15 @@ static void on_sync(void)
     int scan_result = ble_gap_disc(BLE_OWN_ADDR_RANDOM, BLE_HS_FOREVER,
                                    &discovery, on_gap_event, NULL);
     printf("REMU_VENDOR_BLE_SCAN_START result=%d\n", scan_result);
+    fflush(stdout);
+    vTaskDelete(NULL);
+}
+
+static void on_sync(void)
+{
+    BaseType_t result = xTaskCreate(radio_sequence_task, "radio-sequence",
+                                    4096, NULL, 5, NULL);
+    printf("REMU_VENDOR_BLE_SEQUENCE result=%ld\n", (long)result);
     fflush(stdout);
 }
 

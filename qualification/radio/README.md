@@ -108,11 +108,14 @@ summary records the ELF digest, coverage digest, and exercised families. Each
 probe is then rerun from reset: the complete run result must replay exactly and
 the RF artifact must be byte-for-byte identical.
 
-Current BLE evidence uses two complementary viewpoints on both chips. Each genuine ESP-IDF/NimBLE probe
-initializes the real controller and PHY, programs native advertising and scan
-activities, transmits an exact advertisement, and receives an injected
-advertisement through the vendor-owned RX ring. Its public GAP callback must
-return the exact advertising data and -80 dBm received power. Each freestanding
+Current BLE evidence uses two complementary viewpoints on both chips. Each
+genuine ESP-IDF/NimBLE probe initializes the real controller and PHY, runs
+legacy advertising, then executes BLE 5 extended advertising across a native
+primary `ADV_EXT_IND` and firmware-described 2M `AUX_ADV_IND`. The gate checks
+the exact per-chip primary channel, AuxPtr channel/offset/PHY, random AdvA, ADI,
+and `Renvo-EXT` payload. It then scans through the vendor-owned RX ring; its
+public extended GAP callback must return the exact injected advertising data
+and -80 dBm received power. Each freestanding
 probe independently programs its chip's scheduler, descriptor/shared-memory
 layout, scan window, RX descriptor and payload buffer, then validates ownership
 transitions, metadata, RX/END interrupts, and W1C clearing. Each run requires
@@ -166,9 +169,9 @@ The presence of a functional host API is not treated as vendor-firmware
 compatibility. The definition of done still requires pinned, unmodified
 ESP-IDF applications to initialize through their real controller/ROM/shared
 memory ABI. Wi-Fi still needs ACK/retry, fragmentation/aggregation, hardware
-crypto, and C6 HE/TWT acceptance. BLE still
-needs the chip-specific controller transport, extended advertising, adaptive
-hopping, supervision timeout, privacy list behavior, and sleep/wake acceptance.
+crypto, and C6 HE/TWT acceptance. BLE still needs the remaining chip-specific
+controller transport, adaptive hopping, supervision timeout, privacy list
+behavior, and sleep/wake acceptance.
 The genuine OpenThread radio build now passes raw TX/RX, source matching,
 energy scan, and sleep/wake through the native C6 port. A secured Thread CLI
 exchange and Zigbee-facing firmware qualification still remain. Disputed

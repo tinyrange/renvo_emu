@@ -15,6 +15,13 @@ esac
 
 requirements=qualification/radio/ble-vendor-requirements.json
 artifact_root=${REMU_RADIO_BLE_VENDOR_ROOT:-.remu/qualification/radio-ble-vendor}
+vendor_build_jobs=${REMU_VENDOR_BUILD_JOBS:-1}
+case "$vendor_build_jobs" in
+    0|*[!0-9]*)
+        echo "REMU_VENDOR_BUILD_JOBS must be a positive integer" >&2
+        exit 2
+        ;;
+esac
 chip_root=$artifact_root/$chip
 rom_root=$chip_root/roms
 build_root=$chip_root/build
@@ -46,7 +53,7 @@ docker run --rm \
     --volume "$repo_root:/workspace:ro" \
     --volume "$chip_root_absolute:/out" \
     "$idf_image" \
-    bash -lc "IDF_TARGET=$chip SDKCONFIG_DEFAULTS=/workspace/qualification/radio/sdkconfig.ble.defaults idf.py -C /workspace/$firmware_project -B /out/build -D SDKCONFIG=/out/sdkconfig build && cd /out/build && python -m esptool --chip $chip merge-bin -o /out/$chip-ble-scan-flash.bin @flash_args" \
+    bash -lc "IDF_TARGET=$chip SDKCONFIG_DEFAULTS=/workspace/qualification/radio/sdkconfig.ble.defaults idf.py -C /workspace/$firmware_project -B /out/build -D SDKCONFIG=/out/sdkconfig reconfigure && ninja -C /out/build -j $vendor_build_jobs && cd /out/build && python -m esptool --chip $chip merge-bin -o /out/$chip-ble-scan-flash.bin @flash_args" \
     >"$chip_root/idf-build.log" 2>&1
 
 if [ -z "${REMU_BIN:-}" ]
@@ -105,7 +112,8 @@ do
     fi
 done
 
-jq -e '
+jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
+    $requirements[0].chips[$chip].expected_native_tx as $expected |
     .events as $events |
     any($events[];
         . as $submitted |
@@ -121,15 +129,15 @@ jq -e '
              .id == $submitted.id and
              .receiver == 1 and
              .outcome.kind == "delivered"))) and
-    any($events[];
-        .event == "submitted" and
-        .request.frame.protocol == "bluetooth-le" and
-        .request.frame.origin == "emulated" and
-        .request.frame.spectrum.center_khz == 2480000 and
-        .request.frame.bytes[0:2] == [70, 21] and
-        .request.frame.bytes[8:] == [
-            2, 1, 6, 11, 9, 82, 101, 110, 118, 111, 45, 66, 76, 69, 49
-        ])
+    all([$expected.legacy, $expected.extended_primary, $expected.extended_auxiliary][];
+        . as $required |
+        any($events[];
+            .event == "submitted" and
+            .request.frame.protocol == "bluetooth-le" and
+            .request.frame.origin == "emulated" and
+            .request.frame.spectrum.center_khz == $required.center_khz and
+            .request.frame.phy == $required.phy and
+            .request.frame.bytes == $required.bytes))
 ' "$chip_root/radio-replay.json" >/dev/null
 
 run_vendor_ble "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" \
@@ -141,7 +149,7 @@ flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-ble-vendor-qualification.v2 \
+    --arg schema remu.radio-ble-vendor-qualification.v3 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -168,6 +176,10 @@ jq -n \
             requires_native_ble_tx: true,
             requires_native_ble_stop: true,
             requires_native_ble_rx_ring: true,
+            requires_native_ble_extended_advertising: true,
+            requires_native_ble_auxiliary_tx: true,
+            requires_native_ble_2m_phy: true,
+            requires_native_ble_extended_scanning: true,
             requires_vendor_scan_report: true,
             requires_received_power_metadata: true,
             deterministic_replay_required: true,
@@ -182,6 +194,9 @@ jq -n \
             radio_replay_sha256: $radio_replay_sha256,
             vendor_scan_payload: "02 01 06 02 09 52",
             vendor_scan_rssi_dbm: -80,
+            native_extended_advertising: true,
+            native_auxiliary_phy: "ble-2m",
+            vendor_extended_scan_report: true,
             deterministic_replay: true
         }
     }' >"$chip_root/summary.json"

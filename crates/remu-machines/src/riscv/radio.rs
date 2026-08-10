@@ -298,6 +298,12 @@ impl RiscVMachine {
         }
         ble_baseband.advance_to(self.now);
         let mut events = self.service_native_ble_completions(&ble_baseband)?;
+        if ble_baseband.take_stop_request() {
+            self.radio_c6_ble_scan = None;
+            self.radio_c6_ble_completion_anchors.clear();
+            self.radio_c6_ble_schedule_records.clear();
+            self.radio_c6_pending_ble_transmissions.clear();
+        }
         events = events.saturating_add(self.service_ble_security_dma(&ble_control)?);
         events = events.saturating_add(self.service_native_ble_schedules(&ble_baseband)?);
         events = events.saturating_add(self.service_native_ble_conflicts(&ble_baseband)?);
@@ -538,7 +544,7 @@ impl RiscVMachine {
                 .radio_c6_ble_completion_anchors
                 .remove(&descriptor.address)
                 .unwrap_or(descriptor.address);
-            self.retire_native_ble_schedule(anchor)?;
+            self.retire_native_ble_schedule(anchor, descriptor.address)?;
             completed = completed.saturating_add(1);
         }
         while handle.take_acknowledged_schedule().is_some() {
@@ -547,22 +553,20 @@ impl RiscVMachine {
         Ok(completed)
     }
 
-    fn retire_native_ble_schedule(&mut self, descriptor_address: u32) -> Result<(), MachineError> {
-        // CURRENT and HEAD name the tail hardware descriptor of a linked
-        // event. Same-type records reachable through word zero are the
-        // earlier channel/event records retired by that one completion.
-        let schedule_type =
-            self.radio_read_guest_bytes(descriptor_address.wrapping_add(0x35), 1)?[0];
+    fn retire_native_ble_schedule(
+        &mut self,
+        descriptor_address: u32,
+        tail_address: u32,
+    ) -> Result<(), MachineError> {
+        // CURRENT names the hardware tail of a linked event. Retire the exact
+        // prefix from its software anchor through that tail. Extended events
+        // append a different-type auxiliary record after the three primary
+        // records, while the following future event must remain owned.
         let mut schedule_address = descriptor_address;
         let mut visited = Vec::new();
-        // One primary-channel event has three native schedule records:
-        // the current hardware tail plus the two preceding channel/list
-        // records. Following beyond that reaches the next future event.
-        for _ in 0..3 {
-            if visited.contains(&schedule_address)
-                || self.radio_read_guest_bytes(schedule_address.wrapping_add(0x35), 1)?[0]
-                    != schedule_type
-            {
+        let mut reached_tail = false;
+        for _ in 0..16 {
+            if visited.contains(&schedule_address) {
                 break;
             }
             visited.push(schedule_address);
@@ -574,11 +578,27 @@ impl RiscVMachine {
             let flags = self.radio_read_guest_word(flags_address)?;
             // Bit 13 is the native baseband descriptor-load ownership flag.
             self.radio_write_guest_word(flags_address, flags & !(1 << 13))?;
+            if schedule_address == tail_address {
+                reached_tail = true;
+                break;
+            }
             let Some(next) = c6_ble_pointer(linkage) else {
                 break;
             };
             schedule_address = next;
         }
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::MemoryMapping,
+                reached_tail,
+                self.now,
+                format!(
+                    "native schedule {descriptor_address:#010x} does not reach completion tail {tail_address:#010x}"
+                ),
+            )?;
         Ok(())
     }
 
@@ -660,6 +680,7 @@ impl RiscVMachine {
                     let mut record = schedule.address;
                     let mut final_record = schedule.address;
                     let mut final_end = None;
+                    let mut auxiliary = None;
                     for channel in [37_u8, 38, 39] {
                         let record_type =
                             self.radio_read_guest_bytes(record.wrapping_add(0x35), 1)?[0];
@@ -676,6 +697,7 @@ impl RiscVMachine {
                         let Some(frame) = self.read_native_ble_advertisement(record_state)? else {
                             break;
                         };
+                        auxiliary = auxiliary.or_else(|| ble_aux_pointer(&frame));
                         let start_tick = self.radio_read_guest_word(record.wrapping_add(8))?;
                         let end_tick = self.radio_read_guest_word(record.wrapping_add(0x0c))?;
                         let start = self
@@ -689,7 +711,7 @@ impl RiscVMachine {
                                 handle.scheduler_interval_ticks(end_tick.wrapping_sub(start_tick)),
                             ))
                             .map_err(|_| MachineError::TimeOverflow)?;
-                        let pending = (start, ble_advertising_spectrum(channel), frame);
+                        let pending = (start, ble_advertising_spectrum(channel), "ble-1m", frame);
                         let insertion = self
                             .radio_c6_pending_ble_transmissions
                             .iter()
@@ -708,6 +730,63 @@ impl RiscVMachine {
                             break;
                         };
                         record = next;
+                    }
+                    if let Some(auxiliary) = auxiliary
+                        && let Some(auxiliary_record) =
+                            c6_ble_pointer(self.radio_read_guest_word(final_record)?)
+                    {
+                        let auxiliary_state =
+                            self.radio_read_guest_word(auxiliary_record.wrapping_add(4))?;
+                        if let Some(auxiliary_state) = c6_ble_pointer(auxiliary_state)
+                            && let Some(frame) =
+                                self.read_native_ble_auxiliary_advertisement(auxiliary_state)?
+                            && frame.first().is_some_and(|header| header & 0x0f == 7)
+                        {
+                            if !self
+                                .radio_c6_ble_schedule_records
+                                .contains(&auxiliary_record)
+                            {
+                                self.radio_c6_ble_schedule_records.push(auxiliary_record);
+                            }
+                            let start_tick =
+                                self.radio_read_guest_word(auxiliary_record.wrapping_add(8))?;
+                            let end_tick =
+                                self.radio_read_guest_word(auxiliary_record.wrapping_add(0x0c))?;
+                            let start = self
+                                .now
+                                .checked_add(SimDuration::from_ticks(
+                                    handle.scheduler_delay_ticks(self.now, start_tick),
+                                ))
+                                .map_err(|_| MachineError::TimeOverflow)?;
+                            let end = start
+                                .checked_add(SimDuration::from_ticks(
+                                    handle.scheduler_interval_ticks(
+                                        end_tick.wrapping_sub(start_tick),
+                                    ),
+                                ))
+                                .map_err(|_| MachineError::TimeOverflow)?;
+                            let _auxiliary_offset_ticks =
+                                handle.scheduler_interval_ticks(u32::from(auxiliary.offset_us));
+                            let pending = (
+                                start,
+                                ble_data_spectrum(auxiliary.channel),
+                                auxiliary.phy,
+                                frame,
+                            );
+                            let insertion = self
+                                .radio_c6_pending_ble_transmissions
+                                .iter()
+                                .position(|queued| queued.0 > start)
+                                .unwrap_or(self.radio_c6_pending_ble_transmissions.len());
+                            self.radio_c6_pending_ble_transmissions
+                                .insert(insertion, pending);
+                            let flags_address = auxiliary_record.wrapping_add(0x28);
+                            let flags = self.radio_read_guest_word(flags_address)?;
+                            self.radio_write_guest_word(flags_address, flags & !(1 << 13))?;
+                            final_record = auxiliary_record;
+                            final_end = Some(end);
+                            submitted = submitted.saturating_add(1);
+                        }
                     }
                     if let Some(end) = final_end {
                         self.radio_c6_ble_completion_anchors
@@ -811,7 +890,7 @@ impl RiscVMachine {
             .first()
             .is_some_and(|pending| pending.0 <= self.now)
         {
-            let (_, spectrum, bytes) = self.radio_c6_pending_ble_transmissions.remove(0);
+            let (_, spectrum, phy, bytes) = self.radio_c6_pending_ble_transmissions.remove(0);
             let duration = frame_duration(bytes.len());
             let decision = self
                 .radio_coexistence
@@ -858,7 +937,7 @@ impl RiscVMachine {
                     frame: RadioFrame {
                         protocol: RadioProtocol::BluetoothLe,
                         spectrum,
-                        phy: "ble-1m".to_owned(),
+                        phy: phy.to_owned(),
                         bytes,
                         origin: FrameOrigin::Emulated,
                     },
@@ -889,12 +968,77 @@ impl RiscVMachine {
         let Some(tx_header) = tx_header else {
             return Ok(None);
         };
+        self.read_native_ble_pdu(state, tx_header, true)
+    }
+
+    fn read_native_ble_auxiliary_advertisement(
+        &mut self,
+        state: u32,
+    ) -> Result<Option<Vec<u8>>, MachineError> {
+        // The schedule retains the native secondary-channel owner directly.
+        // Its +0x60 TX-list head is also the primary PDU allocation; the
+        // compressed +4 link names the auxiliary allocation's +4 word. Recover
+        // that allocation header before reading its +8 PDU pointer.
+        let tx_list_raw = self.radio_read_guest_word(state.wrapping_add(0x60))?;
+        let Some(tx_list) = c6_ble_pointer(tx_list_raw) else {
+            return Ok(None);
+        };
+        let tx_link_raw = self.radio_read_guest_word(tx_list.wrapping_add(4))?;
+        let Some(tx_link) = c6_ble_pointer(tx_link_raw) else {
+            return Ok(None);
+        };
+        let Some(tx_header) = tx_link.checked_sub(4) else {
+            return Ok(None);
+        };
+        self.read_native_ble_pdu(state, tx_header, false)
+    }
+
+    fn read_native_ble_pdu(
+        &mut self,
+        state: u32,
+        tx_header: u32,
+        reconstruct_legacy_address: bool,
+    ) -> Result<Option<Vec<u8>>, MachineError> {
         let Some(pdu_base) = c6_ble_pointer(self.radio_read_guest_word(tx_header.wrapping_add(8))?)
         else {
             return Ok(None);
         };
         let pdu = self.radio_read_guest_bytes(pdu_base.wrapping_add(0x10), 2)?;
         let payload_length = usize::from(pdu[1]);
+        let pdu_type = pdu[0] & 0x0f;
+        if pdu_type == 7 {
+            let payload =
+                self.radio_read_guest_bytes(pdu_base.wrapping_add(0x12), payload_length)?;
+            let mut frame = Vec::with_capacity(payload_length + 2);
+            let inserts_advertiser_address = payload
+                .get(1)
+                .is_some_and(|extended_header_flags| extended_header_flags & 1 != 0);
+            if inserts_advertiser_address && payload_length >= 8 {
+                // C6 hardware inserts AdvA after the extended-header flags.
+                // The controller stores the following fields and AdvData
+                // contiguously, leaving six reserved bytes at the native PDU
+                // tail so its programmed on-air length already includes AdvA.
+                let address = self.radio_read_guest_bytes(state.wrapping_add(0x34), 6)?;
+                let random_address = address[5] & 0xc0 == 0xc0;
+                frame.push(pdu[0] | if random_address { 1 << 6 } else { 0 });
+                frame.push(pdu[1]);
+                frame.extend_from_slice(&payload[..2]);
+                frame.extend_from_slice(&address);
+                frame.extend_from_slice(&payload[2..payload_length - 6]);
+            } else {
+                frame.extend_from_slice(&pdu);
+                frame.extend_from_slice(&payload);
+            }
+            return Ok(Some(frame));
+        }
+        if !reconstruct_legacy_address {
+            let payload =
+                self.radio_read_guest_bytes(pdu_base.wrapping_add(0x12), payload_length)?;
+            let mut frame = Vec::with_capacity(payload_length + 2);
+            frame.extend_from_slice(&pdu);
+            frame.extend_from_slice(&payload);
+            return Ok(Some(frame));
+        }
         if payload_length < 6 || payload_length > 37 {
             return Ok(None);
         }

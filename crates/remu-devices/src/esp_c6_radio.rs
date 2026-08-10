@@ -195,6 +195,7 @@ struct EspC6BleBasebandState {
     completed_schedules: VecDeque<u32>,
     acknowledged_schedules: VecDeque<u32>,
     retire_current_reads: u8,
+    stop_requested: bool,
 }
 
 /// One native C6 link-layer schedule submitted through the baseband command strobe.
@@ -263,6 +264,15 @@ impl EspC6BleBasebandHandle {
             .acknowledged_schedules
             .pop_front()
             .map(|address| EspC6BleSchedule { address })
+    }
+
+    /// Reports and consumes a native scheduler stop barrier.
+    pub fn take_stop_request(&self) -> bool {
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 BLE baseband lock poisoned");
+        std::mem::take(&mut state.stop_requested)
     }
 
     /// Schedules the normal event-end cause for one executed entry.
@@ -397,6 +407,7 @@ impl EspC6BleBaseband {
             completed_schedules: VecDeque::new(),
             acknowledged_schedules: VecDeque::new(),
             retire_current_reads: 0,
+            stop_requested: false,
         }));
         (
             Self {
@@ -511,11 +522,15 @@ impl Device for EspC6BleBaseband {
         }
         if offset == C6_BLE_BASEBAND_SCHEDULER_STOP && value & 1 != 0 {
             // Native PHY disable strobes STOP and polls CURRENT until hardware
-            // releases its valid bit. Retain the address/executed mark while
-            // making the scheduler observably idle to firmware.
+            // releases its valid bit. Future loads and completions are
+            // canceled at this barrier; otherwise a delayed completion can
+            // mutate a descriptor after controller firmware has freed it.
             state.registers[C6_BLE_BASEBAND_SCHEDULER_CURRENT as usize / 4] &= 0x7fff_ffff;
             state.registers[C6_BLE_BASEBAND_SCHEDULER_NEXT as usize / 4] = 0;
             state.retire_current_reads = 0;
+            state.pending_schedules.clear();
+            state.pending_completions.clear();
+            state.stop_requested = true;
         }
         Ok(())
     }
@@ -532,6 +547,7 @@ impl Device for EspC6BleBaseband {
         state.completed_schedules.clear();
         state.acknowledged_schedules.clear();
         state.retire_current_reads = 0;
+        state.stop_requested = false;
     }
 }
 

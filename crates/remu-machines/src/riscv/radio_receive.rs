@@ -176,8 +176,16 @@ impl RiscVMachine {
             return Ok(false);
         }
 
-        let Some(mut header) =
-            c6_ble_pointer(self.radio_read_guest_word(state.wrapping_add(0x5c))?)
+        let current_rx = self.radio_read_guest_word(state.wrapping_add(8))?;
+        let ring_head =
+            c6_ble_pointer(self.radio_read_guest_word(state.wrapping_add(0x5c))?);
+        // The native cursor contains the current RX-header address plus four,
+        // matching the link word in each header. Starting every search at the
+        // ring head works for the first legacy event but eventually assigns a
+        // primary-channel PDU to an auxiliary-data slot during extended scan.
+        let Some(mut header) = c6_ble_pointer(current_rx)
+            .map(|address| address.wrapping_sub(4))
+            .or(ring_head)
         else {
             return Ok(false);
         };
@@ -209,14 +217,15 @@ impl RiscVMachine {
         // the over-air PDU. The status word carries signed RSSI in its high
         // byte; bit 10 is the CRC-error indication and remains clear for a
         // successfully delivered medium frame. RX-info's low half is the native RX
-        // header span (eight bytes for this legacy advertising path), followed
+        // controller RX-buffer identifier (five is the first scanner-owned
+        // slot in the pinned BLE 5 controller configuration), followed
         // by the 2402-MHz-relative frequency index in bits 16..22 and PHY rate
         // in bits 24..25. The over-air length remains in the PDU header itself.
         let mut metadata = [0_u8; 16];
         let status = u32::from((signal_dbm.clamp(-128, 127) as i8) as u8) << 24;
         metadata[0..4].copy_from_slice(&status.to_le_bytes());
         metadata[4..8].copy_from_slice(&((self.now.ticks() / 16) as u32).to_le_bytes());
-        metadata[12..14].copy_from_slice(&8_u16.to_le_bytes());
+        metadata[12..14].copy_from_slice(&5_u16.to_le_bytes());
         metadata[14] = 78;
         metadata[15] = 0;
         self.radio_write_guest_bytes(buffer.wrapping_add(0x0c), &metadata)?;
@@ -227,7 +236,6 @@ impl RiscVMachine {
         // completed prefix consumed by the controller's recycle walk. Header
         // link words already contain the next header's address plus four.
         // Bit 27 records that RX DMA completed during this schedule.
-        let current_rx = self.radio_read_guest_word(state.wrapping_add(8))?;
         let next_rx = self.radio_read_guest_word(header.wrapping_add(4))? & 0x000f_ffff;
         if next_rx == 0 {
             return Ok(false);
@@ -575,10 +583,88 @@ fn ble_advertising_spectrum(channel: u8) -> Spectrum {
     Spectrum::new(center_khz, 2_000)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BleAuxPointer {
+    channel: u8,
+    offset_us: u16,
+    phy: &'static str,
+}
+
+fn ble_aux_pointer(frame: &[u8]) -> Option<BleAuxPointer> {
+    if frame.len() < 4 || frame[0] & 0x0f != 7 {
+        return None;
+    }
+    let extended_header_length = usize::from(frame[2] & 0x3f);
+    let extended_header_end = 3_usize.checked_add(extended_header_length)?;
+    if extended_header_length == 0 || extended_header_end > frame.len() {
+        return None;
+    }
+    let flags = frame[3];
+    if flags & (1 << 4) == 0 {
+        return None;
+    }
+    let mut cursor = 4_usize;
+    for (bit, length) in [(0, 6_usize), (1, 6), (2, 1), (3, 2)] {
+        if flags & (1 << bit) != 0 {
+            cursor = cursor.checked_add(length)?;
+        }
+    }
+    if cursor.checked_add(3)? > extended_header_end {
+        return None;
+    }
+    let pointer = &frame[cursor..cursor + 3];
+    let channel = pointer[0] & 0x3f;
+    if channel > 36 {
+        return None;
+    }
+    let offset_units_us = if pointer[0] & (1 << 7) != 0 {
+        300_u16
+    } else {
+        30_u16
+    };
+    let offset = u16::from(pointer[1]) | (u16::from(pointer[2] & 0x1f) << 8);
+    let phy = match pointer[2] >> 5 {
+        0 => "ble-1m",
+        1 => "ble-2m",
+        2 => "ble-coded",
+        _ => return None,
+    };
+    Some(BleAuxPointer {
+        channel,
+        offset_us: offset.saturating_mul(offset_units_us),
+        phy,
+    })
+}
+
+fn ble_data_spectrum(channel: u8) -> Spectrum {
+    let center_khz = if channel <= 10 {
+        2_404_000 + u32::from(channel) * 2_000
+    } else {
+        2_406_000 + u32::from(channel) * 2_000
+    };
+    Spectrum::new(center_khz, 2_000)
+}
+
 fn frame_duration(length: usize) -> SimDuration {
     SimDuration::from_ticks(
         u64::try_from(length.max(1))
             .unwrap_or(u64::MAX)
             .saturating_mul(32),
     )
+}
+
+#[cfg(test)]
+mod ble_aux_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_channel_offset_and_phy() {
+        let pointer =
+            ble_aux_pointer(&[0x47, 0x07, 0x06, 0x18, 0x01, 0x30, 0x0d, 0x0f, 0x20])
+                .expect("valid ADV_EXT_IND AuxPtr");
+        assert_eq!(pointer.channel, 13);
+        assert_eq!(pointer.offset_us, 450);
+        assert_eq!(pointer.phy, "ble-2m");
+        assert_eq!(ble_data_spectrum(pointer.channel).center_khz, 2_432_000);
+    }
 }
