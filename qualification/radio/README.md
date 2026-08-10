@@ -14,6 +14,7 @@ scripts/qualify-esp-radio-rom.sh esp32s3
 scripts/qualify-esp-radio-ble-vendor.sh esp32c6
 scripts/qualify-esp-radio-ble-vendor.sh esp32s3
 scripts/qualify-esp-radio-ieee802154-vendor.sh esp32c6
+scripts/qualify-esp-radio-openthread-vendor.sh esp32c6
 scripts/qualify-esp-radio-custom-stack.sh esp32c6
 scripts/qualify-esp-radio-custom-stack.sh esp32s3
 cargo test -p remu-radio
@@ -126,8 +127,10 @@ memory ABI. Wi-Fi still needs SoftAP client/beacon, ESP-NOW, ACK/retry,
 fragmentation/aggregation, hardware crypto, and C6 HE/TWT acceptance. BLE still
 needs the chip-specific controller transport, extended advertising, adaptive
 hopping, supervision timeout, privacy list behavior, and sleep/wake acceptance.
-OpenThread/Zigbee firmware qualification must pass on top of the implemented C6
-MAC. Disputed ESP32-S3 RF pages remain intentionally unmapped until a revision-
+The genuine OpenThread radio build now passes raw TX/RX, source matching,
+energy scan, and sleep/wake through the native C6 port. A secured Thread CLI
+exchange and Zigbee-facing firmware qualification still remain. Disputed
+ESP32-S3 RF pages remain intentionally unmapped until a revision-
 specific primary-source or authorized-hardware probe resolves them.
 
 Do not close issue #338 or describe these radios as vendor-compatible while any

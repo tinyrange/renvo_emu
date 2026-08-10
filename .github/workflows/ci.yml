@@ -179,3 +179,30 @@ jobs:
             .remu/qualification/radio-ble-vendor/${{ matrix.chip }}
             .remu/qualification/radio-ieee802154-vendor/${{ matrix.chip }}
           if-no-files-found: ignore
+
+  esp32c6-openthread:
+    name: ESP32-C6 genuine OpenThread native-radio qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Pull pinned ESP-IDF image
+        run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
+
+      - name: Require genuine OpenThread native-radio workflows
+        run: ./scripts/qualify-esp-radio-openthread-vendor.sh esp32c6
+
+      - name: Upload OpenThread qualification evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: esp32c6-openthread-radio-qualification
+          path: .remu/qualification/radio-openthread-vendor/esp32c6
+          if-no-files-found: ignore

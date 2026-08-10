@@ -1,0 +1,30 @@
+{
+  "schema": "remu.radio-openthread-vendor-requirements.v1",
+  "source_ledger_entries": [
+    "esp-rom-elfs-20260528",
+    "esp-idf-openthread-radio-port"
+  ],
+  "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+  "firmware_project": "qualification/radio/vendor-openthread-probe",
+  "firmware_elf": "remu_vendor_openthread_probe.elf",
+  "chip": "esp32c6",
+  "rom_file": "esp32c6_rev0_rom.elf",
+  "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+  "rom_start": "0x40000000",
+  "rom_end": "0x40050000",
+  "minimum_instructions": 15000000,
+  "radio_input": "qualification/radio/openthread-frame-vendor-esp32c6.json",
+  "required_uart_substrings": [
+    "REMU_VENDOR_OPENTHREAD_PLATFORM result=0",
+    "REMU_VENDOR_OPENTHREAD_START result=0",
+    "REMU_VENDOR_OPENTHREAD_RAW_CONFIG error=0 enabled=1 promiscuous=1 caps=255",
+    "REMU_VENDOR_OPENTHREAD_TX_FRAME channel=11 length=5",
+    "REMU_VENDOR_OPENTHREAD_TX_START error=0",
+    "REMU_VENDOR_OPENTHREAD_TX_DONE complete=1 error=0",
+    "REMU_VENDOR_OPENTHREAD_RX_START error=0",
+    "REMU_VENDOR_OPENTHREAD_RX_DONE complete=1 error=0 length=7 01 00 79 52 58 rssi=-80 lqi=63",
+    "REMU_VENDOR_OPENTHREAD_ED_START error=0",
+    "REMU_VENDOR_OPENTHREAD_ED_DONE complete=1 rssi=-128",
+    "REMU_VENDOR_OPENTHREAD_SLEEP_WAKE sleep=0 wake=0"
+  ]
+}

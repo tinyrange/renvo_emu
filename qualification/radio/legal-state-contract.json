@@ -24,6 +24,7 @@
     "qualification/radio/rom-requirements.json",
     "qualification/radio/ble-vendor-requirements.json",
     "qualification/radio/ieee802154-vendor-requirements.json",
+    "qualification/radio/openthread-vendor-requirements.json",
     "qualification/radio/custom-stack-probe/requirements.json",
     "qualification/radio/source-ledger.json"
   ],

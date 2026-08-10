@@ -349,6 +349,16 @@
       "use": "Public vendor callback context, frame layout, and receive-buffer ownership contract"
     },
     {
+      "id": "esp-idf-openthread-radio-port",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/openthread/src/port/esp_openthread_radio.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "f64178b872369df08578eefff27b4b7ba6a7cf600af9d081e7de67d9adabfefa",
+      "use": "OpenThread native-radio frame, error mapping, energy scan, source matching, and sleep/wake boundary"
+    },
+    {
       "id": "esp-idf-c6-interrupts",
       "kind": "code",
       "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/include/soc/interrupts.h",

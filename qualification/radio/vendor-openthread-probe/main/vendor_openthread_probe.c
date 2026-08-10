@@ -1,0 +1,200 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "esp_err.h"
+#include "esp_event.h"
+#include "esp_openthread.h"
+#include "esp_openthread_lock.h"
+#include "esp_openthread_types.h"
+#include "esp_vfs_eventfd.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "nvs_flash.h"
+#include "openthread/link_raw.h"
+
+static volatile bool transmit_done;
+static volatile bool receive_done;
+static volatile bool energy_scan_done;
+static volatile int transmit_error = -1;
+static volatile int receive_error = -1;
+static volatile int8_t receive_rssi;
+static volatile uint8_t receive_lqi;
+static volatile uint16_t receive_length;
+static volatile uint8_t receive_bytes[7];
+static volatile int8_t scan_rssi;
+
+static void handle_transmit_done(otInstance *instance, otRadioFrame *frame,
+                                 otRadioFrame *ack, otError error)
+{
+    (void)instance;
+    (void)frame;
+    (void)ack;
+    transmit_error = (int)error;
+    transmit_done = true;
+}
+
+static void handle_receive_done(otInstance *instance, otRadioFrame *frame,
+                                otError error)
+{
+    (void)instance;
+    receive_error = (int)error;
+    if (frame != NULL) {
+        receive_length = frame->mLength;
+        receive_rssi = frame->mInfo.mRxInfo.mRssi;
+        receive_lqi = frame->mInfo.mRxInfo.mLqi;
+        unsigned count = frame->mLength < sizeof(receive_bytes)
+                             ? frame->mLength
+                             : sizeof(receive_bytes);
+        for (unsigned index = 0; index < count; ++index) {
+            receive_bytes[index] = frame->mPsdu[index];
+        }
+    }
+    receive_done = true;
+}
+
+static void handle_energy_scan_done(otInstance *instance, int8_t max_rssi)
+{
+    (void)instance;
+    scan_rssi = max_rssi;
+    energy_scan_done = true;
+}
+
+static bool wait_flag(volatile bool *flag, unsigned timeout_ms)
+{
+    for (unsigned elapsed = 0; !*flag && elapsed < timeout_ms; ++elapsed) {
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return *flag;
+}
+
+void app_main(void)
+{
+    esp_err_t result = nvs_flash_init();
+    if (result == ESP_ERR_NVS_NO_FREE_PAGES ||
+        result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        result = nvs_flash_erase();
+        if (result == ESP_OK) {
+            result = nvs_flash_init();
+        }
+    }
+    if (result == ESP_OK) {
+        result = esp_event_loop_create_default();
+    }
+    if (result == ESP_OK) {
+        esp_vfs_eventfd_config_t eventfd_config = {.max_fds = 3};
+        result = esp_vfs_eventfd_register(&eventfd_config);
+    }
+    printf("REMU_VENDOR_OPENTHREAD_PLATFORM result=%d\n", (int)result);
+    if (result != ESP_OK) {
+        return;
+    }
+
+    static esp_openthread_config_t config = {
+        .platform_config = {
+            .radio_config = {.radio_mode = RADIO_MODE_NATIVE},
+            .host_config = {
+                .host_connection_mode = HOST_CONNECTION_MODE_NONE,
+            },
+            .port_config = {
+                .storage_partition_name = "nvs",
+                .netif_queue_size = 10,
+                .task_queue_size = 10,
+            },
+        },
+    };
+    result = esp_openthread_start(&config);
+    printf("REMU_VENDOR_OPENTHREAD_START result=%d\n", (int)result);
+    if (result != ESP_OK) {
+        return;
+    }
+
+    esp_openthread_lock_acquire(portMAX_DELAY);
+    otInstance *instance = esp_openthread_get_instance();
+    otError error = otLinkRawSetReceiveDone(instance, handle_receive_done);
+    if (error == OT_ERROR_NONE) {
+        error = otLinkRawSetPromiscuous(instance, true);
+    }
+    if (error == OT_ERROR_NONE) {
+        error = otLinkRawSetShortAddress(instance, 0x5678);
+    }
+    if (error == OT_ERROR_NONE) {
+        error = otLinkRawSrcMatchEnable(instance, true);
+    }
+    if (error == OT_ERROR_NONE) {
+        error = otLinkRawSrcMatchAddShortEntry(instance, 0x1234);
+    }
+    if (error == OT_ERROR_NONE) {
+        error = otLinkRawReceive(instance);
+    }
+    printf("REMU_VENDOR_OPENTHREAD_RAW_CONFIG error=%d enabled=%u promiscuous=%u caps=%u\n",
+           (int)error, otLinkRawIsEnabled(instance) ? 1u : 0u,
+           otLinkRawGetPromiscuous(instance) ? 1u : 0u,
+           (unsigned)otLinkRawGetCaps(instance));
+
+    otRadioFrame *frame = otLinkRawGetTransmitBuffer(instance);
+    if (error == OT_ERROR_NONE && frame != NULL) {
+        static const uint8_t payload[] = {0x01, 0x00, 0x78, 0x4f, 0x54};
+        memcpy(frame->mPsdu, payload, sizeof(payload));
+        frame->mLength = sizeof(payload);
+        frame->mChannel = 11;
+        frame->mInfo.mTxInfo.mTxDelayBaseTime = 0;
+        frame->mInfo.mTxInfo.mTxDelay = 0;
+        frame->mInfo.mTxInfo.mMaxCsmaBackoffs = 0;
+        frame->mInfo.mTxInfo.mMaxFrameRetries = 0;
+        frame->mInfo.mTxInfo.mRxChannelAfterTxDone = 11;
+        frame->mInfo.mTxInfo.mCsmaCaEnabled = false;
+        frame->mInfo.mTxInfo.mIsSecurityProcessed = false;
+        frame->mInfo.mTxInfo.mIsHeaderUpdated = false;
+        frame->mInfo.mTxInfo.mIsARetx = false;
+        printf("REMU_VENDOR_OPENTHREAD_TX_FRAME channel=%u length=%u\n",
+               (unsigned)frame->mChannel, (unsigned)frame->mLength);
+        error = otLinkRawTransmit(instance, handle_transmit_done);
+    } else if (error == OT_ERROR_NONE) {
+        error = OT_ERROR_FAILED;
+    }
+    esp_openthread_lock_release();
+
+    printf("REMU_VENDOR_OPENTHREAD_TX_START error=%d\n", (int)error);
+    bool completed = error == OT_ERROR_NONE && wait_flag(&transmit_done, 500);
+    printf("REMU_VENDOR_OPENTHREAD_TX_DONE complete=%u error=%d\n",
+           completed ? 1u : 0u, transmit_error);
+    if (!completed || transmit_error != OT_ERROR_NONE) {
+        return;
+    }
+
+    esp_openthread_lock_acquire(portMAX_DELAY);
+    error = otLinkRawReceive(instance);
+    esp_openthread_lock_release();
+    printf("REMU_VENDOR_OPENTHREAD_RX_START error=%d\n", (int)error);
+    completed = error == OT_ERROR_NONE && wait_flag(&receive_done, 1000);
+    printf("REMU_VENDOR_OPENTHREAD_RX_DONE complete=%u error=%d length=%u %02x %02x %02x %02x %02x rssi=%d lqi=%u\n",
+           completed ? 1u : 0u, receive_error, (unsigned)receive_length,
+           receive_bytes[0], receive_bytes[1], receive_bytes[2],
+           receive_bytes[3], receive_bytes[4], (int)receive_rssi,
+           (unsigned)receive_lqi);
+    if (!completed || receive_error != OT_ERROR_NONE) {
+        return;
+    }
+
+    esp_openthread_lock_acquire(portMAX_DELAY);
+    error = otLinkRawEnergyScan(instance, 11, 1, handle_energy_scan_done);
+    esp_openthread_lock_release();
+    printf("REMU_VENDOR_OPENTHREAD_ED_START error=%d\n", (int)error);
+    completed = error == OT_ERROR_NONE && wait_flag(&energy_scan_done, 500);
+    printf("REMU_VENDOR_OPENTHREAD_ED_DONE complete=%u rssi=%d\n",
+           completed ? 1u : 0u, (int)scan_rssi);
+    if (!completed) {
+        return;
+    }
+
+    esp_openthread_lock_acquire(portMAX_DELAY);
+    error = otLinkRawSleep(instance);
+    otError wake_error = error == OT_ERROR_NONE ? otLinkRawReceive(instance) : error;
+    esp_openthread_lock_release();
+    printf("REMU_VENDOR_OPENTHREAD_SLEEP_WAKE sleep=%d wake=%d\n",
+           (int)error, (int)wake_error);
+}

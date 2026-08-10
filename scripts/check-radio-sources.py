@@ -21,6 +21,9 @@ BLE_VENDOR_REQUIREMENTS_PATH = ROOT / "qualification/radio/ble-vendor-requiremen
 IEEE802154_VENDOR_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/ieee802154-vendor-requirements.json"
 )
+OPENTHREAD_VENDOR_REQUIREMENTS_PATH = (
+    ROOT / "qualification/radio/openthread-vendor-requirements.json"
+)
 LEGAL_STATE_CONTRACT_PATH = ROOT / "qualification/radio/legal-state-contract.json"
 LEGALITY_SOURCE_PATH = ROOT / "crates/remu-radio/src/legality.rs"
 RADIO_ROM_SOURCE_PATH = ROOT / "crates/remu-machines/src/radio_rom.rs"
@@ -185,7 +188,9 @@ EXPECTED_IEEE802154_VENDOR_REQUIREMENTS = {
         "REMU_VENDOR_IEEE802154_TX_START result=0",
         "REMU_VENDOR_IEEE802154_TX_DONE length=4 01 00 2a a5",
         "REMU_VENDOR_IEEE802154_CCA_TX_START result=0",
-        "REMU_VENDOR_IEEE802154_CCA_TX_DONE complete=1 failed=0 error=-1",
+        "REMU_VENDOR_IEEE802154_CCA_BUSY_DONE complete=0 failed=1 error=1",
+        "REMU_VENDOR_IEEE802154_CCA_RETRY_START result=0",
+        "REMU_VENDOR_IEEE802154_CCA_RETRY_DONE complete=1 failed=0 error=-1",
         "REMU_VENDOR_IEEE802154_RX_START result=0",
         "REMU_VENDOR_IEEE802154_RX_DONE length=6 01 00 02 aa rssi=-80 lqi=63",
         "REMU_VENDOR_IEEE802154_ED_START result=0",
@@ -200,6 +205,36 @@ EXPECTED_IEEE802154_VENDOR_REQUIREMENTS = {
         "REMU_VENDOR_IEEE802154_ACK_RX_DONE length=5 02 00 44 rssi=-80 lqi=63",
         "REMU_VENDOR_IEEE802154_NO_ACK_TX_START result=0",
         "REMU_VENDOR_IEEE802154_NO_ACK_DONE complete=0 failed=1 error=3",
+    ],
+}
+EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS = {
+    "schema": "remu.radio-openthread-vendor-requirements.v1",
+    "source_ledger_entries": [
+        "esp-rom-elfs-20260528",
+        "esp-idf-openthread-radio-port",
+    ],
+    "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+    "firmware_project": "qualification/radio/vendor-openthread-probe",
+    "firmware_elf": "remu_vendor_openthread_probe.elf",
+    "chip": "esp32c6",
+    "rom_file": "esp32c6_rev0_rom.elf",
+    "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+    "rom_start": "0x40000000",
+    "rom_end": "0x40050000",
+    "minimum_instructions": 15_000_000,
+    "radio_input": "qualification/radio/openthread-frame-vendor-esp32c6.json",
+    "required_uart_substrings": [
+        "REMU_VENDOR_OPENTHREAD_PLATFORM result=0",
+        "REMU_VENDOR_OPENTHREAD_START result=0",
+        "REMU_VENDOR_OPENTHREAD_RAW_CONFIG error=0 enabled=1 promiscuous=1 caps=255",
+        "REMU_VENDOR_OPENTHREAD_TX_FRAME channel=11 length=5",
+        "REMU_VENDOR_OPENTHREAD_TX_START error=0",
+        "REMU_VENDOR_OPENTHREAD_TX_DONE complete=1 error=0",
+        "REMU_VENDOR_OPENTHREAD_RX_START error=0",
+        "REMU_VENDOR_OPENTHREAD_RX_DONE complete=1 error=0 length=7 01 00 79 52 58 rssi=-80 lqi=63",
+        "REMU_VENDOR_OPENTHREAD_ED_START error=0",
+        "REMU_VENDOR_OPENTHREAD_ED_DONE complete=1 rssi=-128",
+        "REMU_VENDOR_OPENTHREAD_SLEEP_WAKE sleep=0 wake=0",
     ],
 }
 
@@ -274,6 +309,14 @@ def validate_ledger(ledger: dict[str, object], validation: Validation) -> None:
                 f"{label} code/documentation revision must be a full Git commit",
             )
             validation.require(bool(source.get("repository")), f"{label} has no repository URL")
+
+    validation.require(
+        {
+            "esp-rom-elfs-20260528",
+            "esp-idf-openthread-radio-port",
+        }.issubset(seen_ids),
+        "OpenThread qualification sources are missing from the source ledger",
+    )
 
 
 def validate_inventory(inventory: dict[str, object], validation: Validation) -> None:
@@ -437,6 +480,23 @@ def validate_ieee802154_vendor_requirements(
     )
 
 
+def validate_openthread_vendor_requirements(
+    requirements: dict[str, object], validation: Validation
+) -> None:
+    validation.require(
+        requirements == EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS,
+        "genuine OpenThread acceptance contract changed or is incomplete",
+    )
+    validation.require(
+        (ROOT / str(requirements.get("firmware_project"))).is_dir(),
+        "genuine OpenThread probe project is missing",
+    )
+    validation.require(
+        (ROOT / str(requirements.get("radio_input"))).is_file(),
+        "genuine OpenThread radio input is missing",
+    )
+
+
 def validate_legal_state_contract(
     contract: dict[str, object], validation: Validation
 ) -> None:
@@ -536,6 +596,7 @@ def main() -> int:
     custom_stack_requirements = load_json(CUSTOM_STACK_REQUIREMENTS_PATH)
     ble_vendor_requirements = load_json(BLE_VENDOR_REQUIREMENTS_PATH)
     ieee802154_vendor_requirements = load_json(IEEE802154_VENDOR_REQUIREMENTS_PATH)
+    openthread_vendor_requirements = load_json(OPENTHREAD_VENDOR_REQUIREMENTS_PATH)
     legal_state_contract = load_json(LEGAL_STATE_CONTRACT_PATH)
     validate_ledger(ledger, validation)
     validate_inventory(inventory, validation)
@@ -543,6 +604,7 @@ def main() -> int:
     validate_custom_stack_requirements(custom_stack_requirements, validation)
     validate_ble_vendor_requirements(ble_vendor_requirements, validation)
     validate_ieee802154_vendor_requirements(ieee802154_vendor_requirements, validation)
+    validate_openthread_vendor_requirements(openthread_vendor_requirements, validation)
     validate_legal_state_contract(legal_state_contract, validation)
     if validation.errors:
         for error in validation.errors:
