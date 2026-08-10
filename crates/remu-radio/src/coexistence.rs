@@ -31,6 +31,8 @@ pub enum CoexistenceDecision {
     Granted {
         /// Stable grant identifier.
         id: CoexistenceGrantId,
+        /// Protocol that owns the granted interval.
+        protocol: RadioProtocol,
         /// Inclusive ownership start.
         start: SimTime,
         /// Exclusive ownership end.
@@ -201,6 +203,7 @@ impl CoexistenceArbiter {
         });
         Ok(CoexistenceDecision::Granted {
             id,
+            protocol: request.protocol,
             start: request.start,
             end,
         })
@@ -289,13 +292,19 @@ mod tests {
             arbiter
                 .request(request(RadioProtocol::Wifi, 10, 20, 1, true))
                 .unwrap(),
-            CoexistenceDecision::Granted { .. }
+            CoexistenceDecision::Granted {
+                protocol: RadioProtocol::Wifi,
+                ..
+            }
         ));
         assert!(matches!(
             arbiter
                 .request(request(RadioProtocol::BluetoothLe, 15, 5, 2, false))
                 .unwrap(),
-            CoexistenceDecision::Granted { .. }
+            CoexistenceDecision::Granted {
+                protocol: RadioProtocol::BluetoothLe,
+                ..
+            }
         ));
         assert!(arbiter.events().iter().any(|event| matches!(
             event,

@@ -237,3 +237,34 @@ jobs:
           name: ${{ matrix.chip }}-radio-wifi-softap-qualification
           path: .remu/qualification/radio-wifi-softap-vendor/${{ matrix.chip }}
           if-no-files-found: ignore
+
+  esp-radio-coexistence:
+    name: ${{ matrix.chip }} genuine Wi-Fi/BLE coexistence qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        chip: [esp32c6, esp32s3]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Pull pinned ESP-IDF image
+        run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
+
+      - name: Require genuine simultaneous Wi-Fi/BLE ownership
+        run: ./scripts/qualify-esp-radio-coexistence-vendor.sh ${{ matrix.chip }}
+
+      - name: Upload coexistence qualification evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ${{ matrix.chip }}-radio-coexistence-qualification
+          path: .remu/qualification/radio-coexistence-vendor/${{ matrix.chip }}
+          if-no-files-found: ignore

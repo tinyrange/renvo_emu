@@ -391,6 +391,31 @@ impl RadioLegalityValidator {
         Ok(())
     }
 
+    /// Requires an over-the-air submission to agree with the protocol named
+    /// by its active coexistence grant.
+    ///
+    /// A denied request is an ordinary modeled outcome and must not call this
+    /// method because no RF submission follows it. This check guards the
+    /// separate granted path against transmitting under another protocol's
+    /// ownership.
+    pub fn validate_coexistence_ownership(
+        &mut self,
+        subsystem: RadioSubsystem,
+        submission: RadioProtocol,
+        granted: RadioProtocol,
+        at: SimTime,
+    ) -> Result<(), RadioLegalityError> {
+        self.require(
+            subsystem,
+            RadioLegalityRule::CoexistenceOwnership,
+            submission == granted,
+            at,
+            format!(
+                "{submission:?} RF submission attempted under {granted:?} coexistence ownership"
+            ),
+        )
+    }
+
     /// Applies a recovered chip-specific invariant at a machine boundary.
     pub fn require(
         &mut self,
@@ -606,5 +631,28 @@ mod tests {
         validator
             .observe_interrupt(RadioSubsystem::Wifi, true, SimTime::from_ticks(4))
             .unwrap();
+    }
+
+    #[test]
+    fn rejects_rf_submission_under_another_protocols_coexistence_grant() {
+        let mut validator = RadioLegalityValidator::new(RadioChip::Esp32C6);
+        validator
+            .validate_coexistence_ownership(
+                RadioSubsystem::Wifi,
+                RadioProtocol::Wifi,
+                RadioProtocol::Wifi,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        let error = validator
+            .validate_coexistence_ownership(
+                RadioSubsystem::Wifi,
+                RadioProtocol::Wifi,
+                RadioProtocol::BluetoothLe,
+                SimTime::from_ticks(1),
+            )
+            .unwrap_err();
+        assert_eq!(error.rule, RadioLegalityRule::CoexistenceOwnership);
+        assert!(error.to_string().starts_with("illegal radio state ["));
     }
 }

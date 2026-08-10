@@ -17,6 +17,9 @@ ROM_REQUIREMENTS_PATH = ROOT / "qualification/radio/rom-requirements.json"
 WIFI_SOFTAP_VENDOR_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/wifi-softap-vendor-requirements.json"
 )
+COEXISTENCE_VENDOR_REQUIREMENTS_PATH = (
+    ROOT / "qualification/radio/coexistence-vendor-requirements.json"
+)
 CUSTOM_STACK_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/custom-stack-probe/requirements.json"
 )
@@ -165,6 +168,54 @@ EXPECTED_WIFI_SOFTAP_VENDOR_REQUIREMENTS = {
             "REMU_VENDOR_SOFTAP_STATION_CONNECTED mac=02:aa:bb:cc:dd:01 aid=1",
             "REMU_VENDOR_ESPNOW_RX source=02:aa:bb:cc:dd:01 destination=55:44:33:22:11:01 length=4 data=deadbeef",
             "REMU_VENDOR_SOFTAP_DONE started=1 station=1 espnow_rx=1",
+        ],
+    },
+}
+EXPECTED_COEXISTENCE_VENDOR_REQUIREMENTS = {
+    "esp32c6": {
+        "rom_file": "esp32c6_rev0_rom.elf",
+        "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+        "rom_start": "0x40000000",
+        "rom_end": "0x40050000",
+        "minimum_instructions": 24_000_000,
+        "radio_input": "qualification/radio/coexistence-vendor-esp32c6.json",
+        "expected_host_frames": 3,
+        "expected_ap_mac": [82, 69, 2, 0, 0, 1],
+        "expected_beacon_length": 169,
+        "expected_association_response_length": 47,
+        "required_uart_substrings": [
+            "wifi:mode : softAP (52:45:02:00:00:01)",
+            "REMU_VENDOR_COEX_WIFI_STARTED",
+            "REMU_VENDOR_COEX_BLE_INIT result=0",
+            "REMU_VENDOR_COEX_BLE_ADV_START result=0 wifi=1",
+            "REMU_VENDOR_COEX_BLE_ADV_STOP result=0",
+            "REMU_VENDOR_COEX_BLE_SCAN_START result=0",
+            "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1",
+            "REMU_VENDOR_COEX_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52",
+            "REMU_VENDOR_COEX_DONE wifi=1 ble_adv=1 ble_scan=1",
+        ],
+    },
+    "esp32s3": {
+        "rom_file": "esp32s3_rev0_rom.elf",
+        "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
+        "rom_start": "0x40000000",
+        "rom_end": "0x40070000",
+        "minimum_instructions": 36_000_000,
+        "radio_input": "qualification/radio/coexistence-vendor-esp32s3.json",
+        "expected_host_frames": 7,
+        "expected_ap_mac": [85, 68, 51, 34, 17, 1],
+        "expected_beacon_length": 166,
+        "expected_association_response_length": 44,
+        "required_uart_substrings": [
+            "wifi:mode : softAP (55:44:33:22:11:01)",
+            "REMU_VENDOR_COEX_WIFI_STARTED",
+            "REMU_VENDOR_COEX_BLE_INIT result=0",
+            "REMU_VENDOR_COEX_BLE_ADV_START result=0 wifi=1",
+            "REMU_VENDOR_COEX_BLE_ADV_STOP result=0",
+            "REMU_VENDOR_COEX_BLE_SCAN_START result=0",
+            "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1",
+            "REMU_VENDOR_COEX_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52",
+            "REMU_VENDOR_COEX_DONE wifi=1 ble_adv=1 ble_scan=1",
         ],
     },
 }
@@ -561,6 +612,65 @@ def validate_wifi_softap_vendor_requirements(
             )
 
 
+def validate_coexistence_vendor_requirements(
+    requirements: dict[str, object], validation: Validation
+) -> None:
+    validation.require(
+        requirements.get("schema") == "remu.radio-coexistence-vendor-requirements.v1",
+        "genuine coexistence requirements schema changed",
+    )
+    validation.require(
+        requirements.get("source_ledger_entry") == "esp-rom-elfs-20260528"
+        and requirements.get("rom_release") == "20260528"
+        and requirements.get("rom_archive_sha256")
+        == "caa463d3cbef2430a5a35847c1d9f2f152403b17a802050927ff60c8da54fe46",
+        "genuine coexistence qualification must use the pinned ROM release",
+    )
+    validation.require(
+        requirements.get("esp_idf_container")
+        == "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+        "genuine coexistence qualification must use the pinned ESP-IDF image",
+    )
+    validation.require(
+        requirements.get("firmware_project") == "qualification/radio/vendor-coex-probe"
+        and requirements.get("firmware_elf") == "remu_vendor_coex_probe.elf"
+        and requirements.get("sdkconfig_defaults")
+        == "qualification/radio/sdkconfig.coex.defaults",
+        "genuine coexistence qualification must use the repository-owned combined probe",
+    )
+    validation.require(
+        requirements.get("deterministic_replay_required") is True
+        and requirements.get("symbol_dispatch_allowed") is False,
+        "genuine coexistence qualification must replay exactly without symbol dispatch",
+    )
+    chips = requirements.get("chips", {})
+    validation.require(
+        chips == EXPECTED_COEXISTENCE_VENDOR_REQUIREMENTS,
+        "genuine coexistence acceptance contract changed or is incomplete",
+    )
+    validation.require(
+        (ROOT / str(requirements.get("firmware_project"))).is_dir(),
+        "genuine coexistence probe project is missing",
+    )
+    validation.require(
+        (ROOT / str(requirements.get("sdkconfig_defaults"))).is_file(),
+        "genuine coexistence sdkconfig defaults are missing",
+    )
+    for chip, contract in EXPECTED_COEXISTENCE_VENDOR_REQUIREMENTS.items():
+        radio_input = ROOT / contract["radio_input"]
+        validation.require(radio_input.is_file(), f"{chip} coexistence radio input is missing")
+        if radio_input.is_file():
+            fixture = load_json(radio_input)
+            frames = fixture.get("frames", [])
+            validation.require(
+                fixture.get("schema") == "remu.radio-input.v1"
+                and len(frames) == contract["expected_host_frames"]
+                and [frame.get("protocol") for frame in frames[:2]] == ["wifi", "wifi"]
+                and all(frame.get("protocol") == "bluetooth-le" for frame in frames[2:]),
+                f"{chip} coexistence gate must inject the pinned Wi-Fi and BLE traffic",
+            )
+
+
 def validate_custom_stack_requirements(
     requirements: dict[str, object], validation: Validation
 ) -> None:
@@ -731,6 +841,7 @@ def main() -> int:
     inventory = load_json(INVENTORY_PATH)
     rom_requirements = load_json(ROM_REQUIREMENTS_PATH)
     wifi_softap_vendor_requirements = load_json(WIFI_SOFTAP_VENDOR_REQUIREMENTS_PATH)
+    coexistence_vendor_requirements = load_json(COEXISTENCE_VENDOR_REQUIREMENTS_PATH)
     custom_stack_requirements = load_json(CUSTOM_STACK_REQUIREMENTS_PATH)
     ble_vendor_requirements = load_json(BLE_VENDOR_REQUIREMENTS_PATH)
     ieee802154_vendor_requirements = load_json(IEEE802154_VENDOR_REQUIREMENTS_PATH)
@@ -740,6 +851,7 @@ def main() -> int:
     validate_inventory(inventory, validation)
     validate_rom_requirements(rom_requirements, validation)
     validate_wifi_softap_vendor_requirements(wifi_softap_vendor_requirements, validation)
+    validate_coexistence_vendor_requirements(coexistence_vendor_requirements, validation)
     validate_custom_stack_requirements(custom_stack_requirements, validation)
     validate_ble_vendor_requirements(ble_vendor_requirements, validation)
     validate_ieee802154_vendor_requirements(ieee802154_vendor_requirements, validation)

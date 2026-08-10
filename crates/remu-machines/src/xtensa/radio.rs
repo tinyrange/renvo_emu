@@ -333,7 +333,17 @@ impl XtensaMachine {
                 .now
                 .checked_add(duration)
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
-            if matches!(decision, CoexistenceDecision::Granted { .. }) {
+            if let CoexistenceDecision::Granted {
+                protocol: granted_protocol,
+                ..
+            } = decision
+            {
+                self.radio_legality.validate_coexistence_ownership(
+                    RadioSubsystem::BluetoothLe,
+                    RadioProtocol::BluetoothLe,
+                    granted_protocol,
+                    self.now,
+                )?;
                 self.radio_medium.transmit(TxRequest {
                     source: EMULATED_NODE,
                     start: self.now,
@@ -623,6 +633,26 @@ impl XtensaMachine {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let duration = frame_duration(bytes.len());
+            let decision = self.radio_coexistence.request(CoexistenceRequest {
+                protocol: RadioProtocol::Wifi,
+                start: self.now,
+                duration,
+                priority: 8,
+                preemptible: true,
+            })?;
+            let CoexistenceDecision::Granted {
+                protocol: granted_protocol,
+                ..
+            } = decision
+            else {
+                continue;
+            };
+            self.radio_legality.validate_coexistence_ownership(
+                RadioSubsystem::Wifi,
+                RadioProtocol::Wifi,
+                granted_protocol,
+                self.now,
+            )?;
             self.radio_medium.transmit(TxRequest {
                 source: EMULATED_NODE,
                 start: self.now,
@@ -912,9 +942,23 @@ impl XtensaMachine {
                 priority,
                 preemptible: true,
             })?;
-            if !matches!(decision, CoexistenceDecision::Granted { .. }) {
+            let CoexistenceDecision::Granted {
+                protocol: granted_protocol,
+                ..
+            } = decision
+            else {
                 continue;
-            }
+            };
+            self.radio_legality.validate_coexistence_ownership(
+                match frame.protocol {
+                    RadioProtocol::Wifi => RadioSubsystem::Wifi,
+                    RadioProtocol::BluetoothLe => RadioSubsystem::BluetoothLe,
+                    RadioProtocol::Ieee802154 => RadioSubsystem::Ieee802154,
+                },
+                frame.protocol,
+                granted_protocol,
+                self.now,
+            )?;
             self.radio_medium.transmit(TxRequest {
                 source: EMULATED_NODE,
                 start: self.now,

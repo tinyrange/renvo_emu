@@ -319,9 +319,26 @@ impl RiscVMachine {
                     priority,
                     preemptible: true,
                 })?;
-            if !matches!(decision, CoexistenceDecision::Granted { .. }) {
+            let CoexistenceDecision::Granted {
+                protocol: granted_protocol,
+                ..
+            } = decision
+            else {
                 continue;
-            }
+            };
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 has a radio legality validator")
+                .validate_coexistence_ownership(
+                    match frame.protocol {
+                        RadioProtocol::Wifi => RadioSubsystem::Wifi,
+                        RadioProtocol::BluetoothLe => RadioSubsystem::BluetoothLe,
+                        RadioProtocol::Ieee802154 => RadioSubsystem::Ieee802154,
+                    },
+                    frame.protocol,
+                    granted_protocol,
+                    self.now,
+                )?;
             self.radio_medium
                 .as_mut()
                 .expect("ESP32-C6 has a radio medium")

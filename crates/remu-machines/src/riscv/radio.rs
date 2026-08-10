@@ -187,6 +187,7 @@ impl RiscVMachine {
             .as_mut()
             .expect("ESP32-C6 machine has a coexistence arbiter")
             .advance_to(self.now)?;
+        events = events.saturating_add(self.submit_pending_native_ble_frames()?);
         if modem.ble_ready() {
             self.radio_ble
                 .as_mut()
@@ -564,22 +565,14 @@ impl RiscVMachine {
                                 handle.scheduler_interval_ticks(end_tick.wrapping_sub(start_tick)),
                             ))
                             .map_err(|_| MachineError::TimeOverflow)?;
-                        self.radio_medium
-                            .as_mut()
-                            .expect("ESP32-C6 machine has a radio medium")
-                            .transmit(TxRequest {
-                                source: EMULATED_NODE,
-                                start,
-                                end,
-                                power_dbm: 0,
-                                frame: RadioFrame {
-                                    protocol: RadioProtocol::BluetoothLe,
-                                    spectrum: ble_advertising_spectrum(channel),
-                                    phy: "ble-1m".to_owned(),
-                                    bytes: frame,
-                                    origin: FrameOrigin::Emulated,
-                                },
-                            })?;
+                        let pending = (start, ble_advertising_spectrum(channel), frame);
+                        let insertion = self
+                            .radio_c6_pending_ble_transmissions
+                            .iter()
+                            .position(|queued| queued.0 > start)
+                            .unwrap_or(self.radio_c6_pending_ble_transmissions.len());
+                        self.radio_c6_pending_ble_transmissions
+                            .insert(insertion, pending);
                         let flags_address = record.wrapping_add(0x28);
                         let flags = self.radio_read_guest_word(flags_address)?;
                         self.radio_write_guest_word(flags_address, flags & !(1 << 13))?;
@@ -683,6 +676,66 @@ impl RiscVMachine {
                 }
                 _ => {}
             }
+        }
+        Ok(submitted)
+    }
+
+    fn submit_pending_native_ble_frames(&mut self) -> Result<u64, MachineError> {
+        let mut submitted = 0_u64;
+        while self
+            .radio_c6_pending_ble_transmissions
+            .first()
+            .is_some_and(|pending| pending.0 <= self.now)
+        {
+            let (_, spectrum, bytes) = self.radio_c6_pending_ble_transmissions.remove(0);
+            let duration = frame_duration(bytes.len());
+            let decision = self
+                .radio_coexistence
+                .as_mut()
+                .expect("ESP32-C6 machine has a coexistence arbiter")
+                .request(CoexistenceRequest {
+                    protocol: RadioProtocol::BluetoothLe,
+                    start: self.now,
+                    duration,
+                    priority: 9,
+                    preemptible: true,
+                })?;
+            let CoexistenceDecision::Granted {
+                protocol: granted_protocol,
+                ..
+            } = decision
+            else {
+                continue;
+            };
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .validate_coexistence_ownership(
+                    RadioSubsystem::BluetoothLe,
+                    RadioProtocol::BluetoothLe,
+                    granted_protocol,
+                    self.now,
+                )?;
+            self.radio_medium
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio medium")
+                .transmit(TxRequest {
+                    source: EMULATED_NODE,
+                    start: self.now,
+                    end: self
+                        .now
+                        .checked_add(duration)
+                        .map_err(|_| MachineError::TimeOverflow)?,
+                    power_dbm: 0,
+                    frame: RadioFrame {
+                        protocol: RadioProtocol::BluetoothLe,
+                        spectrum,
+                        phy: "ble-1m".to_owned(),
+                        bytes,
+                        origin: FrameOrigin::Emulated,
+                    },
+                })?;
+            submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
     }
@@ -852,6 +905,33 @@ impl RiscVMachine {
                 )?;
             let bytes = self.radio_read_guest_bytes(buffer.wrapping_add(8), length)?;
             let duration = frame_duration(bytes.len());
+            let decision = self
+                .radio_coexistence
+                .as_mut()
+                .expect("ESP32-C6 machine has a coexistence arbiter")
+                .request(CoexistenceRequest {
+                    protocol: RadioProtocol::Wifi,
+                    start: self.now,
+                    duration,
+                    priority: 8,
+                    preemptible: true,
+                })?;
+            let CoexistenceDecision::Granted {
+                protocol: granted_protocol,
+                ..
+            } = decision
+            else {
+                continue;
+            };
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .validate_coexistence_ownership(
+                    RadioSubsystem::Wifi,
+                    RadioProtocol::Wifi,
+                    granted_protocol,
+                    self.now,
+                )?;
             self.radio_medium
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio medium")
@@ -1016,10 +1096,24 @@ impl RiscVMachine {
                 priority: handle.coexistence_priority(),
                 preemptible: true,
             })?;
-        let CoexistenceDecision::Granted { id: grant, .. } = decision else {
+        let CoexistenceDecision::Granted {
+            id: grant,
+            protocol: granted_protocol,
+            ..
+        } = decision
+        else {
             handle.abort(true, 18);
             return Ok(());
         };
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .validate_coexistence_ownership(
+                RadioSubsystem::Ieee802154,
+                RadioProtocol::Ieee802154,
+                granted_protocol,
+                self.now,
+            )?;
         self.radio_legality
             .as_mut()
             .expect("ESP32-C6 machine has a radio legality validator")

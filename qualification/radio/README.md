@@ -13,6 +13,8 @@ scripts/qualify-esp-radio-rom.sh esp32c6
 scripts/qualify-esp-radio-rom.sh esp32s3
 scripts/qualify-esp-radio-wifi-softap-vendor.sh esp32c6
 scripts/qualify-esp-radio-wifi-softap-vendor.sh esp32s3
+scripts/qualify-esp-radio-coexistence-vendor.sh esp32c6
+scripts/qualify-esp-radio-coexistence-vendor.sh esp32s3
 scripts/qualify-esp-radio-ble-vendor.sh esp32c6
 scripts/qualify-esp-radio-ble-vendor.sh esp32s3
 scripts/qualify-esp-radio-ieee802154-vendor.sh esp32c6
@@ -66,6 +68,15 @@ emit native authentication and association responses, report the peer with AID
 1, and deliver the exact `deadbeef` payload to the public ESP-NOW callback. The
 gate uses each required real ROM, forbids runtime symbol dispatch, and requires
 byte-identical RF replay from reset.
+
+The genuine coexistence gate runs that public SoftAP workflow concurrently
+with public NimBLE advertising and scanning. Every native Wi-Fi or BLE frame
+must have exactly one matching chip-local coexistence grant before it reaches
+the RF medium, and both the grant stream and RF artifact must replay exactly
+from reset. A denied request remains an ordinary arbitration outcome and does
+not transmit; submitting a frame under another protocol's grant is an illegal
+emulator state and terminates with the stable hard-error diagnostic defined by
+`legal-state-contract.json`.
 
 Vendor-independent execution is a focused low-level regression track. The two
 `custom-stack-probe` ELFs are original freestanding firmware: they include no
@@ -148,7 +159,10 @@ The genuine OpenThread radio build now passes raw TX/RX, source matching,
 energy scan, and sleep/wake through the native C6 port. A secured Thread CLI
 exchange and Zigbee-facing firmware qualification still remain. Disputed
 ESP32-S3 RF pages remain intentionally unmapped until a revision-
-specific primary-source or authorized-hardware probe resolves them.
+specific primary-source or authorized-hardware probe resolves them. Coexistence
+still needs denial/preemption and reset/power-transition stress, plus C6
+three-protocol traffic; the genuine Wi-Fi/BLE simultaneous-traffic path is
+covered on both chips.
 
 Do not close issue #338 or describe these radios as vendor-compatible while any
 of those gates remains open.
