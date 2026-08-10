@@ -42,13 +42,18 @@ libraries, executes the pinned ROM and application, rejects
 all faults before the required instruction budget, and verifies execution
 coverage contains both the mask-ROM range and the application entry point. The
 gate also requires the UART evidence emitted by the real application, Wi-Fi
-library, PHY initialization, a completed one-channel active scan, and native
-DMA-backed 802.11 transmit and receive. Each chip transmits an exact probe
-request, receives one deterministic injected beacon through its real RX ring,
-and must report at least one AP through `esp_wifi_scan_get_ap_num()`. Both
-frames appear in the isolated RF replay artifact. The C6 and S3 ROMs are
-separate required inputs and matrix jobs: passing with one chip's ROM does not
-satisfy the other chip's ROM requirement.
+library, PHY initialization, a completed one-channel active scan, and a native
+open-system station association. Each chip transmits exact probe,
+authentication, and association requests through native DMA, receives
+deterministic beacon, authentication-response, and association-response frames
+through its real RX ring, reports the AP through `esp_wifi_scan_get_ap_num()`,
+then reaches `WIFI_EVENT_STA_CONNECTED` with AID 1. The gate checks each chip's
+real station address and exact management-frame lengths. Hardware FCS allowance
+is validated separately from guest MAC-frame capacity and excluded from replay
+bytes. Every run is repeated from reset and its RF artifact must be
+byte-for-byte identical. The C6 and S3 ROMs are separate required inputs and
+matrix jobs: passing with one chip's ROM does not satisfy the other chip's ROM
+requirement.
 
 Vendor-independent execution is a focused low-level regression track. The two
 `custom-stack-probe` ELFs are original freestanding firmware: they include no

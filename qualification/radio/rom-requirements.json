@@ -1,11 +1,13 @@
 {
-  "schema": "remu.radio-rom-requirements.v1",
+  "schema": "remu.radio-rom-requirements.v2",
   "source_ledger_entry": "esp-rom-elfs-20260528",
   "rom_release": "20260528",
   "rom_archive_sha256": "caa463d3cbef2430a5a35847c1d9f2f152403b17a802050927ff60c8da54fe46",
   "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
   "firmware_project": "qualification/radio/vendor-wifi-probe",
   "firmware_elf": "remu_vendor_wifi_probe.elf",
+  "deterministic_replay_required": true,
+  "symbol_dispatch_allowed": false,
   "chips": {
     "esp32c6": {
       "architecture": "riscv32",
@@ -14,8 +16,11 @@
       "rom_start": "0x40000000",
       "rom_end": "0x40050000",
       "minimum_instructions": 20000000,
-      "minimum_wifi_tx_frames": 1,
-      "radio_input": "qualification/radio/wifi-beacon-vendor-esp32c6.json",
+      "minimum_wifi_tx_frames": 4,
+      "radio_input": "qualification/radio/wifi-association-vendor-esp32c6.json",
+      "expected_station_mac": [82, 69, 2, 0, 0, 0],
+      "expected_auth_request_length": 30,
+      "expected_association_request_length": 45,
       "required_stop": "InstructionLimit",
       "required_uart_substrings": [
         "Calling app_main()",
@@ -24,7 +29,13 @@
         "phy_version",
         "wifi:mode : sta",
         "wifi:enable tsf",
-        "REMU_VENDOR_WIFI_SCAN_DONE result=0"
+        "REMU_VENDOR_WIFI_SCAN_DONE result=0",
+        "REMU_VENDOR_WIFI_CONNECT_START result=0",
+        "wifi:state: init -> auth",
+        "wifi:state: auth -> assoc",
+        "wifi:state: assoc -> run",
+        "wifi:connected with REMU-AP, aid = 1",
+        "REMU_VENDOR_WIFI_CONNECT_DONE connected=1 reason=-1"
       ]
     },
     "esp32s3": {
@@ -33,9 +44,12 @@
       "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
       "rom_start": "0x40000000",
       "rom_end": "0x40070000",
-      "minimum_instructions": 20000000,
-      "minimum_wifi_tx_frames": 1,
-      "radio_input": "qualification/radio/wifi-beacon-vendor-esp32s3.json",
+      "minimum_instructions": 24000000,
+      "minimum_wifi_tx_frames": 4,
+      "radio_input": "qualification/radio/wifi-association-vendor-esp32s3.json",
+      "expected_station_mac": [85, 68, 51, 34, 17, 0],
+      "expected_auth_request_length": 30,
+      "expected_association_request_length": 40,
       "required_stop": "InstructionLimit",
       "required_uart_substrings": [
         "Project name:     remu_vendor_wifi_probe",
@@ -44,7 +58,13 @@
         "phy_version",
         "wifi:mode : sta",
         "wifi:enable tsf",
-        "REMU_VENDOR_WIFI_SCAN_DONE result=0"
+        "REMU_VENDOR_WIFI_SCAN_DONE result=0",
+        "REMU_VENDOR_WIFI_CONNECT_START result=0",
+        "wifi:state: init -> auth",
+        "wifi:state: auth -> assoc",
+        "wifi:state: assoc -> run",
+        "wifi:connected with REMU-AP, aid = 1",
+        "REMU_VENDOR_WIFI_CONNECT_DONE connected=1 reason=-1"
       ]
     }
   }

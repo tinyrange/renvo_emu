@@ -76,6 +76,105 @@ fn esp32s3_illegal_native_wifi_dma_is_a_hard_machine_error() {
 }
 
 #[test]
+fn esp32s3_native_wifi_tx_accepts_the_firmware_fcs_allowance_only() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptor = 0x3fca_1000_u32;
+    let buffer = 0x3fca_1102_u32;
+    let frame: Vec<u8> = (0_u8..30).collect();
+    let control = 32_u32 | (34_u32 << 12) | (1 << 31);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    let mut buffer_bytes = frame.clone();
+    buffer_bytes.extend_from_slice(&[0xa5; 4]);
+    machine
+        .debug_write_memory(u64::from(buffer), &buffer_bytes)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert!(machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.protocol == remu_radio::RadioProtocol::Wifi
+                    && request.frame.bytes == frame
+        )));
+}
+
+#[test]
+fn esp32s3_native_wifi_tx_rejects_odd_payload_addresses() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptor = 0x3fca_1000_u32;
+    let buffer = 0x3fca_1101_u32;
+    let control = 32_u32 | (34_u32 << 12) | (1 << 31);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let XtensaMachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected a radio legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DmaAddress);
+    assert!(error.detail.contains("2-byte aligned"));
+}
+
+#[test]
+fn esp32s3_native_wifi_tx_rejects_payload_beyond_the_fcs_allowance() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptor = 0x3fca_1000_u32;
+    let buffer = 0x3fca_1100_u32;
+    let control = 32_u32 | (37_u32 << 12) | (1 << 31);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let XtensaMachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected a radio legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DmaLength);
+    assert!(error.detail.contains("exceeds descriptor capacity 32"));
+}
+
+#[test]
 fn esp32s3_unmapped_native_ble_slot_is_a_hard_machine_error() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine

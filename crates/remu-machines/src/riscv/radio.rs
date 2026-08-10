@@ -815,13 +815,29 @@ impl RiscVMachine {
                 self.now,
             )?;
             let buffer = buffer as u32;
-            let length = self.bus.read(
+            let wire_length = self.bus.read(
                 u64::from(buffer),
                 AccessWidth::Word,
                 AccessKind::Read,
                 self.now,
             )?;
-            let length = length as usize;
+            let wire_length = wire_length as usize;
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .require(
+                    RadioSubsystem::Wifi,
+                    remu_radio::RadioLegalityRule::DmaLength,
+                    wire_length > 4,
+                    self.now,
+                    format!(
+                        "TX DMA wire length {wire_length} does not contain a MAC frame and 4-byte FCS"
+                    ),
+                )?;
+            // Genuine net80211 descriptors include the hardware-generated FCS
+            // in their wire length. Guest memory and the shared RF medium carry
+            // only the MAC frame; receive DMA provides its own four-byte area.
+            let length = wire_length - 4;
             self.radio_legality
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio legality validator")

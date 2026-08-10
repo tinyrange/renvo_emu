@@ -580,19 +580,32 @@ impl XtensaMachine {
                 self.now,
             )?;
             let capacity = (control as usize) & 0x0fff;
-            let length = ((control as usize) >> 12) & 0x0fff;
+            let wire_length = ((control as usize) >> 12) & 0x0fff;
+            self.radio_legality.require(
+                RadioSubsystem::Wifi,
+                remu_radio::RadioLegalityRule::DmaLength,
+                wire_length > 4,
+                self.now,
+                format!(
+                    "TX DMA wire length {wire_length} does not contain a MAC frame and 4-byte FCS"
+                ),
+            )?;
+            // The S3 MAC length includes a hardware-generated four-byte FCS,
+            // while descriptor capacity covers only guest-owned frame bytes.
+            // Genuine authentication traffic uses exactly capacity+4.
+            let length = wire_length - 4;
             self.radio_legality.require(
                 RadioSubsystem::Wifi,
                 remu_radio::RadioLegalityRule::DmaLength,
                 length <= capacity,
                 self.now,
-                format!("TX DMA length {length} exceeds descriptor capacity {capacity}"),
+                format!("TX DMA MAC-frame length {length} exceeds descriptor capacity {capacity}"),
             )?;
             self.radio_legality.validate_dma(
                 RadioSubsystem::Wifi,
                 RadioDmaDirection::Transmit,
                 buffer as u32,
-                4,
+                2,
                 length,
                 4095,
                 self.now,

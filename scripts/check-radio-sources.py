@@ -65,8 +65,11 @@ EXPECTED_ROM_REQUIREMENTS = {
         "rom_start": "0x40000000",
         "rom_end": "0x40050000",
         "minimum_instructions": 20_000_000,
-        "minimum_wifi_tx_frames": 1,
-        "radio_input": "qualification/radio/wifi-beacon-vendor-esp32c6.json",
+        "minimum_wifi_tx_frames": 4,
+        "radio_input": "qualification/radio/wifi-association-vendor-esp32c6.json",
+        "expected_station_mac": [82, 69, 2, 0, 0, 0],
+        "expected_auth_request_length": 30,
+        "expected_association_request_length": 45,
         "required_stop": "InstructionLimit",
         "required_uart_substrings": [
             "Calling app_main()",
@@ -76,6 +79,12 @@ EXPECTED_ROM_REQUIREMENTS = {
             "wifi:mode : sta",
             "wifi:enable tsf",
             "REMU_VENDOR_WIFI_SCAN_DONE result=0",
+            "REMU_VENDOR_WIFI_CONNECT_START result=0",
+            "wifi:state: init -> auth",
+            "wifi:state: auth -> assoc",
+            "wifi:state: assoc -> run",
+            "wifi:connected with REMU-AP, aid = 1",
+            "REMU_VENDOR_WIFI_CONNECT_DONE connected=1 reason=-1",
         ],
     },
     "esp32s3": {
@@ -84,9 +93,12 @@ EXPECTED_ROM_REQUIREMENTS = {
         "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
         "rom_start": "0x40000000",
         "rom_end": "0x40070000",
-        "minimum_instructions": 20_000_000,
-        "minimum_wifi_tx_frames": 1,
-        "radio_input": "qualification/radio/wifi-beacon-vendor-esp32s3.json",
+        "minimum_instructions": 24_000_000,
+        "minimum_wifi_tx_frames": 4,
+        "radio_input": "qualification/radio/wifi-association-vendor-esp32s3.json",
+        "expected_station_mac": [85, 68, 51, 34, 17, 0],
+        "expected_auth_request_length": 30,
+        "expected_association_request_length": 40,
         "required_stop": "InstructionLimit",
         "required_uart_substrings": [
             "Project name:     remu_vendor_wifi_probe",
@@ -96,6 +108,12 @@ EXPECTED_ROM_REQUIREMENTS = {
             "wifi:mode : sta",
             "wifi:enable tsf",
             "REMU_VENDOR_WIFI_SCAN_DONE result=0",
+            "REMU_VENDOR_WIFI_CONNECT_START result=0",
+            "wifi:state: init -> auth",
+            "wifi:state: auth -> assoc",
+            "wifi:state: assoc -> run",
+            "wifi:connected with REMU-AP, aid = 1",
+            "REMU_VENDOR_WIFI_CONNECT_DONE connected=1 reason=-1",
         ],
     },
 }
@@ -374,8 +392,8 @@ def validate_inventory(inventory: dict[str, object], validation: Validation) -> 
 
 def validate_rom_requirements(requirements: dict[str, object], validation: Validation) -> None:
     validation.require(
-        requirements.get("schema") == "remu.radio-rom-requirements.v1",
-        "radio ROM requirements schema is not remu.radio-rom-requirements.v1",
+        requirements.get("schema") == "remu.radio-rom-requirements.v2",
+        "radio ROM requirements schema is not remu.radio-rom-requirements.v2",
     )
     validation.require(
         requirements.get("source_ledger_entry") == "esp-rom-elfs-20260528",
@@ -403,6 +421,14 @@ def validate_rom_requirements(requirements: dict[str, object], validation: Valid
         requirements.get("firmware_elf") == "remu_vendor_wifi_probe.elf",
         "real-ROM qualification must execute the vendor Wi-Fi probe ELF",
     )
+    validation.require(
+        requirements.get("deterministic_replay_required") is True,
+        "real-ROM qualification must require deterministic replay",
+    )
+    validation.require(
+        requirements.get("symbol_dispatch_allowed") is False,
+        "real-ROM qualification must forbid symbol dispatch",
+    )
     chips = requirements.get("chips", {})
     validation.require(
         set(chips) == set(EXPECTED_ROM_REQUIREMENTS),
@@ -417,10 +443,16 @@ def validate_rom_requirements(requirements: dict[str, object], validation: Valid
         validation.require(radio_input.is_file(), f"{chip} radio input is missing")
         if radio_input.is_file():
             fixture = load_json(radio_input)
+            frames = fixture.get("frames", [])
             validation.require(
                 fixture.get("schema") == "remu.radio-input.v1"
-                and len(fixture.get("frames", [])) == 1,
-                f"{chip} vendor gate must use one deterministic RF frame",
+                and len(frames) == 4,
+                f"{chip} vendor gate must use four deterministic association frames",
+            )
+            validation.require(
+                [frame.get("bytes", [None])[0] for frame in frames]
+                == [0x80, 0x80, 0xB0, 0x10],
+                f"{chip} vendor gate must provide beacon, directed beacon, authentication, and association responses",
             )
 
 

@@ -22,6 +22,9 @@ rom_file=$(jq -r --arg chip "$chip" '.chips[$chip].rom_file' "$requirements")
 expected_rom_sha=$(jq -r --arg chip "$chip" '.chips[$chip].rom_sha256' "$requirements")
 minimum_instructions=$(jq -r --arg chip "$chip" '.chips[$chip].minimum_instructions' "$requirements")
 minimum_wifi_tx_frames=$(jq -r --arg chip "$chip" '.chips[$chip].minimum_wifi_tx_frames' "$requirements")
+expected_station_mac=$(jq -c --arg chip "$chip" '.chips[$chip].expected_station_mac' "$requirements")
+expected_auth_request_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_auth_request_length' "$requirements")
+expected_association_request_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_association_request_length' "$requirements")
 radio_input=$(jq -r --arg chip "$chip" '.chips[$chip].radio_input' "$requirements")
 rom_start=$(jq -r --arg chip "$chip" '.chips[$chip].rom_start' "$requirements")
 rom_end=$(jq -r --arg chip "$chip" '.chips[$chip].rom_end' "$requirements")
@@ -62,16 +65,25 @@ entry=$((entry_hex))
 rom_start_decimal=$((rom_start))
 rom_end_decimal=$((rom_end))
 
-"$remu" run \
-    --target "$chip" \
-    --elf "$elf" \
-    --boot-rom "$rom_root/$rom_file" \
-    --esp-app-image "$flash" \
-    --max-instructions "$minimum_instructions" \
-    --coverage "$chip_root/coverage.json" \
-    --radio-input "$radio_input" \
-    --radio-replay "$chip_root/radio-replay.json" \
-    --result "$chip_root/result.json"
+run_vendor_wifi()
+{
+    result=$1
+    replay=$2
+    shift 2
+    "$remu" run \
+        --target "$chip" \
+        --elf "$elf" \
+        --boot-rom "$rom_root/$rom_file" \
+        --esp-app-image "$flash" \
+        --max-instructions "$minimum_instructions" \
+        --radio-input "$radio_input" \
+        --radio-replay "$replay" \
+        --result "$result" \
+        "$@"
+}
+
+run_vendor_wifi "$chip_root/result.json" "$chip_root/radio-replay.json" \
+    --coverage "$chip_root/coverage.json"
 
 jq -e --argjson instructions "$minimum_instructions" \
     '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
@@ -86,20 +98,45 @@ jq -e --argjson minimum "$minimum_wifi_tx_frames" '
     [.events[] |
         select(.event == "submitted" and
                .request.frame.protocol == "wifi" and
-               .request.frame.origin == "emulated" and
-               (.request.frame.bytes | length) >= 24 and
-               .request.frame.bytes[0:2] == [64, 0])] |
+               .request.frame.origin == "emulated")] |
     length >= $minimum
 ' "$chip_root/radio-replay.json" >/dev/null
-jq -e '
-    any(.events[];
+jq -e \
+    --argjson station "$expected_station_mac" \
+    --argjson auth_length "$expected_auth_request_length" \
+    --argjson association_length "$expected_association_request_length" '
+    .events as $events |
+    any($events[];
         .event == "submitted" and
         .request.frame.protocol == "wifi" and
-        .request.frame.origin == "host-injection") and
-    any(.events[];
-        .event == "reception" and
-        .receiver == 1 and
-        .outcome.kind == "delivered")
+        .request.frame.origin == "emulated" and
+        .request.frame.bytes[0:2] == [64, 0]) and
+    any($events[];
+        .event == "submitted" and
+        .request.frame.protocol == "wifi" and
+        .request.frame.origin == "emulated" and
+        (.request.frame.bytes | length) == $auth_length and
+        .request.frame.bytes[0:2] == [176, 0] and
+        .request.frame.bytes[4:10] == [2, 82, 69, 77, 85, 1] and
+        .request.frame.bytes[10:16] == $station) and
+    any($events[];
+        .event == "submitted" and
+        .request.frame.protocol == "wifi" and
+        .request.frame.origin == "emulated" and
+        (.request.frame.bytes | length) == $association_length and
+        .request.frame.bytes[0:2] == [0, 0] and
+        .request.frame.bytes[4:10] == [2, 82, 69, 77, 85, 1] and
+        .request.frame.bytes[10:16] == $station) and
+    ([ $events[] |
+        select(.event == "submitted" and
+               .request.frame.protocol == "wifi" and
+               .request.frame.origin == "host-injection") |
+        . as $submitted |
+        select(any($events[];
+            .event == "reception" and
+            .id == $submitted.id and
+            .receiver == 1 and
+            .outcome.kind == "delivered")) ] | length) == 4
 ' "$chip_root/radio-replay.json" >/dev/null
 
 jq -r '.uart[]' "$chip_root/result.json" | awk '{ printf "%c", $1 }' >"$chip_root/uart.log"
@@ -121,12 +158,19 @@ then
     exit 1
 fi
 
+run_vendor_wifi "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" \
+    --replay "$chip_root/result.json"
+jq -e --argjson instructions "$minimum_instructions" \
+    '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
+    "$chip_root/result-repeat.json" >/dev/null
+cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
+
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-rom-qualification.v1 \
+    --arg schema remu.radio-rom-qualification.v2 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -158,6 +202,11 @@ jq -n \
             requires_native_wifi_dma_tx: true,
             requires_native_wifi_dma_rx: true,
             requires_vendor_scan_result: true,
+            requires_vendor_station_association: true,
+            requires_open_system_authentication: true,
+            requires_association_response: true,
+            excludes_hardware_fcs_from_replay_frames: true,
+            deterministic_replay_required: true,
             minimum_wifi_tx_frames: $minimum_wifi_tx_frames,
             symbol_dispatch_allowed: false
         },
@@ -168,7 +217,9 @@ jq -n \
             coverage_digest: $coverage[0].digest,
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
-            vendor_scan_count: $vendor_scan_count
+            vendor_scan_count: $vendor_scan_count,
+            vendor_station_connected: true,
+            deterministic_replay: true
         }
     }' >"$chip_root/summary.json"
 

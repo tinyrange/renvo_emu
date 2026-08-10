@@ -689,6 +689,83 @@ fn esp32c6_illegal_native_wifi_dma_is_a_hard_machine_error() {
 }
 
 #[test]
+fn esp32c6_native_wifi_tx_excludes_hardware_fcs_from_the_rf_frame() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let descriptor = 0x4082_1000_u32;
+    let buffer = 0x4082_1100_u32;
+    let frame: Vec<u8> = (0_u8..30).collect();
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    let mut buffer_bytes = Vec::new();
+    buffer_bytes.extend_from_slice(&34_u32.to_le_bytes());
+    buffer_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    buffer_bytes.extend_from_slice(&frame);
+    buffer_bytes.extend_from_slice(&[0xa5; 4]);
+    machine
+        .debug_write_memory(u64::from(buffer), &buffer_bytes)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert!(machine
+        .radio_replay_artifact()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.protocol == remu_radio::RadioProtocol::Wifi
+                    && request.frame.bytes == frame
+        )));
+}
+
+#[test]
+fn esp32c6_native_wifi_tx_rejects_an_fcs_without_a_mac_frame() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let descriptor = 0x4082_1000_u32;
+    let buffer = 0x4082_1100_u32;
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer), &4_u32.to_le_bytes())
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected a radio legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DmaLength);
+    assert!(error.detail.contains("does not contain a MAC frame"));
+}
+
+#[test]
 fn esp32c6_overlapping_ieee802154_cca_is_a_hard_machine_error() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine
