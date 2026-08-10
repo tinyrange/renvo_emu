@@ -76,6 +76,12 @@ EXPECTED_ROM_REQUIREMENTS = {
         "expected_station_mac": [82, 69, 2, 0, 0, 0],
         "expected_auth_request_length": 30,
         "expected_association_request_length": 45,
+        "calibration_regions": [
+            "esp32c6.i2c-ana-mst",
+            "esp32c6.power-detector",
+            "esp32c6.phy-registers",
+            "esp32c6.phy-i2c-command-memory",
+        ],
         "required_stop": "InstructionLimit",
         "required_uart_substrings": [
             "Calling app_main()",
@@ -105,6 +111,13 @@ EXPECTED_ROM_REQUIREMENTS = {
         "expected_station_mac": [85, 68, 51, 34, 17, 0],
         "expected_auth_request_length": 30,
         "expected_association_request_length": 40,
+        "calibration_regions": [
+            "esp32s3.fe-registers",
+            "esp32s3.phy-registers",
+            "esp32s3.agc-registers",
+            "esp32s3.nrx-registers",
+            "esp32s3.bb-registers",
+        ],
         "required_stop": "InstructionLimit",
         "required_uart_substrings": [
             "Project name:     remu_vendor_wifi_probe",
@@ -501,8 +514,8 @@ def validate_inventory(inventory: dict[str, object], validation: Validation) -> 
 
 def validate_rom_requirements(requirements: dict[str, object], validation: Validation) -> None:
     validation.require(
-        requirements.get("schema") == "remu.radio-rom-requirements.v2",
-        "radio ROM requirements schema is not remu.radio-rom-requirements.v2",
+        requirements.get("schema") == "remu.radio-rom-requirements.v3",
+        "radio ROM requirements schema is not remu.radio-rom-requirements.v3",
     )
     validation.require(
         requirements.get("source_ledger_entry") == "esp-rom-elfs-20260528",
@@ -533,6 +546,10 @@ def validate_rom_requirements(requirements: dict[str, object], validation: Valid
     validation.require(
         requirements.get("deterministic_replay_required") is True,
         "real-ROM qualification must require deterministic replay",
+    )
+    validation.require(
+        requirements.get("calibration_evidence_required") is True,
+        "real-ROM qualification must require firmware-observed calibration evidence",
     )
     validation.require(
         requirements.get("symbol_dispatch_allowed") is False,

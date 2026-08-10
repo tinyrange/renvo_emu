@@ -47,7 +47,13 @@ all faults before the required instruction budget, and verifies execution
 coverage contains both the mask-ROM range and the application entry point. The
 gate also requires the UART evidence emitted by the real application, Wi-Fi
 library, PHY initialization, a completed one-channel active scan, and a native
-open-system station association. Each chip transmits exact probe,
+open-system station association. The same run now streams a region-filtered
+calibration log instead of retaining a broad trace in memory. C6 must program
+the PHY analog-I²C command SRAM and complete RFPLL charge-pump, frequency,
+power-detector, and IQ-estimator paths. S3 must complete PHY TX-DC,
+packet-detector, and FE IQ-estimator paths while exercising its AGC, NRX, and
+baseband pages. The calibration-region list and log digest are part of the
+versioned result. Each chip transmits exact probe,
 authentication, and association requests through native DMA, receives
 deterministic beacon, authentication-response, and association-response frames
 through its real RX ring, reports the AP through `esp_wifi_scan_get_ap_num()`,

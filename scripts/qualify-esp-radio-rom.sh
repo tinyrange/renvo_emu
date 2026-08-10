@@ -25,6 +25,7 @@ minimum_wifi_tx_frames=$(jq -r --arg chip "$chip" '.chips[$chip].minimum_wifi_tx
 expected_station_mac=$(jq -c --arg chip "$chip" '.chips[$chip].expected_station_mac' "$requirements")
 expected_auth_request_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_auth_request_length' "$requirements")
 expected_association_request_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_association_request_length' "$requirements")
+calibration_regions=$(jq -c --arg chip "$chip" '.chips[$chip].calibration_regions' "$requirements")
 radio_input=$(jq -r --arg chip "$chip" '.chips[$chip].radio_input' "$requirements")
 rom_start=$(jq -r --arg chip "$chip" '.chips[$chip].rom_start' "$requirements")
 rom_end=$(jq -r --arg chip "$chip" '.chips[$chip].rom_end' "$requirements")
@@ -52,7 +53,7 @@ docker run --rm \
 
 if [ -z "${REMU_BIN:-}" ]
 then
-    cargo build -q --release -p remu-cli --locked
+    CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1} cargo build -q --release -p remu-cli --locked
     remu=target/release/remu
 else
     remu=$REMU_BIN
@@ -82,8 +83,27 @@ run_vendor_wifi()
         "$@"
 }
 
-run_vendor_wifi "$chip_root/result.json" "$chip_root/radio-replay.json" \
-    --coverage "$chip_root/coverage.json"
+case "$chip" in
+    esp32c6)
+        run_vendor_wifi "$chip_root/result.json" "$chip_root/radio-replay.json" \
+            --coverage "$chip_root/coverage.json" \
+            --bus-log "$chip_root/calibration-bus.json" \
+            --bus-log-region esp32c6.i2c-ana-mst \
+            --bus-log-region esp32c6.power-detector \
+            --bus-log-region esp32c6.phy-registers \
+            --bus-log-region esp32c6.phy-i2c-command-memory
+        ;;
+    esp32s3)
+        run_vendor_wifi "$chip_root/result.json" "$chip_root/radio-replay.json" \
+            --coverage "$chip_root/coverage.json" \
+            --bus-log "$chip_root/calibration-bus.json" \
+            --bus-log-region esp32s3.fe-registers \
+            --bus-log-region esp32s3.phy-registers \
+            --bus-log-region esp32s3.agc-registers \
+            --bus-log-region esp32s3.nrx-registers \
+            --bus-log-region esp32s3.bb-registers
+        ;;
+esac
 
 jq -e --argjson instructions "$minimum_instructions" \
     '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
@@ -101,6 +121,72 @@ jq -e --argjson minimum "$minimum_wifi_tx_frames" '
                .request.frame.origin == "emulated")] |
     length >= $minimum
 ' "$chip_root/radio-replay.json" >/dev/null
+
+# Pin the genuine firmware sequences that drive the modeled calibration
+# completion edges. The log is region-filtered and streamed, so this evidence
+# remains bounded even for the full vendor run.
+jq -e --argjson regions "$calibration_regions" '
+    . as $records |
+    all($regions[]; . as $region | any($records[]; .region == $region))
+' "$chip_root/calibration-bus.json" >/dev/null
+case "$chip" in
+    esp32c6)
+        jq -e '
+            . as $records |
+            ([ $records[] |
+                select(.region == "esp32c6.phy-i2c-command-memory" and
+                       .kind == "Write") ] | length) >= 30 and
+            any($records[];
+                .region == "esp32c6.i2c-ana-mst" and .kind == "Write" and
+                (.value % 256) == 98 and
+                (((.value / 256) | floor) % 256) == 15 and
+                ((((.value / 65536) | floor) / 32 | floor) % 2) == 1) and
+            any($records[];
+                .region == "esp32c6.i2c-ana-mst" and .kind == "Read" and
+                (.value % 256) == 98 and
+                (((.value / 256) | floor) % 256) == 14 and
+                ((((.value / 65536) | floor) / 128 | floor) % 2) == 1) and
+            any($records[];
+                .address == 1611268288 and .kind == "Write" and
+                (((.value / 16384) | floor) % 2) == 1) and
+            any($records[];
+                .address == 1611268300 and .kind == "Read" and
+                (((.value / 256) | floor) % 2) == 1) and
+            any($records[];
+                .address == 1611269144 and .kind == "Write" and
+                (.value % 2) == 1) and
+            any($records[];
+                .address == 1611269236 and .kind == "Write" and
+                (((.value / 2) | floor) % 2) == 1) and
+            any($records[];
+                .address == 1611269280 and .kind == "Read" and
+                (((.value / 65536) | floor) % 2) == 1)
+        ' "$chip_root/calibration-bus.json" >/dev/null
+        ;;
+    esp32s3)
+        jq -e '
+            . as $records |
+            any($records[];
+                .address == 1610670156 and .kind == "Write" and
+                (((.value / 2) | floor) % 2) == 1) and
+            any($records[];
+                .address == 1610670156 and .kind == "Read" and
+                (((.value / 16777216) | floor) % 2) == 1) and
+            any($records[];
+                .address == 1610670160 and .kind == "Write" and
+                (((.value / 2) | floor) % 2) == 1) and
+            any($records[];
+                .address == 1610670160 and .kind == "Read" and
+                (((.value / 16777216) | floor) % 8) == 7) and
+            any($records[];
+                .address == 1610637636 and .kind == "Write" and
+                (((.value / 2) | floor) % 2) == 1) and
+            any($records[];
+                .address == 1610637684 and .kind == "Read" and
+                (((.value / 65536) | floor) % 2) == 1)
+        ' "$chip_root/calibration-bus.json" >/dev/null
+        ;;
+esac
 jq -e \
     --argjson station "$expected_station_mac" \
     --argjson auth_length "$expected_auth_request_length" \
@@ -169,8 +255,9 @@ elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
+calibration_bus_sha=$(sha256sum "$chip_root/calibration-bus.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-rom-qualification.v2 \
+    --arg schema remu.radio-rom-qualification.v3 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -178,6 +265,8 @@ jq -n \
     --arg flash_sha256 "$flash_sha" \
     --arg uart_sha256 "$uart_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
+    --arg calibration_bus_sha256 "$calibration_bus_sha" \
+    --argjson calibration_regions "$calibration_regions" \
     --argjson entry "$entry" \
     --argjson minimum_instructions "$minimum_instructions" \
     --argjson minimum_wifi_tx_frames "$minimum_wifi_tx_frames" \
@@ -201,6 +290,8 @@ jq -n \
             requires_radio_initialization: true,
             requires_native_wifi_dma_tx: true,
             requires_native_wifi_dma_rx: true,
+            requires_firmware_observed_calibration: true,
+            calibration_regions: $calibration_regions,
             requires_vendor_scan_result: true,
             requires_vendor_station_association: true,
             requires_open_system_authentication: true,
@@ -217,6 +308,8 @@ jq -n \
             coverage_digest: $coverage[0].digest,
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
+            calibration_bus_sha256: $calibration_bus_sha256,
+            calibration_completion_paths: true,
             vendor_scan_count: $vendor_scan_count,
             vendor_station_connected: true,
             deterministic_replay: true
