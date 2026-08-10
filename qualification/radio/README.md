@@ -104,7 +104,9 @@ hardware contracts; they do not need to duplicate every vendor-stack behavior.
   802.15.4 MAC register block, including DMA, filters, automatic ACK, FCS,
   timed single-shot CCA/ED for guest-owned replayable CSMA-CA, AES-CCM*
   transmit security with published negative reason codes, timers, W1C events,
-  abort reasons, counters, and interrupt source 12.
+  abort reasons, counters, and interrupt source 12. The genuine ESP-IDF gate
+  covers both clear and busy CCA: it observes public error 1, clears the abort
+  cause, and performs a firmware-owned successful retry.
 - A shared BLE H4 controller for C6 and S3 with periodic advertising/scanning,
   initiating, ACL, encryption, data-length, PHY, privacy-facing queries,
   deterministic peers, and controller events.

@@ -107,12 +107,18 @@ done
 
 jq -e '
     .events as $events |
+    ([ $events[] |
+        select(.event == "submitted" and
+               .request.frame.protocol == "ieee802154" and
+               .request.frame.origin == "emulated" and
+               .request.frame.spectrum.center_khz == 2405000 and
+               .request.frame.bytes == [1, 0, 42, 165]) ] | length) == 2 and
     any($events[];
         .event == "submitted" and
+        .request.start == 5508000 and
         .request.frame.protocol == "ieee802154" and
-        .request.frame.origin == "emulated" and
-        .request.frame.spectrum.center_khz == 2405000 and
-        .request.frame.bytes == [1, 0, 42, 165]) and
+        .request.frame.origin == "host-injection" and
+        .request.frame.bytes == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]) and
     any($events[];
         . as $submitted |
         ($submitted.event == "submitted" and
@@ -184,6 +190,9 @@ jq -e '
     any(.[]; .kind == "Write" and .address == 1611280412 and .value == 43981) and
     any(.[]; .kind == "Read" and .address == 1611280484 and .value == 16) and
     any(.[]; .kind == "Write" and .address == 1611280484 and .value == 16) and
+    any(.[]; .kind == "Read" and .address == 1611280484 and .value == 32) and
+    any(.[]; .kind == "Write" and .address == 1611280484 and .value == 32) and
+    any(.[]; .kind == "Read" and .address == 1611280516 and .value == 400) and
     any(.[]; .kind == "Read" and .address == 1611280484 and .value == 8) and
     any(.[]; .kind == "Write" and .address == 1611280484 and .value == 8) and
     any(.[]; .kind == "Read" and .address == 1611280484 and (.value == 4 or .value == 6)) and
@@ -204,7 +213,7 @@ uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 bus_sha=$(sha256sum "$chip_root/ieee802154-bus.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-ieee802154-vendor-qualification.v4 \
+    --arg schema remu.radio-ieee802154-vendor-qualification.v5 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -235,6 +244,8 @@ jq -n \
             requires_rssi_lqi_metadata: true,
             requires_energy_detection: true,
             requires_cca_transmit: true,
+            requires_cca_busy_error: true,
+            requires_firmware_owned_csma_retry: true,
             requires_multipan_filtering: true,
             requires_automatic_ack_transmit: true,
             requires_frame_pending_ack: true,
@@ -258,6 +269,9 @@ jq -n \
             rx_lqi: 63,
             cca_transmit: {
                 duration_symbols: 8,
+                busy_channel_vendor_error: 1,
+                busy_channel_aborted_without_transmit: true,
+                firmware_retry_observed: true,
                 clear_channel_completed: true
             },
             multipan_filter: {

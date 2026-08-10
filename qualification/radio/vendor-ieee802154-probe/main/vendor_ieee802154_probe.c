@@ -139,7 +139,28 @@ void app_main(void)
          ++timeout) {
         vTaskDelay(pdMS_TO_TICKS(1));
     }
-    printf("REMU_VENDOR_IEEE802154_CCA_TX_DONE complete=%u failed=%u error=%d\n",
+    printf("REMU_VENDOR_IEEE802154_CCA_BUSY_DONE complete=%u failed=%u error=%d\n",
+           transmit_complete ? 1u : 0u, transmit_failed ? 1u : 0u,
+           transmit_error);
+    if (transmit_complete || !transmit_failed ||
+        transmit_error != ESP_IEEE802154_TX_ERR_CCA_BUSY) {
+        return;
+    }
+
+    /* CSMA retry policy belongs to the firmware.  The emulator reports the
+     * busy channel and the genuine driver decides when to try again. */
+    vTaskDelay(pdMS_TO_TICKS(10));
+    transmit_complete = false;
+    transmit_failed = false;
+    transmit_error = -1;
+    result = esp_ieee802154_transmit(transmit_frame, true);
+    printf("REMU_VENDOR_IEEE802154_CCA_RETRY_START result=%d\n", (int)result);
+    for (unsigned timeout = 0;
+         result == ESP_OK && !transmit_complete && !transmit_failed && timeout < 200;
+         ++timeout) {
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    printf("REMU_VENDOR_IEEE802154_CCA_RETRY_DONE complete=%u failed=%u error=%d\n",
            transmit_complete ? 1u : 0u, transmit_failed ? 1u : 0u,
            transmit_error);
     if (!transmit_complete || transmit_failed) {
