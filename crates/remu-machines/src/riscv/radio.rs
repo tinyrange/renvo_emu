@@ -131,6 +131,27 @@ impl RiscVMachine {
             )
         };
         let reset_generations = modem.reset_generations();
+        let reset_changed = std::array::from_fn::<_, 4, _>(|index| {
+            reset_generations[index] != self.radio_c6_reset_generations[index]
+        });
+        if reset_changed.iter().any(|changed| *changed) {
+            self.radio_coexistence
+                .as_mut()
+                .expect("ESP32-C6 machine has a coexistence arbiter")
+                .reset(self.now)?;
+        }
+        if reset_changed[1] {
+            self.radio_c6_ble_scan = None;
+            self.radio_c6_ble_completion_anchors.clear();
+            self.radio_c6_ble_schedule_records.clear();
+            self.radio_c6_pending_ble_transmissions.clear();
+        }
+        if reset_changed[2] {
+            self.radio_pending_ieee802154_tx.clear();
+            self.radio_pending_ieee802154_ack.clear();
+            self.radio_pending_ieee802154_cca = None;
+        }
+        self.radio_c6_reset_generations = reset_generations;
         let legality = self
             .radio_legality
             .as_mut()

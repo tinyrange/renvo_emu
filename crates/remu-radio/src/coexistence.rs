@@ -95,6 +95,11 @@ pub enum CoexistenceEvent {
         /// Release time.
         at: SimTime,
     },
+    /// Firmware reset canceled any active ownership.
+    Reset {
+        /// Reset observation time.
+        at: SimTime,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,11 +261,12 @@ impl CoexistenceArbiter {
         &self.events
     }
 
-    /// Clears ownership and evidence while preserving deterministic ID order.
+    /// Clears ownership while preserving deterministic ID order and appending
+    /// reset evidence.
     pub fn reset(&mut self, at: SimTime) -> Result<(), CoexistenceError> {
         self.advance_to(at)?;
         self.active = None;
-        self.events.clear();
+        self.events.push(CoexistenceEvent::Reset { at });
         Ok(())
     }
 }
@@ -349,5 +355,20 @@ mod tests {
         );
         arbiter.advance_to(SimTime::from_ticks(7)).unwrap();
         assert_eq!(arbiter.owner(), None);
+    }
+
+    #[test]
+    fn reset_cancels_ownership_and_preserves_append_only_evidence() {
+        let mut arbiter = CoexistenceArbiter::new();
+        arbiter
+            .request(request(RadioProtocol::Wifi, 4, 20, 1, true))
+            .unwrap();
+        arbiter.reset(SimTime::from_ticks(8)).unwrap();
+        assert_eq!(arbiter.owner(), None);
+        assert!(matches!(
+            arbiter.events(),
+            [CoexistenceEvent::Granted { .. }, CoexistenceEvent::Reset { at }]
+                if *at == SimTime::from_ticks(8)
+        ));
     }
 }

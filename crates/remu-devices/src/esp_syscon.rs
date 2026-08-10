@@ -222,6 +222,7 @@ struct Esp32S3SysconState {
     date: u32,
     reject_cause: u8,
     reject_address: u32,
+    radio_reset_generation: u64,
 }
 
 impl Esp32S3SysconState {
@@ -231,6 +232,7 @@ impl Esp32S3SysconState {
             date: Esp32S3SysconRegister::Date.reset_value(),
             reject_cause: 0,
             reject_address: 0,
+            radio_reset_generation: 0,
         };
         for offset in (0..=0xc8).step_by(4) {
             if let Some(register) = Esp32S3SysconRegister::from_offset(offset) {
@@ -321,6 +323,11 @@ impl Esp32S3SysconHandle {
         self.state
             .borrow()
             .register(Esp32S3SysconRegister::RadioResetEnable)
+    }
+
+    /// Monotonic generation incremented by each shared radio reset assertion.
+    pub fn radio_reset_generation(&self) -> u64 {
+        self.state.borrow().radio_reset_generation
     }
 
     /// Returns whether the published shared radio clock/reset contract allows Wi-Fi work.
@@ -528,11 +535,17 @@ impl Device for Esp32S3Syscon {
         } else {
             state.set_register(register, value);
         }
+        if register == Esp32S3SysconRegister::RadioResetEnable && (!old & value) != 0 {
+            state.radio_reset_generation = state.radio_reset_generation.wrapping_add(1);
+        }
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        *self.state.borrow_mut() = Esp32S3SysconState::new();
+        let generation = self.state.borrow().radio_reset_generation.wrapping_add(1);
+        let mut reset = Esp32S3SysconState::new();
+        reset.radio_reset_generation = generation;
+        *self.state.borrow_mut() = reset;
     }
 }
 
@@ -750,8 +763,12 @@ mod tests {
         let (mut device, handle) = Esp32S3Syscon::new("syscon");
         assert!(handle.wifi_ready());
         assert!(handle.ble_ready());
+        let initial_generation = handle.radio_reset_generation();
         write(&mut device, Esp32S3SysconRegister::RadioResetEnable, 1);
         assert!(!handle.wifi_ready());
+        assert_eq!(handle.radio_reset_generation(), initial_generation + 1);
+        write(&mut device, Esp32S3SysconRegister::RadioResetEnable, 1);
+        assert_eq!(handle.radio_reset_generation(), initial_generation + 1);
         write(&mut device, Esp32S3SysconRegister::RadioResetEnable, 0);
         write(&mut device, Esp32S3SysconRegister::RadioClockEnable, 0);
         assert!(!handle.ble_ready());

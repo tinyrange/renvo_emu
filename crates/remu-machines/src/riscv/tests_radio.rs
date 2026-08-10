@@ -658,6 +658,36 @@ fn esp32c6_wifi_and_ble_protocol_engines_follow_modem_clock_gates() {
 }
 
 #[test]
+fn esp32c6_modem_reset_cancels_active_coexistence_ownership() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .radio_coexistence
+        .as_mut()
+        .unwrap()
+        .request(remu_radio::CoexistenceRequest {
+            protocol: remu_radio::RadioProtocol::BluetoothLe,
+            start: SimTime::ZERO,
+            duration: remu_core::SimDuration::from_ticks(100),
+            priority: 9,
+            preemptible: true,
+        })
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_f024, AccessWidth::Word, 1 << 1, SimTime::ZERO)
+        .unwrap();
+
+    machine.service_radio().unwrap();
+
+    let arbiter = machine.radio_coexistence.as_ref().unwrap();
+    assert_eq!(arbiter.owner(), None);
+    assert!(matches!(
+        arbiter.events().last(),
+        Some(remu_radio::CoexistenceEvent::Reset { at }) if *at == SimTime::ZERO
+    ));
+}
+
+#[test]
 fn esp32c6_illegal_native_wifi_dma_is_a_hard_machine_error() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine

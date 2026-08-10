@@ -527,6 +527,27 @@ mod tests {
                 initial[3] + 1
             ]
         );
+        let after_rising_edges = handle.reset_generations();
+        syscon
+            .write(
+                0x10,
+                AccessWidth::Word,
+                (1 << 10) | (1 << 16) | (1 << 24),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        lpcon
+            .write(0x24, AccessWidth::Word, 1 << 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            handle.reset_generations(),
+            [
+                after_rising_edges[0],
+                after_rising_edges[1],
+                after_rising_edges[2],
+                after_rising_edges[3] + 1,
+            ]
+        );
     }
 
     #[test]

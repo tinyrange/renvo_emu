@@ -79,6 +79,8 @@ emulator state and terminates with the stable hard-error diagnostic defined by
 `legal-state-contract.json`. On C6, the same genuine image also enables the
 public IEEE 802.15.4 driver and transmits while Wi-Fi remains active and BLE is
 scanning, so all three silicon radio families cross the same ownership gate.
+Firmware radio-reset assertions cancel pending native work and active ownership;
+the append-only coexistence artifact records the reset boundary.
 
 Vendor-independent execution is a focused low-level regression track. The two
 `custom-stack-probe` ELFs are original freestanding firmware: they include no

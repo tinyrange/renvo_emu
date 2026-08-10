@@ -116,18 +116,30 @@ impl XtensaMachine {
         let ble_ready = self.syscon.ble_ready();
         let coexistence_ready =
             self.syscon.radio_clock_enable() != 0 && self.syscon.radio_reset_enable() == 0;
-        self.radio_legality
-            .observe_domain(RadioSubsystem::Wifi, wifi_ready, None, self.now)?;
+        let reset_generation = self.syscon.radio_reset_generation();
+        if reset_generation != self.radio_reset_generation {
+            self.radio_coexistence.reset(self.now)?;
+            self.pending_native_ble_transmissions.clear();
+            self.pending_native_ble_receptions.clear();
+            self.pending_native_ble_slot_completions.clear();
+            self.radio_reset_generation = reset_generation;
+        }
+        self.radio_legality.observe_domain(
+            RadioSubsystem::Wifi,
+            wifi_ready,
+            Some(reset_generation),
+            self.now,
+        )?;
         self.radio_legality.observe_domain(
             RadioSubsystem::BluetoothLe,
             ble_ready,
-            None,
+            Some(reset_generation),
             self.now,
         )?;
         self.radio_legality.observe_domain(
             RadioSubsystem::Coexistence,
             coexistence_ready,
-            None,
+            Some(reset_generation),
             self.now,
         )?;
         self.radio_medium.advance_to(self.now)?;

@@ -30,6 +30,7 @@ expected_ap_mac=$(jq -c --arg chip "$chip" '.chips[$chip].expected_ap_mac' "$req
 expected_beacon_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_beacon_length' "$requirements")
 expected_association_response_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_association_response_length' "$requirements")
 expected_emulated_protocols=$(jq -c --arg chip "$chip" '.chips[$chip].expected_emulated_protocols' "$requirements")
+expected_reset_events=$(jq -r --arg chip "$chip" '.chips[$chip].expected_reset_events' "$requirements")
 
 rm -rf "$chip_root"
 mkdir -p "$chip_root"
@@ -102,9 +103,11 @@ jq -e \
     --argjson ap "$expected_ap_mac" \
     --argjson beacon_length "$expected_beacon_length" \
     --argjson association_length "$expected_association_response_length" \
-    --argjson expected_protocols "$expected_emulated_protocols" '
+    --argjson expected_protocols "$expected_emulated_protocols" \
+    --argjson expected_resets "$expected_reset_events" '
     .events as $events |
     .coexistence_events as $coexistence |
+    [ $coexistence[] | select(.event == "granted") ] as $grants |
     [ $events[] |
         select(.event == "submitted" and
                .request.frame.origin == "emulated") ] as $emitted |
@@ -120,16 +123,16 @@ jq -e \
             .id == $submitted.id and
             .receiver == 1 and
             .outcome.kind == "delivered")) ] | length) == $expected_host and
-    ($coexistence | length) == ($emitted | length) and
-    all($coexistence[]; .event == "granted") and
+    ($grants | length) == ($emitted | length) and
+    ([ $coexistence[] | select(.event == "reset") ] | length) == $expected_resets and
+    all($coexistence[]; .event == "granted" or .event == "reset") and
     all($expected_protocols[];
         . as $protocol |
         any($emitted[]; .request.frame.protocol == $protocol)) and
     all($emitted[];
         .request.frame.protocol as $protocol |
         .request.start as $start |
-        any($coexistence[];
-            .event == "granted" and
+        any($grants[];
             .protocol == $protocol and
             .start == $start)) and
     any($emitted[];
@@ -179,6 +182,7 @@ elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
+reset_events=$(jq '[.coexistence_events[] | select(.event == "reset")] | length' "$chip_root/radio-replay.json")
 jq -n \
     --arg schema remu.radio-coexistence-vendor-qualification.v1 \
     --arg chip "$chip" \
@@ -188,6 +192,7 @@ jq -n \
     --arg flash_sha256 "$flash_sha" \
     --arg uart_sha256 "$uart_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
+    --argjson reset_events "$reset_events" \
     --argjson minimum_instructions "$minimum_instructions" \
     '{
         schema: $schema,
@@ -205,6 +210,7 @@ jq -n \
             flash_sha256: $flash_sha256,
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
+            firmware_reset_boundaries: $reset_events,
             wifi_ble_coexistence_owned: true,
             native_softap_and_ble_rx: true
         }
