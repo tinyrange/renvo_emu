@@ -201,6 +201,35 @@ fn esp32s3_radio_power_gate_truncates_active_airtime() {
 }
 
 #[test]
+fn esp32s3_power_gated_unmapped_grant_is_a_hard_machine_error() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine
+        .radio_coexistence
+        .request(remu_radio::CoexistenceRequest {
+            protocol: remu_radio::RadioProtocol::Wifi,
+            start: SimTime::ZERO,
+            duration: remu_core::SimDuration::from_ticks(100),
+            priority: 8,
+            preemptible: true,
+        })
+        .unwrap();
+    machine
+        .bus
+        .write(0x6002_6014, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+
+    let XtensaMachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected a radio legality error");
+    };
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Coexistence);
+    assert_eq!(
+        error.rule,
+        remu_radio::RadioLegalityRule::CoexistenceOwnership
+    );
+    assert!(error.detail.contains("no matching RF transmission"));
+}
+
+#[test]
 fn esp32s3_illegal_native_wifi_dma_is_a_hard_machine_error() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine
