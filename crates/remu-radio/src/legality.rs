@@ -75,7 +75,7 @@ pub enum RadioLegalityRule {
     DmaAddress,
     /// A firmware-owned DMA length must fit the recovered hardware field.
     DmaLength,
-    /// A native interrupt cannot remain asserted while its domain is reset.
+    /// A native interrupt requires firmware to have enabled its current domain generation.
     InterruptDomain,
     /// Mutually exclusive controller activities cannot overlap.
     OperationOverlap,
@@ -176,6 +176,7 @@ pub struct RadioLegalityError {
 struct DomainState {
     observed: bool,
     ready: bool,
+    ever_ready: bool,
     reset_generation: Option<u64>,
     activity: RadioActivity,
 }
@@ -231,6 +232,7 @@ impl RadioLegalityValidator {
             }
             if current != previous {
                 state.activity = RadioActivity::Idle;
+                state.ever_ready = false;
             }
         }
         if state.observed && state.ready && !ready && state.activity != RadioActivity::Idle {
@@ -247,6 +249,7 @@ impl RadioLegalityValidator {
         }
         state.observed = true;
         state.ready = ready;
+        state.ever_ready |= ready;
         state.reset_generation = reset_generation.or(state.reset_generation);
         Ok(())
     }
@@ -362,8 +365,11 @@ impl RadioLegalityValidator {
         Ok(())
     }
 
-    /// Rejects an asserted native interrupt whose clock/reset domain is not
-    /// available. Deasserted lines are always legal.
+    /// Rejects a native interrupt before genuine firmware has enabled the
+    /// domain in its current reset generation. Firmware traces show that
+    /// hardware may raise or retain status while its functional clock is
+    /// subsequently gated, so current clock availability is deliberately not
+    /// used as an interrupt legality condition.
     pub fn observe_interrupt(
         &mut self,
         subsystem: RadioSubsystem,
@@ -371,18 +377,15 @@ impl RadioLegalityValidator {
         at: SimTime,
     ) -> Result<(), RadioLegalityError> {
         self.observe_time(subsystem, at)?;
-        if pending
-            && !self
-                .domains
-                .get(&subsystem)
-                .is_some_and(|state| state.ready)
-        {
+        let state = self.domains.entry(subsystem).or_default();
+        if pending && !state.ever_ready {
             return Err(Self::error_for(
                 self.chip,
                 subsystem,
                 RadioLegalityRule::InterruptDomain,
                 at,
-                "native interrupt asserted while the domain was unavailable".to_owned(),
+                "native interrupt asserted before firmware enabled the domain generation"
+                    .to_owned(),
             ));
         }
         Ok(())
@@ -569,5 +572,39 @@ mod tests {
                 .rule,
             RadioLegalityRule::DmaAddress
         );
+    }
+
+    #[test]
+    fn permits_interrupts_after_clock_gating_but_rejects_pre_enable_assertion() {
+        let mut validator = RadioLegalityValidator::new(RadioChip::Esp32S3);
+        validator
+            .observe_domain(RadioSubsystem::Wifi, false, None, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            validator
+                .observe_interrupt(RadioSubsystem::Wifi, true, SimTime::from_ticks(1))
+                .unwrap_err()
+                .rule,
+            RadioLegalityRule::InterruptDomain
+        );
+        let mut validator = RadioLegalityValidator::new(RadioChip::Esp32S3);
+        validator
+            .observe_domain(RadioSubsystem::Wifi, true, None, SimTime::ZERO)
+            .unwrap();
+        validator
+            .observe_interrupt(RadioSubsystem::Wifi, true, SimTime::from_ticks(1))
+            .unwrap();
+        validator
+            .observe_domain(RadioSubsystem::Wifi, false, None, SimTime::from_ticks(2))
+            .unwrap();
+        validator
+            .observe_interrupt(RadioSubsystem::Wifi, true, SimTime::from_ticks(2))
+            .unwrap();
+        validator
+            .observe_interrupt(RadioSubsystem::Wifi, false, SimTime::from_ticks(3))
+            .unwrap();
+        validator
+            .observe_interrupt(RadioSubsystem::Wifi, true, SimTime::from_ticks(4))
+            .unwrap();
     }
 }

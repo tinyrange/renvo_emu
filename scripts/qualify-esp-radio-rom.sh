@@ -49,8 +49,8 @@ docker run --rm \
 
 if [ -z "${REMU_BIN:-}" ]
 then
-    cargo build -q -p remu-cli --locked
-    remu=target/debug/remu
+    cargo build -q --release -p remu-cli --locked
+    remu=target/release/remu
 else
     remu=$REMU_BIN
 fi
