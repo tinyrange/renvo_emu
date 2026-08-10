@@ -1,9 +1,10 @@
 use super::{XtensaMachine, XtensaMachineError};
 use remu_core::{AccessKind, AccessWidth, Bus, SimDuration};
 use remu_radio::{
-    BleController, CoexistenceDecision, CoexistenceRequest, DeliveryOutcome, FrameOrigin,
-    MediumEvent, NodeId, RadioDmaDirection, RadioFrame, RadioLegalityRule, RadioProtocol,
-    RadioSubsystem, Receiver, ReplayArtifact, Spectrum, TxRequest, WifiEngine,
+    BleController, CoexistenceDecision, CoexistenceGrantId, CoexistenceRequest, DeliveryOutcome,
+    FrameOrigin, MediumEvent, NodeId, RadioDmaDirection, RadioFrame, RadioLegalityRule,
+    RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact, Spectrum, TransmissionId, TxRequest,
+    WifiEngine,
 };
 const EMULATED_NODE: NodeId = NodeId(1);
 const HOST_NODE: NodeId = NodeId(0);
@@ -22,6 +23,52 @@ const S3_BLE_HALF_SLOT_TICKS: u64 =
 const S3_BLE_COARSE_MASK: u64 = 0x0fff_ffff;
 const S3_BLE_CLOCK_CYCLE_TICKS: u64 = (S3_BLE_COARSE_MASK + 1) * S3_BLE_HALF_SLOT_TICKS;
 const BLE_ADVERTISING_ACCESS_ADDRESS: u32 = 0x8e89_bed6;
+
+impl XtensaMachine {
+    fn reset_coexistence(&mut self) -> Result<(), XtensaMachineError> {
+        let active_airtime = self
+            .radio_coexistence
+            .owner()
+            .is_some_and(|(_, end)| end > self.now);
+        if active_airtime {
+            if let Some((_, transmission)) = self.radio_coexistence_transmission.take() {
+                self.radio_medium.truncate(transmission, self.now)?;
+            }
+        } else {
+            self.radio_coexistence_transmission = None;
+        }
+        self.radio_coexistence.reset(self.now)?;
+        Ok(())
+    }
+
+    fn apply_coexistence_preemption(
+        &mut self,
+        preempted: Option<CoexistenceGrantId>,
+    ) -> Result<(), XtensaMachineError> {
+        let Some(preempted) = preempted else {
+            return Ok(());
+        };
+        let prior = self.radio_coexistence_transmission.take();
+        self.radio_legality.require(
+            RadioSubsystem::Coexistence,
+            RadioLegalityRule::CoexistenceOwnership,
+            prior.is_some_and(|(grant, _)| grant == preempted),
+            self.now,
+            format!("preempted grant {preempted:?} has no matching RF transmission"),
+        )?;
+        let (_, transmission) = prior.expect("validated coexistence transmission exists");
+        self.radio_medium.truncate(transmission, self.now)?;
+        Ok(())
+    }
+
+    fn record_coexistence_transmission(
+        &mut self,
+        grant: CoexistenceGrantId,
+        transmission: TransmissionId,
+    ) {
+        self.radio_coexistence_transmission = Some((grant, transmission));
+    }
+}
 
 pub(super) struct PendingNativeBleTransmission {
     start: u64,
@@ -118,7 +165,7 @@ impl XtensaMachine {
             self.syscon.radio_clock_enable() != 0 && self.syscon.radio_reset_enable() == 0;
         let reset_generation = self.syscon.radio_reset_generation();
         if reset_generation != self.radio_reset_generation {
-            self.radio_coexistence.reset(self.now)?;
+            self.reset_coexistence()?;
             self.pending_native_ble_transmissions.clear();
             self.pending_native_ble_receptions.clear();
             self.pending_native_ble_slot_completions.clear();
@@ -346,17 +393,20 @@ impl XtensaMachine {
                 .checked_add(duration)
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
             if let CoexistenceDecision::Granted {
+                id: grant,
                 protocol: granted_protocol,
+                preempted,
                 ..
             } = decision
             {
+                self.apply_coexistence_preemption(preempted)?;
                 self.radio_legality.validate_coexistence_ownership(
                     RadioSubsystem::BluetoothLe,
                     RadioProtocol::BluetoothLe,
                     granted_protocol,
                     self.now,
                 )?;
-                self.radio_medium.transmit(TxRequest {
+                let transmission = self.radio_medium.transmit(TxRequest {
                     source: EMULATED_NODE,
                     start: self.now,
                     end: due,
@@ -369,6 +419,7 @@ impl XtensaMachine {
                         origin: FrameOrigin::Emulated,
                     },
                 })?;
+                self.record_coexistence_transmission(grant, transmission);
                 // A legacy advertising slot does not request a standalone TX
                 // callback. Raising RWBLE's global TX cause here would make
                 // the scheduler deliver status 3 to lld_adv, which is invalid
@@ -653,19 +704,22 @@ impl XtensaMachine {
                 preemptible: true,
             })?;
             let CoexistenceDecision::Granted {
+                id: grant,
                 protocol: granted_protocol,
+                preempted,
                 ..
             } = decision
             else {
                 continue;
             };
+            self.apply_coexistence_preemption(preempted)?;
             self.radio_legality.validate_coexistence_ownership(
                 RadioSubsystem::Wifi,
                 RadioProtocol::Wifi,
                 granted_protocol,
                 self.now,
             )?;
-            self.radio_medium.transmit(TxRequest {
+            let transmission = self.radio_medium.transmit(TxRequest {
                 source: EMULATED_NODE,
                 start: self.now,
                 end: self
@@ -681,6 +735,7 @@ impl XtensaMachine {
                     origin: FrameOrigin::Emulated,
                 },
             })?;
+            self.record_coexistence_transmission(grant, transmission);
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
@@ -955,12 +1010,15 @@ impl XtensaMachine {
                 preemptible: true,
             })?;
             let CoexistenceDecision::Granted {
+                id: grant,
                 protocol: granted_protocol,
+                preempted,
                 ..
             } = decision
             else {
                 continue;
             };
+            self.apply_coexistence_preemption(preempted)?;
             self.radio_legality.validate_coexistence_ownership(
                 match frame.protocol {
                     RadioProtocol::Wifi => RadioSubsystem::Wifi,
@@ -971,7 +1029,7 @@ impl XtensaMachine {
                 granted_protocol,
                 self.now,
             )?;
-            self.radio_medium.transmit(TxRequest {
+            let transmission = self.radio_medium.transmit(TxRequest {
                 source: EMULATED_NODE,
                 start: self.now,
                 end: self
@@ -981,6 +1039,7 @@ impl XtensaMachine {
                 power_dbm: 0,
                 frame,
             })?;
+            self.record_coexistence_transmission(grant, transmission);
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)

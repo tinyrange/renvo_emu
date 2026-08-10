@@ -58,6 +58,24 @@ pub enum MediumError {
     /// Stable transmission identifiers have been exhausted.
     #[error("transmission identifier space exhausted")]
     IdentifierExhausted,
+    /// A requested transmission identifier does not exist in retained medium history.
+    #[error("transmission {0:?} is not present in the medium")]
+    UnknownTransmission(TransmissionId),
+    /// A completed or previously truncated transmission cannot be truncated again.
+    #[error("transmission {0:?} is already complete")]
+    CompletedTransmission(TransmissionId),
+    /// A truncation timestamp must lie within the accepted transmission interval.
+    #[error("cannot truncate transmission {id:?} outside {start}..={end} at {at}")]
+    InvalidTruncation {
+        /// Transmission identifier.
+        id: TransmissionId,
+        /// Original inclusive start.
+        start: SimTime,
+        /// Original exclusive end.
+        end: SimTime,
+        /// Requested truncation time.
+        at: SimTime,
+    },
 }
 
 /// Deterministic shared RF medium with no implicit host networking.
@@ -223,6 +241,38 @@ impl RadioMedium {
             resolved: false,
         });
         Ok(id)
+    }
+
+    /// Truncates an unresolved transmission after coexistence ownership is
+    /// preempted. A zero-airtime truncation is retained as evidence but cannot
+    /// interfere with or reach a receiver.
+    pub fn truncate(&mut self, id: TransmissionId, at: SimTime) -> Result<(), MediumError> {
+        if at < self.now {
+            return Err(MediumError::TimeReversal {
+                now: self.now,
+                requested: at,
+            });
+        }
+        let transmission = self
+            .transmissions
+            .iter_mut()
+            .find(|transmission| transmission.id == id)
+            .ok_or(MediumError::UnknownTransmission(id))?;
+        if transmission.resolved {
+            return Err(MediumError::CompletedTransmission(id));
+        }
+        if at < transmission.request.start || at > transmission.request.end {
+            return Err(MediumError::InvalidTruncation {
+                id,
+                start: transmission.request.start,
+                end: transmission.request.end,
+                at,
+            });
+        }
+        transmission.request.end = at;
+        transmission.resolved = true;
+        self.events.push(MediumEvent::Truncated { id, at });
+        Ok(())
     }
 
     /// Advances time and resolves all transmissions ending by `requested`.
@@ -519,6 +569,43 @@ mod tests {
         ));
         assert!(matches!(
             medium.advance_to(SimTime::from_ticks(9)),
+            Err(MediumError::TimeReversal { .. })
+        ));
+    }
+
+    #[test]
+    fn coexistence_truncation_stops_airtime_without_delivering_a_partial_frame() {
+        let mut medium = RadioMedium::new(MediumProfile::default()).unwrap();
+        medium.register_receiver(receiver(2)).unwrap();
+        let id = medium
+            .transmit(request(1, 10, 30, 10, b"preempted"))
+            .unwrap();
+        medium.truncate(id, SimTime::from_ticks(15)).unwrap();
+        medium.advance_to(SimTime::from_ticks(30)).unwrap();
+
+        assert!(medium.events().iter().any(|event| matches!(
+            event,
+            MediumEvent::Truncated {
+                id: event_id,
+                at,
+            } if *event_id == id && *at == SimTime::from_ticks(15)
+        )));
+        assert!(!medium.events().iter().any(|event| matches!(
+            event,
+            MediumEvent::Reception { id: event_id, .. } if *event_id == id
+        )));
+        assert_eq!(medium.energy_dbm_at(NodeId(2), WIFI), -128);
+    }
+
+    #[test]
+    fn coexistence_truncation_obeys_monotonic_medium_time() {
+        let mut medium = RadioMedium::new(MediumProfile::default()).unwrap();
+        let id = medium
+            .transmit(request(1, 10, 30, 10, b"preempted"))
+            .unwrap();
+        medium.advance_to(SimTime::from_ticks(12)).unwrap();
+        assert!(matches!(
+            medium.truncate(id, SimTime::from_ticks(11)),
             Err(MediumError::TimeReversal { .. })
         ));
     }

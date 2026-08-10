@@ -33,6 +33,8 @@ pub enum CoexistenceDecision {
         id: CoexistenceGrantId,
         /// Protocol that owns the granted interval.
         protocol: RadioProtocol,
+        /// Prior grant truncated by this higher-priority request, if any.
+        preempted: Option<CoexistenceGrantId>,
         /// Inclusive ownership start.
         start: SimTime,
         /// Exclusive ownership end.
@@ -166,8 +168,10 @@ impl CoexistenceArbiter {
             return Err(CoexistenceError::ZeroDuration);
         }
         let end = request.start.checked_add(request.duration)?;
+        let mut preempted = None;
         if let Some(active) = self.active {
             if request.priority > active.priority && active.preemptible {
+                preempted = Some(active.id);
                 self.events.push(CoexistenceEvent::Preempted {
                     id: active.id,
                     protocol: active.protocol,
@@ -209,6 +213,7 @@ impl CoexistenceArbiter {
         Ok(CoexistenceDecision::Granted {
             id,
             protocol: request.protocol,
+            preempted,
             start: request.start,
             end,
         })
@@ -294,23 +299,26 @@ mod tests {
     #[test]
     fn higher_priority_preempts_only_preemptible_grant() {
         let mut arbiter = CoexistenceArbiter::new();
-        assert!(matches!(
-            arbiter
-                .request(request(RadioProtocol::Wifi, 10, 20, 1, true))
-                .unwrap(),
-            CoexistenceDecision::Granted {
-                protocol: RadioProtocol::Wifi,
-                ..
-            }
-        ));
+        let CoexistenceDecision::Granted {
+            id: wifi_grant,
+            protocol: RadioProtocol::Wifi,
+            preempted: None,
+            ..
+        } = arbiter
+            .request(request(RadioProtocol::Wifi, 10, 20, 1, true))
+            .unwrap()
+        else {
+            panic!("initial Wi-Fi request was not granted");
+        };
         assert!(matches!(
             arbiter
                 .request(request(RadioProtocol::BluetoothLe, 15, 5, 2, false))
                 .unwrap(),
             CoexistenceDecision::Granted {
                 protocol: RadioProtocol::BluetoothLe,
+                preempted: Some(id),
                 ..
-            }
+            } if id == wifi_grant
         ));
         assert!(arbiter.events().iter().any(|event| matches!(
             event,

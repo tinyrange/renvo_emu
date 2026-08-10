@@ -232,7 +232,14 @@ impl RadioLegalityValidator {
             }
             if current != previous {
                 state.activity = RadioActivity::Idle;
-                state.ever_ready = false;
+                // C6 exposes independent modem reset generations and genuine
+                // firmware re-enables each domain before accepting its next
+                // interrupt. S3 has one shared radio reset: genuine Wi-Fi
+                // firmware can retain an enabled MAC cause across that reset
+                // while the shared clock word is momentarily gated.
+                if self.chip == RadioChip::Esp32C6 {
+                    state.ever_ready = false;
+                }
             }
         }
         if state.observed && state.ready && !ready && state.activity != RadioActivity::Idle {
@@ -631,6 +638,38 @@ mod tests {
         validator
             .observe_interrupt(RadioSubsystem::Wifi, true, SimTime::from_ticks(4))
             .unwrap();
+    }
+
+    #[test]
+    fn s3_shared_reset_retains_firmware_observed_interrupt_enable_history() {
+        let mut validator = RadioLegalityValidator::new(RadioChip::Esp32S3);
+        validator
+            .observe_domain(RadioSubsystem::Wifi, true, Some(0), SimTime::ZERO)
+            .unwrap();
+        validator
+            .observe_domain(RadioSubsystem::Wifi, false, Some(1), SimTime::from_ticks(1))
+            .unwrap();
+        validator
+            .observe_interrupt(RadioSubsystem::Wifi, true, SimTime::from_ticks(1))
+            .unwrap();
+    }
+
+    #[test]
+    fn c6_domain_reset_requires_a_new_firmware_enable_before_interrupts() {
+        let mut validator = RadioLegalityValidator::new(RadioChip::Esp32C6);
+        validator
+            .observe_domain(RadioSubsystem::Wifi, true, Some(0), SimTime::ZERO)
+            .unwrap();
+        validator
+            .observe_domain(RadioSubsystem::Wifi, false, Some(1), SimTime::from_ticks(1))
+            .unwrap();
+        assert_eq!(
+            validator
+                .observe_interrupt(RadioSubsystem::Wifi, true, SimTime::from_ticks(1))
+                .unwrap_err()
+                .rule,
+            RadioLegalityRule::InterruptDomain
+        );
     }
 
     #[test]

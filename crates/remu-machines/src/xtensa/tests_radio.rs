@@ -54,18 +54,98 @@ fn esp32s3_wifi_and_ble_use_shared_deterministic_radio_api() {
 }
 
 #[test]
+fn esp32s3_coexistence_preempts_airtime_and_denies_lower_priority_work() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let mut wifi_frame = vec![0_u8; 24];
+    wifi_frame[4..10].fill(0xff);
+    machine
+        .wifi_engine()
+        .unwrap()
+        .start(remu_radio::WifiMode::Station)
+        .unwrap();
+    machine
+        .wifi_engine()
+        .unwrap()
+        .queue_tx(wifi_frame)
+        .unwrap();
+    machine
+        .ble_controller()
+        .unwrap()
+        .process_h4(&[1, 0x0a, 0x20, 1, 1])
+        .unwrap();
+
+    // Functional frames are collected in deterministic Wi-Fi/BLE order. BLE
+    // therefore preempts the lower-priority Wi-Fi grant at the same timestamp.
+    assert_eq!(machine.service_radio().unwrap(), 2);
+    let artifact = machine.radio_replay_artifact();
+    let wifi_id = artifact.events.iter().find_map(|event| match event {
+        remu_radio::MediumEvent::Submitted { id, request }
+            if request.frame.protocol == remu_radio::RadioProtocol::Wifi =>
+        {
+            Some(*id)
+        }
+        _ => None,
+    });
+    assert!(artifact.events.iter().any(|event| matches!(
+        event,
+        remu_radio::MediumEvent::Truncated { id, at }
+            if Some(*id) == wifi_id && *at == SimTime::ZERO
+    )));
+    assert!(artifact.coexistence_events.iter().any(|event| matches!(
+        event,
+        remu_radio::CoexistenceEvent::Preempted {
+            protocol: remu_radio::RadioProtocol::Wifi,
+            by: remu_radio::RadioProtocol::BluetoothLe,
+            ..
+        }
+    )));
+
+    // The BLE grant remains active. A second Wi-Fi frame at the same timestamp
+    // is denied and never appears as medium airtime.
+    let submitted_before = artifact
+        .events
+        .iter()
+        .filter(|event| matches!(event, remu_radio::MediumEvent::Submitted { .. }))
+        .count();
+    machine
+        .wifi_engine()
+        .unwrap()
+        .queue_tx(vec![0_u8; 24])
+        .unwrap();
+    assert_eq!(machine.service_radio().unwrap(), 0);
+    let artifact = machine.radio_replay_artifact();
+    assert_eq!(
+        artifact
+            .events
+            .iter()
+            .filter(|event| matches!(event, remu_radio::MediumEvent::Submitted { .. }))
+            .count(),
+        submitted_before
+    );
+    assert!(artifact.coexistence_events.iter().any(|event| matches!(
+        event,
+        remu_radio::CoexistenceEvent::Denied {
+            protocol: remu_radio::RadioProtocol::Wifi,
+            owner: remu_radio::RadioProtocol::BluetoothLe,
+            ..
+        }
+    )));
+}
+
+#[test]
 fn esp32s3_shared_radio_reset_cancels_active_coexistence_ownership() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine
-        .radio_coexistence
-        .request(remu_radio::CoexistenceRequest {
-            protocol: remu_radio::RadioProtocol::Wifi,
-            start: SimTime::ZERO,
-            duration: remu_core::SimDuration::from_ticks(100),
-            priority: 8,
-            preemptible: true,
-        })
+        .wifi_engine()
+        .unwrap()
+        .start(remu_radio::WifiMode::Station)
         .unwrap();
+    machine
+        .wifi_engine()
+        .unwrap()
+        .queue_tx(vec![0_u8; 24])
+        .unwrap();
+    assert_eq!(machine.service_radio().unwrap(), 1);
     machine
         .bus
         .write(0x6002_6018, AccessWidth::Word, 1, SimTime::ZERO)
@@ -77,6 +157,10 @@ fn esp32s3_shared_radio_reset_cancels_active_coexistence_ownership() {
     assert!(matches!(
         machine.radio_coexistence.events().last(),
         Some(remu_radio::CoexistenceEvent::Reset { at }) if *at == SimTime::ZERO
+    ));
+    assert!(matches!(
+        machine.radio_replay_artifact().events.last(),
+        Some(remu_radio::MediumEvent::Truncated { at, .. }) if *at == SimTime::ZERO
     ));
 }
 

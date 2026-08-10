@@ -5,17 +5,75 @@ use remu_devices::{
     EspC6BleBasebandHandle, EspC6BleControlHandle, EspIeee802154Command, EspIeee802154Handle,
 };
 use remu_radio::{
-    BleController, CoexistenceDecision, CoexistenceRequest, DeliveryOutcome, ExtendedAddress,
-    FrameOrigin, Ieee802154CcaMode, Ieee802154Error, Ieee802154Mac, Ieee802154RxOutcome,
-    MediumEvent, NodeId, PanInterface, RadioActivity, RadioDmaDirection, RadioFrame,
-    RadioLegalityRule, RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact, ShortAddress,
-    Spectrum, TxRequest, WifiEngine,
+    BleController, CoexistenceDecision, CoexistenceGrantId, CoexistenceRequest, DeliveryOutcome,
+    ExtendedAddress, FrameOrigin, Ieee802154CcaMode, Ieee802154Error, Ieee802154Mac,
+    Ieee802154RxOutcome, MediumEvent, NodeId, PanInterface, RadioActivity, RadioDmaDirection,
+    RadioFrame, RadioLegalityRule, RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact,
+    ShortAddress, Spectrum, TransmissionId, TxRequest, WifiEngine,
 };
 
 const EMULATED_NODE: NodeId = NodeId(1);
 const HOST_NODE: NodeId = NodeId(0);
 
 impl RiscVMachine {
+    fn reset_coexistence(&mut self) -> Result<(), MachineError> {
+        let active_airtime = self
+            .radio_coexistence
+            .as_ref()
+            .expect("ESP32-C6 machine has a coexistence arbiter")
+            .owner()
+            .is_some_and(|(_, end)| end > self.now);
+        if active_airtime {
+            if let Some((_, transmission)) = self.radio_coexistence_transmission.take() {
+                self.radio_medium
+                    .as_mut()
+                    .expect("ESP32-C6 machine has a radio medium")
+                    .truncate(transmission, self.now)?;
+            }
+        } else {
+            self.radio_coexistence_transmission = None;
+        }
+        self.radio_coexistence
+            .as_mut()
+            .expect("ESP32-C6 machine has a coexistence arbiter")
+            .reset(self.now)?;
+        Ok(())
+    }
+
+    fn apply_coexistence_preemption(
+        &mut self,
+        preempted: Option<CoexistenceGrantId>,
+    ) -> Result<(), MachineError> {
+        let Some(preempted) = preempted else {
+            return Ok(());
+        };
+        let prior = self.radio_coexistence_transmission.take();
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Coexistence,
+                RadioLegalityRule::CoexistenceOwnership,
+                prior.is_some_and(|(grant, _)| grant == preempted),
+                self.now,
+                format!("preempted grant {preempted:?} has no matching RF transmission"),
+            )?;
+        let (_, transmission) = prior.expect("validated coexistence transmission exists");
+        self.radio_medium
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio medium")
+            .truncate(transmission, self.now)?;
+        Ok(())
+    }
+
+    fn record_coexistence_transmission(
+        &mut self,
+        grant: CoexistenceGrantId,
+        transmission: TransmissionId,
+    ) {
+        self.radio_coexistence_transmission = Some((grant, transmission));
+    }
+
     /// Returns the C6 functional Wi-Fi engine when its clock/reset domain is ready.
     pub fn wifi_engine(&mut self) -> Result<&mut WifiEngine, MachineError> {
         let ready = self
@@ -135,10 +193,7 @@ impl RiscVMachine {
             reset_generations[index] != self.radio_c6_reset_generations[index]
         });
         if reset_changed.iter().any(|changed| *changed) {
-            self.radio_coexistence
-                .as_mut()
-                .expect("ESP32-C6 machine has a coexistence arbiter")
-                .reset(self.now)?;
+            self.reset_coexistence()?;
         }
         if reset_changed[1] {
             self.radio_c6_ble_scan = None;
@@ -722,12 +777,15 @@ impl RiscVMachine {
                     preemptible: true,
                 })?;
             let CoexistenceDecision::Granted {
+                id: grant,
                 protocol: granted_protocol,
+                preempted,
                 ..
             } = decision
             else {
                 continue;
             };
+            self.apply_coexistence_preemption(preempted)?;
             self.radio_legality
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio legality validator")
@@ -737,7 +795,8 @@ impl RiscVMachine {
                     granted_protocol,
                     self.now,
                 )?;
-            self.radio_medium
+            let transmission = self
+                .radio_medium
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio medium")
                 .transmit(TxRequest {
@@ -756,6 +815,7 @@ impl RiscVMachine {
                         origin: FrameOrigin::Emulated,
                     },
                 })?;
+            self.record_coexistence_transmission(grant, transmission);
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
@@ -938,12 +998,15 @@ impl RiscVMachine {
                     preemptible: true,
                 })?;
             let CoexistenceDecision::Granted {
+                id: grant,
                 protocol: granted_protocol,
+                preempted,
                 ..
             } = decision
             else {
                 continue;
             };
+            self.apply_coexistence_preemption(preempted)?;
             self.radio_legality
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio legality validator")
@@ -953,7 +1016,8 @@ impl RiscVMachine {
                     granted_protocol,
                     self.now,
                 )?;
-            self.radio_medium
+            let transmission = self
+                .radio_medium
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio medium")
                 .transmit(TxRequest {
@@ -972,6 +1036,7 @@ impl RiscVMachine {
                         origin: FrameOrigin::Emulated,
                     },
                 })?;
+            self.record_coexistence_transmission(grant, transmission);
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
@@ -1120,12 +1185,14 @@ impl RiscVMachine {
         let CoexistenceDecision::Granted {
             id: grant,
             protocol: granted_protocol,
+            preempted,
             ..
         } = decision
         else {
             handle.abort(true, 18);
             return Ok(());
         };
+        self.apply_coexistence_preemption(preempted)?;
         self.radio_legality
             .as_mut()
             .expect("ESP32-C6 machine has a radio legality validator")
@@ -1164,6 +1231,7 @@ impl RiscVMachine {
                     origin: FrameOrigin::Emulated,
                 },
             })?;
+        self.record_coexistence_transmission(grant, id);
         self.radio_pending_ieee802154_tx
             .push((id, grant, end, ack_sequence));
         Ok(())

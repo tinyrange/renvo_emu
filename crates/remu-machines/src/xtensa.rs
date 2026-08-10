@@ -34,8 +34,9 @@ use remu_devices::{
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_radio::{
-    BdAddress, BleController, CoexistenceArbiter, CoexistenceError, MacAddress, MediumError,
-    MediumProfile, RadioChip, RadioLegalityError, RadioLegalityValidator, RadioMedium, WifiEngine,
+    BdAddress, BleController, CoexistenceArbiter, CoexistenceError, CoexistenceGrantId, MacAddress,
+    MediumError, MediumProfile, RadioChip, RadioLegalityError, RadioLegalityValidator, RadioMedium,
+    TransmissionId, WifiEngine,
 };
 use remu_signals::{Logic, SignalError};
 use remu_trace::{TraceDigest, TraceError, TraceSink};
@@ -164,6 +165,7 @@ pub struct XtensaMachine {
     radio_ble: BleController,
     radio_legality: RadioLegalityValidator,
     radio_reset_generation: u64,
+    radio_coexistence_transmission: Option<(CoexistenceGrantId, TransmissionId)>,
     radio_event_cursor: usize,
     pending_native_ble_transmissions: VecDeque<radio::PendingNativeBleTransmission>,
     pending_native_ble_receptions: VecDeque<radio::PendingNativeBleReception>,
@@ -770,6 +772,7 @@ impl XtensaMachine {
             radio_ble: BleController::new(BdAddress([3, 0x53, 0, 0, 0, 0x02]), 0x3253_5eed),
             radio_legality: RadioLegalityValidator::new(RadioChip::Esp32S3),
             radio_reset_generation: 0,
+            radio_coexistence_transmission: None,
             radio_event_cursor: 0,
             pending_native_ble_transmissions: VecDeque::new(),
             pending_native_ble_receptions: VecDeque::new(),

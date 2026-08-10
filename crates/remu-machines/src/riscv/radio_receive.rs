@@ -320,12 +320,15 @@ impl RiscVMachine {
                     preemptible: true,
                 })?;
             let CoexistenceDecision::Granted {
+                id: grant,
                 protocol: granted_protocol,
+                preempted,
                 ..
             } = decision
             else {
                 continue;
             };
+            self.apply_coexistence_preemption(preempted)?;
             self.radio_legality
                 .as_mut()
                 .expect("ESP32-C6 has a radio legality validator")
@@ -339,7 +342,8 @@ impl RiscVMachine {
                     granted_protocol,
                     self.now,
                 )?;
-            self.radio_medium
+            let transmission = self
+                .radio_medium
                 .as_mut()
                 .expect("ESP32-C6 has a radio medium")
                 .transmit(TxRequest {
@@ -352,6 +356,7 @@ impl RiscVMachine {
                     power_dbm: 0,
                     frame,
                 })?;
+            self.record_coexistence_transmission(grant, transmission);
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
