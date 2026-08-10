@@ -183,6 +183,7 @@ EXPECTED_COEXISTENCE_VENDOR_REQUIREMENTS = {
         "expected_ap_mac": [82, 69, 2, 0, 0, 1],
         "expected_beacon_length": 169,
         "expected_association_response_length": 47,
+        "expected_emulated_protocols": ["wifi", "bluetooth-le", "ieee802154"],
         "required_uart_substrings": [
             "wifi:mode : softAP (52:45:02:00:00:01)",
             "REMU_VENDOR_COEX_WIFI_STARTED",
@@ -190,6 +191,9 @@ EXPECTED_COEXISTENCE_VENDOR_REQUIREMENTS = {
             "REMU_VENDOR_COEX_BLE_ADV_START result=0 wifi=1",
             "REMU_VENDOR_COEX_BLE_ADV_STOP result=0",
             "REMU_VENDOR_COEX_BLE_SCAN_START result=0",
+            "REMU_VENDOR_COEX_IEEE802154_INIT result=0 channel=11",
+            "REMU_VENDOR_COEX_IEEE802154_TX_START result=0 wifi=1 ble_scan=1",
+            "REMU_VENDOR_COEX_IEEE802154_TX_DONE length=4 01 00 2a a5",
             "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1",
             "REMU_VENDOR_COEX_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52",
             "REMU_VENDOR_COEX_DONE wifi=1 ble_adv=1 ble_scan=1",
@@ -206,6 +210,7 @@ EXPECTED_COEXISTENCE_VENDOR_REQUIREMENTS = {
         "expected_ap_mac": [85, 68, 51, 34, 17, 1],
         "expected_beacon_length": 166,
         "expected_association_response_length": 44,
+        "expected_emulated_protocols": ["wifi", "bluetooth-le"],
         "required_uart_substrings": [
             "wifi:mode : softAP (55:44:33:22:11:01)",
             "REMU_VENDOR_COEX_WIFI_STARTED",

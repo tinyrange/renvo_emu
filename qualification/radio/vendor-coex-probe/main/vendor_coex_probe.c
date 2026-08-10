@@ -1,5 +1,5 @@
 /*
- * Project-owned qualification firmware for genuine Wi-Fi/BLE coexistence.
+ * Project-owned qualification firmware for genuine multi-radio coexistence.
  *
  * Only public ESP-IDF and NimBLE APIs are used. Renvo executes the linked
  * controller, ROM, PHY, scheduler, coexistence, and RTOS code without symbol
@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 
+#include "sdkconfig.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -20,9 +21,94 @@
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 
+#if CONFIG_IDF_TARGET_ESP32C6
+#include "esp_ieee802154.h"
+#endif
+
 static volatile bool wifi_started;
 static volatile bool ble_advertising_started;
 static volatile bool ble_scan_reported;
+static volatile bool ieee802154_complete = true;
+
+#if CONFIG_IDF_TARGET_ESP32C6
+static uint8_t ieee802154_frame[] = {4, 0x01, 0x00, 0x2a, 0xa5};
+static volatile bool ieee802154_failed;
+static volatile int ieee802154_error = -1;
+static volatile uint8_t ieee802154_transmitted_frame[5];
+
+void esp_ieee802154_transmit_done(const uint8_t *frame, const uint8_t *ack,
+                                  esp_ieee802154_frame_info_t *ack_info)
+{
+    (void)ack;
+    (void)ack_info;
+    for (unsigned index = 0; index < sizeof(ieee802154_transmitted_frame);
+         ++index) {
+        ieee802154_transmitted_frame[index] = frame[index];
+    }
+    ieee802154_complete = true;
+}
+
+void esp_ieee802154_transmit_failed(const uint8_t *frame,
+                                    esp_ieee802154_tx_error_t error)
+{
+    (void)frame;
+    ieee802154_failed = true;
+    ieee802154_error = (int)error;
+    ieee802154_complete = true;
+}
+
+void esp_ieee802154_receive_done(uint8_t *frame,
+                                 esp_ieee802154_frame_info_t *frame_info)
+{
+    (void)frame_info;
+    esp_ieee802154_receive_handle_done(frame);
+}
+
+void esp_ieee802154_receive_sfd_done(void)
+{
+}
+
+void esp_ieee802154_transmit_sfd_done(uint8_t *frame)
+{
+    (void)frame;
+}
+
+void esp_ieee802154_energy_detect_done(int8_t power)
+{
+    (void)power;
+}
+
+void esp_ieee802154_receive_at_done(void)
+{
+}
+
+static void start_ieee802154(void)
+{
+    esp_err_t result = esp_ieee802154_enable();
+    if (result == ESP_OK) {
+        result = esp_ieee802154_set_channel(11);
+    }
+    if (result == ESP_OK) {
+        result = esp_ieee802154_set_promiscuous(true);
+    }
+    printf("REMU_VENDOR_COEX_IEEE802154_INIT result=%d channel=%u\n",
+           (int)result,
+           result == ESP_OK ? (unsigned)esp_ieee802154_get_channel() : 0u);
+    fflush(stdout);
+    if (result != ESP_OK) {
+        return;
+    }
+
+    ieee802154_complete = false;
+    result = esp_ieee802154_transmit(ieee802154_frame, false);
+    printf("REMU_VENDOR_COEX_IEEE802154_TX_START result=%d wifi=%u ble_scan=1\n",
+           (int)result, wifi_started ? 1u : 0u);
+    fflush(stdout);
+    if (result != ESP_OK) {
+        ieee802154_complete = true;
+    }
+}
+#endif
 
 static void host_task(void *argument)
 {
@@ -103,6 +189,12 @@ static void on_ble_sync(void)
                                    &discovery, on_gap_event, NULL);
     printf("REMU_VENDOR_COEX_BLE_SCAN_START result=%d\n", scan_result);
     fflush(stdout);
+
+#if CONFIG_IDF_TARGET_ESP32C6
+    if (scan_result == 0) {
+        start_ieee802154();
+    }
+#endif
 }
 
 void app_main(void)
@@ -141,7 +233,7 @@ void app_main(void)
 
     for (unsigned attempt = 0;
          attempt < 500 && (!wifi_started || !ble_advertising_started ||
-                           !ble_scan_reported);
+                           !ble_scan_reported || !ieee802154_complete);
          ++attempt) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -150,4 +242,19 @@ void app_main(void)
            ble_advertising_started ? 1u : 0u,
            ble_scan_reported ? 1u : 0u);
     fflush(stdout);
+
+#if CONFIG_IDF_TARGET_ESP32C6
+    if (ieee802154_failed) {
+        printf("REMU_VENDOR_COEX_IEEE802154_TX_FAILED error=%d\n",
+               ieee802154_error);
+    } else if (ieee802154_complete) {
+        printf("REMU_VENDOR_COEX_IEEE802154_TX_DONE length=%u %02x %02x %02x %02x\n",
+               ieee802154_transmitted_frame[0],
+               ieee802154_transmitted_frame[1],
+               ieee802154_transmitted_frame[2],
+               ieee802154_transmitted_frame[3],
+               ieee802154_transmitted_frame[4]);
+    }
+    fflush(stdout);
+#endif
 }

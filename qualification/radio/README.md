@@ -76,7 +76,9 @@ the RF medium, and both the grant stream and RF artifact must replay exactly
 from reset. A denied request remains an ordinary arbitration outcome and does
 not transmit; submitting a frame under another protocol's grant is an illegal
 emulator state and terminates with the stable hard-error diagnostic defined by
-`legal-state-contract.json`.
+`legal-state-contract.json`. On C6, the same genuine image also enables the
+public IEEE 802.15.4 driver and transmits while Wi-Fi remains active and BLE is
+scanning, so all three silicon radio families cross the same ownership gate.
 
 Vendor-independent execution is a focused low-level regression track. The two
 `custom-stack-probe` ELFs are original freestanding firmware: they include no
@@ -160,9 +162,9 @@ energy scan, and sleep/wake through the native C6 port. A secured Thread CLI
 exchange and Zigbee-facing firmware qualification still remain. Disputed
 ESP32-S3 RF pages remain intentionally unmapped until a revision-
 specific primary-source or authorized-hardware probe resolves them. Coexistence
-still needs denial/preemption and reset/power-transition stress, plus C6
-three-protocol traffic; the genuine Wi-Fi/BLE simultaneous-traffic path is
-covered on both chips.
+still needs denial/preemption and reset/power-transition stress. Genuine
+Wi-Fi/BLE simultaneous traffic is covered on both chips, and the C6 image also
+qualifies active three-radio Wi-Fi/BLE/IEEE 802.15.4 ownership.
 
 Do not close issue #338 or describe these radios as vendor-compatible while any
 of those gates remains open.

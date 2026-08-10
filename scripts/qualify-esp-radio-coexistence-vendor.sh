@@ -29,6 +29,7 @@ expected_host_frames=$(jq -r --arg chip "$chip" '.chips[$chip].expected_host_fra
 expected_ap_mac=$(jq -c --arg chip "$chip" '.chips[$chip].expected_ap_mac' "$requirements")
 expected_beacon_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_beacon_length' "$requirements")
 expected_association_response_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_association_response_length' "$requirements")
+expected_emulated_protocols=$(jq -c --arg chip "$chip" '.chips[$chip].expected_emulated_protocols' "$requirements")
 
 rm -rf "$chip_root"
 mkdir -p "$chip_root"
@@ -100,7 +101,8 @@ jq -e \
     --argjson expected_host "$expected_host_frames" \
     --argjson ap "$expected_ap_mac" \
     --argjson beacon_length "$expected_beacon_length" \
-    --argjson association_length "$expected_association_response_length" '
+    --argjson association_length "$expected_association_response_length" \
+    --argjson expected_protocols "$expected_emulated_protocols" '
     .events as $events |
     .coexistence_events as $coexistence |
     [ $events[] |
@@ -120,6 +122,9 @@ jq -e \
             .outcome.kind == "delivered")) ] | length) == $expected_host and
     ($coexistence | length) == ($emitted | length) and
     all($coexistence[]; .event == "granted") and
+    all($expected_protocols[];
+        . as $protocol |
+        any($emitted[]; .request.frame.protocol == $protocol)) and
     all($emitted[];
         .request.frame.protocol as $protocol |
         .request.start as $start |
@@ -136,6 +141,11 @@ jq -e \
         (.request.frame.bytes | length) == $beacon_length and
         .request.frame.bytes[0:2] == [128, 0] and
         .request.frame.bytes[10:16] == $ap) and
+    (if any($expected_protocols[]; . == "ieee802154") then
+        any($emitted[];
+            .request.frame.protocol == "ieee802154" and
+            .request.frame.bytes == [1, 0, 42, 165])
+     else true end) and
     any($emitted[];
         .request.frame.protocol == "wifi" and
         (.request.frame.bytes | length) == 30 and
@@ -200,4 +210,4 @@ jq -n \
         }
     }' >"$chip_root/qualification.json"
 
-echo "$chip genuine Wi-Fi/BLE coexistence qualification passed"
+echo "$chip genuine radio coexistence qualification passed"

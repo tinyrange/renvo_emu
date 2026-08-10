@@ -1,4 +1,4 @@
-# Reproducible public-API Wi-Fi/BLE coexistence qualification.
+# Reproducible public-API multi-radio coexistence qualification.
 CONFIG_APP_REPRODUCIBLE_BUILD=y
 # CONFIG_APP_COMPILE_TIME_DATE is not set
 # CONFIG_BOOTLOADER_COMPILE_TIME_DATE is not set
@@ -6,6 +6,11 @@ CONFIG_APP_REPRODUCIBLE_BUILD=y
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT=n
+
+# ESP32-C6 adds genuine three-radio coexistence traffic. The option is absent
+# and ignored on ESP32-S3.
+CONFIG_IEEE802154_ENABLED=y
+CONFIG_IEEE802154_RX_BUFFER_SIZE=4
 
 # The combined public Wi-Fi and NimBLE application exceeds the 1 MiB default.
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

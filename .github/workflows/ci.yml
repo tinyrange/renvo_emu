@@ -239,7 +239,7 @@ jobs:
           if-no-files-found: ignore
 
   esp-radio-coexistence:
-    name: ${{ matrix.chip }} genuine Wi-Fi/BLE coexistence qualification
+    name: ${{ matrix.chip }} genuine multi-radio coexistence qualification
     needs: rust
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -258,7 +258,7 @@ jobs:
       - name: Pull pinned ESP-IDF image
         run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
 
-      - name: Require genuine simultaneous Wi-Fi/BLE ownership
+      - name: Require genuine simultaneous radio ownership
         run: ./scripts/qualify-esp-radio-coexistence-vendor.sh ${{ matrix.chip }}
 
       - name: Upload coexistence qualification evidence
