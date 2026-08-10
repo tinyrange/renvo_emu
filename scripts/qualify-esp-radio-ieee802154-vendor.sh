@@ -161,6 +161,9 @@ jq -e '
         .request.frame.bytes == [33, 0, 69, 165])
 ' "$chip_root/radio-replay.json" >/dev/null
 
+# TX/RX completion causes 0x2 and 0x4 may be serviced separately or
+# coalesced as 0x6 depending on the firmware instruction at which they latch.
+# Require both causes and their W1C paths without prescribing ISR timing.
 jq -e '
     any(.[]; .kind == "Write" and .address == 1611280384 and .value == 65) and
     any(.[]; .kind == "Write" and .address == 1611280384 and .value == 67) and
@@ -183,8 +186,8 @@ jq -e '
     any(.[]; .kind == "Write" and .address == 1611280484 and .value == 16) and
     any(.[]; .kind == "Read" and .address == 1611280484 and .value == 8) and
     any(.[]; .kind == "Write" and .address == 1611280484 and .value == 8) and
-    any(.[]; .kind == "Read" and .address == 1611280484 and .value == 6) and
-    any(.[]; .kind == "Write" and .address == 1611280484 and .value == 6) and
+    any(.[]; .kind == "Read" and .address == 1611280484 and (.value == 4 or .value == 6)) and
+    any(.[]; .kind == "Write" and .address == 1611280484 and (.value == 4 or .value == 6)) and
     any(.[]; .kind == "Write" and .address == 1611280492 and .value == 1) and
     any(.[]; .kind == "Write" and .address == 1611280384 and .value == 76) and
     any(.[]; .kind == "Read" and .address == 1611280484 and .value == 256) and
