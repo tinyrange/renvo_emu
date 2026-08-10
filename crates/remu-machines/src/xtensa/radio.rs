@@ -2,8 +2,8 @@ use super::{XtensaMachine, XtensaMachineError};
 use remu_core::{AccessKind, AccessWidth, Bus, SimDuration};
 use remu_radio::{
     BleController, CoexistenceDecision, CoexistenceRequest, DeliveryOutcome, FrameOrigin,
-    MediumEvent, NodeId, RadioDmaDirection, RadioFrame, RadioProtocol, RadioSubsystem, Receiver,
-    ReplayArtifact, Spectrum, TxRequest, WifiEngine,
+    MediumEvent, NodeId, RadioDmaDirection, RadioFrame, RadioLegalityRule, RadioProtocol,
+    RadioSubsystem, Receiver, ReplayArtifact, Spectrum, TxRequest, WifiEngine,
 };
 const EMULATED_NODE: NodeId = NodeId(1);
 const HOST_NODE: NodeId = NodeId(0);
@@ -132,7 +132,7 @@ impl XtensaMachine {
         )?;
         self.radio_medium.advance_to(self.now)?;
         self.radio_coexistence.advance_to(self.now)?;
-        self.complete_native_ble_slot_states();
+        self.complete_native_ble_slot_states()?;
         self.ble_exchange_memory.advance_to(self.now);
         if self.syscon.ble_ready() {
             self.radio_ble.advance_to(self.now);
@@ -164,59 +164,68 @@ impl XtensaMachine {
     fn submit_native_ble_frames(&mut self) -> Result<u64, XtensaMachineError> {
         while let Some(kick) = self.ble_exchange_memory.take_schedule_kick() {
             let slot = (kick.control & 0x0f) as u16;
-            let Some(slot_address) = self
-                .ble_exchange_memory
-                .resolve_em_address(slot.saturating_mul(16))
-            else {
-                continue;
-            };
-            let Some(cs_reference) = self.read_native_ble_u16(slot_address.wrapping_add(8)) else {
-                continue;
-            };
-            let Some(coarse_low) = self.read_native_ble_u16(slot_address.wrapping_add(2)) else {
-                continue;
-            };
-            let Some(coarse_high) = self.read_native_ble_u16(slot_address.wrapping_add(4)) else {
-                continue;
-            };
-            let Some(fine) = self.read_native_ble_u16(slot_address.wrapping_add(6)) else {
-                continue;
-            };
+            let slot_address =
+                self.require_native_ble_mapping(slot.saturating_mul(16), "scheduler event slot")?;
+            let cs_reference = self.require_native_ble_u16(
+                slot_address.wrapping_add(8),
+                "control-structure reference",
+            )?;
+            let coarse_low =
+                self.require_native_ble_u16(slot_address.wrapping_add(2), "slot coarse clock low")?;
+            let coarse_high = self
+                .require_native_ble_u16(slot_address.wrapping_add(4), "slot coarse clock high")?;
+            let fine =
+                self.require_native_ble_u16(slot_address.wrapping_add(6), "slot fine clock")?;
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                u64::from(fine) < S3_BLE_FINE_POSITIONS_PER_HALF_SLOT,
+                self.now,
+                format!(
+                    "scheduler fine clock {fine} is outside 0..{}",
+                    S3_BLE_FINE_POSITIONS_PER_HALF_SLOT - 1
+                ),
+            )?;
             let coarse =
                 (u64::from(coarse_low) | (u64::from(coarse_high) << 16)) & S3_BLE_COARSE_MASK;
             let tx_start = self.native_ble_slot_time(coarse, u64::from(fine));
-            let Some(cs_address) = self
-                .ble_exchange_memory
-                .resolve_em_address(cs_reference.saturating_mul(2))
-            else {
-                continue;
-            };
-            let Some(access_address) = self.read_native_ble_u32(cs_address.wrapping_add(12)) else {
-                continue;
-            };
-            let Some(event_word) = self.read_native_ble_u16(cs_address.wrapping_add(2)) else {
-                continue;
-            };
+            let cs_address = self.require_native_ble_mapping(
+                cs_reference.saturating_mul(2),
+                "scheduler control structure",
+            )?;
+            let access_address =
+                self.require_native_ble_u32(cs_address.wrapping_add(12), "BLE access address")?;
+            let event_word =
+                self.require_native_ble_u16(cs_address.wrapping_add(2), "BLE event control")?;
             let event_index = s3_ble_event_index(event_word);
-            let Some(channel_word) = self.read_native_ble_u16(cs_address.wrapping_add(22)) else {
-                continue;
-            };
+            let channel_word =
+                self.require_native_ble_u16(cs_address.wrapping_add(22), "BLE channel")?;
             let channel = (channel_word & 0x3f) as u8;
-            let Some(tx_descriptor_offset) = self.read_native_ble_u16(cs_address.wrapping_add(28))
-            else {
-                continue;
-            };
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                channel <= 39,
+                self.now,
+                format!("scheduler selected invalid BLE channel {channel}"),
+            )?;
+            let tx_descriptor_offset = self
+                .require_native_ble_u16(cs_address.wrapping_add(28), "TX descriptor reference")?;
             if tx_descriptor_offset == 0 {
                 // A receive-only scan control structure has no TX descriptor.
                 // Its window is expressed in 0.625-ms BLE slots at CS+0x20.
                 // Record the actual RF aperture and complete the scheduler
                 // event at the programmed end rather than interpreting the
                 // receive control block as a packet descriptor.
-                let Some(window_units) = self.read_native_ble_u16(cs_address.wrapping_add(32))
-                else {
-                    continue;
-                };
-                let window_ticks = u64::from(window_units.max(1))
+                let window_units =
+                    self.require_native_ble_u16(cs_address.wrapping_add(32), "RX window duration")?;
+                self.radio_legality.require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    window_units != 0,
+                    self.now,
+                    "receive-only scheduler event has a zero-duration window",
+                )?;
+                let window_ticks = u64::from(window_units)
                     .saturating_mul(S3_BLE_HALF_SLOT_TICKS)
                     .saturating_mul(2);
                 let end = tx_start
@@ -248,45 +257,38 @@ impl XtensaMachine {
                 self.schedule_native_ble_slot_state(end, slot_address, 4);
                 continue;
             }
-            let Some(tx_descriptor) = self
-                .ble_exchange_memory
-                .resolve_em_address(tx_descriptor_offset)
-            else {
-                continue;
-            };
-            let Some(header) = self.read_native_ble_u16(tx_descriptor.wrapping_add(2)) else {
-                continue;
-            };
-            let Some(payload_offset) = self.read_native_ble_u16(tx_descriptor.wrapping_add(4))
-            else {
-                continue;
-            };
-            let Some(payload_address) = self.ble_exchange_memory.resolve_em_address(payload_offset)
-            else {
-                continue;
-            };
+            let tx_descriptor =
+                self.require_native_ble_mapping(tx_descriptor_offset, "TX descriptor")?;
+            let header =
+                self.require_native_ble_u16(tx_descriptor.wrapping_add(2), "TX PDU header")?;
+            let payload_offset =
+                self.require_native_ble_u16(tx_descriptor.wrapping_add(4), "TX payload reference")?;
+            let payload_address = self.require_native_ble_mapping(payload_offset, "TX payload")?;
             let header_byte = header as u8;
             let declared_length = usize::from((header >> 8) as u8);
             let advertising_pdu_with_local_address = access_address
                 == BLE_ADVERTISING_ACCESS_ADDRESS
                 && matches!(header_byte & 0x0f, 0 | 1 | 2 | 4 | 6);
             let payload_length = if advertising_pdu_with_local_address {
-                let Some(length) = declared_length.checked_sub(6) else {
-                    continue;
-                };
-                length
+                self.radio_legality.require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    declared_length >= 6,
+                    self.now,
+                    format!(
+                        "advertising PDU length {declared_length} cannot contain the six-byte local address"
+                    ),
+                )?;
+                declared_length - 6
             } else {
                 declared_length
             };
-            let Some(payload) = self.read_native_ble_bytes(payload_address, payload_length) else {
-                continue;
-            };
+            let payload =
+                self.require_native_ble_bytes(payload_address, payload_length, "TX PDU payload")?;
             let mut pdu = Vec::with_capacity(2 + declared_length);
             pdu.extend_from_slice(&[header_byte, declared_length as u8]);
             if advertising_pdu_with_local_address {
-                let Some(address) = self.native_bluetooth_address() else {
-                    continue;
-                };
+                let address = self.require_native_bluetooth_address()?;
                 pdu.extend_from_slice(&address);
             }
             pdu.extend_from_slice(&payload);
@@ -393,7 +395,7 @@ impl XtensaMachine {
             .insert(insertion, (due.ticks(), slot_address, state));
     }
 
-    fn complete_native_ble_slot_states(&mut self) {
+    fn complete_native_ble_slot_states(&mut self) -> Result<(), XtensaMachineError> {
         while self
             .pending_native_ble_slot_completions
             .front()
@@ -404,21 +406,97 @@ impl XtensaMachine {
             else {
                 break;
             };
-            let Some(control) = self.read_native_ble_u16(slot_address) else {
-                continue;
-            };
+            let control = self.require_native_ble_u16(slot_address, "completed scheduler slot")?;
             // RWBLE owns event-table state bits 3:5 after firmware starts a
             // slot. State 2 denotes the completed frame visible to the TX ISR;
             // state 4 denotes successful event completion for the END ISR.
             // Firmware owns all remaining command fields.
             let completed = (control & !0x0038) | (state << 3);
-            let _ = self.bus.write(
+            self.bus.write(
                 u64::from(slot_address),
                 AccessWidth::HalfWord,
                 u64::from(completed),
                 self.now,
-            );
+            )?;
         }
+        Ok(())
+    }
+
+    fn require_native_ble_mapping(
+        &mut self,
+        exchange_offset: u16,
+        label: &str,
+    ) -> Result<u32, XtensaMachineError> {
+        let address = self.ble_exchange_memory.resolve_em_address(exchange_offset);
+        self.radio_legality.require(
+            RadioSubsystem::BluetoothLe,
+            RadioLegalityRule::MemoryMapping,
+            address.is_some(),
+            self.now,
+            format!(
+                "{label} exchange-memory offset {exchange_offset:#06x} has no firmware-programmed mapping"
+            ),
+        )?;
+        Ok(address.expect("legality check established an exchange-memory mapping"))
+    }
+
+    fn require_native_ble_u16(
+        &mut self,
+        address: u32,
+        label: &str,
+    ) -> Result<u16, XtensaMachineError> {
+        let value = self.read_native_ble_u16(address);
+        self.radio_legality.require(
+            RadioSubsystem::BluetoothLe,
+            RadioLegalityRule::MemoryMapping,
+            value.is_some(),
+            self.now,
+            format!("{label} at {address:#010x} is not readable guest memory"),
+        )?;
+        Ok(value.expect("legality check established a readable halfword"))
+    }
+
+    fn require_native_ble_u32(
+        &mut self,
+        address: u32,
+        label: &str,
+    ) -> Result<u32, XtensaMachineError> {
+        let value = self.read_native_ble_u32(address);
+        self.radio_legality.require(
+            RadioSubsystem::BluetoothLe,
+            RadioLegalityRule::MemoryMapping,
+            value.is_some(),
+            self.now,
+            format!("{label} at {address:#010x} is not readable guest memory"),
+        )?;
+        Ok(value.expect("legality check established a readable word"))
+    }
+
+    fn require_native_ble_bytes(
+        &mut self,
+        address: u32,
+        length: usize,
+        label: &str,
+    ) -> Result<Vec<u8>, XtensaMachineError> {
+        self.radio_legality.require(
+            RadioSubsystem::BluetoothLe,
+            RadioLegalityRule::SchedulerState,
+            length <= u8::MAX as usize,
+            self.now,
+            format!("{label} length {length} exceeds the recovered eight-bit field"),
+        )?;
+        let bytes = self.read_native_ble_bytes(address, length);
+        self.radio_legality.require(
+            RadioSubsystem::BluetoothLe,
+            RadioLegalityRule::MemoryMapping,
+            bytes.is_some(),
+            self.now,
+            format!(
+                "{label} range {address:#010x}..{:#010x} is not readable guest memory",
+                address.wrapping_add(length as u32)
+            ),
+        )?;
+        Ok(bytes.expect("legality check established a readable byte range"))
     }
 
     fn read_native_ble_u16(&mut self, address: u32) -> Option<u16> {
@@ -465,22 +543,16 @@ impl XtensaMachine {
             .flatten()
     }
 
-    fn native_bluetooth_address(&mut self) -> Option<[u8; 6]> {
-        let low = self
-            .bus
-            .read(0x6000_7044, AccessWidth::Word, AccessKind::Read, self.now)
-            .ok()? as u32;
-        let high = self
-            .bus
-            .read(0x6000_7048, AccessWidth::Word, AccessKind::Read, self.now)
-            .ok()? as u32;
+    fn require_native_bluetooth_address(&mut self) -> Result<[u8; 6], XtensaMachineError> {
+        let low = self.require_native_ble_u32(0x6000_7044, "factory Bluetooth address low")?;
+        let high = self.require_native_ble_u32(0x6000_7048, "factory Bluetooth address high")?;
         let mut address = [0_u8; 6];
         address[..4].copy_from_slice(&low.to_le_bytes());
         address[4..].copy_from_slice(&high.to_le_bytes()[..2]);
         // ESP32-S3 derives the Bluetooth universal address from the factory
         // base address by adding two to the least-significant octet.
         address[0] = address[0].wrapping_add(2);
-        Some(address)
+        Ok(address)
     }
 
     fn submit_native_wifi_frames(&mut self) -> Result<u64, XtensaMachineError> {

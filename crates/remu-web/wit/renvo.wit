@@ -44,7 +44,7 @@ interface api {
     list-targets: func() -> result<string, string>;
     inspect-elf: func(firmware: list<u8>) -> result<string, string>;
     run-elf: func(target: string, firmware: list<u8>, options: run-options) -> result<string, string>;
-    run-radio-elf: func(target: string, firmware: list<u8>, options: radio-run-options) -> result<string, string>;
+    run-radio-elf: func(target: string, firmware: list<u8>, boot-rom: list<u8>, options: radio-run-options) -> result<string, string>;
     run-intel-hex: func(target: string, firmware: list<u8>, options: run-options) -> result<string, string>;
 }
 

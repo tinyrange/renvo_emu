@@ -23,4 +23,24 @@ if (!rejectedInvalidElf) {
   throw new Error("WASI component did not reject an invalid ELF image");
 }
 
+let rejectedSubstitutedRadioRom = false;
+try {
+  api.runRadioElf("esp32c6", new Uint8Array(), new Uint8Array(), {
+    run: {
+      maxInstructions: 1n,
+      deadlineTicks: undefined,
+      stimuli: [],
+    },
+    radioFrames: [],
+  });
+} catch (error) {
+  rejectedSubstitutedRadioRom = String(error).includes(
+    "requires the pinned real mask-ROM ELF",
+  );
+}
+
+if (!rejectedSubstitutedRadioRom) {
+  throw new Error("WASI radio API did not reject a substituted mask ROM");
+}
+
 console.log(`WASI JavaScript smoke test passed for ${targets.length} targets`);

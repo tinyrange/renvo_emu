@@ -34,6 +34,12 @@
           "status": "required"
         },
         {
+          "name": "phy-i2c-command-memory",
+          "base": "0x600afc00",
+          "size": "0x400",
+          "status": "required"
+        },
+        {
           "name": "wifi-mac-bb-nrx-fe",
           "status": "discovery-required"
         },

@@ -46,9 +46,15 @@ impl bindings::exports::renvo::emulator::api::Guest for RenvoComponent {
     fn run_radio_elf(
         target: String,
         firmware: Vec<u8>,
+        boot_rom: Vec<u8>,
         options: bindings::exports::renvo::emulator::api::RadioRunOptions,
     ) -> Result<String, String> {
-        run_radio_elf_json(&target, &firmware, &convert_radio_options(options))
+        run_radio_elf_json(
+            &target,
+            &firmware,
+            &boot_rom,
+            &convert_radio_options(options),
+        )
     }
 }
 

@@ -15,6 +15,7 @@ mod m5sticks3_firmware;
 mod mcs51_mcu;
 mod msp430_mcu;
 mod pic16_mcu;
+mod radio_rom;
 mod riscv;
 mod target;
 mod uart;
@@ -31,6 +32,9 @@ pub use m5sticks3_firmware::{
 pub use mcs51_mcu::{Mcs51MachineError, Mcs51McuMachine};
 pub use msp430_mcu::{Msp430MachineError, Msp430McuMachine};
 pub use pic16_mcu::{Pic16MachineError, Pic16McuMachine};
+pub use radio_rom::{
+    ESP32C6_RADIO_ROM_SHA256, ESP32S3_RADIO_ROM_SHA256, EspRadioRomError, verify_esp_radio_rom,
+};
 pub use riscv::{
     MachineError, RiscVMachine, RunResult, TEST_EXIT, TEST_GPIO, TEST_TIMER, TEST_UART,
 };

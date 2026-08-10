@@ -179,6 +179,21 @@ pub(super) fn map_esp32c6_peripherals(
         0x100,
         Box::new(EspAnalogI2c::new("esp32c6.i2c-ana-mst")),
     )?;
+    // The closed PHY writes its generated analog-I2C command program into
+    // this dedicated word-addressed SRAM before starting RF calibration.
+    // Retain the words exactly: later PHY operations patch and read the same
+    // program, while the analog side effects remain owned by EspAnalogI2c.
+    bus.map_device(
+        "esp32c6.phy-i2c-command-memory",
+        0x600a_fc00,
+        0x400,
+        Box::new(EspC6ControlBlock::new(
+            "esp32c6.phy-i2c-command-memory",
+            0x400,
+            None,
+            0,
+        )),
+    )?;
     let (ieee802154_device, ieee802154) = EspIeee802154::new("esp32c6.ieee802154");
     bus.map_device(
         "esp32c6.ieee802154",

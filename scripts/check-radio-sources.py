@@ -22,6 +22,9 @@ IEEE802154_VENDOR_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/ieee802154-vendor-requirements.json"
 )
 LEGAL_STATE_CONTRACT_PATH = ROOT / "qualification/radio/legal-state-contract.json"
+LEGALITY_SOURCE_PATH = ROOT / "crates/remu-radio/src/legality.rs"
+RADIO_ROM_SOURCE_PATH = ROOT / "crates/remu-machines/src/radio_rom.rs"
+RADIO_WIT_PATH = ROOT / "crates/remu-web/wit/renvo.wit"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 EXPECTED_PROTOCOLS = {
@@ -490,6 +493,39 @@ def validate_legal_state_contract(
             and (chip != "esp32c6" or "ieee802154" in invariants),
             f"{chip} legal-state firmware invariants are incomplete",
         )
+    legality_source = LEGALITY_SOURCE_PATH.read_text(encoding="utf-8")
+    for code in EXPECTED_LEGAL_STATE_RULES:
+        validation.require(
+            f'"{code}"' in legality_source,
+            f"radio legality implementation is missing stable rule code {code!r}",
+        )
+    validation.require(
+        '"illegal radio state [' in legality_source,
+        "radio legality implementation is missing the stable hard-error prefix",
+    )
+
+    rom_source = RADIO_ROM_SOURCE_PATH.read_text(encoding="utf-8")
+    for chip, requirements in EXPECTED_ROM_REQUIREMENTS.items():
+        validation.require(
+            requirements["rom_sha256"] in rom_source,
+            f"{chip} pinned ROM digest is not enforced by the host boundary",
+        )
+    validation.require(
+        "verify_esp_radio_rom(target, &bytes)" in (
+            ROOT / "crates/remu-cli/src/run_command.rs"
+        ).read_text(encoding="utf-8"),
+        "CLI radio/direct execution does not verify the pinned ROM bytes",
+    )
+    validation.require(
+        "verify_esp_radio_rom(target, boot_rom)" in (
+            ROOT / "crates/remu-web/src/lib.rs"
+        ).read_text(encoding="utf-8"),
+        "browser/WASI radio execution does not verify the pinned ROM bytes",
+    )
+    validation.require(
+        "boot-rom: list<u8>" in RADIO_WIT_PATH.read_text(encoding="utf-8"),
+        "browser/WASI radio API does not require caller-provided ROM bytes",
+    )
 
 
 def main() -> int:

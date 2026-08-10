@@ -15,6 +15,18 @@ self.onmessage = ({ data }) => {
       self.postMessage({ id: data.id, result });
       return;
     }
+    if (data.operation === "run-radio") {
+      const firmware = new Uint8Array(data.firmware);
+      const bootRom = new Uint8Array(data.bootRom);
+      const result = Renvo.runRadioElf(
+        data.target,
+        firmware,
+        bootRom,
+        data.options,
+      );
+      self.postMessage({ id: data.id, result });
+      return;
+    }
     throw new Error(`unknown worker operation ${data.operation}`);
   } catch (error) {
     self.postMessage({

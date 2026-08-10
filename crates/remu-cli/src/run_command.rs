@@ -38,7 +38,9 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
     let bytes = fs::read(elf)?;
     let image = FirmwareImage::parse(&bytes)?;
     let esp_boot_rom = if let Some(path) = &arguments.boot_rom {
-        Some(FirmwareImage::parse_addressed_sections(&fs::read(path)?)?)
+        let bytes = fs::read(path)?;
+        remu_machines::verify_esp_radio_rom(target, &bytes)?;
+        Some(FirmwareImage::parse_addressed_sections(&bytes)?)
     } else {
         None
     };

@@ -79,14 +79,21 @@ export class Renvo {
     return JSON.parse(this.runElfJson(target, firmware, runOptions));
   }
 
-  static runRadioElfJson(target, firmware, runOptions) {
+  static runRadioElfJson(target, firmware, bootRom, runOptions) {
     return call(() =>
-      api.runRadioElf(target, bytes(firmware), radioOptions(runOptions)),
+      api.runRadioElf(
+        target,
+        bytes(firmware),
+        bytes(bootRom),
+        radioOptions(runOptions),
+      ),
     );
   }
 
-  static runRadioElf(target, firmware, runOptions) {
-    return JSON.parse(this.runRadioElfJson(target, firmware, runOptions));
+  static runRadioElf(target, firmware, bootRom, runOptions) {
+    return JSON.parse(
+      this.runRadioElfJson(target, firmware, bootRom, runOptions),
+    );
   }
 
   static runIntelHexJson(target, firmware, runOptions) {

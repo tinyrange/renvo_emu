@@ -111,8 +111,9 @@ hardware contracts; they do not need to duplicate every vendor-stack behavior.
 - A shared Wi-Fi functional engine for C6 and S3 with deterministic peer scans,
   station association, channel/address filters, raw TX/RX, monitor mode,
   power-save state, interrupts, and reset.
-- Native Rust and browser/WASI frame-injection and replay APIs. External host
-  networking remains deliberately absent.
+- Native Rust and browser/WASI frame-injection and replay APIs. The radio-aware
+  browser/WASI call requires and verifies the matching pinned real mask-ROM ELF
+  before execution. External host networking remains deliberately absent.
 
 ## Gates that remain open
 

@@ -5,6 +5,7 @@ use remu_image::{FirmwareArchitecture, FirmwareImage, IntelHexImage, ProgramWord
 use remu_machines::{
     ArmMachine, ArmMcuMachine, AvrMcuMachine, Mcs51McuMachine, Msp430McuMachine, Pic16McuMachine,
     PinStimulus, RiscVMachine, RunResult, TargetId, XtensaMachine, target_manifests,
+    verify_esp_radio_rom,
 };
 use remu_radio::{RadioProtocol, ReplayArtifact, Spectrum};
 use remu_signals::Logic;
@@ -174,19 +175,27 @@ pub fn run_elf_json(
     serde_json::to_string(&result).map_err(|error| error.to_string())
 }
 
-/// Runs C6 or S3 ELF firmware with timestamped RF input and returns replay evidence.
+/// Runs C6 or S3 ELF firmware with its required real mask ROM, timestamped RF
+/// input, and replay evidence.
 pub fn run_radio_elf_json(
     target: &str,
     firmware: &[u8],
+    boot_rom: &[u8],
     options: &WebRadioRunOptions,
 ) -> Result<String, String> {
     let target = target.parse::<TargetId>()?;
+    verify_esp_radio_rom(target, boot_rom).map_err(|error| error.to_string())?;
     let image = FirmwareImage::parse(firmware).map_err(|error| error.to_string())?;
+    let boot_rom = FirmwareImage::parse_addressed_sections(boot_rom)
+        .map_err(|error| format!("invalid {target} mask-ROM ELF: {error}"))?;
     let output = match target {
         TargetId::Esp32c6 if image.architecture == FirmwareArchitecture::RiscV32 => {
             let mut machine = RiscVMachine::new(target).map_err(|error| error.to_string())?;
             machine
                 .load_firmware(&image)
+                .map_err(|error| error.to_string())?;
+            machine
+                .load_boot_rom(&boot_rom)
                 .map_err(|error| error.to_string())?;
             for frame in &options.radio_frames {
                 machine
@@ -210,6 +219,9 @@ pub fn run_radio_elf_json(
         }
         TargetId::Esp32s3 if image.architecture == FirmwareArchitecture::Xtensa => {
             let mut machine = XtensaMachine::new(target).map_err(|error| error.to_string())?;
+            machine
+                .load_boot_rom(&boot_rom)
+                .map_err(|error| error.to_string())?;
             machine
                 .load_firmware(&image)
                 .map_err(|error| error.to_string())?;
