@@ -2,8 +2,8 @@ use super::{XtensaMachine, XtensaMachineError};
 use remu_core::{AccessKind, AccessWidth, Bus, SimDuration};
 use remu_radio::{
     BleController, CoexistenceDecision, CoexistenceRequest, DeliveryOutcome, FrameOrigin,
-    MediumEvent, NodeId, RadioFrame, RadioProtocol, Receiver, ReplayArtifact, Spectrum, TxRequest,
-    WifiEngine,
+    MediumEvent, NodeId, RadioDmaDirection, RadioFrame, RadioProtocol, RadioSubsystem, Receiver,
+    ReplayArtifact, Spectrum, TxRequest, WifiEngine,
 };
 const EMULATED_NODE: NodeId = NodeId(1);
 const HOST_NODE: NodeId = NodeId(0);
@@ -112,6 +112,24 @@ impl XtensaMachine {
     }
 
     pub(super) fn service_radio(&mut self) -> Result<u64, XtensaMachineError> {
+        let wifi_ready = self.syscon.wifi_ready();
+        let ble_ready = self.syscon.ble_ready();
+        let coexistence_ready =
+            self.syscon.radio_clock_enable() != 0 && self.syscon.radio_reset_enable() == 0;
+        self.radio_legality
+            .observe_domain(RadioSubsystem::Wifi, wifi_ready, None, self.now)?;
+        self.radio_legality.observe_domain(
+            RadioSubsystem::BluetoothLe,
+            ble_ready,
+            None,
+            self.now,
+        )?;
+        self.radio_legality.observe_domain(
+            RadioSubsystem::Coexistence,
+            coexistence_ready,
+            None,
+            self.now,
+        )?;
         self.radio_medium.advance_to(self.now)?;
         self.radio_coexistence.advance_to(self.now)?;
         self.complete_native_ble_slot_states();
@@ -130,6 +148,13 @@ impl XtensaMachine {
         let wifi_pending = self.radio_wifi.has_rx() || self.wifi_mac.interrupt_pending();
         let ble_pending = self.radio_ble.has_h4_output();
         let rwble_pending = self.ble_exchange_memory.interrupt_pending();
+        self.radio_legality
+            .observe_interrupt(RadioSubsystem::Wifi, wifi_pending, self.now)?;
+        self.radio_legality.observe_interrupt(
+            RadioSubsystem::BluetoothLe,
+            ble_pending || rwble_pending,
+            self.now,
+        )?;
         self.update_matrix_source(0, wifi_pending)?;
         self.update_matrix_source(4, ble_pending)?;
         self.update_matrix_source(8, rwble_pending)?;
@@ -461,30 +486,57 @@ impl XtensaMachine {
     fn submit_native_wifi_frames(&mut self) -> Result<u64, XtensaMachineError> {
         let mut submitted = 0_u64;
         while let Some(descriptor) = self.wifi_mac.take_tx_descriptor() {
-            let Ok(control) = self.bus.read(
+            self.radio_legality.validate_dma(
+                RadioSubsystem::Wifi,
+                RadioDmaDirection::Transmit,
+                descriptor.address,
+                4,
+                8,
+                8,
+                self.now,
+            )?;
+            let control = self.bus.read(
                 u64::from(descriptor.address),
                 AccessWidth::Word,
                 AccessKind::Read,
                 self.now,
-            ) else {
-                continue;
-            };
-            let Ok(buffer) = self.bus.read(
+            )?;
+            let buffer = self.bus.read(
                 u64::from(descriptor.address.wrapping_add(4)),
                 AccessWidth::Word,
                 AccessKind::Read,
                 self.now,
-            ) else {
-                continue;
-            };
+            )?;
             let capacity = (control as usize) & 0x0fff;
             let length = ((control as usize) >> 12) & 0x0fff;
-            if length == 0 || length > capacity || length > 4095 {
-                continue;
-            }
-            let Some(bytes) = self.read_native_wifi_bytes(buffer as u32, length) else {
-                continue;
-            };
+            self.radio_legality.require(
+                RadioSubsystem::Wifi,
+                remu_radio::RadioLegalityRule::DmaLength,
+                length <= capacity,
+                self.now,
+                format!("TX DMA length {length} exceeds descriptor capacity {capacity}"),
+            )?;
+            self.radio_legality.validate_dma(
+                RadioSubsystem::Wifi,
+                RadioDmaDirection::Transmit,
+                buffer as u32,
+                4,
+                length,
+                4095,
+                self.now,
+            )?;
+            let bytes = (0..length)
+                .map(|offset| {
+                    self.bus
+                        .read(
+                            u64::from((buffer as u32).wrapping_add(offset as u32)),
+                            AccessWidth::Byte,
+                            AccessKind::Read,
+                            self.now,
+                        )
+                        .map(|value| value as u8)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let duration = frame_duration(bytes.len());
             self.radio_medium.transmit(TxRequest {
                 source: EMULATED_NODE,
@@ -505,22 +557,6 @@ impl XtensaMachine {
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
-    }
-
-    fn read_native_wifi_bytes(&mut self, address: u32, length: usize) -> Option<Vec<u8>> {
-        (0..length)
-            .map(|offset| {
-                self.bus
-                    .read(
-                        u64::from(address.wrapping_add(offset as u32)),
-                        AccessWidth::Byte,
-                        AccessKind::Read,
-                        self.now,
-                    )
-                    .map(|value| value as u8)
-                    .ok()
-            })
-            .collect()
     }
 
     fn complete_radio_receptions(&mut self) -> Result<u64, XtensaMachineError> {

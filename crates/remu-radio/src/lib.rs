@@ -7,6 +7,7 @@
 mod ble;
 mod coexistence;
 mod ieee802154;
+mod legality;
 mod medium;
 mod replay;
 mod types;
@@ -20,6 +21,10 @@ pub use coexistence::{
 pub use ieee802154::{
     ExtendedAddress, Ieee802154CcaMode, Ieee802154Error, Ieee802154Event, Ieee802154Mac,
     Ieee802154RxOutcome, PanInterface, SecurityMaterial, ShortAddress,
+};
+pub use legality::{
+    RadioActivity, RadioChip, RadioDmaDirection, RadioLegalityError, RadioLegalityRule,
+    RadioLegalityValidator, RadioSubsystem,
 };
 pub use medium::{MediumError, RadioMedium};
 pub use replay::{ReplayArtifact, ReplayError};

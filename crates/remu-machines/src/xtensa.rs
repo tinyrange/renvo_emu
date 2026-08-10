@@ -35,7 +35,7 @@ use remu_devices::{
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_radio::{
     BdAddress, BleController, CoexistenceArbiter, CoexistenceError, MacAddress, MediumError,
-    MediumProfile, RadioMedium, WifiEngine,
+    MediumProfile, RadioChip, RadioLegalityError, RadioLegalityValidator, RadioMedium, WifiEngine,
 };
 use remu_signals::{Logic, SignalError};
 use remu_trace::{TraceDigest, TraceError, TraceSink};
@@ -66,6 +66,9 @@ pub enum XtensaMachineError {
     /// Host peripheral operation failed.
     #[error(transparent)]
     Device(#[from] remu_bus::DeviceError),
+    /// Memory or MMIO access failed while servicing a native peripheral.
+    #[error(transparent)]
+    Bus(#[from] remu_core::BusFault),
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
@@ -75,6 +78,9 @@ pub enum XtensaMachineError {
     /// Shared-RF coexistence arbitration failed.
     #[error(transparent)]
     Coexistence(#[from] CoexistenceError),
+    /// Firmware configured a state outside the recovered native-radio contract.
+    #[error(transparent)]
+    RadioLegality(#[from] RadioLegalityError),
     /// Firmware has not released the selected radio domain from reset and enabled its clocks.
     #[error("{0} radio domain is clock-gated or held in reset")]
     RadioNotReady(&'static str),
@@ -156,6 +162,7 @@ pub struct XtensaMachine {
     radio_coexistence: CoexistenceArbiter,
     radio_wifi: WifiEngine,
     radio_ble: BleController,
+    radio_legality: RadioLegalityValidator,
     radio_event_cursor: usize,
     pending_native_ble_transmissions: VecDeque<radio::PendingNativeBleTransmission>,
     pending_native_ble_receptions: VecDeque<radio::PendingNativeBleReception>,
@@ -760,6 +767,7 @@ impl XtensaMachine {
             radio_coexistence: CoexistenceArbiter::new(),
             radio_wifi: WifiEngine::new(MacAddress([0x02, 0, 0, 0, 0x53, 3])),
             radio_ble: BleController::new(BdAddress([3, 0x53, 0, 0, 0, 0x02]), 0x3253_5eed),
+            radio_legality: RadioLegalityValidator::new(RadioChip::Esp32S3),
             radio_event_cursor: 0,
             pending_native_ble_transmissions: VecDeque::new(),
             pending_native_ble_receptions: VecDeque::new(),

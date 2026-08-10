@@ -77,6 +77,28 @@ fn esp32s3_wifi_and_ble_use_shared_deterministic_radio_api() {
 }
 
 #[test]
+fn esp32s3_illegal_native_wifi_dma_is_a_hard_machine_error() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            (3_u64 << 30) | 2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let error = machine.service_radio().unwrap_err();
+    let XtensaMachineError::RadioLegality(error) = error else {
+        panic!("expected radio legality error, got {error}");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DmaAddress);
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Wifi);
+    assert!(error.to_string().contains("0x3fc00002"));
+}
+
+#[test]
 fn esp32s3_native_ble_scheduler_transmits_exchange_memory_pdu_and_completes() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let slot_address = 0x3fca_1000_u32;

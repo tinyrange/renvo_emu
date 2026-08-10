@@ -970,6 +970,37 @@ fn esp32c6_wifi_and_ble_protocol_engines_follow_modem_clock_gates() {
 }
 
 #[test]
+fn esp32c6_illegal_native_wifi_dma_is_a_hard_machine_error() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10) | (1 << 17) | (1 << 18),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            (3_u64 << 30) | 2,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let error = machine.service_radio().unwrap_err();
+    let MachineError::RadioLegality(error) = error else {
+        panic!("expected radio legality error, got {error}");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DmaAddress);
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Wifi);
+    assert!(error.to_string().contains("0x40800002"));
+}
+
+#[test]
 fn esp32c6_native_wifi_rx_dma_writes_metadata_frame_and_completion() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine

@@ -27,7 +27,8 @@ use remu_image::{
 };
 use remu_radio::{
     BdAddress, BleController, CoexistenceArbiter, CoexistenceError, CoexistenceGrantId,
-    Ieee802154Mac, MacAddress, MediumError, MediumProfile, RadioMedium, TransmissionId, WifiEngine,
+    Ieee802154Mac, MacAddress, MediumError, MediumProfile, RadioChip, RadioLegalityError,
+    RadioLegalityValidator, RadioMedium, TransmissionId, WifiEngine,
 };
 use remu_signals::{Logic, SignalError};
 use remu_trace::{TraceDigest, TraceError, TraceSink};
@@ -119,6 +120,9 @@ pub enum MachineError {
     /// Shared-RF coexistence arbitration failed.
     #[error(transparent)]
     Coexistence(#[from] CoexistenceError),
+    /// Firmware configured a state outside the recovered native-radio contract.
+    #[error(transparent)]
+    RadioLegality(#[from] RadioLegalityError),
     /// Firmware has not released the selected radio domain from reset and enabled its clocks.
     #[error("{0} radio domain is clock-gated or held in reset")]
     RadioNotReady(&'static str),
@@ -239,6 +243,7 @@ pub struct RiscVMachine {
     radio_ieee802154_mac: Option<Ieee802154Mac>,
     radio_wifi: Option<WifiEngine>,
     radio_ble: Option<BleController>,
+    radio_legality: Option<RadioLegalityValidator>,
     radio_pending_ieee802154_tx: Vec<(TransmissionId, CoexistenceGrantId, SimTime, Option<u8>)>,
     radio_pending_ieee802154_ack: Vec<SimTime>,
     radio_pending_ieee802154_cca: Option<SimTime>,
@@ -305,6 +310,8 @@ impl RiscVMachine {
             .then(|| WifiEngine::new(MacAddress([0x02, 0, 0, 0, 0xc6, 1])));
         let radio_ble = (target == TargetId::Esp32c6)
             .then(|| BleController::new(BdAddress([1, 0xc6, 0, 0, 0, 0x02]), 0x32c6_5eed));
+        let radio_legality =
+            (target == TargetId::Esp32c6).then(|| RadioLegalityValidator::new(RadioChip::Esp32C6));
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
@@ -784,6 +791,7 @@ impl RiscVMachine {
             radio_ieee802154_mac,
             radio_wifi,
             radio_ble,
+            radio_legality,
             radio_pending_ieee802154_tx: Vec::new(),
             radio_pending_ieee802154_ack: Vec::new(),
             radio_pending_ieee802154_cca: None,

@@ -7,8 +7,8 @@ use remu_devices::{
 use remu_radio::{
     BleController, CoexistenceDecision, CoexistenceRequest, DeliveryOutcome, ExtendedAddress,
     FrameOrigin, Ieee802154CcaMode, Ieee802154Error, Ieee802154Mac, Ieee802154RxOutcome,
-    MediumEvent, NodeId, PanInterface, RadioFrame, RadioProtocol, Receiver, ReplayArtifact,
-    ShortAddress, Spectrum, TxRequest, WifiEngine,
+    MediumEvent, NodeId, PanInterface, RadioDmaDirection, RadioFrame, RadioProtocol,
+    RadioSubsystem, Receiver, ReplayArtifact, ShortAddress, Spectrum, TxRequest, WifiEngine,
 };
 
 const EMULATED_NODE: NodeId = NodeId(1);
@@ -129,6 +129,35 @@ impl RiscVMachine {
                 handles.wifi_mac.clone(),
             )
         };
+        let reset_generations = modem.reset_generations();
+        let legality = self
+            .radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator");
+        legality.observe_domain(
+            RadioSubsystem::Wifi,
+            modem.wifi_ready(),
+            Some(reset_generations[0]),
+            self.now,
+        )?;
+        legality.observe_domain(
+            RadioSubsystem::BluetoothLe,
+            modem.ble_ready(),
+            Some(reset_generations[1]),
+            self.now,
+        )?;
+        legality.observe_domain(
+            RadioSubsystem::Ieee802154,
+            modem.ieee802154_ready(),
+            Some(reset_generations[2]),
+            self.now,
+        )?;
+        legality.observe_domain(
+            RadioSubsystem::Coexistence,
+            modem.coexistence_ready(),
+            Some(reset_generations[3]),
+            self.now,
+        )?;
         ieee802154.poll(self.now);
         ble_baseband.advance_to(self.now);
         let mut events = self.service_native_ble_completions(&ble_baseband)?;
@@ -289,24 +318,28 @@ impl RiscVMachine {
         }
         events = events.saturating_add(self.submit_native_wifi_frames(&wifi_mac)?);
         events = events.saturating_add(self.submit_protocol_engine_frames()?);
-        interrupt_matrix.set_source(
-            0,
-            wifi_mac.interrupt_pending()
-                || self.radio_wifi.as_ref().is_some_and(WifiEngine::has_rx),
-        );
-        interrupt_matrix.set_source(
-            4,
-            ble_baseband.interrupt_pending()
-                || self
-                    .radio_ble
-                    .as_ref()
-                    .is_some_and(BleController::has_h4_output),
-        );
+        let wifi_pending = wifi_mac.interrupt_pending()
+            || self.radio_wifi.as_ref().is_some_and(WifiEngine::has_rx);
+        let ble_pending = ble_baseband.interrupt_pending()
+            || self
+                .radio_ble
+                .as_ref()
+                .is_some_and(BleController::has_h4_output);
+        let ieee802154_pending = ieee802154.interrupt_pending();
+        let legality = self
+            .radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator");
+        legality.observe_interrupt(RadioSubsystem::Wifi, wifi_pending, self.now)?;
+        legality.observe_interrupt(RadioSubsystem::BluetoothLe, ble_pending, self.now)?;
+        legality.observe_interrupt(RadioSubsystem::Ieee802154, ieee802154_pending, self.now)?;
+        interrupt_matrix.set_source(0, wifi_pending);
+        interrupt_matrix.set_source(4, ble_pending);
         // Source 5 is the separately exposed BT_BB line. Current C6 controller
         // firmware installs its combined native PHY ISR on BT_MAC source 4,
         // while freestanding stacks may route the baseband source directly.
         interrupt_matrix.set_source(5, ble_baseband.interrupt_pending());
-        interrupt_matrix.set_source(12, ieee802154.interrupt_pending());
+        interrupt_matrix.set_source(12, ieee802154_pending);
         Ok(events)
     }
 
@@ -653,30 +686,45 @@ impl RiscVMachine {
     ) -> Result<u64, MachineError> {
         let mut submitted = 0_u64;
         while let Some(descriptor) = wifi_mac.take_tx_descriptor() {
-            let Ok(buffer) = self.bus.read(
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .validate_dma(
+                    RadioSubsystem::Wifi,
+                    RadioDmaDirection::Transmit,
+                    descriptor.address,
+                    4,
+                    12,
+                    12,
+                    self.now,
+                )?;
+            let buffer = self.bus.read(
                 u64::from(descriptor.address.wrapping_add(4)),
                 AccessWidth::Word,
                 AccessKind::Read,
                 self.now,
-            ) else {
-                continue;
-            };
+            )?;
             let buffer = buffer as u32;
-            let Ok(length) = self.bus.read(
+            let length = self.bus.read(
                 u64::from(buffer),
                 AccessWidth::Word,
                 AccessKind::Read,
                 self.now,
-            ) else {
-                continue;
-            };
+            )?;
             let length = length as usize;
-            if length == 0 || length > 4095 {
-                continue;
-            }
-            let Ok(bytes) = self.radio_read_guest_bytes(buffer.wrapping_add(8), length) else {
-                continue;
-            };
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .validate_dma(
+                    RadioSubsystem::Wifi,
+                    RadioDmaDirection::Transmit,
+                    buffer.wrapping_add(8),
+                    4,
+                    length,
+                    4095,
+                    self.now,
+                )?;
+            let bytes = self.radio_read_guest_bytes(buffer.wrapping_add(8), length)?;
             let duration = frame_duration(bytes.len());
             self.radio_medium
                 .as_mut()

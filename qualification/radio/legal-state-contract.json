@@ -1,0 +1,64 @@
+{
+  "schema": "remu.radio-legal-state-contract.v1",
+  "policy": {
+    "baseline": "firmware-observed-only",
+    "violation": "hard-error",
+    "diagnostic_prefix": "illegal radio state",
+    "learning_at_runtime": false,
+    "ordinary_rf_outcomes_are_violations": false
+  },
+  "rule_codes": [
+    "monotonic-time",
+    "domain-ready",
+    "monotonic-reset-generation",
+    "dma-address",
+    "dma-length",
+    "interrupt-domain",
+    "operation-overlap",
+    "completion-without-operation",
+    "scheduler-state",
+    "memory-mapping",
+    "coexistence-ownership"
+  ],
+  "evidence": [
+    "qualification/radio/rom-requirements.json",
+    "qualification/radio/ble-vendor-requirements.json",
+    "qualification/radio/ieee802154-vendor-requirements.json",
+    "qualification/radio/custom-stack-probe/requirements.json",
+    "qualification/radio/source-ledger.json"
+  ],
+  "chips": {
+    "esp32c6": {
+      "required_rom": "esp32c6_rev0_rom.elf",
+      "required_rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+      "subsystems": [
+        "wifi",
+        "bluetooth-le",
+        "ieee802154",
+        "coexistence"
+      ],
+      "observed_invariants": {
+        "clock_reset": "native work and asserted interrupts require the firmware-enabled modem clock/reset domain; a reset-generation change retires in-flight activity",
+        "wifi_dma": "TX descriptor and payload pointers are nonzero four-byte-aligned internal-memory addresses; payload length is 1 through 4095 bytes",
+        "bluetooth_le": "native schedule records and security DMA must resolve through firmware-programmed internal-memory mappings before execution",
+        "ieee802154": "TX, RX, single-shot CCA, energy detection and ACK phases use the firmware command lifecycle and cannot overlap incompatibly",
+        "coexistence": "RF submissions execute only under the grant returned for their firmware-selected protocol and priority"
+      }
+    },
+    "esp32s3": {
+      "required_rom": "esp32s3_rev0_rom.elf",
+      "required_rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
+      "subsystems": [
+        "wifi",
+        "bluetooth-le",
+        "coexistence"
+      ],
+      "observed_invariants": {
+        "clock_reset": "native work and asserted interrupts require the firmware-enabled SYSCON radio clock/reset domain",
+        "wifi_dma": "TX descriptor and payload pointers are nonzero four-byte-aligned internal-memory addresses; payload length is nonzero, no greater than capacity, and no greater than 4095 bytes",
+        "bluetooth_le": "scheduler slots, control structures, descriptors and payloads must use firmware-observed encodings and resolve through exchange-memory mappings",
+        "coexistence": "RF submissions execute only under the grant returned for their firmware-selected protocol and priority"
+      }
+    }
+  }
+}

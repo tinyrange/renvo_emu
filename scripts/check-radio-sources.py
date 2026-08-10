@@ -21,6 +21,7 @@ BLE_VENDOR_REQUIREMENTS_PATH = ROOT / "qualification/radio/ble-vendor-requiremen
 IEEE802154_VENDOR_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/ieee802154-vendor-requirements.json"
 )
+LEGAL_STATE_CONTRACT_PATH = ROOT / "qualification/radio/legal-state-contract.json"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 EXPECTED_PROTOCOLS = {
@@ -36,6 +37,19 @@ EXPECTED_PROTOCOLS = {
     },
 }
 EXPECTED_INTERRUPTS = {"esp32c6": list(range(13)), "esp32s3": list(range(12))}
+EXPECTED_LEGAL_STATE_RULES = [
+    "monotonic-time",
+    "domain-ready",
+    "monotonic-reset-generation",
+    "dma-address",
+    "dma-length",
+    "interrupt-domain",
+    "operation-overlap",
+    "completion-without-operation",
+    "scheduler-state",
+    "memory-mapping",
+    "coexistence-ownership",
+]
 BLOCK_STATUSES = {"required", "discovery-required", "disputed-revision", "not-present"}
 EXPECTED_ROM_REQUIREMENTS = {
     "esp32c6": {
@@ -420,6 +434,64 @@ def validate_ieee802154_vendor_requirements(
     )
 
 
+def validate_legal_state_contract(
+    contract: dict[str, object], validation: Validation
+) -> None:
+    validation.require(
+        contract.get("schema") == "remu.radio-legal-state-contract.v1",
+        "radio legal-state contract schema is not remu.radio-legal-state-contract.v1",
+    )
+    policy = contract.get("policy", {})
+    validation.require(
+        policy.get("baseline") == "firmware-observed-only"
+        and policy.get("violation") == "hard-error"
+        and policy.get("diagnostic_prefix") == "illegal radio state"
+        and policy.get("learning_at_runtime") is False
+        and policy.get("ordinary_rf_outcomes_are_violations") is False,
+        "radio legal-state policy must remain firmware-derived and fail hard",
+    )
+    validation.require(
+        contract.get("rule_codes") == EXPECTED_LEGAL_STATE_RULES,
+        "radio legal-state rule inventory changed or is incomplete",
+    )
+    evidence = contract.get("evidence", [])
+    validation.require(
+        isinstance(evidence, list) and bool(evidence),
+        "radio legal-state contract has no firmware evidence",
+    )
+    for path in evidence:
+        validation.require(
+            isinstance(path, str) and (ROOT / path).is_file(),
+            f"radio legal-state evidence is missing: {path!r}",
+        )
+    chips = contract.get("chips", {})
+    expected_subsystems = {
+        "esp32c6": ["wifi", "bluetooth-le", "ieee802154", "coexistence"],
+        "esp32s3": ["wifi", "bluetooth-le", "coexistence"],
+    }
+    for chip, subsystems in expected_subsystems.items():
+        chip_contract = chips.get(chip, {})
+        rom = EXPECTED_ROM_REQUIREMENTS[chip]
+        validation.require(
+            chip_contract.get("required_rom") == rom["rom_file"]
+            and chip_contract.get("required_rom_sha256") == rom["rom_sha256"],
+            f"{chip} legal-state contract is not pinned to the required genuine ROM",
+        )
+        validation.require(
+            chip_contract.get("subsystems") == subsystems,
+            f"{chip} legal-state subsystem inventory changed or is incomplete",
+        )
+        invariants = chip_contract.get("observed_invariants", {})
+        validation.require(
+            isinstance(invariants, dict)
+            and {"clock_reset", "wifi_dma", "bluetooth_le", "coexistence"}.issubset(
+                invariants
+            )
+            and (chip != "esp32c6" or "ieee802154" in invariants),
+            f"{chip} legal-state firmware invariants are incomplete",
+        )
+
+
 def main() -> int:
     validation = Validation()
     ledger = load_json(LEDGER_PATH)
@@ -428,12 +500,14 @@ def main() -> int:
     custom_stack_requirements = load_json(CUSTOM_STACK_REQUIREMENTS_PATH)
     ble_vendor_requirements = load_json(BLE_VENDOR_REQUIREMENTS_PATH)
     ieee802154_vendor_requirements = load_json(IEEE802154_VENDOR_REQUIREMENTS_PATH)
+    legal_state_contract = load_json(LEGAL_STATE_CONTRACT_PATH)
     validate_ledger(ledger, validation)
     validate_inventory(inventory, validation)
     validate_rom_requirements(rom_requirements, validation)
     validate_custom_stack_requirements(custom_stack_requirements, validation)
     validate_ble_vendor_requirements(ble_vendor_requirements, validation)
     validate_ieee802154_vendor_requirements(ieee802154_vendor_requirements, validation)
+    validate_legal_state_contract(legal_state_contract, validation)
     if validation.errors:
         for error in validation.errors:
             print(f"radio audit: {error}", file=sys.stderr)
