@@ -97,8 +97,11 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     if (failure == 0) {
         WRITE32(INTERRUPT_MATRIX_WIFI_ROUTE, WIFI_CPU_INTERRUPT);
         WRITE32(WIFI_INTERRUPT_MASK, WIFI_TX_DONE | WIFI_RX_DONE);
+        /* The MAC reports a wire length that includes its generated FCS,
+         * while descriptor capacity covers only the guest-owned MAC frame. */
         remu_wifi_descriptor[0] =
-            0xc0000000u | ((uint32_t)sizeof(remu_wifi_frame) << 12) |
+            0xc0000000u |
+            (((uint32_t)sizeof(remu_wifi_frame) + 4u) << 12) |
             (uint32_t)sizeof(remu_wifi_frame);
         remu_wifi_descriptor[1] = (uintptr_t)remu_wifi_frame;
         remu_wifi_descriptor[2] = 0;

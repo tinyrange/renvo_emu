@@ -105,7 +105,8 @@ static uint8_t ieee802154_no_ack_frame[] = {4, 0x21, 0x00, 0x45, 0xa5};
 static uint8_t ieee802154_invalid_security_frame[] = {4, 0x01, 0x00, 0x2b, 0xa5};
 uint8_t remu_ieee802154_rx_buffer[128] __attribute__((aligned(4)));
 uint8_t remu_wifi_frame[] __attribute__((aligned(4))) = {
-    24, 0, 0, 0, 0, 0, 0, 0,
+    /* Native TX wire length: 24 guest MAC bytes plus generated FCS. */
+    28, 0, 0, 0, 0, 0, 0, 0,
     0x40, 0x00, 0x00, 0x00,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x02, 0x00, 0x00, 0x00, 0x00, 0x06,
