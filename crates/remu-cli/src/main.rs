@@ -21,7 +21,7 @@ use remu_machines::{
 use remu_signals::Logic;
 use remu_starlark::evaluate_script;
 use remu_trace::{Timescale, TraceSink, VcdWriter};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -222,7 +222,7 @@ struct FirmwareBootArgs {
     /// Official merged ESP image supplying bootloader/partitions for an app-only UF2.
     #[arg(long)]
     esp_base_image: Option<PathBuf>,
-    /// Complete chip boot-ROM image, when the firmware uses ROM-resident runtime tables.
+    /// Complete chip boot-ROM image; required for ESP32-C6 and ESP32-S3 native boot.
     #[arg(long)]
     boot_rom: Option<PathBuf>,
     /// Bytes to deliver after native USB enumeration, typically a REPL transcript.
@@ -265,12 +265,15 @@ struct FirmwareExtractUf2Args {
 
 #[derive(Debug, Args)]
 struct RunArgs {
-    /// One of: ch32v003, ch32v006, rp2350, esp32c6.
+    /// One of the target identifiers reported by `remu targets`.
     #[arg(long)]
     target: String,
     /// Compiler-produced ELF32 firmware.
     #[arg(long, required_unless_present = "hex", conflicts_with = "hex")]
     elf: Option<PathBuf>,
+    /// Real chip mask-ROM ELF required for ESP native/radio execution.
+    #[arg(long, requires = "elf", conflicts_with = "hex")]
+    boot_rom: Option<PathBuf>,
     /// Compiler-produced Intel HEX firmware (PIC16F15376 and MCS-51 targets).
     #[arg(long, required_unless_present = "elf", conflicts_with = "elf")]
     hex: Option<PathBuf>,
@@ -292,7 +295,10 @@ struct RunArgs {
     /// Stream completed memory and MMIO operations to this JSON file.
     #[arg(long)]
     bus_log: Option<PathBuf>,
-    /// esptool application binary to validate against an ESP32-C6 direct ELF.
+    /// Retain only accesses to this exact bus-region name in --bus-log; repeatable.
+    #[arg(long, requires = "bus_log")]
+    bus_log_region: Vec<String>,
+    /// esptool application or merged flash binary for ESP32-C6/ESP32-S3.
     #[arg(long, requires = "elf", conflicts_with = "hex")]
     esp_app_image: Option<PathBuf>,
     /// Flash partition offset of --esp-app-image (default: 0x10000).
@@ -301,6 +307,12 @@ struct RunArgs {
     /// Write deterministic instruction-fetch coverage as JSON.
     #[arg(long)]
     coverage: Option<PathBuf>,
+    /// Write the deterministic isolated RF-medium replay artifact as JSON.
+    #[arg(long)]
+    radio_replay: Option<PathBuf>,
+    /// Read deterministic timestamped RF input frames from a JSON artifact.
+    #[arg(long)]
+    radio_input: Option<PathBuf>,
     /// Require the complete result to match a prior JSON result exactly.
     #[arg(long)]
     replay: Option<PathBuf>,
@@ -324,6 +336,13 @@ struct SignalStopArg {
 #[derive(Clone, Default)]
 struct DirectRunControl<'a> {
     access_observer: Option<remu_bus::SharedBusAccessObserver>,
+    esp32c6_mmu_page_size: Option<u32>,
+    esp32c6_flash_image: Option<Vec<u8>>,
+    esp32c6_boot_image: Option<(EspExecutableImage, u32)>,
+    esp32s3_boot_image: Option<(EspFlashImage, Vec<u8>)>,
+    esp_boot_rom: Option<FirmwareImage>,
+    radio_replay: Option<&'a Path>,
+    radio_input: Option<&'a Path>,
     breakpoints: &'a [u64],
     watchpoints: &'a [u64],
     signal_stops: &'a [SignalStopArg],

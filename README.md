@@ -17,7 +17,7 @@ includes mainstream parts alongside QingKe, MSP430, PIC16, AVR, and MCS-51
 devices that are often missing from general-purpose emulators.
 
 Renvo Emulator does **not** currently claim cycle accuracy, complete ISA
-coverage, complete peripheral coverage, radio simulation, or arbitrary SDK
+coverage, complete peripheral coverage, physical RF accuracy, or arbitrary SDK
 compatibility. One abstract tick represents a completed instruction or
 architectural action. That timing is deterministic and useful for ordering,
 timers, and waveforms, but it is not silicon time.
@@ -107,7 +107,10 @@ For compiler and ABI work, run an ELF directly:
 
 Direct ESP execution is an architectural/compiler oracle, not proof that a
 bootloader accepts the flash layout. Supplying `--esp-app-image` adds a separate
-esptool-compatible application-image validation step.
+esptool-compatible application-image validation step and requires `--boot-rom`
+with the target's real mask-ROM ELF. ESP32-C6/S3 native firmware boot and
+radio-capable direct runs likewise require the matching ROM. A direct ELF run
+that only tests CPU/compiler behavior remains exempt.
 
 The ESP32-S3 model also exposes a functional RMT slice. Transmit channels 0–3
 accept native FIFO pulse items at `0x6001_6000`, set completion status, and

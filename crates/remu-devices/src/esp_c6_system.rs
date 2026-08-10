@@ -177,8 +177,9 @@ impl Device for EspC6IoMux {
 }
 
 struct InterruptMatrixState {
-    // Native source numbers are the register index. Eight source numbers are
-    // reserved, leaving the 69 routing registers documented by ESP-IDF.
+    // Native source numbers are the register index. Some inputs have no named
+    // peripheral in the public header, but the ESP-IDF ROM handoff clears all
+    // 77 route words and hardware accepts those writes.
     routes: [u8; 77],
     sources: [u32; 3],
     clock_enabled: bool,
@@ -223,6 +224,11 @@ impl EspC6InterruptMatrixHandle {
             *route == interrupt && state.sources[source / 32] & (1 << (source % 32)) != 0
         })
     }
+
+    /// Returns the CPU interrupt currently selected for a peripheral source.
+    pub fn route(&self, source: u8) -> Option<u8> {
+        self.state.borrow().routes.get(usize::from(source)).copied()
+    }
 }
 
 /// ESP32-C6 peripheral-source interrupt routing matrix.
@@ -233,14 +239,7 @@ pub struct EspC6InterruptMatrix {
 }
 
 fn valid_interrupt_route(offset: u64) -> bool {
-    matches!(
-        offset,
-        0x000
-            | 0x008..=0x014
-            | 0x01c..=0x054
-            | 0x068..=0x074
-            | 0x080..=0x130
-    ) && offset.is_multiple_of(4)
+    offset <= 0x130 && offset.is_multiple_of(4)
 }
 
 impl EspC6InterruptMatrix {
@@ -453,6 +452,18 @@ impl EspC6ControlBlock {
             registers: reset.clone(),
             reset,
         }
+    }
+
+    /// Applies one documented hardware reset word to this register facade.
+    ///
+    /// This builder is used for control blocks whose non-zero reset state is
+    /// consumed by vendor startup code before firmware has written the block.
+    pub fn with_reset_word(mut self, offset: u64, value: u32) -> Self {
+        let index = usize::try_from(offset / 4).expect("control-block offset fits usize");
+        assert!(offset.is_multiple_of(4) && index < self.reset.len());
+        self.reset[index] = value;
+        self.registers[index] = value;
+        self
     }
 }
 

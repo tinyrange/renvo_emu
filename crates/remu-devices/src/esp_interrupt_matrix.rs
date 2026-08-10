@@ -168,6 +168,18 @@ impl EspInterruptMatrixState {
         }
     }
 
+    fn interrupt_pending(&self, core: usize, interrupt: u8) -> bool {
+        let Some(routes) = self.routes.get(core) else {
+            return false;
+        };
+        let Some(pending) = self.pending.get(core) else {
+            return false;
+        };
+        routes.iter().zip(pending).any(|(&route, &is_pending)| {
+            is_pending && route == interrupt && !Self::route_is_disabled(route)
+        })
+    }
+
     fn recompute_status(&mut self, core: usize) {
         let Some(pending) = self.pending.get(core) else {
             return;
@@ -218,6 +230,11 @@ impl EspInterruptMatrixHandle {
     /// scheduler's current peripheral-source view.
     pub fn set_source_pending(&self, core: usize, source: usize, pending: bool) {
         self.state.borrow_mut().set_pending(core, source, pending);
+    }
+
+    /// Whether any pending peripheral source is routed to a CPU interrupt line.
+    pub fn interrupt_pending(&self, core: usize, interrupt: u8) -> bool {
+        self.state.borrow().interrupt_pending(core, interrupt)
     }
 }
 
@@ -416,6 +433,12 @@ mod tests {
             assert_eq!(handle.route(0, 38), u8::MAX);
         }
         write_word(&mut device, Esp32S3InterruptRegister::Core0Route(38), 5);
+        write_word(&mut device, Esp32S3InterruptRegister::Core0Route(39), 5);
+        handle.set_source_pending(0, 38, true);
+        handle.set_source_pending(0, 39, false);
+        assert!(handle.interrupt_pending(0, 5));
+        handle.set_source_pending(0, 38, false);
+        assert!(!handle.interrupt_pending(0, 5));
         handle.set_source_pending(1, 39, true);
         assert_eq!(
             device

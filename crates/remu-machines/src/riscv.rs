@@ -13,8 +13,8 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic,
-    EspC6PlicHandle, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
+    EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic, EspC6PlicHandle,
+    EspGpio, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
     EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank,
     Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc,
@@ -24,6 +24,10 @@ use remu_devices::{
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
+};
+use remu_radio::{
+    BdAddress, BleController, CoexistenceArbiter, CoexistenceError, CoexistenceGrantId,
+    Ieee802154Mac, MacAddress, MediumError, MediumProfile, RadioMedium, TransmissionId, WifiEngine,
 };
 use remu_signals::{Logic, SignalError};
 use remu_trace::{TraceDigest, TraceError, TraceSink};
@@ -41,6 +45,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod lp_uart;
+mod radio;
 mod rp_bootrom;
 mod runtime;
 mod watchdog;
@@ -61,12 +66,19 @@ const ESP_ROM_FLASH_END_STUB: u32 = 0x4004_fe04;
 const ESP_ROM_FLASH_CHIP_CHECK_STUB: u32 = 0x4004_fe08;
 const ESP_ROM_FLASH_DETECT_SIZE_STUB: u32 = 0x4004_fe0c;
 const ESP_ROM_FLASH_OK_STUB: u32 = 0x4004_fe10;
+const ESP_ROM_PHY_NOOP_STUB: u32 = 0x4004_fe14;
+const ESP_ROM_PHY_I2C_STABLE_STUB: u32 = 0x4004_fe18;
 const ESP_ROM_COEX_VERSION: u32 = 0x4004_fdc0;
+const ESP_ROM_PHY_FUNCTION_TABLE: u32 = 0x4087_f000;
 const ESP_ROM_DEFAULT_FLASH: u32 = 0x4087_fa00;
 const ESP_ROM_FLASH_DRIVER: u32 = 0x4087_f900;
 const ESP_ROM_FLASH_HOST: u32 = 0x4087_f700;
 const ESP_FUNCTIONAL_MMAP_BASE: u32 = 0x4280_0000;
+const ESP32C6_CACHE_MMU_VADDR_BASE: u32 = 0x4200_0000;
 const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
+// The direct-mode core advances one simulation tick per 160 MHz CPU action;
+// the ESP32-C6 system timer runs from its 16 MHz clock source.
+const ESP32C6_CPU_TICKS_PER_SYSTIMER_TICK: u64 = 10;
 const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
 const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
 const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;
@@ -101,6 +113,15 @@ pub enum MachineError {
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
+    /// Deterministic RF-medium operation failed.
+    #[error(transparent)]
+    Radio(#[from] MediumError),
+    /// Shared-RF coexistence arbitration failed.
+    #[error(transparent)]
+    Coexistence(#[from] CoexistenceError),
+    /// Firmware has not released the selected radio domain from reset and enabled its clocks.
+    #[error("{0} radio domain is clock-gated or held in reset")]
+    RadioNotReady(&'static str),
     /// Firmware architecture does not match this machine.
     #[error("firmware architecture {actual:?} does not match RISC-V target {target}")]
     Architecture {
@@ -175,6 +196,7 @@ pub struct RiscVMachine {
     cpu: RiscVCpu,
     cpu1: RiscVCpu,
     cpu1_active: bool,
+    boot_rom_loaded: bool,
     sio: Option<RpSioHandle>,
     bus: AddressSpace,
     signals: SignalHub,
@@ -204,11 +226,26 @@ pub struct RiscVMachine {
     esp_flash_guard: u32,
     esp_reset_reason: u32,
     esp_flash: Vec<u8>,
+    esp32c6_materialized_mmu: [u32; 256],
+    esp32c6_flash_dirty: bool,
     esp_timer_groups: Vec<EspTimerGroupHandle>,
     esp_c6_plic: Option<EspC6PlicHandle>,
     esp_c6_clint: Option<EspC6ClintHandle>,
     esp_c6_extmem: Option<EspC6ExtmemHandle>,
+    esp_c6_spimem_mmu: Option<EspSpiMemMmuHandle>,
     esp32c6_peripherals: Option<Esp32c6PeripheralHandles>,
+    radio_medium: Option<RadioMedium>,
+    radio_coexistence: Option<CoexistenceArbiter>,
+    radio_ieee802154_mac: Option<Ieee802154Mac>,
+    radio_wifi: Option<WifiEngine>,
+    radio_ble: Option<BleController>,
+    radio_pending_ieee802154_tx: Vec<(TransmissionId, CoexistenceGrantId, SimTime, Option<u8>)>,
+    radio_pending_ieee802154_ack: Vec<SimTime>,
+    radio_pending_ieee802154_cca: Option<SimTime>,
+    radio_c6_ble_scan: Option<(u32, u32)>,
+    radio_c6_ble_completion_anchors: BTreeMap<u32, u32>,
+    radio_c6_ble_schedule_records: Vec<u32>,
+    radio_event_cursor: usize,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
@@ -255,7 +292,19 @@ impl RiscVMachine {
         let mut esp_c6_plic = None;
         let mut esp_c6_clint = None;
         let mut esp_c6_extmem = None;
+        let mut esp_c6_spimem_mmu = None;
         let mut esp32c6_peripherals = None;
+        let radio_medium = if target == TargetId::Esp32c6 {
+            Some(RadioMedium::new(MediumProfile::default())?)
+        } else {
+            None
+        };
+        let radio_coexistence = (target == TargetId::Esp32c6).then(CoexistenceArbiter::new);
+        let radio_ieee802154_mac = (target == TargetId::Esp32c6).then(Ieee802154Mac::new);
+        let radio_wifi = (target == TargetId::Esp32c6)
+            .then(|| WifiEngine::new(MacAddress([0x02, 0, 0, 0, 0xc6, 1])));
+        let radio_ble = (target == TargetId::Esp32c6)
+            .then(|| BleController::new(BdAddress([1, 0xc6, 0, 0, 0, 0x02]), 0x32c6_5eed));
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
@@ -615,18 +664,9 @@ impl RiscVMachine {
                 let (extmem, extmem_handle) = EspC6Extmem::new("esp32c6.extmem");
                 bus.map_device("esp32c6.extmem", 0x600c_8000, 0x1000, Box::new(extmem))?;
                 esp_c6_extmem = Some(extmem_handle);
-                bus.map_device(
-                    "esp32c6.modem-lpcon",
-                    0x600a_f000,
-                    0x1000,
-                    Box::new(EspAnalogI2c::new("esp32c6.modem-lpcon")),
-                )?;
-                bus.map_device(
-                    "esp32c6.spimem0",
-                    0x6000_2000,
-                    0x1000,
-                    Box::new(EspSpiMem::new("esp32c6.spimem0")),
-                )?;
+                let (spimem0, spimem0_mmu) = EspSpiMem::new_observed("esp32c6.spimem0");
+                bus.map_device("esp32c6.spimem0", 0x6000_2000, 0x1000, Box::new(spimem0))?;
+                esp_c6_spimem_mmu = Some(spimem0_mmu);
                 bus.map_device(
                     "esp32c6.spimem1",
                     0x6000_3000,
@@ -645,11 +685,14 @@ impl RiscVMachine {
                     bus.map_device(name, base, 0x1000, Box::new(device))?;
                     esp_timer_groups.push(handle);
                 }
-                let (device, handle) = EspGpio::new(
+                // GPIO9 has an internal pull-up on a normal ESP32-C6 reset.
+                // The ROM samples it as strap bit 3 and selects SPI flash boot.
+                let (device, handle) = EspGpio::new_with_strap(
                     "esp32c6.gpio",
                     31,
                     "board.esp32c6.chip_gpio",
                     signals.clone(),
+                    3 << 2,
                 )?;
                 bus.map_device("esp32c6.gpio", 0x6009_1000, 0x1000, Box::new(device))?;
                 chip_gpio.push(handle);
@@ -698,6 +741,7 @@ impl RiscVMachine {
             cpu: RiscVCpu::new(profile.clone())?,
             cpu1: RiscVCpu::new(secondary_profile)?,
             cpu1_active: false,
+            boot_rom_loaded: false,
             sio,
             bus,
             signals,
@@ -727,11 +771,26 @@ impl RiscVMachine {
             esp_flash_guard: 0,
             esp_reset_reason: 1,
             esp_flash: Vec::new(),
+            esp32c6_materialized_mmu: [u32::MAX; 256],
+            esp32c6_flash_dirty: false,
             esp_timer_groups,
             esp_c6_plic,
             esp_c6_clint,
             esp_c6_extmem,
+            esp_c6_spimem_mmu,
             esp32c6_peripherals,
+            radio_medium,
+            radio_coexistence,
+            radio_ieee802154_mac,
+            radio_wifi,
+            radio_ble,
+            radio_pending_ieee802154_tx: Vec::new(),
+            radio_pending_ieee802154_ack: Vec::new(),
+            radio_pending_ieee802154_cca: None,
+            radio_c6_ble_scan: None,
+            radio_c6_ble_completion_anchors: BTreeMap::new(),
+            radio_c6_ble_schedule_records: Vec::new(),
+            radio_event_cursor: 0,
             flash_storage,
             chip_timers,
             pio,
@@ -749,6 +808,9 @@ impl RiscVMachine {
 
     fn service_functional_bootrom(&mut self) -> Result<bool, String> {
         if self.target == TargetId::Esp32c6 {
+            if self.boot_rom_loaded {
+                return Ok(false);
+            }
             let pc = self.cpu.pc();
             let result = (|| {
                 if self.service_esp32c6_bootrom_primary(pc)? {
@@ -991,6 +1053,7 @@ impl RiscVMachine {
                 }
             }
             if self.target == TargetId::Esp32c6 {
+                stats.events = stats.events.saturating_add(self.service_radio()?);
                 // ESP-IDF starts the first FreeRTOS task by raising the
                 // FROM_CPU_INTR0 software interrupt. The C6 interrupt matrix
                 // routes source 22 to a local CPU interrupt configured by the
@@ -1010,7 +1073,16 @@ impl RiscVMachine {
                         .interrupt_matrix
                         .set_source(22, crosscore_pending);
                 }
-                let interrupt = self.esp_interrupt_routes.get(&22).copied().unwrap_or(2);
+                // Interrupt allocation may program the native matrix register
+                // directly, so the device is authoritative over the ROM-call
+                // observation cache.
+                let interrupt = self
+                    .esp32c6_peripherals
+                    .as_ref()
+                    .and_then(|peripherals| peripherals.interrupt_matrix.route(22))
+                    .map(u32::from)
+                    .or_else(|| self.esp_interrupt_routes.get(&22).copied())
+                    .unwrap_or(2);
                 let priority = if interrupt < 32 {
                     self.bus
                         .read(
@@ -1032,9 +1104,10 @@ impl RiscVMachine {
                         self.now,
                     )
                     .map_err(MachineError::Bus)? as u32;
-                let deliver = crosscore_pending
-                    && self.esp_enabled_interrupts.contains(&interrupt)
-                    && priority >= threshold;
+                // The guest may program `mie` directly instead of using a ROM
+                // helper. Assert an eligible controller line here and let the
+                // CPU's architectural MIE state decide whether it is taken.
+                let deliver = crosscore_pending && priority >= threshold;
                 if deliver && !esp_crosscore_was_pending {
                     stats.events = stats.events.saturating_add(1);
                 }
@@ -1068,9 +1141,7 @@ impl RiscVMachine {
                             .get(&interrupt)
                             .copied()
                             .unwrap_or(0);
-                        let deliver = pending
-                            && self.esp_enabled_interrupts.contains(&interrupt)
-                            && priority >= self.esp_interrupt_threshold;
+                        let deliver = pending && priority >= self.esp_interrupt_threshold;
                         if deliver && !esp_timer_was_pending[group][timer] {
                             stats.events = stats.events.saturating_add(1);
                         }
@@ -1083,44 +1154,37 @@ impl RiscVMachine {
                         }
                     }
                 }
-                const SYSTIMER_INT_RAW: u64 = 0x6000_a068;
-                const SYSTIMER_INT_CLR: u64 = 0x6000_a06c;
-                const SYSTIMER_INT_ST: u64 = 0x6000_a070;
-                let clear = self
-                    .bus
-                    .read(
-                        SYSTIMER_INT_CLR,
-                        AccessWidth::Word,
-                        AccessKind::Read,
-                        self.now,
-                    )
-                    .map_err(MachineError::Bus)? as u8;
-                if clear != 0 {
-                    self.esp_systimer_raw &= !clear;
-                    self.bus
-                        .write(SYSTIMER_INT_CLR, AccessWidth::Word, 0, self.now)
-                        .map_err(MachineError::Bus)?;
-                }
-                let counter = self.now.ticks().wrapping_add(self.esp_systimer_offset);
-                for alarm in 0..self.esp_systimer_next.len() {
-                    let due = self.esp_systimer_interrupt_enabled[alarm]
-                        && counter >= self.esp_systimer_next[alarm];
-                    if due {
-                        self.esp_systimer_raw |= 1 << alarm;
-                        let period = self.esp_systimer_periods[alarm];
-                        self.esp_systimer_next[alarm] = if period == 0 {
-                            u64::MAX
-                        } else {
-                            self.esp_systimer_next[alarm].wrapping_add(period)
-                        };
-                    }
+                // Real ROM and application code program SYSTIMER and the
+                // interrupt matrix through MMIO. The device register state is
+                // authoritative; the legacy functional-ROM arrays are only a
+                // compatibility observation cache.
+                let systimer_pending = self
+                    .esp32c6_peripherals
+                    .as_ref()
+                    .map_or([false; 3], |peripherals| {
+                        peripherals.systimer.pending(self.now)
+                    });
+                let previous_systimer_raw = self.esp_systimer_raw;
+                self.esp_systimer_raw = systimer_pending
+                    .iter()
+                    .enumerate()
+                    .fold(0_u8, |raw, (alarm, pending)| {
+                        raw | (u8::from(*pending) << alarm)
+                    });
+                for (alarm, pending) in systimer_pending.into_iter().enumerate() {
                     let source = 57 + alarm as u32;
                     if let Some(peripherals) = &self.esp32c6_peripherals {
                         peripherals
                             .interrupt_matrix
-                            .set_source(source as u8, self.esp_systimer_raw & (1 << alarm) != 0);
+                            .set_source(source as u8, pending);
                     }
-                    let Some(interrupt) = self.esp_interrupt_routes.get(&source).copied() else {
+                    let Some(interrupt) = self
+                        .esp32c6_peripherals
+                        .as_ref()
+                        .and_then(|peripherals| peripherals.interrupt_matrix.route(source as u8))
+                        .map(u32::from)
+                        .or_else(|| self.esp_interrupt_routes.get(&source).copied())
+                    else {
                         continue;
                     };
                     let priority = if interrupt < 32 {
@@ -1144,45 +1208,17 @@ impl RiscVMachine {
                             self.now,
                         )
                         .map_err(MachineError::Bus)? as u32;
-                    let deliver = self.esp_systimer_raw & (1 << alarm) != 0
-                        && self.esp_enabled_interrupts.contains(&interrupt)
-                        && priority >= threshold;
-                    if deliver {
+                    let deliver = pending && priority >= threshold;
+                    if deliver && previous_systimer_raw & (1 << alarm) == 0 {
                         stats.events = stats.events.saturating_add(1);
                     }
                     if interrupt < 32 {
                         if let Some(plic) = &self.esp_c6_plic {
-                            plic.set_line(
-                                interrupt as u8,
-                                self.esp_systimer_raw & (1 << alarm) != 0,
-                            );
+                            plic.set_line(interrupt as u8, pending);
                         }
                         self.cpu.set_interrupt(interrupt as u16, deliver)?;
                     }
                 }
-                let enabled_mask = self
-                    .esp_systimer_interrupt_enabled
-                    .iter()
-                    .enumerate()
-                    .fold(0_u8, |mask, (alarm, enabled)| {
-                        mask | (u8::from(*enabled) << alarm)
-                    });
-                self.bus
-                    .write(
-                        SYSTIMER_INT_RAW,
-                        AccessWidth::Word,
-                        u64::from(self.esp_systimer_raw),
-                        self.now,
-                    )
-                    .map_err(MachineError::Bus)?;
-                self.bus
-                    .write(
-                        SYSTIMER_INT_ST,
-                        AccessWidth::Word,
-                        u64::from(self.esp_systimer_raw & enabled_mask),
-                        self.now,
-                    )
-                    .map_err(MachineError::Bus)?;
                 if let Some(usb) = &self.esp_usb_serial_jtag
                     && let Some(interrupt) = self.esp_interrupt_routes.get(&48).copied()
                 {
@@ -1212,9 +1248,7 @@ impl RiscVMachine {
                             self.now,
                         )
                         .map_err(MachineError::Bus)? as u32;
-                    let deliver = usb.interrupt_pending()
-                        && self.esp_enabled_interrupts.contains(&interrupt)
-                        && priority >= threshold;
+                    let deliver = usb.interrupt_pending() && priority >= threshold;
                     if deliver && !esp_usb_was_pending {
                         stats.events = stats.events.saturating_add(1);
                     }

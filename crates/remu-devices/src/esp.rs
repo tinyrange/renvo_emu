@@ -59,7 +59,7 @@ impl EspTimerGroupState {
             latched_value: 0,
         };
         let mut state = Self {
-            registers: vec![0; 0x1000 / 4],
+            registers: vec![0; 0x100 / 4],
             counters: [counter; 2],
             kind,
             watchdog_epoch: SimTime::ZERO,
@@ -189,7 +189,14 @@ impl EspTimerGroupState {
 
         if self.registers[0x48 / 4] & (1 << 31) != 0 {
             while self.watchdog_stage < 4 {
-                let hold = u64::from(self.registers[(0x50 / 4) + self.watchdog_stage]).max(1);
+                let prescale = if self.kind == EspTimerGroupKind::Esp32C6 {
+                    u64::from(self.registers[0x4c / 4] >> 16).max(1)
+                } else {
+                    1
+                };
+                let hold = u64::from(self.registers[(0x50 / 4) + self.watchdog_stage])
+                    .max(1)
+                    .saturating_mul(prescale);
                 if now.ticks().saturating_sub(self.watchdog_epoch.ticks()) < hold {
                     break;
                 }
@@ -405,6 +412,11 @@ pub struct EspSystemHandle {
 }
 
 impl EspSystemHandle {
+    /// Returns the APP CPU reset-vector address programmed by the mask ROM.
+    pub fn appcpu_boot_address(&self) -> u32 {
+        self.state.borrow().registers[0x04 / 4]
+    }
+
     /// Reports whether one FROM_CPU interrupt source is asserted.
     pub fn from_cpu_pending(&self, source: usize) -> bool {
         self.state
@@ -616,6 +628,9 @@ impl Device for EspMmuTable {
 struct EspSystimerState {
     registers: Vec<u32>,
     latched: [u64; 2],
+    cleared_interrupts: u8,
+    target_value_writes: u8,
+    deferred_periodic_loads: u8,
 }
 
 /// Observation and interrupt handle for the ESP32-S3 system timer.
@@ -625,6 +640,12 @@ pub struct EspSystimerHandle {
 }
 
 impl EspSystimerHandle {
+    /// Takes interrupt-clear bits written by the guest since the prior poll.
+    pub fn take_cleared_interrupts(&self) -> u8 {
+        let mut state = self.state.borrow_mut();
+        std::mem::take(&mut state.cleared_interrupts)
+    }
+
     /// Advances comparator state and returns enabled target interrupts.
     pub fn pending(&self, now: SimTime) -> [bool; 3] {
         const COUNTER_MASK: u64 = (1_u64 << 52) - 1;
@@ -634,6 +655,9 @@ impl EspSystimerHandle {
         for target in 0..3 {
             let work_enable = 1_u32 << (24 - target);
             if config & work_enable == 0 {
+                continue;
+            }
+            if state.deferred_periodic_loads & (1 << target) != 0 {
                 continue;
             }
             let high = u64::from(state.registers[(0x1c + target * 8) / 4] & 0x000f_ffff);
@@ -656,6 +680,7 @@ impl EspSystimerHandle {
             }
         }
         let asserted = state.registers[0x68 / 4] & state.registers[0x64 / 4];
+        state.registers[0x70 / 4] = asserted;
         [asserted & 1 != 0, asserted & 2 != 0, asserted & 4 != 0]
     }
 }
@@ -674,6 +699,9 @@ impl EspSystimer {
         let state = Rc::new(RefCell::new(EspSystimerState {
             registers,
             latched: [0; 2],
+            cleared_interrupts: 0,
+            target_value_writes: 0,
+            deferred_periodic_loads: 0,
         }));
         (
             Self {
@@ -689,6 +717,15 @@ impl EspSystimer {
         let (device, handle) = Self::new(name);
         device.state.borrow_mut().registers[0xfc / 4] = 35_655_795;
         (device, handle)
+    }
+
+    fn seed_periodic_target(state: &mut EspSystimerState, target: usize, at: SimTime) {
+        let target_config = state.registers[(0x34 + target * 4) / 4];
+        let period = u64::from(target_config & 0x03ff_ffff).max(1);
+        let compare = at.ticks().wrapping_add(period) & ((1_u64 << 52) - 1);
+        state.registers[(0x1c + target * 8) / 4] =
+            u32::try_from(compare >> 32).expect("52-bit high word fits");
+        state.registers[(0x20 + target * 8) / 4] = compare as u32;
     }
 }
 
@@ -738,23 +775,71 @@ impl Device for EspSystimer {
             return Ok(());
         }
         if offset == 0x6c {
-            state.registers[0x68 / 4] &= !(value as u32 & 0x7);
+            let cleared = value as u8 & 0x7;
+            state.registers[0x68 / 4] &= !u32::from(cleared);
+            state.cleared_interrupts |= cleared;
             return Ok(());
         }
         if matches!(offset, 0x50 | 0x54 | 0x58) && value & 1 != 0 {
             let target = usize::try_from((offset - 0x50) / 4).expect("three targets fit usize");
             let target_config = state.registers[(0x34 + target * 4) / 4];
-            let period = u64::from(target_config & 0x03ff_ffff).max(1);
-            let compare = at.ticks().wrapping_add(period) & ((1_u64 << 52) - 1);
-            state.registers[(0x1c + target * 8) / 4] =
-                u32::try_from(compare >> 32).expect("52-bit high word fits");
-            state.registers[(0x20 + target * 8) / 4] = compare as u32;
+            // A comparator load applies the absolute TARGETn_HI/LO value in one-shot mode.
+            // Periodic mode instead seeds the first comparison from the current counter and
+            // TARGETn_PERIOD; subsequent comparisons are advanced by `pending`.
+            if target_config & (1 << 30) != 0 {
+                Self::seed_periodic_target(&mut state, target, at);
+                state.deferred_periodic_loads &= !(1 << target);
+            } else if target_config & 0x03ff_ffff != 0
+                && state.target_value_writes & (1 << target) == 0
+            {
+                // The periodic HAL loads TARGETn_PERIOD before setting the
+                // mode bit. Keep the comparator inactive across that short
+                // programming sequence instead of treating reset target zero
+                // as an absolute one-shot deadline.
+                state.deferred_periodic_loads |= 1 << target;
+            } else {
+                state.deferred_periodic_loads &= !(1 << target);
+            }
+            state.target_value_writes &= !(1 << target);
         }
-        let register = state
+        let register_index = usize::try_from(offset / 4).expect("systimer offset fits");
+        let previous = state
             .registers
-            .get_mut(usize::try_from(offset / 4).expect("systimer offset fits"))
+            .get(register_index)
+            .copied()
             .ok_or_else(|| DeviceError::new(format!("{} write at {offset:#x}", self.name)))?;
-        *register = value as u32;
+        state.registers[register_index] = value as u32;
+
+        if matches!(offset, 0x1c | 0x20 | 0x24 | 0x28 | 0x2c | 0x30) {
+            let target = usize::try_from((offset - 0x1c) / 8).expect("three targets fit usize");
+            state.target_value_writes |= 1 << target;
+        }
+
+        // ESP-IDF may program the period, strobe COMPn_LOAD, enable the
+        // target, and only then set PERIOD_MODE. Silicon arms a periodic
+        // target when the complete configuration becomes active; evaluating
+        // the still-zero absolute target between those writes would create a
+        // spurious interrupt. Support both that ordering and the conventional
+        // mode-before-load ordering.
+        if offset == 0 {
+            for target in 0..3 {
+                let work_enable = 1_u32 << (24 - target);
+                let newly_enabled = previous & work_enable == 0 && value as u32 & work_enable != 0;
+                let periodic = state.registers[(0x34 + target * 4) / 4] & (1 << 30) != 0;
+                if newly_enabled && periodic {
+                    Self::seed_periodic_target(&mut state, target, at);
+                    state.deferred_periodic_loads &= !(1 << target);
+                }
+            }
+        } else if matches!(offset, 0x34 | 0x38 | 0x3c) {
+            let target = usize::try_from((offset - 0x34) / 4).expect("three targets fit usize");
+            let periodic_enabled = previous & (1 << 30) == 0 && value as u32 & (1 << 30) != 0;
+            let work_enable = 1_u32 << (24 - target);
+            if periodic_enabled && state.registers[0] & work_enable != 0 {
+                Self::seed_periodic_target(&mut state, target, at);
+                state.deferred_periodic_loads &= !(1 << target);
+            }
+        }
         Ok(())
     }
 
@@ -763,6 +848,9 @@ impl Device for EspSystimer {
         state.registers.fill(0);
         state.registers[0] = 1 << 30;
         state.latched = [0; 2];
+        state.cleared_interrupts = 0;
+        state.target_value_writes = 0;
+        state.deferred_periodic_loads = 0;
     }
 }
 
@@ -1233,8 +1321,8 @@ impl Device for EspAnalogI2c {
         }
         self.registers[index] = command;
 
-        if matches!(offset, 0x804 | 0x808) {
-            let slave = command as u8;
+        let slave = command as u8;
+        if matches!(offset, 0x04 | 0x08) || offset == u64::from(slave) * 4 {
             let address = (command >> 8) as u8;
             if command & (1 << 24) != 0 {
                 let data = (command >> 16) as u8;
@@ -1243,7 +1331,16 @@ impl Device for EspAnalogI2c {
                 // calibration-done status visible in I2C_MST_ANA_CONF0.
                 // Functional time completes the calibration synchronously.
                 if slave == 0x66 {
-                    self.registers[0x818 / 4] |= 1 << 24;
+                    self.registers[0x18 / 4] |= 1 << 24;
+                }
+                // The C6 RFPLL charge-pump calibration starts through bit
+                // five of slave 0x62 register 15. Register 14 reports its
+                // completion in bit seven and the result in bits 4:0.
+                if slave == 0x62 && address == 0x0f && data & (1 << 5) != 0 {
+                    self.analog
+                        .entry((slave, 0x0e))
+                        .and_modify(|status| *status |= 1 << 7)
+                        .or_insert(1 << 7);
                 }
                 // Releasing the ULP analog reset completes the deterministic
                 // O-code and band-gap calibration.
@@ -1277,25 +1374,81 @@ impl Device for EspAnalogI2c {
 pub struct EspSpiMem {
     name: String,
     registers: Vec<u32>,
+    jedec_id: u32,
     write_enabled: bool,
+    mmu_index: u8,
+    mmu_items: [u32; 256],
+    mmu_pending: Arc<Mutex<Vec<(usize, u32)>>>,
+    mmu_dirty: Arc<AtomicBool>,
+}
+
+/// Observation handle for ESP32-C6 indirect cache-MMU updates.
+#[derive(Clone)]
+pub struct EspSpiMemMmuHandle {
+    pending: Arc<Mutex<Vec<(usize, u32)>>>,
+    dirty: Arc<AtomicBool>,
+}
+
+impl EspSpiMemMmuHandle {
+    /// Drains MMU entries written since the preceding observation.
+    pub fn drain_mappings(&self) -> Vec<(usize, u32)> {
+        if !self.dirty.swap(false, Ordering::AcqRel) {
+            return Vec::new();
+        }
+        let mut pending = self.pending.lock().expect("ESP SPI MMU lock poisoned");
+        std::mem::take(&mut *pending)
+    }
 }
 
 impl EspSpiMem {
     /// Creates a reset SPI-memory controller.
     pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            registers: vec![0; 0x1000 / 4],
-            write_enabled: false,
-        }
+        Self::new_observed(name).0
+    }
+
+    /// Creates a controller backed by a flash part with the supplied JEDEC ID.
+    pub fn new_with_jedec_id(name: impl Into<String>, jedec_id: u32) -> Self {
+        Self::new_observed_with_jedec_id(name, jedec_id).0
+    }
+
+    /// Creates the controller and a handle for observing indirect MMU writes.
+    pub fn new_observed(name: impl Into<String>) -> (Self, EspSpiMemMmuHandle) {
+        Self::new_observed_with_jedec_id(name, 0x0016_40c8)
+    }
+
+    /// Creates an observed controller with an explicit flash JEDEC ID.
+    pub fn new_observed_with_jedec_id(
+        name: impl Into<String>,
+        jedec_id: u32,
+    ) -> (Self, EspSpiMemMmuHandle) {
+        let pending = Arc::new(Mutex::new(Vec::new()));
+        let dirty = Arc::new(AtomicBool::new(false));
+        let mut registers = vec![0; 0x1000 / 4];
+        // On an idle ESP32-C6 MSPI controller all AXI and synchronization
+        // FIFOs report empty. The mask ROM waits for the aggregate bit before
+        // changing flash-controller clocks.
+        registers[0x170 / 4] = 0xfc00_0000;
+        (
+            Self {
+                name: name.into(),
+                registers,
+                jedec_id,
+                write_enabled: false,
+                mmu_index: 0,
+                mmu_items: [0; 256],
+                mmu_pending: pending.clone(),
+                mmu_dirty: dirty.clone(),
+            },
+            EspSpiMemMmuHandle { pending, dirty },
+        )
     }
 
     fn execute_user_command(&mut self) {
         let command = self.registers[0x20 / 4] as u8;
         let response = match command {
-            // RDID: GigaDevice GD25Q32-compatible 4 MiB part. ESP's ROM
-            // helper consumes the bytes in this little-endian word order.
-            0x9f => 0x0016_40c8,
+            // RDID. ESP's ROM helper consumes the bytes in this
+            // little-endian word order.
+            0x9f => self.jedec_id,
             // RDSR / RDSR2. Flash is idle; preserve WEL while applicable.
             0x05 => u32::from(self.write_enabled) << 1,
             0x35 => 0,
@@ -1329,9 +1482,12 @@ impl Device for EspSpiMem {
             ));
         }
         let index = usize::try_from(offset / 4).expect("SPI-memory offset fits");
-        self.registers
-            .get(index)
-            .copied()
+        let register = match offset & !3 {
+            0x37c => Some(self.mmu_items[usize::from(self.mmu_index)]),
+            0x380 => Some(u32::from(self.mmu_index)),
+            _ => self.registers.get(index).copied(),
+        };
+        register
             .map(|value| {
                 let shift = (offset & 3) * 8;
                 let mask = match width {
@@ -1370,6 +1526,17 @@ impl Device for EspSpiMem {
             AccessWidth::DoubleWord => unreachable!("double-word access rejected"),
         } << shift;
         *register = (*register & !mask) | (((value as u32) << shift) & mask);
+        if offset & !3 == 0x380 {
+            self.mmu_index = (*register & 0xff) as u8;
+        } else if offset & !3 == 0x37c {
+            let index = usize::from(self.mmu_index);
+            self.mmu_items[index] = *register;
+            self.mmu_pending
+                .lock()
+                .expect("ESP SPI MMU lock poisoned")
+                .push((index, *register));
+            self.mmu_dirty.store(true, Ordering::Release);
+        }
         if offset & !3 == 0 {
             let command = *register;
             if command & (1 << 30) != 0 {
@@ -1379,7 +1546,7 @@ impl Device for EspSpiMem {
                 self.write_enabled = false;
             }
             if command & (1 << 28) != 0 {
-                self.registers[0x58 / 4] = 0x0016_40c8;
+                self.registers[0x58 / 4] = self.jedec_id;
             }
             if command & (1 << 27) != 0 {
                 self.registers[0x58 / 4] = u32::from(self.write_enabled) << 1;
@@ -1396,6 +1563,14 @@ impl Device for EspSpiMem {
 
     fn reset(&mut self, _kind: ResetKind) {
         self.registers.fill(0);
+        self.registers[0x170 / 4] = 0xfc00_0000;
         self.write_enabled = false;
+        self.mmu_index = 0;
+        self.mmu_items.fill(0);
+        self.mmu_pending
+            .lock()
+            .expect("ESP SPI MMU lock poisoned")
+            .clear();
+        self.mmu_dirty.store(false, Ordering::Release);
     }
 }

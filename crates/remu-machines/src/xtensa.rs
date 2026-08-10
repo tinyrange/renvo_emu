@@ -14,23 +14,29 @@ use remu_core::{
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
-    DeterministicRng, Esp32S3Aes, Esp32S3AesHandle, Esp32S3Extmem, Esp32S3ExtmemHandle,
+    Esp32S3Aes, Esp32S3AesHandle, Esp32S3AgcRegisters, Esp32S3BleExchangeMemoryHandle,
+    Esp32S3BleExchangeMemoryRegisters, Esp32S3Extmem, Esp32S3ExtmemHandle, Esp32S3FeRegisters,
     Esp32S3IoMux, Esp32S3IoMuxHandle, Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc,
     Esp32S3LedcHandle, Esp32S3Mcpwm, Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle,
-    Esp32S3Pms, Esp32S3PmsHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc,
-    Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle,
-    Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap,
-    Esp32S3UsbWrapHandle, Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32S3XtsAes,
-    Esp32s3I2c, Esp32s3I2cHandle, Esp32s3I2s, Esp32s3I2sHandle, Esp32s3Rmt, Esp32s3RmtHandle,
-    Esp32s3Spi, Esp32s3SpiHandle, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle, EspGpio,
-    EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle, EspRsa,
-    EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
+    Esp32S3PhyRegisters, Esp32S3Pms, Esp32S3PmsHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle,
+    Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon,
+    Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle,
+    Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32S3WifiMacHandle, Esp32S3WifiMacRegisters,
+    Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32S3XtsAes, Esp32s3I2c,
+    Esp32s3I2cHandle, Esp32s3I2s, Esp32s3I2sHandle, Esp32s3Rmt, Esp32s3RmtHandle, Esp32s3Spi,
+    Esp32s3SpiHandle, EspC6ControlBlock, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle,
+    EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle,
+    EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
     EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
     EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
     ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, SignalHub,
     TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
+use remu_radio::{
+    BdAddress, BleController, CoexistenceArbiter, CoexistenceError, MacAddress, MediumError,
+    MediumProfile, RadioMedium, WifiEngine,
+};
 use remu_signals::{Logic, SignalError};
 use remu_trace::{TraceDigest, TraceError, TraceSink};
 use sha2::{Sha224, Sha256};
@@ -41,6 +47,7 @@ mod interrupts;
 mod peripheral_dma;
 mod peripheral_handles;
 mod pms;
+mod radio;
 /// ESP32-S3 machine construction or execution failure.
 #[derive(Debug, Error)]
 pub enum XtensaMachineError {
@@ -62,6 +69,15 @@ pub enum XtensaMachineError {
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
+    /// Deterministic RF-medium operation failed.
+    #[error(transparent)]
+    Radio(#[from] MediumError),
+    /// Shared-RF coexistence arbitration failed.
+    #[error(transparent)]
+    Coexistence(#[from] CoexistenceError),
+    /// Firmware has not released the selected radio domain from reset and enabled its clocks.
+    #[error("{0} radio domain is clock-gated or held in reset")]
+    RadioNotReady(&'static str),
     /// Firmware has the wrong architecture.
     #[error("firmware architecture {0:?} does not match ESP32-S3 Xtensa")]
     Architecture(FirmwareArchitecture),
@@ -129,14 +145,25 @@ pub struct XtensaMachine {
     peri_backup: remu_devices::Esp32S3PeriBackupHandle,
     assist_debug: remu_devices::Esp32S3AssistDebugHandle,
     syscon: Esp32S3SysconHandle,
+    wifi_mac: Esp32S3WifiMacHandle,
+    ble_exchange_memory: Esp32S3BleExchangeMemoryHandle,
     rtc_control: EspRtcControlHandle,
     rtc_i2c: remu_devices::Esp32S3RtcI2cHandle,
     rtc_io: remu_devices::Esp32S3RtcIoHandle,
     sdm: remu_devices::Esp32S3SdmHandle,
     mmu_table: EspMmuTableHandle,
+    radio_medium: RadioMedium,
+    radio_coexistence: CoexistenceArbiter,
+    radio_wifi: WifiEngine,
+    radio_ble: BleController,
+    radio_event_cursor: usize,
+    pending_native_ble_transmissions: VecDeque<radio::PendingNativeBleTransmission>,
+    pending_native_ble_receptions: VecDeque<radio::PendingNativeBleReception>,
+    pending_native_ble_slot_completions: VecDeque<(u64, u32, u16)>,
     now: SimTime,
     stack: u32,
     instruction_cache_configured: bool,
+    boot_rom_loaded: bool,
     windowed_handoff_pending: bool,
     appcpu_boot_address: Option<u32>,
     interrupt_matrix: EspInterruptMatrixHandle,
@@ -150,6 +177,20 @@ pub struct XtensaMachine {
     signal_stops: Vec<SignalStop>,
 }
 impl XtensaMachine {
+    fn release_appcpu_if_requested(&mut self) {
+        if self.appcpu_boot_address.is_some() {
+            return;
+        }
+        let entry = self.system.appcpu_boot_address();
+        if entry == 0 {
+            return;
+        }
+        self.appcpu_boot_address = Some(entry);
+        self.cpu1
+            .set_direct_state(self.stack.wrapping_sub(0x1000), entry);
+        self.cpu1.set_processor_id(1);
+    }
+
     /// Creates the ESP32-S3 direct-mode map.
     pub fn new(target: TargetId) -> Result<Self, XtensaMachineError> {
         if target != TargetId::Esp32s3 {
@@ -158,7 +199,6 @@ impl XtensaMachine {
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
         let signals = SignalHub::new();
-        let mut stack = None;
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
@@ -175,15 +215,6 @@ impl XtensaMachine {
                         storage,
                         0,
                     )?;
-                    if region.name == "dram" {
-                        stack = Some(
-                            u32::try_from(
-                                region.start
-                                    + u64::try_from(region.size).expect("memory size fits u64"),
-                            )
-                            .expect("ESP32-S3 DRAM end fits 32 bits"),
-                        );
-                    }
                 }
                 MemoryKind::Flash | MemoryKind::Rom => {
                     bus.map_shared(
@@ -205,6 +236,41 @@ impl XtensaMachine {
             SharedMemory::from_bytes(vec![0xff; 16 * 1024 * 1024]),
             0,
         )?;
+        bus.map_shared(
+            "esp32s3.rom-rodata",
+            0x3ff1_8000,
+            0x5000,
+            Permissions::RO,
+            SharedMemory::zeroed(0x5000),
+            0,
+        )?;
+        let mut radio_service_page = vec![0_u8; 0x1000];
+        let rom_service_signature = b"remu-coex-rom-v0.0\0";
+        radio_service_page[..rom_service_signature.len()].copy_from_slice(rom_service_signature);
+        bus.map_shared(
+            "esp32s3.radio-service-data",
+            0x3ff1_d000,
+            0x1000,
+            Permissions::RW,
+            SharedMemory::from_bytes(radio_service_page),
+            0,
+        )?;
+        let mut rom_service_data = vec![0_u8; 0x1000];
+        // ESP32-S3 rev0 mask-ROM Wi-Fi interface constants. These three
+        // immutable pointers connect libpp's native LMAC routines to the
+        // ROM-reserved state blocks. Values are reproduced from the
+        // .rodata.interface section of Espressif's pinned rev0 ROM ELF.
+        rom_service_data[0xe50..0xe54].copy_from_slice(&0x3fce_f1ac_u32.to_le_bytes());
+        rom_service_data[0xe54..0xe58].copy_from_slice(&0x3fce_f3d1_u32.to_le_bytes());
+        rom_service_data[0xe58..0xe5c].copy_from_slice(&0x3fce_f308_u32.to_le_bytes());
+        bus.map_shared(
+            "esp32s3.rom-service-data",
+            0x3ff1_e000,
+            0x1000,
+            Permissions::RO,
+            SharedMemory::from_bytes(rom_service_data),
+            0,
+        )?;
         let mut rom_layout_page = vec![0_u8; 0x1000];
         // ESP32-S3 ROM layout table. IDF uses the second pointer to exclude
         // the shared ROM/RTOS stack window from the heap.
@@ -216,17 +282,6 @@ impl XtensaMachine {
             0x1000,
             Permissions::RO,
             SharedMemory::from_bytes(rom_layout_page),
-            0,
-        )?;
-        let mut rom_service_data = vec![0_u8; 0x1000];
-        let rom_service_signature = b"remu-coex-rom-v0.0\0";
-        rom_service_data[..rom_service_signature.len()].copy_from_slice(rom_service_signature);
-        bus.map_shared(
-            "esp32s3.rom-service-data",
-            0x3ff1_e000,
-            0x1000,
-            Permissions::RO,
-            SharedMemory::from_bytes(rom_service_data),
             0,
         )?;
         bus.map_ram("rtc-fast-memory", 0x600f_e000, 0x2000, true)?;
@@ -262,6 +317,57 @@ impl XtensaMachine {
             0x6002_6000,
             0x1000,
             Box::new(syscon_device),
+        )?;
+        for (name, base, size, reset_offset, reset_value) in [
+            ("esp32s3.fe2-registers", 0x6000_5000, 0x1000, 0, 0),
+            ("esp32s3.bt-registers", 0x6001_1000, 0x1000, 0, 0),
+            ("esp32s3.nrx-registers", 0x6001_cc00, 0x400, 0, 0),
+            ("esp32s3.bb-registers", 0x6001_d000, 0x1000, 0, 0),
+        ] {
+            let registers = EspC6ControlBlock::new(name, size, None, 0)
+                .with_reset_word(reset_offset, reset_value);
+            bus.map_device(name, base, size, Box::new(registers))?;
+        }
+        bus.map_device(
+            "esp32s3.fe-registers",
+            0x6000_6000,
+            0x1000,
+            Box::new(Esp32S3FeRegisters::new("esp32s3.fe-registers")),
+        )?;
+        bus.map_device(
+            "esp32s3.phy-registers",
+            0x6000_e000,
+            0x1000,
+            Box::new(Esp32S3PhyRegisters::new("esp32s3.phy-registers")),
+        )?;
+        bus.map_device(
+            "esp32s3.agc-registers",
+            0x6001_c000,
+            0x0c00,
+            Box::new(Esp32S3AgcRegisters::new("esp32s3.agc-registers")),
+        )?;
+        // The genuine S3 BLE controller programs its exchange-memory mapping
+        // table through 0x6003_1204..0x6003_12c8 during
+        // `r_emi_em_base_init`. This private page is distinct from the BT
+        // baseband page at 0x6001_1000 and the Wi-Fi MAC at 0x6003_3000.
+        // Keep ordinary read/modify/write state here; individual strobes are
+        // promoted to modeled behavior as the controller reaches them.
+        let ble_exchange_memory_device =
+            Esp32S3BleExchangeMemoryRegisters::new("esp32s3.ble-exchange-memory-registers");
+        let ble_exchange_memory = ble_exchange_memory_device.handle();
+        bus.map_device(
+            "esp32s3.ble-exchange-memory-registers",
+            0x6003_1000,
+            0x2000,
+            Box::new(ble_exchange_memory_device),
+        )?;
+        let wifi_mac_device = Esp32S3WifiMacRegisters::new("esp32s3.wifi-mac-registers");
+        let wifi_mac = wifi_mac_device.handle();
+        bus.map_device(
+            "esp32s3.wifi-mac-registers",
+            0x6003_3000,
+            0x3000,
+            Box::new(wifi_mac_device),
         )?;
         let (usb_wrap_device, usb_wrap) = Esp32S3UsbWrap::new("esp32s3.usb-wrap");
         bus.map_device(
@@ -379,22 +485,16 @@ impl XtensaMachine {
             Box::new(EspDigitalSignature::new("esp32s3.digital-signature")),
         )?;
         bus.map_device(
-            "esp32s3.rng",
-            0x6003_5000,
-            0x1000,
-            Box::new(DeterministicRng::new("esp32s3.rng", 0x7c, 0x32f3_0001)),
-        )?;
-        bus.map_device(
             "esp32s3.spi1",
             0x6000_2000,
             0x1000,
-            Box::new(EspSpiMem::new("esp32s3.spi1")),
+            Box::new(EspSpiMem::new_with_jedec_id("esp32s3.spi1", 0x0018_40c8)),
         )?;
         bus.map_device(
             "esp32s3.spi0",
             0x6000_3000,
             0x1000,
-            Box::new(EspSpiMem::new("esp32s3.spi0")),
+            Box::new(EspSpiMem::new_with_jedec_id("esp32s3.spi0", 0x0018_40c8)),
         )?;
         let (rtc_control_device, rtc_control) =
             EspRtcControl::new_with_signals("esp32s3.rtc-control", signals.clone())?;
@@ -566,6 +666,14 @@ impl XtensaMachine {
             0x1_0000,
             Box::new(usb_otg_device),
         )?;
+        // Mask-ROM-owned SRAM is outside the heap and starts zeroed on a real
+        // second-stage handoff. In particular, Wi-Fi installs g_osi_funcs_p
+        // here before taking its first API lock.
+        bus.load(0x3fce_9710, &vec![0; 0x68f0])
+            .map_err(|error| XtensaMachineError::Load {
+                address: 0x3fce_9710,
+                message: error.to_string(),
+            })?;
         // Direct handoff keeps the ROM-initialized pointer functional.
         // a zeroed functional legacy-flash data table in unused DRAM.
         bus.write(0x3fce_ffe4, AccessWidth::Word, 0x3fce_0000, SimTime::ZERO)
@@ -576,7 +684,7 @@ impl XtensaMachine {
         // esp_rom_spiflash_legacy_data points at the mask-ROM flash
         // descriptor normally populated by the second-stage bootloader.
         for (offset, value) in [
-            (0_u64, 0x0016_40c8_u64),
+            (0_u64, 0x0018_40c8_u64),
             (4, 16 * 1024 * 1024),
             (8, 64 * 1024),
             (12, 4 * 1024),
@@ -641,14 +749,28 @@ impl XtensaMachine {
             peri_backup,
             assist_debug,
             syscon,
+            wifi_mac,
+            ble_exchange_memory,
             rtc_control,
             rtc_i2c,
             rtc_io,
             sdm,
             mmu_table,
+            radio_medium: RadioMedium::new(MediumProfile::default())?,
+            radio_coexistence: CoexistenceArbiter::new(),
+            radio_wifi: WifiEngine::new(MacAddress([0x02, 0, 0, 0, 0x53, 3])),
+            radio_ble: BleController::new(BdAddress([3, 0x53, 0, 0, 0, 0x02]), 0x3253_5eed),
+            radio_event_cursor: 0,
+            pending_native_ble_transmissions: VecDeque::new(),
+            pending_native_ble_receptions: VecDeque::new(),
+            pending_native_ble_slot_completions: VecDeque::new(),
             now: SimTime::ZERO,
-            stack: stack.expect("ESP32-S3 manifest includes DRAM"),
+            // ESP32-S3 reserves an 8-KiB ROM startup stack ending here. CPU0
+            // uses the upper half and the APP CPU starts one 4-KiB half below;
+            // the generic DRAM end lies in SRAM2 that may belong to D-cache.
+            stack: 0x3fce_b710,
             instruction_cache_configured: false,
+            boot_rom_loaded: false,
             windowed_handoff_pending: false,
             appcpu_boot_address: None,
             interrupt_matrix,
@@ -694,6 +816,41 @@ impl XtensaMachine {
         let entry =
             u32::try_from(image.entry).map_err(|_| XtensaMachineError::EntryRange(image.entry))?;
         self.cpu.set_direct_state(self.stack, entry);
+        Ok(())
+    }
+
+    /// Loads the real mask-ROM ELF segments used by low-level qualification.
+    ///
+    /// Only loadable segment bytes are consumed. Symbols are deliberately
+    /// ignored: runtime behavior must depend on executed instructions and the
+    /// memory/MMIO contract, never on function names in a particular build.
+    pub fn load_boot_rom(&mut self, image: &FirmwareImage) -> Result<(), XtensaMachineError> {
+        if image.architecture != FirmwareArchitecture::Xtensa {
+            return Err(XtensaMachineError::Architecture(image.architecture));
+        }
+        for segment in &image.segments {
+            let initialized = segment
+                .data
+                .get(..segment.initialized_size)
+                .ok_or_else(|| XtensaMachineError::Load {
+                    address: segment.address,
+                    message: format!(
+                        "initialized ROM bytes ({}) exceed segment data ({})",
+                        segment.initialized_size,
+                        segment.data.len()
+                    ),
+                })?;
+            if initialized.is_empty() {
+                continue;
+            }
+            self.bus
+                .load(segment.address, initialized)
+                .map_err(|error| XtensaMachineError::Load {
+                    address: segment.address,
+                    message: error.to_string(),
+                })?;
+        }
+        self.boot_rom_loaded = true;
         Ok(())
     }
     /// Performs the documented ESP ROM verified-image handoff to an ESP32-S3
@@ -1029,6 +1186,11 @@ impl XtensaMachine {
                 stats.events = stats.events.saturating_add(1);
                 next_stimulus += 1;
             }
+            stats.events = stats.events.saturating_add(self.service_radio()?);
+            // The real mask ROM programs SYSTEM.CORE_1_CONTROL_0 with CPU1's
+            // reset vector. Observe that MMIO state directly: this keeps the
+            // LLE boot path independent of ELF symbols and ROM entry points.
+            self.release_appcpu_if_requested();
             if self.exit.code().is_some() {
                 break StopReason::Halted;
             }
@@ -1088,7 +1250,10 @@ impl XtensaMachine {
                 stats.events = stats.events.saturating_add(1);
             }
             timer_was_pending = timer_pending;
-            self.cpu.set_interrupt(0, timer_pending)?;
+            self.cpu.set_interrupt(
+                0,
+                timer_pending || self.interrupt_matrix.interrupt_pending(0, 0),
+            )?;
             // Once CDC traffic starts, advance the external host only while
             // the application core is parked in WAITI. This models a
             // deterministic, low-speed host and prevents an endpoint
@@ -1159,10 +1324,13 @@ impl XtensaMachine {
                     .set_source_pending(core as usize, 38, usb_pending);
                 let interrupt = self.interrupt_matrix.route(core as usize, 38);
                 if interrupt != u8::MAX && interrupt != 6 {
+                    let asserted = self
+                        .interrupt_matrix
+                        .interrupt_pending(core as usize, interrupt);
                     if core == 0 {
-                        self.cpu.set_interrupt(u16::from(interrupt), usb_pending)?;
+                        self.cpu.set_interrupt(u16::from(interrupt), asserted)?;
                     } else if self.appcpu_boot_address.is_some() {
-                        self.cpu1.set_interrupt(u16::from(interrupt), usb_pending)?;
+                        self.cpu1.set_interrupt(u16::from(interrupt), asserted)?;
                     }
                 }
             }
@@ -1174,16 +1342,19 @@ impl XtensaMachine {
             for core in 0..2_u32 {
                 // ESP-IDF uses interrupt-matrix source 48 for the USB
                 // Serial/JTAG controller on ESP32-S3.
+                self.interrupt_matrix
+                    .set_source_pending(core as usize, 48, usb_serial_pending);
                 let interrupt = self.interrupt_matrix.route(core as usize, 48);
                 if interrupt == u8::MAX || interrupt == 6 {
                     continue;
                 }
+                let asserted = self
+                    .interrupt_matrix
+                    .interrupt_pending(core as usize, interrupt);
                 if core == 0 {
-                    self.cpu
-                        .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
+                    self.cpu.set_interrupt(u16::from(interrupt), asserted)?;
                 } else if self.appcpu_boot_address.is_some() {
-                    self.cpu1
-                        .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
+                    self.cpu1.set_interrupt(u16::from(interrupt), asserted)?;
                 }
             }
             let rtc_pending = self.update_rtc_interrupt_lines()?;
@@ -1206,6 +1377,9 @@ impl XtensaMachine {
                 );
                 let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
                 if interrupt != u8::MAX {
+                    let asserted = self
+                        .interrupt_matrix
+                        .interrupt_pending(core as usize, interrupt);
                     if newly_pending && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some() {
                         let (ps, pending_bits, enable_bits) = if core == 0 {
                             self.cpu.interrupt_state()
@@ -1218,11 +1392,9 @@ impl XtensaMachine {
                         );
                     }
                     if core == 0 {
-                        self.cpu
-                            .set_interrupt(u16::from(interrupt), crosscore_pending)?;
+                        self.cpu.set_interrupt(u16::from(interrupt), asserted)?;
                     } else if self.appcpu_boot_address.is_some() {
-                        self.cpu1
-                            .set_interrupt(u16::from(interrupt), crosscore_pending)?;
+                        self.cpu1.set_interrupt(u16::from(interrupt), asserted)?;
                     }
                 }
             }
@@ -1233,34 +1405,41 @@ impl XtensaMachine {
                 }
                 systimer_was_pending[target] = pending;
                 let source = 57 + u32::try_from(target).expect("three timer targets fit u32");
-                let core = u32::try_from(target).expect("three timer targets fit u32");
-                self.interrupt_matrix
-                    .set_source_pending(core as usize, source as usize, pending);
-                let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
-                if interrupt != u8::MAX {
-                    if pending
+                for core in 0..2_u32 {
+                    self.interrupt_matrix.set_source_pending(
+                        core as usize,
+                        source as usize,
+                        pending,
+                    );
+                    let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
+                    if interrupt != u8::MAX {
+                        let asserted = self
+                            .interrupt_matrix
+                            .interrupt_pending(core as usize, interrupt);
+                        if pending
+                            && newly_pending
+                            && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some()
+                        {
+                            let (ps, pending_bits, enable_bits) = if core == 0 {
+                                self.cpu.interrupt_state()
+                            } else {
+                                self.cpu1.interrupt_state()
+                            };
+                            eprintln!(
+                                "systimer target={target} core={core} source={source} line={interrupt} at={} ps={ps:#x} pending={pending_bits:#x} enable={enable_bits:#x}",
+                                self.now.ticks(),
+                            );
+                        }
+                        self.set_systimer_interrupt(core, u32::from(interrupt), asserted)?;
+                    } else if pending
                         && newly_pending
                         && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some()
                     {
-                        let (ps, pending_bits, enable_bits) = if core == 0 {
-                            self.cpu.interrupt_state()
-                        } else {
-                            self.cpu1.interrupt_state()
-                        };
                         eprintln!(
-                            "systimer target={target} source={source} line={interrupt} at={} ps={ps:#x} pending={pending_bits:#x} enable={enable_bits:#x}",
-                            self.now.ticks(),
+                            "systimer target={target} core={core} source={source} has no route at={}",
+                            self.now.ticks()
                         );
                     }
-                    self.set_systimer_interrupt(core, u32::from(interrupt), pending)?;
-                } else if pending
-                    && newly_pending
-                    && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some()
-                {
-                    eprintln!(
-                        "systimer target={target} source={source} has no route at={}",
-                        self.now.ticks()
-                    );
                 }
             }
             for (group, handle) in self.timer_groups.iter().enumerate() {
@@ -1286,10 +1465,13 @@ impl XtensaMachine {
                         if interrupt == u8::MAX || interrupt == 6 {
                             continue;
                         }
+                        let asserted = self
+                            .interrupt_matrix
+                            .interrupt_pending(core as usize, interrupt);
                         if core == 0 {
-                            self.cpu.set_interrupt(u16::from(interrupt), pending)?;
+                            self.cpu.set_interrupt(u16::from(interrupt), asserted)?;
                         } else if self.appcpu_boot_address.is_some() {
-                            self.cpu1.set_interrupt(u16::from(interrupt), pending)?;
+                            self.cpu1.set_interrupt(u16::from(interrupt), asserted)?;
                         }
                     }
                 }
@@ -1345,6 +1527,7 @@ impl XtensaMachine {
             }
             if (0x4200_0000..0x4400_0000).contains(&self.cpu.pc())
                 && !self.instruction_cache_configured
+                && !self.extmem.instruction_cache_enabled()
             {
                 let pc = self.cpu.pc();
                 if running_cpu1 {

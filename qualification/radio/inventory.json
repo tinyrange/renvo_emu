@@ -1,0 +1,127 @@
+{
+  "schema": "remu.radio-inventory.v1",
+  "source_ledger": "qualification/radio/source-ledger.json",
+  "chips": {
+    "esp32c6": {
+      "protocols": {
+        "wifi": "required",
+        "bluetooth-le": "required",
+        "ieee802154": "required"
+      },
+      "blocks": [
+        {
+          "name": "ieee802154",
+          "base": "0x600a3000",
+          "size": "0x1000",
+          "status": "required"
+        },
+        {
+          "name": "modem-syscon",
+          "base": "0x600a9800",
+          "size": "0x800",
+          "status": "required"
+        },
+        {
+          "name": "modem-lpcon",
+          "base": "0x600af000",
+          "size": "0x800",
+          "status": "required"
+        },
+        {
+          "name": "i2c-ana-mst",
+          "base": "0x600af800",
+          "size": "0x100",
+          "status": "required"
+        },
+        {
+          "name": "wifi-mac-bb-nrx-fe",
+          "status": "discovery-required"
+        },
+        {
+          "name": "ble-controller-baseband",
+          "status": "discovery-required"
+        }
+      ],
+      "interrupts": [
+        { "source": 0, "name": "wifi-mac" },
+        { "source": 1, "name": "wifi-mac-nmi" },
+        { "source": 2, "name": "wifi-power" },
+        { "source": 3, "name": "wifi-bb" },
+        { "source": 4, "name": "bt-mac" },
+        { "source": 5, "name": "bt-bb" },
+        { "source": 6, "name": "bt-bb-nmi" },
+        { "source": 7, "name": "lp-timer" },
+        { "source": 8, "name": "coexistence" },
+        { "source": 9, "name": "ble-timer" },
+        { "source": 10, "name": "ble-security" },
+        { "source": 11, "name": "i2c-master" },
+        { "source": 12, "name": "zigbee-mac" }
+      ]
+    },
+    "esp32s3": {
+      "protocols": {
+        "wifi": "required",
+        "bluetooth-le": "required",
+        "ieee802154": "not-present"
+      },
+      "blocks": [
+        {
+          "name": "fe2",
+          "base": "0x60005000",
+          "size": "0x1000",
+          "status": "disputed-revision"
+        },
+        {
+          "name": "fe",
+          "base": "0x60006000",
+          "size": "0x1000",
+          "status": "disputed-revision"
+        },
+        {
+          "name": "bt",
+          "base": "0x60011000",
+          "size": "0x1000",
+          "status": "disputed-revision"
+        },
+        {
+          "name": "nrx",
+          "base": "0x6001cc00",
+          "size": "0x400",
+          "status": "disputed-revision"
+        },
+        {
+          "name": "bb",
+          "base": "0x6001d000",
+          "size": "0x1000",
+          "status": "disputed-revision"
+        },
+        {
+          "name": "wifi-mac-native-register-window",
+          "base": "0x60033000",
+          "size": "0x3000",
+          "status": "required"
+        },
+        {
+          "name": "ble-exchange-memory-registers",
+          "base": "0x60031000",
+          "size": "0x2000",
+          "status": "required"
+        }
+      ],
+      "interrupts": [
+        { "source": 0, "name": "wifi-mac" },
+        { "source": 1, "name": "wifi-mac-nmi" },
+        { "source": 2, "name": "wifi-power" },
+        { "source": 3, "name": "wifi-bb" },
+        { "source": 4, "name": "bt-mac" },
+        { "source": 5, "name": "bt-bb" },
+        { "source": 6, "name": "bt-bb-nmi" },
+        { "source": 7, "name": "rwbt" },
+        { "source": 8, "name": "rwble" },
+        { "source": 9, "name": "rwbt-nmi" },
+        { "source": 10, "name": "rwble-nmi" },
+        { "source": 11, "name": "i2c-master" }
+      ]
+    }
+  }
+}

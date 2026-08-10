@@ -1,0 +1,39 @@
+{
+  "schema": "remu.radio-ble-vendor-requirements.v2",
+  "source_ledger_entry": "esp-rom-elfs-20260528",
+  "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+  "firmware_project": "qualification/radio/vendor-ble-probe",
+  "firmware_elf": "remu_vendor_ble_probe.elf",
+  "chips": {
+    "esp32c6": {
+      "rom_file": "esp32c6_rev0_rom.elf",
+      "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+      "rom_start": "0x40000000",
+      "rom_end": "0x40050000",
+      "minimum_instructions": 12000000,
+      "radio_input": "qualification/radio/ble-advertisement-vendor-esp32c6.json",
+      "required_uart_substrings": [
+        "REMU_VENDOR_BLE_INIT result=0",
+        "REMU_VENDOR_BLE_ADV_START result=0",
+        "REMU_VENDOR_BLE_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_SCAN_START result=0",
+        "REMU_VENDOR_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52"
+      ]
+    },
+    "esp32s3": {
+      "rom_file": "esp32s3_rev0_rom.elf",
+      "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
+      "rom_start": "0x40000000",
+      "rom_end": "0x40070000",
+      "minimum_instructions": 12000000,
+      "radio_input": "qualification/radio/ble-advertisement-vendor-esp32s3.json",
+      "required_uart_substrings": [
+        "REMU_VENDOR_BLE_INIT result=0",
+        "REMU_VENDOR_BLE_ADV_START result=0",
+        "REMU_VENDOR_BLE_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_SCAN_START result=0",
+        "REMU_VENDOR_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52"
+      ]
+    }
+  }
+}

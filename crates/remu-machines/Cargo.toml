@@ -20,6 +20,7 @@ remu-cpu-riscv.workspace = true
 remu-cpu-xtensa.workspace = true
 remu-devices.workspace = true
 remu-image.workspace = true
+remu-radio.workspace = true
 remu-signals.workspace = true
 remu-trace.workspace = true
 serde.workspace = true

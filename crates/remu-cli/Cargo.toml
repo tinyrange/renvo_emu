@@ -20,6 +20,7 @@ remu-corpus.workspace = true
 remu-gdb.workspace = true
 remu-image.workspace = true
 remu-machines.workspace = true
+remu-radio.workspace = true
 remu-signals.workspace = true
 remu-starlark = { path = "../remu-starlark" }
 remu-trace.workspace = true

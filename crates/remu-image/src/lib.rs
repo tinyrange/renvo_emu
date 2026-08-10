@@ -22,8 +22,10 @@ pub use manifest::{
 pub use uf2::{Uf2Block, Uf2Error, Uf2Image, Uf2Segment};
 
 use object::{
-    Architecture as ObjectArchitecture, BinaryFormat, Endianness, Object, ObjectSegment,
-    ObjectSymbol, SegmentFlags, SymbolKind, elf::PT_LOAD, read::elf::ProgramHeader,
+    Architecture as ObjectArchitecture, BinaryFormat, Endianness, Object, ObjectSection,
+    ObjectSegment, ObjectSymbol, SectionFlags, SegmentFlags, SymbolKind,
+    elf::{PT_LOAD, SHF_EXECINSTR, SHF_WRITE},
+    read::elf::ProgramHeader,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -219,6 +221,90 @@ impl FirmwareImage {
         })
     }
 
+    /// Parses an ELF as an addressable ROM image using addressed sections.
+    ///
+    /// Some vendor ROM ELFs expose complete code and immutable interface data
+    /// in addressed sections that are intentionally absent from normal
+    /// `PT_LOAD` program headers (and sometimes omit `SHF_ALLOC`). This parser materializes them and
+    /// deliberately discards symbols so a machine cannot turn names into
+    /// runtime behavior.
+    pub fn parse_addressed_sections(bytes: &[u8]) -> Result<Self, ImageError> {
+        let mut image = Self::parse(bytes)?;
+        let file = object::File::parse(bytes).map_err(|error| ImageError::Parse {
+            message: error.to_string(),
+        })?;
+        let mut sections = Vec::new();
+        for section in file.sections() {
+            let (executable, writable) = match section.flags() {
+                SectionFlags::Elf { sh_flags } => (
+                    sh_flags & u64::from(SHF_EXECINSTR) != 0,
+                    sh_flags & u64::from(SHF_WRITE) != 0,
+                ),
+                _ => (false, false),
+            };
+            // Espressif ROM ELFs intentionally omit SHF_ALLOC from several
+            // address-bearing interface-data sections. A nonzero virtual
+            // address is the authoritative placement signal for this format;
+            // debug/string/symbol sections all remain at address zero.
+            if section.address() == 0 || section.size() == 0 {
+                continue;
+            }
+            let size =
+                usize::try_from(section.size()).map_err(|_| ImageError::SegmentTooLarge {
+                    address: section.address(),
+                    size: section.size(),
+                })?;
+            let source = section.data().map_err(|error| ImageError::Parse {
+                message: error.to_string(),
+            })?;
+            if source.len() > size {
+                return Err(ImageError::MalformedSegment {
+                    address: section.address(),
+                    file_size: source.len() as u64,
+                    memory_size: section.size(),
+                });
+            }
+            let mut data = vec![0; size];
+            data[..source.len()].copy_from_slice(source);
+            sections.push(FirmwareSegment {
+                address: section.address(),
+                load_address: None,
+                data,
+                initialized_size: source.len(),
+                executable,
+                writable,
+                alignment: section.align(),
+            });
+        }
+        if image.architecture == FirmwareArchitecture::RiscV32
+            && let (Some(table_start), Some(table_end)) = (
+                image
+                    .symbols
+                    .iter()
+                    .find(|symbol| symbol.name == "_data_table_start")
+                    .map(|symbol| symbol.address),
+                image
+                    .symbols
+                    .iter()
+                    .find(|symbol| symbol.name == "_bss_start")
+                    .map(|symbol| symbol.address),
+            )
+        {
+            sections.extend(materialize_riscv_rom_initializers(
+                &sections,
+                table_start,
+                table_end,
+            )?);
+        }
+        sections.sort_by_key(|section| section.address);
+        if sections.is_empty() {
+            return Err(ImageError::NoLoadableSegments);
+        }
+        image.segments = sections;
+        image.symbols.clear();
+        Ok(image)
+    }
+
     /// Finds the closest symbol whose address is not greater than `address`.
     pub fn symbolicate(&self, address: u64) -> Option<(&FirmwareSymbol, u64)> {
         let index = self
@@ -228,6 +314,80 @@ impl FirmwareImage {
         let symbol = &self.symbols[index];
         Some((symbol, address - symbol.address))
     }
+}
+
+fn materialize_riscv_rom_initializers(
+    sections: &[FirmwareSegment],
+    table_start: u64,
+    table_end: u64,
+) -> Result<Vec<FirmwareSegment>, ImageError> {
+    let table_length =
+        table_end
+            .checked_sub(table_start)
+            .ok_or_else(|| ImageError::MalformedRomDataTable {
+                message: format!("end {table_end:#x} precedes start {table_start:#x}"),
+            })?;
+    if table_length % 12 != 0 {
+        return Err(ImageError::MalformedRomDataTable {
+            message: format!("length {table_length:#x} is not a whole number of triples"),
+        });
+    }
+    let table = addressed_bytes(sections, table_start, table_length as usize).ok_or_else(|| {
+        ImageError::MalformedRomDataTable {
+            message: format!("table bytes {table_start:#x}..{table_end:#x} are unavailable"),
+        }
+    })?;
+    let mut initializers = Vec::new();
+    for triple in table.chunks_exact(12) {
+        let destination = u64::from(u32::from_le_bytes(triple[0..4].try_into().unwrap()));
+        let destination_end = u64::from(u32::from_le_bytes(triple[4..8].try_into().unwrap()));
+        let source = u64::from(u32::from_le_bytes(triple[8..12].try_into().unwrap()));
+        let length = destination_end.checked_sub(destination).ok_or_else(|| {
+            ImageError::MalformedRomDataTable {
+                message: format!(
+                    "destination end {destination_end:#x} precedes start {destination:#x}"
+                ),
+            }
+        })?;
+        if length == 0 {
+            continue;
+        }
+        let length = usize::try_from(length).map_err(|_| ImageError::MalformedRomDataTable {
+            message: format!("initializer at {destination:#x} is too large"),
+        })?;
+        let data = addressed_bytes(sections, destination, length).ok_or_else(|| {
+            ImageError::MalformedRomDataTable {
+                message: format!(
+                    "initialized data {destination:#x}..{destination_end:#x} are unavailable"
+                ),
+            }
+        })?;
+        initializers.push(FirmwareSegment {
+            address: source,
+            load_address: None,
+            initialized_size: data.len(),
+            data,
+            executable: false,
+            writable: false,
+            alignment: 4,
+        });
+    }
+    Ok(initializers)
+}
+
+fn addressed_bytes(sections: &[FirmwareSegment], start: u64, length: usize) -> Option<Vec<u8>> {
+    (0..length)
+        .map(|offset| {
+            let address = start.checked_add(offset as u64)?;
+            sections.iter().find_map(|section| {
+                let relative = address.checked_sub(section.address)?;
+                let relative = usize::try_from(relative).ok()?;
+                (relative < section.initialized_size)
+                    .then(|| section.data.get(relative).copied())
+                    .flatten()
+            })
+        })
+        .collect()
 }
 
 /// Firmware parsing failure.
@@ -271,6 +431,12 @@ pub enum ImageError {
     /// ELF has no non-empty loadable program segments.
     #[error("ELF contains no loadable segments")]
     NoLoadableSegments,
+    /// A vendor ROM's reset-time data-copy table could not be reconstructed.
+    #[error("malformed ROM data-copy table: {message}")]
+    MalformedRomDataTable {
+        /// Parser diagnostic.
+        message: String,
+    },
 }
 
 #[cfg(test)]
@@ -297,6 +463,38 @@ mod tests {
         assert_eq!(image.segments[0].initialized_size, 4);
         assert!(image.segments[0].executable);
         assert!(!image.segments[0].writable);
+    }
+
+    #[test]
+    fn materializes_detached_riscv_rom_data_at_its_copy_source() {
+        let mut table = Vec::new();
+        table.extend_from_slice(&0x2000_u32.to_le_bytes());
+        table.extend_from_slice(&0x2004_u32.to_le_bytes());
+        table.extend_from_slice(&0x1100_u32.to_le_bytes());
+        let sections = vec![
+            FirmwareSegment {
+                address: 0x1000,
+                load_address: None,
+                data: table,
+                initialized_size: 12,
+                executable: true,
+                writable: false,
+                alignment: 4,
+            },
+            FirmwareSegment {
+                address: 0x2000,
+                load_address: None,
+                data: vec![1, 2, 3, 4],
+                initialized_size: 4,
+                executable: false,
+                writable: true,
+                alignment: 4,
+            },
+        ];
+        let initializers = materialize_riscv_rom_initializers(&sections, 0x1000, 0x100c).unwrap();
+        assert_eq!(initializers.len(), 1);
+        assert_eq!(initializers[0].address, 0x1100);
+        assert_eq!(initializers[0].data, [1, 2, 3, 4]);
     }
 
     fn minimal_riscv_elf() -> Vec<u8> {

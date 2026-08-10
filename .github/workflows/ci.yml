@@ -65,6 +65,9 @@ jobs:
       - name: Check source layout
         run: ./scripts/check-source-layout.sh
 
+      - name: Check radio provenance and inventory
+        run: ./scripts/check-radio-sources.py
+
       - name: Check package manifests
         run: cargo package --workspace --locked --allow-dirty --no-verify --list >/dev/null
 
@@ -84,8 +87,11 @@ jobs:
       - name: Build pinned Espressif GCC image
         run: docker build --tag remu/xtensa-esp-gcc:local toolchains/xtensa-esp-gcc
 
-      - name: Run native peripheral qualification
+      - name: Run native peripheral and radio qualification
         run: ./scripts/qualify-esp32s3-peripherals.sh
+
+      - name: Run vendor-independent radio contract coverage
+        run: ./scripts/qualify-esp-radio-custom-stack.sh esp32s3
 
       - name: Run M5StickS3 firmware/component qualification
         run: ./scripts/qualify-board-models.sh
@@ -97,6 +103,7 @@ jobs:
           name: esp32s3-peripheral-qualification
           path: |
             .remu/qualification/esp32s3-peripherals
+            .remu/qualification/radio-custom-stack/esp32s3
             .remu/qualification/board-models
           if-no-files-found: ignore
 
@@ -116,13 +123,59 @@ jobs:
       - name: Build pinned Espressif RISC-V GCC image
         run: docker build --tag remu/riscv32-esp-gcc:local toolchains/riscv32-esp-gcc
 
-      - name: Run native peripheral qualification
+      - name: Run native peripheral and radio qualification
         run: ./scripts/qualify-esp32c6-peripherals.sh
+
+      - name: Run vendor-independent radio contract coverage
+        run: ./scripts/qualify-esp-radio-custom-stack.sh esp32c6
 
       - name: Upload qualification evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: esp32c6-peripheral-qualification
-          path: .remu/qualification/esp32c6-peripherals
+          path: |
+            .remu/qualification/esp32c6-peripherals
+            .remu/qualification/radio-custom-stack/esp32c6
+          if-no-files-found: ignore
+
+  esp-radio-rom:
+    name: ${{ matrix.chip }} real mask-ROM qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        chip: [esp32c6, esp32s3]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Pull pinned ESP-IDF image
+        run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
+
+      - name: Require real ROM and vendor firmware execution
+        run: ./scripts/qualify-esp-radio-rom.sh ${{ matrix.chip }}
+
+      - name: Require genuine BLE controller TX and RX
+        run: ./scripts/qualify-esp-radio-ble-vendor.sh ${{ matrix.chip }}
+
+      - name: Require genuine IEEE 802.15.4 MAC TX, RX, and ED
+        if: matrix.chip == 'esp32c6'
+        run: ./scripts/qualify-esp-radio-ieee802154-vendor.sh esp32c6
+
+      - name: Upload real-ROM evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ${{ matrix.chip }}-radio-rom-qualification
+          path: |
+            .remu/qualification/radio-rom/${{ matrix.chip }}
+            .remu/qualification/radio-ble-vendor/${{ matrix.chip }}
+            .remu/qualification/radio-ieee802154-vendor/${{ matrix.chip }}
           if-no-files-found: ignore

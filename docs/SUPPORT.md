@@ -43,7 +43,9 @@ See `scripts/qualify-micropython.sh` and
 `qualification/acceptance-report.html`.
 
 This milestone does not yet cover the complete upstream MicroPython suite,
-PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+PWM/ADC/serial buses, or watchdog resets. ESP radio qualification uses an
+isolated deterministic RF medium; it deliberately does not connect firmware to
+a host network or claim physical-air fidelity.
 
 The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
 connection control surface. They start connected for existing console fixtures;
@@ -61,8 +63,13 @@ and CLINT; and the AES, SHA, RSA, ECC, HMAC, digital-signature and eFuse blocks
 have deterministic functional slices. The RV32IMAC LP core executes from
 retained LP SRAM and participates in modeled sleep, wake and reset transitions.
 Remaining analog, trace, debug and monitor/APM blocks are strict target-specific
-register facades where no behavioral contract is claimed. Wi-Fi, Bluetooth LE and IEEE 802.15.4 remain
-deliberately excluded pending a shared radio architecture. See
+register facades where no behavioral contract is claimed. ESP32-C6 Wi-Fi,
+Bluetooth LE, and IEEE 802.15.4 now use a shared deterministic RF medium with
+native MMIO, DMA/shared-memory, and interrupt paths. The IEEE 802.15.4
+qualification independently executes freestanding firmware and genuine
+ESP-IDF public APIs, requiring exact TX, FCS-bearing RX with RSSI/LQI metadata,
+energy detection, interrupt clearing, and byte-identical replay. This is
+functional LLE coverage, not an analog PHY or host-network bridge. See
 `docs/ESP32C6_PERIPHERALS.md` for the fidelity matrix and omissions.
 
 ## Implemented CPU surface
@@ -309,8 +316,10 @@ either supported or unsupported.
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification
-artifacts. Coverage uses the same event stream but retains only unique executed
-addresses.
+artifacts. Repeated `--bus-log-region NAME` arguments retain only accesses whose
+exact bus-region name matches, which keeps long vendor-firmware MMIO evidence
+compact without changing execution. Coverage uses the same event stream but is
+not affected by that filter and retains all unique executed addresses.
 
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the
@@ -318,7 +327,10 @@ corresponding esptool application binary with `--esp-app-image` enables a
 separate boot-layout gate. It checks the chip and entry metadata, descriptor
 and text segment ordering, 64 KiB mapping congruence, and correspondence with
 the executable ELF. The default application partition offset is `0x10000` and
-can be changed with `--esp-app-offset`.
+can be changed with `--esp-app-offset`. This mode requires `--boot-rom` with the
+matching real mask-ROM ELF. ESP32-C6/S3 native firmware boot and radio-capable
+direct execution have the same requirement; a CPU/compiler-only direct ELF
+harness remains exempt.
 
 ESP32-C6 application RAM powers on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only the file-backed portion of writable load

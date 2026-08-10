@@ -309,6 +309,30 @@ pub struct Esp32S3SysconHandle {
 }
 
 impl Esp32S3SysconHandle {
+    /// Returns the raw shared Wi-Fi/BLE clock-enable word.
+    pub fn radio_clock_enable(&self) -> u32 {
+        self.state
+            .borrow()
+            .register(Esp32S3SysconRegister::RadioClockEnable)
+    }
+
+    /// Returns the raw shared Wi-Fi/BLE reset word.
+    pub fn radio_reset_enable(&self) -> u32 {
+        self.state
+            .borrow()
+            .register(Esp32S3SysconRegister::RadioResetEnable)
+    }
+
+    /// Returns whether the published shared radio clock/reset contract allows Wi-Fi work.
+    pub fn wifi_ready(&self) -> bool {
+        self.radio_clock_enable() != 0 && self.radio_reset_enable() == 0
+    }
+
+    /// Returns whether the published shared radio clock/reset contract allows BLE work.
+    pub fn ble_ready(&self) -> bool {
+        self.radio_clock_enable() != 0 && self.radio_reset_enable() == 0
+    }
+
     /// Returns whether the external-memory rejection interrupt is asserted.
     pub fn interrupt_pending(&self) -> bool {
         self.state.borrow().reject_cause != 0
@@ -719,5 +743,17 @@ mod tests {
         write(&mut device, Esp32S3SysconRegister::MemoryPowerDown, 1 << 6);
         assert!(!handle.internal_memory_accessible(0x3fc9_0000));
         assert!(handle.internal_memory_accessible(0x3fca_0000));
+    }
+
+    #[test]
+    fn shared_radio_readiness_follows_clock_and_reset_words() {
+        let (mut device, handle) = Esp32S3Syscon::new("syscon");
+        assert!(handle.wifi_ready());
+        assert!(handle.ble_ready());
+        write(&mut device, Esp32S3SysconRegister::RadioResetEnable, 1);
+        assert!(!handle.wifi_ready());
+        write(&mut device, Esp32S3SysconRegister::RadioResetEnable, 0);
+        write(&mut device, Esp32S3SysconRegister::RadioClockEnable, 0);
+        assert!(!handle.ble_ready());
     }
 }

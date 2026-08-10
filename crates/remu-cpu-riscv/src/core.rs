@@ -44,6 +44,9 @@ const CSR_PMPADDR15: u16 = 0x3bf;
 const CSR_ESP_PCER_MACHINE: u16 = 0x7e0;
 const CSR_ESP_PCMR_MACHINE: u16 = 0x7e1;
 const CSR_ESP_PCCR_MACHINE: u16 = 0x7e2;
+const CSR_ESP_PCER_USER: u16 = 0x800;
+const CSR_ESP_PCMR_USER: u16 = 0x801;
+const CSR_ESP_PCCR_USER: u16 = 0x802;
 const CSR_MCYCLE: u16 = 0xb00;
 const CSR_MINSTRET: u16 = 0xb02;
 const CSR_MCYCLEH: u16 = 0xb80;
@@ -873,8 +876,16 @@ impl RiscVCpu {
             {
                 self.csrs[usize::from(address)]
             }
-            CSR_ESP_PCCR_MACHINE if self.profile.esp32c6_memory_protection_csrs => {
+            CSR_ESP_PCCR_MACHINE | CSR_ESP_PCCR_USER
+                if self.profile.esp32c6_memory_protection_csrs =>
+            {
                 self.cycle as u32
+            }
+            CSR_ESP_PCER_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCER_MACHINE)]
+            }
+            CSR_ESP_PCMR_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCMR_MACHINE)]
             }
             CSR_QINGKE_INTSYSCR if self.profile.interrupt_model == InterruptModel::QingKe => {
                 self.csrs[usize::from(address)]
@@ -966,8 +977,16 @@ impl RiscVCpu {
             {
                 self.csrs[usize::from(address)] = value;
             }
-            CSR_ESP_PCCR_MACHINE if self.profile.esp32c6_memory_protection_csrs => {
+            CSR_ESP_PCCR_MACHINE | CSR_ESP_PCCR_USER
+                if self.profile.esp32c6_memory_protection_csrs =>
+            {
                 self.cycle = (self.cycle & 0xffff_ffff_0000_0000) | u64::from(value);
+            }
+            CSR_ESP_PCER_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCER_MACHINE)] = value;
+            }
+            CSR_ESP_PCMR_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCMR_MACHINE)] = value;
             }
             CSR_QINGKE_INTSYSCR if self.profile.interrupt_model == InterruptModel::QingKe => {
                 self.csrs[usize::from(address)] = value;

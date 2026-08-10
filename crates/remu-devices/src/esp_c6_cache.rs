@@ -17,6 +17,9 @@ impl EspC6ExtmemState {
         registers[0x88 / 4] = 1 << 2;
         registers[0x98 / 4] = 1 << 4;
         registers[0x9c / 4] = 0x3f;
+        // L1_CACHE_AUTOLOAD_DONE is read-only and asserted at reset. Cache
+        // ROM routines poll it after changing AUTOLOAD_ENA.
+        registers[0x134 / 4] = 1 << 1;
         registers[0xd8 / 4] = 1 << 1;
         registers[0x3fc / 4] = 0x0220_2080;
         Self {
@@ -50,7 +53,7 @@ impl EspC6ExtmemHandle {
 
     /// Reports whether cache tag/data state is frozen.
     pub fn frozen(&self) -> bool {
-        self.state.borrow().registers[0x2c / 4] & 1 != 0
+        self.state.borrow().registers[0x2c / 4] & (1 << 16) != 0
     }
 }
 
@@ -106,7 +109,12 @@ impl Device for EspC6Extmem {
         match offset {
             0x04 => state.registers[index] = value & 3,
             0x24 | 0x28 => state.registers[index] = value & 0x0005_0000,
-            0x2c => state.registers[index] = value & 0x007f_000f,
+            0x2c => {
+                // L1 cache freeze completes synchronously. DONE is read-only
+                // and follows the enable transition while MODE is retained.
+                let request = value & 0x0003_0000;
+                state.registers[index] = request | ((request & (1 << 16)) << 2);
+            }
             0x30 | 0x34 => state.registers[index] = value & 0x0003_ffff,
             0x84 => state.registers[index] = value & 0x3fff_3fff,
             0x88 => {
@@ -124,6 +132,12 @@ impl Device for EspC6Extmem {
             }
             0x9c => state.registers[index] = value & 0x3f,
             0xa4 => state.registers[index] = value & 0x00ff_ffff,
+            0x134 => {
+                // Autoload completes synchronously at this fidelity. Preserve
+                // the read-only DONE bit while accepting the documented
+                // enable, order, trigger-mode, and section-enable fields.
+                state.registers[index] = (value & 0x0000_031d) | (1 << 1);
+            }
             0xd8 => {
                 state.registers[index] = (value & (1 << 2)) | (1 << 1);
             }
@@ -170,15 +184,51 @@ mod tests {
         assert!(handle.data_bus_enabled());
         cache.write(4, AccessWidth::Word, 3, SimTime::ZERO).unwrap();
         cache
-            .write(0x2c, AccessWidth::Word, 1, SimTime::ZERO)
+            .write(0x2c, AccessWidth::Word, 1 << 16, SimTime::ZERO)
             .unwrap();
         assert!(!handle.instruction_bus_enabled());
         assert!(!handle.data_bus_enabled());
         assert!(handle.frozen());
+        assert_eq!(
+            cache.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            (1 << 18) | (1 << 16)
+        );
+        cache
+            .write(0x2c, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        assert!(!handle.frozen());
+        assert_eq!(
+            cache.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0
+        );
         cache.reset(ResetKind::Software);
         assert_eq!(
             cache.read(0x3fc, AccessWidth::Word, SimTime::ZERO).unwrap(),
             0x0220_2080
+        );
+    }
+
+    #[test]
+    fn cache_autoload_done_survives_rom_enable_transitions() {
+        let (mut cache, _) = EspC6Extmem::new("cache");
+        assert_eq!(
+            cache.read(0x134, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            1 << 1
+        );
+
+        cache
+            .write(0x134, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            cache.read(0x134, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            3
+        );
+        cache
+            .write(0x134, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            cache.read(0x134, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            1 << 1
         );
     }
 }

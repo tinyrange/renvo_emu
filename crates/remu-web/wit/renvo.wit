@@ -20,9 +20,31 @@ interface api {
         stimuli: list<pin-stimulus>,
     }
 
+    enum radio-protocol {
+        wifi,
+        bluetooth-le,
+        ieee802154,
+    }
+
+    record radio-frame {
+        at: u64,
+        protocol: radio-protocol,
+        center-khz: u32,
+        bandwidth-khz: u32,
+        phy: string,
+        bytes: list<u8>,
+        power-dbm: s16,
+    }
+
+    record radio-run-options {
+        run: run-options,
+        radio-frames: list<radio-frame>,
+    }
+
     list-targets: func() -> result<string, string>;
     inspect-elf: func(firmware: list<u8>) -> result<string, string>;
     run-elf: func(target: string, firmware: list<u8>, options: run-options) -> result<string, string>;
+    run-radio-elf: func(target: string, firmware: list<u8>, options: radio-run-options) -> result<string, string>;
     run-intel-hex: func(target: string, firmware: list<u8>, options: run-options) -> result<string, string>;
 }
 

@@ -371,8 +371,9 @@ impl Esp32S3PmsHandle {
     ) -> bool {
         let mut state = self.state.borrow_mut();
         let allowed = if let Some(region) = internal_sram_region(&state, address) {
-            let usage = state.register(0x14);
-            let allocated = region.block.is_none_or(|block| usage & (1 << block) != 0);
+            let allocated = region
+                .block
+                .is_none_or(|block| dma_sram_block_allocated(&state, block));
             let permission =
                 (state.register(peripheral.internal_permission_offset()) >> region.dma_shift()) & 3;
             allocated && pair_allows(permission, access)
@@ -485,14 +486,14 @@ fn internal_memory_allowed(
     if let Some((block, shift)) = sram0 {
         let register = if world.is_nonsecure() { 0xdc } else { 0xe0 };
         return Some(
-            state.register(0x14) & (1 << block) != 0
+            cpu_sram_block_allocated(state, block)
                 && triad_allows((state.register(register) >> shift) & 7, access),
         );
     }
     let region = internal_sram_region(state, address)?;
     let usage = region
         .block
-        .is_none_or(|block| state.register(0x14) & (1 << block) != 0);
+        .is_none_or(|block| cpu_sram_block_allocated(state, block));
     let instruction_bus = is_instruction_bus_address(address);
     let allowed = if instruction_bus {
         let register = if world.is_nonsecure() { 0xdc } else { 0xe0 };
@@ -748,6 +749,33 @@ fn width_code(width: AccessWidth) -> u32 {
 
 fn is_instruction_bus_address(address: u32) -> bool {
     (0x4000_0000..=0x4005_ffff).contains(&address) || (0x4037_0000..=0x403d_ffff).contains(&address)
+}
+
+// PMS_INTERNAL_SRAM_USAGE_1 packs three independently named fields rather
+// than one linear block bitmap: SRAM0/ICACHE in bits 0..=1, SRAM2/DCACHE in
+// bits 2..=3, and SRAM1/CPU in bits 4..=10. The ROM's 32-KiB D-cache
+// configuration leaves the lower SRAM2 half (Block9) CPU/GDMA-accessible.
+fn cpu_sram_block_allocated(state: &Esp32S3PmsState, block: u8) -> bool {
+    let usage = state.register(0x14);
+    let bit = match block {
+        0..=1 => block,
+        2..=8 => block + 2,
+        9 => 2,
+        10 => 3,
+        _ => return false,
+    };
+    usage & (1 << bit) != 0
+}
+
+// SRAM1 is simultaneously accessible by CPU and GDMA. Only SRAM2 has a
+// CPU/GDMA-versus-DCACHE allocation bit that gates GDMA access.
+fn dma_sram_block_allocated(state: &Esp32S3PmsState, block: u8) -> bool {
+    match block {
+        2..=8 => true,
+        9 => state.register(0x14) & (1 << 2) != 0,
+        10 => state.register(0x14) & (1 << 3) != 0,
+        _ => false,
+    }
 }
 
 fn sram1_block(address: u32) -> Option<u8> {
@@ -1101,6 +1129,76 @@ mod tests {
             Esp32S3DmaPeripheral::Spi2,
             Esp32S3World::Secure,
             0x3fca_1000,
+            AccessWidth::Word,
+            AccessKind::Read,
+        ));
+    }
+
+    #[test]
+    fn packed_sram_usage_fields_gate_the_documented_physical_blocks() {
+        let (mut device, handle) = Esp32S3Pms::new("pms");
+
+        // This is the value programmed by the ESP32-S3 ROM/ESP-IDF boot path:
+        // all seven SRAM1 blocks are CPU-usable, SRAM0 Block1 is CPU-owned,
+        // and SRAM2 Block9 is CPU/GDMA-owned.
+        write(&mut device, 0x14, 0x7f6);
+        assert!(handle.check_cpu_access(
+            0,
+            Esp32S3World::Secure,
+            0x3fc9_7830,
+            AccessWidth::Word,
+            AccessKind::Read,
+        ));
+        assert!(handle.check_cpu_access(
+            0,
+            Esp32S3World::Secure,
+            0x4037_4000,
+            AccessWidth::Word,
+            AccessKind::Execute,
+        ));
+        assert!(!handle.check_cpu_access(
+            0,
+            Esp32S3World::Secure,
+            0x4037_0000,
+            AccessWidth::Word,
+            AccessKind::Execute,
+        ));
+        assert!(handle.check_cpu_access(
+            0,
+            Esp32S3World::Secure,
+            0x3fcf_0000,
+            AccessWidth::Word,
+            AccessKind::Read,
+        ));
+        assert!(!handle.check_cpu_access(
+            0,
+            Esp32S3World::Secure,
+            0x3fcf_8000,
+            AccessWidth::Word,
+            AccessKind::Read,
+        ));
+
+        // SRAM1 remains DMA-addressable independently of CPU_USAGE, while
+        // SRAM2 follows its explicit CPU/GDMA-versus-DCACHE allocation bits.
+        write(&mut device, 0x14, 0x004);
+        assert!(handle.check_dma_access(
+            Esp32S3DmaPeripheral::Spi2,
+            Esp32S3World::Secure,
+            0x3fc9_7830,
+            AccessWidth::Word,
+            AccessKind::Read,
+        ));
+        assert!(handle.check_dma_access(
+            Esp32S3DmaPeripheral::Spi2,
+            Esp32S3World::Secure,
+            0x3fcf_0000,
+            AccessWidth::Word,
+            AccessKind::Read,
+        ));
+        assert!(!handle.check_dma_access(
+            Esp32S3DmaPeripheral::Spi2,
+            Esp32S3World::Secure,
+            0x3fcf_8000,
             AccessWidth::Word,
             AccessKind::Read,
         ));

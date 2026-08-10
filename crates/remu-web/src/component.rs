@@ -1,6 +1,6 @@
 use super::{
-    WebLogic, WebPinStimulus, WebRunOptions, inspect_elf_json, list_targets_json, run_elf_json,
-    run_intel_hex_json,
+    WebLogic, WebPinStimulus, WebRadioFrame, WebRadioProtocol, WebRadioRunOptions, WebRunOptions,
+    inspect_elf_json, list_targets_json, run_elf_json, run_intel_hex_json, run_radio_elf_json,
 };
 
 // wit-bindgen's generated canonical-ABI adapter necessarily contains unsafe
@@ -42,6 +42,14 @@ impl bindings::exports::renvo::emulator::api::Guest for RenvoComponent {
     ) -> Result<String, String> {
         run_intel_hex_json(&target, &firmware, &convert_options(options))
     }
+
+    fn run_radio_elf(
+        target: String,
+        firmware: Vec<u8>,
+        options: bindings::exports::renvo::emulator::api::RadioRunOptions,
+    ) -> Result<String, String> {
+        run_radio_elf_json(&target, &firmware, &convert_radio_options(options))
+    }
 }
 
 fn convert_options(options: bindings::exports::renvo::emulator::api::RunOptions) -> WebRunOptions {
@@ -60,6 +68,37 @@ fn convert_options(options: bindings::exports::renvo::emulator::api::RunOptions)
                     bindings::exports::renvo::emulator::api::Logic::HighZ => WebLogic::HighZ,
                     bindings::exports::renvo::emulator::api::Logic::Unknown => WebLogic::Unknown,
                 },
+            })
+            .collect(),
+    }
+}
+
+fn convert_radio_options(
+    options: bindings::exports::renvo::emulator::api::RadioRunOptions,
+) -> WebRadioRunOptions {
+    WebRadioRunOptions {
+        run: convert_options(options.run),
+        radio_frames: options
+            .radio_frames
+            .into_iter()
+            .map(|frame| WebRadioFrame {
+                at: frame.at,
+                protocol: match frame.protocol {
+                    bindings::exports::renvo::emulator::api::RadioProtocol::Wifi => {
+                        WebRadioProtocol::Wifi
+                    }
+                    bindings::exports::renvo::emulator::api::RadioProtocol::BluetoothLe => {
+                        WebRadioProtocol::BluetoothLe
+                    }
+                    bindings::exports::renvo::emulator::api::RadioProtocol::Ieee802154 => {
+                        WebRadioProtocol::Ieee802154
+                    }
+                },
+                center_khz: frame.center_khz,
+                bandwidth_khz: frame.bandwidth_khz,
+                phy: frame.phy,
+                bytes: frame.bytes,
+                power_dbm: frame.power_dbm,
             })
             .collect(),
     }

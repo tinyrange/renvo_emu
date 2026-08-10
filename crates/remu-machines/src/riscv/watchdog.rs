@@ -32,6 +32,9 @@ impl RiscVMachine {
         }
         if action == EspWatchdogAction::ResetCpu {
             self.esp_reset_reason = cpu_reason;
+            if let Some(peripherals) = &self.esp32c6_peripherals {
+                peripherals.lp_clkrst.set_reset_cause(cpu_reason);
+            }
             self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
             stats.events = stats.events.saturating_add(1);
             return Ok(true);
@@ -47,6 +50,9 @@ impl RiscVMachine {
             } else {
                 ResetKind::Watchdog
             });
+        if let Some(peripherals) = &self.esp32c6_peripherals {
+            peripherals.lp_clkrst.set_reset_cause(self.esp_reset_reason);
+        }
         self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
         if action == EspWatchdogAction::ResetRtc {
             self.cpu1.reset(ResetKind::Watchdog, &mut self.bus)?;

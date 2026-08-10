@@ -156,6 +156,130 @@ impl Device for EspC6Pmu {
     }
 }
 
+struct EspC6LpClkRstState {
+    registers: [u32; 0x400 / 4],
+    reset_cause: u8,
+    core0_reset_flag: bool,
+}
+
+impl EspC6LpClkRstState {
+    fn new(reset_cause: u8) -> Self {
+        let mut registers = [0; 0x400 / 4];
+        registers[0x00 / 4] = 1 << 2;
+        registers[0x04 / 4] = 0x7ff;
+        registers[0x14 / 4] = (1 << 22) | (1 << 26);
+        registers[0x18 / 4] = 172 << 22;
+        registers[0x1c / 4] = 172 << 22;
+        registers[0x20 / 4] = 0xf << 28;
+        registers[0x2c / 4] = (3 << 22) | (3 << 25);
+        registers[0x3fc / 4] = 35_676_496;
+        Self {
+            registers,
+            reset_cause: reset_cause & 0x1f,
+            core0_reset_flag: true,
+        }
+    }
+}
+
+/// Scheduler-facing ESP32-C6 reset-cause latch.
+#[derive(Clone)]
+pub struct EspC6LpClkRstHandle {
+    state: Rc<RefCell<EspC6LpClkRstState>>,
+}
+
+impl EspC6LpClkRstHandle {
+    /// Records the cause exposed to the mask ROM after a reset transition.
+    pub fn set_reset_cause(&self, cause: u32) {
+        let mut state = self.state.borrow_mut();
+        state.reset_cause = (cause & 0x1f) as u8;
+        state.core0_reset_flag = true;
+    }
+}
+
+/// ESP32-C6 low-power clock/reset registers used by the reset ROM and RTC code.
+pub struct EspC6LpClkRst {
+    name: String,
+    state: Rc<RefCell<EspC6LpClkRstState>>,
+}
+
+impl EspC6LpClkRst {
+    /// Creates the LP clock/reset page in its cold power-on state.
+    pub fn new(name: impl Into<String>) -> (Self, EspC6LpClkRstHandle) {
+        let state = Rc::new(RefCell::new(EspC6LpClkRstState::new(1)));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+            },
+            EspC6LpClkRstHandle { state },
+        )
+    }
+
+    fn index(offset: u64, width: AccessWidth) -> Result<usize, DeviceError> {
+        if width != AccessWidth::Word || !offset.is_multiple_of(4) || offset >= 0x400 {
+            return Err(DeviceError::new(
+                "ESP32-C6 LP clock/reset requires an aligned word access",
+            ));
+        }
+        Ok(offset as usize / 4)
+    }
+}
+
+impl Device for EspC6LpClkRst {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        let index = Self::index(offset, width)?;
+        let state = self.state.borrow();
+        let value = if offset == 0x10 {
+            u32::from(state.reset_cause) | (u32::from(state.core0_reset_flag) << 5)
+        } else {
+            state.registers[index]
+        };
+        Ok(u64::from(value))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let index = Self::index(offset, width)?;
+        let value = value as u32;
+        let mut state = self.state.borrow_mut();
+        match offset {
+            0x10 => {
+                if value & (1 << 29) != 0 {
+                    state.reset_cause = 0;
+                }
+                if value & (1 << 30) != 0 {
+                    state.core0_reset_flag = true;
+                }
+                if value & (1 << 31) != 0 {
+                    state.core0_reset_flag = false;
+                }
+            }
+            0x3fc => state.registers[index] = value & 0x7fff_ffff,
+            _ => state.registers[index] = value,
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, kind: ResetKind) {
+        let cause = match kind {
+            ResetKind::PowerOn => 1,
+            ResetKind::External => 2,
+            ResetKind::Software => 3,
+            ResetKind::Watchdog => 9,
+        };
+        *self.state.borrow_mut() = EspC6LpClkRstState::new(cause);
+    }
+}
+
 struct EspC6LpAonState {
     registers: Vec<u32>,
     system_reset: bool,
@@ -512,6 +636,32 @@ mod tests {
         );
         aon.reset(ResetKind::PowerOn);
         assert_eq!(aon.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 0);
+    }
+
+    #[test]
+    fn lp_clkrst_exposes_power_on_cause_and_reset_flag_strobes() {
+        let (mut clkrst, handle) = EspC6LpClkRst::new("lp-clkrst");
+        assert_eq!(
+            clkrst.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x21
+        );
+        clkrst
+            .write(0x10, AccessWidth::Word, 1 << 31, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            clkrst.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            1
+        );
+        handle.set_reset_cause(0x0b);
+        assert_eq!(
+            clkrst.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x2b
+        );
+        clkrst.reset(ResetKind::Software);
+        assert_eq!(
+            clkrst.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            0x23
+        );
     }
 
     #[test]

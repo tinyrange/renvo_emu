@@ -1,0 +1,51 @@
+{
+  "schema": "remu.radio-rom-requirements.v1",
+  "source_ledger_entry": "esp-rom-elfs-20260528",
+  "rom_release": "20260528",
+  "rom_archive_sha256": "caa463d3cbef2430a5a35847c1d9f2f152403b17a802050927ff60c8da54fe46",
+  "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+  "firmware_project": "qualification/radio/vendor-wifi-probe",
+  "firmware_elf": "remu_vendor_wifi_probe.elf",
+  "chips": {
+    "esp32c6": {
+      "architecture": "riscv32",
+      "rom_file": "esp32c6_rev0_rom.elf",
+      "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+      "rom_start": "0x40000000",
+      "rom_end": "0x40050000",
+      "minimum_instructions": 20000000,
+      "minimum_wifi_tx_frames": 1,
+      "radio_input": "qualification/radio/wifi-beacon-vendor-esp32c6.json",
+      "required_stop": "InstructionLimit",
+      "required_uart_substrings": [
+        "Calling app_main()",
+        "wifi driver task:",
+        "wifi firmware version:",
+        "phy_version",
+        "wifi:mode : sta",
+        "wifi:enable tsf",
+        "REMU_VENDOR_WIFI_SCAN_DONE result=0"
+      ]
+    },
+    "esp32s3": {
+      "architecture": "xtensa",
+      "rom_file": "esp32s3_rev0_rom.elf",
+      "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
+      "rom_start": "0x40000000",
+      "rom_end": "0x40070000",
+      "minimum_instructions": 20000000,
+      "minimum_wifi_tx_frames": 1,
+      "radio_input": "qualification/radio/wifi-beacon-vendor-esp32s3.json",
+      "required_stop": "InstructionLimit",
+      "required_uart_substrings": [
+        "Project name:     remu_vendor_wifi_probe",
+        "wifi driver task:",
+        "wifi firmware version:",
+        "phy_version",
+        "wifi:mode : sta",
+        "wifi:enable tsf",
+        "REMU_VENDOR_WIFI_SCAN_DONE result=0"
+      ]
+    }
+  }
+}

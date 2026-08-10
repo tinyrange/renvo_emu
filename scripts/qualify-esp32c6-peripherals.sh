@@ -34,6 +34,62 @@ do
     fi
 done < corpus/vendor/esp-idf-c6/headers.sha256
 
+mkdir -p "$root/radio-source/soc" "$root/radio-source/modem" "$root/radio-out"
+cp corpus/vendor/esp-idf-c6/start.S "$root/radio-source/start.S"
+cp corpus/vendor/esp-idf-c6/link.ld "$root/radio-source/link.ld"
+cp corpus/vendor/esp-idf-c6/radio_probe.c "$root/radio-source/radio_probe.c"
+cp corpus/vendor/esp-idf-c6/soc.h "$root/radio-source/soc/soc.h"
+cp "$root/source/soc/reg_base.h" "$root/radio-source/soc/reg_base.h"
+
+fetch_radio_header()
+{
+    url=$1
+    expected=$2
+    output=$3
+    curl --fail --location --silent --show-error "$url" --output "$output"
+    actual=$(sha256sum "$output" | cut -d ' ' -f 1)
+    if [ "$actual" != "$expected" ]
+    then
+        echo "radio header hash mismatch for $url: expected $expected, got $actual" >&2
+        exit 1
+    fi
+}
+
+fetch_radio_header \
+    "https://raw.githubusercontent.com/espressif/esp-idf/$idf_commit/components/soc/esp32c6/register/soc/ieee802154_reg.h" \
+    2d19c130356367a268b74652a116fc687092900ac05e5665ca5c7cf99596883e \
+    "$root/radio-source/soc/ieee802154_reg.h"
+fetch_radio_header \
+    "https://raw.githubusercontent.com/espressif/esp-idf/$idf_commit/components/soc/esp32c6/include/modem/reg_base.h" \
+    83bf8450e9825cedbf901a0be63dad03be9ff27c49663c3b02e724f1c6c517ef \
+    "$root/radio-source/modem/reg_base.h"
+fetch_radio_header \
+    "https://raw.githubusercontent.com/espressif/esp-idf/$idf_commit/components/soc/esp32c6/include/modem/modem_syscon_reg.h" \
+    7e08b6db172a81c665c70f0b3dafb85df04a5661c17b1acb0af6df67bdf719e7 \
+    "$root/radio-source/modem/modem_syscon_reg.h"
+fetch_radio_header \
+    "https://raw.githubusercontent.com/espressif/esp-idf/$idf_commit/components/soc/esp32c6/include/modem/modem_lpcon_reg.h" \
+    22153f97481d511f747cf99a38fee5178c9a5b92a9dd6e5b1a0f61f38ef7b86b \
+    "$root/radio-source/modem/modem_lpcon_reg.h"
+
+"$remu" corpus build \
+    --toolchain toolchains/riscv32-esp-gcc-esp32c6.toml \
+    --source "$root/radio-source" \
+    --output "$root/radio-out" \
+    --target esp32c6 \
+    --artifact "$root/radio-build.json" \
+    -- -O2 -I. start.S radio_probe.c -Wl,-T,link.ld -o /workspace/out/radio-probe.elf
+
+"$remu" run \
+    --target esp32c6 \
+    --elf "$root/radio-out/radio-probe.elf" \
+    --max-instructions 20000 \
+    --bus-log "$root/radio-bus.json" \
+    --result "$root/radio-run.json"
+
+jq -e '.reason == "Halted" and .exit_code == 0' "$root/radio-run.json" >/dev/null
+jq -e 'any(.[]; .region == "esp32c6.ieee802154") and any(.[]; .region == "esp32c6.modem-syscon")' "$root/radio-bus.json" >/dev/null
+
 "$remu" corpus build \
     --toolchain toolchains/riscv32-esp-gcc-esp32c6.toml \
     --source "$root/source" \

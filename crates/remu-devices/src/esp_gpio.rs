@@ -8,6 +8,7 @@ use super::*;
 pub struct EspGpio {
     name: String,
     pins: u8,
+    strap: u16,
     state: Arc<Mutex<GpioState>>,
     signals: Vec<SignalId>,
     hub: SignalHub,
@@ -21,11 +22,24 @@ impl EspGpio {
         path: &str,
         hub: SignalHub,
     ) -> Result<(Self, GpioHandle), SignalError> {
+        Self::new_with_strap(name, pins, path, hub, 0)
+    }
+
+    /// Creates the GPIO banks with the value sampled into the read-only strap
+    /// register at reset.
+    pub fn new_with_strap(
+        name: impl Into<String>,
+        pins: u8,
+        path: &str,
+        hub: SignalHub,
+        strap: u16,
+    ) -> Result<(Self, GpioHandle), SignalError> {
         let (state, signals, handle) = vendor_gpio_wide(pins, path, &hub)?;
         Ok((
             Self {
                 name: name.into(),
                 pins,
+                strap,
                 state,
                 signals,
                 hub,
@@ -67,6 +81,7 @@ impl Device for EspGpio {
             0x10 | 0x14 | 0x18 => state.output_high,
             0x20 | 0x24 | 0x28 => state.direction,
             0x2c | 0x30 | 0x34 => state.direction_high,
+            0x38 => u32::from(self.strap),
             0x3c => {
                 drop(state);
                 return Ok(u64::from(self.resolved_input(false)));

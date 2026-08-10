@@ -1,0 +1,50 @@
+{
+  "schema": "remu.radio-input.v1",
+  "frames": [
+    {
+      "at": 5600000,
+      "protocol": "ieee802154",
+      "center_khz": 2405000,
+      "bandwidth_khz": 2000,
+      "phy": "ieee802154-oqpsk-250k",
+      "bytes": [1, 0, 2, 170, 91, 37],
+      "power_dbm": -40
+    },
+    {
+      "at": 5700000,
+      "protocol": "ieee802154",
+      "center_khz": 2405000,
+      "bandwidth_khz": 2000,
+      "phy": "ieee802154-oqpsk-250k",
+      "bytes": [1, 8, 49, 153, 153, 102, 102, 222, 173, 224, 158],
+      "power_dbm": -40
+    },
+    {
+      "at": 6500000,
+      "protocol": "ieee802154",
+      "center_khz": 2405000,
+      "bandwidth_khz": 2000,
+      "phy": "ieee802154-oqpsk-250k",
+      "bytes": [1, 8, 50, 205, 171, 87, 19, 222, 173, 54, 77],
+      "power_dbm": -40
+    },
+    {
+      "at": 6600000,
+      "protocol": "ieee802154",
+      "center_khz": 2405000,
+      "bandwidth_khz": 2000,
+      "phy": "ieee802154-oqpsk-250k",
+      "bytes": [33, 8, 70, 205, 171, 87, 19, 17, 34, 168, 241],
+      "power_dbm": -40
+    },
+    {
+      "at": 6700000,
+      "protocol": "ieee802154",
+      "center_khz": 2405000,
+      "bandwidth_khz": 2000,
+      "phy": "ieee802154-oqpsk-250k",
+      "bytes": [2, 0, 68, 152, 177],
+      "power_dbm": -40
+    }
+  ]
+}

@@ -175,6 +175,140 @@ fn esp_timer_group_schedules_and_clears_alarm_interrupts() {
 }
 
 #[test]
+fn esp32c6_systimer_publishes_native_raw_and_status_registers() {
+    let (mut timer, handle) = EspSystimer::new_esp32c6("systimer");
+    timer
+        .write(0x00, AccessWidth::Word, 1 << 24, SimTime::ZERO)
+        .unwrap();
+    timer
+        .write(0x1c, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    timer
+        .write(0x20, AccessWidth::Word, 10, SimTime::ZERO)
+        .unwrap();
+    timer
+        .write(0x64, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.pending(SimTime::from_ticks(9)), [false; 3]);
+    assert_eq!(
+        handle.pending(SimTime::from_ticks(10)),
+        [true, false, false]
+    );
+    assert_eq!(
+        timer
+            .read(0x68, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        timer
+            .read(0x70, AccessWidth::Word, SimTime::from_ticks(10))
+            .unwrap(),
+        1
+    );
+    timer
+        .write(0x6c, AccessWidth::Word, 1, SimTime::from_ticks(10))
+        .unwrap();
+    assert_eq!(handle.pending(SimTime::from_ticks(10)), [false; 3]);
+}
+
+#[test]
+fn esp_systimer_comparator_load_distinguishes_oneshot_and_periodic_targets() {
+    let (mut timer, handle) = EspSystimer::new("systimer");
+
+    // Target 2 mirrors the one-shot sequence used by the ESP32-S3 esp_timer HAL:
+    // write an absolute deadline, apply it, then enable the comparator and interrupt.
+    timer
+        .write(0x2c, AccessWidth::Word, 0, SimTime::from_ticks(100))
+        .unwrap();
+    timer
+        .write(0x30, AccessWidth::Word, 1_000, SimTime::from_ticks(100))
+        .unwrap();
+    timer
+        .write(0x58, AccessWidth::Word, 1, SimTime::from_ticks(100))
+        .unwrap();
+    timer
+        .write(0x00, AccessWidth::Word, 1 << 22, SimTime::from_ticks(100))
+        .unwrap();
+    timer
+        .write(0x64, AccessWidth::Word, 1 << 2, SimTime::from_ticks(100))
+        .unwrap();
+    assert_eq!(handle.pending(SimTime::from_ticks(999)), [false; 3]);
+    assert_eq!(
+        handle.pending(SimTime::from_ticks(1_000)),
+        [false, false, true]
+    );
+
+    // A periodic target is seeded relative to the load strobe and advances by its period.
+    timer
+        .write(0x6c, AccessWidth::Word, 1 << 2, SimTime::from_ticks(1_000))
+        .unwrap();
+    timer
+        .write(
+            0x34,
+            AccessWidth::Word,
+            (1 << 30) | 25,
+            SimTime::from_ticks(2_000),
+        )
+        .unwrap();
+    timer
+        .write(0x50, AccessWidth::Word, 1, SimTime::from_ticks(2_000))
+        .unwrap();
+    timer
+        .write(0x00, AccessWidth::Word, 1 << 24, SimTime::from_ticks(2_000))
+        .unwrap();
+    timer
+        .write(0x64, AccessWidth::Word, 1, SimTime::from_ticks(2_000))
+        .unwrap();
+    assert_eq!(handle.pending(SimTime::from_ticks(2_024)), [false; 3]);
+    assert_eq!(
+        handle.pending(SimTime::from_ticks(2_025)),
+        [true, false, false]
+    );
+    timer
+        .write(0x6c, AccessWidth::Word, 1, SimTime::from_ticks(2_025))
+        .unwrap();
+    assert_eq!(handle.pending(SimTime::from_ticks(2_049)), [false; 3]);
+    assert_eq!(
+        handle.pending(SimTime::from_ticks(2_050)),
+        [true, false, false]
+    );
+
+    // ESP-IDF also uses load-before-mode ordering. The zero reset target must
+    // not fire in the gap; setting PERIOD_MODE completes the configuration
+    // and seeds the deadline from that write.
+    timer
+        .write(0x6c, AccessWidth::Word, 1, SimTime::from_ticks(3_000))
+        .unwrap();
+    timer
+        .write(0x00, AccessWidth::Word, 0, SimTime::from_ticks(3_000))
+        .unwrap();
+    timer
+        .write(0x34, AccessWidth::Word, 25, SimTime::from_ticks(3_000))
+        .unwrap();
+    timer
+        .write(0x50, AccessWidth::Word, 1, SimTime::from_ticks(3_001))
+        .unwrap();
+    timer
+        .write(0x00, AccessWidth::Word, 1 << 24, SimTime::from_ticks(3_002))
+        .unwrap();
+    assert_eq!(handle.pending(SimTime::from_ticks(3_002)), [false; 3]);
+    timer
+        .write(
+            0x34,
+            AccessWidth::Word,
+            (1 << 30) | 25,
+            SimTime::from_ticks(3_010),
+        )
+        .unwrap();
+    assert_eq!(handle.pending(SimTime::from_ticks(3_034)), [false; 3]);
+    assert_eq!(
+        handle.pending(SimTime::from_ticks(3_035)),
+        [true, false, false]
+    );
+}
+
+#[test]
 fn esp_timer_group_main_watchdog_advances_interrupt_then_reset_stage() {
     let (mut group, handle) = EspTimerGroup::new("timer-group", EspTimerGroupKind::Esp32C6);
     group
@@ -205,6 +339,33 @@ fn esp_timer_group_main_watchdog_advances_interrupt_then_reset_stage() {
     assert_eq!(
         handle.take_watchdog_action(SimTime::from_ticks(7)),
         Some(EspWatchdogAction::ResetSystem)
+    );
+}
+
+#[test]
+fn esp32c6_main_watchdog_applies_its_source_clock_prescaler() {
+    let (mut group, handle) = EspTimerGroup::new("timer-group", EspTimerGroupKind::Esp32C6);
+    group
+        .write(0x64, AccessWidth::Word, 0x50d8_3aa1, SimTime::ZERO)
+        .unwrap();
+    group
+        .write(0x4c, AccessWidth::Word, 4 << 16, SimTime::ZERO)
+        .unwrap();
+    group
+        .write(0x50, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    group
+        .write(
+            0x48,
+            AccessWidth::Word,
+            (1 << 31) | (2 << 29),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(handle.take_watchdog_action(SimTime::from_ticks(11)), None);
+    assert_eq!(
+        handle.take_watchdog_action(SimTime::from_ticks(12)),
+        Some(EspWatchdogAction::ResetCpu)
     );
 }
 
@@ -570,6 +731,43 @@ fn deterministic_rng_changes_words_and_restarts_from_its_seed() {
     assert_eq!(
         rng.read(0x7c, AccessWidth::Word, SimTime::ZERO).unwrap(),
         first
+    );
+}
+
+#[test]
+fn esp32c6_spimem_reports_idle_axi_fifos_across_reset() {
+    let mut spimem = EspSpiMem::new("spimem");
+    assert_eq!(
+        spimem
+            .read(0x170, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        0xfc00_0000
+    );
+    spimem.reset(ResetKind::Software);
+    assert_eq!(
+        spimem
+            .read(0x170, AccessWidth::Word, SimTime::ZERO)
+            .unwrap(),
+        0xfc00_0000
+    );
+}
+
+#[test]
+fn esp32c6_analog_i2c_completes_rfpll_charge_pump_calibration() {
+    let mut i2c = EspAnalogI2c::new("analog-i2c");
+    let write = (1_u64 << 24) | (0x20_u64 << 16) | (0x0f_u64 << 8) | 0x62;
+    i2c.write(0x188, AccessWidth::Word, write, SimTime::ZERO)
+        .unwrap();
+    i2c.write(
+        0x188,
+        AccessWidth::Word,
+        (0x0e_u64 << 8) | 0x62,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_ne!(
+        i2c.read(0x188, AccessWidth::Word, SimTime::ZERO).unwrap() & (0x80 << 16),
+        0
     );
 }
 

@@ -22,7 +22,7 @@ impl XtensaMachine {
         Ok(())
     }
 
-    fn update_matrix_source(
+    pub(super) fn update_matrix_source(
         &mut self,
         source: usize,
         pending: bool,
@@ -34,8 +34,10 @@ impl XtensaMachine {
             if interrupt == u8::MAX || interrupt == 6 {
                 continue;
             }
-            let asserted =
-                pending && !(interrupt == 14 && self.world_controller.nmi_masked(core as u8));
+            let asserted = self
+                .interrupt_matrix
+                .interrupt_pending(core as usize, interrupt)
+                && !(interrupt == 14 && self.world_controller.nmi_masked(core as u8));
             if core == 0 {
                 self.cpu.set_interrupt(u16::from(interrupt), asserted)?;
             } else if self.appcpu_boot_address.is_some() {
@@ -69,10 +71,11 @@ impl XtensaMachine {
             if interrupt == u8::MAX || interrupt == 6 {
                 continue;
             }
+            let asserted = self.interrupt_matrix.interrupt_pending(core, interrupt);
             if core == 0 {
-                self.cpu.set_interrupt(u16::from(interrupt), pending)?;
+                self.cpu.set_interrupt(u16::from(interrupt), asserted)?;
             } else if self.appcpu_boot_address.is_some() {
-                self.cpu1.set_interrupt(u16::from(interrupt), pending)?;
+                self.cpu1.set_interrupt(u16::from(interrupt), asserted)?;
             }
         }
         Ok(any)

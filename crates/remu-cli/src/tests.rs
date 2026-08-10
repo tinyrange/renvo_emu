@@ -71,12 +71,79 @@ fn direct_run_accepts_bus_log_artifact() {
         "firmware.elf",
         "--bus-log",
         "accesses.json",
+        "--bus-log-region",
+        "esp32c6.ble-baseband-registers",
+        "--bus-log-region",
+        "esp32c6.ble-control-registers",
     ])
     .unwrap();
     let Command::Run(arguments) = parsed.command else {
         panic!("expected direct run");
     };
     assert_eq!(arguments.bus_log, Some(PathBuf::from("accesses.json")));
+    assert_eq!(
+        arguments.bus_log_region,
+        [
+            "esp32c6.ble-baseband-registers",
+            "esp32c6.ble-control-registers"
+        ]
+    );
+}
+
+#[test]
+fn direct_run_rejects_bus_log_region_without_bus_log() {
+    let result = Cli::try_parse_from([
+        "remu",
+        "run",
+        "--target",
+        "esp32c6",
+        "--elf",
+        "firmware.elf",
+        "--bus-log-region",
+        "esp32c6.ble-baseband-registers",
+    ]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn direct_run_accepts_radio_replay_artifact() {
+    let parsed = Cli::try_parse_from([
+        "remu",
+        "run",
+        "--target",
+        "esp32c6",
+        "--elf",
+        "firmware.elf",
+        "--radio-replay",
+        "radio.json",
+    ])
+    .unwrap();
+    let Command::Run(arguments) = parsed.command else {
+        panic!("expected direct run");
+    };
+    assert_eq!(arguments.radio_replay, Some(PathBuf::from("radio.json")));
+}
+
+#[test]
+fn direct_run_accepts_radio_input_artifact() {
+    let parsed = Cli::try_parse_from([
+        "remu",
+        "run",
+        "--target",
+        "esp32s3",
+        "--elf",
+        "firmware.elf",
+        "--radio-input",
+        "radio-input.json",
+    ])
+    .unwrap();
+    let Command::Run(arguments) = parsed.command else {
+        panic!("expected direct run");
+    };
+    assert_eq!(
+        arguments.radio_input,
+        Some(PathBuf::from("radio-input.json"))
+    );
 }
 
 #[test]

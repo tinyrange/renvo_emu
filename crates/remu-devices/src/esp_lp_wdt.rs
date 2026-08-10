@@ -42,6 +42,7 @@ struct EspLpWatchdogState {
     stage: usize,
     actions: VecDeque<EspWatchdogAction>,
     write_enabled: bool,
+    sim_ticks_per_watchdog_count: u64,
 }
 
 impl EspLpWatchdogState {
@@ -57,7 +58,7 @@ impl EspLpWatchdogState {
     const ENABLE: u32 = 1 << 31;
     const LP_INT: u32 = 1 << 31;
 
-    fn new() -> Self {
+    fn new(sim_ticks_per_watchdog_count: u64) -> Self {
         let mut registers = vec![0; 0x400 / 4];
         // Reset values from Espressif's ESP32-C6 lp_wdt_reg.h.
         registers[Self::CONFIG0 / 4] = (1 << 9) | (1 << 12) | (1 << 16);
@@ -73,6 +74,7 @@ impl EspLpWatchdogState {
             stage: 0,
             actions: VecDeque::new(),
             write_enabled: false,
+            sim_ticks_per_watchdog_count: sim_ticks_per_watchdog_count.max(1),
         }
     }
 
@@ -81,7 +83,9 @@ impl EspLpWatchdogState {
             return;
         }
         while self.stage < 4 {
-            let hold = u64::from(self.registers[(Self::STAGE0_HOLD / 4) + self.stage]).max(1);
+            let hold = u64::from(self.registers[(Self::STAGE0_HOLD / 4) + self.stage])
+                .max(1)
+                .saturating_mul(self.sim_ticks_per_watchdog_count);
             if now.ticks().saturating_sub(self.epoch.ticks()) < hold {
                 break;
             }
@@ -126,7 +130,17 @@ pub struct EspLpWatchdog {
 impl EspLpWatchdog {
     /// Creates a reset LP watchdog and host-facing handle.
     pub fn new(name: impl Into<String>) -> (Self, EspLpWatchdogHandle) {
-        let state = Rc::new(RefCell::new(EspLpWatchdogState::new()));
+        Self::new_with_tick_scale(name, 1)
+    }
+
+    /// Creates an LP watchdog with an explicit simulation-tick/slow-clock ratio.
+    pub fn new_with_tick_scale(
+        name: impl Into<String>,
+        sim_ticks_per_watchdog_count: u64,
+    ) -> (Self, EspLpWatchdogHandle) {
+        let state = Rc::new(RefCell::new(EspLpWatchdogState::new(
+            sim_ticks_per_watchdog_count,
+        )));
         (
             Self {
                 name: name.into(),
@@ -212,7 +226,8 @@ impl Device for EspLpWatchdog {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        *self.state.borrow_mut() = EspLpWatchdogState::new();
+        let tick_scale = self.state.borrow().sim_ticks_per_watchdog_count;
+        *self.state.borrow_mut() = EspLpWatchdogState::new(tick_scale);
     }
 }
 
@@ -247,5 +262,24 @@ mod tests {
             .write(0x14, AccessWidth::Word, 1, SimTime::from_ticks(4))
             .unwrap();
         assert_eq!(handle.take_action(SimTime::from_ticks(5)), None);
+    }
+
+    #[test]
+    fn lp_watchdog_holds_are_scaled_to_the_machine_clock_domain() {
+        let (mut watchdog, handle) = EspLpWatchdog::new_with_tick_scale("wdt", 4);
+        watchdog
+            .write(0x18, AccessWidth::Word, 0x50d8_3aa1, SimTime::ZERO)
+            .unwrap();
+        watchdog
+            .write(0x04, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        watchdog
+            .write(0, AccessWidth::Word, (1 << 31) | (2 << 28), SimTime::ZERO)
+            .unwrap();
+        assert_eq!(handle.take_action(SimTime::from_ticks(7)), None);
+        assert_eq!(
+            handle.take_action(SimTime::from_ticks(8)),
+            Some(EspWatchdogAction::ResetCpu)
+        );
     }
 }
