@@ -1496,7 +1496,7 @@ mod tests {
 
     #[test]
     fn ble_encryption_rejects_bad_mic_and_unobserved_firmware_descriptor_state() {
-        let mut bad_mic = s3_sequence_at_start_encryption_response();
+        let bad_mic = s3_sequence_at_start_encryption_response();
         let mut corrupted = [5, 4, 51, 203, 243, 20];
         corrupted[5] ^= 1;
         assert!(

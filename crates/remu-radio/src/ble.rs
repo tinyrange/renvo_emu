@@ -5,7 +5,7 @@ use aes::{
 };
 use ccm::{
     Ccm,
-    aead::{AeadInOut, KeyInit as AeadKeyInit},
+    aead::AeadInOut,
     consts::{U4, U13},
 };
 use remu_core::SimTime;
