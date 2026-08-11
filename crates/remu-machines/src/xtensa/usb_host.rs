@@ -175,7 +175,7 @@ impl EspDwc2Host {
         for interface in interfaces {
             match (interface.class, interface.subclass, interface.protocol) {
                 // CDC ACM: assert DTR and RTS on its communication interface.
-                (2, 2, 1) if interface.alternate == 0 => self.queue_control(
+                (2, 2, _) if interface.alternate == 0 => self.queue_control(
                     [0x21, 0x22, 3, 0, interface.number, 0, 0, 0],
                     Dwc2ControlResponse::None,
                 ),
@@ -494,5 +494,23 @@ mod tests {
         assert_eq!(*endpoint, 2);
         assert_eq!(&cbw[0..4], b"USBC");
         assert_eq!(cbw[15], 0x12);
+    }
+
+    #[test]
+    fn cdc_acm_without_at_protocol_gets_control_line_state() {
+        let mut host = EspDwc2Host::new();
+        host.requests.clear();
+        host.configure_from_descriptor(&[
+            9, 2, 18, 0, 1, 1, 0, 0x80, 50, // configuration
+            9, 4, 3, 0, 1, 2, 2, 0, 0, // CDC ACM communication interface
+        ]);
+
+        let setups = host
+            .requests
+            .iter()
+            .map(|request| request.setup)
+            .collect::<Vec<_>>();
+        assert_eq!(setups[0], [0, 9, 1, 0, 0, 0, 0, 0]);
+        assert_eq!(setups[1], [0x21, 0x22, 3, 0, 3, 0, 0, 0]);
     }
 }
