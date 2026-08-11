@@ -271,11 +271,12 @@ EXPECTED_CUSTOM_STACK_REQUIREMENTS = {
     },
 }
 EXPECTED_BLE_VENDOR_REQUIREMENTS = {
-    "schema": "remu.radio-ble-vendor-requirements.v8",
+    "schema": "remu.radio-ble-vendor-requirements.v9",
     "source_ledger_entry": "esp-rom-elfs-20260528",
     "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
     "firmware_project": "qualification/radio/vendor-ble-probe",
     "firmware_elf": "remu_vendor_ble_probe.elf",
+    "sleep_sdkconfig_defaults": "qualification/radio/sdkconfig.ble-sleep.defaults",
     "chips": {
         "esp32c6": {
             "rom_file": "esp32c6_rev0_rom.elf",
@@ -283,6 +284,19 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
             "rom_start": "0x40000000",
             "rom_end": "0x40050000",
             "minimum_instructions": 20_000_000,
+            "sleep_minimum_instructions": 20_000_000,
+            "minimum_sleep_native_tx": 100,
+            "required_sleep_uart_substrings": [
+                "REMU_VENDOR_BLE_INIT result=0",
+                "REMU_VENDOR_BLE_SEQUENCE result=1",
+                "REMU_VENDOR_BLE_ADV_START result=0",
+                "REMU_VENDOR_BLE_ADV_STOP result=0",
+                "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
+                "REMU_VENDOR_BLE_CONNECTABLE_ADV_START result=0",
+            ],
             "radio_input": "qualification/radio/ble-advertisement-vendor-esp32c6.json",
             "supervision_input_prefix": 8,
             "supervision_timeout_units": 10,
@@ -357,6 +371,19 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
             "rom_start": "0x40000000",
             "rom_end": "0x40070000",
             "minimum_instructions": 24_000_000,
+            "sleep_minimum_instructions": 16_000_000,
+            "minimum_sleep_native_tx": 4,
+            "required_sleep_uart_substrings": [
+                "REMU_VENDOR_BLE_INIT result=0",
+                "REMU_VENDOR_BLE_SEQUENCE result=1",
+                "REMU_VENDOR_BLE_ADV_START result=0",
+                "REMU_VENDOR_BLE_ADV_STOP result=0",
+                "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+                "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
+                "REMU_VENDOR_BLE_CONNECTABLE_ADV_START result=0",
+            ],
             "radio_input": "qualification/radio/ble-advertisement-vendor-esp32s3.json",
             "supervision_input_prefix": 8,
             "supervision_timeout_units": 10,
@@ -844,6 +871,10 @@ def validate_ble_vendor_requirements(
     validation.require(
         (ROOT / str(requirements.get("firmware_project"))).is_dir(),
         "genuine BLE probe project is missing",
+    )
+    validation.require(
+        (ROOT / str(requirements.get("sleep_sdkconfig_defaults"))).is_file(),
+        "genuine BLE modem-sleep sdkconfig defaults are missing",
     )
     for chip, contract in EXPECTED_BLE_VENDOR_REQUIREMENTS["chips"].items():
         validation.require(

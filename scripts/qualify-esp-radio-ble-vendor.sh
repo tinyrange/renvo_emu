@@ -25,12 +25,16 @@ esac
 chip_root=$artifact_root/$chip
 rom_root=$chip_root/roms
 build_root=$chip_root/build
+sleep_build_root=$chip_root/build-sleep
 idf_image=$(jq -r '.esp_idf_container' "$requirements")
 firmware_project=$(jq -r '.firmware_project' "$requirements")
 firmware_elf=$(jq -r '.firmware_elf' "$requirements")
+sleep_sdkconfig_defaults=$(jq -r '.sleep_sdkconfig_defaults' "$requirements")
 rom_file=$(jq -r --arg chip "$chip" '.chips[$chip].rom_file' "$requirements")
 expected_rom_sha=$(jq -r --arg chip "$chip" '.chips[$chip].rom_sha256' "$requirements")
 minimum_instructions=$(jq -r --arg chip "$chip" '.chips[$chip].minimum_instructions' "$requirements")
+sleep_minimum_instructions=$(jq -r --arg chip "$chip" '.chips[$chip].sleep_minimum_instructions' "$requirements")
+minimum_sleep_native_tx=$(jq -r --arg chip "$chip" '.chips[$chip].minimum_sleep_native_tx' "$requirements")
 radio_input=$(jq -r --arg chip "$chip" '.chips[$chip].radio_input' "$requirements")
 supervision_input_prefix=$(jq -r --arg chip "$chip" '.chips[$chip].supervision_input_prefix' "$requirements")
 supervision_timeout_units=$(jq -r --arg chip "$chip" '.chips[$chip].supervision_timeout_units' "$requirements")
@@ -55,7 +59,7 @@ docker run --rm \
     --volume "$repo_root:/workspace:ro" \
     --volume "$chip_root_absolute:/out" \
     "$idf_image" \
-    bash -lc "IDF_TARGET=$chip SDKCONFIG_DEFAULTS=/workspace/qualification/radio/sdkconfig.ble.defaults idf.py -C /workspace/$firmware_project -B /out/build -D SDKCONFIG=/out/sdkconfig -D PROJECT_VER=remu-radio-qualification reconfigure && ninja -C /out/build -j $vendor_build_jobs && cd /out/build && python -m esptool --chip $chip merge-bin -o /out/$chip-ble-scan-flash.bin @flash_args" \
+    bash -lc "IDF_TARGET=$chip SDKCONFIG_DEFAULTS=/workspace/qualification/radio/sdkconfig.ble.defaults idf.py -C /workspace/$firmware_project -B /out/build -D SDKCONFIG=/out/sdkconfig -D PROJECT_VER=remu-radio-qualification reconfigure && ninja -C /out/build -j $vendor_build_jobs && cd /out/build && python -m esptool --chip $chip merge-bin -o /out/$chip-ble-scan-flash.bin @flash_args && IDF_TARGET=$chip SDKCONFIG_DEFAULTS='/workspace/qualification/radio/sdkconfig.ble.defaults;/workspace/$sleep_sdkconfig_defaults' idf.py -C /workspace/$firmware_project -B /out/build-sleep -D SDKCONFIG=/out/sdkconfig-sleep -D PROJECT_VER=remu-radio-qualification reconfigure && ninja -C /out/build-sleep -j $vendor_build_jobs && cd /out/build-sleep && python -m esptool --chip $chip merge-bin -o /out/$chip-ble-sleep-flash.bin @flash_args" \
     >"$chip_root/idf-build.log" 2>&1
 
 if [ -z "${REMU_BIN:-}" ]
@@ -68,8 +72,12 @@ fi
 
 elf=$build_root/$firmware_elf
 flash=$chip_root/$chip-ble-scan-flash.bin
+sleep_elf=$sleep_build_root/$firmware_elf
+sleep_flash=$chip_root/$chip-ble-sleep-flash.bin
 entry_hex=$(readelf -h "$elf" | awk '/Entry point address:/ { print $4 }')
 entry=$((entry_hex))
+sleep_entry_hex=$(readelf -h "$sleep_elf" | awk '/Entry point address:/ { print $4 }')
+sleep_entry=$((sleep_entry_hex))
 rom_start_decimal=$((rom_start))
 rom_end_decimal=$((rom_end))
 
@@ -86,6 +94,22 @@ run_vendor_ble()
         --esp-app-image "$flash" \
         --max-instructions "$minimum_instructions" \
         --radio-input "$input" \
+        --radio-replay "$replay" \
+        --result "$result" \
+        "$@"
+}
+
+run_vendor_ble_sleep()
+{
+    result=$1
+    replay=$2
+    shift 2
+    "$remu" run \
+        --target "$chip" \
+        --elf "$sleep_elf" \
+        --boot-rom "$rom_root/$rom_file" \
+        --esp-app-image "$sleep_flash" \
+        --max-instructions "$sleep_minimum_instructions" \
         --radio-replay "$replay" \
         --result "$result" \
         "$@"
@@ -257,14 +281,90 @@ run_vendor_ble "$chip_root/result-supervision-repeat.json" \
 cmp "$chip_root/radio-replay-supervision.json" \
     "$chip_root/radio-replay-supervision-repeat.json"
 
+run_vendor_ble_sleep "$chip_root/result-sleep.json" \
+    "$chip_root/radio-replay-sleep.json" \
+    --coverage "$chip_root/coverage-sleep.json"
+jq -e --argjson instructions "$sleep_minimum_instructions" \
+    '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
+    "$chip_root/result-sleep.json" >/dev/null
+jq -e --argjson start "$rom_start_decimal" --argjson end "$rom_end_decimal" \
+    'any(.addresses[]; .address >= $start and .address < $end)' \
+    "$chip_root/coverage-sleep.json" >/dev/null
+jq -e --argjson entry "$sleep_entry" \
+    'any(.addresses[]; .address == $entry)' \
+    "$chip_root/coverage-sleep.json" >/dev/null
+jq -r '.uart | implode' "$chip_root/result-sleep.json" >"$chip_root/uart-sleep.log"
+jq -r --arg chip "$chip" '.chips[$chip].required_sleep_uart_substrings[]' "$requirements" |
+while IFS= read -r required_uart
+do
+    if ! grep -F "$required_uart" "$chip_root/uart-sleep.log" >/dev/null
+    then
+        echo "$chip genuine BLE modem-sleep milestone missing from UART: $required_uart" >&2
+        exit 1
+    fi
+done
+
+jq -e --arg chip "$chip" \
+    --argjson minimum_tx "$minimum_sleep_native_tx" \
+    --slurpfile requirements "$requirements" '
+    def ble_data_center($channel):
+        if $channel <= 10 then 2404000 + (2000 * $channel)
+        else 2406000 + (2000 * $channel)
+        end;
+    $requirements[0].chips[$chip].expected_native_tx as $expected |
+    [.events[] |
+        select(.event == "submitted" and
+               .request.frame.protocol == "bluetooth-le" and
+               .request.frame.origin == "emulated") |
+        .request] as $tx |
+    ($tx | length) >= $minimum_tx and
+    ([.coexistence_events[] |
+        select(.event == "granted" and .protocol == "bluetooth-le")] | length) >=
+        $minimum_tx and
+    all($tx[]; .end > .start) and
+    ([$tx[] |
+        select(.frame.phy == "ble-1m" and
+               .frame.bytes[2:] == $expected.legacy.bytes[2:])] | length) >= 2 and
+    any($tx[];
+        .frame.spectrum.center_khz == $expected.legacy.center_khz and
+        .frame.phy == $expected.legacy.phy and
+        .frame.bytes == $expected.legacy.bytes) and
+    any($tx[];
+        . as $primary |
+        ($primary.frame.phy == $expected.extended_primary.phy and
+         ($primary.frame.bytes | length) == ($expected.extended_primary.bytes | length) and
+         $primary.frame.bytes[0:4] == $expected.extended_primary.bytes[0:4] and
+         $primary.frame.bytes[5] == $expected.extended_primary.bytes[5] and
+         $primary.frame.bytes[7:] == $expected.extended_primary.bytes[7:] and
+         ($primary.frame.bytes[6] % 64) <= 36 and
+         any($tx[];
+             .frame.spectrum.center_khz ==
+                 ble_data_center($primary.frame.bytes[6] % 64) and
+             .frame.phy == $expected.extended_auxiliary.phy and
+             (.frame.bytes | length) == ($expected.extended_auxiliary.bytes | length) and
+             .frame.bytes[0:10] == $expected.extended_auxiliary.bytes[0:10] and
+             .frame.bytes[10] == $primary.frame.bytes[4] and
+             .frame.bytes[11:] == $expected.extended_auxiliary.bytes[11:])))
+' "$chip_root/radio-replay-sleep.json" >/dev/null
+
+run_vendor_ble_sleep "$chip_root/result-sleep-repeat.json" \
+    "$chip_root/radio-replay-sleep-repeat.json" \
+    --replay "$chip_root/result-sleep.json"
+cmp "$chip_root/radio-replay-sleep.json" \
+    "$chip_root/radio-replay-sleep-repeat.json"
+
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 supervision_uart_sha=$(sha256sum "$chip_root/uart-supervision.log" | cut -d ' ' -f 1)
 supervision_radio_replay_sha=$(sha256sum "$chip_root/radio-replay-supervision.json" | cut -d ' ' -f 1)
+sleep_elf_sha=$(sha256sum "$sleep_elf" | cut -d ' ' -f 1)
+sleep_flash_sha=$(sha256sum "$sleep_flash" | cut -d ' ' -f 1)
+sleep_uart_sha=$(sha256sum "$chip_root/uart-sleep.log" | cut -d ' ' -f 1)
+sleep_radio_replay_sha=$(sha256sum "$chip_root/radio-replay-sleep.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-ble-vendor-qualification.v9 \
+    --arg schema remu.radio-ble-vendor-qualification.v10 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -274,11 +374,21 @@ jq -n \
     --arg radio_replay_sha256 "$radio_replay_sha" \
     --arg supervision_uart_sha256 "$supervision_uart_sha" \
     --arg supervision_radio_replay_sha256 "$supervision_radio_replay_sha" \
+    --arg sleep_elf_sha256 "$sleep_elf_sha" \
+    --arg sleep_flash_sha256 "$sleep_flash_sha" \
+    --arg sleep_uart_sha256 "$sleep_uart_sha" \
+    --arg sleep_radio_replay_sha256 "$sleep_radio_replay_sha" \
     --argjson entry "$entry" \
     --argjson minimum_instructions "$minimum_instructions" \
+    --argjson sleep_entry "$sleep_entry" \
+    --argjson sleep_minimum_instructions "$sleep_minimum_instructions" \
+    --argjson minimum_sleep_native_tx "$minimum_sleep_native_tx" \
     --slurpfile result "$chip_root/result.json" \
     --slurpfile supervision_result "$chip_root/result-supervision.json" \
+    --slurpfile sleep_result "$chip_root/result-sleep.json" \
+    --slurpfile sleep_replay "$chip_root/radio-replay-sleep.json" \
     --slurpfile coverage "$chip_root/coverage.json" \
+    --slurpfile sleep_coverage "$chip_root/coverage-sleep.json" \
     '{
         schema: $schema,
         chip: $chip,
@@ -319,6 +429,9 @@ jq -n \
             requires_native_ble_scan_restart: true,
             requires_received_power_metadata: true,
             deterministic_replay_required: true,
+            requires_ble_modem_sleep: true,
+            requires_low_power_clock_wake: true,
+            minimum_sleep_native_tx: $minimum_sleep_native_tx,
             symbol_dispatch_allowed: false
         },
         observed: {
@@ -347,6 +460,21 @@ jq -n \
             native_supervision_instructions: $supervision_result[0].stats.instructions,
             native_connection_supervision_timed_out: true,
             native_scan_restarted_after_disconnect: true,
+            sleep_application_entry: $sleep_entry,
+            sleep_stop: $sleep_result[0].reason,
+            sleep_instructions: $sleep_result[0].stats.instructions,
+            sleep_minimum_instructions: $sleep_minimum_instructions,
+            sleep_unique_execute_addresses: $sleep_coverage[0].unique_addresses,
+            sleep_coverage_digest: $sleep_coverage[0].digest,
+            sleep_firmware_elf_sha256: $sleep_elf_sha256,
+            sleep_firmware_flash_sha256: $sleep_flash_sha256,
+            sleep_uart_sha256: $sleep_uart_sha256,
+            sleep_radio_replay_sha256: $sleep_radio_replay_sha256,
+            sleep_native_tx: ([$sleep_replay[0].events[] |
+                select(.event == "submitted" and
+                       .request.frame.protocol == "bluetooth-le" and
+                       .request.frame.origin == "emulated")] | length),
+            ble_modem_sleep_qualified: true,
             deterministic_replay: true
         }
     }' >"$chip_root/summary.json"

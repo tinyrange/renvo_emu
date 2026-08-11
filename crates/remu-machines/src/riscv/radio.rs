@@ -758,12 +758,13 @@ impl RiscVMachine {
         if self.target != TargetId::Esp32c6 {
             return Ok(0);
         }
-        let (modem, ble_baseband, ble_control, ieee802154, interrupt_matrix, wifi_mac) = {
+        let (modem, ble_modem, ble_baseband, ble_control, ieee802154, interrupt_matrix, wifi_mac) = {
             let Some(handles) = self.esp32c6_peripherals.as_ref() else {
                 return Ok(0);
             };
             (
                 handles.modem.clone(),
+                handles.ble_modem.clone(),
                 handles.ble_baseband.clone(),
                 handles.ble_control.clone(),
                 handles.ieee802154.clone(),
@@ -1080,6 +1081,9 @@ impl RiscVMachine {
         // firmware installs its combined native PHY ISR on BT_MAC source 4,
         // while freestanding stacks may route the baseband source directly.
         interrupt_matrix.set_source(5, ble_baseband.interrupt_pending());
+        // Genuine C6 BLE sleep firmware routes the modem wake compare through
+        // LP_TIMER source 7 before enabling the controller's BT_MAC line.
+        interrupt_matrix.set_source(7, ble_modem.interrupt_pending(self.now));
         interrupt_matrix.set_source(12, ieee802154_pending);
         Ok(events)
     }

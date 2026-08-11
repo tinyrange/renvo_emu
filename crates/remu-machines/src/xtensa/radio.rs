@@ -12,6 +12,8 @@ const HOST_NODE: NodeId = NodeId(0);
 // register dispatch. These are hardware status bits, not symbol hooks: bit 5
 // dispatches the programmed-slot END handler and bit 6 the SKIP handler. Bits
 // 1 and 2 dispatch TX and RX respectively; bit 18 updates the RX-buffer ring.
+const S3_RWBLE_SLEEP_WAKE_COMPLETE_INTERRUPT: u32 = 1;
+const S3_RWBLE_SLEEP_WAKE_INTERRUPT: u32 = 1 << 3;
 const S3_RWBLE_RX_INTERRUPT: u32 = 1 << 2;
 const S3_RWBLE_TX_INTERRUPT: u32 = 1 << 1;
 const S3_RWBLE_END_INTERRUPT: u32 = 1 << 5;
@@ -620,13 +622,32 @@ impl XtensaMachine {
         self.radio_coexistence.advance_to(self.now)?;
         self.complete_native_ble_slot_states()?;
         self.ble_exchange_memory.advance_to(self.now);
+        let mut events = 0_u64;
+        if self.ble_lp_clock.take_wake_request() {
+            // During modem sleep the genuine ROM leaves only RWBLE cause bit 3
+            // enabled. The LP sequencer asserts that cause after consuming the
+            // wake-request strobe, which enters r_rwip_wakeup through the real
+            // controller ISR.
+            self.ble_exchange_memory
+                .raise_interrupt(S3_RWBLE_SLEEP_WAKE_INTERRUPT);
+            events = events.saturating_add(1);
+        }
+        if self.ble_lp_clock.take_wake_completion_request(self.now) {
+            // r_rwip_wakeup finishes PHY/clock restoration, sets LP control
+            // bit 3, and enables RWBLE cause bit 0. Hardware answers that
+            // second-stage command with cause 0, dispatching the genuine ROM
+            // wake-end path before normal scheduling resumes.
+            self.ble_exchange_memory
+                .raise_interrupt(S3_RWBLE_SLEEP_WAKE_COMPLETE_INTERRUPT);
+            events = events.saturating_add(1);
+        }
         if self.syscon.ble_ready() {
             self.radio_ble.advance_to(self.now);
         }
         if self.syscon.wifi_ready() {
             self.radio_wifi.advance_to(self.now);
         }
-        let mut events = self.complete_radio_receptions()?;
+        events = events.saturating_add(self.complete_radio_receptions()?);
         events = events.saturating_add(self.service_native_ble_crypt()?);
         events = events.saturating_add(self.submit_native_wifi_frames()?);
         events = events.saturating_add(self.submit_native_ble_frames()?);

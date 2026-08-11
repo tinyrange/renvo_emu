@@ -4,6 +4,7 @@ use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+include!("esp_c6_ble_modem.rs");
 include!("esp_c6_ieee802154.rs");
 
 const C6_BLE_ECB_START: u64 = 0x404;

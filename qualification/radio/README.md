@@ -142,6 +142,22 @@ firmware releases the schedule is an immediate radio-legality error. A valid
 encrypted continuation in the same native event is accepted. The silent-peer
 result and RF replay must repeat exactly from reset.
 
+The vendor BLE gate also builds a dedicated modem-sleep variant from the same
+public ESP-IDF/NimBLE probe. C6 runs the firmware-selected 100 kHz main-XTAL
+sleep timer at `0x600a_e000`: firmware clears source 18, programs a future RTC
+compare, enables it, and may either cancel the armed wake or service and clear
+the pending interrupt. S3 runs the firmware-selected 1 MHz main-XTAL clock at
+`0x6004_2000`: firmware programs the duration, requests RF sleep, observes the
+hardware acknowledgement, requests wake, and receives distinct wake-start and
+deferred wake-end RWBLE causes. These are firmware-observed legal state
+machines, not runtime-learned behavior. A past compare, enable-before-compare,
+invalid clear phase, or out-of-order S3 sleep/wake command terminates the guest
+with an `illegal radio state` hard error. The genuine C6 run reaches 20 million
+instructions with at least 100 native BLE transmissions; S3 reaches 16 million
+with at least four. Both require their pinned real ROM, all public advertising
+milestones, ROM and application-entry coverage, and byte-identical result and
+RF replay from reset.
+
 C6 also has genuine ESP-IDF/NimBLE and freestanding BLE evidence for native
 controller TX/RX and interrupt service. C6 IEEE 802.15.4 has complementary
 probes: the public
@@ -191,8 +207,7 @@ compatibility. The definition of done still requires pinned, unmodified
 ESP-IDF applications to initialize through their real controller/ROM/shared
 memory ABI. Wi-Fi still needs ACK/retry, fragmentation/aggregation, hardware
 crypto, and C6 HE/TWT acceptance. BLE still needs the remaining chip-specific
-controller transport, adaptive hopping, privacy list behavior, and sleep/wake
-acceptance.
+controller transport, adaptive hopping, and privacy list behavior.
 The genuine OpenThread radio build now passes raw TX/RX, source matching,
 energy scan, and sleep/wake through the native C6 port. A secured Thread CLI
 exchange and Zigbee-facing firmware qualification still remain. Disputed

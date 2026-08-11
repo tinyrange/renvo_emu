@@ -2,18 +2,18 @@ use remu_bus::{AddressSpace, DeviceError};
 use remu_core::SimTime;
 use remu_devices::{
     Esp32c6I2c, EspAes, EspAnalogI2c, EspC6BleBaseband, EspC6BleBasebandHandle, EspC6BleControl,
-    EspC6BleControlHandle, EspC6ControlBlock, EspC6Ecc, EspC6Efuse, EspC6Gdma, EspC6GdmaHandle,
-    EspC6Hmac, EspC6InterruptMatrix, EspC6InterruptMatrixHandle, EspC6InterruptPriority,
-    EspC6IoMux, EspC6LpAon, EspC6LpAonHandle, EspC6LpClkRst, EspC6LpClkRstHandle, EspC6LpTimer,
-    EspC6LpTimerHandle, EspC6ModemControl, EspC6ModemHandle, EspC6PhyRegisters, EspC6Pmu,
-    EspC6PmuHandle, EspC6PowerDetector, EspC6Twai, EspC6TwaiHandle, EspC6Uhci, EspC6WifiMacHandle,
-    EspC6WifiMacRegisters, EspDigitalSignature, EspEtm, EspEtmHandle, EspI2s, EspI2sHandle,
-    EspIeee802154, EspIeee802154Handle, EspLedc, EspLedcHandle, EspLpI2c, EspLpI2cHandle,
-    EspLpUart, EspLpUartHandle, EspLpWatchdog, EspLpWatchdogHandle, EspMcpwm, EspParlio,
-    EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt, EspRmtHandle, EspRsa, EspSarAdc,
-    EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer, EspSystimerHandle,
-    EspUsbSerialJtag, EspUsbSerialJtagHandle, FunctionalUart, SignalHub, UartHandle,
-    new_esp_sdio_slave,
+    EspC6BleControlHandle, EspC6BleModem, EspC6BleModemHandle, EspC6ControlBlock, EspC6Ecc,
+    EspC6Efuse, EspC6Gdma, EspC6GdmaHandle, EspC6Hmac, EspC6InterruptMatrix,
+    EspC6InterruptMatrixHandle, EspC6InterruptPriority, EspC6IoMux, EspC6LpAon, EspC6LpAonHandle,
+    EspC6LpClkRst, EspC6LpClkRstHandle, EspC6LpTimer, EspC6LpTimerHandle, EspC6ModemControl,
+    EspC6ModemHandle, EspC6PhyRegisters, EspC6Pmu, EspC6PmuHandle, EspC6PowerDetector, EspC6Twai,
+    EspC6TwaiHandle, EspC6Uhci, EspC6WifiMacHandle, EspC6WifiMacRegisters, EspDigitalSignature,
+    EspEtm, EspEtmHandle, EspI2s, EspI2sHandle, EspIeee802154, EspIeee802154Handle, EspLedc,
+    EspLedcHandle, EspLpI2c, EspLpI2cHandle, EspLpUart, EspLpUartHandle, EspLpWatchdog,
+    EspLpWatchdogHandle, EspMcpwm, EspParlio, EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt,
+    EspRmtHandle, EspRsa, EspSarAdc, EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer,
+    EspSystimerHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle, FunctionalUart, SignalHub,
+    UartHandle, new_esp_sdio_slave,
 };
 use remu_signals::Logic;
 
@@ -22,6 +22,7 @@ use super::MachineError;
 /// Host-side handles for the functional ESP32-C6 peripheral graph.
 pub(super) struct Esp32c6PeripheralHandles {
     pub(super) modem: EspC6ModemHandle,
+    pub(super) ble_modem: EspC6BleModemHandle,
     pub(super) ble_baseband: EspC6BleBasebandHandle,
     pub(super) ble_control: EspC6BleControlHandle,
     pub(super) ieee802154: EspIeee802154Handle,
@@ -106,16 +107,12 @@ pub(super) fn map_esp32c6_peripherals(
         0x1000,
         Box::new(EspC6PhyRegisters::new("esp32c6.phy-registers")),
     )?;
+    let (ble_modem_device, ble_modem) = EspC6BleModem::new("esp32c6.ble-modem-registers");
     bus.map_device(
         "esp32c6.ble-modem-registers",
         0x600a_e000,
         0x1000,
-        Box::new(EspC6ControlBlock::new(
-            "esp32c6.ble-modem-registers",
-            0x1000,
-            None,
-            0,
-        )),
+        Box::new(ble_modem_device),
     )?;
     bus.map_device(
         "esp32c6.phy-baseband-registers",
@@ -455,6 +452,7 @@ pub(super) fn map_esp32c6_peripherals(
 
     let peripherals = Esp32c6PeripheralHandles {
         modem,
+        ble_modem,
         ble_baseband,
         ble_control,
         ieee802154,

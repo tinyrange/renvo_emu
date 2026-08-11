@@ -3,6 +3,220 @@ mod tests {
     use super::*;
 
     #[test]
+    fn c6_ble_sleep_timer_advances_at_the_firmware_selected_rate() {
+        let (mut modem, handle) = EspC6BleModem::new("ble-modem");
+        assert_eq!(
+            modem
+                .read(C6_BLE_MODEM_TIMER_CURRENT, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            modem
+                .read(
+                    C6_BLE_MODEM_TIMER_CURRENT,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(159),
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            modem
+                .read(
+                    C6_BLE_MODEM_TIMER_CURRENT,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(160),
+                )
+                .unwrap(),
+            1
+        );
+        assert!(
+            modem
+                .write(
+                    C6_BLE_MODEM_TIMER_CURRENT,
+                    AccessWidth::Word,
+                    7,
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+
+        modem
+            .write(
+                C6_BLE_MODEM_TIMER_COMPARE,
+                AccessWidth::Word,
+                3,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            modem
+                .read(
+                    C6_BLE_MODEM_TIMER_INTERRUPT_RAW,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(479),
+                )
+                .unwrap(),
+            0
+        );
+        assert!(!handle.interrupt_pending(SimTime::from_ticks(480)));
+        assert_eq!(
+            modem
+                .read(
+                    C6_BLE_MODEM_TIMER_INTERRUPT_RAW,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(480),
+                )
+                .unwrap(),
+            1
+        );
+        modem
+            .write(
+                C6_BLE_MODEM_TIMER_INTERRUPT_RAW,
+                AccessWidth::Word,
+                0,
+                SimTime::from_ticks(480),
+            )
+            .unwrap();
+        assert_eq!(
+            modem
+                .read(
+                    C6_BLE_MODEM_TIMER_INTERRUPT_RAW,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(640),
+                )
+                .unwrap(),
+            0
+        );
+
+        modem
+            .write(
+                C6_BLE_MODEM_RTC_COMPARE,
+                AccessWidth::Word,
+                5,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        modem
+            .write(
+                C6_BLE_MODEM_RTC_INTERRUPT_ENABLE,
+                AccessWidth::Word,
+                C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.interrupt_pending(SimTime::from_ticks(799)));
+        assert!(handle.interrupt_pending(SimTime::from_ticks(800)));
+        assert_eq!(
+            modem
+                .read(
+                    C6_BLE_MODEM_RTC_INTERRUPT_STATUS,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(800),
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            modem
+                .read(
+                    C6_BLE_MODEM_RTC_TIMER0_PENDING,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(800),
+                )
+                .unwrap(),
+            1
+        );
+        modem
+            .write(
+                C6_BLE_MODEM_RTC_INTERRUPT_CLEAR,
+                AccessWidth::Word,
+                C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                SimTime::from_ticks(800),
+            )
+            .unwrap();
+        assert!(!handle.interrupt_pending(SimTime::from_ticks(960)));
+        assert_eq!(
+            modem
+                .read(
+                    C6_BLE_MODEM_RTC_TIMER0_PENDING,
+                    AccessWidth::Word,
+                    SimTime::from_ticks(960),
+                )
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn c6_ble_sleep_timer_rejects_impossible_wake_ordering() {
+        let (mut modem, _) = EspC6BleModem::new("ble-modem");
+        let enable_error = modem
+            .write(
+                C6_BLE_MODEM_RTC_INTERRUPT_ENABLE,
+                AccessWidth::Word,
+                C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                SimTime::ZERO,
+            )
+            .unwrap_err();
+        assert!(enable_error.to_string().contains("illegal radio state"));
+
+        let compare_error = modem
+            .write(
+                C6_BLE_MODEM_RTC_COMPARE,
+                AccessWidth::Word,
+                4,
+                SimTime::from_ticks(5 * C6_BLE_MODEM_TICKS_PER_SLEEP_TICK),
+            )
+            .unwrap_err();
+        assert!(compare_error.to_string().contains("illegal radio state"));
+
+        modem
+            .write(
+                C6_BLE_MODEM_RTC_INTERRUPT_CLEAR,
+                AccessWidth::Word,
+                C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        modem
+            .write(
+                C6_BLE_MODEM_RTC_COMPARE,
+                AccessWidth::Word,
+                10,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        let clear_error = modem
+            .write(
+                C6_BLE_MODEM_RTC_INTERRUPT_CLEAR,
+                AccessWidth::Word,
+                C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                SimTime::ZERO,
+            )
+            .unwrap_err();
+        assert!(clear_error.to_string().contains("illegal radio state"));
+
+        modem
+            .write(
+                C6_BLE_MODEM_RTC_INTERRUPT_ENABLE,
+                AccessWidth::Word,
+                C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        modem
+            .write(
+                C6_BLE_MODEM_RTC_INTERRUPT_CLEAR,
+                AccessWidth::Word,
+                C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                SimTime::from_ticks(9 * C6_BLE_MODEM_TICKS_PER_SLEEP_TICK),
+            )
+            .unwrap();
+    }
+
+    #[test]
     fn ble_baseband_scheduler_timer_starts_on_reset_release_at_one_mhz() {
         let (mut device, handle) = EspC6BleBaseband::new("ble-baseband");
         device

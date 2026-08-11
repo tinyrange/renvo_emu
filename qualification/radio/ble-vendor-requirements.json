@@ -1,9 +1,10 @@
 {
-  "schema": "remu.radio-ble-vendor-requirements.v8",
+  "schema": "remu.radio-ble-vendor-requirements.v9",
   "source_ledger_entry": "esp-rom-elfs-20260528",
   "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
   "firmware_project": "qualification/radio/vendor-ble-probe",
   "firmware_elf": "remu_vendor_ble_probe.elf",
+  "sleep_sdkconfig_defaults": "qualification/radio/sdkconfig.ble-sleep.defaults",
   "chips": {
     "esp32c6": {
       "rom_file": "esp32c6_rev0_rom.elf",
@@ -11,6 +12,19 @@
       "rom_start": "0x40000000",
       "rom_end": "0x40050000",
       "minimum_instructions": 20000000,
+      "sleep_minimum_instructions": 20000000,
+      "minimum_sleep_native_tx": 100,
+      "required_sleep_uart_substrings": [
+        "REMU_VENDOR_BLE_INIT result=0",
+        "REMU_VENDOR_BLE_SEQUENCE result=1",
+        "REMU_VENDOR_BLE_ADV_START result=0",
+        "REMU_VENDOR_BLE_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_CONNECTABLE_ADV_START result=0"
+      ],
       "radio_input": "qualification/radio/ble-advertisement-vendor-esp32c6.json",
       "supervision_input_prefix": 8,
       "supervision_timeout_units": 10,
@@ -85,6 +99,19 @@
       "rom_start": "0x40000000",
       "rom_end": "0x40070000",
       "minimum_instructions": 24000000,
+      "sleep_minimum_instructions": 16000000,
+      "minimum_sleep_native_tx": 4,
+      "required_sleep_uart_substrings": [
+        "REMU_VENDOR_BLE_INIT result=0",
+        "REMU_VENDOR_BLE_SEQUENCE result=1",
+        "REMU_VENDOR_BLE_ADV_START result=0",
+        "REMU_VENDOR_BLE_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_CONNECTABLE_ADV_START result=0"
+      ],
       "radio_input": "qualification/radio/ble-advertisement-vendor-esp32s3.json",
       "supervision_input_prefix": 8,
       "supervision_timeout_units": 10,

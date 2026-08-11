@@ -15,22 +15,22 @@ use remu_core::{
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
     Esp32S3Aes, Esp32S3AesHandle, Esp32S3AgcRegisters, Esp32S3BleExchangeMemoryHandle,
-    Esp32S3BleExchangeMemoryRegisters, Esp32S3Extmem, Esp32S3ExtmemHandle, Esp32S3FeRegisters,
-    Esp32S3IoMux, Esp32S3IoMuxHandle, Esp32S3LcdCam, Esp32S3LcdCamHandle, Esp32S3Ledc,
-    Esp32S3LedcHandle, Esp32S3Mcpwm, Esp32S3McpwmHandle, Esp32S3Pcnt, Esp32S3PcntHandle,
-    Esp32S3PhyRegisters, Esp32S3Pms, Esp32S3PmsHandle, Esp32S3SarAdc, Esp32S3SarAdcHandle,
-    Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha, Esp32S3ShaHandle, Esp32S3Syscon,
-    Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle, Esp32S3Uhci, Esp32S3UhciHandle,
-    Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32S3WifiMacHandle, Esp32S3WifiMacRegisters,
-    Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32S3XtsAes, Esp32s3I2c,
-    Esp32s3I2cHandle, Esp32s3I2s, Esp32s3I2sHandle, Esp32s3Rmt, Esp32s3RmtHandle, Esp32s3Spi,
-    Esp32s3SpiHandle, EspC6ControlBlock, EspDigitalSignature, EspEfuse, EspGdma, EspGdmaHandle,
-    EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable, EspMmuTableHandle,
-    EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem, EspSystemHandle, EspSystimer,
-    EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind, EspTwai,
-    EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle,
-    ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer, FunctionalUart, GpioHandle, SignalHub,
-    TimerHandle, UartHandle,
+    Esp32S3BleExchangeMemoryRegisters, Esp32S3BleLpClock, Esp32S3BleLpClockHandle, Esp32S3Extmem,
+    Esp32S3ExtmemHandle, Esp32S3FeRegisters, Esp32S3IoMux, Esp32S3IoMuxHandle, Esp32S3LcdCam,
+    Esp32S3LcdCamHandle, Esp32S3Ledc, Esp32S3LedcHandle, Esp32S3Mcpwm, Esp32S3McpwmHandle,
+    Esp32S3Pcnt, Esp32S3PcntHandle, Esp32S3PhyRegisters, Esp32S3Pms, Esp32S3PmsHandle,
+    Esp32S3SarAdc, Esp32S3SarAdcHandle, Esp32S3Sdmmc, Esp32S3SdmmcHandle, Esp32S3Sha,
+    Esp32S3ShaHandle, Esp32S3Syscon, Esp32S3SysconHandle, Esp32S3Tsens, Esp32S3TsensHandle,
+    Esp32S3Uhci, Esp32S3UhciHandle, Esp32S3UsbWrap, Esp32S3UsbWrapHandle, Esp32S3WifiMacHandle,
+    Esp32S3WifiMacRegisters, Esp32S3WorldController, Esp32S3WorldControllerHandle, Esp32S3XtsAes,
+    Esp32s3I2c, Esp32s3I2cHandle, Esp32s3I2s, Esp32s3I2sHandle, Esp32s3Rmt, Esp32s3RmtHandle,
+    Esp32s3Spi, Esp32s3SpiHandle, EspC6ControlBlock, EspDigitalSignature, EspEfuse, EspGdma,
+    EspGdmaHandle, EspGpio, EspHmac, EspInterruptMatrix, EspInterruptMatrixHandle, EspMmuTable,
+    EspMmuTableHandle, EspRsa, EspRtcControl, EspRtcControlHandle, EspSpiMem, EspSystem,
+    EspSystemHandle, EspSystimer, EspSystimerHandle, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspTwai, EspTwaiHandle, EspUsbOtg, EspUsbOtgHandle, EspUsbSerialJtag,
+    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
+    FunctionalUart, GpioHandle, SignalHub, TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
 use remu_radio::{
@@ -154,6 +154,7 @@ pub struct XtensaMachine {
     syscon: Esp32S3SysconHandle,
     wifi_mac: Esp32S3WifiMacHandle,
     ble_exchange_memory: Esp32S3BleExchangeMemoryHandle,
+    ble_lp_clock: Esp32S3BleLpClockHandle,
     rtc_control: EspRtcControlHandle,
     rtc_i2c: remu_devices::Esp32S3RtcI2cHandle,
     rtc_io: remu_devices::Esp32S3RtcIoHandle,
@@ -465,6 +466,13 @@ impl XtensaMachine {
             0x1000,
             Box::new(lcd_cam_device),
         )?;
+        let (ble_lp_clock_device, ble_lp_clock) = Esp32S3BleLpClock::new("esp32s3.ble-lp-clock");
+        bus.map_device(
+            "esp32s3.ble-lp-clock",
+            0x6004_2000,
+            0x1000,
+            Box::new(ble_lp_clock_device),
+        )?;
         let (sdmmc_device, sdmmc) = Esp32S3Sdmmc::new("esp32s3.sdmmc", signals.clone())?;
         bus.map_device("esp32s3.sdmmc", 0x6002_8000, 0x1000, Box::new(sdmmc_device))?;
         let (sha_device, sha) = Esp32S3Sha::new("esp32s3.sha", signals.clone())?;
@@ -762,6 +770,7 @@ impl XtensaMachine {
             syscon,
             wifi_mac,
             ble_exchange_memory,
+            ble_lp_clock,
             rtc_control,
             rtc_i2c,
             rtc_io,

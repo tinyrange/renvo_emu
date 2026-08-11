@@ -466,6 +466,7 @@ fn esp32s3_peripheral_inventory_is_mapped_at_native_addresses() {
         ("esp32s3.tsens", 0x6000_8800, 0x0200),
         ("esp32s3.rtc-i2c", 0x6000_8c00, 0x0400),
         ("esp32s3.lcd-cam", 0x6004_1000, 0x1000),
+        ("esp32s3.ble-lp-clock", 0x6004_2000, 0x1000),
         ("esp32s3.sdmmc", 0x6002_8000, 0x1000),
         ("esp32s3.sha", 0x6003_b000, 0x1000),
         ("esp32s3.aes", 0x6003_a000, 0x1000),
