@@ -17,6 +17,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+static volatile bool connection_seen;
+static volatile uint16_t connection_handle;
+static volatile bool disconnect_seen;
+
 static void host_task(void *argument)
 {
     (void)argument;
@@ -53,13 +57,28 @@ static int on_gap_event(struct ble_gap_event *event, void *argument)
         }
         printf("\n");
         fflush(stdout);
+    } else if (event->type == BLE_GAP_EVENT_CONNECT) {
+        printf("REMU_VENDOR_BLE_CONNECT status=%d handle=%u\n",
+               event->connect.status, event->connect.conn_handle);
+        fflush(stdout);
+        if (event->connect.status == 0) {
+            connection_handle = event->connect.conn_handle;
+            connection_seen = true;
+        }
+    } else if (event->type == BLE_GAP_EVENT_DISCONNECT) {
+        printf("REMU_VENDOR_BLE_DISCONNECT reason=%d handle=%u\n",
+               event->disconnect.reason,
+               event->disconnect.conn.conn_handle);
+        fflush(stdout);
+        disconnect_seen = true;
     }
     return 0;
 }
 
 static int configure_advertising(const uint8_t *advertisement,
                                  size_t advertisement_length,
-                                 bool legacy_pdu)
+                                 bool legacy_pdu,
+                                 bool connectable)
 {
     struct ble_gap_ext_adv_params parameters = {0};
     struct os_mbuf *data;
@@ -67,6 +86,8 @@ static int configure_advertising(const uint8_t *advertisement,
     int result;
 
     parameters.legacy_pdu = legacy_pdu;
+    parameters.connectable = connectable;
+    parameters.scannable = connectable;
     parameters.own_addr_type = BLE_OWN_ADDR_RANDOM;
     parameters.primary_phy = BLE_HCI_LE_PHY_1M;
     parameters.secondary_phy = BLE_HCI_LE_PHY_2M;
@@ -102,7 +123,7 @@ static int run_extended_advertising(void)
         'R', 'e', 'n', 'v', 'o', '-', 'E', 'X', 'T',
     };
     return configure_advertising(extended_advertisement,
-                                 sizeof(extended_advertisement), false);
+                                 sizeof(extended_advertisement), false, false);
 }
 
 static void radio_sequence_task(void *argument)
@@ -122,7 +143,7 @@ static void radio_sequence_task(void *argument)
     int result = ble_hs_id_set_rnd(random_static_address);
     if (result == 0) {
         result = configure_advertising(advertisement,
-                                       sizeof(advertisement), true);
+                                       sizeof(advertisement), true, false);
     }
 
     printf("REMU_VENDOR_BLE_ADV_START result=%d\n", result);
@@ -157,6 +178,84 @@ static void radio_sequence_task(void *argument)
     int extended_remove_result = ble_gap_ext_adv_remove(0);
     printf("REMU_VENDOR_BLE_EXT_ADV_REMOVE result=%d\n",
            extended_remove_result);
+    fflush(stdout);
+
+    int connectable_result = configure_advertising(advertisement,
+                                                   sizeof(advertisement),
+                                                   true, true);
+    printf("REMU_VENDOR_BLE_CONNECTABLE_ADV_START result=%d\n",
+           connectable_result);
+    fflush(stdout);
+
+    /*
+     * A peripheral connection is reported from the controller's event-end
+     * path, after the first central data PDU. Leave the scheduler under
+     * connection ownership until that genuine callback arrives; stopping the
+     * advertising instance during this handoff would start an incompatible
+     * scan lifecycle before the connection descriptor is retired.
+     */
+    for (unsigned elapsed_ms = 0; elapsed_ms < 1000 && !connection_seen;
+         elapsed_ms += 10) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (connection_seen) {
+        printf("REMU_VENDOR_BLE_CONNECTION_READY handle=%u\n",
+               connection_handle);
+        fflush(stdout);
+
+        /*
+         * First allow the peer's LL_TERMINATE_IND to traverse the genuine
+         * controller and HCI event path. A public host termination remains a
+         * bounded fallback so a failed RF qualification cannot strand the
+         * task indefinitely.
+         */
+        for (unsigned elapsed_ms = 0; elapsed_ms < 100 && !disconnect_seen;
+             elapsed_ms += 10) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        if (disconnect_seen) {
+            printf("REMU_VENDOR_BLE_REMOTE_TERMINATE observed=1\n");
+            fflush(stdout);
+        } else {
+            int terminate_result = ble_gap_terminate(
+                connection_handle, BLE_ERR_REM_USER_CONN_TERM);
+            printf("REMU_VENDOR_BLE_TERMINATE_FALLBACK result=%d handle=%u\n",
+                   terminate_result, connection_handle);
+            fflush(stdout);
+            for (unsigned elapsed_ms = 0;
+                 elapsed_ms < 500 && !disconnect_seen;
+                 elapsed_ms += 10) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        }
+
+        int connected_remove_result = ble_gap_ext_adv_remove(0);
+        printf("REMU_VENDOR_BLE_CONNECTED_ADV_REMOVE result=%d\n",
+               connected_remove_result);
+        fflush(stdout);
+
+        discovery.itvl = 16;
+        discovery.window = 16;
+        discovery.passive = 1;
+        discovery.filter_duplicates = 0;
+        int connected_scan_result = ble_gap_disc(
+            BLE_OWN_ADDR_RANDOM, BLE_HS_FOREVER,
+            &discovery, on_gap_event, NULL);
+        printf("REMU_VENDOR_BLE_SCAN_START result=%d\n",
+               connected_scan_result);
+        fflush(stdout);
+        vTaskDelete(NULL);
+        return;
+    }
+    int connectable_stop_result = ble_gap_ext_adv_stop(0);
+    printf("REMU_VENDOR_BLE_CONNECTABLE_ADV_STOP result=%d\n",
+           connectable_stop_result);
+    fflush(stdout);
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+    int connectable_remove_result = ble_gap_ext_adv_remove(0);
+    printf("REMU_VENDOR_BLE_CONNECTABLE_ADV_REMOVE result=%d\n",
+           connectable_remove_result);
     fflush(stdout);
 
     discovery.itvl = 16;

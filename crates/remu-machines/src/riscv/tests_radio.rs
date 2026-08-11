@@ -1042,6 +1042,32 @@ fn esp32c6_misaligned_native_ble_schedule_is_a_hard_machine_error() {
 }
 
 #[test]
+fn esp32c6_ble_peripheral_sequence_tracks_ack_duplicates_and_control_pdus() {
+    let mut sequence = super::radio::C6BleLinkSequence::default();
+    let version = vec![3, 6, 12, 14, 0xe5, 2, 0, 0];
+    assert_eq!(
+        sequence.peripheral_response(0x01, Some(version)),
+        Some(vec![7, 6, 12, 14, 0xe5, 2, 0, 0])
+    );
+
+    assert_eq!(
+        sequence.peripheral_response(0x0f, None),
+        Some(vec![9, 0])
+    );
+    assert_eq!(
+        sequence.peripheral_response(0x0f, None),
+        Some(vec![9, 0]),
+        "a duplicate central PDU retransmits the outstanding peripheral PDU"
+    );
+
+    let features = vec![3, 9, 14, 0xff, 0x7f, 1, 7, 0x90, 0x1b, 0, 0];
+    assert_eq!(
+        sequence.peripheral_response(0x01, Some(features)),
+        Some(vec![7, 9, 14, 0xff, 0x7f, 1, 7, 0x90, 0x1b, 0, 0])
+    );
+}
+
+#[test]
 fn esp32c6_native_wifi_rx_dma_writes_metadata_frame_and_completion() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine

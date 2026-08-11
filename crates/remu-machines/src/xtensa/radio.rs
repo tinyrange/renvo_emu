@@ -13,9 +13,11 @@ const HOST_NODE: NodeId = NodeId(0);
 // dispatches the programmed-slot END handler and bit 6 the SKIP handler. Bits
 // 1 and 2 dispatch TX and RX respectively; bit 18 updates the RX-buffer ring.
 const S3_RWBLE_RX_INTERRUPT: u32 = 1 << 2;
+const S3_RWBLE_TX_INTERRUPT: u32 = 1 << 1;
 const S3_RWBLE_END_INTERRUPT: u32 = 1 << 5;
 const S3_RWBLE_SKIP_INTERRUPT: u32 = 1 << 6;
 const S3_BLE_INTERFRAME_SPACE_TICKS: u64 = 2_400;
+const S3_BLE_1M_BYTE_TICKS: u64 = 8 * 16;
 const S3_BLE_FINE_POSITION_TICKS: u64 = 8;
 const S3_BLE_FINE_POSITIONS_PER_HALF_SLOT: u64 = 625;
 const S3_BLE_HALF_SLOT_TICKS: u64 =
@@ -91,21 +93,29 @@ impl XtensaMachine {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct PendingNativeBleTransmission {
     start: u64,
     slot_address: u32,
+    event_index: u8,
     channel: u8,
     phy: &'static str,
     complete_event: bool,
+    response_window: bool,
+    tx_interrupt: bool,
+    deferred_descriptor: Option<(u32, u32, u32)>,
     pdu: Vec<u8>,
 }
 
+#[derive(Clone)]
 pub(super) struct PendingNativeBleReception {
     start: u64,
     end: u64,
     slot_address: u32,
     event_index: u8,
     channel: u8,
+    complete_on_receive: bool,
+    response: Option<PendingNativeBleTransmission>,
 }
 
 impl XtensaMachine {
@@ -284,7 +294,7 @@ impl XtensaMachine {
             )?;
             let coarse =
                 (u64::from(coarse_low) | (u64::from(coarse_high) << 16)) & S3_BLE_COARSE_MASK;
-            let tx_start = self.native_ble_slot_time(coarse, u64::from(fine));
+            let tx_start = self.native_ble_slot_time(coarse, u64::from(fine))?;
             let cs_address = self.require_native_ble_mapping(
                 cs_reference.saturating_mul(2),
                 "scheduler control structure",
@@ -346,6 +356,8 @@ impl XtensaMachine {
                         slot_address,
                         event_index,
                         channel,
+                        complete_on_receive: access_address != BLE_ADVERTISING_ACCESS_ADDRESS,
+                        response: None,
                     },
                 );
                 self.ble_exchange_memory
@@ -357,6 +369,55 @@ impl XtensaMachine {
                 self.require_native_ble_mapping(tx_descriptor_offset, "TX descriptor")?;
             let (mut pdu, extended) =
                 self.read_native_ble_tx_pdu(cs_address, tx_descriptor, access_address)?;
+            if access_address != BLE_ADVERTISING_ACCESS_ADDRESS {
+                // A peripheral connection event is receive-first even though
+                // the control structure already points at the PDU that will
+                // be transmitted in response. The genuine controller opens
+                // the RX aperture at the scheduler timestamp, then emits that
+                // descriptor after the 150-us inter-frame spacing.
+                let end = tx_start
+                    .checked_add(SimDuration::from_ticks(36 * S3_BLE_1M_BYTE_TICKS))
+                    .map_err(|_| XtensaMachineError::TimeOverflow)?;
+                self.radio_medium.tune_receiver(Receiver {
+                    node: EMULATED_NODE,
+                    protocol: RadioProtocol::BluetoothLe,
+                    spectrum: s3_ble_spectrum(channel),
+                    sensitivity_dbm: -100,
+                })?;
+                let response = PendingNativeBleTransmission {
+                    start: 0,
+                    slot_address,
+                    event_index,
+                    channel,
+                    phy: "ble-1m",
+                    complete_event: true,
+                    response_window: false,
+                    tx_interrupt: true,
+                    deferred_descriptor: Some((cs_address, tx_descriptor, access_address)),
+                    pdu,
+                };
+                let insertion = self
+                    .pending_native_ble_receptions
+                    .iter()
+                    .position(|pending| pending.start > tx_start.ticks())
+                    .unwrap_or(self.pending_native_ble_receptions.len());
+                self.pending_native_ble_receptions.insert(
+                    insertion,
+                    PendingNativeBleReception {
+                        start: tx_start.ticks(),
+                        end: end.ticks(),
+                        slot_address,
+                        event_index,
+                        channel,
+                        complete_on_receive: false,
+                        response: Some(response),
+                    },
+                );
+                self.ble_exchange_memory
+                    .schedule_radio_completion(end, S3_RWBLE_END_INTERRUPT);
+                self.schedule_native_ble_slot_state(end, slot_address, 4);
+                continue;
+            }
             let mut complete_event = true;
             let mut auxiliary = None;
             if extended {
@@ -436,9 +497,13 @@ impl XtensaMachine {
                     auxiliary = Some(PendingNativeBleTransmission {
                         start: auxiliary_start.ticks(),
                         slot_address,
+                        event_index,
                         channel: auxiliary_channel,
                         phy: auxiliary_phy.expect("legality check established auxiliary PHY"),
                         complete_event: true,
+                        response_window: false,
+                        tx_interrupt: false,
+                        deferred_descriptor: None,
                         pdu: auxiliary_pdu,
                     });
                     complete_event = false;
@@ -455,9 +520,14 @@ impl XtensaMachine {
                 PendingNativeBleTransmission {
                     start: tx_start.ticks(),
                     slot_address,
+                    event_index,
                     channel,
                     phy: "ble-1m",
                     complete_event,
+                    response_window: access_address == BLE_ADVERTISING_ACCESS_ADDRESS
+                        && matches!(pdu.first().map(|header| header & 0x0f), Some(0) | Some(6)),
+                    tx_interrupt: false,
+                    deferred_descriptor: None,
                     pdu,
                 },
             );
@@ -486,7 +556,11 @@ impl XtensaMachine {
         let payload_address = self.require_native_ble_mapping(payload_offset, "TX payload")?;
         let header_byte = header as u8;
         let declared_length = usize::from((header >> 8) as u8);
-        let extended = header_byte & 0x0f == 7;
+        // The low data-channel header bits contain LLID, NESN, and SN.  A
+        // perfectly ordinary connection PDU can therefore also have a low
+        // nibble of seven; ADV_EXT_IND is only meaningful on the advertising
+        // access address.
+        let extended = access_address == BLE_ADVERTISING_ACCESS_ADDRESS && header_byte & 0x0f == 7;
         let advertising_pdu_with_local_address = access_address == BLE_ADVERTISING_ACCESS_ADDRESS
             && matches!(header_byte & 0x0f, 0 | 1 | 2 | 4 | 6);
         let payload_length = if advertising_pdu_with_local_address {
@@ -572,10 +646,24 @@ impl XtensaMachine {
             .front()
             .is_some_and(|pending| pending.start <= self.now.ticks())
         {
-            let Some(pending) = self.pending_native_ble_transmissions.pop_front() else {
+            let Some(mut pending) = self.pending_native_ble_transmissions.pop_front() else {
                 break;
             };
+            if let Some((cs_address, descriptor, access_address)) = pending.deferred_descriptor {
+                let (pdu, extended) =
+                    self.read_native_ble_tx_pdu(cs_address, descriptor, access_address)?;
+                self.radio_legality.require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    !extended,
+                    self.now,
+                    "connection response references an extended advertising descriptor",
+                )?;
+                pending.pdu = pdu;
+            }
             let duration = frame_duration(pending.pdu.len());
+            let continue_connection_event = pending.tx_interrupt
+                && pending.pdu.first().is_some_and(|header| header & 0x10 != 0);
             let decision = self.radio_coexistence.request(CoexistenceRequest {
                 protocol: RadioProtocol::BluetoothLe,
                 start: self.now,
@@ -621,10 +709,77 @@ impl XtensaMachine {
                 // for this slot type. Hardware reports the completed event via
                 // END after the inter-frame response window instead.
                 self.schedule_native_ble_slot_state(due, pending.slot_address, 2);
+                if pending.tx_interrupt {
+                    self.ble_exchange_memory
+                        .schedule_radio_completion(due, S3_RWBLE_TX_INTERRUPT);
+                }
                 if pending.complete_event {
-                    let end_due = due
+                    let response_start = due
                         .checked_add(SimDuration::from_ticks(S3_BLE_INTERFRAME_SPACE_TICKS))
                         .map_err(|_| XtensaMachineError::TimeOverflow)?;
+                    let end_due = if continue_connection_event {
+                        let response_end = response_start
+                            .checked_add(SimDuration::from_ticks(36 * S3_BLE_1M_BYTE_TICKS))
+                            .map_err(|_| XtensaMachineError::TimeOverflow)?;
+                        self.radio_medium.tune_receiver(Receiver {
+                            node: EMULATED_NODE,
+                            protocol: RadioProtocol::BluetoothLe,
+                            spectrum: s3_ble_spectrum(pending.channel),
+                            sensitivity_dbm: -100,
+                        })?;
+                        let insertion = self
+                            .pending_native_ble_receptions
+                            .iter()
+                            .position(|reception| reception.start > response_start.ticks())
+                            .unwrap_or(self.pending_native_ble_receptions.len());
+                        self.pending_native_ble_receptions.insert(
+                            insertion,
+                            PendingNativeBleReception {
+                                start: response_start.ticks(),
+                                end: response_end.ticks(),
+                                slot_address: pending.slot_address,
+                                event_index: pending.event_index,
+                                channel: pending.channel,
+                                // Connection RX is reported before the frame
+                                // event closes. Preserve the separately
+                                // scheduled END so the ROM can consume RX and
+                                // update link state first.
+                                complete_on_receive: false,
+                                response: None,
+                            },
+                        );
+                        response_end
+                    } else if pending.response_window {
+                        let response_end = response_start
+                            .checked_add(SimDuration::from_ticks(36 * S3_BLE_1M_BYTE_TICKS))
+                            .map_err(|_| XtensaMachineError::TimeOverflow)?;
+                        self.radio_medium.tune_receiver(Receiver {
+                            node: EMULATED_NODE,
+                            protocol: RadioProtocol::BluetoothLe,
+                            spectrum: s3_ble_spectrum(pending.channel),
+                            sensitivity_dbm: -100,
+                        })?;
+                        let insertion = self
+                            .pending_native_ble_receptions
+                            .iter()
+                            .position(|reception| reception.start > response_start.ticks())
+                            .unwrap_or(self.pending_native_ble_receptions.len());
+                        self.pending_native_ble_receptions.insert(
+                            insertion,
+                            PendingNativeBleReception {
+                                start: response_start.ticks(),
+                                end: response_end.ticks(),
+                                slot_address: pending.slot_address,
+                                event_index: pending.event_index,
+                                channel: pending.channel,
+                                complete_on_receive: true,
+                                response: None,
+                            },
+                        );
+                        response_end
+                    } else {
+                        response_start
+                    };
                     self.ble_exchange_memory
                         .schedule_radio_completion(end_due, S3_RWBLE_END_INTERRUPT);
                     self.schedule_native_ble_slot_state(end_due, pending.slot_address, 4);
@@ -638,7 +793,11 @@ impl XtensaMachine {
         Ok(submitted)
     }
 
-    fn native_ble_slot_time(&self, coarse: u64, fine: u64) -> remu_core::SimTime {
+    fn native_ble_slot_time(
+        &mut self,
+        coarse: u64,
+        fine: u64,
+    ) -> Result<remu_core::SimTime, XtensaMachineError> {
         let fine = fine.min(S3_BLE_FINE_POSITIONS_PER_HALF_SLOT - 1);
         let target_in_cycle = coarse * S3_BLE_HALF_SLOT_TICKS
             + (S3_BLE_FINE_POSITIONS_PER_HALF_SLOT - 1 - fine) * S3_BLE_FINE_POSITION_TICKS;
@@ -647,7 +806,23 @@ impl XtensaMachine {
             .wrapping_add(S3_BLE_CLOCK_CYCLE_TICKS)
             .wrapping_sub(now_in_cycle)
             % S3_BLE_CLOCK_CYCLE_TICKS;
-        remu_core::SimTime::from_ticks(self.now.ticks().saturating_add(delta))
+        if delta > S3_BLE_CLOCK_CYCLE_TICKS / 2 {
+            let late_by = S3_BLE_CLOCK_CYCLE_TICKS - delta;
+            let maximum_observed_lateness = 8 * S3_BLE_HALF_SLOT_TICKS;
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                late_by <= maximum_observed_lateness,
+                self.now,
+                format!(
+                    "BLE scheduler kick is {late_by} ticks late; genuine firmware stays within {maximum_observed_lateness} ticks"
+                ),
+            )?;
+            return Ok(self.now);
+        }
+        Ok(remu_core::SimTime::from_ticks(
+            self.now.ticks().saturating_add(delta),
+        ))
     }
 
     fn schedule_native_ble_slot_state(
@@ -676,19 +851,27 @@ impl XtensaMachine {
             else {
                 break;
             };
-            let control = self.require_native_ble_u16(slot_address, "completed scheduler slot")?;
-            // RWBLE owns event-table state bits 3:5 after firmware starts a
-            // slot. State 2 denotes the completed frame visible to the TX ISR;
-            // state 4 denotes successful event completion for the END ISR.
-            // Firmware owns all remaining command fields.
-            let completed = (control & !0x0038) | (state << 3);
-            self.bus.write(
-                u64::from(slot_address),
-                AccessWidth::HalfWord,
-                u64::from(completed),
-                self.now,
-            )?;
+            self.set_native_ble_slot_state(slot_address, state)?;
         }
+        Ok(())
+    }
+
+    fn set_native_ble_slot_state(
+        &mut self,
+        slot_address: u32,
+        state: u16,
+    ) -> Result<(), XtensaMachineError> {
+        let control = self.require_native_ble_u16(slot_address, "completed scheduler slot")?;
+        // RWBLE owns event-table state bits 3:5 after firmware starts a slot.
+        // State 2 denotes a completed RX/TX frame; state 4 denotes successful
+        // event completion for END. Firmware owns every other command field.
+        let completed = (control & !0x0038) | (state << 3);
+        self.bus.write(
+            u64::from(slot_address),
+            AccessWidth::HalfWord,
+            u64::from(completed),
+            self.now,
+        )?;
         Ok(())
     }
 
@@ -950,31 +1133,32 @@ impl XtensaMachine {
             else {
                 continue;
             };
-            if let Some((frame, signal_dbm)) =
-                self.radio_medium
-                    .events()
-                    .iter()
-                    .find_map(|candidate| match candidate {
-                        MediumEvent::Submitted {
-                            id: candidate_id,
-                            request,
-                        } if candidate_id == id => Some((
-                            request.frame.clone(),
-                            self.radio_medium.received_power_dbm(
-                                request.source,
-                                EMULATED_NODE,
-                                request.power_dbm,
-                            ),
-                        )),
-                        _ => None,
-                    })
+            if let Some((frame, signal_dbm, received_at)) = self
+                .radio_medium
+                .events()
+                .iter()
+                .find_map(|candidate| match candidate {
+                    MediumEvent::Submitted {
+                        id: candidate_id,
+                        request,
+                    } if candidate_id == id => Some((
+                        request.frame.clone(),
+                        self.radio_medium.received_power_dbm(
+                            request.source,
+                            EMULATED_NODE,
+                            request.power_dbm,
+                        ),
+                        request.start,
+                    )),
+                    _ => None,
+                })
             {
-                deliveries.push((frame, signal_dbm));
+                deliveries.push((frame, signal_dbm, received_at));
             }
         }
         self.radio_event_cursor = self.radio_medium.events().len();
         let mut completed = 0_u64;
-        for (frame, signal_dbm) in deliveries {
+        for (frame, signal_dbm, received_at) in deliveries {
             match frame.protocol {
                 RadioProtocol::Wifi => {
                     let wifi_mac = self.wifi_mac.clone();
@@ -987,7 +1171,7 @@ impl XtensaMachine {
                     }
                 }
                 RadioProtocol::BluetoothLe if self.syscon.ble_ready() => {
-                    let native = self.write_native_ble_rx(&frame, signal_dbm);
+                    let native = self.write_native_ble_rx(&frame, signal_dbm, received_at);
                     if self
                         .radio_ble
                         .receive_rf(
@@ -1007,18 +1191,24 @@ impl XtensaMachine {
         Ok(completed)
     }
 
-    fn write_native_ble_rx(&mut self, frame: &RadioFrame, signal_dbm: i16) -> bool {
+    fn write_native_ble_rx(
+        &mut self,
+        frame: &RadioFrame,
+        signal_dbm: i16,
+        received_at: remu_core::SimTime,
+    ) -> bool {
         self.pending_native_ble_receptions
             .retain(|pending| pending.end >= self.now.ticks());
-        let Some(activity) = self
+        let Some((activity_index, activity)) = self
             .pending_native_ble_receptions
             .iter()
+            .enumerate()
             .find(|pending| {
-                pending.start <= self.now.ticks()
-                    && pending.end >= self.now.ticks()
-                    && frame.spectrum.overlaps(s3_ble_spectrum(pending.channel))
+                pending.1.start <= self.now.ticks()
+                    && pending.1.end >= self.now.ticks()
+                    && frame.spectrum.overlaps(s3_ble_spectrum(pending.1.channel))
             })
-            .map(|pending| (pending.slot_address, pending.event_index, pending.channel))
+            .map(|(index, pending)| (index, pending.clone()))
         else {
             return false;
         };
@@ -1046,20 +1236,23 @@ impl XtensaMachine {
             return false;
         };
         let header = u16::from_le_bytes([frame.bytes[0], frame.bytes[1]]);
-        let coarse = ((self.now.ticks() / S3_BLE_HALF_SLOT_TICKS) & S3_BLE_COARSE_MASK) as u32;
-        let fine =
-            ((self.now.ticks() % S3_BLE_HALF_SLOT_TICKS) / S3_BLE_FINE_POSITION_TICKS) as u16;
-        // The revision-zero ROM reads the low byte at +6 as signed RXRSSI and
-        // the low six bits at +14 as RXCHASS. Keep the intervening timestamp
-        // fields in their recovered order; +12 carries the scheduler event
-        // index used by r_lld_rxdesc_check.
+        let coarse = ((received_at.ticks() / S3_BLE_HALF_SLOT_TICKS) & S3_BLE_COARSE_MASK) as u32;
+        let fine = (S3_BLE_FINE_POSITIONS_PER_HALF_SLOT
+            - 1
+            - (received_at.ticks() % S3_BLE_HALF_SLOT_TICKS) / S3_BLE_FINE_POSITION_TICKS)
+            as u16;
+        // The revision-zero ROM's CONNECT_IND path reconstructs the 28-bit
+        // receive clock from +8/+10 and consumes the low ten bits at +12 as
+        // the descending fine position. Word +14 is RXCHASS (receive/privacy
+        // status), not the RF channel; a nonzero value there deliberately
+        // enters the resolving-list validation path.
         let raw_rssi = signal_dbm.clamp(i16::from(i8::MIN), i16::from(i8::MAX)) as i8 as u8;
         let metadata = [
             u16::from(raw_rssi),
             (coarse & 0xffff) as u16,
-            fine,
-            u16::from(activity.1 & 0x1f) << 11,
-            u16::from(activity.2),
+            (coarse >> 16) as u16,
+            fine | (u16::from(activity.event_index & 0x1f) << 11),
+            0,
             0,
         ];
         if !self.write_native_ble_bytes(buffer, &frame.bytes[2..])
@@ -1073,9 +1266,145 @@ impl XtensaMachine {
             return false;
         }
         self.ble_exchange_memory.advance_rx_buffer(next & 0x7fff);
-        self.schedule_native_ble_slot_state(self.now, activity.0, 2);
-        self.ble_exchange_memory
-            .raise_interrupt(S3_RWBLE_RX_INTERRUPT);
+        if let Some(mut response) = activity.response {
+            self.pending_native_ble_receptions.remove(activity_index);
+            self.pending_native_ble_slot_completions
+                .retain(|(due, slot, state)| {
+                    *due != activity.end || *slot != activity.slot_address || *state != 4
+                });
+            let canceled = self.ble_exchange_memory.cancel_radio_completion(
+                remu_core::SimTime::from_ticks(activity.end),
+                S3_RWBLE_END_INTERRUPT,
+            );
+            if !canceled {
+                return false;
+            }
+            if self
+                .set_native_ble_slot_state(activity.slot_address, 2)
+                .is_err()
+            {
+                return false;
+            }
+            if let Some((cs_address, current_descriptor, access_address)) =
+                response.deferred_descriptor
+            {
+                let Some(current_header) =
+                    self.read_native_ble_u16(current_descriptor.wrapping_add(2))
+                else {
+                    return false;
+                };
+                let peer_nesn = frame.bytes[0] & 0x04 != 0;
+                let peer_sn = frame.bytes[0] & 0x08 != 0;
+                let transmitted_sn = current_header & 0x08 != 0;
+                let acknowledged = peer_nesn != transmitted_sn;
+                let (descriptor, transmitted_sn) = if acknowledged {
+                    let Some(linkage) = self.read_native_ble_u16(current_descriptor) else {
+                        return false;
+                    };
+                    let next_offset = linkage & 0x7fff;
+                    if next_offset == 0 {
+                        return false;
+                    }
+                    let Some(next_descriptor) =
+                        self.ble_exchange_memory.resolve_em_address(next_offset)
+                    else {
+                        return false;
+                    };
+                    if next_descriptor == current_descriptor {
+                        return false;
+                    }
+                    let Some(next_linkage) = self.read_native_ble_u16(next_descriptor) else {
+                        return false;
+                    };
+                    // Bit 15 is the exchange-memory ownership handoff. Return
+                    // the acknowledged record to firmware and claim the next
+                    // queued record before raising RX, matching the state the
+                    // ROM observes in its link-layer ISR.
+                    if !self.write_native_ble_u16(current_descriptor, linkage | 0x8000)
+                        || !self.write_native_ble_u16(next_descriptor, next_linkage & 0x7fff)
+                    {
+                        return false;
+                    }
+                    if !self.write_native_ble_u16(cs_address.wrapping_add(28), next_offset) {
+                        return false;
+                    }
+                    (None, !transmitted_sn)
+                } else {
+                    (Some(current_descriptor), transmitted_sn)
+                };
+                let sequence_bits = (u16::from(!peer_sn) << 2) | (u16::from(transmitted_sn) << 3);
+                if let Some(descriptor) = descriptor {
+                    let Some(mut response_header) =
+                        self.read_native_ble_u16(descriptor.wrapping_add(2))
+                    else {
+                        return false;
+                    };
+                    // RWBLE owns the data-channel sequence bits. NESN in the
+                    // response acknowledges the accepted peer SN.
+                    response_header = (response_header & !0x000c) | sequence_bits;
+                    if response_header >> 8 == 0 && response_header & 0x0003 == 0 {
+                        // An empty ring record is transmitted as the
+                        // data-channel empty PDU (LLID=1); LLID=0 is never
+                        // legal on air.
+                        response_header |= 1;
+                    }
+                    if !self.write_native_ble_u16(descriptor.wrapping_add(2), response_header) {
+                        return false;
+                    }
+                    response.deferred_descriptor = Some((cs_address, descriptor, access_address));
+                } else {
+                    // Ownership advances immediately, but the newly exposed
+                    // ring entry is for a future connection event. Hardware
+                    // acknowledges the peer in this event with an empty PDU.
+                    response.pdu = vec![(1 | sequence_bits) as u8, 0];
+                    response.deferred_descriptor = None;
+                }
+            }
+            self.ble_exchange_memory
+                .raise_interrupt(S3_RWBLE_RX_INTERRUPT);
+            response.start = self
+                .now
+                .checked_add(SimDuration::from_ticks(S3_BLE_INTERFRAME_SPACE_TICKS))
+                .map(|time| time.ticks())
+                .unwrap_or(u64::MAX);
+            let insertion = self
+                .pending_native_ble_transmissions
+                .iter()
+                .position(|pending| pending.start > response.start)
+                .unwrap_or(self.pending_native_ble_transmissions.len());
+            self.pending_native_ble_transmissions
+                .insert(insertion, response);
+        } else if activity.complete_on_receive {
+            self.pending_native_ble_receptions.remove(activity_index);
+            self.pending_native_ble_slot_completions
+                .retain(|(due, slot, state)| {
+                    *due != activity.end || *slot != activity.slot_address || *state != 4
+                });
+            let canceled = self.ble_exchange_memory.cancel_radio_completion(
+                remu_core::SimTime::from_ticks(activity.end),
+                S3_RWBLE_END_INTERRUPT,
+            );
+            if !canceled {
+                return false;
+            }
+            if self
+                .set_native_ble_slot_state(activity.slot_address, 4)
+                .is_err()
+            {
+                return false;
+            }
+            self.ble_exchange_memory
+                .raise_interrupt(S3_RWBLE_RX_INTERRUPT | S3_RWBLE_END_INTERRUPT);
+        } else {
+            if self
+                .set_native_ble_slot_state(activity.slot_address, 2)
+                .is_err()
+            {
+                return false;
+            }
+            self.ble_exchange_memory
+                .raise_interrupt(S3_RWBLE_RX_INTERRUPT);
+        }
         true
     }
 

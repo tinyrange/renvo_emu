@@ -113,7 +113,12 @@ genuine ESP-IDF/NimBLE probe initializes the real controller and PHY, runs
 legacy advertising, then executes BLE 5 extended advertising across a native
 primary `ADV_EXT_IND` and firmware-described 2M `AUX_ADV_IND`. The gate checks
 the exact per-chip primary channel, AuxPtr channel/offset/PHY, random AdvA, ADI,
-and `Renvo-EXT` payload. It then scans through the vendor-owned RX ring; its
+and `Renvo-EXT` payload. A scripted central then sends `CONNECT_IND` and drives
+the genuine controller through hopped connection events, LL version and feature
+exchange, hardware-owned SN/NESN handling, TX-descriptor retirement, and remote
+`LL_TERMINATE_IND`. The public GAP callbacks must report a successful connection
+and remote reason `0x13`; scanning restarts after disconnect. It then scans
+through the vendor-owned RX ring; its
 public extended GAP callback must return the exact injected advertising data
 and -80 dBm received power. Each freestanding
 probe independently programs its chip's scheduler, descriptor/shared-memory

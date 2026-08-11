@@ -120,8 +120,7 @@ impl RiscVMachine {
                 (DeliveryOutcome::Delivered, Some((frame, signal_dbm)))
                     if frame.protocol == RadioProtocol::BluetoothLe =>
                 {
-                    let native =
-                        self.write_native_ble_rx(ble_baseband, &frame.bytes, signal_dbm)?;
+                    let native = self.write_native_ble_rx(ble_baseband, &frame, signal_dbm)?;
                     let protocol_engine = self
                         .esp32c6_peripherals
                         .as_ref()
@@ -166,12 +165,28 @@ impl RiscVMachine {
     fn write_native_ble_rx(
         &mut self,
         handle: &EspC6BleBasebandHandle,
-        frame: &[u8],
+        frame: &RadioFrame,
         signal_dbm: i16,
     ) -> Result<bool, MachineError> {
-        let Some((schedule_address, state)) = self.radio_c6_ble_scan else {
+        self.radio_c6_ble_receptions
+            .retain(|pending| pending.end >= self.now);
+        let Some((activity_index, activity)) = self
+            .radio_c6_ble_receptions
+            .iter()
+            .enumerate()
+            .find(|(_, pending)| {
+                pending.start <= self.now
+                    && pending.end >= self.now
+                    && pending.spectrum.overlaps(frame.spectrum)
+            })
+            .map(|(index, pending)| (index, pending.clone()))
+        else {
             return Ok(false);
         };
+        let schedule_address = activity.schedule_address;
+        let state = activity.state;
+        let rx_buffer_identifier = activity.rx_buffer_identifier;
+        let frame = &frame.bytes;
         if frame.len() < 2 || frame.len() > u8::MAX as usize {
             return Ok(false);
         }
@@ -224,8 +239,8 @@ impl RiscVMachine {
         let mut metadata = [0_u8; 16];
         let status = u32::from((signal_dbm.clamp(-128, 127) as i8) as u8) << 24;
         metadata[0..4].copy_from_slice(&status.to_le_bytes());
-        metadata[4..8].copy_from_slice(&((self.now.ticks() / 16) as u32).to_le_bytes());
-        metadata[12..14].copy_from_slice(&5_u16.to_le_bytes());
+        metadata[4..8].copy_from_slice(&handle.scheduler_timestamp(self.now).to_le_bytes());
+        metadata[12..14].copy_from_slice(&rx_buffer_identifier.to_le_bytes());
         metadata[14] = 78;
         metadata[15] = 0;
         self.radio_write_guest_bytes(buffer.wrapping_add(0x0c), &metadata)?;
@@ -241,12 +256,89 @@ impl RiscVMachine {
             return Ok(false);
         }
         self.radio_write_guest_word(state.wrapping_add(8), (current_rx & !0x000f_ffff) | next_rx)?;
+        if rx_buffer_identifier == 2 {
+            // CURRENT_TX names the live list cursor while the event runs. A
+            // successful peripheral RX/TX pair marks the current allocation
+            // complete and leaves the cursor on it until task-context recycle
+            // consumes the done bit. The recycle path reads that cursor from
+            // link-state word zero rather than MMIO, so update both hardware
+            // views atomically. CURRENT_RX advances to the next ring header at
+            // the same completion edge.
+            let completed_tx = self.native_ble_connection_tx_header(state)?;
+            if let Some(completed_tx) = completed_tx {
+                let tx_flags = self.radio_read_guest_word(completed_tx)?;
+                self.radio_write_guest_word(completed_tx, tx_flags | 1)?;
+                let link_state = self.radio_read_guest_word(state)?;
+                self.radio_write_guest_word(
+                    state,
+                    (link_state & !0x000f_ffff)
+                        | (completed_tx.wrapping_add(4) & 0x000f_ffff),
+                )?;
+            }
+            let next_rx_header = c6_ble_pointer(next_rx).and_then(|cursor| cursor.checked_sub(4));
+            handle.set_loaded_buffer_headers(schedule_address, completed_tx, next_rx_header);
+        }
         let schedule_flags = self.radio_read_guest_word(state.wrapping_add(0x14))?;
         self.radio_write_guest_word(state.wrapping_add(0x14), schedule_flags | (1 << 27))?;
 
-        self.radio_c6_ble_scan = None;
+        let firmware_connection_response = if rx_buffer_identifier == 2 {
+            let tx_header = self.native_ble_connection_tx_header(state)?;
+            match tx_header {
+                Some(tx_header) => self.read_native_ble_pdu(state, tx_header, false)?,
+                None => None,
+            }
+        } else {
+            None
+        };
+        let connection_response = if rx_buffer_identifier == 2 {
+            let sequence = self.radio_c6_ble_link_sequences.entry(state).or_default();
+            let response =
+                sequence.peripheral_response(frame[0], firmware_connection_response);
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    response.as_ref().is_some_and(|pdu| pdu.len() >= 2),
+                    self.now,
+                    format!(
+                        "native connection schedule {schedule_address:#010x} produced an invalid peripheral response"
+                    ),
+                )?;
+            response
+        } else {
+            None
+        };
+
+        self.radio_c6_ble_receptions.remove(activity_index);
         let successor = c6_ble_pointer(self.radio_read_guest_word(schedule_address)?);
-        handle.schedule_received_event_end(self.now, schedule_address, successor);
+        if let Some(bytes) = connection_response {
+            let start = self
+                .now
+                .checked_add(SimDuration::from_ticks(C6_BLE_INTERFRAME_SPACE_TICKS))
+                .map_err(|_| MachineError::TimeOverflow)?;
+            let end = start
+                .checked_add(frame_duration(bytes.len()))
+                .map_err(|_| MachineError::TimeOverflow)?;
+            let pending = PendingNativeBleTransmission {
+                start,
+                spectrum: activity.spectrum,
+                phy: "ble-1m",
+                bytes,
+                response: None,
+            };
+            let insertion = self
+                .radio_c6_pending_ble_transmissions
+                .iter()
+                .position(|queued| queued.start > start)
+                .unwrap_or(self.radio_c6_pending_ble_transmissions.len());
+            self.radio_c6_pending_ble_transmissions
+                .insert(insertion, pending);
+            handle.schedule_received_event_end(end, schedule_address, successor);
+        } else {
+            handle.schedule_received_event_end(self.now, schedule_address, successor);
+        }
         Ok(true)
     }
 
@@ -645,6 +737,17 @@ fn ble_data_spectrum(channel: u8) -> Spectrum {
     Spectrum::new(center_khz, 2_000)
 }
 
+fn ble_data_channel_from_frequency_index(frequency_index: u8) -> Option<u8> {
+    if !frequency_index.is_multiple_of(2) {
+        return None;
+    }
+    match frequency_index {
+        2..=22 => Some((frequency_index - 2) / 2),
+        26..=76 => Some((frequency_index - 4) / 2),
+        _ => None,
+    }
+}
+
 fn frame_duration(length: usize) -> SimDuration {
     SimDuration::from_ticks(
         u64::try_from(length.max(1))
@@ -666,5 +769,17 @@ mod ble_aux_tests {
         assert_eq!(pointer.offset_us, 450);
         assert_eq!(pointer.phy, "ble-2m");
         assert_eq!(ble_data_spectrum(pointer.channel).center_khz, 2_432_000);
+    }
+
+    #[test]
+    fn maps_native_frequency_indices_around_advertising_channel_gaps() {
+        assert_eq!(ble_data_channel_from_frequency_index(2), Some(0));
+        assert_eq!(ble_data_channel_from_frequency_index(22), Some(10));
+        assert_eq!(ble_data_channel_from_frequency_index(26), Some(11));
+        assert_eq!(ble_data_channel_from_frequency_index(76), Some(36));
+        assert_eq!(ble_data_channel_from_frequency_index(0), None);
+        assert_eq!(ble_data_channel_from_frequency_index(24), None);
+        assert_eq!(ble_data_channel_from_frequency_index(78), None);
+        assert_eq!(ble_data_channel_from_frequency_index(13), None);
     }
 }

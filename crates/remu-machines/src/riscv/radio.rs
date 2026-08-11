@@ -14,6 +14,73 @@ use remu_radio::{
 
 const EMULATED_NODE: NodeId = NodeId(1);
 const HOST_NODE: NodeId = NodeId(0);
+const C6_BLE_INTERFRAME_SPACE_TICKS: u64 = 2_400;
+
+#[derive(Clone)]
+pub(super) struct PendingNativeBleReception {
+    start: remu_core::SimTime,
+    end: remu_core::SimTime,
+    schedule_address: u32,
+    state: u32,
+    spectrum: Spectrum,
+    rx_buffer_identifier: u16,
+}
+
+pub(super) struct PendingNativeBleTransmission {
+    start: remu_core::SimTime,
+    spectrum: Spectrum,
+    phy: &'static str,
+    bytes: Vec<u8>,
+    response: Option<PendingNativeBleReception>,
+}
+
+#[derive(Default)]
+pub(super) struct C6BleLinkSequence {
+    pub(super) expected_rx_sn: bool,
+    pub(super) tx_sn: bool,
+    pub(super) awaiting_tx_ack: bool,
+    pub(super) last_tx: Option<Vec<u8>>,
+}
+
+impl C6BleLinkSequence {
+    pub(super) fn peripheral_response(
+        &mut self,
+        received_header: u8,
+        firmware_response: Option<Vec<u8>>,
+    ) -> Option<Vec<u8>> {
+        let received_sn = received_header & (1 << 3) != 0;
+        let received_nesn = received_header & (1 << 2) != 0;
+
+        if self.awaiting_tx_ack && received_nesn != self.tx_sn {
+            self.awaiting_tx_ack = false;
+            self.tx_sn = !self.tx_sn;
+            self.last_tx = None;
+        }
+        if received_sn == self.expected_rx_sn {
+            self.expected_rx_sn = !self.expected_rx_sn;
+        }
+
+        let mut response = if self.awaiting_tx_ack {
+            self.last_tx.clone()
+        } else {
+            firmware_response.or_else(|| Some(vec![1, 0]))
+        };
+        if let Some(pdu) = response.as_mut()
+            && pdu.len() >= 2
+        {
+            // LLID and MD come from the firmware buffer (LLID=1 for the
+            // hardware-synthesized empty PDU). NESN acknowledges the next
+            // expected central SN, while SN remains stable until the central
+            // acknowledges this peripheral PDU.
+            pdu[0] = (pdu[0] & !0x0c)
+                | (u8::from(self.expected_rx_sn) << 2)
+                | (u8::from(self.tx_sn) << 3);
+            self.awaiting_tx_ack = true;
+            self.last_tx = Some(pdu.clone());
+        }
+        response
+    }
+}
 
 impl RiscVMachine {
     fn reset_coexistence(&mut self) -> Result<(), MachineError> {
@@ -244,10 +311,11 @@ impl RiscVMachine {
             self.power_down_coexistence()?;
         }
         if reset_changed[1] {
-            self.radio_c6_ble_scan = None;
+            self.radio_c6_ble_receptions.clear();
             self.radio_c6_ble_completion_anchors.clear();
             self.radio_c6_ble_schedule_records.clear();
             self.radio_c6_pending_ble_transmissions.clear();
+            self.radio_c6_ble_link_sequences.clear();
         }
         if reset_changed[2] {
             self.radio_pending_ieee802154_tx.clear();
@@ -299,10 +367,11 @@ impl RiscVMachine {
         ble_baseband.advance_to(self.now);
         let mut events = self.service_native_ble_completions(&ble_baseband)?;
         if ble_baseband.take_stop_request() {
-            self.radio_c6_ble_scan = None;
+            self.radio_c6_ble_receptions.clear();
             self.radio_c6_ble_completion_anchors.clear();
             self.radio_c6_ble_schedule_records.clear();
             self.radio_c6_pending_ble_transmissions.clear();
+            self.radio_c6_ble_link_sequences.clear();
         }
         events = events.saturating_add(self.service_ble_security_dma(&ble_control)?);
         events = events.saturating_add(self.service_native_ble_schedules(&ble_baseband)?);
@@ -606,7 +675,9 @@ impl RiscVMachine {
         &mut self,
         _handle: &EspC6BleBasebandHandle,
     ) -> Result<u64, MachineError> {
-        if self.radio_c6_ble_scan.is_none() {
+        self.radio_c6_ble_receptions
+            .retain(|pending| pending.end >= self.now);
+        if self.radio_c6_ble_receptions.is_empty() {
             return Ok(0);
         }
         let records = self.radio_c6_ble_schedule_records.clone();
@@ -675,6 +746,13 @@ impl RiscVMachine {
                     ),
                 )?;
             let state = state_pointer.expect("legality check established controller state");
+            let tx_header = c6_ble_pointer(self.radio_read_guest_word(state.wrapping_add(0x60))?);
+            let rx_header = c6_ble_pointer(self.radio_read_guest_word(state.wrapping_add(8))?)
+                .and_then(|cursor| cursor.checked_sub(4))
+                .or(c6_ble_pointer(
+                    self.radio_read_guest_word(state.wrapping_add(0x5c))?,
+                ));
+            handle.set_loaded_buffer_headers(schedule.address, tx_header, rx_header);
             match schedule_type {
                 1 => {
                     let mut record = schedule.address;
@@ -711,11 +789,38 @@ impl RiscVMachine {
                                 handle.scheduler_interval_ticks(end_tick.wrapping_sub(start_tick)),
                             ))
                             .map_err(|_| MachineError::TimeOverflow)?;
-                        let pending = (start, ble_advertising_spectrum(channel), "ble-1m", frame);
+                        let spectrum = ble_advertising_spectrum(channel);
+                        let response =
+                            matches!(frame.first().map(|header| header & 0x0f), Some(0) | Some(6))
+                                .then(|| {
+                                    let frame_end = start
+                                        .checked_add(frame_duration(frame.len()))
+                                        .expect("validated BLE frame duration");
+                                    let response_start = frame_end
+                                        .checked_add(SimDuration::from_ticks(
+                                            C6_BLE_INTERFRAME_SPACE_TICKS,
+                                        ))
+                                        .expect("validated BLE inter-frame spacing");
+                                    PendingNativeBleReception {
+                                        start: response_start,
+                                        end,
+                                        schedule_address: record,
+                                        state: record_state,
+                                        spectrum,
+                                        rx_buffer_identifier: 0,
+                                    }
+                                });
+                        let pending = PendingNativeBleTransmission {
+                            start,
+                            spectrum,
+                            phy: "ble-1m",
+                            bytes: frame,
+                            response,
+                        };
                         let insertion = self
                             .radio_c6_pending_ble_transmissions
                             .iter()
-                            .position(|queued| queued.0 > start)
+                            .position(|queued| queued.start > start)
                             .unwrap_or(self.radio_c6_pending_ble_transmissions.len());
                         self.radio_c6_pending_ble_transmissions
                             .insert(insertion, pending);
@@ -767,16 +872,17 @@ impl RiscVMachine {
                                 .map_err(|_| MachineError::TimeOverflow)?;
                             let _auxiliary_offset_ticks =
                                 handle.scheduler_interval_ticks(u32::from(auxiliary.offset_us));
-                            let pending = (
+                            let pending = PendingNativeBleTransmission {
                                 start,
-                                ble_data_spectrum(auxiliary.channel),
-                                auxiliary.phy,
-                                frame,
-                            );
+                                spectrum: ble_data_spectrum(auxiliary.channel),
+                                phy: auxiliary.phy,
+                                bytes: frame,
+                                response: None,
+                            };
                             let insertion = self
                                 .radio_c6_pending_ble_transmissions
                                 .iter()
-                                .position(|queued| queued.0 > start)
+                                .position(|queued| queued.start > start)
                                 .unwrap_or(self.radio_c6_pending_ble_transmissions.len());
                             self.radio_c6_pending_ble_transmissions
                                 .insert(insertion, pending);
@@ -859,7 +965,17 @@ impl RiscVMachine {
                     // anchor. RX completion must publish the same tail as a
                     // timeout completion or the ISR dispatches the wrong
                     // schedule entry and never drains the filled RX ring.
-                    self.radio_c6_ble_scan = Some((final_record, state));
+                    if let Some(end) = final_end {
+                        let activity = PendingNativeBleReception {
+                            start: self.now,
+                            end,
+                            schedule_address: final_record,
+                            state,
+                            spectrum: Spectrum::new(2_480_000, 2_000),
+                            rx_buffer_identifier: 5,
+                        };
+                        self.radio_c6_ble_receptions.push(activity);
+                    }
                     self.radio_medium
                         .as_mut()
                         .expect("ESP32-C6 machine has a radio medium")
@@ -877,6 +993,84 @@ impl RiscVMachine {
                     }
                     submitted = submitted.saturating_add(1);
                 }
+                3 => {
+                    // Genuine peripheral-role connection firmware writes a
+                    // type-three record after accepting CONNECT_IND. Bits
+                    // 8..14 of +0x14 select the PHY frequency; the remaining
+                    // bits are radio configuration, not a time interval. The
+                    // scheduler materializes the hardware start/end ticks at
+                    // +8/+0c when it inserts the record. A peripheral listens
+                    // first; it must not transmit its queued empty PDU unless
+                    // a central packet actually arrives.
+                    let radio_config =
+                        self.radio_read_guest_word(schedule.address.wrapping_add(0x14))?;
+                    let frequency_index = ((radio_config >> 8) & 0x7f) as u8;
+                    let channel = ble_data_channel_from_frequency_index(frequency_index);
+                    let start_tick =
+                        self.radio_read_guest_word(schedule.address.wrapping_add(8))?;
+                    let end_tick =
+                        self.radio_read_guest_word(schedule.address.wrapping_add(0x0c))?;
+                    let window_units = end_tick.wrapping_sub(start_tick);
+                    let access_address = self.radio_read_guest_word(state.wrapping_add(0x30))?;
+                    self.radio_legality
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio legality validator")
+                        .require(
+                            RadioSubsystem::BluetoothLe,
+                            RadioLegalityRule::SchedulerState,
+                            channel.is_some()
+                                && window_units != 0
+                                && window_units < 0x0100_0000
+                                && access_address != 0
+                                && access_address != 0x8e89_bed6,
+                            self.now,
+                            format!(
+                                "native connection schedule is invalid: frequency_index={frequency_index} window={window_units} access_address={access_address:#010x}"
+                            ),
+                    )?;
+                    let channel = channel.expect("legality check established BLE data channel");
+                    let start = self
+                        .now
+                        .checked_add(SimDuration::from_ticks(
+                            handle.scheduler_delay_ticks(self.now, start_tick),
+                        ))
+                        .map_err(|_| MachineError::TimeOverflow)?;
+                    let end = start
+                        .checked_add(SimDuration::from_ticks(
+                            handle.scheduler_interval_ticks(window_units),
+                        ))
+                        .map_err(|_| MachineError::TimeOverflow)?;
+                    let spectrum = ble_data_spectrum(channel);
+                    self.radio_c6_ble_link_sequences.entry(state).or_default();
+                    let successor = c6_ble_pointer(self.radio_read_guest_word(schedule.address)?);
+                    self.radio_medium
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio medium")
+                        .tune_receiver(Receiver {
+                            node: EMULATED_NODE,
+                            protocol: RadioProtocol::BluetoothLe,
+                            spectrum,
+                            sensitivity_dbm: -100,
+                        })?;
+                    self.radio_c6_ble_receptions
+                        .push(PendingNativeBleReception {
+                            start,
+                            end,
+                            schedule_address: schedule.address,
+                            state,
+                            spectrum,
+                            // r_ble_lll_conn_recycle_buffer maps the native RX
+                            // identifier to a connection index by subtracting
+                            // one plus pinned controller config byte 0x42. That
+                            // byte is one for this firmware, so connection zero
+                            // owns identifier two.
+                            rx_buffer_identifier: 2,
+                        });
+                    self.radio_c6_ble_completion_anchors
+                        .insert(schedule.address, schedule.address);
+                    handle.schedule_event_end(end, schedule.address, successor);
+                    submitted = submitted.saturating_add(1);
+                }
                 _ => {}
             }
         }
@@ -888,9 +1082,16 @@ impl RiscVMachine {
         while self
             .radio_c6_pending_ble_transmissions
             .first()
-            .is_some_and(|pending| pending.0 <= self.now)
+            .is_some_and(|pending| pending.start <= self.now)
         {
-            let (_, spectrum, phy, bytes) = self.radio_c6_pending_ble_transmissions.remove(0);
+            let pending = self.radio_c6_pending_ble_transmissions.remove(0);
+            let PendingNativeBleTransmission {
+                spectrum,
+                phy,
+                bytes,
+                response,
+                ..
+            } = pending;
             let duration = frame_duration(bytes.len());
             let decision = self
                 .radio_coexistence
@@ -943,6 +1144,18 @@ impl RiscVMachine {
                     },
                 })?;
             self.record_coexistence_transmission(grant, transmission);
+            if let Some(response) = response {
+                self.radio_medium
+                    .as_mut()
+                    .expect("ESP32-C6 machine has a radio medium")
+                    .tune_receiver(Receiver {
+                        node: EMULATED_NODE,
+                        protocol: RadioProtocol::BluetoothLe,
+                        spectrum: response.spectrum,
+                        sensitivity_dbm: -100,
+                    })?;
+                self.radio_c6_ble_receptions.push(response);
+            }
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
@@ -1054,6 +1267,22 @@ impl RiscVMachine {
         frame.extend_from_slice(&address);
         frame.extend_from_slice(&payload);
         Ok(Some(frame))
+    }
+
+    fn native_ble_connection_tx_header(&mut self, state: u32) -> Result<Option<u32>, MachineError> {
+        // Connection state uses +0x60 as a sentinel list head. Unlike the
+        // advertising state, the sentinel is not itself a TX allocation: its
+        // compressed +4 link points four bytes into the first allocation.
+        // The hardware cursor and over-air decoder both operate on that first
+        // real allocation header.
+        let Some(list_head) = c6_ble_pointer(self.radio_read_guest_word(state.wrapping_add(0x60))?)
+        else {
+            return Ok(None);
+        };
+        Ok(
+            c6_ble_pointer(self.radio_read_guest_word(list_head.wrapping_add(4))?)
+                .and_then(|link| link.checked_sub(4)),
+        )
     }
 
     fn service_ble_security_dma(

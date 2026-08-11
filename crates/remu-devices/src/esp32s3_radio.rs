@@ -80,7 +80,10 @@ const BLE_EM_MAPPING_VALID_HIGH: u64 = 0x2c8;
 const BLE_EM_MAPPING_VALID_TOP: u64 = 0x300;
 const BLE_EM_CPU_ADDRESS_MASK: u32 = 0x0003_ffff;
 const BLE_EM_OFFSET_SHIFT: u32 = 18;
-const BLE_RX_BUFFER_CURRENT: u64 = 0x2d0;
+// r_lld_update_rxbuf reads the hardware-owned receive head from RWBLE offset
+// 0x024. Offset 0x2d0 is the firmware-written receive-buffer update command,
+// not the descriptor that hardware is currently filling.
+const BLE_RX_BUFFER_CURRENT: u64 = 0x024;
 const BLE_RX_BUFFER_RING_BASE: u32 = 0x1000;
 
 #[derive(Default)]
@@ -158,7 +161,7 @@ impl Esp32S3BleExchangeMemoryHandle {
         self.state
             .lock()
             .expect("ESP32-S3 BLE exchange-memory lock poisoned")
-            .registers[BLE_RX_BUFFER_CURRENT as usize / 4] = u32::from(next | 0x8000);
+            .registers[BLE_RX_BUFFER_CURRENT as usize / 4] = u32::from(next);
     }
 
     /// Returns the exchange-memory apertures programmed by the controller.
@@ -231,6 +234,23 @@ impl Esp32S3BleExchangeMemoryHandle {
         state
             .pending_radio_completions
             .insert(insertion, (due.ticks(), causes));
+    }
+
+    /// Cancels one exact RF completion when an earlier terminal outcome wins.
+    pub fn cancel_radio_completion(&self, due: SimTime, causes: u32) -> bool {
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-S3 BLE exchange-memory lock poisoned");
+        let Some(index) = state
+            .pending_radio_completions
+            .iter()
+            .position(|pending| *pending == (due.ticks(), causes))
+        else {
+            return false;
+        };
+        state.pending_radio_completions.remove(index);
+        true
     }
 
     /// Raises one or more native RWBLE interrupt causes.

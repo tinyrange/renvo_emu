@@ -4,7 +4,7 @@ mod tests {
 
     #[test]
     fn ble_baseband_scheduler_timer_starts_on_reset_release_at_one_mhz() {
-        let (mut device, _) = EspC6BleBaseband::new("ble-baseband");
+        let (mut device, handle) = EspC6BleBaseband::new("ble-baseband");
         device
             .write(
                 C6_BLE_BASEBAND_RESET,
@@ -29,6 +29,10 @@ mod tests {
                     SimTime::from_ticks(33_016),
                 )
                 .unwrap(),
+            2_000
+        );
+        assert_eq!(
+            handle.scheduler_timestamp(SimTime::from_ticks(33_016)),
             2_000
         );
     }
@@ -99,6 +103,84 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn ble_baseband_publishes_loaded_native_buffer_cursors() {
+        let (mut device, handle) = EspC6BleBaseband::new("ble-baseband");
+        device
+            .write(
+                C6_BLE_BASEBAND_SCHEDULER_HEAD,
+                AccessWidth::Word,
+                0x0007_ef84,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .write(
+                C6_BLE_BASEBAND_SCHEDULER_KICK,
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+
+        handle.set_loaded_buffer_headers(
+            0x4087_ef84,
+            Some(0x4087_f4dc),
+            Some(0x4087_f65c),
+        );
+        assert_eq!(
+            device
+                .read(
+                    C6_BLE_BASEBAND_CURRENT_TX_BUFFER,
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0007_f4e0
+        );
+        assert_eq!(
+            device
+                .read(
+                    C6_BLE_BASEBAND_CURRENT_RX_BUFFER,
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0007_f660
+        );
+
+        handle.set_loaded_buffer_headers(0x4081_0000, None, None);
+        assert_eq!(
+            device
+                .read(
+                    C6_BLE_BASEBAND_CURRENT_TX_BUFFER,
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0007_f4e0
+        );
+    }
+
+    #[test]
+    fn ble_baseband_received_completion_replaces_same_schedule_timeout() {
+        let (_, handle) = EspC6BleBaseband::new("ble-baseband");
+        handle.schedule_event_end(SimTime::from_ticks(100), 0x4087_ef84, None);
+        handle.schedule_received_event_end(
+            SimTime::from_ticks(50),
+            0x4087_ef84,
+            Some(0x4081_de6c),
+        );
+
+        handle.advance_to(SimTime::from_ticks(50));
+        assert_eq!(
+            handle.take_completed_schedule().unwrap().address,
+            0x4087_ef84
+        );
+        handle.advance_to(SimTime::from_ticks(100));
+        assert!(handle.take_completed_schedule().is_none());
     }
 
     #[test]

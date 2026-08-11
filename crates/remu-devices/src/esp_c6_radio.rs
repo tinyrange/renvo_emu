@@ -19,6 +19,8 @@ const C6_BLE_BASEBAND_SCHEDULER_STOP: u64 = 0x02c;
 const C6_BLE_BASEBAND_SCHEDULER_HEAD: u64 = 0x8fc;
 const C6_BLE_BASEBAND_SCHEDULER_CURRENT: u64 = 0x900;
 const C6_BLE_BASEBAND_SCHEDULER_NEXT: u64 = 0x904;
+const C6_BLE_BASEBAND_CURRENT_TX_BUFFER: u64 = 0x960;
+const C6_BLE_BASEBAND_CURRENT_RX_BUFFER: u64 = 0x964;
 const C6_BLE_BASEBAND_INTERRUPT_ENABLE0: u64 = 0x304;
 const C6_BLE_BASEBAND_INTERRUPT_CLEAR0: u64 = 0x308;
 const C6_BLE_BASEBAND_INTERRUPT_RAW0: u64 = 0x30c;
@@ -212,6 +214,19 @@ pub struct EspC6BleBasebandHandle {
 }
 
 impl EspC6BleBasebandHandle {
+    /// Returns the native reset-relative 1 MHz scheduler timestamp.
+    pub fn scheduler_timestamp(&self, now: SimTime) -> u32 {
+        let state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 BLE baseband lock poisoned");
+        let Some(epoch) = state.timer_epoch else {
+            return 0;
+        };
+        let elapsed = now.ticks().saturating_sub(epoch.ticks());
+        (elapsed / C6_BLE_BASEBAND_TICKS_PER_SCHEDULER_TICK) as u32
+    }
+
     /// Converts an interval in native scheduler ticks to simulation ticks.
     pub fn scheduler_interval_ticks(&self, ticks: u32) -> u64 {
         u64::from(ticks).saturating_mul(C6_BLE_BASEBAND_TICKS_PER_SCHEDULER_TICK)
@@ -302,6 +317,15 @@ impl EspC6BleBasebandHandle {
         schedule_address: u32,
         successor: Option<u32>,
     ) {
+        // RX is the terminal outcome of the same loaded schedule that already
+        // carries a no-packet timeout. Hardware resolves those outcomes
+        // atomically; exposing both END causes makes firmware recycle the
+        // descriptor twice and can free a newly-created connection state.
+        self.state
+            .lock()
+            .expect("ESP32-C6 BLE baseband lock poisoned")
+            .pending_completions
+            .retain(|(_, address, _, _)| *address != schedule_address);
         self.schedule_completion(
             due,
             schedule_address,
@@ -348,6 +372,34 @@ impl EspC6BleBasebandHandle {
             state.registers[C6_BLE_BASEBAND_SCHEDULER_NEXT as usize / 4] =
                 successor.unwrap_or(0) & 0x000f_ffff;
         }
+    }
+
+    /// Publishes the hardware-owned TX/RX buffer headers for a loaded schedule.
+    ///
+    /// Native controller code reads these cursors while an event is executing.
+    /// The register representation points four bytes beyond the allocation
+    /// header and retains only the internal-RAM offset.
+    pub fn set_loaded_buffer_headers(
+        &self,
+        schedule_address: u32,
+        tx_header: Option<u32>,
+        rx_header: Option<u32>,
+    ) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 BLE baseband lock poisoned");
+        let current = state.registers[C6_BLE_BASEBAND_SCHEDULER_CURRENT as usize / 4];
+        if current & 0x000f_ffff != schedule_address & 0x000f_ffff {
+            return;
+        }
+        let encode = |header: Option<u32>| {
+            header
+                .map(|address| address.wrapping_add(4) & 0x000f_ffff)
+                .unwrap_or(0)
+        };
+        state.registers[C6_BLE_BASEBAND_CURRENT_TX_BUFFER as usize / 4] = encode(tx_header);
+        state.registers[C6_BLE_BASEBAND_CURRENT_RX_BUFFER as usize / 4] = encode(rx_header);
     }
 
     /// Advances native completion state to the requested simulation timestamp.
@@ -516,6 +568,8 @@ impl Device for EspC6BleBaseband {
                 state.registers[C6_BLE_BASEBAND_SCHEDULER_CURRENT as usize / 4] =
                     0xa000_0000 | address;
                 state.registers[C6_BLE_BASEBAND_SCHEDULER_NEXT as usize / 4] = 0;
+                state.registers[C6_BLE_BASEBAND_CURRENT_TX_BUFFER as usize / 4] = 0;
+                state.registers[C6_BLE_BASEBAND_CURRENT_RX_BUFFER as usize / 4] = 0;
                 state.retire_current_reads = 0;
                 state.pending_schedules.push_back(0x4080_0000 | address);
             }
@@ -527,6 +581,8 @@ impl Device for EspC6BleBaseband {
             // mutate a descriptor after controller firmware has freed it.
             state.registers[C6_BLE_BASEBAND_SCHEDULER_CURRENT as usize / 4] &= 0x7fff_ffff;
             state.registers[C6_BLE_BASEBAND_SCHEDULER_NEXT as usize / 4] = 0;
+            state.registers[C6_BLE_BASEBAND_CURRENT_TX_BUFFER as usize / 4] = 0;
+            state.registers[C6_BLE_BASEBAND_CURRENT_RX_BUFFER as usize / 4] = 0;
             state.retire_current_reads = 0;
             state.pending_schedules.clear();
             state.pending_completions.clear();

@@ -43,7 +43,7 @@
       "observed_invariants": {
         "clock_reset": "native work requires the firmware-enabled modem clock/reset domain; interrupts require the domain to have been enabled in the current reset generation but may assert or remain latched while firmware subsequently gates its functional clock; a reset-generation change retires in-flight activity and enable history",
         "wifi_dma": "TX descriptor and payload pointers are nonzero four-byte-aligned internal-memory addresses; payload length is 1 through 4095 bytes; native RX interface matches come from valid firmware-programmed address slots, with SoftAP using slot one",
-        "bluetooth_le": "native schedule records and security DMA must resolve through firmware-programmed internal-memory mappings before execution",
+        "bluetooth_le": "native schedule records and security DMA must resolve through firmware-programmed internal-memory mappings before execution; connection-event sequence numbers, descriptor ownership and completion marks follow only genuine-firmware-observed transitions",
         "ieee802154": "TX, RX, single-shot CCA, energy detection and ACK phases use the firmware command lifecycle and cannot overlap incompatibly",
         "coexistence": "native Wi-Fi, Bluetooth LE and IEEE 802.15.4 RF submissions execute only under a matching grant returned for their firmware-selected protocol and priority; firmware reset generations and clock/power gating cancel active ownership and its exact in-flight transmission; denial is an ordinary non-submission outcome, while cross-protocol ownership is a hard error"
       }
@@ -59,7 +59,7 @@
       "observed_invariants": {
         "clock_reset": "native work requires the firmware-enabled SYSCON radio clock/reset domain; interrupts require a prior firmware enable but may assert or remain latched while firmware subsequently gates its functional clock or crosses the firmware-observed shared radio-reset sequence",
         "wifi_dma": "TX descriptor and payload pointers are nonzero four-byte-aligned internal-memory addresses; payload length is nonzero, no greater than capacity, and no greater than 4095 bytes; native RX interface matches come from nonzero firmware-programmed individual-address slots, with SoftAP using slot one",
-        "bluetooth_le": "scheduler slots, control structures, descriptors and payloads must use firmware-observed encodings and resolve through exchange-memory mappings",
+        "bluetooth_le": "scheduler slots, control structures, descriptors and payloads must use firmware-observed encodings and resolve through exchange-memory mappings; connection events are receive-first, fine/event metadata is bounded, and SN/NESN plus TX-ring ownership may transition only along the genuine-ROM sequence",
         "coexistence": "native Wi-Fi and Bluetooth LE RF submissions execute only under a matching grant returned for their firmware-selected protocol and priority; shared radio reset assertions and clock/power gating cancel active ownership and its exact in-flight transmission; denial is an ordinary non-submission outcome, while cross-protocol ownership is a hard error"
       }
     }

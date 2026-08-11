@@ -114,6 +114,7 @@ done
 
 jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
     $requirements[0].chips[$chip].expected_native_tx as $expected |
+    $requirements[0].chips[$chip].expected_connection_tx as $expected_connection |
     .events as $events |
     any($events[];
         . as $submitted |
@@ -129,7 +130,31 @@ jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
              .id == $submitted.id and
              .receiver == 1 and
              .outcome.kind == "delivered"))) and
+    all([[197, 34], [3, 2, 2, 19]][];
+        . as $required_rx |
+        any($events[];
+            . as $submitted |
+            ($submitted.event == "submitted" and
+             $submitted.request.frame.protocol == "bluetooth-le" and
+             $submitted.request.frame.origin == "host-injection" and
+             (($required_rx | length) == 2
+                and $submitted.request.frame.bytes[0:2] == $required_rx
+              or $submitted.request.frame.bytes == $required_rx) and
+             any($events[];
+                 .event == "reception" and
+                 .id == $submitted.id and
+                 .receiver == 1 and
+                 .outcome.kind == "delivered")))) and
     all([$expected.legacy, $expected.extended_primary, $expected.extended_auxiliary][];
+        . as $required |
+        any($events[];
+            .event == "submitted" and
+            .request.frame.protocol == "bluetooth-le" and
+            .request.frame.origin == "emulated" and
+            .request.frame.spectrum.center_khz == $required.center_khz and
+            .request.frame.phy == $required.phy and
+            .request.frame.bytes == $required.bytes)) and
+    all($expected_connection[];
         . as $required |
         any($events[];
             .event == "submitted" and
@@ -149,7 +174,7 @@ flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-ble-vendor-qualification.v3 \
+    --arg schema remu.radio-ble-vendor-qualification.v4 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -181,6 +206,12 @@ jq -n \
             requires_native_ble_2m_phy: true,
             requires_native_ble_extended_scanning: true,
             requires_vendor_scan_report: true,
+            requires_native_ble_connection_hopping: true,
+            requires_native_ble_ll_version_exchange: true,
+            requires_native_ble_feature_exchange: true,
+            requires_native_ble_tx_descriptor_retirement: true,
+            requires_native_ble_remote_termination: true,
+            requires_native_ble_scan_restart: true,
             requires_received_power_metadata: true,
             deterministic_replay_required: true,
             symbol_dispatch_allowed: false
@@ -197,6 +228,9 @@ jq -n \
             native_extended_advertising: true,
             native_auxiliary_phy: "ble-2m",
             vendor_extended_scan_report: true,
+            native_connection_established: true,
+            native_connection_remote_terminated: true,
+            native_scan_restarted_after_disconnect: true,
             deterministic_replay: true
         }
     }' >"$chip_root/summary.json"
