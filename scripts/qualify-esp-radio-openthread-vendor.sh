@@ -113,14 +113,15 @@ do
 done
 
 jq -e --slurpfile requirements "$requirements" '
-    $requirements[0].transmit_security.expected_psdu_without_fcs as $secured_psdu |
+    $requirements[0].expected_raw_psdu_with_fcs as $raw_psdu |
+    $requirements[0].transmit_security.expected_psdu_with_fcs as $secured_psdu |
     .events as $events |
     any($events[];
         .event == "submitted" and
         .request.frame.protocol == "ieee802154" and
         .request.frame.origin == "emulated" and
         .request.frame.spectrum.center_khz == 2405000 and
-        .request.frame.bytes == [1, 0, 120, 79, 84]) and
+        .request.frame.bytes == $raw_psdu) and
     any($events[];
         .event == "submitted" and
         .request.frame.protocol == "ieee802154" and
@@ -175,7 +176,7 @@ uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 bus_sha=$(sha256sum "$chip_root/ieee802154-bus.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-openthread-vendor-qualification.v2 \
+    --arg schema remu.radio-openthread-vendor-qualification.v3 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -218,7 +219,7 @@ jq -n \
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
             ieee802154_bus_sha256: $bus_sha256,
-            tx_psdu_without_fcs: [1, 0, 120, 79, 84],
+            tx_psdu_with_fcs: $requirements[0].expected_raw_psdu_with_fcs,
             rx_psdu_with_fcs: [1, 0, 121, 82, 88, 8, 41],
             rx_rssi_dbm: -80,
             rx_lqi: 63,
@@ -230,7 +231,7 @@ jq -n \
                 security_level: $requirements[0].transmit_security.security_level,
                 payload_offset: $requirements[0].transmit_security.payload_offset,
                 key: $requirements[0].transmit_security.key,
-                secured_tx_psdu_without_fcs: $requirements[0].transmit_security.expected_psdu_without_fcs,
+                secured_tx_psdu_with_fcs: $requirements[0].transmit_security.expected_psdu_with_fcs,
                 vendor_register_writes_observed: true
             },
             sleep_wake_completed: true,

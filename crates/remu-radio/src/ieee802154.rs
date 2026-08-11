@@ -359,13 +359,15 @@ impl Ieee802154Mac {
         Ok(tag)
     }
 
-    /// Applies the C6 transmit-security contract to a complete MAC frame.
+    /// Applies the C6 transmit-security contract to a MAC frame without FCS.
     ///
     /// `payload_offset` is measured from the first MAC byte. The ESP-IDF frame
     /// parser removes the preceding PHY length byte before programming the C6
     /// register. The security level and frame counter are taken from the
     /// frame's auxiliary security header, while the key and nonce source are
-    /// supplied by the hardware security registers.
+    /// supplied by the hardware security registers. The caller-provided frame
+    /// includes the MIC reservation selected by the security level; hardware
+    /// overwrites that reservation instead of increasing the PHY length.
     pub fn protect_transmit_frame(
         &mut self,
         frame: &[u8],
@@ -404,6 +406,12 @@ impl Ieee802154Mac {
         if level == 0 {
             return Err(Ieee802154Error::InvalidSecurityLevel(level));
         }
+        let mic_length = security_mic_length(level);
+        let payload_end = frame
+            .len()
+            .checked_sub(mic_length)
+            .filter(|end| *end >= payload_offset)
+            .ok_or(Ieee802154Error::InvalidLength(frame.len()))?;
         let material = SecurityMaterial {
             key,
             source,
@@ -411,13 +419,13 @@ impl Ieee802154Mac {
             level,
         };
         let mut protected = frame[..payload_offset].to_vec();
-        let mut payload = frame[payload_offset..].to_vec();
+        let mut payload = frame[payload_offset..payload_end].to_vec();
         let mic = self.protect(&protected, &mut payload, material)?;
         let final_length = protected
             .len()
             .saturating_add(payload.len())
             .saturating_add(mic.len());
-        if final_length > 125 {
+        if final_length > 125 || final_length != frame.len() {
             return Err(Ieee802154Error::InvalidLength(final_length));
         }
         protected.extend_from_slice(&payload);
@@ -943,6 +951,7 @@ mod tests {
         frame.extend_from_slice(&7_u32.to_le_bytes());
         let payload_offset = frame.len();
         frame.extend_from_slice(b"secured");
+        frame.extend_from_slice(&[0; 4]);
 
         let mut mac = Ieee802154Mac::new();
         let protected = mac
@@ -955,7 +964,8 @@ mod tests {
             .unwrap();
         assert_eq!(&protected[..payload_offset], &frame[..payload_offset]);
         assert_ne!(&protected[payload_offset..payload_offset + 7], b"secured");
-        assert_eq!(protected.len(), frame.len() + 4);
+        assert_eq!(protected.len(), frame.len());
+        assert_ne!(&protected[protected.len() - 4..], &[0; 4]);
         assert!(mac.events().iter().any(|event| matches!(
             event,
             Ieee802154Event::SecurityProtected {

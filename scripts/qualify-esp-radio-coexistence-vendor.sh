@@ -147,7 +147,7 @@ jq -e \
     (if any($expected_protocols[]; . == "ieee802154") then
         any($emitted[];
             .request.frame.protocol == "ieee802154" and
-            .request.frame.bytes == [1, 0, 42, 165])
+            .request.frame.bytes == [1, 0, 42, 165, 95, 48])
      else true end) and
     any($emitted[];
         .request.frame.protocol == "wifi" and

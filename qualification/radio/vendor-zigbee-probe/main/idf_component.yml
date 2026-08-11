@@ -1,0 +1,5 @@
+## SPDX-License-Identifier: Apache-2.0
+dependencies:
+  espressif/esp-zigbee-lib: "2.0.3"
+  idf:
+    version: ">=6.0.2"

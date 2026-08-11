@@ -13,7 +13,7 @@ static volatile bool transmit_complete;
 static volatile bool transmit_failed;
 static volatile bool receive_complete;
 static volatile bool energy_detect_complete;
-static volatile uint8_t transmitted_frame[5];
+static volatile uint8_t transmitted_frame[7];
 static volatile uint8_t received_frame[16];
 static volatile int transmit_error;
 static volatile int8_t received_rssi;
@@ -27,9 +27,10 @@ static volatile uint8_t received_ack[6];
 static volatile int8_t ack_rssi;
 static volatile uint8_t ack_lqi;
 
-static uint8_t transmit_frame[] = {4, 0x01, 0x00, 0x2a, 0xa5};
-static uint8_t ack_transmit_frame[] = {4, 0x21, 0x00, 0x44, 0xa5};
-static uint8_t no_ack_transmit_frame[] = {4, 0x21, 0x00, 0x45, 0xa5};
+/* The public API length includes the two hardware-generated FCS bytes. */
+static uint8_t transmit_frame[] = {6, 0x01, 0x00, 0x2a, 0xa5, 0, 0};
+static uint8_t ack_transmit_frame[] = {6, 0x21, 0x00, 0x44, 0xa5, 0, 0};
+static uint8_t no_ack_transmit_frame[] = {6, 0x21, 0x00, 0x45, 0xa5, 0, 0};
 
 void esp_ieee802154_transmit_done(const uint8_t *frame, const uint8_t *ack,
                                   esp_ieee802154_frame_info_t *ack_info)

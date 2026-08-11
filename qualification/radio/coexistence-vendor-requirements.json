@@ -32,7 +32,7 @@
         "REMU_VENDOR_COEX_BLE_SCAN_START result=0",
         "REMU_VENDOR_COEX_IEEE802154_INIT result=0 channel=11",
         "REMU_VENDOR_COEX_IEEE802154_TX_START result=0 wifi=1 ble_scan=1",
-        "REMU_VENDOR_COEX_IEEE802154_TX_DONE length=4 01 00 2a a5",
+        "REMU_VENDOR_COEX_IEEE802154_TX_DONE length=6 01 00 2a a5",
         "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1",
         "REMU_VENDOR_COEX_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52",
         "REMU_VENDOR_COEX_DONE wifi=1 ble_adv=1 ble_scan=1"

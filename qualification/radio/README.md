@@ -19,6 +19,7 @@ scripts/qualify-esp-radio-ble-vendor.sh esp32c6
 scripts/qualify-esp-radio-ble-vendor.sh esp32s3
 scripts/qualify-esp-radio-ieee802154-vendor.sh esp32c6
 scripts/qualify-esp-radio-openthread-vendor.sh esp32c6
+scripts/qualify-esp-radio-zigbee-vendor.sh esp32c6
 scripts/qualify-esp-radio-custom-stack.sh esp32c6
 scripts/qualify-esp-radio-custom-stack.sh esp32s3
 cargo test -p remu-radio
@@ -168,6 +169,15 @@ and exact replay. The vendor gate additionally proves the public multi-PAN
 index, public no-ACK error mapping, and callback delivery after ACK
 transmission. The focused probe's overlapping frame checks are useful
 low-level regressions, not a requirement to reproduce every vendor-stack test.
+On transmit, the DMA length is the complete over-the-air PSDU length. Firmware
+reserves its final two bytes while the peripheral calculates and writes the
+FCS; secured frames similarly reserve their selected MIC before the hardware
+encrypts the payload and replaces that reservation. The ESP-IDF, OpenThread,
+coexistence and custom-stack gates pin their exact FCS-bearing frames. Zigbee
+pins the frame sequence, controls, lengths, PAN and complete beacon body,
+validates every hardware FCS, and then requires an exact replay of the complete
+run because stack-owned sequence and secured NWK bytes are intentionally
+randomized between clean firmware builds.
 
 The genuine OpenThread gate additionally drives the public raw-link MAC-key and
 frame-counter APIs into the native ESP-IDF radio port. The vendor port writes
@@ -178,6 +188,16 @@ security headers remain clear, and requires byte-identical execution-result
 and RF replay artifacts. This closes the OpenThread-to-native-transmit-security
 peripheral handoff; it does not claim a full Thread network exchange or move
 receive decryption out of the guest stack.
+
+The Apache-2.0 ESP Zigbee 2.0.3 gate boots its coordinator application through
+the genuine C6 rev0 ROM, forms a native channel-11 network with PAN ID 63100,
+then receives an injected beacon request and emits the coordinator beacon. It
+pins the emitted frame shapes and complete beacon semantics, validates every
+hardware-generated FCS, native command and W1C interrupt cause, coexistence
+grant, ROM/application coverage and byte-identical execution-result/RF replay.
+The component lock, license and all
+three C6 library archives are independently hashed; the retired ZBOSS
+dependency is rejected by the qualification gate.
 
 The real ESP32-C6 rev0 and ESP32-S3 rev0 mask-ROM images are mandatory for
 native boot, radio-capable execution, and vendor-facing qualification. Their
@@ -220,8 +240,9 @@ crypto, and C6 HE/TWT acceptance. BLE still needs the remaining chip-specific
 controller transport, adaptive hopping, and privacy list behavior.
 The genuine OpenThread radio build now passes raw TX/RX, native CCM* transmit
 security, source matching, energy scan, and sleep/wake through the native C6
-port. A full Thread CLI exchange and Zigbee-facing firmware qualification still
-remain. Disputed
+port. Genuine Zigbee firmware now passes network formation and a peer beacon
+exchange over the same native C6 boundary. A full Thread CLI exchange still
+remains. Disputed
 ESP32-S3 RF pages remain intentionally unmapped until a revision-
 specific primary-source or authorized-hardware probe resolves them. Coexistence
 denial, priority preemption, reset cancellation, and active clock/power gating

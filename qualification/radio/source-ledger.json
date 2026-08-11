@@ -346,7 +346,7 @@
       "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
       "license": "Apache-2.0",
       "content_sha256": "ceed75f557a896c09e722acacafb35ab3993335378c47526e18e89084c438ef3",
-      "use": "Public vendor callback context, frame layout, and receive-buffer ownership contract"
+      "use": "Public vendor callback context, frame layout, hardware-generated transmit FCS, PHY-length, and receive-buffer ownership contract"
     },
     {
       "id": "esp-idf-openthread-radio-port",
@@ -357,6 +357,16 @@
       "license": "Apache-2.0",
       "content_sha256": "f64178b872369df08578eefff27b4b7ba6a7cf600af9d081e7de67d9adabfefa",
       "use": "OpenThread native-radio frame, transmit-security key/counter handoff, error mapping, energy scan, source matching, and sleep/wake boundary"
+    },
+    {
+      "id": "esp-zigbee-sdk-radio-api-2.0.3",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-zigbee-sdk/d893459a9ed8ccb29721e292fc06b7a094c72d80/components/esp-zigbee-lib/include/ezbee/platform/radio.h",
+      "repository": "https://github.com/espressif/esp-zigbee-sdk",
+      "revision": "d893459a9ed8ccb29721e292fc06b7a094c72d80",
+      "license": "Apache-2.0",
+      "content_sha256": "b027b27cb4d0ebe9538ec73ad53968e49ac1d35e4d7da8d2a637e610c40d78bb",
+      "use": "ESP Zigbee 2.0.3 native-radio frame, PHY-length, FCS, CCA, retry, and callback contract without the retired ZBOSS dependency"
     },
     {
       "id": "esp-idf-c6-interrupts",

@@ -99,10 +99,12 @@
 #define MODEM_ZB_MAC_CLOCK (1u << 24)
 #define MODEM_SECURITY_CCM_CLOCK (1u << 26)
 
-static uint8_t ieee802154_frame[] = {4, 0x01, 0x00, 0x2a, 0xa5};
-static uint8_t ieee802154_ack_frame[] = {4, 0x21, 0x00, 0x44, 0xa5};
-static uint8_t ieee802154_no_ack_frame[] = {4, 0x21, 0x00, 0x45, 0xa5};
-static uint8_t ieee802154_invalid_security_frame[] = {4, 0x01, 0x00, 0x2b, 0xa5};
+static uint8_t ieee802154_frame[] = {6, 0x01, 0x00, 0x2a, 0xa5, 0, 0};
+static uint8_t ieee802154_ack_frame[] = {6, 0x21, 0x00, 0x44, 0xa5, 0, 0};
+static uint8_t ieee802154_no_ack_frame[] = {6, 0x21, 0x00, 0x45, 0xa5, 0, 0};
+static uint8_t ieee802154_invalid_security_frame[] = {
+    6, 0x01, 0x00, 0x2b, 0xa5, 0, 0,
+};
 uint8_t remu_ieee802154_rx_buffer[128] __attribute__((aligned(4)));
 uint8_t remu_wifi_frame[] __attribute__((aligned(4))) = {
     /* Native TX wire length: 24 guest MAC bytes plus generated FCS. */

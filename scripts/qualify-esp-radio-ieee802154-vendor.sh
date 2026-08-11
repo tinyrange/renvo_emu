@@ -112,7 +112,7 @@ jq -e '
                .request.frame.protocol == "ieee802154" and
                .request.frame.origin == "emulated" and
                .request.frame.spectrum.center_khz == 2405000 and
-               .request.frame.bytes == [1, 0, 42, 165]) ] | length) == 2 and
+               .request.frame.bytes == [1, 0, 42, 165, 95, 48]) ] | length) == 2 and
     any($events[];
         .event == "submitted" and
         .request.start == 5508000 and
@@ -160,11 +160,11 @@ jq -e '
     any($events[];
         .event == "submitted" and
         .request.frame.origin == "emulated" and
-        .request.frame.bytes == [33, 0, 68, 165]) and
+        .request.frame.bytes == [33, 0, 68, 165, 73, 64]) and
     any($events[];
         .event == "submitted" and
         .request.frame.origin == "emulated" and
-        .request.frame.bytes == [33, 0, 69, 165])
+        .request.frame.bytes == [33, 0, 69, 165, 145, 89])
 ' "$chip_root/radio-replay.json" >/dev/null
 
 # TX/RX completion causes 0x2 and 0x4 may be serviced separately or
@@ -263,7 +263,7 @@ jq -n \
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
             ieee802154_bus_sha256: $bus_sha256,
-            tx_psdu_without_fcs: [1, 0, 42, 165],
+            tx_psdu_with_fcs: [1, 0, 42, 165, 95, 48],
             rx_psdu_with_fcs: [1, 0, 2, 170, 91, 37],
             rx_rssi_dbm: -80,
             rx_lqi: 63,

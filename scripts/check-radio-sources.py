@@ -30,6 +30,9 @@ IEEE802154_VENDOR_REQUIREMENTS_PATH = (
 OPENTHREAD_VENDOR_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/openthread-vendor-requirements.json"
 )
+ZIGBEE_VENDOR_REQUIREMENTS_PATH = (
+    ROOT / "qualification/radio/zigbee-vendor-requirements.json"
+)
 LEGAL_STATE_CONTRACT_PATH = ROOT / "qualification/radio/legal-state-contract.json"
 LEGALITY_SOURCE_PATH = ROOT / "crates/remu-radio/src/legality.rs"
 RADIO_ROM_SOURCE_PATH = ROOT / "crates/remu-machines/src/radio_rom.rs"
@@ -207,7 +210,7 @@ EXPECTED_COEXISTENCE_VENDOR_REQUIREMENTS = {
             "REMU_VENDOR_COEX_BLE_SCAN_START result=0",
             "REMU_VENDOR_COEX_IEEE802154_INIT result=0 channel=11",
             "REMU_VENDOR_COEX_IEEE802154_TX_START result=0 wifi=1 ble_scan=1",
-            "REMU_VENDOR_COEX_IEEE802154_TX_DONE length=4 01 00 2a a5",
+            "REMU_VENDOR_COEX_IEEE802154_TX_DONE length=6 01 00 2a a5",
             "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1",
             "REMU_VENDOR_COEX_BLE_SCAN_REPORT type=3 length=6 rssi=-80 02 01 06 02 09 52",
             "REMU_VENDOR_COEX_DONE wifi=1 ble_adv=1 ble_scan=1",
@@ -471,7 +474,7 @@ EXPECTED_IEEE802154_VENDOR_REQUIREMENTS = {
         "REMU_VENDOR_IEEE802154_INIT result=0",
         "REMU_VENDOR_IEEE802154_CONFIG result=0 channel=11 promiscuous=1",
         "REMU_VENDOR_IEEE802154_TX_START result=0",
-        "REMU_VENDOR_IEEE802154_TX_DONE length=4 01 00 2a a5",
+        "REMU_VENDOR_IEEE802154_TX_DONE length=6 01 00 2a a5",
         "REMU_VENDOR_IEEE802154_CCA_TX_START result=0",
         "REMU_VENDOR_IEEE802154_CCA_BUSY_DONE complete=0 failed=1 error=1",
         "REMU_VENDOR_IEEE802154_CCA_RETRY_START result=0",
@@ -493,7 +496,7 @@ EXPECTED_IEEE802154_VENDOR_REQUIREMENTS = {
     ],
 }
 EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS = {
-    "schema": "remu.radio-openthread-vendor-requirements.v2",
+    "schema": "remu.radio-openthread-vendor-requirements.v3",
     "source_ledger_entries": [
         "esp-rom-elfs-20260528",
         "esp-idf-openthread-radio-port",
@@ -508,15 +511,16 @@ EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS = {
     "rom_end": "0x40050000",
     "minimum_instructions": 15_000_000,
     "radio_input": "qualification/radio/openthread-frame-vendor-esp32c6.json",
+    "expected_raw_psdu_with_fcs": [1, 0, 120, 19, 165],
     "transmit_security": {
         "key_id": 7,
         "frame_counter": 16_909_060,
         "security_level": 5,
         "payload_offset": 15,
         "key": list(range(16)),
-        "expected_psdu_without_fcs": [
+        "expected_psdu_with_fcs": [
             73, 152, 43, 52, 18, 120, 86, 188, 154, 13, 4, 3, 2, 1, 7,
-            228, 212, 226, 133, 183, 214, 238, 105,
+            228, 212, 226, 133, 183, 214, 238, 105, 140, 222,
         ],
         "expected_register_writes": [
             {"address": 1_611_280_684, "value": 0},
@@ -545,6 +549,60 @@ EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS = {
         "REMU_VENDOR_OPENTHREAD_ED_DONE complete=1 rssi=-128",
         "REMU_VENDOR_OPENTHREAD_SLEEP_WAKE sleep=0 wake=0",
     ],
+}
+EXPECTED_ZIGBEE_VENDOR_REQUIREMENTS = {
+    "schema": "remu.radio-zigbee-vendor-requirements.v1",
+    "source_ledger_entries": [
+        "esp-rom-elfs-20260528",
+        "esp-idf-ieee802154-public-api",
+        "esp-zigbee-sdk-radio-api-2.0.3",
+    ],
+    "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+    "firmware_project": "qualification/radio/vendor-zigbee-probe",
+    "firmware_elf": "remu_vendor_zigbee_probe.elf",
+    "chip": "esp32c6",
+    "rom_file": "esp32c6_rev0_rom.elf",
+    "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+    "rom_start": "0x40000000",
+    "rom_end": "0x40050000",
+    "minimum_instructions": 20_000_000,
+    "radio_input": "qualification/radio/zigbee-frame-vendor-esp32c6.json",
+    "esp_zigbee": {
+        "version": "2.0.3",
+        "repository_revision": "d893459a9ed8ccb29721e292fc06b7a094c72d80",
+        "component_hash": "8e815d149f904b3429100d8735a2ed81dea38caff3e2b5e38e5751ffc0af6d89",
+        "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "library_sha256": {
+            "libesp-zigbee.release.a": "3ba9d10c749998bdb268b7bd7a8bd020ebf8fe13c84b8ef5c33297f85fc3efa8",
+            "libesp-zigbee-core.zczr.release.a": "2e44b071e4a0e5f495438555fe174d9afd99782d86d45530ad3a469b136748a5",
+            "libesp-zigbee-idf.native.release.a": "5f4269bc4c3533b3f5e7afb099fcebc6fafd3888d711bcfab8351657ed540e54",
+        },
+    },
+    "required_uart_substrings": [
+        "REMU_VENDOR_ZIGBEE_PLATFORM result=0",
+        "REMU_VENDOR_ZIGBEE_TASK created=1",
+        "REMU_VENDOR_ZIGBEE_INIT result=0",
+        "REMU_VENDOR_ZIGBEE_IDENTITY result=0 pan=63100",
+        "REMU_VENDOR_ZIGBEE_CONFIG result=0 channel=11 endpoint=10",
+        "REMU_VENDOR_ZIGBEE_INITIALIZE result=0",
+        "REMU_VENDOR_ZIGBEE_STACK_START result=0",
+        "REMU_VENDOR_ZIGBEE_START status=0 factory_new=1",
+        "REMU_VENDOR_ZIGBEE_FORMATION_START result=0",
+        "REMU_VENDOR_ZIGBEE_FORMATION_DONE status=0 pan=63100 channel=11 short=0",
+        "REMU_VENDOR_ZIGBEE_STEERING_START result=0",
+    ],
+    "expected_host_beacon_request": [3, 8, 85, 255, 255, 255, 255, 7, 222, 125],
+    "expected_emulated_frame_lengths": [10, 56, 28, 56],
+    "expected_emulated_frame_controls": [[3, 8], [65, 136], [0, 128], [65, 136]],
+    "expected_pan_id_le": [124, 246],
+    "expected_beacon_request_body": [255, 255, 255, 255, 7],
+    "expected_beacon_response_body": [
+        124, 246, 0, 0, 255, 79, 0, 0, 0, 34, 132, 82, 69, 77, 85, 45,
+        90, 66, 1, 255, 255, 255, 0,
+    ],
+    "expected_beacon_response_index": 2,
+    "required_commands": [66, 67, 68, 69, 77, 79],
+    "required_interrupt_causes": [1, 2, 64],
 }
 
 
@@ -623,8 +681,9 @@ def validate_ledger(ledger: dict[str, object], validation: Validation) -> None:
         {
             "esp-rom-elfs-20260528",
             "esp-idf-openthread-radio-port",
+            "esp-zigbee-sdk-radio-api-2.0.3",
         }.issubset(seen_ids),
-        "OpenThread qualification sources are missing from the source ledger",
+        "OpenThread or Zigbee qualification sources are missing from the source ledger",
     )
 
 
@@ -941,6 +1000,47 @@ def validate_openthread_vendor_requirements(
     )
 
 
+def validate_zigbee_vendor_requirements(
+    requirements: dict[str, object], validation: Validation
+) -> None:
+    validation.require(
+        requirements == EXPECTED_ZIGBEE_VENDOR_REQUIREMENTS,
+        "genuine Zigbee acceptance contract changed or is incomplete",
+    )
+    validation.require(
+        (ROOT / str(requirements.get("firmware_project"))).is_dir(),
+        "genuine Zigbee probe project is missing",
+    )
+    radio_input_path = ROOT / str(requirements.get("radio_input"))
+    validation.require(
+        radio_input_path.is_file(),
+        "genuine Zigbee radio input is missing",
+    )
+    if radio_input_path.is_file():
+        radio_input = load_json(radio_input_path)
+        expected_frame = EXPECTED_ZIGBEE_VENDOR_REQUIREMENTS[
+            "expected_host_beacon_request"
+        ]
+        validation.require(
+            radio_input
+            == {
+                "schema": "remu.radio-input.v1",
+                "frames": [
+                    {
+                        "at": 12_000_000,
+                        "protocol": "ieee802154",
+                        "center_khz": 2_405_000,
+                        "bandwidth_khz": 2_000,
+                        "phy": "ieee802154-oqpsk-250k",
+                        "bytes": expected_frame,
+                        "power_dbm": -40,
+                    }
+                ],
+            },
+            "genuine Zigbee injected beacon-request fixture changed or is incomplete",
+        )
+
+
 def validate_legal_state_contract(
     contract: dict[str, object], validation: Validation
 ) -> None:
@@ -1043,6 +1143,7 @@ def main() -> int:
     ble_vendor_requirements = load_json(BLE_VENDOR_REQUIREMENTS_PATH)
     ieee802154_vendor_requirements = load_json(IEEE802154_VENDOR_REQUIREMENTS_PATH)
     openthread_vendor_requirements = load_json(OPENTHREAD_VENDOR_REQUIREMENTS_PATH)
+    zigbee_vendor_requirements = load_json(ZIGBEE_VENDOR_REQUIREMENTS_PATH)
     legal_state_contract = load_json(LEGAL_STATE_CONTRACT_PATH)
     validate_ledger(ledger, validation)
     validate_inventory(inventory, validation)
@@ -1053,6 +1154,7 @@ def main() -> int:
     validate_ble_vendor_requirements(ble_vendor_requirements, validation)
     validate_ieee802154_vendor_requirements(ieee802154_vendor_requirements, validation)
     validate_openthread_vendor_requirements(openthread_vendor_requirements, validation)
+    validate_zigbee_vendor_requirements(zigbee_vendor_requirements, validation)
     validate_legal_state_contract(legal_state_contract, validation)
     if validation.errors:
         for error in validation.errors:

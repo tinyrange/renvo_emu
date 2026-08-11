@@ -130,17 +130,17 @@ then
 	            .event == "submitted" and
 	            .request.frame.protocol == "ieee802154" and
 	            .request.frame.origin == "emulated" and
-	            .request.frame.bytes == [1, 0, 42, 165]) and
+	            .request.frame.bytes == [1, 0, 42, 165, 95, 48]) and
 	        any($events[];
 	            .event == "submitted" and
 	            .request.frame.protocol == "ieee802154" and
 	            .request.frame.origin == "emulated" and
-	            .request.frame.bytes == [33, 0, 68, 165]) and
+	            .request.frame.bytes == [33, 0, 68, 165, 73, 64]) and
 	        any($events[];
 	            .event == "submitted" and
 	            .request.frame.protocol == "ieee802154" and
 	            .request.frame.origin == "emulated" and
-	            .request.frame.bytes == [33, 0, 69, 165]) and
+	            .request.frame.bytes == [33, 0, 69, 165, 145, 89]) and
 	        any($events[];
 	            .event == "submitted" and
 	            .request.frame.protocol == "ieee802154" and

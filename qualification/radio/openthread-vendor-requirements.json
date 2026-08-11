@@ -1,5 +1,5 @@
 {
-  "schema": "remu.radio-openthread-vendor-requirements.v2",
+  "schema": "remu.radio-openthread-vendor-requirements.v3",
   "source_ledger_entries": [
     "esp-rom-elfs-20260528",
     "esp-idf-openthread-radio-port"
@@ -14,6 +14,7 @@
   "rom_end": "0x40050000",
   "minimum_instructions": 15000000,
   "radio_input": "qualification/radio/openthread-frame-vendor-esp32c6.json",
+  "expected_raw_psdu_with_fcs": [1, 0, 120, 19, 165],
   "transmit_security": {
     "key_id": 7,
     "frame_counter": 16909060,
@@ -23,9 +24,9 @@
       0, 1, 2, 3, 4, 5, 6, 7,
       8, 9, 10, 11, 12, 13, 14, 15
     ],
-    "expected_psdu_without_fcs": [
+    "expected_psdu_with_fcs": [
       73, 152, 43, 52, 18, 120, 86, 188, 154, 13, 4, 3, 2, 1, 7,
-      228, 212, 226, 133, 183, 214, 238, 105
+      228, 212, 226, 133, 183, 214, 238, 105, 140, 222
     ],
     "expected_register_writes": [
       {"address": 1611280684, "value": 0},

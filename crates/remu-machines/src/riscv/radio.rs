@@ -1267,11 +1267,14 @@ impl RiscVMachine {
             AccessKind::Read,
             self.now,
         )? as usize;
-        if !(1..=127).contains(&length) {
+        // The vendor DMA length is the over-the-air PSDU length, including
+        // the two-byte hardware-generated FCS. Firmware reserves those two
+        // bytes but does not initialize them.
+        if !(3..=127).contains(&length) {
             handle.abort(true, 17);
             return Ok(());
         }
-        let mut bytes = self.radio_read_guest_bytes(tx_address.wrapping_add(1), length)?;
+        let mut bytes = self.radio_read_guest_bytes(tx_address.wrapping_add(1), length - 2)?;
         let configuration = handle.configuration();
         if configuration.transmit_security {
             let payload_offset = usize::from(configuration.security_offset);
@@ -1320,6 +1323,7 @@ impl RiscVMachine {
                 }
             };
         }
+        let bytes = Ieee802154Mac::with_fcs(bytes);
         let channel = handle.channel();
         if !(11..=26).contains(&channel) {
             handle.abort(true, 17);

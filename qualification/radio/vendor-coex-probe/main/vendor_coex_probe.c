@@ -31,7 +31,7 @@ static volatile bool ble_scan_reported;
 static volatile bool ieee802154_complete = true;
 
 #if CONFIG_IDF_TARGET_ESP32C6
-static uint8_t ieee802154_frame[] = {4, 0x01, 0x00, 0x2a, 0xa5};
+static uint8_t ieee802154_frame[] = {6, 0x01, 0x00, 0x2a, 0xa5, 0, 0};
 static volatile bool ieee802154_failed;
 static volatile int ieee802154_error = -1;
 static volatile uint8_t ieee802154_transmitted_frame[5];

@@ -108,7 +108,7 @@ fn esp32c6_ieee802154_dma_transmit_and_explicit_host_receive_use_shared_medium()
             SimTime::ZERO,
         )
         .unwrap();
-    for (offset, byte) in [3_u8, 0x61, 0x88, 0x01].into_iter().enumerate() {
+    for (offset, byte) in [5_u8, 0x61, 0x88, 0x01, 0, 0].into_iter().enumerate() {
         machine
             .bus
             .write(
@@ -124,13 +124,14 @@ fn esp32c6_ieee802154_dma_transmit_and_explicit_host_receive_use_shared_medium()
         .write(0x600a_3000, AccessWidth::Word, 0x41, SimTime::ZERO)
         .unwrap();
     assert_eq!(machine.service_radio().unwrap(), 1);
-    machine.now = SimTime::from_ticks(96);
+    machine.now = SimTime::from_ticks(160);
     assert_eq!(machine.service_radio().unwrap(), 1);
     let replay = machine.radio_replay_artifact().unwrap();
     assert!(replay.events.iter().any(|event| matches!(
         event,
         remu_radio::MediumEvent::Submitted { request, .. }
-            if request.frame.bytes == [0x61, 0x88, 0x01]
+            if request.frame.bytes
+                == remu_radio::Ieee802154Mac::with_fcs(vec![0x61, 0x88, 0x01])
                 && request.frame.origin == remu_radio::FrameOrigin::Emulated
     )));
 
@@ -152,7 +153,7 @@ fn esp32c6_ieee802154_dma_transmit_and_explicit_host_receive_use_shared_medium()
             0,
         )
         .unwrap();
-    machine.now = SimTime::from_ticks(288);
+    machine.now = SimTime::from_ticks(352);
     assert_eq!(machine.service_radio().unwrap(), 1);
     assert_eq!(
         machine.debug_read_memory(u64::from(rx_address), 7).unwrap(),
@@ -185,7 +186,7 @@ fn esp32c6_ieee802154_ack_request_enters_native_rx_ack_and_completes_matching_se
             .write(address, AccessWidth::Word, value, SimTime::ZERO)
             .unwrap();
     }
-    for (offset, byte) in [4_u8, 0x21, 0x00, 0x2a, 0xa5].into_iter().enumerate() {
+    for (offset, byte) in [5_u8, 0x21, 0x00, 0x2a, 0, 0].into_iter().enumerate() {
         machine
             .bus
             .write(
@@ -201,7 +202,7 @@ fn esp32c6_ieee802154_ack_request_enters_native_rx_ack_and_completes_matching_se
         .write(0x600a_3000, AccessWidth::Word, 0x41, SimTime::ZERO)
         .unwrap();
     machine.service_radio().unwrap();
-    machine.now = SimTime::from_ticks(128);
+    machine.now = SimTime::from_ticks(160);
     machine.service_radio().unwrap();
     assert_eq!(
         machine
@@ -222,7 +223,7 @@ fn esp32c6_ieee802154_ack_request_enters_native_rx_ack_and_completes_matching_se
             0,
         )
         .unwrap();
-    machine.now = SimTime::from_ticks(288);
+    machine.now = SimTime::from_ticks(320);
     machine.service_radio().unwrap();
     assert_eq!(
         machine
@@ -289,6 +290,9 @@ fn esp32c6_ieee802154_dma_security_applies_vendor_programmed_ccm_star() {
     frame.extend_from_slice(&7_u32.to_le_bytes());
     let payload_offset = frame.len();
     frame.extend_from_slice(b"secured");
+    frame.extend_from_slice(&[0; 4]);
+    let mut wire_frame = frame.clone();
+    wire_frame.extend_from_slice(&[0; 2]);
     machine
         .bus
         .write(
@@ -324,11 +328,11 @@ fn esp32c6_ieee802154_dma_security_applies_vendor_programmed_ccm_star() {
         .write(
             u64::from(tx_address),
             AccessWidth::Byte,
-            frame.len() as u64,
+            wire_frame.len() as u64,
             SimTime::ZERO,
         )
         .unwrap();
-    for (offset, byte) in frame.iter().copied().enumerate() {
+    for (offset, byte) in wire_frame.iter().copied().enumerate() {
         machine
             .bus
             .write(
@@ -360,7 +364,8 @@ fn esp32c6_ieee802154_dma_security_applies_vendor_programmed_ccm_star() {
         .expect("secured frame submitted");
     assert_eq!(&protected[..payload_offset], &frame[..payload_offset]);
     assert_ne!(&protected[payload_offset..payload_offset + 7], b"secured");
-    assert_eq!(protected.len(), frame.len() + 4);
+    assert_eq!(protected.len(), wire_frame.len());
+    assert!(remu_radio::Ieee802154Mac::has_valid_fcs(protected));
 }
 
 #[test]
@@ -391,6 +396,7 @@ fn esp32c6_ieee802154_security_failures_preserve_vendor_reason_codes() {
         .unwrap();
 
     let mut assert_failure = |frame: &[u8], hardware_offset: u8, reason: u8, count: u32| {
+        let wire_length = frame.len() + 2;
         machine
             .bus
             .write(
@@ -405,7 +411,7 @@ fn esp32c6_ieee802154_security_failures_preserve_vendor_reason_codes() {
             .write(
                 u64::from(tx_address),
                 AccessWidth::Byte,
-                frame.len() as u64,
+                wire_length as u64,
                 machine.now,
             )
             .unwrap();
@@ -416,6 +422,17 @@ fn esp32c6_ieee802154_security_failures_preserve_vendor_reason_codes() {
                     u64::from(tx_address) + 1 + offset as u64,
                     AccessWidth::Byte,
                     u64::from(byte),
+                    machine.now,
+                )
+                .unwrap();
+        }
+        for offset in frame.len()..wire_length {
+            machine
+                .bus
+                .write(
+                    u64::from(tx_address) + 1 + offset as u64,
+                    AccessWidth::Byte,
+                    0,
                     machine.now,
                 )
                 .unwrap();
@@ -506,7 +523,7 @@ fn esp32c6_ieee802154_cca_reports_busy_and_leaves_csma_retry_to_firmware() {
             SimTime::ZERO,
         )
         .unwrap();
-    for (offset, byte) in [3_u8, 0x01, 0x00, 0x2a].into_iter().enumerate() {
+    for (offset, byte) in [5_u8, 0x01, 0x00, 0x2a, 0, 0].into_iter().enumerate() {
         machine
             .bus
             .write(
