@@ -271,7 +271,7 @@ EXPECTED_CUSTOM_STACK_REQUIREMENTS = {
     },
 }
 EXPECTED_BLE_VENDOR_REQUIREMENTS = {
-    "schema": "remu.radio-ble-vendor-requirements.v4",
+    "schema": "remu.radio-ble-vendor-requirements.v5",
     "source_ledger_entry": "esp-rom-elfs-20260528",
     "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
     "firmware_project": "qualification/radio/vendor-ble-probe",
@@ -295,6 +295,7 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
                 "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
                 "REMU_VENDOR_BLE_CONNECT status=0 handle=0",
                 "REMU_VENDOR_BLE_CONNECTION_READY handle=0",
+                "REMU_VENDOR_BLE_MTU handle=0 cid=4 value=247",
                 "REMU_VENDOR_BLE_DISCONNECT reason=531 handle=0",
                 "REMU_VENDOR_BLE_REMOTE_TERMINATE observed=1",
                 "REMU_VENDOR_BLE_CONNECTED_ADV_REMOVE result=0",
@@ -324,6 +325,9 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
                 {"center_khz": 2_446_000, "phy": "ble-1m", "bytes": [7, 9, 14, 255, 127, 1, 7, 144, 27, 0, 0]},
                 {"center_khz": 2_456_000, "phy": "ble-1m", "bytes": [9, 0]},
                 {"center_khz": 2_466_000, "phy": "ble-1m", "bytes": [7, 9, 20, 251, 0, 144, 66, 251, 0, 144, 66]},
+                {"center_khz": 2_476_000, "phy": "ble-1m", "bytes": [10, 7, 3, 0, 4, 0, 3, 0, 1]},
+                {"center_khz": 2_410_000, "phy": "ble-1m", "bytes": [5, 0]},
+                {"center_khz": 2_420_000, "phy": "ble-1m", "bytes": [9, 0]},
             ],
         },
         "esp32s3": {
@@ -331,7 +335,7 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
             "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
             "rom_start": "0x40000000",
             "rom_end": "0x40070000",
-            "minimum_instructions": 16_000_000,
+            "minimum_instructions": 17_000_000,
             "radio_input": "qualification/radio/ble-advertisement-vendor-esp32s3.json",
             "required_uart_substrings": [
                 "REMU_VENDOR_BLE_INIT result=0",
@@ -344,6 +348,7 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
                 "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
                 "REMU_VENDOR_BLE_CONNECT status=0 handle=1",
                 "REMU_VENDOR_BLE_CONNECTION_READY handle=1",
+                "REMU_VENDOR_BLE_MTU handle=1 cid=4 value=247",
                 "REMU_VENDOR_BLE_DISCONNECT reason=531 handle=1",
                 "REMU_VENDOR_BLE_REMOTE_TERMINATE observed=1",
                 "REMU_VENDOR_BLE_CONNECTED_ADV_REMOVE result=0",
@@ -359,12 +364,12 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
                 "extended_primary": {
                     "center_khz": 2_480_000,
                     "phy": "ble-1m",
-                    "bytes": [39, 7, 6, 24, 8, 39, 32, 5, 32],
+                    "bytes": [39, 7, 6, 24, 10, 39, 32, 5, 32],
                 },
                 "extended_auxiliary": {
                     "center_khz": 2_470_000,
                     "phy": "ble-2m",
-                    "bytes": [103, 24, 9, 9, 6, 5, 4, 3, 2, 193, 8, 0, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84],
+                    "bytes": [103, 24, 9, 9, 6, 5, 4, 3, 2, 193, 10, 0, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84],
                 },
             },
             "expected_connection_tx": [
@@ -373,6 +378,9 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
                 {"center_khz": 2_436_000, "phy": "ble-1m", "bytes": [23, 9, 14, 255, 249, 1, 0, 0, 0, 0, 0]},
                 {"center_khz": 2_446_000, "phy": "ble-1m", "bytes": [9, 0]},
                 {"center_khz": 2_456_000, "phy": "ble-1m", "bytes": [23, 9, 20, 251, 0, 144, 66, 251, 0, 144, 66]},
+                {"center_khz": 2_466_000, "phy": "ble-1m", "bytes": [9, 0]},
+                {"center_khz": 2_476_000, "phy": "ble-1m", "bytes": [22, 7, 3, 0, 4, 0, 3, 0, 1]},
+                {"center_khz": 2_410_000, "phy": "ble-1m", "bytes": [9, 0]},
             ],
         },
     },

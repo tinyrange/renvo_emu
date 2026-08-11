@@ -1065,6 +1065,23 @@ fn esp32c6_ble_peripheral_sequence_tracks_ack_duplicates_and_control_pdus() {
         sequence.peripheral_response(0x01, Some(features)),
         Some(vec![7, 9, 14, 0xff, 0x7f, 1, 7, 0x90, 0x1b, 0, 0])
     );
+
+    let mut acl_sequence = super::radio::C6BleLinkSequence::default();
+    let att_mtu_response = vec![2, 7, 3, 0, 4, 0, 3, 0, 1];
+    let transmitted = acl_sequence
+        .peripheral_response(0x02, Some(att_mtu_response))
+        .unwrap();
+    assert_eq!(transmitted, vec![6, 7, 3, 0, 4, 0, 3, 0, 1]);
+    assert_eq!(
+        acl_sequence.peripheral_response(0x02, None),
+        Some(transmitted),
+        "an unacknowledged ACL data PDU is retransmitted byte-for-byte"
+    );
+    assert_eq!(
+        acl_sequence.peripheral_response(0x0e, None),
+        Some(vec![9, 0]),
+        "the central NESN retires the ACL PDU and advances peripheral SN"
+    );
 }
 
 #[test]
