@@ -786,6 +786,7 @@ struct EspUsbOtgState {
     rx_fifo: VecDeque<u32>,
     tx_fifo: Vec<Vec<u8>>,
     in_transfer_size: [usize; 16],
+    setup_receive_enabled: bool,
     reset_injected: bool,
 }
 
@@ -1023,6 +1024,7 @@ impl EspUsbOtgState {
             rx_fifo: VecDeque::new(),
             tx_fifo: vec![Vec::new(); 16],
             in_transfer_size: [0; 16],
+            setup_receive_enabled: false,
             reset_injected: false,
         }
     }
@@ -1110,6 +1112,17 @@ impl EspUsbOtgHandle {
             && state.register(EspUsbOtgRegister::GahbCfg) & 1 != 0
     }
 
+    /// Reports whether endpoint zero can accept a SETUP packet.
+    ///
+    /// In slave/FIFO mode the DWC2 core uses `DOEPTSIZ0.STUPCNT` as the
+    /// SETUP receive arm; unlike DMA mode, `DOEPCTL0.EPENA` is not required.
+    pub fn setup_ready(&self) -> bool {
+        let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
+        let dma_enabled = state.register(EspUsbOtgRegister::GahbCfg) & (1 << 5) != 0;
+        state.setup_receive_enabled
+            && (!dma_enabled || state.register(EspUsbOtgRegister::DoepCtl(0)) & DWC2_EPENA != 0)
+    }
+
     /// Injects full-speed bus reset and enumeration-complete conditions once.
     pub fn inject_bus_reset(&self) {
         let mut state = self.state.lock().expect("ESP USB OTG state lock poisoned");
@@ -1123,6 +1136,8 @@ impl EspUsbOtgHandle {
                 !(DWC2_EPENA | DWC2_EPDIS);
             *state.register_mut(EspUsbOtgRegister::DoepCtl(endpoint_id)) &=
                 !(DWC2_EPENA | DWC2_EPDIS);
+            *state.register_mut(EspUsbOtgRegister::DiepTsiz(endpoint_id)) = 0;
+            *state.register_mut(EspUsbOtgRegister::DoepTsiz(endpoint_id)) = 0;
             *state.register_mut(EspUsbOtgRegister::DiepInt(endpoint_id)) = 0;
             *state.register_mut(EspUsbOtgRegister::DoepInt(endpoint_id)) = 0;
             state.in_transfer_size[endpoint] = 0;
@@ -1130,6 +1145,7 @@ impl EspUsbOtgHandle {
         }
         state.rx_status.clear();
         state.rx_fifo.clear();
+        state.setup_receive_enabled = false;
         *state.register_mut(EspUsbOtgRegister::GintSts) |= (1 << 12) | (1 << 13);
         state.reset_injected = true;
     }

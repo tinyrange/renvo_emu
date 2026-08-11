@@ -48,6 +48,7 @@ pub enum Esp32S3RtcRegister {
     SlowClkConf = 0x078,
     SdioConf = 0x07c,
     BiasConf = 0x080,
+    Regulator = 0x084,
     Pwc = 0x088,
     RegulatorDrvCtrl = 0x08c,
     DigPwc = 0x090,
@@ -149,6 +150,7 @@ impl Esp32S3RtcRegister {
             0x078 => Self::SlowClkConf,
             0x07c => Self::SdioConf,
             0x080 => Self::BiasConf,
+            0x084 => Self::Regulator,
             0x088 => Self::Pwc,
             0x08c => Self::RegulatorDrvCtrl,
             0x090 => Self::DigPwc,
@@ -226,6 +228,7 @@ impl Esp32S3RtcRegister {
             Self::UlpCpTimer => 0xa000_07ff,
             Self::UlpCpCtrl => 0xf03f_ffff,
             Self::UlpCpTimer1 => 0xffffff00,
+            Self::Regulator => 0xf03f_c080,
             Self::Date => 0x0fff_ffff,
             Self::SarMeas1Ctrl2 | Self::SarMeas2Ctrl2 => u32::MAX,
             _ => u32::MAX,
@@ -252,6 +255,7 @@ impl Esp32S3RtcRegister {
             Self::UlpCpTimer => 0xe000_07ff,
             Self::UlpCpCtrl => 0xf07f_ffff,
             Self::UlpCpTimer1 => 0xffffff00,
+            Self::Regulator => 0xf03f_c080,
             Self::Date => 0x0fff_ffff,
             Self::SarMeas1Ctrl2 | Self::SarMeas2Ctrl2 => 0xfffe_0000,
             _ => u32::MAX,
@@ -346,6 +350,7 @@ impl EspRtcControlState {
         self.registers.clear();
         self.set_register(Esp32S3RtcRegister::UlpCpTimer1, 200 << 8);
         self.set_register(Esp32S3RtcRegister::UlpCpCtrl, (512 << 11) | 512);
+        self.set_register(Esp32S3RtcRegister::Regulator, 0xa000_0000);
         self.set_register(Esp32S3RtcRegister::Xtal32kConf, 0x0ff0_0000);
         self.set_register(Esp32S3RtcRegister::Date, 0x0210_1271);
         self.ulp_started = false;
@@ -720,11 +725,48 @@ mod tests {
         assert_eq!(Esp32S3RtcRegister::UlpCpTimer1.offset(), 0x134);
         assert_eq!(Esp32S3RtcRegister::Date.offset(), 0x1fc);
         assert_eq!(Esp32S3RtcRegister::SarMeas2Ctrl2.offset(), 0x830);
-        assert_eq!(Esp32S3RtcRegister::from_offset(0x084), None);
+        assert_eq!(
+            Esp32S3RtcRegister::from_offset(0x084),
+            Some(Esp32S3RtcRegister::Regulator)
+        );
         assert_eq!(Esp32S3RtcRegister::from_offset(0x158), None);
         assert_eq!(Esp32S3RtcRegister::IntEna.write_mask(), 0x001f_ffff);
         assert_eq!(Esp32S3RtcRegister::IntRaw.write_mask(), 0);
         assert_eq!(Esp32S3RtcRegister::UlpCpTimer1.read_mask(), 0xffffff00);
+    }
+
+    #[test]
+    fn regulator_register_uses_vendor_reset_and_write_mask() {
+        let mut device = EspRtcControl::new("rtc");
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3RtcRegister::Regulator.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xa000_0000
+        );
+
+        device
+            .write(
+                Esp32S3RtcRegister::Regulator.offset(),
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3RtcRegister::Regulator.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xf03f_c080
+        );
     }
 
     #[test]
@@ -832,7 +874,7 @@ mod tests {
         let mut device = EspRtcControl::new("rtc");
         assert!(
             device
-                .read(0x084, AccessWidth::Word, SimTime::ZERO)
+                .read(0x158, AccessWidth::Word, SimTime::ZERO)
                 .is_err()
         );
         assert!(

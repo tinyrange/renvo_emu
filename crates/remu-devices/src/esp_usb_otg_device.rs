@@ -255,7 +255,10 @@ impl Device for EspUsbOtg {
             state.registers[index] = value & (DWC2_XFER_SIZE_MASK | DWC2_IN_PKT_COUNT_MASK);
             state.in_transfer_size[usize::from(endpoint)] =
                 usize::try_from(value & DWC2_XFER_SIZE_MASK).expect("DWC2 transfer size fits");
-        } else if let Some(EspUsbOtgRegister::DoepTsiz(_endpoint)) = register {
+        } else if let Some(EspUsbOtgRegister::DoepTsiz(endpoint)) = register {
+            if endpoint == 0 && value as u32 & DWC2_OUT_SETUP_COUNT_MASK != 0 {
+                state.setup_receive_enabled = true;
+            }
             state.registers[index] = value as u32
                 & (DWC2_XFER_SIZE_MASK | DWC2_OUT_PKT_COUNT_MASK | DWC2_OUT_SETUP_COUNT_MASK);
         } else {
@@ -364,5 +367,29 @@ mod tests {
             )
             .unwrap();
         assert!(!handle.output_ready(0));
+    }
+
+    #[test]
+    fn slave_mode_setup_arm_survives_ep0_status_sizing() {
+        let (mut device, handle) = EspUsbOtg::new("usb");
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(0), 3 << 29);
+        assert!(handle.setup_ready());
+
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(0), 1 << 19);
+        assert!(handle.setup_ready());
+
+        handle.inject_bus_reset();
+        assert!(!handle.setup_ready());
+    }
+
+    #[test]
+    fn dma_mode_setup_also_requires_endpoint_enable() {
+        let (mut device, handle) = EspUsbOtg::new("usb");
+        write(&mut device, EspUsbOtgRegister::GahbCfg, 1 << 5);
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(0), 3 << 29);
+        assert!(!handle.setup_ready());
+
+        write(&mut device, EspUsbOtgRegister::DoepCtl(0), DWC2_EPENA);
+        assert!(handle.setup_ready());
     }
 }

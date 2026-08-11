@@ -243,7 +243,7 @@ impl EspDwc2Host {
         }
         if now.ticks() >= self.next_setup_at
             && !usb.interrupt_pending()
-            && usb.output_ready(0)
+            && usb.setup_ready()
             && let Some(request) = self.requests.pop_front()
         {
             if std::env::var_os("REMU_DEBUG_USB").is_some() {
@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn setup_waits_until_endpoint_zero_is_rearmed_after_reset() {
+    fn setup_waits_for_a_fresh_setup_count_after_reset() {
         let (mut usb_device, usb) = EspUsbOtg::new("usb");
         let (_, wrapper) = Esp32S3UsbWrap::new("usb-wrap");
         write(&mut usb_device, 0x08, 1);
@@ -337,7 +337,6 @@ mod tests {
         assert!(!usb.interrupt_pending());
 
         write(&mut usb_device, 0xb10, 64 | (1 << 19) | (3 << 29));
-        write(&mut usb_device, 0xb00, (1 << 31) | (1 << 26));
         assert_eq!(
             host.poll(SimTime::from_ticks(1025), &usb, &wrapper, true),
             1

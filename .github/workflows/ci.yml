@@ -87,6 +87,9 @@ jobs:
       - name: Run native peripheral qualification
         run: ./scripts/qualify-esp32s3-peripherals.sh
 
+      - name: Run ESP-IDF and TinyUSB stack qualification
+        run: ./scripts/qualify-esp32s3-usb-stacks.sh
+
       - name: Run M5StickS3 firmware/component qualification
         run: ./scripts/qualify-board-models.sh
 
@@ -97,6 +100,7 @@ jobs:
           name: esp32s3-peripheral-qualification
           path: |
             .remu/qualification/esp32s3-peripherals
+            .remu/qualification/esp32s3-usb-stacks
             .remu/qualification/board-models
           if-no-files-found: ignore
 
