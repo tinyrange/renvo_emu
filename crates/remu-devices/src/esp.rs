@@ -795,9 +795,11 @@ const DWC2_EPDIS: u32 = 1 << 30;
 const DWC2_GINT_RXFLVL: u32 = 1 << 4;
 const DWC2_GINT_IEPINT: u32 = 1 << 18;
 const DWC2_GINT_OEPINT: u32 = 1 << 19;
-const DWC2_XFER_SIZE_MASK: u32 = 0x7f;
-const DWC2_IN_PKT_COUNT_MASK: u32 = 0x3 << 19;
-const DWC2_OUT_PKT_COUNT_MASK: u32 = 1 << 19;
+const DWC2_EP0_XFER_SIZE_MASK: u32 = 0x7f;
+const DWC2_DATA_XFER_SIZE_MASK: u32 = 0x7ffff;
+const DWC2_EP0_IN_PKT_COUNT_MASK: u32 = 0x3 << 19;
+const DWC2_EP0_OUT_PKT_COUNT_MASK: u32 = 1 << 19;
+const DWC2_DATA_PKT_COUNT_MASK: u32 = 0x3ff << 19;
 const DWC2_OUT_SETUP_COUNT_MASK: u32 = 0x3 << 29;
 const DWC2_DIEPCTL_CONFIG_MASK: u32 = 0x7 | (1 << 21) | (0xf << 22);
 const DWC2_DOEPCTL_CONFIG_MASK: u32 = (1 << 20) | (1 << 21);
@@ -874,6 +876,30 @@ const DWC2_GINTMSK_MASK: u32 = (1 << 1)
     | (1 << 29)
     | (1 << 30)
     | (1 << 31);
+
+const fn dwc2_xfer_size_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_XFER_SIZE_MASK
+    } else {
+        DWC2_DATA_XFER_SIZE_MASK
+    }
+}
+
+const fn dwc2_in_pkt_count_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_IN_PKT_COUNT_MASK
+    } else {
+        DWC2_DATA_PKT_COUNT_MASK
+    }
+}
+
+const fn dwc2_out_pkt_count_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_OUT_PKT_COUNT_MASK
+    } else {
+        DWC2_DATA_PKT_COUNT_MASK
+    }
+}
 const DWC2_DIEPMSK_MASK: u32 = (1 << 0)
     | (1 << 1)
     | (1 << 2)
@@ -1093,14 +1119,14 @@ impl EspUsbOtgState {
     fn write_fifo(&mut self, endpoint: usize, value: u32) {
         let endpoint_id = endpoint as u8;
         let size_index = EspUsbOtgRegister::DiepTsiz(endpoint_id).index();
-        let remaining = usize::try_from(
-            self.register(EspUsbOtgRegister::DiepTsiz(endpoint_id)) & DWC2_XFER_SIZE_MASK,
-        )
-        .expect("DWC2 transfer size fits usize");
+        let size_mask = dwc2_xfer_size_mask(endpoint_id);
+        let remaining =
+            usize::try_from(self.register(EspUsbOtgRegister::DiepTsiz(endpoint_id)) & size_mask)
+                .expect("DWC2 transfer size fits usize");
         let count = remaining.min(4);
         self.tx_fifo[endpoint].extend_from_slice(&value.to_le_bytes()[..count]);
         self.registers[size_index] =
-            (self.registers[size_index] & !DWC2_XFER_SIZE_MASK) | (remaining - count) as u32;
+            (self.registers[size_index] & !size_mask) | (remaining - count) as u32;
     }
 }
 
@@ -1202,8 +1228,8 @@ impl EspUsbOtgHandle {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
         let endpoint = usize::from(endpoint);
         let control = state.register(EspUsbOtgRegister::DiepCtl(endpoint as u8));
-        let remaining =
-            state.register(EspUsbOtgRegister::DiepTsiz(endpoint as u8)) & DWC2_XFER_SIZE_MASK;
+        let remaining = state.register(EspUsbOtgRegister::DiepTsiz(endpoint as u8))
+            & dwc2_xfer_size_mask(endpoint as u8);
         control & DWC2_EPENA != 0
             && remaining == 0
             && state.tx_fifo[endpoint].len() >= state.in_transfer_size[endpoint]
@@ -1216,7 +1242,7 @@ impl EspUsbOtgHandle {
         let control = EspUsbOtgRegister::DiepCtl(endpoint as u8);
         let size = EspUsbOtgRegister::DiepTsiz(endpoint as u8);
         if state.register(control) & DWC2_EPENA == 0
-            || state.register(size) & DWC2_XFER_SIZE_MASK != 0
+            || state.register(size) & dwc2_xfer_size_mask(endpoint as u8) != 0
             || state.tx_fifo[endpoint].len() < state.in_transfer_size[endpoint]
         {
             return None;
@@ -1237,8 +1263,10 @@ impl EspUsbOtgHandle {
     /// Returns the number of bytes currently scheduled on an OUT endpoint.
     pub fn output_capacity(&self, endpoint: u8) -> usize {
         let state = self.state.lock().expect("ESP USB OTG state lock poisoned");
-        usize::try_from(state.register(EspUsbOtgRegister::DoepTsiz(endpoint)) & DWC2_XFER_SIZE_MASK)
-            .expect("DWC2 transfer size fits usize")
+        usize::try_from(
+            state.register(EspUsbOtgRegister::DoepTsiz(endpoint)) & dwc2_xfer_size_mask(endpoint),
+        )
+        .expect("DWC2 transfer size fits usize")
     }
 
     /// Delivers one host-to-device packet through the shared receive FIFO.
@@ -1251,9 +1279,9 @@ impl EspUsbOtgHandle {
         }
         let size = EspUsbOtgRegister::DoepTsiz(endpoint);
         let current = state.register(size);
-        let remaining = current & DWC2_XFER_SIZE_MASK;
-        let updated =
-            (current & !DWC2_XFER_SIZE_MASK) | remaining.saturating_sub(bytes.len() as u32);
+        let size_mask = dwc2_xfer_size_mask(endpoint);
+        let remaining = current & size_mask;
+        let updated = (current & !size_mask) | remaining.saturating_sub(bytes.len() as u32);
         *state.register_mut(size) = updated;
         state
             .rx_status

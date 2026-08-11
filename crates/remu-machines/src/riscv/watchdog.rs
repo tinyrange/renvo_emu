@@ -52,6 +52,20 @@ impl RiscVMachine {
             self.cpu1.reset(ResetKind::Watchdog, &mut self.bus)?;
             self.cpu1_active = false;
         }
+        if action != EspWatchdogAction::ResetRtc
+            && let Some(application) = self.esp_application.clone()
+        {
+            // Functional mask-ROM boot: a main-watchdog system reset retains
+            // flash and the LP always-on stores, then performs the same
+            // verified application handoff as the initial boot.
+            self.load_esp_application(&application)?;
+        } else if action != EspWatchdogAction::ResetRtc
+            && let Some(firmware) = self.esp_direct_firmware.clone()
+        {
+            // Direct ELF mode models the same second-stage boot by restoring
+            // its initialized segments and entry point.
+            self.load_firmware(&firmware)?;
+        }
         stats.events = stats.events.saturating_add(1);
         Ok(true)
     }

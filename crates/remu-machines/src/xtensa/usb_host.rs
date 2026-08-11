@@ -6,6 +6,8 @@ use super::{
 enum Dwc2ControlResponse {
     DeviceDescriptor,
     ConfigurationDescriptor,
+    BosDescriptor,
+    ClassDescriptor,
     None,
 }
 
@@ -39,6 +41,8 @@ pub(super) struct EspDwc2Host {
     next_setup_at: u64,
     requests: VecDeque<Dwc2ControlRequest>,
     active: Option<Dwc2ControlTransfer>,
+    data_out: VecDeque<(u8, Vec<u8>)>,
+    in_endpoints: [bool; 16],
     bulk_in: Option<u8>,
     bulk_out: Option<u8>,
     pub(super) input: VecDeque<u8>,
@@ -67,16 +71,10 @@ impl EspDwc2Host {
                     setup: [0x80, 6, 0, 2, 0, 0, 255, 0],
                     response: Dwc2ControlResponse::ConfigurationDescriptor,
                 },
-                Dwc2ControlRequest {
-                    setup: [0x00, 9, 1, 0, 0, 0, 0, 0],
-                    response: Dwc2ControlResponse::None,
-                },
-                Dwc2ControlRequest {
-                    setup: [0x21, 0x22, 3, 0, 0, 0, 0, 0],
-                    response: Dwc2ControlResponse::None,
-                },
             ]),
             active: None,
+            data_out: VecDeque::new(),
+            in_endpoints: [false; 16],
             bulk_in: None,
             bulk_out: None,
             input: VecDeque::new(),
@@ -115,22 +113,121 @@ impl EspDwc2Host {
         self.sending_raw_chunk || self.raw_prompt_ready
     }
 
-    pub(super) fn discover_bulk_endpoints(&mut self, descriptor: &[u8]) {
+    fn queue_control(&mut self, setup: [u8; 8], response: Dwc2ControlResponse) {
+        self.requests
+            .push_back(Dwc2ControlRequest { setup, response });
+    }
+
+    pub(super) fn configure_from_descriptor(&mut self, descriptor: &[u8]) {
+        #[derive(Clone, Copy, Default)]
+        struct Interface {
+            number: u8,
+            alternate: u8,
+            class: u8,
+            subclass: u8,
+            protocol: u8,
+        }
+
+        let mut interfaces = Vec::new();
+        let mut current = None;
+        let mut mass_storage_out = None;
         let mut offset = 0;
         while offset + 2 <= descriptor.len() {
             let length = usize::from(descriptor[offset]);
             if length < 2 || offset + length > descriptor.len() {
                 break;
             }
-            if descriptor[offset + 1] == 5 && length >= 7 && descriptor[offset + 3] & 3 == 2 {
+            if descriptor[offset + 1] == 4 && length >= 9 {
+                let interface = Interface {
+                    number: descriptor[offset + 2],
+                    alternate: descriptor[offset + 3],
+                    class: descriptor[offset + 5],
+                    subclass: descriptor[offset + 6],
+                    protocol: descriptor[offset + 7],
+                };
+                interfaces.push(interface);
+                current = Some(interface);
+            } else if descriptor[offset + 1] == 5 && length >= 7 {
                 let address = descriptor[offset + 2];
-                if address & 0x80 != 0 {
-                    self.bulk_in = Some(address & 0x0f);
-                } else {
-                    self.bulk_out = Some(address & 0x0f);
+                let endpoint = usize::from(address & 0x0f);
+                if address & 0x80 != 0 && endpoint < self.in_endpoints.len() {
+                    self.in_endpoints[endpoint] = true;
+                }
+                if descriptor[offset + 3] & 3 == 2 {
+                    if address & 0x80 != 0 {
+                        self.bulk_in.get_or_insert(address & 0x0f);
+                    } else {
+                        self.bulk_out.get_or_insert(address & 0x0f);
+                    }
+                }
+                if address & 0x80 == 0
+                    && current.is_some_and(|interface| {
+                        (interface.class, interface.subclass, interface.protocol) == (8, 6, 0x50)
+                    })
+                {
+                    mass_storage_out = Some(address & 0x0f);
                 }
             }
             offset += length;
+        }
+
+        self.queue_control([0x00, 9, 1, 0, 0, 0, 0, 0], Dwc2ControlResponse::None);
+        for interface in interfaces {
+            match (interface.class, interface.subclass, interface.protocol) {
+                // CDC ACM: assert DTR and RTS on its communication interface.
+                (2, 2, 1) if interface.alternate == 0 => self.queue_control(
+                    [0x21, 0x22, 3, 0, interface.number, 0, 0, 0],
+                    Dwc2ControlResponse::None,
+                ),
+                // CDC ECM: select the data interface then accept directed,
+                // multicast and broadcast Ethernet packets.
+                (2, 6, _) if interface.alternate == 0 => self.queue_control(
+                    [0x21, 0x43, 0x0e, 0, interface.number, 0, 0, 0],
+                    Dwc2ControlResponse::None,
+                ),
+                (0x0a, _, _) if interface.alternate == 1 => self.queue_control(
+                    [0x01, 11, 1, 0, interface.number, 0, 0, 0],
+                    Dwc2ControlResponse::None,
+                ),
+                // HID report descriptors are interface-scoped.
+                (3, _, _) if interface.alternate == 0 => self.queue_control(
+                    [0x81, 6, 0, 0x22, interface.number, 0, 255, 0],
+                    Dwc2ControlResponse::ClassDescriptor,
+                ),
+                // UAC1 streaming endpoints are deliberately absent from alt 0.
+                (1, 2, _) if interface.alternate == 1 => self.queue_control(
+                    [0x01, 11, 1, 0, interface.number, 0, 0, 0],
+                    Dwc2ControlResponse::None,
+                ),
+                // Bulk-only WebUSB functions advertise class ff/00/00. Fetch
+                // BOS first; its platform capability supplies the request code.
+                (0xff, 0, 0) if interface.alternate == 0 => self.queue_control(
+                    [0x80, 6, 0, 15, 0, 0, 255, 0],
+                    Dwc2ControlResponse::BosDescriptor,
+                ),
+                // MSC BOT and MTP both have useful mandatory class controls.
+                (8, 6, 0x50) if interface.alternate == 0 => self.queue_control(
+                    [0xa1, 0xfe, 0, 0, interface.number, 0, 1, 0],
+                    Dwc2ControlResponse::ClassDescriptor,
+                ),
+                (6, 1, 1) if interface.alternate == 0 => self.queue_control(
+                    [0xa1, 0x67, 0, 0, interface.number, 0, 4, 0],
+                    Dwc2ControlResponse::ClassDescriptor,
+                ),
+                _ => {}
+            }
+        }
+        if let Some(endpoint) = mass_storage_out {
+            // USB Mass Storage Bulk-Only Transport CBW for SCSI INQUIRY.
+            let mut cbw = vec![0_u8; 31];
+            cbw[0..4].copy_from_slice(b"USBC");
+            cbw[4] = 7;
+            cbw[8] = 36;
+            cbw[12] = 0x80;
+            cbw[14] = 6;
+            cbw[15] = 0x12;
+            cbw[19] = 36;
+            self.data_out.push_back((endpoint, cbw));
         }
     }
 
@@ -148,7 +245,22 @@ impl EspDwc2Host {
             transfer.request.response,
             Dwc2ControlResponse::ConfigurationDescriptor
         ) {
-            self.discover_bulk_endpoints(&transfer.response);
+            self.configure_from_descriptor(&transfer.response);
+        }
+        if matches!(
+            transfer.request.response,
+            Dwc2ControlResponse::BosDescriptor
+        ) && transfer.response.len() >= 29
+            && transfer.response[1] == 15
+            && transfer.response[5] == 24
+            && transfer.response[6] == 16
+            && transfer.response[7] == 5
+        {
+            let request = transfer.response[27];
+            self.queue_control(
+                [0xc0, request, 1, 0, 2, 0, 255, 0],
+                Dwc2ControlResponse::ClassDescriptor,
+            );
         }
         self.next_setup_at = now.ticks().saturating_add(256);
     }
@@ -258,10 +370,21 @@ impl EspDwc2Host {
             return 1;
         }
 
+        if self.requests.is_empty()
+            && let Some((endpoint, packet)) = self.data_out.front()
+            && usb.output_ready(*endpoint)
+            && !usb.interrupt_pending()
+            && packet.len() <= usb.output_capacity(*endpoint)
+        {
+            usb.inject_output(*endpoint, packet);
+            self.data_out.pop_front();
+            return 1;
+        }
+
         let mut events = 0;
         for endpoint in 1..7_u8 {
             if let Some(packet) = usb.take_input(endpoint) {
-                if self.bulk_in == Some(endpoint) {
+                if self.in_endpoints[usize::from(endpoint)] {
                     self.output.extend_from_slice(&packet);
                     if self.output.ends_with(b"\x04\x04>")
                         || self.output.ends_with(b"raw REPL; CTRL-B to exit\r\n>")
@@ -342,5 +465,34 @@ mod tests {
             1
         );
         assert!(usb.interrupt_pending());
+    }
+
+    #[test]
+    fn descriptor_drives_class_controls_and_mass_storage_probe() {
+        let mut host = EspDwc2Host::new();
+        host.requests.clear();
+        host.configure_from_descriptor(&[
+            9, 2, 48, 0, 2, 1, 0, 0x80, 50, // configuration
+            9, 4, 0, 0, 1, 3, 0, 0, 0, // HID interface
+            7, 5, 0x81, 3, 8, 0, 10, // interrupt IN
+            9, 4, 1, 0, 2, 8, 6, 0x50, 0, // MSC BOT interface
+            7, 5, 0x02, 2, 64, 0, 0, // bulk OUT
+            7, 5, 0x82, 2, 64, 0, 0, // bulk IN
+        ]);
+
+        let setups = host
+            .requests
+            .iter()
+            .map(|request| request.setup)
+            .collect::<Vec<_>>();
+        assert_eq!(setups[0], [0, 9, 1, 0, 0, 0, 0, 0]);
+        assert_eq!(setups[1], [0x81, 6, 0, 0x22, 0, 0, 255, 0]);
+        assert_eq!(setups[2], [0xa1, 0xfe, 0, 0, 1, 0, 1, 0]);
+        assert!(host.in_endpoints[1]);
+        assert!(host.in_endpoints[2]);
+        let (endpoint, cbw) = host.data_out.front().expect("MSC inquiry CBW");
+        assert_eq!(*endpoint, 2);
+        assert_eq!(&cbw[0..4], b"USBC");
+        assert_eq!(cbw[15], 0x12);
     }
 }

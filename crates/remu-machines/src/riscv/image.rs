@@ -158,6 +158,9 @@ impl RiscVMachine {
         let entry =
             u32::try_from(image.entry).map_err(|_| MachineError::EntryRange(image.entry))?;
         self.cpu.set_pc(entry)?;
+        if self.target == TargetId::Esp32c6 {
+            self.esp_direct_firmware = Some(image.clone());
+        }
         Ok(())
     }
 
@@ -409,6 +412,7 @@ impl RiscVMachine {
             .map_err(MachineError::BootBlock)?;
         self.cpu.set_register(RiscVRegister::Sp, 0x4087_e610)?;
         self.cpu.set_pc(image.application.header.entry)?;
+        self.esp_application = Some(image.clone());
         Ok(())
     }
 

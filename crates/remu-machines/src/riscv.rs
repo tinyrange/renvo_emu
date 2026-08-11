@@ -204,6 +204,8 @@ pub struct RiscVMachine {
     esp_flash_guard: u32,
     esp_reset_reason: u32,
     esp_flash: Vec<u8>,
+    esp_application: Option<EspFlashImage>,
+    esp_direct_firmware: Option<FirmwareImage>,
     esp_timer_groups: Vec<EspTimerGroupHandle>,
     esp_c6_plic: Option<EspC6PlicHandle>,
     esp_c6_clint: Option<EspC6ClintHandle>,
@@ -727,6 +729,8 @@ impl RiscVMachine {
             esp_flash_guard: 0,
             esp_reset_reason: 1,
             esp_flash: Vec::new(),
+            esp_application: None,
+            esp_direct_firmware: None,
             esp_timer_groups,
             esp_c6_plic,
             esp_c6_clint,
@@ -1467,7 +1471,11 @@ impl RiscVMachine {
                         .as_ref()
                         .map_or_else(Vec::new, Rp2040UsbHost::output)
                 },
-                EspUsbSerialJtagHandle::output,
+                |usb| {
+                    let mut bytes = usb.output();
+                    bytes.extend(usb.low_speed_output());
+                    bytes
+                },
             ),
             trace_digest: digest.finish(),
         })

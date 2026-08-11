@@ -198,7 +198,7 @@ impl Device for EspUsbOtg {
                 next |= DWC2_EPENA;
                 let size = usize::try_from(
                     state.register(EspUsbOtgRegister::DiepTsiz(endpoint as u8))
-                        & DWC2_XFER_SIZE_MASK,
+                        & dwc2_xfer_size_mask(endpoint as u8),
                 )
                 .expect("DWC2 transfer size fits usize");
                 state.in_transfer_size[endpoint] = size;
@@ -252,15 +252,21 @@ impl Device for EspUsbOtg {
             state.registers[index] = value as u32 & DWC2_DIEPEMP_MASK;
         } else if let Some(EspUsbOtgRegister::DiepTsiz(endpoint)) = register {
             let value = value as u32;
-            state.registers[index] = value & (DWC2_XFER_SIZE_MASK | DWC2_IN_PKT_COUNT_MASK);
+            let size_mask = dwc2_xfer_size_mask(endpoint);
+            state.registers[index] = value & (size_mask | dwc2_in_pkt_count_mask(endpoint));
             state.in_transfer_size[usize::from(endpoint)] =
-                usize::try_from(value & DWC2_XFER_SIZE_MASK).expect("DWC2 transfer size fits");
+                usize::try_from(value & size_mask).expect("DWC2 transfer size fits");
         } else if let Some(EspUsbOtgRegister::DoepTsiz(endpoint)) = register {
             if endpoint == 0 && value as u32 & DWC2_OUT_SETUP_COUNT_MASK != 0 {
                 state.setup_receive_enabled = true;
             }
+            let setup_mask = if endpoint == 0 {
+                DWC2_OUT_SETUP_COUNT_MASK
+            } else {
+                0
+            };
             state.registers[index] = value as u32
-                & (DWC2_XFER_SIZE_MASK | DWC2_OUT_PKT_COUNT_MASK | DWC2_OUT_SETUP_COUNT_MASK);
+                & (dwc2_xfer_size_mask(endpoint) | dwc2_out_pkt_count_mask(endpoint) | setup_mask);
         } else {
             state.registers[index] = value as u32;
         }
@@ -343,6 +349,36 @@ mod tests {
             (32 << 16) | 0xa0,
         );
         write(&mut device, EspUsbOtgRegister::DiepCtl(1), DWC2_EPENA);
+    }
+
+    #[test]
+    fn data_endpoints_keep_wide_transfer_size_and_packet_count_fields() {
+        let (mut device, _) = EspUsbOtg::new("usb");
+        let input = 192 | (3 << 19);
+        let output = 512 | (8 << 19);
+        write(&mut device, EspUsbOtgRegister::DiepTsiz(1), input);
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(2), output);
+
+        assert_eq!(
+            device
+                .read(
+                    EspUsbOtgRegister::DiepTsiz(1).offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(input)
+        );
+        assert_eq!(
+            device
+                .read(
+                    EspUsbOtgRegister::DoepTsiz(2).offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(output)
+        );
     }
 
     #[test]
