@@ -88,6 +88,7 @@ impl XtensaMachine {
                         slot_address,
                         event_index,
                         channel,
+                        phy: "ble-1m",
                         complete_on_receive: access_address != BLE_ADVERTISING_ACCESS_ADDRESS,
                         response: None,
                     },
@@ -116,12 +117,30 @@ impl XtensaMachine {
                     spectrum: s3_ble_spectrum(channel),
                     sensitivity_dbm: -100,
                 })?;
+                let phy_result = self
+                    .native_ble_link_sequences
+                    .entry(cs_address)
+                    .or_default()
+                    .begin_event();
+                let (phys, phy_error) = match phy_result {
+                    Ok(phys) => (Some(phys), None),
+                    Err(detail) => (None, Some(detail)),
+                };
+                self.radio_legality.require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    phy_error.is_none(),
+                    self.now,
+                    phy_error.unwrap_or_default(),
+                )?;
+                let (tx_phy, rx_phy) =
+                    phys.expect("legality check established BLE connection PHYs");
                 let response = PendingNativeBleTransmission {
                     start: 0,
                     slot_address,
                     event_index,
                     channel,
-                    phy: "ble-1m",
+                    phy: tx_phy,
                     complete_event: true,
                     response_window: false,
                     tx_interrupt: true,
@@ -141,6 +160,7 @@ impl XtensaMachine {
                         slot_address,
                         event_index,
                         channel,
+                        phy: rx_phy,
                         complete_on_receive: false,
                         response: Some(response),
                     },
@@ -472,6 +492,7 @@ impl XtensaMachine {
                                 slot_address: pending.slot_address,
                                 event_index: pending.event_index,
                                 channel: pending.channel,
+                                phy: pending.phy,
                                 // Connection RX is reported before the frame
                                 // event closes. Preserve the separately
                                 // scheduled END so the ROM can consume RX and
@@ -504,6 +525,7 @@ impl XtensaMachine {
                                 slot_address: pending.slot_address,
                                 event_index: pending.event_index,
                                 channel: pending.channel,
+                                phy: pending.phy,
                                 complete_on_receive: true,
                                 response: None,
                             },

@@ -170,6 +170,7 @@ pub struct XtensaMachine {
     pending_native_ble_transmissions: VecDeque<radio::PendingNativeBleTransmission>,
     pending_native_ble_receptions: VecDeque<radio::PendingNativeBleReception>,
     pending_native_ble_slot_completions: VecDeque<(u64, u32, u16)>,
+    native_ble_link_sequences: BTreeMap<u32, radio::S3BleLinkSequence>,
     now: SimTime,
     stack: u32,
     instruction_cache_configured: bool,
@@ -777,6 +778,7 @@ impl XtensaMachine {
             pending_native_ble_transmissions: VecDeque::new(),
             pending_native_ble_receptions: VecDeque::new(),
             pending_native_ble_slot_completions: VecDeque::new(),
+            native_ble_link_sequences: BTreeMap::new(),
             now: SimTime::ZERO,
             // ESP32-S3 reserves an 8-KiB ROM startup stack ending here. CPU0
             // uses the upper half and the APP CPU starts one 4-KiB half below;

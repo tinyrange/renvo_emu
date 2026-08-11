@@ -145,7 +145,9 @@ jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
              .id == $submitted.id and
              .receiver == 1 and
              .outcome.kind == "delivered"))) and
-    all([[15, 2, 2, 19],
+    all([(if $chip == "esp32c6" then [3, 2, 2, 19]
+          else [15, 2, 2, 19]
+          end),
          [2, 7, 3, 0, 4, 0, 2, 247, 0],
          [15, 9, 21, 251, 0, 144, 66, 251, 0, 144, 66]][];
         . as $required_rx |
@@ -212,7 +214,7 @@ flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-ble-vendor-qualification.v5 \
+    --arg schema remu.radio-ble-vendor-qualification.v6 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -251,6 +253,8 @@ jq -n \
             requires_native_ble_acl_tx: true,
             requires_native_ble_data_length_exchange: true,
             requires_vendor_mtu_callback: true,
+            requires_native_ble_phy_update: true,
+            requires_vendor_phy_callback: true,
             requires_native_ble_acl_acknowledgement: true,
             requires_native_ble_tx_descriptor_retirement: true,
             requires_native_ble_remote_termination: true,
@@ -274,6 +278,8 @@ jq -n \
             native_connection_established: true,
             native_data_length_octets: 251,
             vendor_att_mtu: 247,
+            native_connection_phy: "ble-2m",
+            vendor_phy_update_complete: true,
             native_acl_acknowledged: true,
             native_connection_remote_terminated: true,
             native_scan_restarted_after_disconnect: true,

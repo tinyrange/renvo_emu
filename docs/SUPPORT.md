@@ -72,6 +72,13 @@ energy detection, interrupt clearing, and byte-identical replay. This is
 functional LLE coverage, not an analog PHY or host-network bridge. See
 `docs/ESP32C6_PERIPHERALS.md` for the fidelity matrix and omissions.
 
+ESP32-C6 and ESP32-S3 genuine BLE-controller qualification covers hopped
+connections, LL version/feature/data-length procedures, ACL/L2CAP ATT traffic,
+remote PHY request/response and instant-based bidirectional 1M-to-2M updates,
+the public PHY-complete callback, remote termination, scan restart, and exact
+deterministic replay. Impossible or overlapping PHY instants stop through the
+radio legality validator rather than being silently accepted.
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed

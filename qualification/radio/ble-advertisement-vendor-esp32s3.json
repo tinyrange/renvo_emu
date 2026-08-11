@@ -36,7 +36,7 @@
         0,
         0,
         0,
-        10,
+        100,
         0,
         255,
         255,
@@ -168,16 +168,101 @@
       "center_khz": 2410000,
       "bandwidth_khz": 2000,
       "phy": "ble-1m",
-      "bytes": [
-        15,
-        2,
-        2,
-        19
-      ],
+      "bytes": [15, 3, 22, 3, 3],
       "power_dbm": -40
     },
     {
-      "at": 15950000,
+      "at": 15689968,
+      "protocol": "bluetooth-le",
+      "center_khz": 2420000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [1, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 16168560,
+      "protocol": "bluetooth-le",
+      "center_khz": 2432000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [15, 5, 24, 2, 2, 16, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 16647152,
+      "protocol": "bluetooth-le",
+      "center_khz": 2442000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [1, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 17125744,
+      "protocol": "bluetooth-le",
+      "center_khz": 2452000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [13, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 17604336,
+      "protocol": "bluetooth-le",
+      "center_khz": 2462000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [1, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 18082928,
+      "protocol": "bluetooth-le",
+      "center_khz": 2472000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [13, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 18561520,
+      "protocol": "bluetooth-le",
+      "center_khz": 2406000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [1, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 19040112,
+      "protocol": "bluetooth-le",
+      "center_khz": 2416000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [13, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 19518704,
+      "protocol": "bluetooth-le",
+      "center_khz": 2428000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-2m",
+      "bytes": [13, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 19997296,
+      "protocol": "bluetooth-le",
+      "center_khz": 2438000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-2m",
+      "bytes": [15, 2, 2, 19],
+      "power_dbm": -40
+    },
+    {
+      "at": 21100000,
       "protocol": "bluetooth-le",
       "center_khz": 2480000,
       "bandwidth_khz": 2000,

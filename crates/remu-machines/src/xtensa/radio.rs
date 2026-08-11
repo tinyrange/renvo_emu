@@ -114,8 +114,111 @@ pub(super) struct PendingNativeBleReception {
     slot_address: u32,
     event_index: u8,
     channel: u8,
+    phy: &'static str,
     complete_on_receive: bool,
     response: Option<PendingNativeBleTransmission>,
+}
+
+#[derive(Clone, Copy)]
+struct S3BlePendingPhyUpdate {
+    instant: u16,
+    tx_phy: &'static str,
+    rx_phy: &'static str,
+}
+
+pub(super) struct S3BleLinkSequence {
+    expected_rx_sn: bool,
+    event_counter: u16,
+    active_event: u16,
+    tx_phy: &'static str,
+    rx_phy: &'static str,
+    pending_phy_update: Option<S3BlePendingPhyUpdate>,
+}
+
+impl Default for S3BleLinkSequence {
+    fn default() -> Self {
+        Self {
+            expected_rx_sn: false,
+            event_counter: 0,
+            active_event: 0,
+            tx_phy: "ble-1m",
+            rx_phy: "ble-1m",
+            pending_phy_update: None,
+        }
+    }
+}
+
+impl S3BleLinkSequence {
+    pub(super) fn begin_event(&mut self) -> Result<(&'static str, &'static str), String> {
+        self.active_event = self.event_counter;
+        if let Some(update) = self.pending_phy_update {
+            if update.instant == self.active_event {
+                self.tx_phy = update.tx_phy;
+                self.rx_phy = update.rx_phy;
+                self.pending_phy_update = None;
+            } else if self.active_event.wrapping_sub(update.instant) < 0x8000 {
+                return Err(format!(
+                    "BLE PHY update instant {} passed at connection event {}",
+                    update.instant, self.active_event
+                ));
+            }
+        }
+        self.event_counter = self.event_counter.wrapping_add(1);
+        Ok((self.tx_phy, self.rx_phy))
+    }
+
+    pub(super) fn observe_received(&mut self, received: &[u8]) -> Result<bool, String> {
+        let Some(header) = received.first().copied() else {
+            return Ok(false);
+        };
+        let received_sn = header & (1 << 3) != 0;
+        if received_sn != self.expected_rx_sn {
+            return Ok(false);
+        }
+        self.expected_rx_sn = !self.expected_rx_sn;
+        let terminates_link = header & 3 == 3
+            && received.get(1).copied() == Some(2)
+            && received.get(2).copied() == Some(0x02);
+        if header & 3 != 3
+            || received.len() < 7
+            || received.get(1).copied() != Some(5)
+            || received.get(2).copied() != Some(0x18)
+        {
+            return Ok(terminates_link);
+        }
+        let select_phy = |requested, current| match requested {
+            0 => Some(current),
+            1 => Some("ble-1m"),
+            2 => Some("ble-2m"),
+            3 => Some("ble-coded"),
+            _ => None,
+        };
+        let central_tx = received[3];
+        let central_rx = received[4];
+        let Some(rx_phy) = select_phy(central_tx, self.rx_phy) else {
+            return Err(format!("invalid central TX PHY value {central_tx}"));
+        };
+        let Some(tx_phy) = select_phy(central_rx, self.tx_phy) else {
+            return Err(format!("invalid central RX PHY value {central_rx}"));
+        };
+        let instant = u16::from_le_bytes([received[5], received[6]]);
+        let instant_delta = instant.wrapping_sub(self.active_event);
+        if !(6..0x8000).contains(&instant_delta) {
+            return Err(format!(
+                "BLE PHY update instant {instant} is {instant_delta} events after current event {}",
+                self.active_event
+            ));
+        }
+        if self.pending_phy_update.is_some() {
+            return Err("overlapping BLE PHY update procedures".to_owned());
+        }
+        self.pending_phy_update = Some(S3BlePendingPhyUpdate {
+            instant,
+            tx_phy,
+            rx_phy,
+        });
+        Ok(false)
+    }
 }
 
 impl XtensaMachine {
@@ -202,6 +305,7 @@ impl XtensaMachine {
             self.pending_native_ble_transmissions.clear();
             self.pending_native_ble_receptions.clear();
             self.pending_native_ble_slot_completions.clear();
+            self.native_ble_link_sequences.clear();
             self.radio_reset_generation = reset_generation;
         }
         if self
@@ -430,7 +534,7 @@ impl XtensaMachine {
                     }
                 }
                 RadioProtocol::BluetoothLe if self.syscon.ble_ready() => {
-                    let native = self.write_native_ble_rx(&frame, signal_dbm, received_at);
+                    let native = self.write_native_ble_rx(&frame, signal_dbm, received_at)?;
                     if self
                         .radio_ble
                         .receive_rf(
@@ -455,7 +559,7 @@ impl XtensaMachine {
         frame: &RadioFrame,
         signal_dbm: i16,
         received_at: remu_core::SimTime,
-    ) -> bool {
+    ) -> Result<bool, XtensaMachineError> {
         self.pending_native_ble_receptions
             .retain(|pending| pending.end >= self.now.ticks());
         let Some((activity_index, activity)) = self
@@ -466,33 +570,34 @@ impl XtensaMachine {
                 pending.1.start <= self.now.ticks()
                     && pending.1.end >= self.now.ticks()
                     && frame.spectrum.overlaps(s3_ble_spectrum(pending.1.channel))
+                    && pending.1.phy == frame.phy
             })
             .map(|(index, pending)| (index, pending.clone()))
         else {
-            return false;
+            return Ok(false);
         };
         if frame.bytes.len() < 2 {
-            return false;
+            return Ok(false);
         }
 
         let current = self.ble_exchange_memory.rx_buffer_current() & 0x7fff;
         let Some(descriptor) = self.ble_exchange_memory.resolve_em_address(current) else {
-            return false;
+            return Ok(false);
         };
         let Some(status) = self.read_native_ble_u16(descriptor.wrapping_add(2)) else {
-            return false;
+            return Ok(false);
         };
         if status & 0x8000 == 0 {
-            return false;
+            return Ok(false);
         }
         let Some(buffer_offset) = self.read_native_ble_u16(descriptor.wrapping_add(18)) else {
-            return false;
+            return Ok(false);
         };
         let Some(buffer) = self.ble_exchange_memory.resolve_em_address(buffer_offset) else {
-            return false;
+            return Ok(false);
         };
         let Some(next) = self.read_native_ble_u16(descriptor) else {
-            return false;
+            return Ok(false);
         };
         let header = u16::from_le_bytes([frame.bytes[0], frame.bytes[1]]);
         let coarse = ((received_at.ticks() / S3_BLE_HALF_SLOT_TICKS) & S3_BLE_COARSE_MASK) as u32;
@@ -522,7 +627,7 @@ impl XtensaMachine {
             })
             || !self.write_native_ble_u16(descriptor.wrapping_add(2), status & !0x8000)
         {
-            return false;
+            return Ok(false);
         }
         self.ble_exchange_memory.advance_rx_buffer(next & 0x7fff);
         if let Some(mut response) = activity.response {
@@ -536,21 +641,40 @@ impl XtensaMachine {
                 S3_RWBLE_END_INTERRUPT,
             );
             if !canceled {
-                return false;
+                return Ok(false);
             }
             if self
                 .set_native_ble_slot_state(activity.slot_address, 2)
                 .is_err()
             {
-                return false;
+                return Ok(false);
             }
             if let Some((cs_address, current_descriptor, access_address)) =
                 response.deferred_descriptor
             {
+                let phy_result = self
+                    .native_ble_link_sequences
+                    .entry(cs_address)
+                    .or_default()
+                    .observe_received(&frame.bytes);
+                let (link_terminated, phy_error) = match phy_result {
+                    Ok(link_terminated) => (link_terminated, None),
+                    Err(detail) => (false, Some(detail)),
+                };
+                self.radio_legality.require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    phy_error.is_none(),
+                    self.now,
+                    phy_error.unwrap_or_default(),
+                )?;
+                if link_terminated {
+                    self.native_ble_link_sequences.remove(&cs_address);
+                }
                 let Some(current_header) =
                     self.read_native_ble_u16(current_descriptor.wrapping_add(2))
                 else {
-                    return false;
+                    return Ok(false);
                 };
                 let peer_nesn = frame.bytes[0] & 0x04 != 0;
                 let peer_sn = frame.bytes[0] & 0x08 != 0;
@@ -558,22 +682,22 @@ impl XtensaMachine {
                 let acknowledged = peer_nesn != transmitted_sn;
                 let (descriptor, transmitted_sn) = if acknowledged {
                     let Some(linkage) = self.read_native_ble_u16(current_descriptor) else {
-                        return false;
+                        return Ok(false);
                     };
                     let next_offset = linkage & 0x7fff;
                     if next_offset == 0 {
-                        return false;
+                        return Ok(false);
                     }
                     let Some(next_descriptor) =
                         self.ble_exchange_memory.resolve_em_address(next_offset)
                     else {
-                        return false;
+                        return Ok(false);
                     };
                     if next_descriptor == current_descriptor {
-                        return false;
+                        return Ok(false);
                     }
                     let Some(next_linkage) = self.read_native_ble_u16(next_descriptor) else {
-                        return false;
+                        return Ok(false);
                     };
                     // Bit 15 is the exchange-memory ownership handoff. Return
                     // the acknowledged record to firmware and claim the next
@@ -582,10 +706,10 @@ impl XtensaMachine {
                     if !self.write_native_ble_u16(current_descriptor, linkage | 0x8000)
                         || !self.write_native_ble_u16(next_descriptor, next_linkage & 0x7fff)
                     {
-                        return false;
+                        return Ok(false);
                     }
                     if !self.write_native_ble_u16(cs_address.wrapping_add(28), next_offset) {
-                        return false;
+                        return Ok(false);
                     }
                     (None, !transmitted_sn)
                 } else {
@@ -596,7 +720,7 @@ impl XtensaMachine {
                     let Some(mut response_header) =
                         self.read_native_ble_u16(descriptor.wrapping_add(2))
                     else {
-                        return false;
+                        return Ok(false);
                     };
                     // RWBLE owns the data-channel sequence bits. NESN in the
                     // response acknowledges the accepted peer SN.
@@ -608,7 +732,7 @@ impl XtensaMachine {
                         response_header |= 1;
                     }
                     if !self.write_native_ble_u16(descriptor.wrapping_add(2), response_header) {
-                        return false;
+                        return Ok(false);
                     }
                     response.deferred_descriptor = Some((cs_address, descriptor, access_address));
                 } else {
@@ -644,13 +768,13 @@ impl XtensaMachine {
                 S3_RWBLE_END_INTERRUPT,
             );
             if !canceled {
-                return false;
+                return Ok(false);
             }
             if self
                 .set_native_ble_slot_state(activity.slot_address, 4)
                 .is_err()
             {
-                return false;
+                return Ok(false);
             }
             self.ble_exchange_memory
                 .raise_interrupt(S3_RWBLE_RX_INTERRUPT | S3_RWBLE_END_INTERRUPT);
@@ -659,12 +783,12 @@ impl XtensaMachine {
                 .set_native_ble_slot_state(activity.slot_address, 2)
                 .is_err()
             {
-                return false;
+                return Ok(false);
             }
             self.ble_exchange_memory
                 .raise_interrupt(S3_RWBLE_RX_INTERRUPT);
         }
-        true
+        Ok(true)
     }
 
     fn write_native_ble_u16(&mut self, address: u32, value: u16) -> bool {
@@ -910,7 +1034,7 @@ include!("radio_ble.rs");
 
 #[cfg(test)]
 mod tests {
-    use super::{replace_s3_ble_aux_pointer, s3_ble_event_index};
+    use super::{S3BleLinkSequence, replace_s3_ble_aux_pointer, s3_ble_event_index};
 
     #[test]
     fn ble_event_index_comes_from_control_structure_not_scheduler_slot() {
@@ -924,5 +1048,52 @@ mod tests {
         let mut frame = [0x27, 0x07, 0x06, 0x18, 0x07, 0x27, 0x20, 0x00, 0x00];
         assert!(replace_s3_ble_aux_pointer(&mut frame, 32, 0x2005));
         assert_eq!(frame, [0x27, 0x07, 0x06, 0x18, 0x07, 0x27, 32, 5, 32]);
+    }
+
+    #[test]
+    fn ble_phy_update_changes_both_directions_only_at_the_instant() {
+        let mut sequence = S3BleLinkSequence::default();
+        assert_eq!(sequence.begin_event().unwrap(), ("ble-1m", "ble-1m"));
+        sequence
+            .observe_received(&[3, 5, 0x18, 2, 2, 6, 0])
+            .unwrap();
+        for _ in 1..6 {
+            assert_eq!(sequence.begin_event().unwrap(), ("ble-1m", "ble-1m"));
+        }
+        assert_eq!(sequence.begin_event().unwrap(), ("ble-2m", "ble-2m"));
+
+        let mut illegal = S3BleLinkSequence::default();
+        illegal.begin_event().unwrap();
+        assert!(
+            illegal
+                .observe_received(&[3, 5, 0x18, 2, 2, 5, 0])
+                .unwrap_err()
+                .contains("is 5 events after")
+        );
+
+        let mut overlapping = S3BleLinkSequence::default();
+        overlapping.begin_event().unwrap();
+        overlapping
+            .observe_received(&[3, 5, 0x18, 2, 2, 6, 0])
+            .unwrap();
+        assert_eq!(
+            overlapping
+                .observe_received(&[11, 5, 0x18, 2, 2, 7, 0])
+                .unwrap_err(),
+            "overlapping BLE PHY update procedures"
+        );
+
+        let mut invalid_phy = S3BleLinkSequence::default();
+        invalid_phy.begin_event().unwrap();
+        assert_eq!(
+            invalid_phy
+                .observe_received(&[3, 5, 0x18, 4, 2, 6, 0])
+                .unwrap_err(),
+            "invalid central TX PHY value 4"
+        );
+
+        let mut terminated = S3BleLinkSequence::default();
+        terminated.begin_event().unwrap();
+        assert!(terminated.observe_received(&[3, 2, 0x02, 0x13]).unwrap());
     }
 }
