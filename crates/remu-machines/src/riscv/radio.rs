@@ -1274,11 +1274,7 @@ impl RiscVMachine {
         let mut bytes = self.radio_read_guest_bytes(tx_address.wrapping_add(1), length)?;
         let configuration = handle.configuration();
         if configuration.transmit_security {
-            let Some(payload_offset) = usize::from(configuration.security_offset).checked_sub(1)
-            else {
-                handle.record_security_failure(2);
-                return Ok(());
-            };
+            let payload_offset = usize::from(configuration.security_offset);
             bytes = match self
                 .radio_ieee802154_mac
                 .as_mut()

@@ -493,7 +493,7 @@ EXPECTED_IEEE802154_VENDOR_REQUIREMENTS = {
     ],
 }
 EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS = {
-    "schema": "remu.radio-openthread-vendor-requirements.v1",
+    "schema": "remu.radio-openthread-vendor-requirements.v2",
     "source_ledger_entries": [
         "esp-rom-elfs-20260528",
         "esp-idf-openthread-radio-port",
@@ -508,6 +508,27 @@ EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS = {
     "rom_end": "0x40050000",
     "minimum_instructions": 15_000_000,
     "radio_input": "qualification/radio/openthread-frame-vendor-esp32c6.json",
+    "transmit_security": {
+        "key_id": 7,
+        "frame_counter": 16_909_060,
+        "security_level": 5,
+        "payload_offset": 15,
+        "key": list(range(16)),
+        "expected_psdu_without_fcs": [
+            73, 152, 43, 52, 18, 120, 86, 188, 154, 13, 4, 3, 2, 1, 7,
+            228, 212, 226, 133, 183, 214, 238, 105,
+        ],
+        "expected_register_writes": [
+            {"address": 1_611_280_684, "value": 0},
+            {"address": 1_611_280_688, "value": 0},
+            {"address": 1_611_280_692, "value": 50_462_976},
+            {"address": 1_611_280_696, "value": 117_835_012},
+            {"address": 1_611_280_700, "value": 185_207_048},
+            {"address": 1_611_280_704, "value": 252_579_084},
+            {"address": 1_611_280_680, "value": 3_840},
+            {"address": 1_611_280_680, "value": 3_841},
+        ],
+    },
     "required_uart_substrings": [
         "REMU_VENDOR_OPENTHREAD_PLATFORM result=0",
         "REMU_VENDOR_OPENTHREAD_START result=0",
@@ -515,6 +536,9 @@ EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS = {
         "REMU_VENDOR_OPENTHREAD_TX_FRAME channel=11 length=5",
         "REMU_VENDOR_OPENTHREAD_TX_START error=0",
         "REMU_VENDOR_OPENTHREAD_TX_DONE complete=1 error=0",
+        "REMU_VENDOR_OPENTHREAD_SECURE_CONFIG key_id=7 counter=16909060 error=0",
+        "REMU_VENDOR_OPENTHREAD_SECURE_TX_START error=0",
+        "REMU_VENDOR_OPENTHREAD_SECURE_TX_DONE complete=1 error=0",
         "REMU_VENDOR_OPENTHREAD_RX_START error=0",
         "REMU_VENDOR_OPENTHREAD_RX_DONE complete=1 error=0 length=7 01 00 79 52 58 rssi=-80 lqi=63",
         "REMU_VENDOR_OPENTHREAD_ED_START error=0",

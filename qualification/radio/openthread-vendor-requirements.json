@@ -1,5 +1,5 @@
 {
-  "schema": "remu.radio-openthread-vendor-requirements.v1",
+  "schema": "remu.radio-openthread-vendor-requirements.v2",
   "source_ledger_entries": [
     "esp-rom-elfs-20260528",
     "esp-idf-openthread-radio-port"
@@ -14,6 +14,30 @@
   "rom_end": "0x40050000",
   "minimum_instructions": 15000000,
   "radio_input": "qualification/radio/openthread-frame-vendor-esp32c6.json",
+  "transmit_security": {
+    "key_id": 7,
+    "frame_counter": 16909060,
+    "security_level": 5,
+    "payload_offset": 15,
+    "key": [
+      0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15
+    ],
+    "expected_psdu_without_fcs": [
+      73, 152, 43, 52, 18, 120, 86, 188, 154, 13, 4, 3, 2, 1, 7,
+      228, 212, 226, 133, 183, 214, 238, 105
+    ],
+    "expected_register_writes": [
+      {"address": 1611280684, "value": 0},
+      {"address": 1611280688, "value": 0},
+      {"address": 1611280692, "value": 50462976},
+      {"address": 1611280696, "value": 117835012},
+      {"address": 1611280700, "value": 185207048},
+      {"address": 1611280704, "value": 252579084},
+      {"address": 1611280680, "value": 3840},
+      {"address": 1611280680, "value": 3841}
+    ]
+  },
   "required_uart_substrings": [
     "REMU_VENDOR_OPENTHREAD_PLATFORM result=0",
     "REMU_VENDOR_OPENTHREAD_START result=0",
@@ -21,6 +45,9 @@
     "REMU_VENDOR_OPENTHREAD_TX_FRAME channel=11 length=5",
     "REMU_VENDOR_OPENTHREAD_TX_START error=0",
     "REMU_VENDOR_OPENTHREAD_TX_DONE complete=1 error=0",
+    "REMU_VENDOR_OPENTHREAD_SECURE_CONFIG key_id=7 counter=16909060 error=0",
+    "REMU_VENDOR_OPENTHREAD_SECURE_TX_START error=0",
+    "REMU_VENDOR_OPENTHREAD_SECURE_TX_DONE complete=1 error=0",
     "REMU_VENDOR_OPENTHREAD_RX_START error=0",
     "REMU_VENDOR_OPENTHREAD_RX_DONE complete=1 error=0 length=7 01 00 79 52 58 rssi=-80 lqi=63",
     "REMU_VENDOR_OPENTHREAD_ED_START error=0",

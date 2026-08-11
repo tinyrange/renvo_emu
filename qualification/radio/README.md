@@ -169,6 +169,16 @@ index, public no-ACK error mapping, and callback delivery after ACK
 transmission. The focused probe's overlapping frame checks are useful
 low-level regressions, not a requirement to reproduce every vendor-stack test.
 
+The genuine OpenThread gate additionally drives the public raw-link MAC-key and
+frame-counter APIs into the native ESP-IDF radio port. The vendor port writes
+the extended-address nonce source, all four AES key words, payload offset 15,
+and the security-enable transition before DMA submission. Qualification pins
+the resulting ENC-MIC-32 PSDU, proves that the complete MAC and auxiliary
+security headers remain clear, and requires byte-identical execution-result
+and RF replay artifacts. This closes the OpenThread-to-native-transmit-security
+peripheral handoff; it does not claim a full Thread network exchange or move
+receive decryption out of the guest stack.
+
 The real ESP32-C6 rev0 and ESP32-S3 rev0 mask-ROM images are mandatory for
 native boot, radio-capable execution, and vendor-facing qualification. Their
 pinned digests are checked by qualification before execution, and
@@ -208,9 +218,10 @@ ESP-IDF applications to initialize through their real controller/ROM/shared
 memory ABI. Wi-Fi still needs ACK/retry, fragmentation/aggregation, hardware
 crypto, and C6 HE/TWT acceptance. BLE still needs the remaining chip-specific
 controller transport, adaptive hopping, and privacy list behavior.
-The genuine OpenThread radio build now passes raw TX/RX, source matching,
-energy scan, and sleep/wake through the native C6 port. A secured Thread CLI
-exchange and Zigbee-facing firmware qualification still remain. Disputed
+The genuine OpenThread radio build now passes raw TX/RX, native CCM* transmit
+security, source matching, energy scan, and sleep/wake through the native C6
+port. A full Thread CLI exchange and Zigbee-facing firmware qualification still
+remain. Disputed
 ESP32-S3 RF pages remain intentionally unmapped until a revision-
 specific primary-source or authorized-hardware probe resolves them. Coexistence
 denial, priority preemption, reset cancellation, and active clock/power gating

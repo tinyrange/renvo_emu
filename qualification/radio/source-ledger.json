@@ -356,7 +356,7 @@
       "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
       "license": "Apache-2.0",
       "content_sha256": "f64178b872369df08578eefff27b4b7ba6a7cf600af9d081e7de67d9adabfefa",
-      "use": "OpenThread native-radio frame, error mapping, energy scan, source matching, and sleep/wake boundary"
+      "use": "OpenThread native-radio frame, transmit-security key/counter handoff, error mapping, energy scan, source matching, and sleep/wake boundary"
     },
     {
       "id": "esp-idf-c6-interrupts",

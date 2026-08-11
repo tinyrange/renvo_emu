@@ -294,7 +294,7 @@ fn esp32c6_ieee802154_dma_security_applies_vendor_programmed_ccm_star() {
         .write(
             0x600a_3128,
             AccessWidth::Word,
-            1 | ((payload_offset as u64 + 1) << 8),
+            1 | ((payload_offset as u64) << 8),
             SimTime::ZERO,
         )
         .unwrap();
@@ -458,7 +458,7 @@ fn esp32c6_ieee802154_security_failures_preserve_vendor_reason_codes() {
     // Security enable register set, but FCF security bit clear.
     assert_failure(&[0x01, 0x00, 1, 0xaa], 5, 1, 1);
     // Security level zero is reserved for a hardware-protected transmit.
-    assert_failure(&[0x09, 0x00, 1, 0, 1, 0, 0, 0, 0xaa], 9, 2, 2);
+    assert_failure(&[0x09, 0x00, 1, 0, 1, 0, 0, 0, 0xaa], 8, 2, 2);
     // Reserved address modes fail while parsing the secured MAC header.
     assert_failure(&[0x08, 0x04, 1, 5, 1, 0, 0, 0, 0xaa], 9, 3, 3);
     // A payload offset before the complete auxiliary header is invalid.

@@ -26,6 +26,10 @@ static volatile uint8_t receive_lqi;
 static volatile uint16_t receive_length;
 static volatile uint8_t receive_bytes[7];
 static volatile int8_t scan_rssi;
+static const otMacKey qualification_mac_key = {
+    .m8 = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+           0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f},
+};
 
 static void handle_transmit_done(otInstance *instance, otRadioFrame *frame,
                                  otRadioFrame *ack, otError error)
@@ -161,6 +165,54 @@ void app_main(void)
     printf("REMU_VENDOR_OPENTHREAD_TX_START error=%d\n", (int)error);
     bool completed = error == OT_ERROR_NONE && wait_flag(&transmit_done, 500);
     printf("REMU_VENDOR_OPENTHREAD_TX_DONE complete=%u error=%d\n",
+           completed ? 1u : 0u, transmit_error);
+    if (!completed || transmit_error != OT_ERROR_NONE) {
+        return;
+    }
+
+    esp_openthread_lock_acquire(portMAX_DELAY);
+    error = otLinkRawSetMacKey(instance, 1u << 3, 7, &qualification_mac_key,
+                               &qualification_mac_key,
+                               &qualification_mac_key);
+    if (error == OT_ERROR_NONE) {
+        error = otLinkRawSetMacFrameCounter(instance, UINT32_C(0x01020304));
+    }
+    printf("REMU_VENDOR_OPENTHREAD_SECURE_CONFIG key_id=7 counter=16909060 error=%d\n",
+           (int)error);
+    frame = otLinkRawGetTransmitBuffer(instance);
+    if (error == OT_ERROR_NONE && frame != NULL) {
+        /* Version-1 data frame, compressed PAN, short destination/source and
+         * key-id-mode-1 ENC-MIC-32 auxiliary security header. The OpenThread
+         * port replaces the zero counter/key-id fields and asks the native C6
+         * CCM peripheral to protect the four-byte payload. */
+        static const uint8_t secure_payload[] = {
+            0x49, 0x98, 0x2b, 0x34, 0x12, 0x78, 0x56, 0xbc, 0x9a,
+            0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x48, 0x52,
+            0x44,
+        };
+        memcpy(frame->mPsdu, secure_payload, sizeof(secure_payload));
+        frame->mLength = sizeof(secure_payload);
+        frame->mChannel = 11;
+        frame->mInfo.mTxInfo.mTxDelayBaseTime = 0;
+        frame->mInfo.mTxInfo.mTxDelay = 0;
+        frame->mInfo.mTxInfo.mMaxCsmaBackoffs = 0;
+        frame->mInfo.mTxInfo.mMaxFrameRetries = 0;
+        frame->mInfo.mTxInfo.mRxChannelAfterTxDone = 11;
+        frame->mInfo.mTxInfo.mCsmaCaEnabled = false;
+        frame->mInfo.mTxInfo.mIsSecurityProcessed = false;
+        frame->mInfo.mTxInfo.mIsHeaderUpdated = false;
+        frame->mInfo.mTxInfo.mIsARetx = false;
+        transmit_done = false;
+        transmit_error = -1;
+        error = otLinkRawTransmit(instance, handle_transmit_done);
+    } else if (error == OT_ERROR_NONE) {
+        error = OT_ERROR_FAILED;
+    }
+    esp_openthread_lock_release();
+
+    printf("REMU_VENDOR_OPENTHREAD_SECURE_TX_START error=%d\n", (int)error);
+    completed = error == OT_ERROR_NONE && wait_flag(&transmit_done, 500);
+    printf("REMU_VENDOR_OPENTHREAD_SECURE_TX_DONE complete=%u error=%d\n",
            completed ? 1u : 0u, transmit_error);
     if (!completed || transmit_error != OT_ERROR_NONE) {
         return;

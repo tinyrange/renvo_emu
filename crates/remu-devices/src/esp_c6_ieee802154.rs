@@ -135,7 +135,7 @@ pub struct EspIeee802154Configuration {
     pub ed_duration_symbols: u32,
     /// Whether transmit AES-CCM* is enabled.
     pub transmit_security: bool,
-    /// Byte offset of the auxiliary security header.
+    /// MAC payload byte offset measured from the first frame-control byte.
     pub security_offset: u8,
     /// Nonce source address in MAC wire order.
     pub security_address: [u8; 8],

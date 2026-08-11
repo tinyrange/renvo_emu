@@ -361,11 +361,11 @@ impl Ieee802154Mac {
 
     /// Applies the C6 transmit-security contract to a complete MAC frame.
     ///
-    /// `payload_offset` is measured from the first MAC byte (the firmware-facing
-    /// C6 register includes the preceding one-byte PHY length field, so machine
-    /// frontends must subtract one). The security level and frame counter are
-    /// taken from the frame's auxiliary security header, while the key and
-    /// nonce source are supplied by the hardware security registers.
+    /// `payload_offset` is measured from the first MAC byte. The ESP-IDF frame
+    /// parser removes the preceding PHY length byte before programming the C6
+    /// register. The security level and frame counter are taken from the
+    /// frame's auxiliary security header, while the key and nonce source are
+    /// supplied by the hardware security registers.
     pub fn protect_transmit_frame(
         &mut self,
         frame: &[u8],

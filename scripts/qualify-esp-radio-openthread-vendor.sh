@@ -13,6 +13,13 @@ fi
 
 requirements=qualification/radio/openthread-vendor-requirements.json
 artifact_root=${REMU_RADIO_OPENTHREAD_VENDOR_ROOT:-.remu/qualification/radio-openthread-vendor}
+vendor_build_jobs=${REMU_VENDOR_BUILD_JOBS:-1}
+case "$vendor_build_jobs" in
+    0|*[!0-9]*)
+        echo "REMU_VENDOR_BUILD_JOBS must be a positive integer" >&2
+        exit 2
+        ;;
+esac
 chip_root=$artifact_root/$chip
 rom_root=$chip_root/roms
 build_root=$chip_root/build
@@ -44,12 +51,12 @@ docker run --rm \
     --volume "$repo_root:/workspace:ro" \
     --volume "$chip_root_absolute:/out" \
     "$idf_image" \
-    bash -lc "IDF_TARGET=$chip SDKCONFIG_DEFAULTS=/workspace/$firmware_project/sdkconfig.defaults idf.py -C /workspace/$firmware_project -B /out/build -D SDKCONFIG=/out/sdkconfig build && cd /out/build && python -m esptool --chip $chip merge-bin -o /out/$chip-openthread-flash.bin @flash_args" \
+    bash -lc "IDF_TARGET=$chip SDKCONFIG_DEFAULTS=/workspace/$firmware_project/sdkconfig.defaults idf.py -C /workspace/$firmware_project -B /out/build -D SDKCONFIG=/out/sdkconfig reconfigure && ninja -C /out/build -j $vendor_build_jobs && cd /out/build && python -m esptool --chip $chip merge-bin -o /out/$chip-openthread-flash.bin @flash_args" \
     >"$chip_root/idf-build.log" 2>&1
 
 if [ -z "${REMU_BIN:-}" ]
 then
-    cargo build -q --release -p remu-cli --locked
+    CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1} cargo build -q --release -p remu-cli --locked
     remu=target/release/remu
 else
     remu=$REMU_BIN
@@ -105,7 +112,8 @@ do
     fi
 done
 
-jq -e '
+jq -e --slurpfile requirements "$requirements" '
+    $requirements[0].transmit_security.expected_psdu_without_fcs as $secured_psdu |
     .events as $events |
     any($events[];
         .event == "submitted" and
@@ -113,6 +121,12 @@ jq -e '
         .request.frame.origin == "emulated" and
         .request.frame.spectrum.center_khz == 2405000 and
         .request.frame.bytes == [1, 0, 120, 79, 84]) and
+    any($events[];
+        .event == "submitted" and
+        .request.frame.protocol == "ieee802154" and
+        .request.frame.origin == "emulated" and
+        .request.frame.spectrum.center_khz == 2405000 and
+        .request.frame.bytes == $secured_psdu) and
     any($events[];
         . as $submitted |
         ($submitted.event == "submitted" and
@@ -129,22 +143,30 @@ jq -e '
 
 # Require the genuine OpenThread port to drive native TX, RX, ED and sleep,
 # then acknowledge their completion causes through the public W1C register.
-jq -e '
-    any(.[]; .kind == "Write" and .address == 1611280384 and .value == 65) and
-    any(.[]; .kind == "Write" and .address == 1611280384 and .value == 66) and
-    any(.[]; .kind == "Write" and .address == 1611280384 and .value == 68) and
-    any(.[]; .kind == "Write" and .address == 1611280384 and .value == 69) and
-    any(.[]; .kind == "Read" and .address == 1611280484 and .value == 1) and
-    any(.[]; .kind == "Write" and .address == 1611280484 and .value == 1) and
-    any(.[]; .kind == "Read" and .address == 1611280484 and .value == 2) and
-    any(.[]; .kind == "Write" and .address == 1611280484 and .value == 2) and
-    any(.[]; .kind == "Read" and .address == 1611280484 and .value == 64) and
-    any(.[]; .kind == "Write" and .address == 1611280484 and .value == 64) and
-    any(.[]; .kind == "Write" and .address == 1611280388 and .value == 268435584)
+jq -e --slurpfile requirements "$requirements" '
+    . as $events |
+    any($events[]; .kind == "Write" and .address == 1611280384 and .value == 65) and
+    any($events[]; .kind == "Write" and .address == 1611280384 and .value == 66) and
+    any($events[]; .kind == "Write" and .address == 1611280384 and .value == 68) and
+    any($events[]; .kind == "Write" and .address == 1611280384 and .value == 69) and
+    any($events[]; .kind == "Read" and .address == 1611280484 and .value == 1) and
+    any($events[]; .kind == "Write" and .address == 1611280484 and .value == 1) and
+    any($events[]; .kind == "Read" and .address == 1611280484 and .value == 2) and
+    any($events[]; .kind == "Write" and .address == 1611280484 and .value == 2) and
+    any($events[]; .kind == "Read" and .address == 1611280484 and .value == 64) and
+    any($events[]; .kind == "Write" and .address == 1611280484 and .value == 64) and
+    any($events[]; .kind == "Write" and .address == 1611280388 and .value == 268435584) and
+    all($requirements[0].transmit_security.expected_register_writes[];
+        . as $expected |
+        any($events[];
+            .kind == "Write" and
+            .address == $expected.address and
+            .value == $expected.value))
 ' "$chip_root/ieee802154-bus.json" >/dev/null
 
 run_vendor_openthread "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" \
     --replay "$chip_root/result.json"
+cmp "$chip_root/result.json" "$chip_root/result-repeat.json"
 cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
 
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
@@ -153,7 +175,7 @@ uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 bus_sha=$(sha256sum "$chip_root/ieee802154-bus.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-openthread-vendor-qualification.v1 \
+    --arg schema remu.radio-openthread-vendor-qualification.v2 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -164,6 +186,7 @@ jq -n \
     --arg bus_sha256 "$bus_sha" \
     --argjson entry "$entry" \
     --argjson minimum_instructions "$minimum_instructions" \
+    --slurpfile requirements "$requirements" \
     --slurpfile result "$chip_root/result.json" \
     --slurpfile coverage "$chip_root/coverage.json" \
     '{
@@ -179,6 +202,7 @@ jq -n \
             requires_rom_execution: true,
             requires_vendor_openthread_execution: true,
             requires_native_raw_tx_rx: true,
+            requires_native_transmit_security: true,
             requires_source_matching: true,
             requires_energy_scan: true,
             requires_sleep_wake: true,
@@ -200,8 +224,18 @@ jq -n \
             rx_lqi: 63,
             energy_scan_dbm: -128,
             source_match_short_address: 4660,
+            transmit_security: {
+                key_id: $requirements[0].transmit_security.key_id,
+                frame_counter: $requirements[0].transmit_security.frame_counter,
+                security_level: $requirements[0].transmit_security.security_level,
+                payload_offset: $requirements[0].transmit_security.payload_offset,
+                key: $requirements[0].transmit_security.key,
+                secured_tx_psdu_without_fcs: $requirements[0].transmit_security.expected_psdu_without_fcs,
+                vendor_register_writes_observed: true
+            },
             sleep_wake_completed: true,
-            deterministic_replay: true
+            deterministic_result_replay: true,
+            deterministic_rf_replay: true
         }
     }' >"$chip_root/summary.json"
 
