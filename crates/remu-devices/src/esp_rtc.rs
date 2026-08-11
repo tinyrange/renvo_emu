@@ -4,6 +4,7 @@ const ESP_RTC_ULP_INT_BIT: u32 = 1 << 5;
 const ESP_RTC_ULP_TIMER_ENABLE: u32 = 1 << 31;
 const ESP_RTC_ULP_TIMER_PERIOD_MASK: u32 = 0x00ff_ffff;
 const ESP_RTC_INT_MASK: u32 = 0x001f_ffff;
+const ESP_RTC_USB_OTG_PHY_SELECT: u32 = (1 << 20) | (1 << 19);
 
 /// Native ESP32-S3 RTC control and shared SAR register identifiers.
 ///
@@ -380,6 +381,12 @@ impl EspRtcControlHandle {
     pub fn pad_held(&self, pin: u8) -> bool {
         pin < 22 && self.state.borrow().register(Esp32S3RtcRegister::PadHold) & (1 << pin) != 0
     }
+
+    /// Reports whether both RTC mux stages route the internal USB PHY to OTG.
+    pub fn usb_otg_phy_selected(&self) -> bool {
+        self.state.borrow().register(Esp32S3RtcRegister::UsbConf) & ESP_RTC_USB_OTG_PHY_SELECT
+            == ESP_RTC_USB_OTG_PHY_SELECT
+    }
 }
 
 /// Functional ESP32-S3 RTC control and ULP timer block.
@@ -677,6 +684,34 @@ mod tests {
                 .unwrap(),
             u64::from(ESP_RTC_ULP_INT_BIT)
         );
+    }
+
+    #[test]
+    fn usb_otg_phy_requires_both_rtc_mux_stages() {
+        let hub = SignalHub::new();
+        let (mut device, handle) = EspRtcControl::new_with_signals("rtc", hub).unwrap();
+        assert!(!handle.usb_otg_phy_selected());
+
+        for value in [1_u64 << 20, 1_u64 << 19] {
+            device
+                .write(
+                    Esp32S3RtcRegister::UsbConf.offset(),
+                    AccessWidth::Word,
+                    value,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            assert!(!handle.usb_otg_phy_selected());
+        }
+        device
+            .write(
+                Esp32S3RtcRegister::UsbConf.offset(),
+                AccessWidth::Word,
+                u64::from(ESP_RTC_USB_OTG_PHY_SELECT),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.usb_otg_phy_selected());
     }
 
     #[test]

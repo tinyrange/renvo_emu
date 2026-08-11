@@ -209,8 +209,9 @@ impl EspDwc2Host {
         now: SimTime,
         usb: &EspUsbOtgHandle,
         wrapper: &Esp32S3UsbWrapHandle,
+        otg_phy_selected: bool,
     ) -> u64 {
-        if !wrapper.host_link_active() {
+        if !otg_phy_selected || !wrapper.host_link_active() {
             self.reset_sent = false;
             return 0;
         }
@@ -242,6 +243,7 @@ impl EspDwc2Host {
         }
         if now.ticks() >= self.next_setup_at
             && !usb.interrupt_pending()
+            && usb.output_ready(0)
             && let Some(request) = self.requests.pop_front()
         {
             if std::env::var_os("REMU_DEBUG_USB").is_some() {
@@ -301,5 +303,45 @@ impl EspDwc2Host {
             events += 1;
         }
         events
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use remu_bus::Device;
+    use remu_core::AccessWidth;
+    use remu_devices::{Esp32S3UsbWrap, EspUsbOtg};
+
+    fn write(device: &mut EspUsbOtg, offset: u64, value: u32) {
+        device
+            .write(offset, AccessWidth::Word, u64::from(value), SimTime::ZERO)
+            .unwrap();
+    }
+
+    #[test]
+    fn setup_waits_until_endpoint_zero_is_rearmed_after_reset() {
+        let (mut usb_device, usb) = EspUsbOtg::new("usb");
+        let (_, wrapper) = Esp32S3UsbWrap::new("usb-wrap");
+        write(&mut usb_device, 0x08, 1);
+        write(&mut usb_device, 0x804, 0);
+
+        let mut host = EspDwc2Host::new();
+        assert_eq!(host.poll(SimTime::ZERO, &usb, &wrapper, true), 1);
+        write(&mut usb_device, 0x14, (1 << 12) | (1 << 13));
+        write(&mut usb_device, 0x18, 1 << 4);
+        assert_eq!(
+            host.poll(SimTime::from_ticks(1024), &usb, &wrapper, true),
+            0
+        );
+        assert!(!usb.interrupt_pending());
+
+        write(&mut usb_device, 0xb10, 64 | (1 << 19) | (3 << 29));
+        write(&mut usb_device, 0xb00, (1 << 31) | (1 << 26));
+        assert_eq!(
+            host.poll(SimTime::from_ticks(1025), &usb, &wrapper, true),
+            1
+        );
+        assert!(usb.interrupt_pending());
     }
 }

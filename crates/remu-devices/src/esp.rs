@@ -834,6 +834,7 @@ const DWC2_GINTSTS_W1C_MASK: u32 = (1 << 1)
     | (1 << 31);
 const DWC2_DAINT_MASK: u32 = 0x007f_007f;
 const DWC2_DIEPEMP_MASK: u32 = 0x0000_007f;
+const DWC2_FIFO_WORDS: u32 = 256;
 const DWC2_DCFG_MASK: u32 = (1 << 2)
     | (1 << 3)
     | (0x7f << 4)
@@ -924,6 +925,84 @@ impl EspUsbOtgState {
         &mut self.registers[register.index()]
     }
 
+    fn transmit_fifo_words(&self, endpoint: u8) -> u32 {
+        let value = match endpoint {
+            0 => self.register(EspUsbOtgRegister::GnptxFsiz),
+            1..=4 => self.register(EspUsbOtgRegister::DiepTxFifo(endpoint)),
+            _ => return 0,
+        };
+        value >> 16
+    }
+
+    fn configure_fifo(
+        &mut self,
+        register: EspUsbOtgRegister,
+        value: u32,
+    ) -> Result<(), DeviceError> {
+        if register == EspUsbOtgRegister::GdfifoCfg {
+            if value & 0xffff > DWC2_FIFO_WORDS || value >> 16 > DWC2_FIFO_WORDS {
+                return Err(DeviceError::new(format!(
+                    "ESP32-S3 DWC2 global FIFO configuration exceeds {DWC2_FIFO_WORDS} words"
+                )));
+            }
+            *self.register_mut(register) = value;
+            return Ok(());
+        }
+
+        let candidate = |candidate_register: EspUsbOtgRegister| {
+            if candidate_register == register {
+                value
+            } else {
+                self.register(candidate_register)
+            }
+        };
+        let rx_depth = candidate(EspUsbOtgRegister::GrxFsiz) & 0xffff;
+        let mut regions = vec![("receive", 0, rx_depth)];
+        for (name, fifo_register) in [
+            ("non-periodic transmit", EspUsbOtgRegister::GnptxFsiz),
+            ("host periodic transmit", EspUsbOtgRegister::HptxFsiz),
+            ("endpoint 1 transmit", EspUsbOtgRegister::DiepTxFifo(1)),
+            ("endpoint 2 transmit", EspUsbOtgRegister::DiepTxFifo(2)),
+            ("endpoint 3 transmit", EspUsbOtgRegister::DiepTxFifo(3)),
+            ("endpoint 4 transmit", EspUsbOtgRegister::DiepTxFifo(4)),
+        ] {
+            let configuration = candidate(fifo_register);
+            regions.push((name, configuration & 0xffff, configuration >> 16));
+        }
+        for (index, &(name, start, depth)) in regions.iter().enumerate() {
+            if depth == 0 {
+                continue;
+            }
+            let end = start.checked_add(depth).ok_or_else(|| {
+                DeviceError::new(format!("ESP32-S3 DWC2 {name} FIFO range overflow"))
+            })?;
+            if end > DWC2_FIFO_WORDS {
+                return Err(DeviceError::new(format!(
+                    "ESP32-S3 DWC2 {name} FIFO ends at word {end}, beyond {DWC2_FIFO_WORDS}"
+                )));
+            }
+            for &(other_name, other_start, other_depth) in &regions[..index] {
+                if other_depth == 0 {
+                    continue;
+                }
+                let other_end = other_start + other_depth;
+                if start < other_end && other_start < end {
+                    return Err(DeviceError::new(format!(
+                        "ESP32-S3 DWC2 {name} FIFO overlaps {other_name} FIFO"
+                    )));
+                }
+            }
+        }
+
+        *self.register_mut(register) = value;
+        *self.register_mut(EspUsbOtgRegister::DtxfSts(0)) = self.transmit_fifo_words(0);
+        for endpoint in 1..=4 {
+            *self.register_mut(EspUsbOtgRegister::DtxfSts(endpoint)) =
+                self.transmit_fifo_words(endpoint);
+        }
+        Ok(())
+    }
+
     fn reset() -> Self {
         let mut registers = vec![0; 0x1_0000 / 4];
         // GRSTCTL.AHBIDL and Espressif's fixed DWC2 release identifier.
@@ -934,13 +1013,9 @@ impl EspUsbOtgState {
         registers[EspUsbOtgRegister::GhwCfg2.index()] = 4 | (1 << 8) | (6 << 10) | (1 << 19);
         // DSTS.ENUMSPD reports full speed on the S3's dedicated 48-MHz PHY.
         registers[EspUsbOtgRegister::Dsts.index()] = 3 << 1;
-        // The functional FIFO drains synchronously into the host packet
-        // queue, so each IN endpoint always reports the full 1-KiB shared
-        // FIFO as available to TinyUSB.
         for endpoint in 0..16 {
             registers[EspUsbOtgRegister::DiepCtl(endpoint as u8).index()] = 1 << 15;
             registers[EspUsbOtgRegister::DoepCtl(endpoint as u8).index()] = 1 << 15;
-            registers[EspUsbOtgRegister::DtxfSts(endpoint as u8).index()] = 256;
         }
         Self {
             registers,
@@ -997,8 +1072,12 @@ impl EspUsbOtgState {
         let status = self.rx_status.pop_front().unwrap_or(0);
         let endpoint = u8::try_from(status & 0xf).expect("endpoint number fits");
         match (status >> 17) & 0xf {
-            // SETUP_DONE asserts DOEPINT.SETUP after its status entry is popped.
-            4 => *self.register_mut(EspUsbOtgRegister::DoepInt(endpoint)) |= 1 << 3,
+            // SETUP_DONE releases the receive arm and asserts DOEPINT.SETUP.
+            // Software then arms EP0 for the control transfer's data/status phase.
+            4 => {
+                *self.register_mut(EspUsbOtgRegister::DoepCtl(endpoint)) &= !DWC2_EPENA;
+                *self.register_mut(EspUsbOtgRegister::DoepInt(endpoint)) |= 1 << 3;
+            }
             // RX_COMPLETE asserts the transfer-complete endpoint interrupt.
             3 => {
                 *self.register_mut(EspUsbOtgRegister::DoepCtl(endpoint)) &= !(1 << 31);
