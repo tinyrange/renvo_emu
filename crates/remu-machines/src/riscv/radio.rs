@@ -23,6 +23,7 @@ pub(super) struct PendingNativeBleReception {
     schedule_address: u32,
     state: u32,
     spectrum: Spectrum,
+    phy: &'static str,
     rx_buffer_identifier: u16,
 }
 
@@ -34,20 +35,70 @@ pub(super) struct PendingNativeBleTransmission {
     response: Option<PendingNativeBleReception>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy)]
+struct C6BlePendingPhyUpdate {
+    instant: u16,
+    tx_phy: &'static str,
+    rx_phy: &'static str,
+}
+
 pub(super) struct C6BleLinkSequence {
     pub(super) expected_rx_sn: bool,
     pub(super) tx_sn: bool,
     pub(super) awaiting_tx_ack: bool,
     pub(super) last_tx: Option<Vec<u8>>,
+    event_counter: u16,
+    active_event: u16,
+    tx_phy: &'static str,
+    rx_phy: &'static str,
+    pending_phy_update: Option<C6BlePendingPhyUpdate>,
+}
+
+impl Default for C6BleLinkSequence {
+    fn default() -> Self {
+        Self {
+            expected_rx_sn: false,
+            tx_sn: false,
+            awaiting_tx_ack: false,
+            last_tx: None,
+            event_counter: 0,
+            active_event: 0,
+            tx_phy: "ble-1m",
+            rx_phy: "ble-1m",
+            pending_phy_update: None,
+        }
+    }
 }
 
 impl C6BleLinkSequence {
+    pub(super) fn begin_event(&mut self) -> Result<&'static str, String> {
+        self.active_event = self.event_counter;
+        if let Some(update) = self.pending_phy_update {
+            if update.instant == self.active_event {
+                self.tx_phy = update.tx_phy;
+                self.rx_phy = update.rx_phy;
+                self.pending_phy_update = None;
+            } else if self.active_event.wrapping_sub(update.instant) < 0x8000 {
+                return Err(format!(
+                    "BLE PHY update instant {} passed at connection event {}",
+                    update.instant, self.active_event
+                ));
+            }
+        }
+        self.event_counter = self.event_counter.wrapping_add(1);
+        Ok(self.rx_phy)
+    }
+
+    pub(super) fn tx_phy(&self) -> &'static str {
+        self.tx_phy
+    }
+
     pub(super) fn peripheral_response(
         &mut self,
-        received_header: u8,
+        received: &[u8],
         firmware_response: Option<Vec<u8>>,
-    ) -> Option<Vec<u8>> {
+    ) -> Result<Option<Vec<u8>>, String> {
+        let received_header = received.first().copied().unwrap_or_default();
         let received_sn = received_header & (1 << 3) != 0;
         let received_nesn = received_header & (1 << 2) != 0;
 
@@ -56,8 +107,46 @@ impl C6BleLinkSequence {
             self.tx_sn = !self.tx_sn;
             self.last_tx = None;
         }
-        if received_sn == self.expected_rx_sn {
+        let received_new = received_sn == self.expected_rx_sn;
+        if received_new {
             self.expected_rx_sn = !self.expected_rx_sn;
+            if received_header & 3 == 3
+                && received.len() >= 7
+                && received.get(1).copied() == Some(5)
+                && received.get(2).copied() == Some(0x18)
+            {
+                let central_tx = received[3];
+                let central_rx = received[4];
+                let instant = u16::from_le_bytes([received[5], received[6]]);
+                let select_phy = |requested, current| match requested {
+                    0 => Some(current),
+                    1 => Some("ble-1m"),
+                    2 => Some("ble-2m"),
+                    3 => Some("ble-coded"),
+                    _ => None,
+                };
+                let Some(rx_phy) = select_phy(central_tx, self.rx_phy) else {
+                    return Err(format!("invalid central TX PHY value {central_tx}"));
+                };
+                let Some(tx_phy) = select_phy(central_rx, self.tx_phy) else {
+                    return Err(format!("invalid central RX PHY value {central_rx}"));
+                };
+                let instant_delta = instant.wrapping_sub(self.active_event);
+                if !(6..0x8000).contains(&instant_delta) {
+                    return Err(format!(
+                        "BLE PHY update instant {instant} is {instant_delta} events after current event {}",
+                        self.active_event
+                    ));
+                }
+                if self.pending_phy_update.is_some() {
+                    return Err("overlapping BLE PHY update procedures".to_owned());
+                }
+                self.pending_phy_update = Some(C6BlePendingPhyUpdate {
+                    instant,
+                    tx_phy,
+                    rx_phy,
+                });
+            }
         }
 
         let mut response = if self.awaiting_tx_ack {
@@ -78,7 +167,7 @@ impl C6BleLinkSequence {
             self.awaiting_tx_ack = true;
             self.last_tx = Some(pdu.clone());
         }
-        response
+        Ok(response)
     }
 }
 

@@ -1042,45 +1042,168 @@ fn esp32c6_misaligned_native_ble_schedule_is_a_hard_machine_error() {
 }
 
 #[test]
+fn esp32c6_native_ble_scan_writes_the_firmware_owned_rx_ring() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 17) | (1 << 18),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let schedule = 0x4080_1000_u32;
+    let state = 0x4080_1100_u32;
+    let header = 0x4080_1200_u32;
+    let buffer = 0x4080_1300_u32;
+    let mut schedule_bytes = vec![0_u8; 0x38];
+    schedule_bytes[4..8].copy_from_slice(&state.to_le_bytes());
+    schedule_bytes[8..12].copy_from_slice(&2_u32.to_le_bytes());
+    schedule_bytes[12..16].copy_from_slice(&202_u32.to_le_bytes());
+    schedule_bytes[0x28..0x2c].copy_from_slice(&(1_u32 << 13).to_le_bytes());
+    schedule_bytes[0x35] = 2;
+    machine
+        .debug_write_memory(u64::from(schedule), &schedule_bytes)
+        .unwrap();
+
+    let mut state_bytes = vec![0_u8; 0x80];
+    state_bytes[8..12].copy_from_slice(&header.wrapping_add(4).to_le_bytes());
+    state_bytes[0x2c..0x30].copy_from_slice(&50_000_u32.to_le_bytes());
+    state_bytes[0x5c..0x60].copy_from_slice(&header.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(state), &state_bytes)
+        .unwrap();
+
+    let mut header_bytes = vec![0_u8; 16];
+    header_bytes[4..8].copy_from_slice(&header.wrapping_add(4).to_le_bytes());
+    header_bytes[8..12].copy_from_slice(&buffer.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(header), &header_bytes)
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer), &[0_u8; 128])
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer) + 0x18, &0xffff_u32.to_le_bytes())
+        .unwrap();
+
+    machine
+        .bus
+        .write(
+            0x600a_18fc,
+            AccessWidth::Word,
+            u64::from(schedule & 0x000f_ffff),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_1028, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.service_radio().unwrap(), 1);
+
+    let frame = vec![
+        0x42, 0x0c, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xc1, 0x02, 0x01, 0x06, 0x02, 0x09,
+        0x52,
+    ];
+    machine
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::BluetoothLe,
+            remu_radio::Spectrum::new(2_480_000, 2_000),
+            "ble-1m",
+            frame.clone(),
+            -40,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(512);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .debug_read_memory(u64::from(buffer) + 0x1c, frame.len())
+            .unwrap(),
+        frame
+    );
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_ne!(
+        machine
+            .bus
+            .read(
+                0x600a_130c,
+                AccessWidth::Word,
+                AccessKind::Read,
+                machine.now,
+            )
+            .unwrap()
+            & (1 << 27),
+        0
+    );
+}
+
+#[test]
 fn esp32c6_ble_peripheral_sequence_tracks_ack_duplicates_and_control_pdus() {
     let mut sequence = super::radio::C6BleLinkSequence::default();
     let version = vec![3, 6, 12, 14, 0xe5, 2, 0, 0];
     assert_eq!(
-        sequence.peripheral_response(0x01, Some(version)),
+        sequence.peripheral_response(&[0x01, 0], Some(version)).unwrap(),
         Some(vec![7, 6, 12, 14, 0xe5, 2, 0, 0])
     );
 
     assert_eq!(
-        sequence.peripheral_response(0x0f, None),
+        sequence.peripheral_response(&[0x0f, 0], None).unwrap(),
         Some(vec![9, 0])
     );
     assert_eq!(
-        sequence.peripheral_response(0x0f, None),
+        sequence.peripheral_response(&[0x0f, 0], None).unwrap(),
         Some(vec![9, 0]),
         "a duplicate central PDU retransmits the outstanding peripheral PDU"
     );
 
     let features = vec![3, 9, 14, 0xff, 0x7f, 1, 7, 0x90, 0x1b, 0, 0];
     assert_eq!(
-        sequence.peripheral_response(0x01, Some(features)),
+        sequence
+            .peripheral_response(&[0x01, 0], Some(features))
+            .unwrap(),
         Some(vec![7, 9, 14, 0xff, 0x7f, 1, 7, 0x90, 0x1b, 0, 0])
     );
 
     let mut acl_sequence = super::radio::C6BleLinkSequence::default();
     let att_mtu_response = vec![2, 7, 3, 0, 4, 0, 3, 0, 1];
     let transmitted = acl_sequence
-        .peripheral_response(0x02, Some(att_mtu_response))
+        .peripheral_response(&[0x02, 0], Some(att_mtu_response))
+        .unwrap()
         .unwrap();
     assert_eq!(transmitted, vec![6, 7, 3, 0, 4, 0, 3, 0, 1]);
     assert_eq!(
-        acl_sequence.peripheral_response(0x02, None),
+        acl_sequence.peripheral_response(&[0x02, 0], None).unwrap(),
         Some(transmitted),
         "an unacknowledged ACL data PDU is retransmitted byte-for-byte"
     );
     assert_eq!(
-        acl_sequence.peripheral_response(0x0e, None),
+        acl_sequence.peripheral_response(&[0x0e, 0], None).unwrap(),
         Some(vec![9, 0]),
         "the central NESN retires the ACL PDU and advances peripheral SN"
+    );
+
+    let mut phy_sequence = super::radio::C6BleLinkSequence::default();
+    assert_eq!(phy_sequence.begin_event().unwrap(), "ble-1m");
+    phy_sequence
+        .peripheral_response(&[3, 5, 0x18, 2, 2, 6, 0], None)
+        .unwrap();
+    for _ in 1..6 {
+        assert_eq!(phy_sequence.begin_event().unwrap(), "ble-1m");
+    }
+    assert_eq!(phy_sequence.begin_event().unwrap(), "ble-2m");
+    assert_eq!(phy_sequence.tx_phy(), "ble-2m");
+
+    let mut illegal_phy_sequence = super::radio::C6BleLinkSequence::default();
+    illegal_phy_sequence.begin_event().unwrap();
+    assert!(
+        illegal_phy_sequence
+            .peripheral_response(&[3, 5, 0x18, 2, 2, 5, 0], None)
+            .unwrap_err()
+            .contains("is 5 events after")
     );
 }
 

@@ -76,6 +76,11 @@ static int on_gap_event(struct ble_gap_event *event, void *argument)
                event->mtu.conn_handle, event->mtu.channel_id,
                event->mtu.value);
         fflush(stdout);
+    } else if (event->type == BLE_GAP_EVENT_PHY_UPDATE_COMPLETE) {
+        printf("REMU_VENDOR_BLE_PHY status=%d handle=%u tx=%u rx=%u\n",
+               event->phy_updated.status, event->phy_updated.conn_handle,
+               event->phy_updated.tx_phy, event->phy_updated.rx_phy);
+        fflush(stdout);
     }
     return 0;
 }
@@ -214,7 +219,7 @@ static void radio_sequence_task(void *argument)
          * bounded fallback so a failed RF qualification cannot strand the
          * task indefinitely.
          */
-        for (unsigned elapsed_ms = 0; elapsed_ms < 300 && !disconnect_seen;
+        for (unsigned elapsed_ms = 0; elapsed_ms < 1000 && !disconnect_seen;
              elapsed_ms += 10) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }

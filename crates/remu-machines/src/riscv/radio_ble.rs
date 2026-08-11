@@ -203,6 +203,7 @@ impl RiscVMachine {
                                         schedule_address: record,
                                         state: record_state,
                                         spectrum,
+                                        phy: "ble-1m",
                                         rx_buffer_identifier: 0,
                                     }
                                 });
@@ -368,6 +369,7 @@ impl RiscVMachine {
                             schedule_address: final_record,
                             state,
                             spectrum: Spectrum::new(2_480_000, 2_000),
+                            phy: "ble-1m",
                             rx_buffer_identifier: 5,
                         };
                         self.radio_c6_ble_receptions.push(activity);
@@ -437,7 +439,26 @@ impl RiscVMachine {
                         ))
                         .map_err(|_| MachineError::TimeOverflow)?;
                     let spectrum = ble_data_spectrum(channel);
-                    self.radio_c6_ble_link_sequences.entry(state).or_default();
+                    let phy_result = self
+                        .radio_c6_ble_link_sequences
+                        .entry(state)
+                        .or_default()
+                        .begin_event();
+                    let (phy, phy_error) = match phy_result {
+                        Ok(phy) => (Some(phy), None),
+                        Err(detail) => (None, Some(detail)),
+                    };
+                    self.radio_legality
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio legality validator")
+                        .require(
+                            RadioSubsystem::BluetoothLe,
+                            RadioLegalityRule::SchedulerState,
+                            phy_error.is_none(),
+                            self.now,
+                            phy_error.unwrap_or_default(),
+                        )?;
+                    let phy = phy.expect("legality check established BLE connection PHY");
                     let successor = c6_ble_pointer(self.radio_read_guest_word(schedule.address)?);
                     self.radio_medium
                         .as_mut()
@@ -455,6 +476,7 @@ impl RiscVMachine {
                             schedule_address: schedule.address,
                             state,
                             spectrum,
+                            phy,
                             // r_ble_lll_conn_recycle_buffer maps the native RX
                             // identifier to a connection index by subtracting
                             // one plus pinned controller config byte 0x42. That

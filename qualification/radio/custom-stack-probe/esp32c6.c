@@ -253,7 +253,9 @@ static int verify_ble(void)
             (uintptr_t)(remu_ble_rx_descriptor + 4u));
     write32(remu_ble_rx_descriptor, 8u, (uintptr_t)remu_ble_rx_payload);
     write32(remu_ble_rx_payload, 0x18u, 0xffffu);
-    write32(remu_ble_rx_state, 8u, (uintptr_t)remu_ble_rx_descriptor);
+    /* CURRENT_RX uses the native header-plus-four cursor convention. */
+    write32(remu_ble_rx_state, 8u,
+            (uintptr_t)(remu_ble_rx_descriptor + 4u));
     write32(remu_ble_rx_state, 0x2cu, 50000u);
     write32(remu_ble_rx_state, 0x5cu, (uintptr_t)remu_ble_rx_descriptor);
     write32(remu_ble_rx_schedule, 4u, (uintptr_t)remu_ble_rx_state);

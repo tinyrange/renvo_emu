@@ -178,6 +178,7 @@ impl RiscVMachine {
                 pending.start <= self.now
                     && pending.end >= self.now
                     && pending.spectrum.overlaps(frame.spectrum)
+                    && pending.phy == frame.phy
             })
             .map(|(index, pending)| (index, pending.clone()))
         else {
@@ -290,25 +291,32 @@ impl RiscVMachine {
         } else {
             None
         };
-        let connection_response = if rx_buffer_identifier == 2 {
+        let (connection_response, connection_tx_phy) = if rx_buffer_identifier == 2 {
             let sequence = self.radio_c6_ble_link_sequences.entry(state).or_default();
-            let response =
-                sequence.peripheral_response(frame[0], firmware_connection_response);
+            let response_result = sequence.peripheral_response(frame, firmware_connection_response);
+            let (response, response_error) = match response_result {
+                Ok(response) => (response, None),
+                Err(detail) => (None, Some(detail)),
+            };
+            let tx_phy = sequence.tx_phy();
             self.radio_legality
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio legality validator")
                 .require(
                     RadioSubsystem::BluetoothLe,
                     RadioLegalityRule::SchedulerState,
-                    response.as_ref().is_some_and(|pdu| pdu.len() >= 2),
+                    response_error.is_none()
+                        && response.as_ref().is_some_and(|pdu| pdu.len() >= 2),
                     self.now,
-                    format!(
-                        "native connection schedule {schedule_address:#010x} produced an invalid peripheral response"
-                    ),
+                    response_error.unwrap_or_else(|| {
+                        format!(
+                            "native connection schedule {schedule_address:#010x} produced an invalid peripheral response"
+                        )
+                    }),
                 )?;
-            response
+            (response, tx_phy)
         } else {
-            None
+            (None, "ble-1m")
         };
 
         self.radio_c6_ble_receptions.remove(activity_index);
@@ -324,7 +332,7 @@ impl RiscVMachine {
             let pending = PendingNativeBleTransmission {
                 start,
                 spectrum: activity.spectrum,
-                phy: "ble-1m",
+                phy: connection_tx_phy,
                 bytes,
                 response: None,
             };
