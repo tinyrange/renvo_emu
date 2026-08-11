@@ -1,4 +1,59 @@
 impl RiscVMachine {
+    pub(super) fn mark_native_ble_connection_rx_success(
+        &mut self,
+        schedule_address: u32,
+        continuation: bool,
+    ) -> Result<(), MachineError> {
+        const NATIVE_SCHEDULE_RX_SUCCESS: u32 = 1 << 11;
+        const NATIVE_SCHEDULE_OWNED: u32 = 1 << 13;
+
+        let flags_address = schedule_address.wrapping_add(0x28);
+        let flags = self.radio_read_guest_word(flags_address)?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                flags & NATIVE_SCHEDULE_OWNED != 0,
+                self.now,
+                format!(
+                    "native connection RX completed after firmware released schedule {schedule_address:#010x}: flags={flags:#010x}"
+                ),
+            )?;
+        let already_successful = flags & NATIVE_SCHEDULE_RX_SUCCESS != 0;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                already_successful == continuation,
+                self.now,
+                if continuation {
+                    format!(
+                        "native connection schedule {schedule_address:#010x} continued without an initial RX completion: flags={flags:#010x}"
+                    )
+                } else {
+                    format!(
+                        "native connection schedule {schedule_address:#010x} completed an unexplained duplicate RX: flags={flags:#010x}"
+                    )
+                },
+            )?;
+        if continuation {
+            return Ok(());
+        }
+        // The pinned controller's RX interrupt consumes the completed buffer
+        // before r_ble_lll_conn_recycle_sch_item runs in task context. Native
+        // hardware leaves bit eleven in the schedule result word to
+        // distinguish that successful radio operation from a no-packet event.
+        // r_ble_lll_conn_recycle_sch_item explicitly extracts `(result >> 11)
+        // & 1` and uses it to promote link state 1 (establishing) to state 2
+        // (connected), after which its genuine supervision callback reports
+        // reason 0x08 instead of connection-establishment failure 0x3e.
+        self.radio_write_guest_word(flags_address, flags | NATIVE_SCHEDULE_RX_SUCCESS)
+    }
+
     fn complete_medium_receptions(
         &mut self,
         handle: &EspIeee802154Handle,
@@ -385,6 +440,12 @@ impl RiscVMachine {
         } else {
             None
         };
+        if rx_buffer_identifier == 2 {
+            self.mark_native_ble_connection_rx_success(
+                schedule_address,
+                hardware_encryption_transition,
+            )?;
+        }
         let (connection_response, connection_tx_phy, continues_connection_event) =
             if rx_buffer_identifier == 2 {
             let sequence = self.radio_c6_ble_link_sequences.entry(state).or_default();

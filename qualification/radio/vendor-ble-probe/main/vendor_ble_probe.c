@@ -23,6 +23,7 @@ static volatile bool connection_seen;
 static volatile uint16_t connection_handle;
 static volatile bool disconnect_seen;
 static volatile bool encryption_seen;
+static volatile int disconnect_reason;
 
 static const uint8_t qualification_ltk[16] = {
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -99,6 +100,7 @@ static int on_gap_event(struct ble_gap_event *event, void *argument)
                event->disconnect.reason,
                event->disconnect.conn.conn_handle);
         fflush(stdout);
+        disconnect_reason = event->disconnect.reason;
         disconnect_seen = true;
     } else if (event->type == BLE_GAP_EVENT_MTU) {
         printf("REMU_VENDOR_BLE_MTU handle=%u cid=%u value=%u\n",
@@ -274,7 +276,11 @@ static void radio_sequence_task(void *argument)
             vTaskDelay(pdMS_TO_TICKS(10));
         }
         if (disconnect_seen) {
-            printf("REMU_VENDOR_BLE_REMOTE_TERMINATE observed=1\n");
+            if (disconnect_reason == BLE_HS_HCI_ERR(BLE_ERR_CONN_SPVN_TMO)) {
+                printf("REMU_VENDOR_BLE_SUPERVISION_TIMEOUT observed=1\n");
+            } else {
+                printf("REMU_VENDOR_BLE_REMOTE_TERMINATE observed=1\n");
+            }
             fflush(stdout);
         } else {
             int terminate_result = ble_gap_terminate(

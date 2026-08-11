@@ -130,6 +130,18 @@ layout, scan window, RX descriptor and payload buffer, then validates ownership
 transitions, metadata, RX/END interrupts, and W1C clearing. Each run requires
 identical radio replay on reset.
 
+The same vendor image also runs a separate silent-peer workflow on both chips.
+Its generated `CONNECT_IND` programs a 100 ms supervision timeout, keeps the
+link alive through the public connection and MTU callbacks, then removes the
+central. Genuine controller firmware must report HCI reason `0x08` through the
+public GAP disconnect callback (NimBLE reason 520) and restart scanning. C6
+additionally validates the firmware-decoded schedule-result bit that promotes
+the native link from establishing to connected. An unexplained duplicate RX
+completion, a continuation without an initial completion, or a completion after
+firmware releases the schedule is an immediate radio-legality error. A valid
+encrypted continuation in the same native event is accepted. The silent-peer
+result and RF replay must repeat exactly from reset.
+
 C6 also has genuine ESP-IDF/NimBLE and freestanding BLE evidence for native
 controller TX/RX and interrupt service. C6 IEEE 802.15.4 has complementary
 probes: the public
@@ -179,8 +191,8 @@ compatibility. The definition of done still requires pinned, unmodified
 ESP-IDF applications to initialize through their real controller/ROM/shared
 memory ABI. Wi-Fi still needs ACK/retry, fragmentation/aggregation, hardware
 crypto, and C6 HE/TWT acceptance. BLE still needs the remaining chip-specific
-controller transport, adaptive hopping, supervision timeout, privacy list
-behavior, and sleep/wake acceptance.
+controller transport, adaptive hopping, privacy list behavior, and sleep/wake
+acceptance.
 The genuine OpenThread radio build now passes raw TX/RX, source matching,
 energy scan, and sleep/wake through the native C6 port. A secured Thread CLI
 exchange and Zigbee-facing firmware qualification still remain. Disputed

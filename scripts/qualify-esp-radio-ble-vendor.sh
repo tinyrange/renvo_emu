@@ -32,6 +32,8 @@ rom_file=$(jq -r --arg chip "$chip" '.chips[$chip].rom_file' "$requirements")
 expected_rom_sha=$(jq -r --arg chip "$chip" '.chips[$chip].rom_sha256' "$requirements")
 minimum_instructions=$(jq -r --arg chip "$chip" '.chips[$chip].minimum_instructions' "$requirements")
 radio_input=$(jq -r --arg chip "$chip" '.chips[$chip].radio_input' "$requirements")
+supervision_input_prefix=$(jq -r --arg chip "$chip" '.chips[$chip].supervision_input_prefix' "$requirements")
+supervision_timeout_units=$(jq -r --arg chip "$chip" '.chips[$chip].supervision_timeout_units' "$requirements")
 rom_start=$(jq -r --arg chip "$chip" '.chips[$chip].rom_start' "$requirements")
 rom_end=$(jq -r --arg chip "$chip" '.chips[$chip].rom_end' "$requirements")
 
@@ -75,20 +77,21 @@ run_vendor_ble()
 {
     result=$1
     replay=$2
-    shift 2
+    input=$3
+    shift 3
     "$remu" run \
         --target "$chip" \
         --elf "$elf" \
         --boot-rom "$rom_root/$rom_file" \
         --esp-app-image "$flash" \
         --max-instructions "$minimum_instructions" \
-        --radio-input "$radio_input" \
+        --radio-input "$input" \
         --radio-replay "$replay" \
         --result "$result" \
         "$@"
 }
 
-run_vendor_ble "$chip_root/result.json" "$chip_root/radio-replay.json" \
+run_vendor_ble "$chip_root/result.json" "$chip_root/radio-replay.json" "$radio_input" \
     --coverage "$chip_root/coverage.json"
 
 jq -e --argjson instructions "$minimum_instructions" \
@@ -149,16 +152,16 @@ jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
              [3, 23, 3, 16, 17, 18, 19, 20, 21, 22, 23, 52, 18, 32, 33, 34, 35, 36, 37, 38, 39, 48, 49, 50, 51],
              [13, 0],
              [1, 0],
-             [15, 5, 143, 196, 43, 25, 103],
-             [1, 4, 244, 176, 217, 44],
-             [15, 6, 45, 155, 2, 74, 40, 15]
+             [15, 5, 94, 222, 150, 223, 118],
+             [1, 4, 66, 146, 69, 215],
+             [15, 6, 143, 51, 163, 95, 135, 212]
          ] else [
              [3, 23, 3, 16, 17, 18, 19, 20, 21, 22, 23, 52, 18, 32, 33, 34, 35, 36, 37, 38, 39, 48, 49, 50, 51],
              [1, 0],
              [13, 0],
-             [15, 5, 184, 9, 240, 138, 197],
-             [5, 4, 51, 203, 243, 20],
-             [11, 6, 229, 251, 202, 6, 119, 40]
+             [15, 5, 149, 165, 33, 111, 146],
+             [5, 4, 26, 32, 81, 28],
+             [11, 6, 179, 73, 196, 39, 175, 39]
          ] end) +
          [[2, 7, 3, 0, 4, 0, 2, 247, 0],
           [15, 9, 21, 251, 0, 144, 66, 251, 0, 144, 66]])[];
@@ -217,16 +220,51 @@ jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
             .request.frame.bytes == $required.bytes))
 ' "$chip_root/radio-replay.json" >/dev/null
 
-run_vendor_ble "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" \
+run_vendor_ble "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" "$radio_input" \
     --replay "$chip_root/result.json"
 cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
+
+supervision_input=$chip_root/radio-input-supervision.json
+jq --argjson prefix "$supervision_input_prefix" \
+    --argjson timeout "$supervision_timeout_units" '
+    {
+        schema,
+        frames: (.frames[0:$prefix] |
+            .[0].bytes[28] = ($timeout % 256) |
+            .[0].bytes[29] = (($timeout / 256) | floor))
+    }
+' "$radio_input" >"$supervision_input"
+run_vendor_ble "$chip_root/result-supervision.json" \
+    "$chip_root/radio-replay-supervision.json" "$supervision_input"
+jq -e --argjson instructions "$minimum_instructions" \
+    '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
+    "$chip_root/result-supervision.json" >/dev/null
+jq -r '.uart | implode' "$chip_root/result-supervision.json" \
+    >"$chip_root/uart-supervision.log"
+jq -r --arg chip "$chip" \
+    '.chips[$chip].required_supervision_uart_substrings[]' "$requirements" |
+while IFS= read -r required_uart
+do
+    if ! grep -F "$required_uart" "$chip_root/uart-supervision.log" >/dev/null
+    then
+        echo "$chip genuine BLE supervision milestone missing from UART: $required_uart" >&2
+        exit 1
+    fi
+done
+run_vendor_ble "$chip_root/result-supervision-repeat.json" \
+    "$chip_root/radio-replay-supervision-repeat.json" "$supervision_input" \
+    --replay "$chip_root/result-supervision.json"
+cmp "$chip_root/radio-replay-supervision.json" \
+    "$chip_root/radio-replay-supervision-repeat.json"
 
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
+supervision_uart_sha=$(sha256sum "$chip_root/uart-supervision.log" | cut -d ' ' -f 1)
+supervision_radio_replay_sha=$(sha256sum "$chip_root/radio-replay-supervision.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-ble-vendor-qualification.v8 \
+    --arg schema remu.radio-ble-vendor-qualification.v9 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -234,9 +272,12 @@ jq -n \
     --arg flash_sha256 "$flash_sha" \
     --arg uart_sha256 "$uart_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
+    --arg supervision_uart_sha256 "$supervision_uart_sha" \
+    --arg supervision_radio_replay_sha256 "$supervision_radio_replay_sha" \
     --argjson entry "$entry" \
     --argjson minimum_instructions "$minimum_instructions" \
     --slurpfile result "$chip_root/result.json" \
+    --slurpfile supervision_result "$chip_root/result-supervision.json" \
     --slurpfile coverage "$chip_root/coverage.json" \
     '{
         schema: $schema,
@@ -273,6 +314,8 @@ jq -n \
             requires_native_ble_acl_acknowledgement: true,
             requires_native_ble_tx_descriptor_retirement: true,
             requires_native_ble_remote_termination: true,
+            requires_native_ble_supervision_timeout: true,
+            requires_vendor_supervision_disconnect: true,
             requires_native_ble_scan_restart: true,
             requires_received_power_metadata: true,
             deterministic_replay_required: true,
@@ -285,6 +328,8 @@ jq -n \
             coverage_digest: $coverage[0].digest,
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
+            supervision_uart_sha256: $supervision_uart_sha256,
+            supervision_radio_replay_sha256: $supervision_radio_replay_sha256,
             vendor_scan_payload: "02 01 06 02 09 52",
             vendor_scan_rssi_dbm: -80,
             native_extended_advertising: true,
@@ -298,6 +343,9 @@ jq -n \
             native_connection_encrypted: true,
             native_acl_acknowledged: true,
             native_connection_remote_terminated: true,
+            native_supervision_stop: $supervision_result[0].reason,
+            native_supervision_instructions: $supervision_result[0].stats.instructions,
+            native_connection_supervision_timed_out: true,
             native_scan_restarted_after_disconnect: true,
             deterministic_replay: true
         }

@@ -1362,30 +1362,44 @@ mod tests {
     #[test]
     fn native_data_channel_ccm_matches_firmware_derived_c6_transaction() {
         let key = [
-            0x75, 0xc1, 0x90, 0x34, 0xa2, 0x8e, 0x97, 0xa8, 0x23, 0x03, 0x54, 0xbe, 0x03, 0x29,
-            0x4d, 0xb5,
+            0xa2, 0xd7, 0x35, 0x99, 0x28, 0x97, 0x4f, 0xf1, 0x83, 0x60, 0x89, 0x9b, 0x80, 0x55,
+            0x60, 0x83,
         ];
-        let iv = [0x30, 0x31, 0x32, 0x33, 0x06, 0x63, 0xc0, 0x23];
-        let encrypted = ble_link_encrypt_pdu(
-            &key,
-            &iv,
-            0,
-            BleLinkDirection::CentralToPeripheral,
-            &[0x0f, 1, 0x06],
-        )
-        .unwrap();
-        assert_eq!(encrypted, [0x0f, 5, 0x8f, 0xc4, 0x2b, 0x19, 0x67]);
-        assert_eq!(
-            ble_link_decrypt_pdu(
+        let iv = [0x30, 0x31, 0x32, 0x33, 0xea, 0x47, 0xa4, 0x07];
+        let transactions = [
+            (
+                &[0x0f, 1, 0x06][..],
+                &[0x0f, 5, 0x5e, 0xde, 0x96, 0xdf, 0x76][..],
+            ),
+            (&[0x01, 0][..], &[0x01, 4, 0x42, 0x92, 0x45, 0xd7][..]),
+            (
+                &[0x0f, 2, 0x02, 0x13][..],
+                &[0x0f, 6, 0x8f, 0x33, 0xa3, 0x5f, 0x87, 0xd4][..],
+            ),
+        ];
+        for (counter, (plaintext, expected)) in transactions.into_iter().enumerate() {
+            let encrypted = ble_link_encrypt_pdu(
                 &key,
                 &iv,
-                0,
+                counter as u64,
                 BleLinkDirection::CentralToPeripheral,
-                &encrypted,
+                plaintext,
             )
-            .unwrap(),
-            [0x0f, 1, 0x06]
-        );
+            .unwrap();
+            assert_eq!(encrypted, expected);
+            assert_eq!(
+                ble_link_decrypt_pdu(
+                    &key,
+                    &iv,
+                    counter as u64,
+                    BleLinkDirection::CentralToPeripheral,
+                    &encrypted,
+                )
+                .unwrap(),
+                plaintext
+            );
+        }
+        let encrypted = transactions[0].1.to_vec();
         let mut corrupted = encrypted;
         *corrupted.last_mut().unwrap() ^= 1;
         assert_eq!(
@@ -1403,10 +1417,10 @@ mod tests {
     #[test]
     fn native_data_channel_ccm_matches_firmware_derived_s3_transaction() {
         let key = [
-            0xb8, 0x02, 0x9e, 0xdb, 0xe8, 0x33, 0x8c, 0x67, 0x92, 0x1b, 0x49, 0x25, 0xae, 0xcb,
-            0xce, 0x6c,
+            0x54, 0x7f, 0x91, 0xc8, 0x36, 0xf0, 0x2c, 0x07, 0x6f, 0x02, 0x10, 0x4c, 0x8f, 0xaf,
+            0xcc, 0x5b,
         ];
-        let iv = [0x30, 0x31, 0x32, 0x33, 0x93, 0xa5, 0x3f, 0x33];
+        let iv = [0x30, 0x31, 0x32, 0x33, 0x85, 0x4e, 0x5d, 0x41];
         let encrypted = ble_link_encrypt_pdu(
             &key,
             &iv,
@@ -1415,7 +1429,7 @@ mod tests {
             &[0x0f, 1, 0x06],
         )
         .unwrap();
-        assert_eq!(encrypted, [0x0f, 5, 0xb8, 0x09, 0xf0, 0x8a, 0xc5]);
+        assert_eq!(encrypted, [0x0f, 5, 0x95, 0xa5, 0x21, 0x6f, 0x92]);
         assert_eq!(
             ble_link_decrypt_pdu(
                 &key,
@@ -1435,7 +1449,7 @@ mod tests {
             &[0x05, 0],
         )
         .unwrap();
-        assert_eq!(encrypted_empty, [0x05, 4, 0x33, 0xcb, 0xf3, 0x14]);
+        assert_eq!(encrypted_empty, [0x05, 4, 0x1a, 0x20, 0x51, 0x1c]);
         let encrypted_terminate = ble_link_encrypt_pdu(
             &key,
             &iv,
@@ -1446,7 +1460,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             encrypted_terminate,
-            [0x0b, 6, 0xe5, 0xfb, 0xca, 0x06, 0x77, 0x28]
+            [0x0b, 6, 0xb3, 0x49, 0xc4, 0x27, 0xaf, 0x27]
         );
     }
 }

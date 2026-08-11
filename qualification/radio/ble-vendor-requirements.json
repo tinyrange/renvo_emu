@@ -1,5 +1,5 @@
 {
-  "schema": "remu.radio-ble-vendor-requirements.v7",
+  "schema": "remu.radio-ble-vendor-requirements.v8",
   "source_ledger_entry": "esp-rom-elfs-20260528",
   "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
   "firmware_project": "qualification/radio/vendor-ble-probe",
@@ -12,6 +12,15 @@
       "rom_end": "0x40050000",
       "minimum_instructions": 20000000,
       "radio_input": "qualification/radio/ble-advertisement-vendor-esp32c6.json",
+      "supervision_input_prefix": 8,
+      "supervision_timeout_units": 10,
+      "required_supervision_uart_substrings": [
+        "REMU_VENDOR_BLE_CONNECT status=0 handle=0",
+        "REMU_VENDOR_BLE_CONNECTION_READY handle=0",
+        "REMU_VENDOR_BLE_DISCONNECT reason=520 handle=0",
+        "REMU_VENDOR_BLE_SUPERVISION_TIMEOUT observed=1",
+        "REMU_VENDOR_BLE_SCAN_START result=0"
+      ],
       "required_uart_substrings": [
         "REMU_VENDOR_BLE_INIT result=0",
         "REMU_VENDOR_BLE_SEQUENCE result=1",
@@ -43,10 +52,10 @@
         "extended_primary": {
           "center_khz": 2480000,
           "phy": "ble-1m",
-          "bytes": [71, 7, 6, 24, 1, 48, 11, 15, 32]
+          "bytes": [71, 7, 6, 24, 1, 48, 36, 15, 32]
         },
         "extended_auxiliary": {
-          "center_khz": 2428000,
+          "center_khz": 2478000,
           "phy": "ble-2m",
           "bytes": [71, 24, 9, 9, 6, 5, 4, 3, 2, 193, 1, 48, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84]
         }
@@ -63,11 +72,11 @@
         {"center_khz": 2432000, "phy": "ble-1m", "bytes": [7, 3, 23, 7, 7]},
         {"center_khz": 2428000, "phy": "ble-2m", "bytes": [9, 0]},
         {"center_khz": 2438000, "phy": "ble-2m", "bytes": [5, 0]},
-        {"center_khz": 2448000, "phy": "ble-2m", "bytes": [11, 13, 4, 169, 236, 143, 50, 213, 120, 27, 190, 6, 99, 192, 35]},
+        {"center_khz": 2448000, "phy": "ble-2m", "bytes": [11, 13, 4, 141, 208, 115, 22, 185, 92, 255, 162, 234, 71, 164, 7]},
         {"center_khz": 2458000, "phy": "ble-2m", "bytes": [7, 1, 5]},
-        {"center_khz": 2458000, "phy": "ble-2m", "bytes": [11, 5, 183, 131, 33, 0, 81]},
-        {"center_khz": 2468000, "phy": "ble-2m", "bytes": [5, 4, 127, 67, 237, 21]},
-        {"center_khz": 2478000, "phy": "ble-2m", "bytes": [9, 4, 37, 145, 144, 80]}
+        {"center_khz": 2458000, "phy": "ble-2m", "bytes": [11, 5, 190, 15, 2, 176, 173]},
+        {"center_khz": 2468000, "phy": "ble-2m", "bytes": [5, 4, 130, 147, 20, 244]},
+        {"center_khz": 2478000, "phy": "ble-2m", "bytes": [9, 4, 223, 121, 237, 71]}
       ]
     },
     "esp32s3": {
@@ -77,6 +86,15 @@
       "rom_end": "0x40070000",
       "minimum_instructions": 24000000,
       "radio_input": "qualification/radio/ble-advertisement-vendor-esp32s3.json",
+      "supervision_input_prefix": 8,
+      "supervision_timeout_units": 10,
+      "required_supervision_uart_substrings": [
+        "REMU_VENDOR_BLE_CONNECT status=0 handle=1",
+        "REMU_VENDOR_BLE_CONNECTION_READY handle=1",
+        "REMU_VENDOR_BLE_DISCONNECT reason=520 handle=1",
+        "REMU_VENDOR_BLE_SUPERVISION_TIMEOUT observed=1",
+        "REMU_VENDOR_BLE_SCAN_START result=0"
+      ],
       "required_uart_substrings": [
         "REMU_VENDOR_BLE_INIT result=0",
         "REMU_VENDOR_BLE_SEQUENCE result=1",
@@ -108,12 +126,12 @@
         "extended_primary": {
           "center_khz": 2480000,
           "phy": "ble-1m",
-          "bytes": [39, 7, 6, 24, 10, 39, 32, 5, 32]
+          "bytes": [39, 7, 6, 24, 27, 39, 32, 5, 32]
         },
         "extended_auxiliary": {
           "center_khz": 2470000,
           "phy": "ble-2m",
-          "bytes": [103, 24, 9, 9, 6, 5, 4, 3, 2, 193, 10, 0, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84]
+          "bytes": [103, 24, 9, 9, 6, 5, 4, 3, 2, 193, 27, 0, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84]
         }
       },
       "expected_connection_tx": [
@@ -128,11 +146,11 @@
         {"center_khz": 2420000, "phy": "ble-1m", "bytes": [23, 3, 23, 7, 7]},
         {"center_khz": 2428000, "phy": "ble-2m", "bytes": [9, 0]},
         {"center_khz": 2438000, "phy": "ble-2m", "bytes": [6, 7, 3, 0, 4, 0, 3, 0, 1]},
-        {"center_khz": 2448000, "phy": "ble-2m", "bytes": [23, 13, 4, 117, 204, 150, 89, 66, 217, 135, 254, 147, 165, 63, 51]},
+        {"center_khz": 2448000, "phy": "ble-2m", "bytes": [23, 13, 4, 148, 152, 161, 139, 96, 198, 11, 118, 133, 78, 93, 65]},
         {"center_khz": 2458000, "phy": "ble-2m", "bytes": [9, 0]},
         {"center_khz": 2468000, "phy": "ble-2m", "bytes": [23, 1, 5]},
-        {"center_khz": 2478000, "phy": "ble-2m", "bytes": [13, 4, 158, 245, 5, 206]},
-        {"center_khz": 2412000, "phy": "ble-2m", "bytes": [19, 9, 64, 145, 48, 102, 250, 205, 206, 172, 115]}
+        {"center_khz": 2478000, "phy": "ble-2m", "bytes": [13, 4, 183, 214, 102, 185]},
+        {"center_khz": 2412000, "phy": "ble-2m", "bytes": [19, 9, 132, 215, 145, 229, 140, 100, 130, 134, 94]}
       ]
     }
   }

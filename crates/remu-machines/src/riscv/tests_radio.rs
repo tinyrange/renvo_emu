@@ -1042,6 +1042,79 @@ fn esp32c6_misaligned_native_ble_schedule_is_a_hard_machine_error() {
 }
 
 #[test]
+fn esp32c6_native_ble_connection_rx_latches_success_once() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let schedule = 0x4080_1000_u32;
+    machine
+        .debug_write_memory(
+            u64::from(schedule.wrapping_add(0x28)),
+            &(1_u32 << 13).to_le_bytes(),
+        )
+        .unwrap();
+
+    machine
+        .mark_native_ble_connection_rx_success(schedule, false)
+        .unwrap();
+    assert_eq!(
+        u32::from_le_bytes(
+            machine
+                .debug_read_memory(u64::from(schedule.wrapping_add(0x28)), 4)
+                .unwrap()
+                .try_into()
+                .unwrap()
+        ),
+        (1 << 13) | (1 << 11)
+    );
+    let error = machine
+        .mark_native_ble_connection_rx_success(schedule, false)
+        .unwrap_err();
+    let MachineError::RadioLegality(error) = error else {
+        panic!("expected radio legality error, got {error}");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert!(error.to_string().contains("unexplained duplicate RX"));
+
+    machine
+        .mark_native_ble_connection_rx_success(schedule, true)
+        .unwrap();
+
+    machine
+        .debug_write_memory(
+            u64::from(schedule.wrapping_add(0x28)),
+            &(1_u32 << 13).to_le_bytes(),
+        )
+        .unwrap();
+    let error = machine
+        .mark_native_ble_connection_rx_success(schedule, true)
+        .unwrap_err();
+    let MachineError::RadioLegality(error) = error else {
+        panic!("expected radio legality error, got {error}");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert!(error
+        .to_string()
+        .contains("continued without an initial RX completion"));
+}
+
+#[test]
+fn esp32c6_native_ble_connection_rx_rejects_released_schedule() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let schedule = 0x4080_1000_u32;
+    machine
+        .debug_write_memory(u64::from(schedule.wrapping_add(0x28)), &[0; 4])
+        .unwrap();
+
+    let error = machine
+        .mark_native_ble_connection_rx_success(schedule, false)
+        .unwrap_err();
+    let MachineError::RadioLegality(error) = error else {
+        panic!("expected radio legality error, got {error}");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert!(error.to_string().contains("after firmware released schedule"));
+}
+
+#[test]
 fn esp32c6_native_ble_scan_writes_the_firmware_owned_rx_ring() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine
