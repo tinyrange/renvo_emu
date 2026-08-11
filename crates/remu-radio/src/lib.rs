@@ -13,7 +13,10 @@ mod replay;
 mod types;
 mod wifi;
 
-pub use ble::{BdAddress, BleController, BleError, BleEvent, BlePeer, BlePhy, ConnectionHandle};
+pub use ble::{
+    BdAddress, BleController, BleError, BleEvent, BleLinkCryptoError, BleLinkDirection, BlePeer,
+    BlePhy, ConnectionHandle, ble_link_decrypt_pdu, ble_link_encrypt_pdu,
+};
 pub use coexistence::{
     CoexistenceArbiter, CoexistenceDecision, CoexistenceError, CoexistenceEvent,
     CoexistenceGrantId, CoexistenceRequest,

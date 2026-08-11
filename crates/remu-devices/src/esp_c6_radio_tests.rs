@@ -354,6 +354,72 @@ mod tests {
     }
 
     #[test]
+    fn ble_modem_security_ccm_decodes_peripheral_rx_direction_and_completes() {
+        let (mut device, handle) = EspC6BleControl::new("ble-control");
+        let key = [
+            0x75_u8, 0xc1, 0x90, 0x34, 0xa2, 0x8e, 0x97, 0xa8, 0x23, 0x03, 0x54, 0xbe, 0x03, 0x29,
+            0x4d, 0xb5,
+        ];
+        for word in 0..4 {
+            device
+                .write(
+                    C6_BLE_CCM_KEY_BASE + word as u64 * 4,
+                    AccessWidth::Word,
+                    u64::from(u32::from_le_bytes(
+                        key[word * 4..word * 4 + 4].try_into().unwrap(),
+                    )),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
+        for (offset, value) in [
+            (C6_BLE_CCM_CONFIG, 0x1013),
+            (C6_BLE_CCM_INPUT_ADDRESS, 0x4082_1022),
+            (C6_BLE_CCM_OUTPUT_ADDRESS, 0x4081_d960),
+            (C6_BLE_CCM_COUNTER_LOW, 0),
+            (C6_BLE_CCM_COUNTER_IV0, 0x3231_3080),
+            (C6_BLE_CCM_IV1, 0xc063_0633),
+            (C6_BLE_CCM_IV2, 0x23),
+            (C6_BLE_CCM_AAD, 0x03),
+        ] {
+            device
+                .write(offset, AccessWidth::Word, value, SimTime::ZERO)
+                .unwrap();
+        }
+        device
+            .write(C6_BLE_CCM_START, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+
+        let command = handle.take_ccm_command().unwrap();
+        assert!(command.decrypt);
+        assert!(!command.peripheral_to_central);
+        assert_eq!(command.payload_length, 1);
+        assert_eq!(command.packet_counter, 0);
+        assert_eq!(command.iv, [0x30, 0x31, 0x32, 0x33, 0x06, 0x63, 0xc0, 0x23]);
+        assert_eq!(command.key, key);
+        assert_eq!(command.aad_header, 0x03);
+        assert_eq!(
+            device
+                .read(C6_BLE_CCM_STATUS, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        handle.complete_ccm(true);
+        assert_eq!(
+            device
+                .read(C6_BLE_CCM_RESULT, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            device
+                .read(C6_BLE_CCM_STATUS, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
     fn modem_reset_values_masks_and_domains_are_visible() {
         let (mut syscon, mut lpcon, handle) = EspC6ModemControl::new_pair("syscon", "lpcon");
         assert_eq!(

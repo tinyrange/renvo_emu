@@ -187,7 +187,8 @@ impl RiscVMachine {
         let schedule_address = activity.schedule_address;
         let state = activity.state;
         let rx_buffer_identifier = activity.rx_buffer_identifier;
-        let frame = &frame.bytes;
+        let over_air_frame = frame.bytes.clone();
+        let frame = over_air_frame.as_slice();
         if frame.len() < 2 || frame.len() > u8::MAX as usize {
             return Ok(false);
         }
@@ -229,6 +230,62 @@ impl RiscVMachine {
             return Ok(false);
         };
 
+        // Once the peripheral has emitted LL_START_ENC_REQ, C6 hardware sends
+        // the following encrypted LL_START_ENC_RSP through modem-security CCM.
+        // Keep ciphertext in RX DMA so the genuine controller programs that
+        // engine and publishes the plaintext itself.
+        let hardware_encryption_transition = rx_buffer_identifier == 2
+            && self
+                .radio_c6_ble_link_sequences
+                .entry(state)
+                .or_default()
+                .expects_central_response();
+        let dma_frame_result = if rx_buffer_identifier == 2 {
+            self.radio_c6_ble_link_sequences
+                .entry(state)
+                .or_default()
+                .native_rx_dma_frame(frame)
+        } else {
+            Ok(frame.to_vec())
+        };
+        let (dma_frame, dma_frame_error) = match dma_frame_result {
+            Ok(decoded) => (decoded, None),
+            Err(detail) => (Vec::new(), Some(detail)),
+        };
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                dma_frame_error.is_none(),
+                self.now,
+                dma_frame_error.unwrap_or_default(),
+            )?;
+        let hardware_empty_result = if rx_buffer_identifier == 2 {
+            self
+                .radio_c6_ble_link_sequences
+                .entry(state)
+                .or_default()
+                .hardware_filters_empty(frame)
+        } else {
+            Ok(false)
+        };
+        let (hardware_empty_pdu, hardware_empty_error) = match hardware_empty_result {
+            Ok(empty) => (empty, None),
+            Err(detail) => (false, Some(detail)),
+        };
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                hardware_empty_error.is_none(),
+                self.now,
+                hardware_empty_error.unwrap_or_default(),
+            )?;
+
         // Native RX buffers contain sixteen bytes of hardware metadata before
         // the over-air PDU. The status word carries signed RSSI in its high
         // byte; bit 10 is the CRC-error indication and remains clear for a
@@ -244,20 +301,53 @@ impl RiscVMachine {
         metadata[12..14].copy_from_slice(&rx_buffer_identifier.to_le_bytes());
         metadata[14] = 78;
         metadata[15] = 0;
-        self.radio_write_guest_bytes(buffer.wrapping_add(0x0c), &metadata)?;
-        self.radio_write_guest_bytes(buffer.wrapping_add(0x1c), frame)?;
-
-        // The baseband cursor names the next hardware-owned RX header. Move it
-        // past the header just filled so that descriptor becomes part of the
-        // completed prefix consumed by the controller's recycle walk. Header
-        // link words already contain the next header's address plus four.
-        // Bit 27 records that RX DMA completed during this schedule.
-        let next_rx = self.radio_read_guest_word(header.wrapping_add(4))? & 0x000f_ffff;
-        if next_rx == 0 {
-            return Ok(false);
-        }
-        self.radio_write_guest_word(state.wrapping_add(8), (current_rx & !0x000f_ffff) | next_rx)?;
-        if rx_buffer_identifier == 2 {
+        let native_rx_counter = if rx_buffer_identifier == 2 && !hardware_empty_pdu {
+            self.radio_c6_ble_link_sequences
+                .entry(state)
+                .or_default()
+                .native_rx_packet_counter(frame)
+        } else {
+            Ok(None)
+        };
+        let (native_rx_counter, counter_error) = match native_rx_counter {
+            Ok(counter) => (counter, None),
+            Err(detail) => (None, Some(detail)),
+        };
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                counter_error.is_none(),
+                self.now,
+                counter_error.unwrap_or_default(),
+            )?;
+        let native_rx_counter = native_rx_counter.unwrap_or_default();
+        let next_rx_header = if hardware_empty_pdu {
+            // Hardware-authenticated empty PDUs drive NESN/SN and the pending
+            // TX allocation, but are filtered before RX DMA and leave the
+            // firmware ring cursor untouched.
+            Some(header)
+        } else {
+            self.radio_write_guest_word(buffer, native_rx_counter as u32)?;
+            self.radio_write_guest_word(buffer.wrapping_add(4), (native_rx_counter >> 32) as u32)?;
+            self.radio_write_guest_bytes(buffer.wrapping_add(0x0c), &metadata)?;
+            self.radio_write_guest_bytes(buffer.wrapping_add(0x1c), &dma_frame)?;
+            // The baseband cursor names the next hardware-owned RX header.
+            // Move it past the header just filled so the descriptor becomes
+            // part of the completed prefix consumed by the recycle walk.
+            let next_rx = self.radio_read_guest_word(header.wrapping_add(4))? & 0x000f_ffff;
+            if next_rx == 0 {
+                return Ok(false);
+            }
+            self.radio_write_guest_word(
+                state.wrapping_add(8),
+                (current_rx & !0x000f_ffff) | next_rx,
+            )?;
+            c6_ble_pointer(next_rx).and_then(|cursor| cursor.checked_sub(4))
+        };
+        if rx_buffer_identifier == 2 && !hardware_encryption_transition {
             // CURRENT_TX names the live list cursor while the event runs. A
             // successful peripheral RX/TX pair marks the current allocation
             // complete and leaves the cursor on it until task-context recycle
@@ -276,13 +366,17 @@ impl RiscVMachine {
                         | (completed_tx.wrapping_add(4) & 0x000f_ffff),
                 )?;
             }
-            let next_rx_header = c6_ble_pointer(next_rx).and_then(|cursor| cursor.checked_sub(4));
             handle.set_loaded_buffer_headers(schedule_address, completed_tx, next_rx_header);
         }
-        let schedule_flags = self.radio_read_guest_word(state.wrapping_add(0x14))?;
-        self.radio_write_guest_word(state.wrapping_add(0x14), schedule_flags | (1 << 27))?;
+        if !hardware_empty_pdu {
+            // Bit 27 records that RX DMA completed during this schedule.
+            let schedule_flags = self.radio_read_guest_word(state.wrapping_add(0x14))?;
+            self.radio_write_guest_word(state.wrapping_add(0x14), schedule_flags | (1 << 27))?;
+        }
 
-        let firmware_connection_response = if rx_buffer_identifier == 2 {
+        let firmware_connection_response = if hardware_encryption_transition {
+            None
+        } else if rx_buffer_identifier == 2 {
             let tx_header = self.native_ble_connection_tx_header(state)?;
             match tx_header {
                 Some(tx_header) => self.read_native_ble_pdu(state, tx_header, false)?,
@@ -291,7 +385,8 @@ impl RiscVMachine {
         } else {
             None
         };
-        let (connection_response, connection_tx_phy) = if rx_buffer_identifier == 2 {
+        let (connection_response, connection_tx_phy, continues_connection_event) =
+            if rx_buffer_identifier == 2 {
             let sequence = self.radio_c6_ble_link_sequences.entry(state).or_default();
             let response_result = sequence.peripheral_response(frame, firmware_connection_response);
             let (response, response_error) = match response_result {
@@ -299,14 +394,18 @@ impl RiscVMachine {
                 Err(detail) => (None, Some(detail)),
             };
             let tx_phy = sequence.tx_phy();
+            let valid_response = response.as_ref().is_some_and(|pdu| pdu.len() >= 2)
+                || sequence.allows_silent_event_end();
+            if hardware_empty_pdu {
+                sequence.complete_hardware_filtered_rx();
+            }
             self.radio_legality
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio legality validator")
                 .require(
                     RadioSubsystem::BluetoothLe,
                     RadioLegalityRule::SchedulerState,
-                    response_error.is_none()
-                        && response.as_ref().is_some_and(|pdu| pdu.len() >= 2),
+                    response_error.is_none() && valid_response,
                     self.now,
                     response_error.unwrap_or_else(|| {
                         format!(
@@ -314,9 +413,9 @@ impl RiscVMachine {
                         )
                     }),
                 )?;
-            (response, tx_phy)
+            (response, tx_phy, sequence.expects_central_response())
         } else {
-            (None, "ble-1m")
+            (None, "ble-1m", false)
         };
 
         self.radio_c6_ble_receptions.remove(activity_index);
@@ -329,12 +428,54 @@ impl RiscVMachine {
             let end = start
                 .checked_add(frame_duration(bytes.len()))
                 .map_err(|_| MachineError::TimeOverflow)?;
+            let (response, completion_end) = if continues_connection_event {
+                let response_start = end
+                    .checked_add(SimDuration::from_ticks(C6_BLE_INTERFRAME_SPACE_TICKS))
+                    .map_err(|_| MachineError::TimeOverflow)?;
+                let response_end = response_start
+                    .checked_add(SimDuration::from_ticks(
+                        C6_BLE_INTERFRAME_SPACE_TICKS.saturating_mul(2),
+                    ))
+                    .map_err(|_| MachineError::TimeOverflow)?;
+                let maximum_extension = activity
+                    .end
+                    .checked_add(SimDuration::from_ticks(
+                        C6_BLE_INTERFRAME_SPACE_TICKS.saturating_mul(4),
+                    ))
+                    .map_err(|_| MachineError::TimeOverflow)?;
+                self.radio_legality
+                    .as_mut()
+                    .expect("ESP32-C6 machine has a radio legality validator")
+                    .require(
+                        RadioSubsystem::BluetoothLe,
+                        RadioLegalityRule::SchedulerState,
+                        response_end <= maximum_extension,
+                        self.now,
+                        format!(
+                            "BLE encryption continuation ends at {response_end}, beyond the firmware-observed extension limit {maximum_extension}"
+                        ),
+                    )?;
+                (
+                    Some(PendingNativeBleReception {
+                        start: response_start,
+                        end: response_end,
+                        schedule_address,
+                        state,
+                        spectrum: activity.spectrum,
+                        phy: connection_tx_phy,
+                        rx_buffer_identifier,
+                    }),
+                    response_end,
+                )
+            } else {
+                (None, end)
+            };
             let pending = PendingNativeBleTransmission {
                 start,
                 spectrum: activity.spectrum,
                 phy: connection_tx_phy,
                 bytes,
-                response: None,
+                response,
             };
             let insertion = self
                 .radio_c6_pending_ble_transmissions
@@ -343,7 +484,7 @@ impl RiscVMachine {
                 .unwrap_or(self.radio_c6_pending_ble_transmissions.len());
             self.radio_c6_pending_ble_transmissions
                 .insert(insertion, pending);
-            handle.schedule_received_event_end(end, schedule_address, successor);
+            handle.schedule_received_event_end(completion_end, schedule_address, successor);
         } else {
             handle.schedule_received_event_end(self.now, schedule_address, successor);
         }
@@ -645,7 +786,10 @@ impl RiscVMachine {
 
 fn c6_ble_pointer(raw: u32) -> Option<u32> {
     let low = raw & 0x000f_ffff;
-    (low != 0).then_some(0x4080_0000 | low)
+    // ESP32-C6 HP SRAM occupies 0x4080_0000..0x4088_0000. Native BLE words
+    // reuse the next compressed-address bit for state, so accepting all twenty
+    // low bits can turn a flagged non-pointer into an out-of-range DMA address.
+    (low != 0 && low < 0x0008_0000).then_some(0x4080_0000 | low)
 }
 
 fn c6_wifi_rx_metadata(frame: &[u8], rx_match: u8, at: remu_core::SimTime) -> [u8; 92] {

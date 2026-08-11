@@ -3,6 +3,11 @@ use aes::{
     Aes128,
     cipher::{BlockCipherEncrypt, KeyInit},
 };
+use ccm::{
+    Ccm,
+    aead::{AeadInOut, KeyInit as AeadKeyInit},
+    consts::{U4, U13},
+};
 use remu_core::SimTime;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -126,6 +131,121 @@ pub enum BleError {
     /// Scripted peer configuration is invalid.
     #[error("invalid BLE peer configuration")]
     InvalidPeer,
+}
+
+/// Direction bit carried in a Bluetooth LE data-channel CCM nonce.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BleLinkDirection {
+    /// Packet transmitted by the connection central.
+    CentralToPeripheral,
+    /// Packet transmitted by the connection peripheral.
+    PeripheralToCentral,
+}
+
+/// Invalid native BLE encryption input or failed MIC verification.
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+pub enum BleLinkCryptoError {
+    /// The PDU length byte does not describe the supplied bytes.
+    #[error("malformed encrypted BLE data-channel PDU")]
+    MalformedPdu,
+    /// The 39-bit link-layer packet counter was exhausted.
+    #[error("BLE encryption packet counter {0} exceeds 39 bits")]
+    CounterOverflow(u64),
+    /// AES-CCM authentication rejected the received payload.
+    #[error("BLE data-channel MIC verification failed")]
+    AuthenticationFailed,
+}
+
+fn ble_ccm_nonce(
+    iv: &[u8; 8],
+    counter: u64,
+    direction: BleLinkDirection,
+) -> Result<[u8; 13], BleLinkCryptoError> {
+    if counter >= 1_u64 << 39 {
+        return Err(BleLinkCryptoError::CounterOverflow(counter));
+    }
+    let mut nonce = [0_u8; 13];
+    nonce[..5].copy_from_slice(&counter.to_le_bytes()[..5]);
+    if direction == BleLinkDirection::PeripheralToCentral {
+        nonce[4] |= 1 << 7;
+    }
+    nonce[5..].copy_from_slice(iv);
+    Ok(nonce)
+}
+
+/// Encrypts one native BLE data-channel PDU and appends its four-byte MIC.
+pub fn ble_link_encrypt_pdu(
+    key: &[u8; 16],
+    iv: &[u8; 8],
+    counter: u64,
+    direction: BleLinkDirection,
+    pdu: &[u8],
+) -> Result<Vec<u8>, BleLinkCryptoError> {
+    let Some((&header, body)) = pdu.split_first() else {
+        return Err(BleLinkCryptoError::MalformedPdu);
+    };
+    let Some((&length, payload)) = body.split_first() else {
+        return Err(BleLinkCryptoError::MalformedPdu);
+    };
+    if usize::from(length) != payload.len() || payload.len() > usize::from(u8::MAX) - 4 {
+        return Err(BleLinkCryptoError::MalformedPdu);
+    }
+    let nonce = ble_ccm_nonce(iv, counter, direction)?;
+    let mut encrypted = payload.to_vec();
+    let cipher = Ccm::<Aes128, U4, U13>::new(key.into());
+    let mic = cipher
+        .encrypt_inout_detached(
+            (&nonce).into(),
+            &[header & 0xe3],
+            encrypted.as_mut_slice().into(),
+        )
+        .map_err(|_| BleLinkCryptoError::AuthenticationFailed)?;
+    let mut result = Vec::with_capacity(pdu.len() + 4);
+    result.push(header);
+    result.push(length + 4);
+    result.extend_from_slice(&encrypted);
+    result.extend_from_slice(&mic);
+    Ok(result)
+}
+
+/// Verifies and decrypts one native BLE data-channel PDU.
+pub fn ble_link_decrypt_pdu(
+    key: &[u8; 16],
+    iv: &[u8; 8],
+    counter: u64,
+    direction: BleLinkDirection,
+    pdu: &[u8],
+) -> Result<Vec<u8>, BleLinkCryptoError> {
+    let Some((&header, body)) = pdu.split_first() else {
+        return Err(BleLinkCryptoError::MalformedPdu);
+    };
+    let Some((&length, payload_and_mic)) = body.split_first() else {
+        return Err(BleLinkCryptoError::MalformedPdu);
+    };
+    if usize::from(length) != payload_and_mic.len() || payload_and_mic.len() < 4 {
+        return Err(BleLinkCryptoError::MalformedPdu);
+    }
+    let payload_length = payload_and_mic.len() - 4;
+    let (payload, mic) = payload_and_mic.split_at(payload_length);
+    let nonce = ble_ccm_nonce(iv, counter, direction)?;
+    let mut decrypted = payload.to_vec();
+    let cipher = Ccm::<Aes128, U4, U13>::new(key.into());
+    let mic = mic
+        .try_into()
+        .map_err(|_| BleLinkCryptoError::MalformedPdu)?;
+    cipher
+        .decrypt_inout_detached(
+            (&nonce).into(),
+            &[header & 0xe3],
+            decrypted.as_mut_slice().into(),
+            mic,
+        )
+        .map_err(|_| BleLinkCryptoError::AuthenticationFailed)?;
+    let mut result = Vec::with_capacity(pdu.len() - 4);
+    result.push(header);
+    result.push((length - 4) as u8);
+    result.extend_from_slice(&decrypted);
+    Ok(result)
 }
 
 #[derive(Clone, Debug)]
@@ -1236,6 +1356,47 @@ mod tests {
                 0x66, 0xe9, 0x4b, 0xd4, 0xef, 0x8a, 0x2c, 0x3b, 0x88, 0x4c, 0xfa, 0x59, 0xca, 0x34,
                 0x2b, 0x2e,
             ]
+        );
+    }
+
+    #[test]
+    fn native_data_channel_ccm_matches_firmware_derived_c6_transaction() {
+        let key = [
+            0x75, 0xc1, 0x90, 0x34, 0xa2, 0x8e, 0x97, 0xa8, 0x23, 0x03, 0x54, 0xbe, 0x03, 0x29,
+            0x4d, 0xb5,
+        ];
+        let iv = [0x30, 0x31, 0x32, 0x33, 0x06, 0x63, 0xc0, 0x23];
+        let encrypted = ble_link_encrypt_pdu(
+            &key,
+            &iv,
+            0,
+            BleLinkDirection::CentralToPeripheral,
+            &[0x0f, 1, 0x06],
+        )
+        .unwrap();
+        assert_eq!(encrypted, [0x0f, 5, 0x8f, 0xc4, 0x2b, 0x19, 0x67]);
+        assert_eq!(
+            ble_link_decrypt_pdu(
+                &key,
+                &iv,
+                0,
+                BleLinkDirection::CentralToPeripheral,
+                &encrypted,
+            )
+            .unwrap(),
+            [0x0f, 1, 0x06]
+        );
+        let mut corrupted = encrypted;
+        *corrupted.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            ble_link_decrypt_pdu(
+                &key,
+                &iv,
+                0,
+                BleLinkDirection::CentralToPeripheral,
+                &corrupted,
+            ),
+            Err(BleLinkCryptoError::AuthenticationFailed)
         );
     }
 }

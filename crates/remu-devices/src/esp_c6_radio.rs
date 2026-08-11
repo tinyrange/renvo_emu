@@ -12,6 +12,19 @@ const C6_BLE_ECB_KEY_BASE: u64 = 0x410;
 const C6_BLE_ECB_INPUT_ADDRESS: u64 = 0x420;
 const C6_BLE_ECB_OUTPUT_ADDRESS: u64 = 0x424;
 const C6_BLE_ECB_STATUS: u64 = 0x4c4;
+const C6_BLE_CCM_START: u64 = 0x428;
+const C6_BLE_CCM_RESET: u64 = 0x42c;
+const C6_BLE_CCM_CONFIG: u64 = 0x430;
+const C6_BLE_CCM_RESULT: u64 = 0x434;
+const C6_BLE_CCM_INPUT_ADDRESS: u64 = 0x438;
+const C6_BLE_CCM_OUTPUT_ADDRESS: u64 = 0x43c;
+const C6_BLE_CCM_KEY_BASE: u64 = 0x440;
+const C6_BLE_CCM_COUNTER_LOW: u64 = 0x450;
+const C6_BLE_CCM_COUNTER_IV0: u64 = 0x454;
+const C6_BLE_CCM_IV1: u64 = 0x458;
+const C6_BLE_CCM_IV2: u64 = 0x45c;
+const C6_BLE_CCM_AAD: u64 = 0x460;
+const C6_BLE_CCM_STATUS: u64 = 0x4c0;
 const C6_BLE_BASEBAND_RESET: u64 = 0xff0;
 const C6_BLE_BASEBAND_TIMER_CURRENT: u64 = 0x924;
 const C6_BLE_BASEBAND_SCHEDULER_KICK: u64 = 0x028;
@@ -56,9 +69,35 @@ impl EspC6BleEcbCommand {
     }
 }
 
+/// One native AES-CCM data-channel operation submitted by the C6 controller.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EspC6BleCcmCommand {
+    /// Guest address of the input payload, excluding the two-byte LL header.
+    pub input_address: u32,
+    /// Guest address of the output payload, excluding the two-byte LL header.
+    pub output_address: u32,
+    /// Plaintext payload length. Decryption consumes four additional MIC bytes.
+    pub payload_length: u8,
+    /// Whether this is an authenticated decryption operation.
+    pub decrypt: bool,
+    /// AES-128 session key programmed by the controller.
+    pub key: [u8; 16],
+    /// 39-bit link-layer packet counter.
+    pub packet_counter: u64,
+    /// Link-layer direction bit from the native nonce register.
+    pub peripheral_to_central: bool,
+    /// Eight-byte connection IV from the native nonce registers.
+    pub iv: [u8; 8],
+    /// Data-channel header used as CCM associated data.
+    pub aad_header: u8,
+    /// Raw native configuration word for legality validation.
+    pub config: u32,
+}
+
 struct EspC6BleControlState {
     registers: Vec<u32>,
     pending_ecb: VecDeque<EspC6BleEcbCommand>,
+    pending_ccm: VecDeque<EspC6BleCcmCommand>,
 }
 
 /// Scheduler-facing handle for C6 BLE control and modem-security operations.
@@ -84,6 +123,25 @@ impl EspC6BleControlHandle {
             .expect("ESP32-C6 BLE control lock poisoned")
             .registers[C6_BLE_ECB_STATUS as usize / 4] = 1;
     }
+
+    /// Removes the oldest CCM DMA operation submitted by guest firmware.
+    pub fn take_ccm_command(&self) -> Option<EspC6BleCcmCommand> {
+        self.state
+            .lock()
+            .expect("ESP32-C6 BLE control lock poisoned")
+            .pending_ccm
+            .pop_front()
+    }
+
+    /// Completes the current CCM operation with native success/failure status.
+    pub fn complete_ccm(&self, authenticated: bool) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 BLE control lock poisoned");
+        state.registers[C6_BLE_CCM_RESULT as usize / 4] = u32::from(authenticated);
+        state.registers[C6_BLE_CCM_STATUS as usize / 4] = 1;
+    }
 }
 
 /// ESP32-C6 BLE controller register page with native modem-security ECB DMA.
@@ -98,6 +156,7 @@ impl EspC6BleControl {
         let state = Arc::new(Mutex::new(EspC6BleControlState {
             registers: vec![0; 0x800 / 4],
             pending_ecb: VecDeque::new(),
+            pending_ccm: VecDeque::new(),
         }));
         (
             Self {
@@ -170,6 +229,46 @@ impl Device for EspC6BleControl {
             state.registers[C6_BLE_ECB_STATUS as usize / 4] = 0;
             state.pending_ecb.push_back(command);
         }
+        if offset == C6_BLE_CCM_START && value & 1 != 0 {
+            let config = state.registers[C6_BLE_CCM_CONFIG as usize / 4];
+            let mut key = [0_u8; 16];
+            for word in 0..4 {
+                key[word * 4..word * 4 + 4].copy_from_slice(
+                    &state.registers[C6_BLE_CCM_KEY_BASE as usize / 4 + word].to_le_bytes(),
+                );
+            }
+            let counter_iv0 = state.registers[C6_BLE_CCM_COUNTER_IV0 as usize / 4];
+            let iv1 = state.registers[C6_BLE_CCM_IV1 as usize / 4].to_le_bytes();
+            let mut iv = [0_u8; 8];
+            iv[0] = (counter_iv0 >> 8) as u8;
+            iv[1] = (counter_iv0 >> 16) as u8;
+            iv[2] = (counter_iv0 >> 24) as u8;
+            iv[3..7].copy_from_slice(&iv1);
+            iv[7] = state.registers[C6_BLE_CCM_IV2 as usize / 4] as u8;
+            let command = EspC6BleCcmCommand {
+                input_address: state.registers[C6_BLE_CCM_INPUT_ADDRESS as usize / 4],
+                output_address: state.registers[C6_BLE_CCM_OUTPUT_ADDRESS as usize / 4],
+                payload_length: (config >> 12) as u8,
+                decrypt: config & 1 != 0,
+                key,
+                packet_counter: u64::from(state.registers[C6_BLE_CCM_COUNTER_LOW as usize / 4])
+                    | (u64::from(counter_iv0 & 0x7f) << 32),
+                // Native bit 7 encodes the local peripheral role. Its link
+                // direction follows that role for TX and is inverted for RX.
+                peripheral_to_central: (counter_iv0 & (1 << 7) != 0) != (config & 1 != 0),
+                iv,
+                aad_header: state.registers[C6_BLE_CCM_AAD as usize / 4] as u8,
+                config,
+            };
+            state.registers[C6_BLE_CCM_RESULT as usize / 4] = 0;
+            state.registers[C6_BLE_CCM_STATUS as usize / 4] = 0;
+            state.pending_ccm.push_back(command);
+        }
+        if offset == C6_BLE_CCM_RESET && value & 1 != 0 {
+            state.pending_ccm.clear();
+            state.registers[C6_BLE_CCM_RESULT as usize / 4] = 0;
+            state.registers[C6_BLE_CCM_STATUS as usize / 4] = 0;
+        }
         Ok(())
     }
 
@@ -180,6 +279,7 @@ impl Device for EspC6BleControl {
             .expect("ESP32-C6 BLE control lock poisoned");
         state.registers.fill(0);
         state.pending_ecb.clear();
+        state.pending_ccm.clear();
     }
 }
 

@@ -271,7 +271,7 @@ EXPECTED_CUSTOM_STACK_REQUIREMENTS = {
     },
 }
 EXPECTED_BLE_VENDOR_REQUIREMENTS = {
-    "schema": "remu.radio-ble-vendor-requirements.v6",
+    "schema": "remu.radio-ble-vendor-requirements.v7",
     "source_ledger_entry": "esp-rom-elfs-20260528",
     "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
     "firmware_project": "qualification/radio/vendor-ble-probe",
@@ -295,8 +295,11 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
                 "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
                 "REMU_VENDOR_BLE_CONNECT status=0 handle=0",
                 "REMU_VENDOR_BLE_CONNECTION_READY handle=0",
+                "REMU_VENDOR_BLE_LTK_STORE result=0 handle=0",
                 "REMU_VENDOR_BLE_MTU handle=0 cid=4 value=247",
                 "REMU_VENDOR_BLE_PHY status=0 handle=0 tx=2 rx=2",
+                "REMU_VENDOR_BLE_ENCRYPTION status=0 handle=0 encrypted=1",
+                "REMU_VENDOR_BLE_ENCRYPTION_OBSERVED value=1",
                 "REMU_VENDOR_BLE_DISCONNECT reason=531 handle=0",
                 "REMU_VENDOR_BLE_REMOTE_TERMINATE observed=1",
                 "REMU_VENDOR_BLE_CONNECTED_ADV_REMOVE result=0",
@@ -332,6 +335,11 @@ EXPECTED_BLE_VENDOR_REQUIREMENTS = {
                 {"center_khz": 2_432_000, "phy": "ble-1m", "bytes": [7, 3, 23, 7, 7]},
                 {"center_khz": 2_428_000, "phy": "ble-2m", "bytes": [9, 0]},
                 {"center_khz": 2_438_000, "phy": "ble-2m", "bytes": [5, 0]},
+                {"center_khz": 2_448_000, "phy": "ble-2m", "bytes": [11, 13, 4, 169, 236, 143, 50, 213, 120, 27, 190, 6, 99, 192, 35]},
+                {"center_khz": 2_458_000, "phy": "ble-2m", "bytes": [7, 1, 5]},
+                {"center_khz": 2_458_000, "phy": "ble-2m", "bytes": [11, 5, 183, 131, 33, 0, 81]},
+                {"center_khz": 2_468_000, "phy": "ble-2m", "bytes": [5, 4, 127, 67, 237, 21]},
+                {"center_khz": 2_478_000, "phy": "ble-2m", "bytes": [9, 4, 37, 145, 144, 80]},
             ],
         },
         "esp32s3": {

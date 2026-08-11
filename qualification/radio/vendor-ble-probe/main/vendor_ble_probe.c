@@ -6,12 +6,14 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "host/ble_hs.h"
 #include "host/ble_hs_adv.h"
 #include "host/ble_gap.h"
 #include "host/ble_hs_mbuf.h"
+#include "host/ble_store.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "freertos/FreeRTOS.h"
@@ -20,6 +22,29 @@
 static volatile bool connection_seen;
 static volatile uint16_t connection_handle;
 static volatile bool disconnect_seen;
+static volatile bool encryption_seen;
+
+static const uint8_t qualification_ltk[16] = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+};
+
+static int store_qualification_ltk(uint16_t conn_handle)
+{
+    struct ble_gap_conn_desc connection;
+    struct ble_store_value_sec security = {0};
+    int result = ble_gap_conn_find(conn_handle, &connection);
+    if (result != 0) {
+        return result;
+    }
+    security.peer_addr = connection.peer_id_addr;
+    security.key_size = sizeof(qualification_ltk);
+    security.ediv = 0x1234;
+    security.rand_num = UINT64_C(0x1716151413121110);
+    memcpy(security.ltk, qualification_ltk, sizeof(qualification_ltk));
+    security.ltk_present = 1;
+    return ble_store_write_our_sec(&security);
+}
 
 static void host_task(void *argument)
 {
@@ -63,6 +88,10 @@ static int on_gap_event(struct ble_gap_event *event, void *argument)
         fflush(stdout);
         if (event->connect.status == 0) {
             connection_handle = event->connect.conn_handle;
+            int store_result = store_qualification_ltk(connection_handle);
+            printf("REMU_VENDOR_BLE_LTK_STORE result=%d handle=%u\n",
+                   store_result, connection_handle);
+            fflush(stdout);
             connection_seen = true;
         }
     } else if (event->type == BLE_GAP_EVENT_DISCONNECT) {
@@ -81,6 +110,19 @@ static int on_gap_event(struct ble_gap_event *event, void *argument)
                event->phy_updated.status, event->phy_updated.conn_handle,
                event->phy_updated.tx_phy, event->phy_updated.rx_phy);
         fflush(stdout);
+    } else if (event->type == BLE_GAP_EVENT_ENC_CHANGE) {
+        struct ble_gap_conn_desc connection;
+        bool encrypted = event->enc_change.status == 0 &&
+                         ble_gap_conn_find(event->enc_change.conn_handle,
+                                           &connection) == 0 &&
+                         connection.sec_state.encrypted;
+        printf("REMU_VENDOR_BLE_ENCRYPTION status=%d handle=%u encrypted=%u\n",
+               event->enc_change.status, event->enc_change.conn_handle,
+               encrypted ? 1 : 0);
+        fflush(stdout);
+        if (encrypted) {
+            encryption_seen = true;
+        }
     }
     return 0;
 }
@@ -219,6 +261,14 @@ static void radio_sequence_task(void *argument)
          * bounded fallback so a failed RF qualification cannot strand the
          * task indefinitely.
          */
+        for (unsigned elapsed_ms = 0;
+             elapsed_ms < 1000 && !encryption_seen && !disconnect_seen;
+             elapsed_ms += 10) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        printf("REMU_VENDOR_BLE_ENCRYPTION_OBSERVED value=%u\n",
+               encryption_seen ? 1 : 0);
+        fflush(stdout);
         for (unsigned elapsed_ms = 0; elapsed_ms < 1000 && !disconnect_seen;
              elapsed_ms += 10) {
             vTaskDelay(pdMS_TO_TICKS(10));

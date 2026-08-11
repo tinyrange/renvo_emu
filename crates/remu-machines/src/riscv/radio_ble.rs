@@ -708,6 +708,157 @@ impl RiscVMachine {
         handle: &EspC6BleControlHandle,
     ) -> Result<u64, MachineError> {
         let mut completed = 0_u64;
+        while let Some(command) = handle.take_ccm_command() {
+            let expected_config = (u32::from(command.payload_length) << 12)
+                | if command.decrypt { 0x13 } else { 0x12 };
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    command.config == expected_config,
+                    self.now,
+                    format!(
+                        "native BLE CCM configuration {:#010x} differs from firmware-defined {expected_config:#010x}",
+                        command.config
+                    ),
+                )?;
+            let mut matched_links = 0_usize;
+            let mut security_error = None;
+            for sequence in self.radio_c6_ble_link_sequences.values_mut() {
+                match sequence.observe_native_ccm(
+                    command.decrypt,
+                    command.peripheral_to_central,
+                    &command.key,
+                    &command.iv,
+                    command.packet_counter,
+                ) {
+                    Ok(true) => matched_links += 1,
+                    Ok(false) => {}
+                    Err(detail) => security_error = Some(detail),
+                }
+            }
+            let security_legal = security_error.is_none() && matched_links == 1;
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    security_legal,
+                    self.now,
+                    security_error.unwrap_or_else(|| {
+                        format!(
+                            "native BLE CCM matched {matched_links} links: decrypt={}, direction={}, counter={}, key={:02x?}, iv={:02x?}",
+                            command.decrypt,
+                            if command.peripheral_to_central {
+                                "peripheral-to-central"
+                            } else {
+                                "central-to-peripheral"
+                            },
+                            command.packet_counter,
+                            command.key,
+                            command.iv
+                        )
+                    }),
+                )?;
+            let input_length = usize::from(command.payload_length)
+                + if command.decrypt { 4 } else { 0 };
+            let output_length = usize::from(command.payload_length)
+                + if command.decrypt { 0 } else { 4 };
+            for (direction, address, length) in [
+                (
+                    RadioDmaDirection::Transmit,
+                    command.input_address,
+                    input_length.max(1),
+                ),
+                (
+                    RadioDmaDirection::Receive,
+                    command.output_address,
+                    output_length.max(1),
+                ),
+            ] {
+                self.radio_legality
+                    .as_mut()
+                    .expect("ESP32-C6 machine has a radio legality validator")
+                    .validate_dma(
+                        RadioSubsystem::BluetoothLe,
+                        direction,
+                        address,
+                        1,
+                        length,
+                        usize::from(u8::MAX),
+                        self.now,
+                    )?;
+            }
+            let input = self.radio_read_guest_bytes(command.input_address, input_length)?;
+            let mut pdu = Vec::with_capacity(input.len() + 2);
+            pdu.push(command.aad_header);
+            pdu.push(input.len() as u8);
+            pdu.extend_from_slice(&input);
+            let direction = if command.peripheral_to_central {
+                BleLinkDirection::PeripheralToCentral
+            } else {
+                BleLinkDirection::CentralToPeripheral
+            };
+            let result = if command.decrypt {
+                ble_link_decrypt_pdu(
+                    &command.key,
+                    &command.iv,
+                    command.packet_counter,
+                    direction,
+                    &pdu,
+                )
+            } else {
+                ble_link_encrypt_pdu(
+                    &command.key,
+                    &command.iv,
+                    command.packet_counter,
+                    direction,
+                    &pdu,
+                )
+            };
+            match result {
+                Ok(output) => {
+                    self.radio_write_guest_bytes(command.output_address, &output[2..])?;
+                    handle.complete_ccm(true);
+                }
+                Err(remu_radio::BleLinkCryptoError::AuthenticationFailed) if command.decrypt => {
+                    self.radio_legality
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio legality validator")
+                        .require(
+                            RadioSubsystem::BluetoothLe,
+                            RadioLegalityRule::SchedulerState,
+                            false,
+                            self.now,
+                            format!(
+                                "native BLE CCM rejected firmware-correlated RX input={input:02x?}, aad={:#04x}, counter={}, key={:02x?}, iv={:02x?}",
+                                command.aad_header,
+                                command.packet_counter,
+                                command.key,
+                                command.iv
+                            ),
+                        )?;
+                    unreachable!("failed legality requirement returns an error");
+                }
+                Err(error) => {
+                    self.radio_legality
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio legality validator")
+                        .require(
+                            RadioSubsystem::BluetoothLe,
+                            RadioLegalityRule::SchedulerState,
+                            false,
+                            self.now,
+                            format!("native BLE CCM command is invalid: {error}"),
+                        )?;
+                    unreachable!("failed legality requirement returns an error");
+                }
+            }
+            completed = completed.saturating_add(1);
+        }
         while let Some(command) = handle.take_ecb_command() {
             self.radio_legality
                 .as_mut()
@@ -749,6 +900,30 @@ impl RiscVMachine {
                 )? as u8;
             }
             let output = command.encrypt_block(input);
+            let mut matched_links = 0_usize;
+            let mut security_error = None;
+            for sequence in self.radio_c6_ble_link_sequences.values_mut() {
+                match sequence.observe_security_ecb(input, output) {
+                    Ok(true) => matched_links += 1,
+                    Ok(false) => {}
+                    Err(detail) => security_error = Some(detail),
+                }
+            }
+            let security_legal = security_error.is_none() && matched_links <= 1;
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    security_legal,
+                    self.now,
+                    security_error.unwrap_or_else(|| {
+                        format!(
+                            "native BLE security ECB matched {matched_links} active links"
+                        )
+                    }),
+                )?;
             for (offset, byte) in output.into_iter().enumerate() {
                 self.bus.write(
                     u64::from(command.output_address.wrapping_add(offset as u32)),
