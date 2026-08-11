@@ -1,10 +1,10 @@
 use super::{XtensaMachine, XtensaMachineError};
 use remu_core::{AccessKind, AccessWidth, Bus, SimDuration};
 use remu_radio::{
-    BleController, CoexistenceDecision, CoexistenceGrantId, CoexistenceRequest, DeliveryOutcome,
-    FrameOrigin, MediumEvent, NodeId, RadioDmaDirection, RadioFrame, RadioLegalityRule,
-    RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact, Spectrum, TransmissionId, TxRequest,
-    WifiEngine,
+    BleController, BleLinkDirection, CoexistenceDecision, CoexistenceGrantId, CoexistenceRequest,
+    DeliveryOutcome, FrameOrigin, MediumEvent, NodeId, RadioDmaDirection, RadioFrame,
+    RadioLegalityRule, RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact, Spectrum,
+    TransmissionId, TxRequest, WifiEngine, ble_link_decrypt_pdu, ble_link_encrypt_pdu,
 };
 const EMULATED_NODE: NodeId = NodeId(1);
 const HOST_NODE: NodeId = NodeId(0);
@@ -103,6 +103,8 @@ pub(super) struct PendingNativeBleTransmission {
     complete_event: bool,
     response_window: bool,
     tx_interrupt: bool,
+    link_state: Option<u32>,
+    remove_link_after_tx: bool,
     deferred_descriptor: Option<(u32, u32, u32)>,
     pdu: Vec<u8>,
 }
@@ -116,6 +118,7 @@ pub(super) struct PendingNativeBleReception {
     channel: u8,
     phy: &'static str,
     complete_on_receive: bool,
+    link_state: Option<u32>,
     response: Option<PendingNativeBleTransmission>,
 }
 
@@ -126,6 +129,18 @@ struct S3BlePendingPhyUpdate {
     rx_phy: &'static str,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum S3BleEncryptionPhase {
+    #[default]
+    Unencrypted,
+    EncReqReceived,
+    SessionKeyReady,
+    EncRspSent,
+    StartReqSent,
+    StartRspReceived,
+    Encrypted,
+}
+
 pub(super) struct S3BleLinkSequence {
     expected_rx_sn: bool,
     event_counter: u16,
@@ -133,6 +148,14 @@ pub(super) struct S3BleLinkSequence {
     tx_phy: &'static str,
     rx_phy: &'static str,
     pending_phy_update: Option<S3BlePendingPhyUpdate>,
+    encryption_phase: S3BleEncryptionPhase,
+    encryption_skd: Option<[u8; 16]>,
+    encryption_iv: Option<[u8; 8]>,
+    session_key: Option<[u8; 16]>,
+    rx_packet_counter: u64,
+    tx_packet_counter: u64,
+    last_tx_plaintext: Option<Vec<u8>>,
+    last_tx_wire: Option<Vec<u8>>,
 }
 
 impl Default for S3BleLinkSequence {
@@ -144,6 +167,14 @@ impl Default for S3BleLinkSequence {
             tx_phy: "ble-1m",
             rx_phy: "ble-1m",
             pending_phy_update: None,
+            encryption_phase: S3BleEncryptionPhase::Unencrypted,
+            encryption_skd: None,
+            encryption_iv: None,
+            session_key: None,
+            rx_packet_counter: 0,
+            tx_packet_counter: 0,
+            last_tx_plaintext: None,
+            last_tx_wire: None,
         }
     }
 }
@@ -167,6 +198,202 @@ impl S3BleLinkSequence {
         Ok((self.tx_phy, self.rx_phy))
     }
 
+    fn encryption_material(&self) -> Result<([u8; 16], [u8; 8]), String> {
+        let key = self
+            .session_key
+            .ok_or_else(|| "S3 BLE encryption is active without a session key".to_owned())?;
+        let iv = self
+            .encryption_iv
+            .ok_or_else(|| "S3 BLE encryption is active without a negotiated IV".to_owned())?;
+        Ok((key, iv))
+    }
+
+    fn rx_encryption_active(&self) -> bool {
+        matches!(
+            self.encryption_phase,
+            S3BleEncryptionPhase::StartReqSent
+                | S3BleEncryptionPhase::StartRspReceived
+                | S3BleEncryptionPhase::Encrypted
+        )
+    }
+
+    fn tx_encryption_active(&self) -> bool {
+        matches!(
+            self.encryption_phase,
+            S3BleEncryptionPhase::StartRspReceived | S3BleEncryptionPhase::Encrypted
+        )
+    }
+
+    pub(super) fn decode_received(&self, received: &[u8]) -> Result<Vec<u8>, String> {
+        if !self.rx_encryption_active() {
+            return Ok(received.to_vec());
+        }
+        let header = received
+            .first()
+            .copied()
+            .ok_or_else(|| "encrypted S3 BLE PDU has no header".to_owned())?;
+        let received_new = (header & 0x08 != 0) == self.expected_rx_sn;
+        let counter = if received_new {
+            self.rx_packet_counter
+        } else {
+            self.rx_packet_counter.checked_sub(1).ok_or_else(|| {
+                "encrypted S3 BLE retransmission precedes packet counter zero".to_owned()
+            })?
+        };
+        let (key, iv) = self.encryption_material()?;
+        ble_link_decrypt_pdu(
+            &key,
+            &iv,
+            counter,
+            BleLinkDirection::CentralToPeripheral,
+            received,
+        )
+        .map_err(|error| format!("encrypted S3 BLE RX counter {counter}: {error}"))
+    }
+
+    pub(super) fn observe_security_ecb(
+        &mut self,
+        key: [u8; 16],
+        input: [u8; 16],
+        output: [u8; 16],
+    ) -> Result<bool, String> {
+        let Some(skd) = self.encryption_skd else {
+            return Ok(false);
+        };
+        if input[..8] != skd[..8] {
+            return Ok(false);
+        }
+        if self.encryption_phase != S3BleEncryptionPhase::EncReqReceived
+            || self.session_key.is_some()
+        {
+            return Err(format!(
+                "S3 BLE session-key ECB completed during {:?}",
+                self.encryption_phase
+            ));
+        }
+        // The LTK is intentionally not fixed by the emulator. Its exact value
+        // comes from the guest host stack, while SKD correlation binds this
+        // native transaction to one live link.
+        let _firmware_ltk = key;
+        self.encryption_skd = Some(input);
+        self.session_key = Some(output);
+        self.encryption_phase = S3BleEncryptionPhase::SessionKeyReady;
+        Ok(true)
+    }
+
+    pub(super) fn prepare_transmitted(&mut self, pdu: &[u8]) -> Result<Vec<u8>, String> {
+        if self.tx_encryption_active() {
+            if let (Some(plaintext), Some(wire)) =
+                (self.last_tx_plaintext.as_ref(), self.last_tx_wire.as_ref())
+            {
+                if plaintext == pdu {
+                    return Ok(wire.clone());
+                }
+                return Err("S3 BLE encrypted TX changed before acknowledgement".to_owned());
+            }
+            self.observe_transmitted_control(pdu)?;
+            let (key, iv) = self.encryption_material()?;
+            let wire = ble_link_encrypt_pdu(
+                &key,
+                &iv,
+                self.tx_packet_counter,
+                BleLinkDirection::PeripheralToCentral,
+                pdu,
+            )
+            .map_err(|error| {
+                format!(
+                    "native S3 BLE TX CCM counter {} failed: {error}",
+                    self.tx_packet_counter
+                )
+            })?;
+            self.last_tx_plaintext = Some(pdu.to_vec());
+            self.last_tx_wire = Some(wire.clone());
+            Ok(wire)
+        } else {
+            self.observe_transmitted_control(pdu)?;
+            Ok(pdu.to_vec())
+        }
+    }
+
+    pub(super) fn acknowledge_encrypted_transmission(
+        &mut self,
+        peer_nesn: bool,
+    ) -> Result<(), String> {
+        let acknowledged = self
+            .last_tx_plaintext
+            .as_ref()
+            .and_then(|pdu| pdu.first())
+            .is_some_and(|header| peer_nesn != (header & 0x08 != 0));
+        if acknowledged {
+            self.tx_packet_counter = self
+                .tx_packet_counter
+                .checked_add(1)
+                .ok_or_else(|| "S3 BLE TX packet counter overflow".to_owned())?;
+            self.last_tx_plaintext = None;
+            self.last_tx_wire = None;
+        }
+        Ok(())
+    }
+
+    fn observe_transmitted_control(&mut self, pdu: &[u8]) -> Result<(), String> {
+        if pdu.first().is_none_or(|header| header & 3 != 3) || pdu.len() < 3 {
+            return Ok(());
+        }
+        match pdu[2] {
+            0x04 => {
+                if pdu.len() != 15 || self.encryption_phase != S3BleEncryptionPhase::SessionKeyReady
+                {
+                    return Err(format!(
+                        "S3 LL_ENC_RSP emitted during {:?}",
+                        self.encryption_phase
+                    ));
+                }
+                let skd = self
+                    .encryption_skd
+                    .ok_or_else(|| "S3 LL_ENC_RSP has no negotiated SKD".to_owned())?;
+                if pdu[3..11] != skd[8..] {
+                    return Err("S3 LL_ENC_RSP SKDs differs from AES input".to_owned());
+                }
+                let iv = self
+                    .encryption_iv
+                    .as_mut()
+                    .ok_or_else(|| "S3 LL_ENC_RSP has no IV storage".to_owned())?;
+                iv[4..].copy_from_slice(&pdu[11..15]);
+                self.encryption_phase = S3BleEncryptionPhase::EncRspSent;
+            }
+            0x05 => {
+                if pdu.len() != 3 || self.encryption_phase != S3BleEncryptionPhase::EncRspSent {
+                    return Err(format!(
+                        "S3 LL_START_ENC_REQ emitted during {:?}",
+                        self.encryption_phase
+                    ));
+                }
+                self.encryption_phase = S3BleEncryptionPhase::StartReqSent;
+            }
+            0x06 => {
+                // The S3 controller retains four zero work bytes in the
+                // firmware-owned descriptor. The canonical Core form and
+                // that exact recovered descriptor form encode the same
+                // parameterless LL control response.
+                let firmware_length =
+                    pdu.len() == 3 || (pdu.len() == 7 && pdu[3..] == [0, 0, 0, 0]);
+                if !firmware_length
+                    || self.encryption_phase != S3BleEncryptionPhase::StartRspReceived
+                {
+                    return Err(format!(
+                        "S3 LL_START_ENC_RSP length {} bytes {pdu:02x?} emitted during {:?}",
+                        pdu.len(),
+                        self.encryption_phase
+                    ));
+                }
+                self.encryption_phase = S3BleEncryptionPhase::Encrypted;
+            }
+            0x03 => return Err("S3 peripheral emitted central-role LL_ENC_REQ".to_owned()),
+            _ => {}
+        }
+        Ok(())
+    }
+
     pub(super) fn observe_received(&mut self, received: &[u8]) -> Result<bool, String> {
         let Some(header) = received.first().copied() else {
             return Ok(false);
@@ -176,9 +403,58 @@ impl S3BleLinkSequence {
             return Ok(false);
         }
         self.expected_rx_sn = !self.expected_rx_sn;
+        let received_encrypted = self.rx_encryption_active();
         let terminates_link = header & 3 == 3
             && received.get(1).copied() == Some(2)
             && received.get(2).copied() == Some(0x02);
+        if header & 3 == 3 && received.len() >= 3 {
+            match received[2] {
+                0x03 => {
+                    if received.len() != 25
+                        || self.encryption_phase != S3BleEncryptionPhase::Unencrypted
+                    {
+                        return Err(format!(
+                            "S3 LL_ENC_REQ length {} received during {:?}",
+                            received.len(),
+                            self.encryption_phase
+                        ));
+                    }
+                    let mut skd = [0_u8; 16];
+                    skd[..8].copy_from_slice(&received[13..21]);
+                    let mut iv = [0_u8; 8];
+                    iv[..4].copy_from_slice(&received[21..25]);
+                    self.encryption_skd = Some(skd);
+                    self.encryption_iv = Some(iv);
+                    self.rx_packet_counter = 0;
+                    self.tx_packet_counter = 0;
+                    self.encryption_phase = S3BleEncryptionPhase::EncReqReceived;
+                }
+                0x06 => {
+                    if received.len() != 3
+                        || self.encryption_phase != S3BleEncryptionPhase::StartReqSent
+                    {
+                        return Err(format!(
+                            "S3 LL_START_ENC_RSP received during {:?}",
+                            self.encryption_phase
+                        ));
+                    }
+                    self.encryption_phase = S3BleEncryptionPhase::StartRspReceived;
+                }
+                0x04 | 0x05 => {
+                    return Err(format!(
+                        "S3 central sent peripheral-role encryption opcode {:#04x}",
+                        received[2]
+                    ));
+                }
+                _ => {}
+            }
+        }
+        if received_encrypted {
+            self.rx_packet_counter = self
+                .rx_packet_counter
+                .checked_add(1)
+                .ok_or_else(|| "S3 BLE RX packet counter overflow".to_owned())?;
+        }
         if header & 3 != 3
             || received.len() < 7
             || received.get(1).copied() != Some(5)
@@ -351,6 +627,7 @@ impl XtensaMachine {
             self.radio_wifi.advance_to(self.now);
         }
         let mut events = self.complete_radio_receptions()?;
+        events = events.saturating_add(self.service_native_ble_crypt()?);
         events = events.saturating_add(self.submit_native_wifi_frames()?);
         events = events.saturating_add(self.submit_native_ble_frames()?);
         events = events.saturating_add(self.service_pending_native_ble_frames()?);
@@ -599,7 +876,55 @@ impl XtensaMachine {
         let Some(next) = self.read_native_ble_u16(descriptor) else {
             return Ok(false);
         };
-        let header = u16::from_le_bytes([frame.bytes[0], frame.bytes[1]]);
+        let received = if let Some(link_state) = activity.link_state {
+            let decoded = self
+                .native_ble_link_sequences
+                .entry(link_state)
+                .or_default()
+                .decode_received(&frame.bytes);
+            let (plaintext, encryption_error) = match decoded {
+                Ok(plaintext) => (Some(plaintext), None),
+                Err(detail) => (None, Some(detail)),
+            };
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                encryption_error.is_none(),
+                self.now,
+                encryption_error.unwrap_or_default(),
+            )?;
+            plaintext.expect("legality check established BLE plaintext")
+        } else {
+            frame.bytes.clone()
+        };
+        self.radio_legality.require(
+            RadioSubsystem::BluetoothLe,
+            RadioLegalityRule::SchedulerState,
+            received.len() >= 2,
+            self.now,
+            "native BLE decryption produced a truncated PDU",
+        )?;
+        let mut link_terminated = false;
+        if let Some(link_state) = activity.link_state {
+            let observed = self
+                .native_ble_link_sequences
+                .entry(link_state)
+                .or_default()
+                .observe_received(&received);
+            let (terminated, sequence_error) = match observed {
+                Ok(terminated) => (terminated, None),
+                Err(detail) => (false, Some(detail)),
+            };
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                sequence_error.is_none(),
+                self.now,
+                sequence_error.unwrap_or_default(),
+            )?;
+            link_terminated = terminated;
+        }
+        let header = u16::from_le_bytes([received[0], received[1]]);
         let coarse = ((received_at.ticks() / S3_BLE_HALF_SLOT_TICKS) & S3_BLE_COARSE_MASK) as u32;
         let fine = (S3_BLE_FINE_POSITIONS_PER_HALF_SLOT
             - 1
@@ -619,7 +944,7 @@ impl XtensaMachine {
             0,
             0,
         ];
-        if !self.write_native_ble_bytes(buffer, &frame.bytes[2..])
+        if !self.write_native_ble_bytes(buffer, &received[2..])
             || !self.write_native_ble_u16(descriptor, next | 0x8000)
             || !self.write_native_ble_u16(descriptor.wrapping_add(4), header)
             || metadata.iter().enumerate().any(|(index, value)| {
@@ -630,6 +955,7 @@ impl XtensaMachine {
             return Ok(false);
         }
         self.ble_exchange_memory.advance_rx_buffer(next & 0x7fff);
+        let response_scheduled = activity.response.is_some();
         if let Some(mut response) = activity.response {
             self.pending_native_ble_receptions.remove(activity_index);
             self.pending_native_ble_slot_completions
@@ -652,34 +978,31 @@ impl XtensaMachine {
             if let Some((cs_address, current_descriptor, access_address)) =
                 response.deferred_descriptor
             {
-                let phy_result = self
-                    .native_ble_link_sequences
-                    .entry(cs_address)
-                    .or_default()
-                    .observe_received(&frame.bytes);
-                let (link_terminated, phy_error) = match phy_result {
-                    Ok(link_terminated) => (link_terminated, None),
-                    Err(detail) => (false, Some(detail)),
-                };
-                self.radio_legality.require(
-                    RadioSubsystem::BluetoothLe,
-                    RadioLegalityRule::SchedulerState,
-                    phy_error.is_none(),
-                    self.now,
-                    phy_error.unwrap_or_default(),
-                )?;
-                if link_terminated {
-                    self.native_ble_link_sequences.remove(&cs_address);
-                }
                 let Some(current_header) =
                     self.read_native_ble_u16(current_descriptor.wrapping_add(2))
                 else {
                     return Ok(false);
                 };
-                let peer_nesn = frame.bytes[0] & 0x04 != 0;
-                let peer_sn = frame.bytes[0] & 0x08 != 0;
+                let peer_nesn = received[0] & 0x04 != 0;
+                let peer_sn = received[0] & 0x08 != 0;
                 let transmitted_sn = current_header & 0x08 != 0;
                 let acknowledged = peer_nesn != transmitted_sn;
+                let link_state = activity
+                    .link_state
+                    .expect("connection response has stable native link identity");
+                let acknowledgement = self
+                    .native_ble_link_sequences
+                    .entry(link_state)
+                    .or_default()
+                    .acknowledge_encrypted_transmission(peer_nesn);
+                let acknowledgement_error = acknowledgement.err();
+                self.radio_legality.require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    acknowledgement_error.is_none(),
+                    self.now,
+                    acknowledgement_error.unwrap_or_default(),
+                )?;
                 let (descriptor, transmitted_sn) = if acknowledged {
                     let Some(linkage) = self.read_native_ble_u16(current_descriptor) else {
                         return Ok(false);
@@ -750,6 +1073,7 @@ impl XtensaMachine {
                 .checked_add(SimDuration::from_ticks(S3_BLE_INTERFRAME_SPACE_TICKS))
                 .map(|time| time.ticks())
                 .unwrap_or(u64::MAX);
+            response.remove_link_after_tx = link_terminated;
             let insertion = self
                 .pending_native_ble_transmissions
                 .iter()
@@ -787,6 +1111,11 @@ impl XtensaMachine {
             }
             self.ble_exchange_memory
                 .raise_interrupt(S3_RWBLE_RX_INTERRUPT);
+        }
+        if link_terminated && !response_scheduled {
+            if let Some(link_state) = activity.link_state {
+                self.native_ble_link_sequences.remove(&link_state);
+            }
         }
         Ok(true)
     }
@@ -1095,5 +1424,94 @@ mod tests {
         let mut terminated = S3BleLinkSequence::default();
         terminated.begin_event().unwrap();
         assert!(terminated.observe_received(&[3, 2, 0x02, 0x13]).unwrap());
+    }
+
+    fn s3_sequence_at_start_encryption_response() -> S3BleLinkSequence {
+        let mut sequence = S3BleLinkSequence::default();
+        sequence
+            .observe_received(&[
+                3, 23, 3, 16, 17, 18, 19, 20, 21, 22, 23, 52, 18, 32, 33, 34, 35, 36, 37, 38, 39,
+                48, 49, 50, 51,
+            ])
+            .unwrap();
+        assert!(
+            sequence
+                .observe_security_ecb(
+                    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                    [
+                        32, 33, 34, 35, 36, 37, 38, 39, 117, 204, 150, 89, 66, 217, 135, 254,
+                    ],
+                    [
+                        184, 2, 158, 219, 232, 51, 140, 103, 146, 27, 73, 37, 174, 203, 206, 108,
+                    ],
+                )
+                .unwrap()
+        );
+        assert_eq!(
+            sequence
+                .prepare_transmitted(&[
+                    23, 13, 4, 117, 204, 150, 89, 66, 217, 135, 254, 147, 165, 63, 51,
+                ])
+                .unwrap(),
+            [
+                23, 13, 4, 117, 204, 150, 89, 66, 217, 135, 254, 147, 165, 63, 51
+            ]
+        );
+        assert_eq!(
+            sequence.prepare_transmitted(&[23, 1, 5]).unwrap(),
+            [23, 1, 5]
+        );
+        let start_response = sequence
+            .decode_received(&[15, 5, 184, 9, 240, 138, 197])
+            .unwrap();
+        assert_eq!(start_response, [15, 1, 6]);
+        sequence.observe_received(&start_response).unwrap();
+        sequence
+    }
+
+    #[test]
+    fn ble_encryption_tracks_firmware_ecb_ccm_counters_and_deferred_response() {
+        let mut sequence = s3_sequence_at_start_encryption_response();
+        assert_eq!(
+            sequence.prepare_transmitted(&[13, 0]).unwrap(),
+            [13, 4, 158, 245, 5, 206]
+        );
+        sequence.acknowledge_encrypted_transmission(false).unwrap();
+
+        let empty = sequence.decode_received(&[5, 4, 51, 203, 243, 20]).unwrap();
+        assert_eq!(empty, [5, 0]);
+        sequence.observe_received(&empty).unwrap();
+        let terminate = sequence
+            .decode_received(&[11, 6, 229, 251, 202, 6, 119, 40])
+            .unwrap();
+        assert_eq!(terminate, [11, 2, 2, 19]);
+        assert!(sequence.observe_received(&terminate).unwrap());
+        assert_eq!(
+            sequence
+                .prepare_transmitted(&[19, 5, 6, 0, 0, 0, 0])
+                .unwrap(),
+            [19, 9, 64, 145, 48, 102, 250, 205, 206, 172, 115]
+        );
+    }
+
+    #[test]
+    fn ble_encryption_rejects_bad_mic_and_unobserved_firmware_descriptor_state() {
+        let mut bad_mic = s3_sequence_at_start_encryption_response();
+        let mut corrupted = [5, 4, 51, 203, 243, 20];
+        corrupted[5] ^= 1;
+        assert!(
+            bad_mic
+                .decode_received(&corrupted)
+                .unwrap_err()
+                .contains("MIC verification failed")
+        );
+
+        let mut malformed = s3_sequence_at_start_encryption_response();
+        assert!(
+            malformed
+                .prepare_transmitted(&[19, 5, 6, 0, 0, 0, 1])
+                .unwrap_err()
+                .contains("length 7 bytes")
+        );
     }
 }

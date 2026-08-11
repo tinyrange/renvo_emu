@@ -1,3 +1,5 @@
+use aes::Aes128;
+use aes::cipher::{Array, BlockCipherEncrypt, KeyInit};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use std::collections::VecDeque;
@@ -62,6 +64,11 @@ const BLE_TIMER_HALF_SLOT: u64 = 0x0ec;
 const BLE_TIMER_FINE: u64 = 0x0f0;
 const BLE_TIMER_INTERRUPT: u32 = 1 << 11;
 const BLE_SOFTWARE_INTERRUPT: u32 = 1 << 12;
+const BLE_CRYPT_INTERRUPT: u32 = 1 << 7;
+const BLE_CRYPT_START: u64 = 0x0b0;
+const BLE_CRYPT_START_REQUEST: u32 = 1;
+const BLE_CRYPT_KEY_BASE: u64 = 0x0b4;
+const BLE_CRYPT_INPUT_RESULT_OFFSET: u64 = 0x0c4;
 const BLE_ECO_INTERRUPT_DIAGNOSTIC: u64 = 0x2d8;
 const BLE_ECO_ACTIVE_STATE: u32 = 1 << 5;
 const BLE_ECO_STATUS_MASK: u32 = 0x001f_ffff;
@@ -90,6 +97,7 @@ const BLE_RX_BUFFER_RING_BASE: u32 = 0x1000;
 struct Esp32S3BleExchangeMemoryState {
     registers: Vec<u32>,
     pending_schedule_kicks: VecDeque<u32>,
+    pending_crypt_commands: VecDeque<Esp32S3BleCryptCommand>,
     pending_radio_completions: VecDeque<(u64, u32)>,
     timer_due: Option<u64>,
 }
@@ -99,6 +107,26 @@ struct Esp32S3BleExchangeMemoryState {
 pub struct Esp32S3BleScheduleKick {
     /// Native scheduler-control word, including the hardware start strobe.
     pub control: u32,
+}
+
+/// One native RWBLE AES-128 ECB transaction submitted by the S3 controller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Esp32S3BleCryptCommand {
+    /// AES-128 key captured from RWBLE crypt key registers.
+    pub key: [u8; 16],
+    /// Firmware-programmed exchange-memory offset containing the input block.
+    /// Native RWBLE writes the result to the immediately following 16 bytes.
+    pub input_offset: u32,
+}
+
+impl Esp32S3BleCryptCommand {
+    /// Encrypts one firmware-provided block with the captured AES-128 key.
+    pub fn encrypt_block(self, input: [u8; 16]) -> [u8; 16] {
+        let cipher = Aes128::new_from_slice(&self.key).expect("AES-128 key has fixed length");
+        let mut block = Array::from(input);
+        cipher.encrypt_block(&mut block);
+        block.into()
+    }
 }
 
 /// One firmware-programmed exchange-memory aperture.
@@ -146,6 +174,23 @@ impl Esp32S3BleExchangeMemoryHandle {
             .pending_schedule_kicks
             .pop_front()
             .map(|control| Esp32S3BleScheduleKick { control })
+    }
+
+    /// Removes the oldest native RWBLE crypt transaction submitted by firmware.
+    pub fn take_crypt_command(&self) -> Option<Esp32S3BleCryptCommand> {
+        self.state
+            .lock()
+            .expect("ESP32-S3 BLE exchange-memory lock poisoned")
+            .pending_crypt_commands
+            .pop_front()
+    }
+
+    /// Publishes native AES completion through RWBLE crypt interrupt cause 7.
+    pub fn complete_crypt(&self) {
+        self.state
+            .lock()
+            .expect("ESP32-S3 BLE exchange-memory lock poisoned")
+            .registers[BLE_INTERRUPT_STATUS as usize / 4] |= BLE_CRYPT_INTERRUPT;
     }
 
     /// Returns the controller-owned current receive descriptor offset.
@@ -321,6 +366,7 @@ impl Esp32S3BleExchangeMemoryRegisters {
             state: Arc::new(Mutex::new(Esp32S3BleExchangeMemoryState {
                 registers,
                 pending_schedule_kicks: VecDeque::new(),
+                pending_crypt_commands: VecDeque::new(),
                 pending_radio_completions: VecDeque::new(),
                 timer_due: None,
             })),
@@ -454,6 +500,25 @@ impl Device for Esp32S3BleExchangeMemoryRegisters {
         if offset == BLE_SCHEDULER_KICK && value & BLE_SCHEDULER_START != 0 {
             state.pending_schedule_kicks.push_back(value);
         }
+        if offset == BLE_CRYPT_START && value & BLE_CRYPT_START_REQUEST != 0 {
+            if !state.pending_crypt_commands.is_empty() {
+                return Err(DeviceError::new(
+                    "ESP32-S3 RWBLE crypt START overlaps an unfinished transaction",
+                ));
+            }
+            let mut key = [0_u8; 16];
+            for word in 0..4 {
+                key[word * 4..word * 4 + 4].copy_from_slice(
+                    &state.registers[BLE_CRYPT_KEY_BASE as usize / 4 + word].to_le_bytes(),
+                );
+            }
+            let input_offset = state.registers[BLE_CRYPT_INPUT_RESULT_OFFSET as usize / 4];
+            state
+                .pending_crypt_commands
+                .push_back(Esp32S3BleCryptCommand { key, input_offset });
+            // START is a hardware-consumed command strobe.
+            state.registers[index] &= !BLE_CRYPT_START_REQUEST;
+        }
         Ok(())
     }
 
@@ -466,6 +531,7 @@ impl Device for Esp32S3BleExchangeMemoryRegisters {
         state.registers[BLE_CORE_VERSION as usize / 4] = BLE_CORE_VERSION_ESP32S3;
         state.registers[BLE_RX_BUFFER_CURRENT as usize / 4] = BLE_RX_BUFFER_RING_BASE;
         state.pending_schedule_kicks.clear();
+        state.pending_crypt_commands.clear();
         state.pending_radio_completions.clear();
         state.timer_due = None;
     }
@@ -1101,6 +1167,59 @@ mod tests {
             AccessWidth::Word,
             diagnostic,
             SimTime::from_ticks(12),
+        )
+        .unwrap();
+        assert!(!handle.interrupt_pending());
+    }
+
+    #[test]
+    fn ble_crypt_start_captures_one_ecb_block_and_raises_native_interrupt() {
+        let mut ble = Esp32S3BleExchangeMemoryRegisters::new("ble");
+        let handle = ble.handle();
+        let input = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+            0xee, 0xff,
+        ];
+        for (word, bytes) in input.chunks_exact(4).enumerate() {
+            ble.write(
+                BLE_CRYPT_KEY_BASE + word as u64 * 4,
+                AccessWidth::Word,
+                u64::from(u32::from_le_bytes(bytes.try_into().unwrap())),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        }
+        ble.write(
+            BLE_CRYPT_INPUT_RESULT_OFFSET,
+            AccessWidth::Word,
+            0x0128,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        ble.write(
+            BLE_CRYPT_START,
+            AccessWidth::Word,
+            u64::from(BLE_CRYPT_START_REQUEST),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        let command = handle.take_crypt_command().unwrap();
+        assert_eq!(command.key, input);
+        assert_eq!(command.input_offset, 0x0128);
+        assert_eq!(
+            ble.read(BLE_CRYPT_START, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        assert!(!handle.interrupt_pending());
+        handle.complete_crypt();
+        assert!(handle.interrupt_pending());
+        ble.write(
+            BLE_INTERRUPT_CLEAR,
+            AccessWidth::Word,
+            u64::from(BLE_CRYPT_INTERRUPT),
+            SimTime::ZERO,
         )
         .unwrap();
         assert!(!handle.interrupt_pending());

@@ -1399,4 +1399,54 @@ mod tests {
             Err(BleLinkCryptoError::AuthenticationFailed)
         );
     }
+
+    #[test]
+    fn native_data_channel_ccm_matches_firmware_derived_s3_transaction() {
+        let key = [
+            0xb8, 0x02, 0x9e, 0xdb, 0xe8, 0x33, 0x8c, 0x67, 0x92, 0x1b, 0x49, 0x25, 0xae, 0xcb,
+            0xce, 0x6c,
+        ];
+        let iv = [0x30, 0x31, 0x32, 0x33, 0x93, 0xa5, 0x3f, 0x33];
+        let encrypted = ble_link_encrypt_pdu(
+            &key,
+            &iv,
+            0,
+            BleLinkDirection::CentralToPeripheral,
+            &[0x0f, 1, 0x06],
+        )
+        .unwrap();
+        assert_eq!(encrypted, [0x0f, 5, 0xb8, 0x09, 0xf0, 0x8a, 0xc5]);
+        assert_eq!(
+            ble_link_decrypt_pdu(
+                &key,
+                &iv,
+                0,
+                BleLinkDirection::CentralToPeripheral,
+                &encrypted,
+            )
+            .unwrap(),
+            [0x0f, 1, 0x06]
+        );
+        let encrypted_empty = ble_link_encrypt_pdu(
+            &key,
+            &iv,
+            1,
+            BleLinkDirection::CentralToPeripheral,
+            &[0x05, 0],
+        )
+        .unwrap();
+        assert_eq!(encrypted_empty, [0x05, 4, 0x33, 0xcb, 0xf3, 0x14]);
+        let encrypted_terminate = ble_link_encrypt_pdu(
+            &key,
+            &iv,
+            2,
+            BleLinkDirection::CentralToPeripheral,
+            &[0x0b, 2, 0x02, 0x13],
+        )
+        .unwrap();
+        assert_eq!(
+            encrypted_terminate,
+            [0x0b, 6, 0xe5, 0xfb, 0xca, 0x06, 0x77, 0x28]
+        );
+    }
 }

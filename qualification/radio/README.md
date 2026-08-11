@@ -117,9 +117,11 @@ and `Renvo-EXT` payload. A scripted central then sends `CONNECT_IND` and drives
 the genuine controller through hopped connection events, LL version and feature
 exchange, a 251-octet data-length exchange, and an ACL/L2CAP ATT MTU request.
 Hardware-owned SN/NESN handling retires the transmitted ACL descriptor and the
-controller emits the exact MTU response. The public GAP callbacks must report a
-successful connection, negotiated MTU 247, and remote `LL_TERMINATE_IND` reason
-`0x13`; scanning restarts after disconnect. It then scans
+controller emits the exact MTU response. On both chips the scripted central
+then drives `LL_ENC_REQ` and START_ENC using the probe LTK. Native ECB derives
+the session key, data-channel CCM authenticates encrypted empty/control PDUs,
+and the public GAP callback must report encryption success before an encrypted
+`LL_TERMINATE_IND` reports reason `0x13`; scanning restarts after disconnect. It then scans
 through the vendor-owned RX ring; its
 public extended GAP callback must return the exact injected advertising data
 and -80 dBm received power. Each freestanding

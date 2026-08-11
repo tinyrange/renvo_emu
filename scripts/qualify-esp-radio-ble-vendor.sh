@@ -53,7 +53,7 @@ docker run --rm \
     --volume "$repo_root:/workspace:ro" \
     --volume "$chip_root_absolute:/out" \
     "$idf_image" \
-    bash -lc "IDF_TARGET=$chip SDKCONFIG_DEFAULTS=/workspace/qualification/radio/sdkconfig.ble.defaults idf.py -C /workspace/$firmware_project -B /out/build -D SDKCONFIG=/out/sdkconfig reconfigure && ninja -C /out/build -j $vendor_build_jobs && cd /out/build && python -m esptool --chip $chip merge-bin -o /out/$chip-ble-scan-flash.bin @flash_args" \
+    bash -lc "IDF_TARGET=$chip SDKCONFIG_DEFAULTS=/workspace/qualification/radio/sdkconfig.ble.defaults idf.py -C /workspace/$firmware_project -B /out/build -D SDKCONFIG=/out/sdkconfig -D PROJECT_VER=remu-radio-qualification reconfigure && ninja -C /out/build -j $vendor_build_jobs && cd /out/build && python -m esptool --chip $chip merge-bin -o /out/$chip-ble-scan-flash.bin @flash_args" \
     >"$chip_root/idf-build.log" 2>&1
 
 if [ -z "${REMU_BIN:-}" ]
@@ -152,7 +152,14 @@ jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
              [15, 5, 143, 196, 43, 25, 103],
              [1, 4, 244, 176, 217, 44],
              [15, 6, 45, 155, 2, 74, 40, 15]
-         ] else [[15, 2, 2, 19]] end) +
+         ] else [
+             [3, 23, 3, 16, 17, 18, 19, 20, 21, 22, 23, 52, 18, 32, 33, 34, 35, 36, 37, 38, 39, 48, 49, 50, 51],
+             [1, 0],
+             [13, 0],
+             [15, 5, 184, 9, 240, 138, 197],
+             [5, 4, 51, 203, 243, 20],
+             [11, 6, 229, 251, 202, 6, 119, 40]
+         ] end) +
          [[2, 7, 3, 0, 4, 0, 2, 247, 0],
           [15, 9, 21, 251, 0, 144, 66, 251, 0, 144, 66]])[];
         . as $required_rx |
@@ -219,7 +226,7 @@ flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 jq -n \
-    --arg schema remu.radio-ble-vendor-qualification.v7 \
+    --arg schema remu.radio-ble-vendor-qualification.v8 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -260,9 +267,9 @@ jq -n \
             requires_vendor_mtu_callback: true,
             requires_native_ble_phy_update: true,
             requires_vendor_phy_callback: true,
-            requires_native_ble_encryption: ($chip == "esp32c6"),
-            requires_native_ble_modem_security_ccm: ($chip == "esp32c6"),
-            requires_vendor_encryption_callback: ($chip == "esp32c6"),
+            requires_native_ble_encryption: true,
+            requires_native_ble_modem_security_ccm: true,
+            requires_vendor_encryption_callback: true,
             requires_native_ble_acl_acknowledgement: true,
             requires_native_ble_tx_descriptor_retirement: true,
             requires_native_ble_remote_termination: true,
@@ -288,7 +295,7 @@ jq -n \
             vendor_att_mtu: 247,
             native_connection_phy: "ble-2m",
             vendor_phy_update_complete: true,
-            native_connection_encrypted: ($chip == "esp32c6"),
+            native_connection_encrypted: true,
             native_acl_acknowledged: true,
             native_connection_remote_terminated: true,
             native_scan_restarted_after_disconnect: true,

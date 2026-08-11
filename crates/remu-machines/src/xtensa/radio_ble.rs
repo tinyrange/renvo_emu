@@ -1,4 +1,100 @@
 impl XtensaMachine {
+    fn service_native_ble_crypt(&mut self) -> Result<u64, XtensaMachineError> {
+        let mut completed = 0_u64;
+        while let Some(command) = self.ble_exchange_memory.take_crypt_command() {
+            // The revision-zero ROM's r_rwip_aes_encrypt routine writes its
+            // input at exchange-memory offset 0x0128; r_rwip_crypt_evt_handler
+            // consumes the controller result from the following block, 0x0138.
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::MemoryMapping,
+                command.input_offset == 0x0128,
+                self.now,
+                format!(
+                    "native RWBLE crypt input offset {:#06x} differs from firmware-defined 0x0128",
+                    command.input_offset
+                ),
+            )?;
+            let input_address =
+                self.require_native_ble_mapping(command.input_offset as u16, "RWBLE crypt input")?;
+            let output_offset = command.input_offset.checked_add(16);
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::MemoryMapping,
+                output_offset.is_some_and(|offset| offset <= u32::from(u16::MAX)),
+                self.now,
+                "native RWBLE crypt result offset overflows exchange memory",
+            )?;
+            let output_address = self.require_native_ble_mapping(
+                output_offset.expect("legality check established crypt result offset") as u16,
+                "RWBLE crypt result",
+            )?;
+            self.radio_legality.validate_dma(
+                RadioSubsystem::BluetoothLe,
+                RadioDmaDirection::Transmit,
+                input_address,
+                1,
+                16,
+                16,
+                self.now,
+            )?;
+            self.radio_legality.validate_dma(
+                RadioSubsystem::BluetoothLe,
+                RadioDmaDirection::Receive,
+                output_address,
+                1,
+                16,
+                16,
+                self.now,
+            )?;
+            let input_bytes = self.require_native_ble_bytes(
+                input_address,
+                16,
+                "RWBLE crypt AES-128 input",
+            )?;
+            let input: [u8; 16] = input_bytes
+                .try_into()
+                .expect("validated native AES input has fixed length");
+            let output = command.encrypt_block(input);
+            let output_written = self.write_native_ble_bytes(output_address, &output);
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                output_written,
+                self.now,
+                format!(
+                    "native RWBLE crypt result address {output_address:#010x} is not writable"
+                ),
+            )?;
+            let mut matched_links = 0_usize;
+            let mut correlation_error = None;
+            for sequence in self.native_ble_link_sequences.values_mut() {
+                match sequence.observe_security_ecb(command.key, input, output) {
+                    Ok(true) => matched_links = matched_links.saturating_add(1),
+                    Ok(false) => {}
+                    Err(detail) => {
+                        correlation_error = Some(detail);
+                        break;
+                    }
+                }
+            }
+            self.radio_legality.require(
+                RadioSubsystem::BluetoothLe,
+                RadioLegalityRule::SchedulerState,
+                correlation_error.is_none() && matched_links <= 1,
+                self.now,
+                correlation_error.unwrap_or_else(|| {
+                    format!(
+                        "native RWBLE session-key transaction matched {matched_links} live links"
+                    )
+                }),
+            )?;
+            self.ble_exchange_memory.complete_crypt();
+            completed = completed.saturating_add(1);
+        }
+        Ok(completed)
+    }
+
     fn submit_native_ble_frames(&mut self) -> Result<u64, XtensaMachineError> {
         while let Some(kick) = self.ble_exchange_memory.take_schedule_kick() {
             let slot = (kick.control & 0x0f) as u16;
@@ -90,6 +186,7 @@ impl XtensaMachine {
                         channel,
                         phy: "ble-1m",
                         complete_on_receive: access_address != BLE_ADVERTISING_ACCESS_ADDRESS,
+                        link_state: None,
                         response: None,
                     },
                 );
@@ -119,7 +216,7 @@ impl XtensaMachine {
                 })?;
                 let phy_result = self
                     .native_ble_link_sequences
-                    .entry(cs_address)
+                    .entry(access_address)
                     .or_default()
                     .begin_event();
                 let (phys, phy_error) = match phy_result {
@@ -144,6 +241,8 @@ impl XtensaMachine {
                     complete_event: true,
                     response_window: false,
                     tx_interrupt: true,
+                    link_state: Some(access_address),
+                    remove_link_after_tx: false,
                     deferred_descriptor: Some((cs_address, tx_descriptor, access_address)),
                     pdu,
                 };
@@ -162,6 +261,7 @@ impl XtensaMachine {
                         channel,
                         phy: rx_phy,
                         complete_on_receive: false,
+                        link_state: Some(access_address),
                         response: Some(response),
                     },
                 );
@@ -255,6 +355,8 @@ impl XtensaMachine {
                         complete_event: true,
                         response_window: false,
                         tx_interrupt: false,
+                        link_state: None,
+                        remove_link_after_tx: false,
                         deferred_descriptor: None,
                         pdu: auxiliary_pdu,
                     });
@@ -279,6 +381,8 @@ impl XtensaMachine {
                     response_window: access_address == BLE_ADVERTISING_ACCESS_ADDRESS
                         && matches!(pdu.first().map(|header| header & 0x0f), Some(0) | Some(6)),
                     tx_interrupt: false,
+                    link_state: None,
+                    remove_link_after_tx: false,
                     deferred_descriptor: None,
                     pdu,
                 },
@@ -413,7 +517,41 @@ impl XtensaMachine {
                 )?;
                 pending.pdu = pdu;
             }
+            if let Some(link_state) = pending.link_state {
+                let prepared = self
+                    .native_ble_link_sequences
+                    .entry(link_state)
+                    .or_default()
+                    .prepare_transmitted(&pending.pdu);
+                let (wire_pdu, encryption_error) = match prepared {
+                    Ok(pdu) => (Some(pdu), None),
+                    Err(detail) => (None, Some(detail)),
+                };
+                let encryption_error = encryption_error.map(|detail| {
+                    let observed = self
+                        .native_ble_link_sequences
+                        .iter()
+                        .map(|(identity, sequence)| {
+                            format!("{identity:#010x}:{:?}", sequence.encryption_phase)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!(
+                        "{detail}; selected link {link_state:#010x}, observed links [{observed}]"
+                    )
+                });
+                self.radio_legality.require(
+                    RadioSubsystem::BluetoothLe,
+                    RadioLegalityRule::SchedulerState,
+                    encryption_error.is_none(),
+                    self.now,
+                    encryption_error.unwrap_or_default(),
+                )?;
+                pending.pdu = wire_pdu.expect("legality check established BLE wire PDU");
+            }
             let duration = frame_duration(pending.pdu.len());
+            let remove_link_after_tx = pending.remove_link_after_tx;
+            let completed_link = pending.link_state;
             let continue_connection_event = pending.tx_interrupt
                 && pending.pdu.first().is_some_and(|header| header & 0x10 != 0);
             let decision = self.radio_coexistence.request(CoexistenceRequest {
@@ -498,6 +636,7 @@ impl XtensaMachine {
                                 // scheduled END so the ROM can consume RX and
                                 // update link state first.
                                 complete_on_receive: false,
+                                link_state: pending.link_state,
                                 response: None,
                             },
                         );
@@ -527,6 +666,7 @@ impl XtensaMachine {
                                 channel: pending.channel,
                                 phy: pending.phy,
                                 complete_on_receive: true,
+                                link_state: None,
                                 response: None,
                             },
                         );
@@ -542,6 +682,11 @@ impl XtensaMachine {
             } else {
                 self.ble_exchange_memory
                     .schedule_radio_completion(due, S3_RWBLE_SKIP_INTERRUPT);
+            }
+            if remove_link_after_tx {
+                if let Some(link_state) = completed_link {
+                    self.native_ble_link_sequences.remove(&link_state);
+                }
             }
         }
         Ok(submitted)
