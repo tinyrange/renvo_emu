@@ -1,5 +1,35 @@
 use super::*;
 
+const DWC2_EP0_XFER_SIZE_MASK: u32 = 0x7f;
+const DWC2_DATA_XFER_SIZE_MASK: u32 = 0x7ffff;
+const DWC2_EP0_IN_PKT_COUNT_MASK: u32 = 0x3 << 19;
+const DWC2_EP0_OUT_PKT_COUNT_MASK: u32 = 1 << 19;
+const DWC2_DATA_PKT_COUNT_MASK: u32 = 0x3ff << 19;
+
+pub(super) const fn dwc2_xfer_size_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_XFER_SIZE_MASK
+    } else {
+        DWC2_DATA_XFER_SIZE_MASK
+    }
+}
+
+pub(super) const fn dwc2_in_pkt_count_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_IN_PKT_COUNT_MASK
+    } else {
+        DWC2_DATA_PKT_COUNT_MASK
+    }
+}
+
+pub(super) const fn dwc2_out_pkt_count_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_OUT_PKT_COUNT_MASK
+    } else {
+        DWC2_DATA_PKT_COUNT_MASK
+    }
+}
+
 impl Device for EspUsbOtg {
     fn name(&self) -> &str {
         &self.name

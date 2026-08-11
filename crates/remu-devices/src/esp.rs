@@ -795,11 +795,6 @@ const DWC2_EPDIS: u32 = 1 << 30;
 const DWC2_GINT_RXFLVL: u32 = 1 << 4;
 const DWC2_GINT_IEPINT: u32 = 1 << 18;
 const DWC2_GINT_OEPINT: u32 = 1 << 19;
-const DWC2_EP0_XFER_SIZE_MASK: u32 = 0x7f;
-const DWC2_DATA_XFER_SIZE_MASK: u32 = 0x7ffff;
-const DWC2_EP0_IN_PKT_COUNT_MASK: u32 = 0x3 << 19;
-const DWC2_EP0_OUT_PKT_COUNT_MASK: u32 = 1 << 19;
-const DWC2_DATA_PKT_COUNT_MASK: u32 = 0x3ff << 19;
 const DWC2_OUT_SETUP_COUNT_MASK: u32 = 0x3 << 29;
 const DWC2_DIEPCTL_CONFIG_MASK: u32 = 0x7 | (1 << 21) | (0xf << 22);
 const DWC2_DOEPCTL_CONFIG_MASK: u32 = (1 << 20) | (1 << 21);
@@ -877,29 +872,6 @@ const DWC2_GINTMSK_MASK: u32 = (1 << 1)
     | (1 << 30)
     | (1 << 31);
 
-const fn dwc2_xfer_size_mask(endpoint: u8) -> u32 {
-    if endpoint == 0 {
-        DWC2_EP0_XFER_SIZE_MASK
-    } else {
-        DWC2_DATA_XFER_SIZE_MASK
-    }
-}
-
-const fn dwc2_in_pkt_count_mask(endpoint: u8) -> u32 {
-    if endpoint == 0 {
-        DWC2_EP0_IN_PKT_COUNT_MASK
-    } else {
-        DWC2_DATA_PKT_COUNT_MASK
-    }
-}
-
-const fn dwc2_out_pkt_count_mask(endpoint: u8) -> u32 {
-    if endpoint == 0 {
-        DWC2_EP0_OUT_PKT_COUNT_MASK
-    } else {
-        DWC2_DATA_PKT_COUNT_MASK
-    }
-}
 const DWC2_DIEPMSK_MASK: u32 = (1 << 0)
     | (1 << 1)
     | (1 << 2)
@@ -1292,6 +1264,7 @@ impl EspUsbOtgHandle {
 
 #[path = "esp_usb_otg_device.rs"]
 mod esp_usb_otg_device;
+use esp_usb_otg_device::*;
 
 /// ESP32-C6 analog-register I²C master and its internal byte registers.
 ///
