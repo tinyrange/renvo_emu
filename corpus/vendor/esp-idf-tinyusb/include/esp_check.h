@@ -25,3 +25,12 @@
             goto label;                                  \
         }                                                \
     } while (0)
+
+#define ESP_GOTO_ON_FALSE(condition, error, label, tag, message) \
+    do {                                                    \
+        (void)(tag);                                        \
+        if (!(condition)) {                                 \
+            ret = (error);                                  \
+            goto label;                                     \
+        }                                                   \
+    } while (0)

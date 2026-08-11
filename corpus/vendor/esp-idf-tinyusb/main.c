@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "device/dcd.h"
+#include "descriptors_control.h"
 #include "esp_private/usb_phy.h"
 #include "tinyusb.h"
 #include "tusb.h"
@@ -19,6 +20,18 @@ static volatile bool sent;
 static volatile uint32_t written;
 static volatile uint32_t flushed;
 static uint32_t milliseconds;
+
+__attribute__((noreturn)) void __assert_func(const char *file, int line, const char *function,
+                                             const char *expression)
+{
+    (void)file;
+    (void)line;
+    (void)function;
+    (void)expression;
+    REG32(TEST_EXIT) = 12;
+    for (;;) {
+    }
+}
 
 void *memcpy(void *destination, const void *source, size_t length)
 {
@@ -75,6 +88,15 @@ size_t strlen(const char *text)
     return (size_t)(end - text);
 }
 
+size_t strnlen(const char *text, size_t maximum)
+{
+    size_t length = 0;
+    while (length < maximum && text[length]) {
+        ++length;
+    }
+    return length;
+}
+
 uint32_t tusb_time_millis_api(void)
 {
     return milliseconds++;
@@ -110,42 +132,13 @@ static const uint8_t configuration_descriptor[] = {
     TUD_CDC_DESCRIPTOR(INTERFACE_CDC_CONTROL, 4, 0x81, 8, 0x02, 0x82, 64),
 };
 
-const uint8_t *tud_descriptor_device_cb(void)
-{
-    return (const uint8_t *)&device_descriptor;
-}
-
-const uint8_t *tud_descriptor_configuration_cb(uint8_t index)
-{
-    (void)index;
-    return configuration_descriptor;
-}
-
-const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t language)
-{
-    static uint16_t descriptor[32];
-    static const char *const strings[] = {
-        "", "Renvo Emulator", "TinyUSB qualification", "0001",
-    };
-    (void)language;
-    if (index == 0) {
-        descriptor[1] = 0x0409;
-        descriptor[0] = (TUSB_DESC_STRING << 8) | 4;
-        return descriptor;
-    }
-    if (index >= sizeof(strings) / sizeof(strings[0])) {
-        return NULL;
-    }
-    size_t length = strlen(strings[index]);
-    if (length > 31) {
-        length = 31;
-    }
-    for (size_t i = 0; i < length; ++i) {
-        descriptor[1 + i] = (uint8_t)strings[index][i];
-    }
-    descriptor[0] = (uint16_t)((TUSB_DESC_STRING << 8) | (2 * length + 2));
-    return descriptor;
-}
+static const char *string_descriptors[] = {
+    (const char[]){0x09, 0x04},
+    "Renvo Emulator",
+    "TinyUSB qualification",
+    "0001",
+    "CDC",
+};
 
 static void tinyusb_event(tinyusb_event_t *event, void *argument)
 {
@@ -188,6 +181,10 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *t
         .role = TUSB_ROLE_DEVICE,
         .speed = TUSB_SPEED_FULL,
     };
+    if (tinyusb_descriptors_check(port, descriptor) != ESP_OK
+        || tinyusb_descriptors_set(port, descriptor) != ESP_OK) {
+        return ESP_FAIL;
+    }
     return tusb_rhport_init((uint8_t)port, &rhport) ? ESP_OK : ESP_FAIL;
 }
 
@@ -210,6 +207,8 @@ void app_main(void)
         .task = {.size = 2048, .priority = 5, .xCoreID = 0},
         .descriptor = {
             .device = &device_descriptor,
+            .string = string_descriptors,
+            .string_count = sizeof(string_descriptors) / sizeof(string_descriptors[0]),
             .full_speed_config = configuration_descriptor,
         },
         .event_cb = tinyusb_event,

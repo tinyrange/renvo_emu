@@ -46,7 +46,11 @@ fetch_exact \
 
 tar -xzf "$root/esp-usb.tar.gz" -C "$root/source/upstream" \
     "esp-usb-$esp_usb_commit/device/esp_tinyusb/tinyusb.c" \
-    "esp-usb-$esp_usb_commit/device/esp_tinyusb/include/tinyusb.h"
+    "esp-usb-$esp_usb_commit/device/esp_tinyusb/descriptors_control.c" \
+    "esp-usb-$esp_usb_commit/device/esp_tinyusb/usb_descriptors.c" \
+    "esp-usb-$esp_usb_commit/device/esp_tinyusb/include/tinyusb.h" \
+    "esp-usb-$esp_usb_commit/device/esp_tinyusb/include_private/descriptors_control.h" \
+    "esp-usb-$esp_usb_commit/device/esp_tinyusb/include_private/usb_descriptors.h"
 tar -xzf "$root/tinyusb.tar.gz" -C "$root/source/upstream" \
     "tinyusb-$tinyusb_commit/src"
 cp -R corpus/vendor/esp-idf-tinyusb/. "$root/source/"
@@ -66,9 +70,11 @@ tinyusb="upstream/tinyusb-$tinyusb_commit"
     --target esp32s3 \
     --artifact "$root/build.json" \
     -- \
-    -O2 -Iinclude -I"$esp_tinyusb/include" -I"$tinyusb/src" \
+    -O2 -Iinclude -I"$esp_tinyusb/include" -I"$esp_tinyusb/include_private" -I"$tinyusb/src" \
     main.c start.S \
     "$esp_tinyusb/tinyusb.c" \
+    "$esp_tinyusb/descriptors_control.c" \
+    "$esp_tinyusb/usb_descriptors.c" \
     "$tinyusb/src/tusb.c" \
     "$tinyusb/src/common/tusb_fifo.c" \
     "$tinyusb/src/device/usbd.c" \
