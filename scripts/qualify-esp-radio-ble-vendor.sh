@@ -113,6 +113,10 @@ do
 done
 
 jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
+    def ble_data_center($channel):
+        if $channel <= 10 then 2404000 + (2000 * $channel)
+        else 2406000 + (2000 * $channel)
+        end;
     $requirements[0].chips[$chip].expected_native_tx as $expected |
     $requirements[0].chips[$chip].expected_connection_tx as $expected_connection |
     .events as $events |
@@ -156,8 +160,7 @@ jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
                  .id == $submitted.id and
                  .receiver == 1 and
                  .outcome.kind == "delivered")))) and
-    all([$expected.legacy, $expected.extended_primary, $expected.extended_auxiliary][];
-        . as $required |
+    ($expected.legacy as $required |
         any($events[];
             .event == "submitted" and
             .request.frame.protocol == "bluetooth-le" and
@@ -165,6 +168,30 @@ jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
             .request.frame.spectrum.center_khz == $required.center_khz and
             .request.frame.phy == $required.phy and
             .request.frame.bytes == $required.bytes)) and
+    any($events[];
+        . as $primary |
+        ($primary.event == "submitted" and
+         $primary.request.frame.protocol == "bluetooth-le" and
+         $primary.request.frame.origin == "emulated" and
+         $primary.request.frame.spectrum.center_khz == $expected.extended_primary.center_khz and
+         $primary.request.frame.phy == $expected.extended_primary.phy and
+         ($primary.request.frame.bytes | length) == ($expected.extended_primary.bytes | length) and
+         $primary.request.frame.bytes[0:4] == $expected.extended_primary.bytes[0:4] and
+         $primary.request.frame.bytes[5] == $expected.extended_primary.bytes[5] and
+         $primary.request.frame.bytes[7:] == $expected.extended_primary.bytes[7:] and
+         ($primary.request.frame.bytes[6] % 64) <= 36 and
+         any($events[];
+             .event == "submitted" and
+             .request.frame.protocol == "bluetooth-le" and
+             .request.frame.origin == "emulated" and
+             .request.frame.spectrum.center_khz ==
+                 ble_data_center($primary.request.frame.bytes[6] % 64) and
+             .request.frame.phy == $expected.extended_auxiliary.phy and
+             (.request.frame.bytes | length) ==
+                 ($expected.extended_auxiliary.bytes | length) and
+             .request.frame.bytes[0:10] == $expected.extended_auxiliary.bytes[0:10] and
+             .request.frame.bytes[10] == $primary.request.frame.bytes[4] and
+             .request.frame.bytes[11:] == $expected.extended_auxiliary.bytes[11:]))) and
     all($expected_connection[];
         . as $required |
         any($events[];

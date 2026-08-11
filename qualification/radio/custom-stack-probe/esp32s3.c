@@ -269,7 +269,12 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
                 *(volatile uint16_t *)(void *)(remu_ble_rx_descriptor + 14u);
             uint16_t rxrssi =
                 *(volatile uint16_t *)(void *)(remu_ble_rx_descriptor + 6u);
-            if ((rxchass & 0x3fu) != 39u || (rxrssi & 0xffu) != 0xb0u) {
+            /*
+             * RXCHASS is receive/privacy status, not the RF channel.  A clean
+             * advertising reception leaves it clear; the RF channel comes
+             * from the scheduled exchange-memory control structure.
+             */
+            if (rxchass != 0u || (rxrssi & 0xffu) != 0xb0u) {
                 failure = 20;
             } else {
                 WRITE32(BLE_INTERRUPT_CLEAR, BLE_RX_INTERRUPT);
