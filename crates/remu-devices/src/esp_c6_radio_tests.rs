@@ -809,6 +809,57 @@ mod tests {
     }
 
     #[test]
+    fn wifi_mac_rx_block_ack_tracks_the_native_firmware_window() {
+        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        let peer = [0x02, 1, 2, 3, 4, 5];
+        mac.write(
+            C6_WIFI_MAC_RX_BA_MAC_LOW_HIGH,
+            AccessWidth::Word,
+            u64::from(u32::from_le_bytes(peer[..4].try_into().unwrap())),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_RX_BA_MAC_HIGH_HIGH,
+            AccessWidth::Word,
+            u64::from(u16::from_le_bytes(peer[4..].try_into().unwrap())),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_RX_BA_SEQUENCE_HIGH,
+            AccessWidth::Word,
+            0x0ffe,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_RX_BA_CONTROL_HIGH,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (3 << 12) | 5),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        assert!(handle.record_block_ack_mpdu(&peer, 3, 0x0fff));
+        assert!(handle.record_block_ack_mpdu(&peer, 3, 0x0000));
+        assert_eq!(handle.block_ack_bitmap(&peer, 3, 0x0fff), Some(3));
+        assert!(!handle.record_block_ack_mpdu(&peer, 2, 0));
+
+        mac.reset(ResetKind::PowerOn);
+        assert_eq!(handle.block_ack_bitmap(&peer, 3, 0x0fff), None);
+        mac.write(
+            C6_WIFI_MAC_RX_BA_CONTROL_HIGH,
+            AccessWidth::Word,
+            u64::from(C6_WIFI_MAC_RX_BA_VALID | 5),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.validate_block_ack_sessions().is_err());
+    }
+
+    #[test]
     fn wifi_mac_tx_completion_drives_native_event_and_queue_state() {
         let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
         let handle = mac.handle();

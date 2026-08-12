@@ -159,7 +159,7 @@ impl RiscVMachine {
                     if let Some(index) = self
                         .radio_pending_native_wifi
                         .iter()
-                        .position(|pending| pending.accepts_ack(&frame.bytes, received_at))
+                        .position(|pending| pending.accepts_response(&frame.bytes, received_at))
                     {
                         let pending = self.radio_pending_native_wifi.remove(index);
                         self.radio_legality
@@ -171,7 +171,7 @@ impl RiscVMachine {
                                 wifi_mac.tx_active(pending.queue),
                                 self.now,
                                 format!(
-                                    "ACK arrived for inactive native TX queue {}",
+                                    "control response arrived for inactive native TX queue {}",
                                     pending.queue
                                 ),
                             )?;
@@ -187,13 +187,17 @@ impl RiscVMachine {
                                 ),
                                 self.now,
                                 format!(
-                                    "native TX queue {} rejected its ACK completion",
+                                    "native TX queue {} rejected its control-response completion",
                                     pending.queue
                                 ),
                             )?;
                         completed = completed.saturating_add(1);
                         continue;
                     }
+                    let responded = self.submit_native_wifi_receive_response(
+                        wifi_mac,
+                        &frame.bytes,
+                    )?;
                     let native = self.write_native_wifi_rx(wifi_mac, &frame.bytes)?;
                     if self
                         .esp32c6_peripherals
@@ -207,7 +211,7 @@ impl RiscVMachine {
                             .unwrap_or(false)
                     {
                         completed = completed.saturating_add(1);
-                    } else if native {
+                    } else if native || responded {
                         completed = completed.saturating_add(1);
                     }
                 }
@@ -820,6 +824,110 @@ impl RiscVMachine {
             })?;
         self.radio_pending_ieee802154_ack.push(end);
         Ok(())
+    }
+
+    fn submit_native_wifi_receive_response(
+        &mut self,
+        wifi_mac: &remu_devices::EspC6WifiMacHandle,
+        frame: &[u8],
+    ) -> Result<bool, MachineError> {
+        if !self
+            .esp32c6_peripherals
+            .as_ref()
+            .is_some_and(|handles| handles.modem.wifi_ready())
+        {
+            return Ok(false);
+        }
+        let ba_state = wifi_mac.validate_block_ack_sessions();
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::SchedulerState,
+                ba_state.is_ok(),
+                self.now,
+                ba_state.err().unwrap_or_default(),
+            )?;
+        if let Some(mpdu) = crate::native_wifi::native_wifi_qos_mpdu(frame)
+            && wifi_mac.rx_match_mask(&mpdu.receiver) != 0
+        {
+            wifi_mac.record_block_ack_mpdu(&mpdu.transmitter, mpdu.tid, mpdu.sequence);
+        }
+        let response = if let Some(request) =
+            crate::native_wifi::native_wifi_block_ack_request(frame)
+            && wifi_mac.rx_match_mask(&request.receiver) != 0
+        {
+            wifi_mac
+                .block_ack_bitmap(&request.transmitter, request.tid, request.starting_sequence)
+                .map(|bitmap| {
+                    crate::native_wifi::native_wifi_block_ack_response(request, bitmap)
+                })
+        } else if frame
+            .get(4..10)
+            .is_some_and(|receiver| wifi_mac.rx_match_mask(receiver) != 0)
+        {
+            crate::native_wifi::native_wifi_immediate_response(frame)
+        } else {
+            None
+        };
+        let Some(bytes) = response else {
+            return Ok(false);
+        };
+        let duration = frame_duration(bytes.len());
+        let end = self
+            .now
+            .checked_add(duration)
+            .map_err(|_| MachineError::TimeOverflow)?;
+        let decision = self
+            .radio_coexistence
+            .as_mut()
+            .expect("ESP32-C6 machine has a coexistence arbiter")
+            .request(CoexistenceRequest {
+                protocol: RadioProtocol::Wifi,
+                start: self.now,
+                duration,
+                priority: 15,
+                preemptible: false,
+            })?;
+        let CoexistenceDecision::Granted {
+            id: grant,
+            protocol: granted_protocol,
+            preempted,
+            ..
+        } = decision
+        else {
+            return Ok(false);
+        };
+        self.apply_coexistence_preemption(preempted)?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .validate_coexistence_ownership(
+                RadioSubsystem::Wifi,
+                RadioProtocol::Wifi,
+                granted_protocol,
+                self.now,
+            )?;
+        let transmission = self
+            .radio_medium
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio medium")
+            .transmit(TxRequest {
+                source: EMULATED_NODE,
+                start: self.now,
+                end,
+                power_dbm: 0,
+                frame: RadioFrame {
+                    protocol: RadioProtocol::Wifi,
+                    spectrum: Spectrum::new(2_412_000, 20_000),
+                    phy: "wifi-ht20".to_owned(),
+                    bytes,
+                    origin: FrameOrigin::Emulated,
+                },
+            })?;
+        self.record_coexistence_transmission(grant, transmission);
+        Ok(true)
     }
 
     fn radio_read_guest_bytes(

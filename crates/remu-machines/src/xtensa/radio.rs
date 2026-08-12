@@ -806,7 +806,7 @@ impl XtensaMachine {
                     origin: FrameOrigin::Emulated,
                 },
             })?;
-            if pending.ack_receiver.is_some() {
+            if pending.expected_response.is_some() {
                 self.radio_medium.tune_receiver(Receiver {
                     node: EMULATED_NODE,
                     protocol: RadioProtocol::Wifi,
@@ -839,7 +839,7 @@ impl XtensaMachine {
                     pending.queue
                 ),
             )?;
-            let outcome = if pending.ack_receiver.is_some() {
+            let outcome = if pending.expected_response.is_some() {
                 remu_devices::EspWifiTxOutcome::AckTimeout
             } else {
                 remu_devices::EspWifiTxOutcome::Success
@@ -900,7 +900,7 @@ impl XtensaMachine {
                     if let Some(index) = self
                         .pending_native_wifi
                         .iter()
-                        .position(|pending| pending.accepts_ack(&frame.bytes, received_at))
+                        .position(|pending| pending.accepts_response(&frame.bytes, received_at))
                     {
                         let pending = self.pending_native_wifi.remove(index);
                         self.radio_legality.require(
@@ -908,7 +908,10 @@ impl XtensaMachine {
                             RadioLegalityRule::CompletionWithoutOperation,
                             self.wifi_mac.tx_active(pending.queue),
                             self.now,
-                            format!("ACK arrived for inactive native TX queue {}", pending.queue),
+                            format!(
+                                "control response arrived for inactive native TX queue {}",
+                                pending.queue
+                            ),
                         )?;
                         self.radio_legality.require(
                             RadioSubsystem::Wifi,
@@ -919,19 +922,20 @@ impl XtensaMachine {
                             ),
                             self.now,
                             format!(
-                                "native TX queue {} rejected its ACK completion",
+                                "native TX queue {} rejected its control-response completion",
                                 pending.queue
                             ),
                         )?;
                         completed = completed.saturating_add(1);
                         continue;
                     }
+                    let responded = self.submit_native_wifi_receive_response(&frame.bytes)?;
                     let wifi_mac = self.wifi_mac.clone();
                     let native = self.write_native_wifi_rx(&wifi_mac, &frame.bytes);
                     if self.syscon.wifi_ready() && self.radio_wifi.receive(&frame).unwrap_or(false)
                     {
                         completed = completed.saturating_add(1);
-                    } else if native {
+                    } else if native || responded {
                         completed = completed.saturating_add(1);
                     }
                 }
@@ -954,6 +958,90 @@ impl XtensaMachine {
             }
         }
         Ok(completed)
+    }
+
+    fn submit_native_wifi_receive_response(
+        &mut self,
+        frame: &[u8],
+    ) -> Result<bool, XtensaMachineError> {
+        if !self.syscon.wifi_ready() {
+            return Ok(false);
+        }
+        let ba_state = self.wifi_mac.validate_block_ack_sessions();
+        self.radio_legality.require(
+            RadioSubsystem::Wifi,
+            RadioLegalityRule::SchedulerState,
+            ba_state.is_ok(),
+            self.now,
+            ba_state.err().unwrap_or_default(),
+        )?;
+        if let Some(mpdu) = crate::native_wifi::native_wifi_qos_mpdu(frame)
+            && self.wifi_mac.rx_match_mask(&mpdu.receiver) != 0
+        {
+            self.wifi_mac
+                .record_block_ack_mpdu(&mpdu.transmitter, mpdu.tid, mpdu.sequence);
+        }
+        let response = if let Some(request) =
+            crate::native_wifi::native_wifi_block_ack_request(frame)
+            && self.wifi_mac.rx_match_mask(&request.receiver) != 0
+        {
+            self.wifi_mac
+                .block_ack_bitmap(&request.transmitter, request.tid, request.starting_sequence)
+                .map(|bitmap| crate::native_wifi::native_wifi_block_ack_response(request, bitmap))
+        } else if frame
+            .get(4..10)
+            .is_some_and(|receiver| self.wifi_mac.rx_match_mask(receiver) != 0)
+        {
+            crate::native_wifi::native_wifi_immediate_response(frame)
+        } else {
+            None
+        };
+        let Some(bytes) = response else {
+            return Ok(false);
+        };
+        let duration = frame_duration(bytes.len());
+        let end = self
+            .now
+            .checked_add(duration)
+            .map_err(|_| XtensaMachineError::TimeOverflow)?;
+        let decision = self.radio_coexistence.request(CoexistenceRequest {
+            protocol: RadioProtocol::Wifi,
+            start: self.now,
+            duration,
+            priority: 15,
+            preemptible: false,
+        })?;
+        let CoexistenceDecision::Granted {
+            id: grant,
+            protocol: granted_protocol,
+            preempted,
+            ..
+        } = decision
+        else {
+            return Ok(false);
+        };
+        self.apply_coexistence_preemption(preempted)?;
+        self.radio_legality.validate_coexistence_ownership(
+            RadioSubsystem::Wifi,
+            RadioProtocol::Wifi,
+            granted_protocol,
+            self.now,
+        )?;
+        let transmission = self.radio_medium.transmit(TxRequest {
+            source: EMULATED_NODE,
+            start: self.now,
+            end,
+            power_dbm: 0,
+            frame: RadioFrame {
+                protocol: RadioProtocol::Wifi,
+                spectrum: Spectrum::new(2_412_000, 20_000),
+                phy: "wifi-ht20".to_owned(),
+                bytes,
+                origin: FrameOrigin::Emulated,
+            },
+        })?;
+        self.record_coexistence_transmission(grant, transmission);
+        Ok(true)
     }
 
     fn write_native_ble_rx(

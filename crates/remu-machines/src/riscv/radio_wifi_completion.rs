@@ -23,7 +23,7 @@ impl RiscVMachine {
                         pending.queue
                     ),
                 )?;
-            let outcome = if pending.ack_receiver.is_some() {
+            let outcome = if pending.expected_response.is_some() {
                 remu_devices::EspWifiTxOutcome::AckTimeout
             } else {
                 remu_devices::EspWifiTxOutcome::Success

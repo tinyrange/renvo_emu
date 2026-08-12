@@ -887,6 +887,17 @@ const C6_WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE: u64 = 0x10;
 const C6_WIFI_MAC_TX_QUEUE_COMPLETION_HIGH: u64 = 0x14ec;
 const C6_WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE: u64 = 0x74;
 const C6_WIFI_MAC_TX_QUEUE_COMPLETION_STATUS: u32 = 0xf << 12;
+const C6_WIFI_MAC_RX_BA_CONTROL_HIGH: u64 = 0x290;
+const C6_WIFI_MAC_RX_BA_MAC_HIGH_HIGH: u64 = 0x294;
+const C6_WIFI_MAC_RX_BA_MAC_LOW_HIGH: u64 = 0x298;
+const C6_WIFI_MAC_RX_BA_SEQUENCE_HIGH: u64 = 0x2a0;
+const C6_WIFI_MAC_RX_BA_BITMAP_LOW_HIGH: u64 = 0x2a8;
+const C6_WIFI_MAC_RX_BA_BITMAP_HIGH_HIGH: u64 = 0x2b0;
+const C6_WIFI_MAC_RX_BA_STRIDE: u64 = 0x28;
+const C6_WIFI_MAC_RX_BA_COUNT: usize = 8;
+const C6_WIFI_MAC_RX_BA_VALID: u32 = 1 << 31;
+const C6_WIFI_MAC_RX_BA_ACTIVE: u32 = 3 << 30;
+const C6_WIFI_MAC_RX_BA_MODE: u32 = 5;
 
 struct EspC6WifiMacState {
     registers: Vec<u32>,
@@ -927,6 +938,39 @@ pub struct EspC6WifiMacHandle {
 }
 
 impl EspC6WifiMacHandle {
+    fn rx_block_ack_slot(state: &EspC6WifiMacState, peer: &[u8; 6], tid: u8) -> Option<usize> {
+        (0..C6_WIFI_MAC_RX_BA_COUNT).find(|slot| {
+            let distance = *slot as u64 * C6_WIFI_MAC_RX_BA_STRIDE;
+            let control = state.registers[(C6_WIFI_MAC_RX_BA_CONTROL_HIGH - distance) as usize / 4];
+            let mac_low = state.registers[(C6_WIFI_MAC_RX_BA_MAC_LOW_HIGH - distance) as usize / 4];
+            let mac_high =
+                state.registers[(C6_WIFI_MAC_RX_BA_MAC_HIGH_HIGH - distance) as usize / 4];
+            control & C6_WIFI_MAC_RX_BA_ACTIVE == C6_WIFI_MAC_RX_BA_ACTIVE
+                && control & 0x0fff == C6_WIFI_MAC_RX_BA_MODE
+                && (control >> 12) as u8 & 0xf == tid & 0xf
+                && mac_low == u32::from_le_bytes(peer[..4].try_into().unwrap())
+                && mac_high as u16 == u16::from_le_bytes(peer[4..].try_into().unwrap())
+        })
+    }
+
+    /// Rejects active RX BA encodings that the pinned firmware never creates.
+    pub fn validate_block_ack_sessions(&self) -> Result<(), String> {
+        let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        for slot in 0..C6_WIFI_MAC_RX_BA_COUNT {
+            let distance = slot as u64 * C6_WIFI_MAC_RX_BA_STRIDE;
+            let control = state.registers[(C6_WIFI_MAC_RX_BA_CONTROL_HIGH - distance) as usize / 4];
+            if control & C6_WIFI_MAC_RX_BA_VALID != 0
+                && (control & C6_WIFI_MAC_RX_BA_ACTIVE != C6_WIFI_MAC_RX_BA_ACTIVE
+                    || control & 0x0fff != C6_WIFI_MAC_RX_BA_MODE)
+            {
+                return Err(format!(
+                    "RX block-ACK slot {slot} has impossible active control {control:#010x}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Whether an enabled native MAC event asserts interrupt source zero.
     pub fn interrupt_pending(&self) -> bool {
         let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
@@ -1034,6 +1078,66 @@ impl EspC6WifiMacHandle {
             configured
         } else {
             0
+        }
+    }
+
+    /// Records a received QoS MPDU in the matching firmware-owned RX BA window.
+    ///
+    /// The register layout and descending slot stride are the native C6
+    /// `hal_agreement_add_rx_ba` contract. Sequence arithmetic is modulo the
+    /// twelve-bit 802.11 sequence space; frames older than the current window
+    /// do not move it backwards.
+    pub fn record_block_ack_mpdu(&self, peer: &[u8; 6], tid: u8, sequence: u16) -> bool {
+        let mut state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        let Some(slot) = Self::rx_block_ack_slot(&state, peer, tid) else {
+            return false;
+        };
+        let distance = slot as u64 * C6_WIFI_MAC_RX_BA_STRIDE;
+        let sequence_index = (C6_WIFI_MAC_RX_BA_SEQUENCE_HIGH - distance) as usize / 4;
+        let bitmap_low_index = (C6_WIFI_MAC_RX_BA_BITMAP_LOW_HIGH - distance) as usize / 4;
+        let bitmap_high_index = (C6_WIFI_MAC_RX_BA_BITMAP_HIGH_HIGH - distance) as usize / 4;
+        let mut origin = state.registers[sequence_index] as u16 & 0x0fff;
+        let sequence = sequence & 0x0fff;
+        let delta = sequence.wrapping_sub(origin) & 0x0fff;
+        if delta >= 0x0800 {
+            return true;
+        }
+        let mut bitmap = u64::from(state.registers[bitmap_low_index])
+            | (u64::from(state.registers[bitmap_high_index]) << 32);
+        if delta < 64 {
+            bitmap |= 1_u64 << delta;
+        } else {
+            let shift = u32::from(delta - 63);
+            bitmap = bitmap.checked_shr(shift).unwrap_or(0) | (1_u64 << 63);
+            origin = origin.wrapping_add(shift as u16) & 0x0fff;
+            state.registers[sequence_index] =
+                (state.registers[sequence_index] & !0x0fff) | u32::from(origin);
+        }
+        state.registers[bitmap_low_index] = bitmap as u32;
+        state.registers[bitmap_high_index] = (bitmap >> 32) as u32;
+        true
+    }
+
+    /// Returns the matching compressed block-ACK bitmap at a requested origin.
+    pub fn block_ack_bitmap(&self, peer: &[u8; 6], tid: u8, starting_sequence: u16) -> Option<u64> {
+        let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        let slot = Self::rx_block_ack_slot(&state, peer, tid)?;
+        let distance = slot as u64 * C6_WIFI_MAC_RX_BA_STRIDE;
+        let origin = state.registers[(C6_WIFI_MAC_RX_BA_SEQUENCE_HIGH - distance) as usize / 4]
+            as u16
+            & 0x0fff;
+        let bitmap =
+            u64::from(state.registers[(C6_WIFI_MAC_RX_BA_BITMAP_LOW_HIGH - distance) as usize / 4])
+                | (u64::from(
+                    state.registers[(C6_WIFI_MAC_RX_BA_BITMAP_HIGH_HIGH - distance) as usize / 4],
+                ) << 32);
+        let requested = starting_sequence & 0x0fff;
+        let forward = requested.wrapping_sub(origin) & 0x0fff;
+        if forward < 0x0800 {
+            Some(bitmap.checked_shr(u32::from(forward)).unwrap_or(0))
+        } else {
+            let backward = origin.wrapping_sub(requested) & 0x0fff;
+            Some(bitmap.checked_shl(u32::from(backward)).unwrap_or(0))
         }
     }
 

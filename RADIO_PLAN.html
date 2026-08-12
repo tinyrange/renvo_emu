@@ -476,6 +476,9 @@
             </tbody>
           </table>
         </div>
+        <div class="callout">
+          <p><strong>Current Wi-Fi control-response tranche.</strong> C6 and S3 native TX now distinguish ACK, CTS and matching-TID compressed block ACK completion windows. Addressed RTS receives a hardware CTS. The recovered eight-slot RX BA engines retain their chip-specific descending register layouts, peer/TID keys, 12-bit sequence origins and 64-bit bitmaps, including sequence wraparound; compressed BAR input generates the corresponding native BA. Active slot encodings outside the firmware-observed enable/mode state terminate with a stable <code>illegal radio state</code> diagnostic. Descriptor-driven RTS protection, broader TX aggregation/BA retry acceptance, fragmentation, hardware Wi-Fi crypto and C6 TWT remain open.</p>
+        </div>
       </section>
 
       <section id="architecture">

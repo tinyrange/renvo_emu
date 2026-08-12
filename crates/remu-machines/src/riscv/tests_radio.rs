@@ -919,6 +919,50 @@ fn esp32c6_illegal_native_wifi_dma_is_a_hard_machine_error() {
 }
 
 #[test]
+fn esp32c6_illegal_native_wifi_ba_state_is_a_hard_machine_error() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4290,
+            AccessWidth::Word,
+            (1_u64 << 31) | 5,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    let mut rts = vec![0xb4, 0, 0, 0];
+    rts.extend_from_slice(&[0x02, 6, 7, 8, 9, 10]);
+    rts.extend_from_slice(&[0x02, 1, 2, 3, 4, 5]);
+    machine
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            rts.clone(),
+            -35,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(rts.len() as u64 * 32);
+
+    let error = machine.service_radio().unwrap_err();
+    let MachineError::RadioLegality(error) = error else {
+        panic!("expected radio legality error, got {error}");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Wifi);
+    assert!(error.detail.contains("impossible active control"));
+}
+
+#[test]
 fn esp32c6_native_wifi_tx_excludes_hardware_fcs_from_the_rf_frame() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let descriptor = 0x4082_1000_u32;
@@ -1023,6 +1067,47 @@ fn esp32c6_matching_native_wifi_ack_completes_successfully() {
             & (0xf << 12),
         0
     );
+}
+
+#[test]
+fn esp32c6_native_wifi_rts_receives_a_hardware_cts() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    let local = [0x02, 6, 7, 8, 9, 10];
+    let peer = [0x02, 1, 2, 3, 4, 5];
+    let mut rts = vec![0xb4, 0, 0, 0];
+    rts.extend_from_slice(&local);
+    rts.extend_from_slice(&peer);
+    machine
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            rts.clone(),
+            -35,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(rts.len() as u64 * 32);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert!(machine
+        .radio_replay_artifact()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::Emulated
+                    && request.frame.bytes == [0xc4, 0, 0, 0, 2, 1, 2, 3, 4, 5]
+        )));
 }
 
 #[test]

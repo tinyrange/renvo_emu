@@ -1267,7 +1267,7 @@ impl RiscVMachine {
                         origin: FrameOrigin::Emulated,
                     },
                 })?;
-            if pending.ack_receiver.is_some() {
+            if pending.expected_response.is_some() {
                 self.radio_medium
                     .as_mut()
                     .expect("ESP32-C6 machine has a radio medium")

@@ -403,6 +403,88 @@ fn esp32s3_matching_native_wifi_ack_completes_successfully() {
 }
 
 #[test]
+fn esp32s3_native_wifi_rx_ba_session_answers_a_compressed_bar() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let local = [0x02, 6, 7, 8, 9, 10];
+    let peer = [0x02, 1, 2, 3, 4, 5];
+    for (address, value) in [
+        (0x6003_327c, u32::from_le_bytes(peer[..4].try_into().unwrap())),
+        (
+            0x6003_3278,
+            u32::from(u16::from_le_bytes(peer[4..].try_into().unwrap())),
+        ),
+        (0x6003_3280, 0x123),
+        (0x6003_3274, (3 << 30) | (3 << 12) | 5),
+    ] {
+        machine
+            .bus
+            .write(
+                address,
+                AccessWidth::Word,
+                u64::from(value),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+
+    let mut qos = vec![0x88, 0, 0, 0];
+    qos.extend_from_slice(&local);
+    qos.extend_from_slice(&peer);
+    qos.extend_from_slice(&[0; 6]);
+    qos.extend_from_slice(&(0x124_u16 << 4).to_le_bytes());
+    qos.extend_from_slice(&[((3 << 5) | 3), 0]);
+    machine
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            qos.clone(),
+            -35,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(qos.len() as u64 * 8);
+    machine.service_radio().unwrap();
+
+    let mut bar = vec![0x84, 0, 0, 0];
+    bar.extend_from_slice(&local);
+    bar.extend_from_slice(&peer);
+    bar.extend_from_slice(&(0x0004_u16 | (3_u16 << 12)).to_le_bytes());
+    bar.extend_from_slice(&(0x123_u16 << 4).to_le_bytes());
+    machine
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            bar.clone(),
+            -35,
+        )
+        .unwrap();
+    machine.now = machine
+        .now
+        .checked_add(remu_core::SimDuration::from_ticks(bar.len() as u64 * 8))
+        .unwrap();
+    assert_eq!(machine.service_radio().unwrap(), 1);
+
+    let block_ack = machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .find_map(|event| match event {
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::Emulated
+                    && request.frame.bytes.starts_with(&[0x94, 0]) =>
+            {
+                Some(request.frame.bytes.clone())
+            }
+            _ => None,
+        })
+        .expect("native MAC emitted compressed block ACK");
+    assert_eq!(&block_ack[4..10], &peer);
+    assert_eq!(&block_ack[10..16], &local);
+    assert_eq!(&block_ack[20..28], &2_u64.to_le_bytes());
+}
+
+#[test]
 fn esp32s3_native_wifi_tx_rejects_odd_payload_addresses() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let descriptor = 0x3fca_1000_u32;

@@ -251,11 +251,15 @@ The presence of a functional host API is not treated as vendor-firmware
 compatibility. The definition of done still requires pinned, unmodified
 ESP-IDF applications to initialize through their real controller/ROM/shared
 memory ABI. Native C6 and S3 Wi-Fi now delay TX completion through airtime,
-accept matching 802.11 ACK control frames, publish vendor status 0 on success
+accept matching 802.11 ACK, CTS, and compressed block-ACK control frames, publish vendor status 0 on success
 or status 5 at the firmware-programmed timeout, publish status 4 when shared-RF
 arbitration rejects the attempt, and leave retry resubmission to the genuine
-guest LMAC. Wi-Fi still needs fragmentation/aggregation, hardware crypto,
-RTS/CTS, block ACK, and C6 TWT acceptance. The C6 genuine SoftAP gate now
+guest LMAC. Addressed inbound RTS receives a hardware CTS; firmware-programmed
+RX BA sessions score QoS sequence numbers with 12-bit wraparound and answer a
+compressed BAR from their native 64-bit bitmap. Impossible active BA encodings
+are hard legality errors. Wi-Fi still needs fragmentation/aggregation, hardware crypto,
+descriptor-driven RTS protection, broader TX aggregation/BA retry acceptance,
+and C6 TWT acceptance. The C6 genuine SoftAP gate now
 explicitly enables protocol mask `0x47`, emits HE-capability Extension ID 35
 in its native beacon and association response, and accepts an HE20 station;
 the paired S3 gate proves its `0x07` non-HE boundary. BLE still needs the remaining chip-specific
