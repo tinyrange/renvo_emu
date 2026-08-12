@@ -42,6 +42,7 @@ mod esp32c6_peripherals;
 use esp32c6_peripherals::{Esp32c6PeripheralHandles, map_esp32c6_peripherals};
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
+mod functional_bootrom;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;

@@ -15,6 +15,12 @@ pub struct TimerHandle {
 }
 
 impl TimerHandle {
+    /// Whether the timer can currently change or assert its interrupt line.
+    pub fn active(&self) -> bool {
+        let state = self.state.borrow();
+        state.enabled || state.pending
+    }
+
     /// Updates pending state at the current simulation time.
     pub fn poll(&self, now: SimTime) -> bool {
         let mut state = self.state.borrow_mut();

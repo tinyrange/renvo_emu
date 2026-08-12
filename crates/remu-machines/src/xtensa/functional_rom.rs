@@ -227,6 +227,9 @@ impl XtensaMachine {
             return Ok(false);
         }
         let pc = self.cpu.pc();
+        if !Self::functional_rom_address(pc) {
+            return Ok(false);
+        }
         if pc == Self::PP_POST_QUEUE_RETURN {
             // FreeRTOS queue wrappers return pdTRUE (1) on success, whereas
             // the mask-ROM pp_post ABI returns zero on success. RETW has
@@ -1318,5 +1321,15 @@ impl XtensaMachine {
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    #[inline(always)]
+    pub(super) const fn functional_rom_address(pc: u32) -> bool {
+        pc == Self::PP_POST_QUEUE_RETURN
+            || matches!(
+                pc >> 16,
+                0x4000 | 0x4038 | 0x4200 | 0x420d | 0x4212 | 0x4213
+            )
+            || (pc >= 0x4037_f000 && pc < 0x4038_0000)
     }
 }

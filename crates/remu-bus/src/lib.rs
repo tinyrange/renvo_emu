@@ -384,6 +384,11 @@ impl AddressSpace {
         self.watchpoint_hit = None;
     }
 
+    /// Returns whether completed data accesses need watchpoint matching.
+    pub fn has_watchpoints(&self) -> bool {
+        !self.watchpoints.is_empty()
+    }
+
     /// Clears a pending hit while preserving configured watchpoints.
     pub fn clear_watchpoint_hit(&mut self) {
         self.watchpoint_hit = None;
@@ -729,9 +734,26 @@ impl Bus for AddressSpace {
             return None;
         }
         let endianness = self.endianness;
-        let region = self
-            .region_for(address, AccessWidth::Word, AccessKind::Execute)
-            .ok()?;
+        let access_end = address.checked_add(4)?;
+        let index = if let Some(index) = self.region_cache[0]
+            && address >= self.regions[index].start
+            && access_end <= self.regions[index].end
+            && self.regions[index].permissions.execute
+        {
+            index
+        } else {
+            let index = self
+                .regions
+                .partition_point(|region| region.start <= address)
+                .checked_sub(1)
+                .filter(|index| {
+                    access_end <= self.regions[*index].end
+                        && self.regions[*index].permissions.execute
+                })?;
+            self.region_cache[0] = Some(index);
+            index
+        };
+        let region = &self.regions[index];
         let relative = usize::try_from(address - region.start).ok()?;
         let Backing::Memory {
             storage,
@@ -748,6 +770,118 @@ impl Bus for AddressSpace {
             Endianness::Little => u32::from_le_bytes(raw),
             Endianness::Big => u32::from_be_bytes(raw),
         }))
+    }
+
+    fn fast_read(&mut self, address: u64, width: AccessWidth) -> Option<u64> {
+        if self.monitors_accesses() {
+            return None;
+        }
+        let access_end = address.checked_add(u64::from(width.bytes()))?;
+        let index = if let Some(index) = self.region_cache[1]
+            && address >= self.regions[index].start
+            && access_end <= self.regions[index].end
+            && self.regions[index].permissions.read
+        {
+            index
+        } else {
+            let index = self
+                .regions
+                .partition_point(|region| region.start <= address)
+                .checked_sub(1)
+                .filter(|index| {
+                    access_end <= self.regions[*index].end && self.regions[*index].permissions.read
+                })?;
+            self.region_cache[1] = Some(index);
+            index
+        };
+        let region = &self.regions[index];
+        let Backing::Memory {
+            storage,
+            storage_offset,
+            ..
+        } = &region.backing
+        else {
+            return None;
+        };
+        let start = *storage_offset + usize::try_from(address - region.start).ok()?;
+        let bytes = storage.bytes.borrow();
+        Some(match (self.endianness, width) {
+            (_, AccessWidth::Byte) => u64::from(bytes[start]),
+            (Endianness::Little, AccessWidth::HalfWord) => {
+                u64::from(u16::from_le_bytes(bytes[start..start + 2].try_into().ok()?))
+            }
+            (Endianness::Big, AccessWidth::HalfWord) => {
+                u64::from(u16::from_be_bytes(bytes[start..start + 2].try_into().ok()?))
+            }
+            (Endianness::Little, AccessWidth::Word) => {
+                u64::from(u32::from_le_bytes(bytes[start..start + 4].try_into().ok()?))
+            }
+            (Endianness::Big, AccessWidth::Word) => {
+                u64::from(u32::from_be_bytes(bytes[start..start + 4].try_into().ok()?))
+            }
+            (Endianness::Little, AccessWidth::DoubleWord) => {
+                u64::from_le_bytes(bytes[start..start + 8].try_into().ok()?)
+            }
+            (Endianness::Big, AccessWidth::DoubleWord) => {
+                u64::from_be_bytes(bytes[start..start + 8].try_into().ok()?)
+            }
+        })
+    }
+
+    fn fast_write(&mut self, address: u64, width: AccessWidth, value: u64) -> bool {
+        if self.monitors_accesses() {
+            return false;
+        }
+        let Some(access_end) = address.checked_add(u64::from(width.bytes())) else {
+            return false;
+        };
+        let index = if let Some(index) = self.region_cache[2]
+            && address >= self.regions[index].start
+            && access_end <= self.regions[index].end
+            && self.regions[index].permissions.write
+        {
+            index
+        } else {
+            let Some(index) = self
+                .regions
+                .partition_point(|region| region.start <= address)
+                .checked_sub(1)
+                .filter(|index| {
+                    access_end <= self.regions[*index].end && self.regions[*index].permissions.write
+                })
+            else {
+                return false;
+            };
+            self.region_cache[2] = Some(index);
+            index
+        };
+        let region = &self.regions[index];
+        let Backing::Memory {
+            storage,
+            storage_offset,
+            ignore_writes,
+        } = &region.backing
+        else {
+            return false;
+        };
+        if *ignore_writes {
+            return true;
+        }
+        let Ok(relative) = usize::try_from(address - region.start) else {
+            return false;
+        };
+        let start = *storage_offset + relative;
+        let mut bytes = storage.bytes.borrow_mut();
+        let encoded = match self.endianness {
+            Endianness::Little => value.to_le_bytes(),
+            Endianness::Big => value.to_be_bytes(),
+        };
+        let source = match self.endianness {
+            Endianness::Little => &encoded[..usize::from(width.bytes())],
+            Endianness::Big => &encoded[8 - usize::from(width.bytes())..],
+        };
+        bytes[start..start + source.len()].copy_from_slice(source);
+        true
     }
 
     fn read(
@@ -953,6 +1087,31 @@ mod tests {
             .unwrap(),
             0x4433
         );
+    }
+
+    #[test]
+    fn fast_data_paths_preserve_width_endianness_and_observation() {
+        let mut little = AddressSpace::default();
+        little.map_ram("ram", 0x1000, 16, false).unwrap();
+        assert!(little.fast_write(0x1001, AccessWidth::Word, 0x8877_6655));
+        assert_eq!(
+            little.fast_read(0x1001, AccessWidth::Word),
+            Some(0x8877_6655)
+        );
+        assert_eq!(
+            little.fast_read(0x1002, AccessWidth::HalfWord),
+            Some(0x7766)
+        );
+        assert!(little.fast_read(0x100e, AccessWidth::Word).is_none());
+
+        little.set_access_recording(true);
+        assert!(little.fast_read(0x1001, AccessWidth::Word).is_none());
+        assert!(!little.fast_write(0x1001, AccessWidth::Word, 0));
+
+        let mut big = AddressSpace::new(Endianness::Big);
+        big.map_ram("ram", 0x2000, 8, false).unwrap();
+        assert!(big.fast_write(0x2000, AccessWidth::Word, 0x1122_3344));
+        assert_eq!(big.fast_read(0x2001, AccessWidth::HalfWord), Some(0x2233));
     }
 
     #[test]
