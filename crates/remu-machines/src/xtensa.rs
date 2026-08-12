@@ -5,12 +5,9 @@ use crate::{
     TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop, target_manifest,
 };
 use md5::{Digest, Md5};
-use remu_bus::{
-    AddressSpace, Endianness, MapError, Permissions, SharedBusAccessObserver, SharedMemory,
-};
+use remu_bus::{AddressSpace, Endianness, Permissions, SharedBusAccessObserver, SharedMemory};
 use remu_core::{
-    AccessKind, AccessWidth, Bus, Cpu, CpuFault, RunLimits, RunStats, SimTime, StepReason,
-    StopReason,
+    AccessKind, AccessWidth, Bus, Cpu, RunLimits, RunStats, SimTime, StepReason, StopReason,
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
@@ -31,58 +28,17 @@ use remu_devices::{
     TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
-use remu_signals::{Logic, SignalError};
-use remu_trace::{TraceDigest, TraceError, TraceSink};
+use remu_signals::Logic;
+use remu_trace::{TraceDigest, TraceSink};
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use thiserror::Error;
+mod error;
 mod functional_rom;
 mod interrupts;
 mod peripheral_dma;
 mod peripheral_handles;
 mod pms;
-/// ESP32-S3 machine construction or execution failure.
-#[derive(Debug, Error)]
-pub enum XtensaMachineError {
-    /// Only ESP32-S3 uses this initial LX7 machine.
-    #[error("target {0} does not have the runnable Xtensa LX7 profile")]
-    UnsupportedTarget(TargetId),
-    /// Address map construction failed.
-    #[error(transparent)]
-    Map(#[from] MapError),
-    /// CPU operation failed.
-    #[error(transparent)]
-    Cpu(#[from] CpuFault),
-    /// Signal construction failed.
-    #[error(transparent)]
-    Signal(#[from] SignalError),
-    /// Host peripheral operation failed.
-    #[error(transparent)]
-    Device(#[from] remu_bus::DeviceError),
-    /// Trace output failed.
-    #[error(transparent)]
-    Trace(#[from] TraceError),
-    /// Firmware has the wrong architecture.
-    #[error("firmware architecture {0:?} does not match ESP32-S3 Xtensa")]
-    Architecture(FirmwareArchitecture),
-    /// Entry exceeds 32-bit address space.
-    #[error("firmware entry {0:#x} exceeds the Xtensa address space")]
-    EntryRange(u64),
-    /// Segment is outside the direct-load map.
-    #[error("cannot load firmware segment at {address:#x}: {message}")]
-    Load {
-        /// Segment start.
-        address: u64,
-        /// Bus diagnostic.
-        message: String,
-    },
-    /// Runs must be bounded.
-    #[error("at least one run limit is required")]
-    MissingRunLimit,
-    /// Virtual time overflowed.
-    #[error("simulation time overflow")]
-    TimeOverflow,
-}
+pub use error::XtensaMachineError;
 mod usb_host;
 use usb_host::{EspDwc2Host, FunctionalSha256, appcpu_systimer_level};
 /// Runnable direct-ELF ESP32-S3 CPU0/unicore slice.
