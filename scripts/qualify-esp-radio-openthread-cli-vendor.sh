@@ -119,10 +119,14 @@ jq -e --slurpfile requirements "$requirements" '
     [.events[] |
         select(.event == "submitted" and
                .request.frame.protocol == "ieee802154" and
-               .request.frame.origin == "emulated" and
+               .request.frame.origin == "emulated")] as $emitted |
+    [$emitted[] |
+        select(.event == "submitted" and
                (.request.frame.bytes | length) > 5 and
                .request.frame.spectrum.center_khz == 2405000 and
                .request.frame.bytes[3:5] == [52, 18])] as $frames |
+    [.coexistence_events[] |
+        select(.event == "granted" and .protocol == "ieee802154")] as $grants |
     ($frames | length) >= $requirements[0].minimum_thread_frames and
     any($frames[]; .request.frame.bytes[0:2] == [65, 216] and
                    (.request.frame.bytes | length) >= 70) and
@@ -134,9 +138,12 @@ jq -e --slurpfile requirements "$requirements" '
         .request.frame.bytes[0:3] == [105, 220, 96] and
         .request.frame.bytes[21:27] == [13, 3, 0, 0, 0, 1]) and
     any(.events[]; .event == "reception" and .outcome.kind == "delivered") and
-    ([.coexistence_events[] |
-        select(.event == "granted" and .protocol == "ieee802154")] | length)
-        == ($frames | length)
+    ($grants | length) == ($emitted | length) and
+    all($emitted[];
+        .request as $transmission |
+        any($grants[];
+            .start == $transmission.start and
+            .end == $transmission.end))
 ' "$chip_root/radio-replay.json" >/dev/null
 
 python3 - "$chip_root/radio-replay.json" <<'PY'
