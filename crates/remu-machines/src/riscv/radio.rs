@@ -1285,51 +1285,6 @@ impl RiscVMachine {
         Ok(submitted)
     }
 
-    fn complete_native_wifi_transmissions(
-        &mut self,
-        wifi_mac: &remu_devices::EspC6WifiMacHandle,
-    ) -> Result<u64, MachineError> {
-        let due = self
-            .radio_pending_native_wifi
-            .iter()
-            .copied()
-            .filter(|pending| pending.deadline <= self.now)
-            .collect::<Vec<_>>();
-        for pending in &due {
-            self.radio_legality
-                .as_mut()
-                .expect("ESP32-C6 machine has a radio legality validator")
-                .require(
-                    RadioSubsystem::Wifi,
-                    RadioLegalityRule::CompletionWithoutOperation,
-                    wifi_mac.tx_active(pending.queue),
-                    self.now,
-                    format!(
-                        "native TX queue {} reached its completion deadline without an active hardware operation",
-                        pending.queue
-                    ),
-                )?;
-            let outcome = if pending.ack_receiver.is_some() {
-                remu_devices::EspWifiTxOutcome::AckTimeout
-            } else {
-                remu_devices::EspWifiTxOutcome::Success
-            };
-            self.radio_legality
-                .as_mut()
-                .expect("ESP32-C6 machine has a radio legality validator")
-                .require(
-                    RadioSubsystem::Wifi,
-                    RadioLegalityRule::CompletionWithoutOperation,
-                    wifi_mac.complete_tx(pending.queue, outcome),
-                    self.now,
-                    format!("native TX queue {} rejected its completion", pending.queue),
-                )?;
-        }
-        self.radio_pending_native_wifi
-            .retain(|pending| pending.deadline > self.now);
-        Ok(due.len() as u64)
-    }
-
     fn complete_ieee802154_cca_tx(
         &mut self,
         modem: &remu_devices::EspC6ModemHandle,
@@ -1525,23 +1480,8 @@ impl RiscVMachine {
         Ok(())
     }
 }
+include!("radio_wifi_completion.rs");
 include!("radio_receive.rs");
 include!("radio_ble.rs");
 
-fn decode_cca_mode(mode: u8) -> Ieee802154CcaMode {
-    match mode & 3 {
-        0 => Ieee802154CcaMode::Carrier,
-        1 => Ieee802154CcaMode::Energy,
-        2 => Ieee802154CcaMode::CarrierOrEnergy,
-        _ => Ieee802154CcaMode::CarrierAndEnergy,
-    }
-}
-
-fn decode_tx_power(encoded: u8) -> i16 {
-    let encoded = encoded & 0x1f;
-    if encoded & 0x10 != 0 {
-        i16::from(encoded) - 32
-    } else {
-        i16::from(encoded)
-    }
-}
+include!("radio_helpers.rs");

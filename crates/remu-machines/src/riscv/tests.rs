@@ -339,6 +339,7 @@ fn esp32c6_non_radio_inventory_is_mapped_at_vendor_addresses() {
 }
 
 include!("tests_radio.rs");
+include!("tests_radio_wifi_completion.rs");
 
 #[test]
 fn esp32c6_host_bridges_cover_spi_audio_can_etm_parlio_dma_lp_i2c_and_sdio() {
