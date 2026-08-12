@@ -128,7 +128,11 @@ pub struct WebRadioFrame {
     /// Stable PHY label such as `wifi-ht20`, `ble-1m`, or `ieee802154-oqpsk-250k`.
     pub phy: String,
     /// Complete protocol PDU/PSDU bytes.
+    #[serde(default)]
     pub bytes: Vec<u8>,
+    /// Ordered Wi-Fi MPDUs carried by one native A-MPDU transmission.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mpdus: Vec<Vec<u8>>,
     /// Host transmitter power in integer dBm.
     pub power_dbm: i16,
 }
@@ -198,8 +202,8 @@ pub fn run_radio_elf_json(
                 .load_boot_rom(&boot_rom)
                 .map_err(|error| error.to_string())?;
             for frame in &options.radio_frames {
-                machine
-                    .inject_radio_frame_at(
+                let result = if frame.mpdus.is_empty() {
+                    machine.inject_radio_frame_at(
                         SimTime::from_ticks(frame.at),
                         frame.protocol.into(),
                         Spectrum::new(frame.center_khz, frame.bandwidth_khz),
@@ -207,7 +211,20 @@ pub fn run_radio_elf_json(
                         frame.bytes.clone(),
                         frame.power_dbm,
                     )
-                    .map_err(|error| error.to_string())?;
+                } else if frame.protocol == WebRadioProtocol::Wifi && frame.bytes.is_empty() {
+                    machine.inject_wifi_ampdu_at(
+                        SimTime::from_ticks(frame.at),
+                        Spectrum::new(frame.center_khz, frame.bandwidth_khz),
+                        frame.mpdus.clone(),
+                        frame.power_dbm,
+                    )
+                } else {
+                    return Err(
+                        "aggregate radio input requires Wi-Fi protocol and an empty bytes field"
+                            .to_owned(),
+                    );
+                };
+                result.map_err(|error| error.to_string())?;
             }
             let run = machine
                 .run_with_stimuli(options.run.limits(), &options.run.machine_stimuli(), None)
@@ -226,8 +243,8 @@ pub fn run_radio_elf_json(
                 .load_firmware(&image)
                 .map_err(|error| error.to_string())?;
             for frame in &options.radio_frames {
-                machine
-                    .inject_radio_frame_at(
+                let result = if frame.mpdus.is_empty() {
+                    machine.inject_radio_frame_at(
                         SimTime::from_ticks(frame.at),
                         frame.protocol.into(),
                         Spectrum::new(frame.center_khz, frame.bandwidth_khz),
@@ -235,7 +252,20 @@ pub fn run_radio_elf_json(
                         frame.bytes.clone(),
                         frame.power_dbm,
                     )
-                    .map_err(|error| error.to_string())?;
+                } else if frame.protocol == WebRadioProtocol::Wifi && frame.bytes.is_empty() {
+                    machine.inject_wifi_ampdu_at(
+                        SimTime::from_ticks(frame.at),
+                        Spectrum::new(frame.center_khz, frame.bandwidth_khz),
+                        frame.mpdus.clone(),
+                        frame.power_dbm,
+                    )
+                } else {
+                    return Err(
+                        "aggregate radio input requires Wi-Fi protocol and an empty bytes field"
+                            .to_owned(),
+                    );
+                };
+                result.map_err(|error| error.to_string())?;
             }
             let run = machine
                 .run_with_stimuli(options.run.limits(), &options.run.machine_stimuli(), None)
@@ -403,5 +433,34 @@ mod tests {
         let result = run_elf_image(TargetId::Ch32v003, &image, &WebRunOptions::default()).unwrap();
         assert_eq!(result.target, TargetId::Ch32v003);
         assert_eq!(result.reason, remu_core::StopReason::Halted);
+    }
+
+    #[test]
+    fn portable_radio_input_accepts_ampdu_and_keeps_legacy_json_compatible() {
+        let aggregate: WebRadioFrame = serde_json::from_value(serde_json::json!({
+            "at": 10,
+            "protocol": "wifi",
+            "center_khz": 2412000,
+            "bandwidth_khz": 20000,
+            "phy": "wifi-ht20-ampdu",
+            "mpdus": [[136, 0, 1], [136, 0, 2]],
+            "power_dbm": -40
+        }))
+        .unwrap();
+        assert!(aggregate.bytes.is_empty());
+        assert_eq!(aggregate.mpdus.len(), 2);
+
+        let legacy: WebRadioFrame = serde_json::from_value(serde_json::json!({
+            "at": 10,
+            "protocol": "wifi",
+            "center_khz": 2412000,
+            "bandwidth_khz": 20000,
+            "phy": "wifi-ht20",
+            "bytes": [64, 0],
+            "power_dbm": -40
+        }))
+        .unwrap();
+        assert_eq!(legacy.bytes, [64, 0]);
+        assert!(legacy.mpdus.is_empty());
     }
 }

@@ -558,6 +558,7 @@ impl RiscVMachine {
                         spectrum,
                         phy: phy.to_owned(),
                         bytes,
+                        mpdus: Vec::new(),
                         origin: FrameOrigin::Emulated,
                     },
                 })?;

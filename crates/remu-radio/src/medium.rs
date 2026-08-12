@@ -497,6 +497,7 @@ mod tests {
             spectrum,
             phy: "test-phy".to_owned(),
             bytes: bytes.to_vec(),
+            mpdus: Vec::new(),
             origin: FrameOrigin::Emulated,
         }
     }

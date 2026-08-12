@@ -424,6 +424,7 @@ impl BleController {
                 spectrum: ble_spectrum(channel),
                 phy: "ble-1m".to_owned(),
                 bytes: pdu,
+                mpdus: Vec::new(),
                 origin: FrameOrigin::Emulated,
             });
         }
@@ -789,6 +790,7 @@ impl BleController {
             }
             .to_owned(),
             bytes: pdu,
+            mpdus: Vec::new(),
             origin: FrameOrigin::Emulated,
         });
         self.events.push(BleEvent::AclTx { handle, length });

@@ -7,6 +7,11 @@
 pub enum EspWifiTxOutcome {
     /// The frame completed, including any required peer acknowledgement.
     Success,
+    /// RTS protection was requested but the addressed peer did not return CTS.
+    ///
+    /// Both pinned LMACs dispatch status two through their dedicated CTS
+    /// timeout path before applying firmware-owned short-retry policy.
+    CtsTimeout,
     /// The MAC could not obtain the shared RF path for this transmit attempt.
     ///
     /// Guest LMAC dispatches status four through its transmit-error path, so
@@ -20,10 +25,25 @@ impl EspWifiTxOutcome {
     pub(crate) const fn status(self) -> u32 {
         match self {
             Self::Success => 0,
+            Self::CtsTimeout => 2,
             Self::TransmitError => 4,
             Self::AckTimeout => 5,
         }
     }
+}
+
+/// Native compressed block-ACK result published beside a TX completion.
+///
+/// Both pinned HALs expose the same twelve-byte logical record even though
+/// their descending per-queue register strides differ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EspWifiTxBlockAck {
+    /// Hardware BA status nibble consumed by guest LMAC.
+    pub status: u8,
+    /// Twelve-bit starting sequence number from the received BA.
+    pub starting_sequence: u16,
+    /// Sixty-four-bit compressed acknowledgement bitmap.
+    pub bitmap: u64,
 }
 
 /// One firmware-programmed native Wi-Fi MAC crypto-table entry.
@@ -165,6 +185,7 @@ mod tests {
     #[test]
     fn native_completion_statuses_match_guest_lmac_dispatch() {
         assert_eq!(EspWifiTxOutcome::Success.status(), 0);
+        assert_eq!(EspWifiTxOutcome::CtsTimeout.status(), 2);
         assert_eq!(EspWifiTxOutcome::TransmitError.status(), 4);
         assert_eq!(EspWifiTxOutcome::AckTimeout.status(), 5);
     }

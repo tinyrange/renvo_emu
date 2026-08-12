@@ -161,6 +161,59 @@ impl RiscVMachine {
                 (DeliveryOutcome::Delivered, Some((frame, _, received_at)))
                     if frame.protocol == RadioProtocol::Wifi =>
                 {
+                    if !frame.mpdus.is_empty() {
+                        self.radio_legality
+                            .as_mut()
+                            .expect("ESP32-C6 machine has a radio legality validator")
+                            .require(
+                                RadioSubsystem::Wifi,
+                                RadioLegalityRule::SchedulerState,
+                                frame.bytes.is_empty() && frame.phy == "wifi-ht20-ampdu",
+                                self.now,
+                                format!(
+                                    "native Wi-Fi aggregate uses PHY {:?} with {} scalar bytes and {} MPDUs",
+                                    frame.phy,
+                                    frame.bytes.len(),
+                                    frame.mpdus.len()
+                                ),
+                            )?;
+                        let aggregate =
+                            crate::native_wifi::validate_native_wifi_aggregate(&frame.mpdus);
+                        self.radio_legality
+                            .as_mut()
+                            .expect("ESP32-C6 machine has a radio legality validator")
+                            .require(
+                                RadioSubsystem::Wifi,
+                                RadioLegalityRule::SchedulerState,
+                                aggregate.is_ok(),
+                                self.now,
+                                aggregate.as_ref().err().cloned().unwrap_or_default(),
+                            )?;
+                        let mut responded = false;
+                        let mut native = false;
+                        let mut protocol_engine = false;
+                        for mpdu in &frame.mpdus {
+                            responded |= self.submit_native_wifi_receive_response(wifi_mac, mpdu)?;
+                            let mut delivered = frame.clone();
+                            delivered.bytes = mpdu.clone();
+                            delivered.mpdus.clear();
+                            native |= self.write_native_wifi_rx(wifi_mac, &delivered)?;
+                            protocol_engine |= self
+                                .esp32c6_peripherals
+                                .as_ref()
+                                .is_some_and(|handles| handles.modem.wifi_ready())
+                                && self
+                                    .radio_wifi
+                                    .as_mut()
+                                    .expect("ESP32-C6 has a Wi-Fi engine")
+                                    .receive(&delivered)
+                                    .unwrap_or(false);
+                        }
+                        if native || responded || protocol_engine {
+                            completed = completed.saturating_add(1);
+                        }
+                        continue;
+                    }
                     if let Some(index) = self
                         .radio_pending_native_wifi
                         .iter()
@@ -180,15 +233,29 @@ impl RiscVMachine {
                                     pending.queue
                                 ),
                             )?;
+                        if pending.awaiting_protection_cts() {
+                            if let Some(pending) =
+                                self.continue_native_wifi_after_cts(wifi_mac, pending)?
+                            {
+                                self.radio_pending_native_wifi.push(pending);
+                            }
+                            completed = completed.saturating_add(1);
+                            continue;
+                        }
+                        let (successful_mpdu_count, block_ack) = pending
+                            .response_completion(&frame.bytes, received_at)
+                            .expect("pending native Wi-Fi response was already matched");
                         self.radio_legality
                             .as_mut()
                             .expect("ESP32-C6 machine has a radio legality validator")
                             .require(
                                 RadioSubsystem::Wifi,
                                 RadioLegalityRule::CompletionWithoutOperation,
-                                wifi_mac.complete_tx(
+                                wifi_mac.complete_tx_record(
                                     pending.queue,
                                     remu_devices::EspWifiTxOutcome::Success,
+                                    successful_mpdu_count,
+                                    block_ack,
                                 ),
                                 self.now,
                                 format!(
@@ -883,6 +950,7 @@ impl RiscVMachine {
                     spectrum,
                     phy: "ieee802154-oqpsk-250k".to_owned(),
                     bytes: ack,
+                    mpdus: Vec::new(),
                     origin: FrameOrigin::Emulated,
                 },
             })?;
@@ -989,6 +1057,7 @@ impl RiscVMachine {
                     spectrum: Spectrum::new(2_412_000, 20_000),
                     phy: "wifi-ht20".to_owned(),
                     bytes,
+                    mpdus: Vec::new(),
                     origin: FrameOrigin::Emulated,
                 },
             })?;
@@ -1084,7 +1153,7 @@ fn c6_wifi_rx_metadata(
     // information elements alone, when deciding the negotiated PHY mode.
     metadata[39] = match frame.phy.as_str() {
         "wifi-he20" => 4,
-        "wifi-ht20" => 2,
+        "wifi-ht20" | "wifi-ht20-ampdu" => 2,
         _ => 1,
     };
     let signal_length = frame.bytes.len().saturating_add(4).min(0x3fff) as u32;

@@ -15,10 +15,44 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lwip/inet.h"
+#include "lwip/sockets.h"
 
 static volatile bool soft_ap_started;
 static volatile bool soft_ap_station_connected;
 static volatile bool esp_now_received;
+
+static unsigned send_udp_burst(void)
+{
+    int socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (socket_fd < 0) {
+        return 0;
+    }
+    struct sockaddr_in destination = {
+        .sin_family = AF_INET,
+        .sin_port = htons(4242),
+        .sin_addr.s_addr = inet_addr("192.168.4.2"),
+    };
+    const uint8_t prime[] = {0x52, 0x45, 0x4d, 0x55};
+    (void)sendto(socket_fd, prime, sizeof(prime), 0,
+                 (const struct sockaddr *)&destination, sizeof(destination));
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    /* Keep several MPDUs inside the peer's bounded HT receive limit. */
+    uint8_t payload[256];
+    memset(payload, 0x5a, sizeof(payload));
+    unsigned sent = 0;
+    for (unsigned packet = 0; packet < 64; ++packet) {
+        payload[0] = (uint8_t)packet;
+        if (sendto(socket_fd, payload, sizeof(payload), 0,
+                   (const struct sockaddr *)&destination,
+                   sizeof(destination)) == sizeof(payload)) {
+            ++sent;
+        }
+    }
+    close(socket_fd);
+    return sent;
+}
 
 static void print_mac(const uint8_t address[6])
 {
@@ -151,6 +185,12 @@ void app_main(void)
          ++attempt) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+    unsigned udp_packets = 0;
+    if (soft_ap_station_connected) {
+        udp_packets = send_udp_burst();
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    printf("REMU_VENDOR_WIFI_UDP_BURST packets=%u\n", udp_packets);
     printf("REMU_VENDOR_SOFTAP_DONE started=%u station=%u espnow_rx=%u\n",
            soft_ap_started ? 1u : 0u,
            soft_ap_station_connected ? 1u : 0u,

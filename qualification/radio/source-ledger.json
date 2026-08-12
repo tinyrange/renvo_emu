@@ -576,7 +576,7 @@
       "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
       "license": "Apache-2.0",
       "content_sha256": "f7119149957cac6057a8fb5fc351691df571a26d50540a769040c95e9bbb438f",
-      "use": "ESP32-C6 vendor Wi-Fi MAC archive offline disassembly: native TX completion and RTS/CTS response dispatch; eight descending RX block-ACK session slots, peer/TID keys, 12-bit sequence origin and 64-bit bitmap; status 0 success/status 4 transmit-error/status 5 ACK-timeout dispatch; and firmware-owned retry resubmission"
+      "use": "ESP32-C6 vendor Wi-Fi MAC archive offline disassembly: native TX completion and RTS/CTS response dispatch; eight descending RX block-ACK session slots, peer/TID keys, 12-bit sequence origin and 64-bit bitmap; TX BA status/start at 0x600a54dc-q*0x74, bitmap at 0x600a54d8/0x600a54d4-q*0x74, and successful-MPDU count at 0x600a54e8-q*0x74; status 0 success/status 1 RTS-error/status 2 CTS-timeout/status 4 transmit-error/status 5 ACK-timeout dispatch; and firmware-owned retry/resort/resubmission"
     },
     {
       "id": "esp32-wifi-lib-c6-pp",
@@ -586,7 +586,7 @@
       "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
       "license": "Apache-2.0",
       "content_sha256": "f1d14663e35e25c4ac6df793e361bbef24049ac3004e5cd4be145dcc7c7bd19d",
-      "use": "ESP32-C6 vendor Wi-Fi PHY/protocol archive offline disassembly: native crypto valid bitmap at 0x600a4814, 32-entry table at 0x600a5800 with 40-byte stride, ten-word clear/zeroization sequence, and firmware-emitted control classes 3, 6, and 7; four TSF target/control pairs at 0x600ad074..0x600ad090, power interrupt enable/raw/status/W1C at 0x600ad0a8..0x600ad0b4, TSF latch at 0x600ad014/0x600ad020, and firmware timer-enable ordering"
+      "use": "ESP32-C6 vendor Wi-Fi PHY/protocol archive offline disassembly: native crypto valid bitmap at 0x600a4814, 32-entry table at 0x600a5800 with 40-byte stride, ten-word clear/zeroization sequence, and firmware-emitted control classes 3, 6, and 7; four TSF target/control pairs at 0x600ad074..0x600ad090, power interrupt enable/raw/status/W1C at 0x600ad0a8..0x600ad0b4, TSF latch at 0x600ad014/0x600ad020, and firmware timer-enable ordering; mac_tx_set_plcp0 descriptor-bit-8 RTS request, hal_he_set_tx_protection queue register 0x600a4d60-q*0x10 bit 31, firmware-owned ppTxFragmentProc fragmentation, ppAdd2AMPDUTail/ppSubFromAMPDU/ppAssembleAMPDU descriptor-word-two aggregate linkage, and lmacTxFrame/lmacRetryTxFrame/lmacDisableTransmit/lmacStopTransmit tests and updates establishing that the internal word contributes a low 12-bit DMA length while upper bits 16, 17, 19, 22, 24, 29 and others are independently inspected guest-LMAC-private state rather than MAC frame-type or hardware-legality flags; genuine C6 firmware emits combinations including 0x00030000, 0x00050000, and 0x01080000"
     },
     {
       "id": "esp32-wifi-lib-s3-net80211",
@@ -596,7 +596,7 @@
       "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
       "license": "Apache-2.0",
       "content_sha256": "cdb95973284cea46a7742224662a0cdc3f4c07dbca769012960d0218c8d2856d",
-      "use": "ESP32-S3 vendor Wi-Fi MAC archive offline disassembly: native TX completion and RTS/CTS response dispatch; eight descending RX block-ACK session slots, peer/TID keys, 12-bit sequence origin and 64-bit bitmap; status 0 success/status 4 transmit-error/status 5 ACK-timeout dispatch; and firmware-owned retry resubmission"
+      "use": "ESP32-S3 vendor Wi-Fi MAC archive offline disassembly: native TX completion and RTS/CTS response dispatch; eight descending RX block-ACK session slots, peer/TID keys, 12-bit sequence origin and 64-bit bitmap; TX BA status/start at 0x60034334-q*0x4c, bitmap at 0x60034328/0x60034324-q*0x4c, and count/status at 0x60034320-q*0x4c; status 0 success/status 1 RTS-error/status 2 CTS-timeout/status 4 transmit-error/status 5 ACK-timeout dispatch; and firmware-owned retry/resort/resubmission"
     },
     {
       "id": "esp32-wifi-lib-s3-pp",
@@ -606,7 +606,7 @@
       "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
       "license": "Apache-2.0",
       "content_sha256": "f82e51e2a788dba351e4f9dd407c07ce32aee33a3f3215832796386b21c3c5f1",
-      "use": "ESP32-S3 vendor Wi-Fi PHY/protocol archive offline disassembly: native crypto valid bitmap at 0x60033814, 32-entry table at 0x60034400 with 40-byte stride, ten-word clear/zeroization sequence, and firmware-emitted control classes 3, 6, and 7"
+      "use": "ESP32-S3 vendor Wi-Fi PHY/protocol archive offline disassembly: native crypto valid bitmap at 0x60033814, 32-entry table at 0x60034400 with 40-byte stride, ten-word clear/zeroization sequence, and firmware-emitted control classes 3, 6, and 7; mac_tx_set_plcp0 descriptor-bit-8 RTS request mapped to queue control 0x60033d08-q*8 bit 27; firmware-owned ppTxFragmentProc fragmentation; ppAdd2AMPDUTail/ppAssembleAMPDU descriptor-word-two aggregate linkage; and ppAMPDU2Normal clearing descriptor bit 29, subtracting eight from the DMA length, and advancing the payload pointer by eight, matching the genuine one-MPDU hardware A-MPDU records"
     },
     {
       "id": "esp32c3-bt-lib-license",

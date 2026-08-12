@@ -964,6 +964,13 @@ mod tests {
         )
         .unwrap();
         mac.write(
+            C6_WIFI_MAC_TX_QUEUE_PROTECTION_HIGH,
+            AccessWidth::Word,
+            u64::from(C6_WIFI_MAC_TX_QUEUE_RTS_ENABLED),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
             C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH,
             AccessWidth::Word,
             u64::from(C6_WIFI_MAC_TX_QUEUE_ENABLE | 0x1234),
@@ -977,6 +984,8 @@ mod tests {
                 address: 0x4080_1234,
             })
         );
+        assert!(handle.tx_rts_enabled(0));
+        assert!(!handle.tx_rts_enabled(1));
         assert!(!handle.interrupt_pending());
         assert_eq!(
             mac.read(C6_WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
@@ -1009,7 +1018,7 @@ mod tests {
             )
             .unwrap() as u32
                 & C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT,
-            1 << 16
+            0
         );
         assert_eq!(
             mac.read(
@@ -1040,6 +1049,52 @@ mod tests {
             mac.read(C6_WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
                 .unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn wifi_mac_tx_completion_publishes_native_block_ack_record() {
+        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        mac.write(
+            C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH,
+            AccessWidth::Word,
+            u64::from(C6_WIFI_MAC_TX_QUEUE_ENABLE | 0x1234),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.take_tx_descriptor().is_some());
+        assert!(handle.complete_tx_record(
+            0,
+            crate::EspWifiTxOutcome::Success,
+            2,
+            Some(crate::EspWifiTxBlockAck {
+                status: 3,
+                starting_sequence: 0xffe,
+                bitmap: 0x8000_0000_0000_0005,
+            }),
+        ));
+        assert_eq!(
+            mac.read(C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT_HIGH, AccessWidth::Word, SimTime::ZERO)
+                .unwrap() as u32
+                & C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT,
+            2 << 16
+        );
+        assert_eq!(
+            mac.read(C6_WIFI_MAC_TX_QUEUE_BA_STATUS_HIGH, AccessWidth::Word, SimTime::ZERO)
+                .unwrap() as u32
+                & 0x000f_0fff,
+            (3 << 16) | 0xffe
+        );
+        assert_eq!(
+            mac.read(C6_WIFI_MAC_TX_QUEUE_BA_BITMAP_LOW_HIGH, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            5
+        );
+        assert_eq!(
+            mac.read(C6_WIFI_MAC_TX_QUEUE_BA_BITMAP_HIGH_HIGH, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0x8000_0000
         );
     }
 

@@ -104,6 +104,7 @@ fn convert_radio_options(
                 bandwidth_khz: frame.bandwidth_khz,
                 phy: frame.phy,
                 bytes: frame.bytes,
+                mpdus: frame.mpdus,
                 power_dbm: frame.power_dbm,
             })
             .collect(),

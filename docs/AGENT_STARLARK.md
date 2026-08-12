@@ -120,16 +120,19 @@ long UART/RF histories are not duplicated into the agent artifact.
 | Method | Contract |
 | --- | --- |
 | `target()` | Returns `esp32c6` or `esp32s3`. |
-| `run(instructions=1000000, deadline=0)` | Resumes execution. At least one bound must be nonzero; one call is capped at 100 million instructions. `deadline` is an absolute simulation tick. |
+| `run(instructions=1000000, deadline=0)` | Resumes execution. At least one bound must be nonzero; one call is capped at 100 million instructions. `deadline` is an absolute simulation tick. The returned stop record has compact CPU state plus cumulative UART/USB byte counts; bulk histories remain in Rust-side artifacts. |
 | `cpu()` | Returns the architecture-neutral CPU snapshot. |
 | `read(address, length)` | Reads up to 1 MiB through the debugger bus boundary. |
 | `write(address, bytes)` | Writes up to 1 MiB through the debugger bus boundary. |
 | `breakpoint(address)` | Stops before executing the address. |
 | `watchpoint(address)` | Stops after a data access overlaps the address. |
+| `write_watchpoint(address)` | Stops after a write overlaps the address while ignoring polling reads. |
+| `masked_write_watchpoint(address, mask, expected)` | Stops after an overlapping write satisfies `(value & mask) == expected`. |
 | `clear_stops()` | Removes agent-installed breakpoint and watchpoint stops. |
 | `pin(pin, value)` | Immediately drives `0`, `1`, `z`, or `x` at the current tick. |
 | `usb_input(bytes)` | Queues up to 1 MiB for the emulated USB serial host. |
 | `inject_radio(...)` | Schedules an explicit Wi-Fi, BLE, or 802.15.4 frame in the isolated deterministic medium. |
+| `inject_wifi_ampdu(...)` | Schedules one bounded Wi-Fi A-MPDU with explicit MPDU boundaries; native aggregate legality is still enforced by the machine. |
 | `radio_events(cursor=0, limit=256)` | Returns at most 4096 append-only RF events and a continuation cursor. |
 | `coexistence_events(cursor=0, limit=256)` | Returns at most 4096 coexistence grant, denial, preemption, and release events. |
 | `capture_bus(start=0, end=None, regions=None, kinds=None, capacity=4096)` | Clears and starts a bounded filtered bus ring. Kinds default to reads and writes; the hard capacity ceiling is 65,536 records. |

@@ -3,7 +3,7 @@
 use remu_core::{AccessKind, AccessWidth, Bus, BusFault, BusFaultKind, ResetKind, SimTime};
 use serde::Serialize;
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::rc::Rc;
 use thiserror::Error;
@@ -299,6 +299,8 @@ pub struct AddressSpace {
     access_log: Vec<BusAccessRecord>,
     access_observer: Option<SharedBusAccessObserver>,
     watchpoints: BTreeSet<u64>,
+    write_watchpoints: BTreeSet<u64>,
+    masked_write_watchpoints: BTreeMap<u64, (u64, u64)>,
     watchpoint_hit: Option<BusAccessRecord>,
     last_device_access: Option<u64>,
 }
@@ -313,6 +315,8 @@ impl fmt::Debug for AddressSpace {
             .field("access_log", &self.access_log)
             .field("has_access_observer", &self.access_observer.is_some())
             .field("watchpoints", &self.watchpoints)
+            .field("write_watchpoints", &self.write_watchpoints)
+            .field("masked_write_watchpoints", &self.masked_write_watchpoints)
             .field("watchpoint_hit", &self.watchpoint_hit)
             .finish()
     }
@@ -335,6 +339,8 @@ impl AddressSpace {
             access_log: Vec::new(),
             access_observer: None,
             watchpoints: BTreeSet::new(),
+            write_watchpoints: BTreeSet::new(),
+            masked_write_watchpoints: BTreeMap::new(),
             watchpoint_hit: None,
             last_device_access: None,
         }
@@ -378,15 +384,30 @@ impl AddressSpace {
         self.watchpoints.insert(address);
     }
 
+    /// Adds a byte address that stops only on a completed overlapping write.
+    pub fn add_write_watchpoint(&mut self, address: u64) {
+        self.write_watchpoints.insert(address);
+    }
+
+    /// Stops on an overlapping write when `(value & mask) == expected`.
+    pub fn add_masked_write_watchpoint(&mut self, address: u64, mask: u64, expected: u64) {
+        self.masked_write_watchpoints
+            .insert(address, (mask, expected & mask));
+    }
+
     /// Removes every configured data watchpoint and pending hit.
     pub fn clear_watchpoints(&mut self) {
         self.watchpoints.clear();
+        self.write_watchpoints.clear();
+        self.masked_write_watchpoints.clear();
         self.watchpoint_hit = None;
     }
 
     /// Returns whether completed data accesses need watchpoint matching.
     pub fn has_watchpoints(&self) -> bool {
         !self.watchpoints.is_empty()
+            || !self.write_watchpoints.is_empty()
+            || !self.masked_write_watchpoints.is_empty()
     }
 
     /// Clears a pending hit while preserving configured watchpoints.
@@ -411,7 +432,19 @@ impl AddressSpace {
         let end = record
             .address
             .saturating_add(u64::from(record.width.bytes()));
-        if self.watchpoints.range(record.address..end).next().is_some() {
+        let any_hit = self.watchpoints.range(record.address..end).next().is_some();
+        let write_hit = record.kind == AccessKind::Write
+            && self
+                .write_watchpoints
+                .range(record.address..end)
+                .next()
+                .is_some();
+        let masked_write_hit = record.kind == AccessKind::Write
+            && self
+                .masked_write_watchpoints
+                .range(record.address..end)
+                .any(|(_, (mask, expected))| record.value & mask == *expected);
+        if any_hit || write_hit || masked_write_hit {
             self.watchpoint_hit = Some(record.clone());
         }
     }
@@ -428,7 +461,11 @@ impl AddressSpace {
 
     #[inline]
     fn monitors_accesses(&self) -> bool {
-        self.record_accesses || self.access_observer.is_some() || !self.watchpoints.is_empty()
+        self.record_accesses
+            || self.access_observer.is_some()
+            || !self.watchpoints.is_empty()
+            || !self.write_watchpoints.is_empty()
+            || !self.masked_write_watchpoints.is_empty()
     }
 
     /// Maps zero-filled RAM and returns its shareable backing.
@@ -1213,6 +1250,42 @@ mod tests {
         )
         .unwrap();
         assert!(bus.take_watchpoint_hit().is_none());
+    }
+
+    #[test]
+    fn write_watchpoints_ignore_reads_and_stop_on_overlapping_writes() {
+        let mut bus = AddressSpace::default();
+        bus.map_ram("ram", 0x1000, 16, true).unwrap();
+        bus.add_write_watchpoint(0x1002);
+        bus.read(0x1000, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
+            .unwrap();
+        assert!(bus.take_watchpoint_hit().is_none());
+        bus.write(
+            0x1000,
+            AccessWidth::Word,
+            0x4433_2211,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        assert_eq!(bus.take_watchpoint_hit().unwrap().kind, AccessKind::Write);
+    }
+
+    #[test]
+    fn masked_write_watchpoints_require_the_value_predicate() {
+        let mut bus = AddressSpace::default();
+        bus.map_ram("ram", 0x1000, 16, true).unwrap();
+        bus.add_masked_write_watchpoint(0x1000, 0xc000_0000, 0xc000_0000);
+        bus.write(0x1000, AccessWidth::Word, 0x8000_1234, SimTime::ZERO)
+            .unwrap();
+        assert!(bus.take_watchpoint_hit().is_none());
+        bus.write(
+            0x1000,
+            AccessWidth::Word,
+            0xc000_1234,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+        assert_eq!(bus.take_watchpoint_hit().unwrap().value, 0xc000_1234);
     }
 
     #[test]

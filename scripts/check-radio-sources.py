@@ -154,12 +154,13 @@ EXPECTED_WIFI_SOFTAP_VENDOR_REQUIREMENTS = {
         "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
         "rom_start": "0x40000000",
         "rom_end": "0x40050000",
-        "minimum_instructions": 20_000_000,
+        "minimum_instructions": 30_000_000,
+        "crypto_instructions": 20_000_000,
         "radio_input": "qualification/radio/wifi-softap-esp-now-vendor-esp32c6.json",
         "expected_ap_mac": [82, 69, 2, 0, 0, 1],
         "expected_beacon_length": 203,
         "expected_authentication_response_length": 30,
-        "expected_association_response_length": 147,
+        "expected_association_response_length": 173,
         "expected_protocol_mask": 0x47,
         "expected_he_extension_id": 35,
         "required_uart_substrings": [
@@ -173,6 +174,7 @@ EXPECTED_WIFI_SOFTAP_VENDOR_REQUIREMENTS = {
             "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1, ax, 20",
             "REMU_VENDOR_SOFTAP_STATION_CONNECTED mac=02:aa:bb:cc:dd:01 aid=1",
             "REMU_VENDOR_ESPNOW_RX source=02:aa:bb:cc:dd:01 destination=52:45:02:00:00:01 length=4 data=deadbeef",
+            "REMU_VENDOR_WIFI_UDP_BURST packets=64",
             "REMU_VENDOR_SOFTAP_DONE started=1 station=1 espnow_rx=1",
         ],
     },
@@ -181,12 +183,13 @@ EXPECTED_WIFI_SOFTAP_VENDOR_REQUIREMENTS = {
         "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
         "rom_start": "0x40000000",
         "rom_end": "0x40070000",
-        "minimum_instructions": 30_000_000,
+        "minimum_instructions": 60_000_000,
+        "crypto_instructions": 30_000_000,
         "radio_input": "qualification/radio/wifi-softap-esp-now-vendor-esp32s3.json",
         "expected_ap_mac": [85, 68, 51, 34, 17, 1],
         "expected_beacon_length": 168,
         "expected_authentication_response_length": 30,
-        "expected_association_response_length": 44,
+        "expected_association_response_length": 138,
         "expected_protocol_mask": 0x07,
         "expected_he_extension_id": None,
         "required_uart_substrings": [
@@ -199,6 +202,7 @@ EXPECTED_WIFI_SOFTAP_VENDOR_REQUIREMENTS = {
             "wifi:station: 02:aa:bb:cc:dd:01 join, AID=1",
             "REMU_VENDOR_SOFTAP_STATION_CONNECTED mac=02:aa:bb:cc:dd:01 aid=1",
             "REMU_VENDOR_ESPNOW_RX source=02:aa:bb:cc:dd:01 destination=55:44:33:22:11:01 length=4 data=deadbeef",
+            "REMU_VENDOR_WIFI_UDP_BURST packets=64",
             "REMU_VENDOR_SOFTAP_DONE started=1 station=1 espnow_rx=1",
         ],
     },
@@ -884,6 +888,10 @@ def validate_rom_requirements(requirements: dict[str, object], validation: Valid
                     == [0x80, 0x80, 0xB0, 0x10],
                     f"{chip} vendor gate must provide beacon, directed beacon, authentication, and association responses",
                 )
+    validation.require(
+        (ROOT / "qualification/starlark/wifi_tx_descriptor_probe.star").is_file(),
+        "real-ROM qualification must retain bounded C6/S3 native Wi-Fi descriptor evidence",
+    )
 
 
 def validate_wifi_softap_vendor_requirements(

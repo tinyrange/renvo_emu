@@ -80,7 +80,7 @@ fn esp32c6_native_wifi_tx_excludes_hardware_fcs_from_the_rf_frame() {
     let buffer = 0x4082_1100_u32;
     let frame: Vec<u8> = (0_u8..30).collect();
     let mut descriptor_bytes = Vec::new();
-    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&(3_u32 << 30).to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
     descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
@@ -125,7 +125,7 @@ fn esp32c6_native_wifi_tx_accepts_the_firmware_observed_he_flag() {
     let buffer = 0x4082_1100_u32;
     let frame: Vec<u8> = (0_u8..30).collect();
     let mut descriptor_bytes = Vec::new();
-    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&(3_u32 << 30).to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
     descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
@@ -163,22 +163,25 @@ fn esp32c6_native_wifi_tx_accepts_the_firmware_observed_he_flag() {
 }
 
 #[test]
-fn esp32c6_native_wifi_tx_rejects_unobserved_wire_flags() {
+fn esp32c6_native_wifi_tx_preserves_guest_lmac_private_bits_on_non_qos_frame() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
+    let frame = [0x08_u8, 0, 0, 0, 0x02, 0, 0, 0, 0, 1, 0x52, 0x45, 2, 0, 0, 1];
+    let wire_length = u32::try_from(frame.len() + 4).unwrap();
     machine
         .debug_write_memory(
             u64::from(descriptor),
             &[
-                0, 0, 0, 0,
-                0, 0x11, 0x82, 0x40,
-                0, 0, 0, 0,
+                0, 0, 0, 0xc0, 0, 0x11, 0x82, 0x40, 0, 0, 0, 0,
             ],
         )
         .unwrap();
     machine
-        .debug_write_memory(u64::from(buffer), &((1_u32 << 25) | 34).to_le_bytes())
+        .debug_write_memory(u64::from(buffer), &((5_u32 << 16) | wire_length).to_le_bytes())
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer + 8), &frame)
         .unwrap();
     machine
         .bus
@@ -190,11 +193,57 @@ fn esp32c6_native_wifi_tx_rejects_unobserved_wire_flags() {
         )
         .unwrap();
 
-    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
-        panic!("expected an illegal radio state");
-    };
-    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DmaLength);
-    assert!(error.detail.contains("unobserved flag bits"));
+    assert_eq!(machine.service_radio().unwrap(), 1);
+}
+
+#[test]
+fn esp32c6_native_wifi_tx_accepts_genuine_unprotected_qos_descriptor_flags() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let descriptor = 0x4082_1000_u32;
+    let buffer = 0x4082_1100_u32;
+    let frame = [
+        0x88_u8, 0x02, 0, 0, 0x02, 0xaa, 0xbb, 0xcc, 0xdd, 1, 0x52, 0x45, 2, 0, 0, 1,
+        0x52, 0x45, 2, 0, 0, 1, 0x10, 0, 0, 0,
+    ];
+    let wire_length = u32::try_from(frame.len() + 4).unwrap();
+    let descriptor_control = (3_u32 << 30) | (1 << 29);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&descriptor_control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .debug_write_memory(
+            u64::from(buffer),
+            &((1_u32 << 16) | wire_length).to_le_bytes(),
+        )
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer + 8), &frame)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert!(machine
+        .radio_replay_artifact()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.bytes == frame
+        )));
 }
 
 #[test]
@@ -255,7 +304,7 @@ fn esp32c6_native_wifi_tx_applies_the_firmware_selected_ccmp_key() {
     remu_radio::protect_native_ccmp_frame(&key, &mut expected).unwrap();
 
     let mut descriptor_bytes = Vec::new();
-    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&(3_u32 << 30).to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
     descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
@@ -307,7 +356,7 @@ fn esp32c6_native_wifi_tx_without_a_selected_crypto_key_is_a_hard_error() {
     frame.extend_from_slice(&[1, 0, 0, 0xe0, 0, 0, 0, 0]);
     frame.extend_from_slice(&[0; 16]);
     let mut descriptor_bytes = Vec::new();
-    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&(3_u32 << 30).to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
     descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
@@ -352,7 +401,7 @@ fn esp32c6_matching_native_wifi_ack_completes_successfully() {
     frame.extend_from_slice(&transmitter);
     frame.extend_from_slice(&[0; 8]);
     let mut descriptor_bytes = Vec::new();
-    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&(3_u32 << 30).to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
     descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
@@ -449,7 +498,7 @@ fn esp32c6_native_wifi_tx_rejects_an_fcs_without_a_mac_frame() {
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let mut descriptor_bytes = Vec::new();
-    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&(3_u32 << 30).to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
     descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
@@ -861,4 +910,118 @@ fn esp32c6_native_wifi_rx_dma_writes_metadata_frame_and_completion() {
             & (1 << 14),
         0
     );
+}
+
+#[test]
+fn esp32c6_native_wifi_ampdu_rx_advances_one_descriptor_per_mpdu() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10) | (1 << 17) | (1 << 18),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    let descriptors = [0x4080_1000_u32, 0x4080_1020];
+    let buffers = [0x4080_1100_u32, 0x4080_1300];
+    let capacity = 512_u32;
+    for index in 0..2 {
+        let next = if index == 0 { descriptors[1] } else { 0 };
+        let control = (1 << 31) | (capacity << 14) | capacity;
+        let mut descriptor = Vec::new();
+        descriptor.extend_from_slice(&control.to_le_bytes());
+        descriptor.extend_from_slice(&buffers[index].to_le_bytes());
+        descriptor.extend_from_slice(&next.to_le_bytes());
+        machine
+            .debug_write_memory(u64::from(descriptors[index]), &descriptor)
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(
+            0x600a_4084,
+            AccessWidth::Word,
+            u64::from(descriptors[0]),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    let local = [0x02, 6, 7, 8, 9, 10];
+    let peer = [0x02, 1, 2, 3, 4, 5];
+    let mpdus = [0x120_u16, 0x121]
+        .into_iter()
+        .map(|sequence| {
+            let mut frame = vec![0x88, 0, 0, 0];
+            frame.extend_from_slice(&local);
+            frame.extend_from_slice(&peer);
+            frame.extend_from_slice(&[0; 6]);
+            frame.extend_from_slice(&(sequence << 4).to_le_bytes());
+            frame.extend_from_slice(&[((3 << 5) | 2), 0]);
+            frame
+        })
+        .collect::<Vec<_>>();
+    machine
+        .inject_wifi_ampdu_at(
+            SimTime::ZERO,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            mpdus.clone(),
+            -40,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(mpdus.iter().map(Vec::len).sum::<usize>() as u64 * 32);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    for index in 0..2 {
+        assert_eq!(
+            machine
+                .debug_read_memory(u64::from(buffers[index]) + 92, mpdus[index].len())
+                .unwrap(),
+            mpdus[index]
+        );
+        let completed = u32::from_le_bytes(
+            machine
+                .debug_read_memory(u64::from(descriptors[index]), 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(completed & (1 << 31), 0);
+        assert_ne!(completed & (1 << 30), 0);
+    }
+    assert!(machine
+        .radio_replay_artifact()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::HostInjection
+                    && request.frame.bytes.is_empty()
+                    && request.frame.mpdus == mpdus
+        )));
+}
+
+#[test]
+fn esp32c6_single_mpdu_aggregate_is_a_hard_legality_error() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let mut mpdu = vec![0x88, 0, 0, 0];
+    mpdu.extend_from_slice(&[0x02, 6, 7, 8, 9, 10]);
+    mpdu.extend_from_slice(&[0x02, 1, 2, 3, 4, 5]);
+    mpdu.extend_from_slice(&[0; 8]);
+    mpdu.extend_from_slice(&[((3 << 5) | 2), 0]);
+    machine
+        .inject_wifi_ampdu_at(
+            SimTime::ZERO,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            vec![mpdu.clone()],
+            -40,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(mpdu.len() as u64 * 32);
+    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected hard aggregate legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert!(error.detail.contains("outside the recovered 2..=64 window"));
 }

@@ -21,6 +21,7 @@ firmware_elf=$(jq -r '.firmware_elf' "$requirements")
 rom_file=$(jq -r --arg chip "$chip" '.chips[$chip].rom_file' "$requirements")
 expected_rom_sha=$(jq -r --arg chip "$chip" '.chips[$chip].rom_sha256' "$requirements")
 minimum_instructions=$(jq -r --arg chip "$chip" '.chips[$chip].minimum_instructions' "$requirements")
+crypto_instructions=$(jq -r --arg chip "$chip" '.chips[$chip].crypto_instructions' "$requirements")
 radio_input=$(jq -r --arg chip "$chip" '.chips[$chip].radio_input' "$requirements")
 rom_start=$(jq -r --arg chip "$chip" '.chips[$chip].rom_start' "$requirements")
 rom_end=$(jq -r --arg chip "$chip" '.chips[$chip].rom_end' "$requirements")
@@ -46,6 +47,7 @@ fi
 docker run --rm \
     --user "$(id -u):$(id -g)" \
     --env HOME=/tmp \
+    --env CMAKE_BUILD_PARALLEL_LEVEL=1 \
     --volume "$repo_root:/workspace:ro" \
     --volume "$chip_root_absolute:/out" \
     "$idf_image" \
@@ -79,7 +81,7 @@ run_vendor_softap()
         --esp-app-image "$flash" \
         --max-instructions "$minimum_instructions" \
         --radio-input "$radio_input" \
-        --radio-script qualification/radio/wifi-ack-peer.star \
+        --radio-script qualification/radio/wifi-ampdu-peer.star \
         --radio-replay "$replay" \
         --result "$result" \
         "$@"
@@ -118,7 +120,11 @@ jq -e \
         select(.event == "submitted" and
                .request.frame.protocol == "wifi" and
                .request.frame.origin == "host-injection" and
-               .request.frame.bytes[0:2] != [212, 0]) |
+               (((.request.frame.bytes | length) == 30 and
+                 .request.frame.bytes[0:2] == [176, 0]) or
+                .request.frame.bytes[0:2] == [0, 0] or
+                ((.request.frame.bytes | length) == 43 and
+                 .request.frame.bytes[0:2] == [208, 0]))) |
         . as $submitted |
         select(any($events[];
             .event == "reception" and
@@ -178,6 +184,51 @@ jq -e \
             end))
 ' "$chip_root/radio-replay.json" >/dev/null
 
+jq -e --arg chip "$chip" '
+    .events as $events |
+    (if $chip == "esp32c6" then 2 else 1 end) as $minimum_mpdus |
+    [ $events[] |
+        select(.event == "submitted" and
+               .request.frame.origin == "host-injection" and
+               (.request.frame.bytes | length) == 28 and
+               .request.frame.bytes[0:2] == [148, 0] and
+               .request.frame.bytes[20:28] == [255, 255, 255, 255, 255, 255, 255, 255]) |
+        .id ] as $ba_ids |
+    [ $events[] |
+        select(.event == "submitted" and
+               .request.frame.origin == "host-injection" and
+               .request.frame.bytes[0:2] == [208, 0] and
+               .request.frame.bytes[24:26] == [3, 1]) |
+        .id ] as $addba_response_ids |
+    any($events[];
+        .event == "submitted" and
+        .request.frame.origin == "emulated" and
+        .request.frame.bytes[0:2] == [208, 0] and
+        .request.frame.bytes[24:26] == [3, 0]) and
+    ($addba_response_ids | length) > 0 and
+    any($events[];
+        .event == "reception" and
+        .receiver == 1 and
+        .outcome.kind == "delivered" and
+        (.id as $id | $addba_response_ids | index($id) != null)) and
+    any($events[];
+        .event == "submitted" and
+        .request.frame.origin == "emulated" and
+        .request.frame.phy == "wifi-ht20-ampdu" and
+        .request.frame.bytes == [] and
+        (.request.frame.mpdus | length) >= $minimum_mpdus and
+        all(.request.frame.mpdus[];
+            length == 318 and
+            .[0] == 136 and
+            .[4:10] == [2, 170, 187, 204, 221, 1])) and
+    ($ba_ids | length) > 0 and
+    any($events[];
+        .event == "reception" and
+        .receiver == 1 and
+        .outcome.kind == "delivered" and
+        (.id as $id | $ba_ids | index($id) != null))
+' "$chip_root/radio-replay.json" >/dev/null
+
 jq -r '.uart[]' "$chip_root/result.json" | awk '{ printf "%c", $1 }' >"$chip_root/uart.log"
 jq -r --arg chip "$chip" '.chips[$chip].required_uart_substrings[]' "$requirements" |
 while IFS= read -r required_uart
@@ -203,7 +254,7 @@ cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
     --agent-script qualification/starlark/wifi_crypto_vendor.star \
     --agent-artifact "$chip_root/agent-session.json" \
     --result "$chip_root/agent-result.json"
-jq -e --arg chip "$chip" --argjson instructions "$minimum_instructions" '
+jq -e --arg chip "$chip" --argjson instructions "$crypto_instructions" '
     .schema == "remu.agent-session.v1" and
     .result == "pass" and
     .target == $chip and
@@ -248,6 +299,7 @@ jq -n \
     --argjson expected_protocol_mask "$expected_protocol_mask" \
     --argjson expected_he_extension_id "$expected_he_extension_id" \
     --argjson minimum_instructions "$minimum_instructions" \
+    --argjson crypto_instructions "$crypto_instructions" \
     '{
         schema: $schema,
         chip: $chip,
@@ -256,6 +308,8 @@ jq -n \
             symbol_dispatch_allowed: false,
             deterministic_replay_required: true,
             native_wifi_ack_completion_required: true,
+            negotiated_ampdu_tx_and_compressed_ba_required: true,
+            addba_negotiation_required: true,
             firmware_owned_wifi_retry_required: true,
             agent_driven_starlark_required: true,
             firmware_programmed_ccmp_key_selection_required: true,
@@ -263,7 +317,8 @@ jq -n \
             invalid_crypto_selection_is_hard_error: true,
             expected_protocol_mask: $expected_protocol_mask,
             expected_he_extension_id: $expected_he_extension_id,
-            minimum_instructions: $minimum_instructions
+            minimum_instructions: $minimum_instructions,
+            crypto_instructions: $crypto_instructions
         },
         evidence: {
             rom_file: $rom_file,
@@ -277,6 +332,8 @@ jq -n \
             exact_firmware_ccmp_tuple_observed: true,
             protected_espnow_plaintext_absent: true,
             native_wifi_ack_peer_observed: true,
+            negotiated_ampdu_tx_and_compressed_ba_observed: true,
+            addba_negotiation_observed: true,
             native_he_capability_and_association: ($expected_he_extension_id != null),
             native_softap_station_association: true,
             native_esp_now_tx_rx: true

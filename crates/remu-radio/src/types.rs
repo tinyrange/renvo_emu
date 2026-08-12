@@ -75,6 +75,13 @@ pub struct RadioFrame {
     pub phy: String,
     /// Uninterpreted physical-layer service data unit.
     pub bytes: Vec<u8>,
+    /// Ordered MPDUs carried by one native Wi-Fi A-MPDU PPDU.
+    ///
+    /// This remains empty for every non-aggregate protocol frame. Keeping the
+    /// packet boundaries explicit avoids smuggling PHY delimiters into an HLE
+    /// byte stream while preserving one RF/coexistence operation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mpdus: Vec<Vec<u8>>,
     /// Source of this frame.
     pub origin: FrameOrigin,
 }

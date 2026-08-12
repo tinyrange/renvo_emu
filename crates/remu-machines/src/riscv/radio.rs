@@ -750,6 +750,52 @@ impl RiscVMachine {
                 spectrum,
                 phy: phy.into(),
                 bytes,
+                mpdus: Vec::new(),
+                origin: FrameOrigin::HostInjection,
+            },
+        })?;
+        Ok(())
+    }
+
+    /// Schedules one explicit host Wi-Fi A-MPDU at a simulation timestamp.
+    ///
+    /// MPDU boundaries remain explicit so this is one native RF/coexistence
+    /// operation without introducing an HLE delimiter encoding.
+    pub fn inject_wifi_ampdu_at(
+        &mut self,
+        at: remu_core::SimTime,
+        spectrum: Spectrum,
+        mpdus: Vec<Vec<u8>>,
+        power_dbm: i16,
+    ) -> Result<(), MachineError> {
+        if self.target != TargetId::Esp32c6 {
+            return Err(MachineError::UnsupportedTarget(self.target));
+        }
+        let medium = self
+            .radio_medium
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio medium");
+        medium.tune_receiver(Receiver {
+            node: EMULATED_NODE,
+            protocol: RadioProtocol::Wifi,
+            spectrum,
+            sensitivity_dbm: -100,
+        })?;
+        let length = mpdus.iter().map(Vec::len).sum();
+        let duration = frame_duration(length);
+        medium.transmit(TxRequest {
+            source: HOST_NODE,
+            start: at,
+            end: at
+                .checked_add(duration)
+                .map_err(|_| MachineError::TimeOverflow)?,
+            power_dbm,
+            frame: RadioFrame {
+                protocol: RadioProtocol::Wifi,
+                spectrum,
+                phy: "wifi-ht20-ampdu".to_owned(),
+                bytes: Vec::new(),
+                mpdus,
                 origin: FrameOrigin::HostInjection,
             },
         })?;
@@ -1372,6 +1418,7 @@ impl RiscVMachine {
                     spectrum,
                     phy: "ieee802154-oqpsk-250k".to_owned(),
                     bytes,
+                    mpdus: Vec::new(),
                     origin: FrameOrigin::Emulated,
                 },
             })?;

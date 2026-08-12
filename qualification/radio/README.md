@@ -279,10 +279,10 @@ the three encodings emitted by both pinned vendor HALs. A bounded Starlark
 workflow now drives both genuine firmware experiments, requires their exact
 encrypted ESP-NOW slot-24 peer/interface/key-ID/cipher tuple, and proves that
 native CCMP replaces the plaintext payload and firmware MIC reservation before
-RF submission. The LLE selector also accepts the direct bit-29 descriptor form,
-but the pinned vendor path consumes that intermediate marker while constructing
-the final queue descriptor; its durable hardware request is Protected Frame plus
-the CCMP ExtIV/key ID. Missing, ambiguous, malformed, or unsupported selection
+RF submission. Crypto selection is driven by the durable Protected Frame bit
+plus the CCMP ExtIV/key ID; C6 descriptor upper bits remain guest-LMAC-private,
+while S3 descriptor bit 29 selects a distinct eight-byte A-MPDU DMA record.
+Missing, ambiguous, malformed, or unsupported selection
 is a `crypto-key-selection` hard legality error. The workflow pages evidence
 with explicit loss accounting and emits only a compact decision artifact; it
 does not hook symbols or implement peripherals in Starlark. The C6 PHY page now
@@ -290,9 +290,32 @@ latches the native one-microsecond TSF, runs all four
 target comparators, derives masked/raw/W1C power events, routes them through the
 native Wi-Fi interrupt, and hard-rejects timer-enable/wakeup orders the pinned
 HAL never emits. A second bounded Starlark workflow decodes the same sequence.
-Wi-Fi still needs fragmentation/aggregation, descriptor-driven RTS protection,
-broader TX aggregation/BA retry acceptance,
-and a genuine public-API C6 TWT acceptance gate. The C6 genuine SoftAP gate now
+Descriptor-driven RTS protection now follows the recovered chip-specific queue
+bits: hardware emits RTS, waits for CTS, emits the deferred MPDU, then waits for
+its ACK or matching-TID block ACK. A missing CTS publishes recovered status 2;
+impossible protection of a group, no-response, or control MPDU is a hard state
+error. Fragment construction and retry remain in guest LMAC, as demonstrated by
+the pinned `ppTxFragmentProc`; the shared native MAC independently qualifies the
+ACK window for every fragment. C6 and S3 descriptor word two now links a bounded
+two-to-64-MPDU chain. Every node remains hardware-owned, intermediate nodes have
+EOF clear, and only the terminal node has EOF set. The machine emits one RF A-MPDU with explicit
+MPDU boundaries, accepts a matching compressed BA, and writes the recovered BA
+origin, bitmap, and successful-MPDU count; partial BA deliberately leaves
+retry/resort/resubmit to guest LMAC. Incoming aggregates enforce one receiver,
+transmitter, TID and ACK policy with unique 12-bit sequences, then advance
+one native RX descriptor and scoreboard entry per MPDU. Replay, CLI, WASI, the
+isolated Starlark peer, and the live agent REPL preserve those boundaries and
+reject mixed scalar/aggregate input. The genuine C6 public-firmware gate now
+negotiates ADDBA, emits repeated two-MPDU descriptor-linked aggregates with
+exact 318-byte boundaries, accepts matching compressed BAs, and completes all
+64 bounded UDP packets. The S3 gate negotiates ADDBA and emits 64 genuine
+single-MPDU hardware A-MPDU records during BA-session warm-up. The machine
+validates and strips each private eight-byte record, emits an explicit-boundary
+RF A-MPDU, accepts the matching compressed BA, and completes all 64 packets. A
+bounded live descriptor probe records the exact bit-29 record, internal length,
+and first MAC words without hooks; licensed `ppAMPDU2Normal` disassembly
+independently establishes the eight-byte conversion. Linked two-to-64-MPDU
+chains remain covered by direct native regressions. The C6 genuine SoftAP gate now
 explicitly enables protocol mask `0x47`, emits HE-capability Extension ID 35
 in its native beacon and association response, and accepts an HE20 station;
 the paired S3 gate proves its `0x07` non-HE boundary. BLE still needs the remaining chip-specific
@@ -305,8 +328,10 @@ leader role and sends a protected CLI ping; the deterministic virtual-peer
 echo response remains. Disputed
 ESP32-S3 RF pages remain intentionally unmapped until a revision-
 specific primary-source or authorized-hardware probe resolves them. Coexistence
-denial, priority preemption, reset cancellation, and active clock/power gating
-now have deterministic chip-level negative-path coverage; genuine-firmware
+denial, priority preemption, and reset cancellation now have deterministic
+chip-level negative-path coverage. Genuine S3 firmware also proves that gating
+the register-interface clock after a MAC queue kick preserves autonomous RF
+airtime; genuine-firmware
 power-transition stress still remains. Genuine Wi-Fi/BLE simultaneous traffic
 is covered on both chips, and the C6 image also qualifies active three-radio
 Wi-Fi/BLE/IEEE 802.15.4 ownership.

@@ -190,7 +190,7 @@ fn esp32s3_shared_radio_reset_cancels_active_coexistence_ownership() {
 }
 
 #[test]
-fn esp32s3_radio_power_gate_truncates_active_airtime() {
+fn esp32s3_radio_interface_clock_gate_preserves_active_airtime() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine
         .wifi_engine()
@@ -210,23 +210,19 @@ fn esp32s3_radio_power_gate_truncates_active_airtime() {
 
     machine.service_radio().unwrap();
 
-    assert_eq!(machine.radio_coexistence.owner(), None);
     assert!(matches!(
-        machine.radio_coexistence.events().last(),
-        Some(remu_radio::CoexistenceEvent::PowerDown {
-            protocol: remu_radio::RadioProtocol::Wifi,
-            at,
-            ..
-        }) if *at == SimTime::ZERO
+        machine.radio_coexistence.owner(),
+        Some((remu_radio::RadioProtocol::Wifi, _))
     ));
-    assert!(matches!(
-        machine.radio_replay_artifact().events.last(),
-        Some(remu_radio::MediumEvent::Truncated { at, .. }) if *at == SimTime::ZERO
-    ));
+    assert!(!machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .any(|event| matches!(event, remu_radio::MediumEvent::Truncated { .. })));
 }
 
 #[test]
-fn esp32s3_power_gated_unmapped_grant_is_a_hard_machine_error() {
+fn esp32s3_interface_clock_gate_preserves_unmapped_grant_for_later_completion() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine
         .radio_coexistence
@@ -243,15 +239,11 @@ fn esp32s3_power_gated_unmapped_grant_is_a_hard_machine_error() {
         .write(0x6002_6014, AccessWidth::Word, 0, SimTime::ZERO)
         .unwrap();
 
-    let XtensaMachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
-        panic!("expected a radio legality error");
-    };
-    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Coexistence);
-    assert_eq!(
-        error.rule,
-        remu_radio::RadioLegalityRule::CoexistenceOwnership
-    );
-    assert!(error.detail.contains("no matching RF transmission"));
+    machine.service_radio().unwrap();
+    assert!(matches!(
+        machine.radio_coexistence.owner(),
+        Some((remu_radio::RadioProtocol::Wifi, _))
+    ));
 }
 
 #[test]
@@ -282,10 +274,11 @@ fn esp32s3_native_wifi_tx_accepts_the_firmware_fcs_allowance_only() {
     let descriptor = 0x3fca_1000_u32;
     let buffer = 0x3fca_1102_u32;
     let frame: Vec<u8> = (0_u8..30).collect();
-    let control = 32_u32 | (34_u32 << 12) | (1 << 31);
+    let control = 32_u32 | (34_u32 << 12) | (3 << 30);
     let mut descriptor_bytes = Vec::new();
     descriptor_bytes.extend_from_slice(&control.to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
         .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
         .unwrap();
@@ -376,10 +369,11 @@ fn esp32s3_native_wifi_tx_applies_the_firmware_selected_ccmp_key() {
 
     let control = frame.len() as u32
         | ((frame.len() as u32 + 4) << 12)
-        | (1 << 31);
+        | (3 << 30);
     let mut descriptor_bytes = Vec::new();
     descriptor_bytes.extend_from_slice(&control.to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
         .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
         .unwrap();
@@ -424,10 +418,11 @@ fn esp32s3_native_wifi_tx_without_a_selected_crypto_key_is_a_hard_error() {
     frame.extend_from_slice(&[0; 16]);
     let control = frame.len() as u32
         | ((frame.len() as u32 + 4) << 12)
-        | (1 << 31);
+        | (3 << 30);
     let mut descriptor_bytes = Vec::new();
     descriptor_bytes.extend_from_slice(&control.to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
         .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
         .unwrap();
@@ -463,10 +458,11 @@ fn esp32s3_native_wifi_ack_timeout_is_delayed_and_publishes_vendor_status_five()
     frame.extend_from_slice(&[0x02, 6, 7, 8, 9, 10]);
     frame.extend_from_slice(&[0x02, 1, 2, 3, 4, 5]);
     frame.extend_from_slice(&[0; 8]);
-    let control = frame.len() as u32 | ((frame.len() as u32 + 4) << 12) | (1 << 31);
+    let control = frame.len() as u32 | ((frame.len() as u32 + 4) << 12) | (3 << 30);
     let mut descriptor_bytes = Vec::new();
     descriptor_bytes.extend_from_slice(&control.to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
         .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
         .unwrap();
@@ -518,10 +514,11 @@ fn esp32s3_matching_native_wifi_ack_completes_successfully() {
     frame.extend_from_slice(&[0x02, 6, 7, 8, 9, 10]);
     frame.extend_from_slice(&transmitter);
     frame.extend_from_slice(&[0; 8]);
-    let control = frame.len() as u32 | ((frame.len() as u32 + 4) << 12) | (1 << 31);
+    let control = frame.len() as u32 | ((frame.len() as u32 + 4) << 12) | (3 << 30);
     let mut descriptor_bytes = Vec::new();
     descriptor_bytes.extend_from_slice(&control.to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
         .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
         .unwrap();
@@ -562,6 +559,406 @@ fn esp32s3_matching_native_wifi_ack_completes_successfully() {
             & (0xf << 12),
         0
     );
+}
+
+#[test]
+fn esp32s3_descriptor_rts_defers_payload_until_cts_then_completes_on_ack() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptor = 0x3fca_1000_u32;
+    let buffer = 0x3fca_1100_u32;
+    let receiver = [0x02, 6, 7, 8, 9, 10];
+    let transmitter = [0x02, 1, 2, 3, 4, 5];
+    let mut frame = vec![0x08, 0x00, 0x34, 0x12];
+    frame.extend_from_slice(&receiver);
+    frame.extend_from_slice(&transmitter);
+    frame.extend_from_slice(&[0; 8]);
+    let control = frame.len() as u32 | ((frame.len() as u32 + 4) << 12) | (3 << 30);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer), &frame)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (1 << 27) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    let expected_rts = [
+        0xb4, 0x00, 0x34, 0x12, 0x02, 6, 7, 8, 9, 10, 0x02, 1, 2, 3, 4, 5,
+    ];
+    assert!(machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::Emulated
+                    && request.frame.bytes == expected_rts
+        )));
+    assert!(!machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::Emulated
+                    && request.frame.bytes == frame
+        )));
+
+    let rts_end = u64::try_from(expected_rts.len()).unwrap() * 8;
+    let mut cts = vec![0xc4, 0x00, 0, 0];
+    cts.extend_from_slice(&transmitter);
+    machine
+        .inject_radio_frame_at(
+            SimTime::from_ticks(rts_end),
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            cts,
+            -35,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(rts_end + 10 * 8);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(0x6003_3cb0, AccessWidth::Word, AccessKind::Read, machine.now)
+            .unwrap(),
+        0
+    );
+    assert!(machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::Emulated
+                    && request.frame.bytes == frame
+        )));
+
+    let payload_end = machine.now.ticks() + u64::try_from(frame.len()).unwrap() * 8;
+    let mut ack = vec![0xd4, 0x00, 0, 0];
+    ack.extend_from_slice(&transmitter);
+    machine
+        .inject_radio_frame_at(
+            SimTime::from_ticks(payload_end),
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            ack,
+            -35,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(payload_end + 10 * 8);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(0x6003_3cb0, AccessWidth::Word, AccessKind::Read, machine.now)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(0x6003_4320, AccessWidth::Word, AccessKind::Read, machine.now)
+            .unwrap() as u32
+            & (0xf << 12),
+        0
+    );
+}
+
+#[test]
+fn esp32s3_descriptor_rts_timeout_publishes_vendor_status_two() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptor = 0x3fca_1000_u32;
+    let buffer = 0x3fca_1100_u32;
+    let mut frame = vec![0x08, 0x00, 0, 0];
+    frame.extend_from_slice(&[0x02, 6, 7, 8, 9, 10]);
+    frame.extend_from_slice(&[0x02, 1, 2, 3, 4, 5]);
+    frame.extend_from_slice(&[0; 8]);
+    let control = frame.len() as u32 | ((frame.len() as u32 + 4) << 12) | (3 << 30);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer), &frame)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6003_3d04, AccessWidth::Word, 300, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (1 << 27) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    machine.now = SimTime::from_ticks(16 * 8 + 300);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(0x6003_4320, AccessWidth::Word, AccessKind::Read, machine.now)
+            .unwrap() as u32
+            & (0xf << 12),
+        2 << 12
+    );
+}
+
+#[test]
+fn esp32s3_descriptor_chain_emits_one_ampdu_and_publishes_partial_block_ack() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptors = [0x3fca_1000_u32, 0x3fca_1020];
+    let buffers = [0x3fca_1100_u32, 0x3fca_1200];
+    let receiver = [0x02, 6, 7, 8, 9, 10];
+    let transmitter = [0x02, 1, 2, 3, 4, 5];
+    let frames = [0x100_u16, 0x101]
+        .into_iter()
+        .map(|sequence| {
+            let mut frame = vec![0x88, 0, 0, 0];
+            frame.extend_from_slice(&receiver);
+            frame.extend_from_slice(&transmitter);
+            frame.extend_from_slice(&[0; 6]);
+            frame.extend_from_slice(&(sequence << 4).to_le_bytes());
+            frame.extend_from_slice(&[((3 << 5) | 5), 0]);
+            frame
+        })
+        .collect::<Vec<_>>();
+    for index in 0..2 {
+        let next = if index == 0 { descriptors[1] } else { 0 };
+        let control = frames[index].len() as u32
+            | ((frames[index].len() as u32 + 4) << 12)
+            | (1 << 31)
+            | if next == 0 { 1 << 30 } else { 0 };
+        let mut descriptor = Vec::new();
+        descriptor.extend_from_slice(&control.to_le_bytes());
+        descriptor.extend_from_slice(&buffers[index].to_le_bytes());
+        descriptor.extend_from_slice(&next.to_le_bytes());
+        machine
+            .debug_write_memory(u64::from(descriptors[index]), &descriptor)
+            .unwrap();
+        machine
+            .debug_write_memory(u64::from(buffers[index]), &frames[index])
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptors[0] & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert!(machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::Emulated
+                    && request.frame.phy == "wifi-ht20-ampdu"
+                    && request.frame.bytes.is_empty()
+                    && request.frame.mpdus == frames
+        )));
+
+    let tx_end = frames.iter().map(Vec::len).sum::<usize>() as u64 * 8;
+    let mut block_ack = vec![0x94, 0, 0, 0];
+    block_ack.extend_from_slice(&transmitter);
+    block_ack.extend_from_slice(&receiver);
+    block_ack.extend_from_slice(&(0x0004_u16 | (5 << 12)).to_le_bytes());
+    block_ack.extend_from_slice(&(0x100_u16 << 4).to_le_bytes());
+    block_ack.extend_from_slice(&1_u64.to_le_bytes());
+    machine
+        .inject_radio_frame_at(
+            SimTime::from_ticks(tx_end),
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            block_ack,
+            -35,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(tx_end + 28 * 8);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(0x6003_4320, AccessWidth::Word, AccessKind::Read, machine.now)
+            .unwrap() as u32
+            & (0xff << 16),
+        1 << 16
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(0x6003_4334, AccessWidth::Word, AccessKind::Read, machine.now)
+            .unwrap() as u32
+            & 0xffff,
+        0x100
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(0x6003_4328, AccessWidth::Word, AccessKind::Read, machine.now)
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn esp32s3_hardware_ampdu_record_strips_header_and_accepts_single_mpdu_ba() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptor = 0x3fca_1000_u32;
+    let buffer = 0x3fca_1100_u32;
+    let receiver = [0x02, 6, 7, 8, 9, 10];
+    let transmitter = [0x02, 1, 2, 3, 4, 5];
+    let sequence = 0x120_u16;
+    let mut frame = vec![0x88, 0, 0, 0];
+    frame.extend_from_slice(&receiver);
+    frame.extend_from_slice(&transmitter);
+    frame.extend_from_slice(&[0; 6]);
+    frame.extend_from_slice(&(sequence << 4).to_le_bytes());
+    frame.extend_from_slice(&[((3 << 5) | 2), 0]);
+
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&((1_u32 << 16) | (frame.len() as u32 + 4)).to_le_bytes());
+    payload.extend_from_slice(&0_u32.to_le_bytes());
+    payload.extend_from_slice(&frame);
+    let control = payload.len() as u32
+        | ((payload.len() as u32 + 4) << 12)
+        | (1 << 29)
+        | (3 << 30);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer), &payload)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert!(machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::Emulated
+                    && request.frame.phy == "wifi-ht20-ampdu"
+                    && request.frame.bytes.is_empty()
+                    && request.frame.mpdus == vec![frame.clone()]
+        )));
+
+    let tx_end = frame.len() as u64 * 8;
+    let mut block_ack = vec![0x94, 0, 0, 0];
+    block_ack.extend_from_slice(&transmitter);
+    block_ack.extend_from_slice(&receiver);
+    block_ack.extend_from_slice(&(0x0004_u16 | (2 << 12)).to_le_bytes());
+    block_ack.extend_from_slice(&(sequence << 4).to_le_bytes());
+    block_ack.extend_from_slice(&1_u64.to_le_bytes());
+    machine
+        .inject_radio_frame_at(
+            SimTime::from_ticks(tx_end),
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            block_ack,
+            -35,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(tx_end + 28 * 8);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(0x6003_4320, AccessWidth::Word, AccessKind::Read, machine.now)
+            .unwrap() as u32
+            & (0xff << 16),
+        1 << 16
+    );
+}
+
+#[test]
+fn esp32s3_hardware_ampdu_record_rejects_inconsistent_length() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptor = 0x3fca_1000_u32;
+    let buffer = 0x3fca_1100_u32;
+    let frame = [0x88_u8; 28];
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&((1_u32 << 16) | (frame.len() as u32 + 5)).to_le_bytes());
+    payload.extend_from_slice(&0_u32.to_le_bytes());
+    payload.extend_from_slice(&frame);
+    let control = payload.len() as u32
+        | ((payload.len() as u32 + 4) << 12)
+        | (1 << 29)
+        | (3 << 30);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer), &payload)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_3d08,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let XtensaMachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected a radio legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DmaLength);
+    assert!(error.detail.contains("A-MPDU record length"));
 }
 
 #[test]
@@ -651,10 +1048,11 @@ fn esp32s3_native_wifi_tx_rejects_odd_payload_addresses() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let descriptor = 0x3fca_1000_u32;
     let buffer = 0x3fca_1101_u32;
-    let control = 32_u32 | (34_u32 << 12) | (1 << 31);
+    let control = 32_u32 | (34_u32 << 12) | (3 << 30);
     let mut descriptor_bytes = Vec::new();
     descriptor_bytes.extend_from_slice(&control.to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
         .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
         .unwrap();
@@ -680,10 +1078,11 @@ fn esp32s3_native_wifi_tx_rejects_payload_beyond_the_fcs_allowance() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let descriptor = 0x3fca_1000_u32;
     let buffer = 0x3fca_1100_u32;
-    let control = 32_u32 | (37_u32 << 12) | (1 << 31);
+    let control = 32_u32 | (37_u32 << 12) | (3 << 30);
     let mut descriptor_bytes = Vec::new();
     descriptor_bytes.extend_from_slice(&control.to_le_bytes());
     descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
     machine
         .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
         .unwrap();
@@ -1296,4 +1695,108 @@ fn esp32s3_native_wifi_rx_dma_writes_metadata_frame_and_completion() {
             & (1 << 14),
         0
     );
+}
+
+#[test]
+fn esp32s3_native_wifi_ampdu_rx_advances_one_descriptor_per_mpdu() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let descriptors = [0x3fca_1000_u32, 0x3fca_1020];
+    let buffers = [0x3fca_1100_u32, 0x3fca_1300];
+    let capacity = 512_u32;
+    for index in 0..2 {
+        let next = if index == 0 { descriptors[1] } else { 0 };
+        let control = (1 << 31) | (capacity << 12) | capacity;
+        let mut descriptor = Vec::new();
+        descriptor.extend_from_slice(&control.to_le_bytes());
+        descriptor.extend_from_slice(&buffers[index].to_le_bytes());
+        descriptor.extend_from_slice(&next.to_le_bytes());
+        machine
+            .debug_write_memory(u64::from(descriptors[index]), &descriptor)
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(
+            0x6003_3088,
+            AccessWidth::Word,
+            u64::from(descriptors[0]),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    let local = [0x02, 6, 7, 8, 9, 10];
+    let peer = [0x02, 1, 2, 3, 4, 5];
+    let mpdus = [0x120_u16, 0x121]
+        .into_iter()
+        .map(|sequence| {
+            let mut frame = vec![0x88, 0, 0, 0];
+            frame.extend_from_slice(&local);
+            frame.extend_from_slice(&peer);
+            frame.extend_from_slice(&[0; 6]);
+            frame.extend_from_slice(&(sequence << 4).to_le_bytes());
+            frame.extend_from_slice(&[((3 << 5) | 2), 0]);
+            frame
+        })
+        .collect::<Vec<_>>();
+    machine
+        .inject_wifi_ampdu_at(
+            SimTime::ZERO,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            mpdus.clone(),
+            -40,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(mpdus.iter().map(Vec::len).sum::<usize>() as u64 * 8);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    for index in 0..2 {
+        assert_eq!(
+            machine
+                .debug_read_memory(u64::from(buffers[index]) + 48, mpdus[index].len())
+                .unwrap(),
+            mpdus[index]
+        );
+        let completed = u32::from_le_bytes(
+            machine
+                .debug_read_memory(u64::from(descriptors[index]), 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(completed & (1 << 31), 0);
+        assert_ne!(completed & (1 << 30), 0);
+    }
+    assert!(machine
+        .radio_replay_artifact()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::HostInjection
+                    && request.frame.bytes.is_empty()
+                    && request.frame.mpdus == mpdus
+        )));
+}
+
+#[test]
+fn esp32s3_single_mpdu_aggregate_is_a_hard_legality_error() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let mut mpdu = vec![0x88, 0, 0, 0];
+    mpdu.extend_from_slice(&[0x02, 6, 7, 8, 9, 10]);
+    mpdu.extend_from_slice(&[0x02, 1, 2, 3, 4, 5]);
+    mpdu.extend_from_slice(&[0; 8]);
+    mpdu.extend_from_slice(&[((3 << 5) | 2), 0]);
+    machine
+        .inject_wifi_ampdu_at(
+            SimTime::ZERO,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            vec![mpdu.clone()],
+            -40,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(mpdu.len() as u64 * 8);
+    let XtensaMachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected hard aggregate legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert!(error.detail.contains("outside the recovered 2..=64 window"));
 }

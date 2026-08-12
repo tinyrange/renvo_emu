@@ -52,27 +52,6 @@ impl XtensaMachine {
         Ok(())
     }
 
-    fn power_down_coexistence(&mut self) -> Result<(), XtensaMachineError> {
-        let Some((grant, _, end)) = self.radio_coexistence.active_grant() else {
-            return Ok(());
-        };
-        if end <= self.now {
-            return Ok(());
-        }
-        let prior = self.radio_coexistence_transmission.take();
-        self.radio_legality.require(
-            RadioSubsystem::Coexistence,
-            RadioLegalityRule::CoexistenceOwnership,
-            prior.is_some_and(|(mapped, _)| mapped == grant),
-            self.now,
-            format!("power-gated grant {grant:?} has no matching RF transmission"),
-        )?;
-        let (_, transmission) = prior.expect("validated coexistence transmission exists");
-        self.radio_medium.truncate(transmission, self.now)?;
-        self.radio_coexistence.power_down(self.now)?;
-        Ok(())
-    }
-
     fn apply_coexistence_preemption(
         &mut self,
         preempted: Option<CoexistenceGrantId>,
@@ -564,6 +543,45 @@ impl XtensaMachine {
                 spectrum,
                 phy: phy.into(),
                 bytes,
+                mpdus: Vec::new(),
+                origin: FrameOrigin::HostInjection,
+            },
+        })?;
+        Ok(())
+    }
+
+    /// Schedules one explicit host Wi-Fi A-MPDU at a simulation timestamp.
+    ///
+    /// MPDU boundaries remain explicit so this is one native RF/coexistence
+    /// operation without introducing an HLE delimiter encoding.
+    pub fn inject_wifi_ampdu_at(
+        &mut self,
+        at: remu_core::SimTime,
+        spectrum: Spectrum,
+        mpdus: Vec<Vec<u8>>,
+        power_dbm: i16,
+    ) -> Result<(), XtensaMachineError> {
+        self.radio_medium.tune_receiver(Receiver {
+            node: EMULATED_NODE,
+            protocol: RadioProtocol::Wifi,
+            spectrum,
+            sensitivity_dbm: -100,
+        })?;
+        let length = mpdus.iter().map(Vec::len).sum();
+        let duration = frame_duration(length);
+        self.radio_medium.transmit(TxRequest {
+            source: HOST_NODE,
+            start: at,
+            end: at
+                .checked_add(duration)
+                .map_err(|_| XtensaMachineError::TimeOverflow)?,
+            power_dbm,
+            frame: RadioFrame {
+                protocol: RadioProtocol::Wifi,
+                spectrum,
+                phy: "wifi-ht20-ampdu".to_owned(),
+                bytes: Vec::new(),
+                mpdus,
                 origin: FrameOrigin::HostInjection,
             },
         })?;
@@ -594,20 +612,10 @@ impl XtensaMachine {
             self.native_ble_link_sequences.clear();
             self.radio_reset_generation = reset_generation;
         }
-        if self
-            .radio_coexistence
-            .active_grant()
-            .is_some_and(|(_, protocol, _)| {
-                !coexistence_ready
-                    || match protocol {
-                        RadioProtocol::Wifi => !wifi_ready,
-                        RadioProtocol::BluetoothLe => !ble_ready,
-                        RadioProtocol::Ieee802154 => true,
-                    }
-            })
-        {
-            self.power_down_coexistence()?;
-        }
+        // Genuine S3 firmware gates the register-interface clock immediately
+        // after handing a frame to the autonomous radio MAC. That transition
+        // must not truncate in-flight RF ownership; a shared reset generation
+        // change above remains the cancellation boundary.
         self.radio_legality.observe_domain(
             RadioSubsystem::Wifi,
             wifi_ready,
@@ -690,7 +698,7 @@ impl XtensaMachine {
         let due = self
             .pending_native_wifi
             .iter()
-            .copied()
+            .cloned()
             .filter(|pending| pending.deadline <= self.now)
             .collect::<Vec<_>>();
         for pending in &due {
@@ -704,11 +712,7 @@ impl XtensaMachine {
                     pending.queue
                 ),
             )?;
-            let outcome = if pending.expected_response.is_some() {
-                remu_devices::EspWifiTxOutcome::AckTimeout
-            } else {
-                remu_devices::EspWifiTxOutcome::Success
-            };
+            let outcome = pending.deadline_outcome();
             self.radio_legality.require(
                 RadioSubsystem::Wifi,
                 RadioLegalityRule::CompletionWithoutOperation,
@@ -762,6 +766,46 @@ impl XtensaMachine {
         for (frame, signal_dbm, received_at) in deliveries {
             match frame.protocol {
                 RadioProtocol::Wifi => {
+                    if !frame.mpdus.is_empty() {
+                        self.radio_legality.require(
+                            RadioSubsystem::Wifi,
+                            RadioLegalityRule::SchedulerState,
+                            frame.bytes.is_empty() && frame.phy == "wifi-ht20-ampdu",
+                            self.now,
+                            format!(
+                                "native Wi-Fi aggregate uses PHY {:?} with {} scalar bytes and {} MPDUs",
+                                frame.phy,
+                                frame.bytes.len(),
+                                frame.mpdus.len()
+                            ),
+                        )?;
+                        let aggregate =
+                            crate::native_wifi::validate_native_wifi_aggregate(&frame.mpdus);
+                        self.radio_legality.require(
+                            RadioSubsystem::Wifi,
+                            RadioLegalityRule::SchedulerState,
+                            aggregate.is_ok(),
+                            self.now,
+                            aggregate.as_ref().err().cloned().unwrap_or_default(),
+                        )?;
+                        let wifi_mac = self.wifi_mac.clone();
+                        let mut responded = false;
+                        let mut native = false;
+                        let mut protocol_engine = false;
+                        for mpdu in &frame.mpdus {
+                            responded |= self.submit_native_wifi_receive_response(mpdu)?;
+                            native |= self.write_native_wifi_rx(&wifi_mac, mpdu);
+                            let mut delivered = frame.clone();
+                            delivered.bytes = mpdu.clone();
+                            delivered.mpdus.clear();
+                            protocol_engine |= self.syscon.wifi_ready()
+                                && self.radio_wifi.receive(&delivered).unwrap_or(false);
+                        }
+                        if native || responded || protocol_engine {
+                            completed = completed.saturating_add(1);
+                        }
+                        continue;
+                    }
                     if let Some(index) = self
                         .pending_native_wifi
                         .iter()
@@ -778,12 +822,24 @@ impl XtensaMachine {
                                 pending.queue
                             ),
                         )?;
+                        if pending.awaiting_protection_cts() {
+                            if let Some(pending) = self.continue_native_wifi_after_cts(pending)? {
+                                self.pending_native_wifi.push(pending);
+                            }
+                            completed = completed.saturating_add(1);
+                            continue;
+                        }
+                        let (successful_mpdu_count, block_ack) = pending
+                            .response_completion(&frame.bytes, received_at)
+                            .expect("pending native Wi-Fi response was already matched");
                         self.radio_legality.require(
                             RadioSubsystem::Wifi,
                             RadioLegalityRule::CompletionWithoutOperation,
-                            self.wifi_mac.complete_tx(
+                            self.wifi_mac.complete_tx_record(
                                 pending.queue,
                                 remu_devices::EspWifiTxOutcome::Success,
+                                successful_mpdu_count,
+                                block_ack,
                             ),
                             self.now,
                             format!(
@@ -902,6 +958,7 @@ impl XtensaMachine {
                 spectrum: Spectrum::new(2_412_000, 20_000),
                 phy: "wifi-ht20".to_owned(),
                 bytes,
+                mpdus: Vec::new(),
                 origin: FrameOrigin::Emulated,
             },
         })?;

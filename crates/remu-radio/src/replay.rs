@@ -90,6 +90,37 @@ mod tests {
     }
 
     #[test]
+    fn replay_round_trip_preserves_native_ampdu_boundaries() {
+        let mpdus = vec![vec![0x88, 0, 1], vec![0x88, 0, 2]];
+        let artifact = ReplayArtifact::new(
+            MediumProfile::default(),
+            vec![MediumEvent::Submitted {
+                id: crate::TransmissionId(1),
+                request: crate::TxRequest {
+                    source: crate::NodeId(0),
+                    start: remu_core::SimTime::from_ticks(10),
+                    end: remu_core::SimTime::from_ticks(20),
+                    power_dbm: -40,
+                    frame: crate::RadioFrame {
+                        protocol: crate::RadioProtocol::Wifi,
+                        spectrum: crate::Spectrum::new(2_412_000, 20_000),
+                        phy: "wifi-ht20-ampdu".to_owned(),
+                        bytes: Vec::new(),
+                        mpdus: mpdus.clone(),
+                        origin: crate::FrameOrigin::Replay,
+                    },
+                },
+            }],
+        );
+        let decoded = ReplayArtifact::from_json(&artifact.to_json().unwrap()).unwrap();
+        let MediumEvent::Submitted { request, .. } = &decoded.events[0] else {
+            panic!("expected submitted aggregate");
+        };
+        assert_eq!(request.frame.mpdus, mpdus);
+        assert!(request.frame.bytes.is_empty());
+    }
+
+    #[test]
     fn future_schema_is_rejected() {
         let error = ReplayArtifact::from_json(
             br#"{"schema":2,"profile":{"seed":0,"loss_ppm":0,"capture_threshold_db":10,"default_path_loss_db":40},"events":[]}"#,

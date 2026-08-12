@@ -558,14 +558,25 @@ pub(crate) fn run_loaded_recorded(
                 machine.add_signal_stop(&stop.path, stop.edge)?;
             }
             for frame in read_radio_input(control.radio_input)? {
-                machine.inject_radio_frame_at(
-                    SimTime::from_ticks(frame.at),
-                    frame.protocol.into(),
-                    remu_radio::Spectrum::new(frame.center_khz, frame.bandwidth_khz),
-                    frame.phy,
-                    frame.bytes,
-                    frame.power_dbm,
-                )?;
+                let spectrum = remu_radio::Spectrum::new(frame.center_khz, frame.bandwidth_khz);
+                if frame.mpdus.is_empty() {
+                    machine.inject_radio_frame_at(
+                        SimTime::from_ticks(frame.at),
+                        frame.protocol.into(),
+                        spectrum,
+                        frame.phy,
+                        frame.bytes,
+                        frame.power_dbm,
+                    )?;
+                } else {
+                    validate_direct_wifi_ampdu(&frame)?;
+                    machine.inject_wifi_ampdu_at(
+                        SimTime::from_ticks(frame.at),
+                        spectrum,
+                        frame.mpdus,
+                        frame.power_dbm,
+                    )?;
+                }
             }
             if let Some(peer) = read_radio_peer(control.radio_script, control.radio_repl)? {
                 machine.set_radio_peer(Box::new(peer))?;
@@ -658,14 +669,25 @@ pub(crate) fn run_loaded_recorded(
                 machine.add_signal_stop(&stop.path, stop.edge)?;
             }
             for frame in read_radio_input(control.radio_input)? {
-                machine.inject_radio_frame_at(
-                    SimTime::from_ticks(frame.at),
-                    frame.protocol.into(),
-                    remu_radio::Spectrum::new(frame.center_khz, frame.bandwidth_khz),
-                    frame.phy,
-                    frame.bytes,
-                    frame.power_dbm,
-                )?;
+                let spectrum = remu_radio::Spectrum::new(frame.center_khz, frame.bandwidth_khz);
+                if frame.mpdus.is_empty() {
+                    machine.inject_radio_frame_at(
+                        SimTime::from_ticks(frame.at),
+                        frame.protocol.into(),
+                        spectrum,
+                        frame.phy,
+                        frame.bytes,
+                        frame.power_dbm,
+                    )?;
+                } else {
+                    validate_direct_wifi_ampdu(&frame)?;
+                    machine.inject_wifi_ampdu_at(
+                        SimTime::from_ticks(frame.at),
+                        spectrum,
+                        frame.mpdus,
+                        frame.power_dbm,
+                    )?;
+                }
             }
             if let Some(peer) = read_radio_peer(control.radio_script, control.radio_repl)? {
                 machine.set_radio_peer(Box::new(peer));
@@ -744,7 +766,7 @@ fn write_radio_replay(path: &Path, artifact: &impl Serialize) -> Result<(), Box<
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 enum DirectRadioProtocol {
     Wifi,
@@ -770,8 +792,24 @@ struct DirectRadioFrame {
     center_khz: u32,
     bandwidth_khz: u32,
     phy: String,
+    #[serde(default)]
     bytes: Vec<u8>,
+    #[serde(default)]
+    mpdus: Vec<Vec<u8>>,
     power_dbm: i16,
+}
+
+fn validate_direct_wifi_ampdu(frame: &DirectRadioFrame) -> Result<(), Box<dyn Error>> {
+    if frame.protocol != DirectRadioProtocol::Wifi
+        || frame.phy != "wifi-ht20-ampdu"
+        || !frame.bytes.is_empty()
+    {
+        return Err(
+            "aggregate radio input requires protocol=wifi, phy=wifi-ht20-ampdu, and empty bytes"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -861,4 +899,46 @@ pub(super) fn parse_signal_stop(value: &str) -> Result<SignalStopArg, String> {
         path: path.to_owned(),
         edge,
     })
+}
+
+#[cfg(test)]
+mod radio_input_tests {
+    use super::*;
+
+    #[test]
+    fn aggregate_input_preserves_mpdu_boundaries_and_defaults_scalar_bytes() {
+        let input: DirectRadioInput = serde_json::from_value(serde_json::json!({
+            "schema": "remu.radio-input.v1",
+            "frames": [{
+                "at": 10,
+                "protocol": "wifi",
+                "center_khz": 2_412_000,
+                "bandwidth_khz": 20_000,
+                "phy": "wifi-ht20-ampdu",
+                "mpdus": [[0x88, 0, 1], [0x88, 0, 2]],
+                "power_dbm": -40
+            }]
+        }))
+        .unwrap();
+        let frame = &input.frames[0];
+        assert!(frame.bytes.is_empty());
+        assert_eq!(frame.mpdus, [[0x88, 0, 1], [0x88, 0, 2]]);
+        validate_direct_wifi_ampdu(frame).unwrap();
+    }
+
+    #[test]
+    fn aggregate_input_rejects_mixed_scalar_payload() {
+        let frame = DirectRadioFrame {
+            at: 10,
+            protocol: DirectRadioProtocol::Wifi,
+            center_khz: 2_412_000,
+            bandwidth_khz: 20_000,
+            phy: "wifi-ht20-ampdu".to_owned(),
+            bytes: vec![1],
+            mpdus: vec![vec![0x88, 0, 1], vec![0x88, 0, 2]],
+            power_dbm: -40,
+        };
+        let error = validate_direct_wifi_ampdu(&frame).unwrap_err();
+        assert!(error.to_string().contains("empty bytes"));
+    }
 }

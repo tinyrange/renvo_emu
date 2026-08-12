@@ -310,6 +310,17 @@ impl XtensaMachine {
         self.bus.add_watchpoint(address);
     }
 
+    /// Stops after the next completed write overlapping `address`.
+    pub fn add_write_watchpoint(&mut self, address: u64) {
+        self.bus.add_write_watchpoint(address);
+    }
+
+    /// Stops after a matching completed write overlaps `address`.
+    pub fn add_masked_write_watchpoint(&mut self, address: u64, mask: u64, expected: u64) {
+        self.bus
+            .add_masked_write_watchpoint(address, mask, expected);
+    }
+
     /// Stops when the named signal satisfies `edge`.
     pub fn add_signal_stop(
         &mut self,

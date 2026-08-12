@@ -589,6 +589,7 @@ impl XtensaMachine {
                         spectrum: s3_ble_spectrum(pending.channel),
                         phy: pending.phy.to_owned(),
                         bytes: pending.pdu,
+                        mpdus: Vec::new(),
                         origin: FrameOrigin::Emulated,
                     },
                 })?;

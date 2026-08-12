@@ -4,7 +4,7 @@
 use allocative::Allocative;
 use anyhow::{Context, Result, bail};
 use remu_bus::{BusAccessObserver, BusAccessRecord, SharedBusAccessObserver};
-use remu_core::{AccessKind, RunLimits, SimTime};
+use remu_core::{AccessKind, CpuSnapshot, RunLimits, SimTime};
 use remu_machines::{RiscVMachine, RunResult, TargetId, XtensaMachine};
 use remu_radio::{MediumProfile, RadioProtocol, ReplayArtifact, Spectrum};
 use remu_signals::Logic;
@@ -106,6 +106,20 @@ impl AgentMachine {
         }
     }
 
+    fn add_write_watchpoint(&mut self, address: u64) {
+        match self {
+            Self::Esp32c6(machine) => machine.add_write_watchpoint(address),
+            Self::Esp32s3(machine) => machine.add_write_watchpoint(address),
+        }
+    }
+
+    fn add_masked_write_watchpoint(&mut self, address: u64, mask: u64, expected: u64) {
+        match self {
+            Self::Esp32c6(machine) => machine.add_masked_write_watchpoint(address, mask, expected),
+            Self::Esp32s3(machine) => machine.add_masked_write_watchpoint(address, mask, expected),
+        }
+    }
+
     fn clear_debug_stops(&mut self) {
         match self {
             Self::Esp32c6(machine) => machine.clear_debug_stops(),
@@ -142,6 +156,24 @@ impl AgentMachine {
             }
             Self::Esp32s3(machine) => {
                 machine.inject_radio_frame_at(at, protocol, spectrum, phy, bytes, power_dbm)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn inject_wifi_ampdu(
+        &mut self,
+        at: SimTime,
+        spectrum: Spectrum,
+        mpdus: Vec<Vec<u8>>,
+        power_dbm: i16,
+    ) -> Result<()> {
+        match self {
+            Self::Esp32c6(machine) => {
+                machine.inject_wifi_ampdu_at(at, spectrum, mpdus, power_dbm)?;
+            }
+            Self::Esp32s3(machine) => {
+                machine.inject_wifi_ampdu_at(at, spectrum, mpdus, power_dbm)?;
             }
         }
         Ok(())
@@ -374,6 +406,29 @@ fn with_machine<T>(
     })
 }
 
+fn compact_cpu_snapshot(snapshot: &CpuSnapshot) -> JsonValue {
+    json!({
+        "architecture": snapshot.architecture,
+        "pc": snapshot.pc,
+        "waiting": snapshot.waiting,
+        "halted": snapshot.halted,
+    })
+}
+
+fn agent_run_result_json(result: &RunResult) -> JsonValue {
+    json!({
+        "target": result.target,
+        "reason": result.reason,
+        "stats": result.stats,
+        "cpu": compact_cpu_snapshot(&result.cpu),
+        "secondary_cpu": result.secondary_cpu.as_ref().map(compact_cpu_snapshot),
+        "exit_code": result.exit_code,
+        "uart_bytes": result.uart.len(),
+        "usb_bytes": result.usb.len(),
+        "trace_digest": result.trace_digest,
+    })
+}
+
 #[starlark_module]
 fn agent_machine_methods(builder: &mut MethodsBuilder) {
     /// Returns the stable target identifier.
@@ -409,7 +464,10 @@ fn agent_machine_methods(builder: &mut MethodsBuilder) {
                 instructions: (instructions != 0).then_some(instructions),
                 deadline: (deadline != 0).then(|| SimTime::from_ticks(deadline)),
             })?;
-            let json = serde_json::to_value(&result)?;
+            // Keep repeated long-running agent/REPL slices bounded. The full
+            // transport histories stay in Rust for final artifacts; scripts
+            // receive only counters and a compact CPU stop snapshot.
+            let json = agent_run_result_json(&result);
             session.last_result = Some(result);
             Ok(json)
         })
@@ -468,6 +526,32 @@ fn agent_machine_methods(builder: &mut MethodsBuilder) {
     fn watchpoint<'v>(#[starlark(this)] this: Value<'v>, address: u64) -> anyhow::Result<NoneType> {
         with_machine(this, |machine| {
             machine.add_watchpoint(address);
+            Ok(())
+        })?;
+        Ok(NoneType)
+    }
+
+    /// Stops after the next write overlapping an address, ignoring polling reads.
+    fn write_watchpoint<'v>(
+        #[starlark(this)] this: Value<'v>,
+        address: u64,
+    ) -> anyhow::Result<NoneType> {
+        with_machine(this, |machine| {
+            machine.add_write_watchpoint(address);
+            Ok(())
+        })?;
+        Ok(NoneType)
+    }
+
+    /// Stops after a write whose masked value equals `expected`.
+    fn masked_write_watchpoint<'v>(
+        #[starlark(this)] this: Value<'v>,
+        address: u64,
+        mask: u64,
+        expected: u64,
+    ) -> anyhow::Result<NoneType> {
+        with_machine(this, |machine| {
+            machine.add_masked_write_watchpoint(address, mask, expected);
             Ok(())
         })?;
         Ok(NoneType)
@@ -553,6 +637,39 @@ fn agent_machine_methods(builder: &mut MethodsBuilder) {
                 Spectrum::new(center_khz, bandwidth_khz),
                 phy.to_owned(),
                 bytes,
+                power_dbm,
+            )
+        })?;
+        Ok(NoneType)
+    }
+
+    /// Injects one native Wi-Fi A-MPDU while retaining explicit MPDU boundaries.
+    fn inject_wifi_ampdu<'v>(
+        #[starlark(this)] this: Value<'v>,
+        at: u64,
+        center_khz: u32,
+        bandwidth_khz: u32,
+        mpdus: Value<'v>,
+        #[starlark(default = -40)] power_dbm: i32,
+    ) -> anyhow::Result<NoneType> {
+        let mpdus: Vec<Vec<u8>> = serde_json::from_value(mpdus.to_json_value()?)
+            .context("machine.inject_wifi_ampdu mpdus must be a list of byte lists")?;
+        if mpdus.len() > 64 {
+            bail!("machine.inject_wifi_ampdu exceeds 64 MPDUs");
+        }
+        let total = mpdus
+            .iter()
+            .try_fold(0_usize, |total, mpdu| total.checked_add(mpdu.len()))
+            .context("machine.inject_wifi_ampdu byte count overflows")?;
+        if total > MAX_DEBUG_TRANSFER_BYTES {
+            bail!("machine.inject_wifi_ampdu exceeds {MAX_DEBUG_TRANSFER_BYTES} aggregate bytes");
+        }
+        let power_dbm = i16::try_from(power_dbm).context("power_dbm must fit in 16 bits")?;
+        with_machine(this, |machine| {
+            machine.inject_wifi_ampdu(
+                SimTime::from_ticks(at),
+                Spectrum::new(center_khz, bandwidth_khz),
+                mpdus,
                 power_dbm,
             )
         })?;
@@ -860,6 +977,8 @@ def main():
     assert_eq(page["total"], 1)
     assert_eq(machine.coexistence_events(limit = 1)["total"], 0)
     result = machine.run(instructions = 1)
+    assert_eq(result.get("uart"), None)
+    assert_eq(result["uart_bytes"], 0)
     return {"page": page, "pc": result["cpu"]["pc"]}
 "#,
             AgentMachine::Esp32c6(Box::new(machine)),
@@ -869,6 +988,32 @@ def main():
 
         assert_eq!(outcome.value["page"]["total"], json!(1));
         assert!(matches!(outcome.machine, AgentMachine::Esp32c6(_)));
+    }
+
+    #[test]
+    fn agent_repl_injects_one_wifi_ampdu_with_explicit_boundaries() {
+        let machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+        let outcome = evaluate_agent_script(
+            "ampdu-agent.star",
+            r#"
+def main():
+    machine.inject_wifi_ampdu(
+        at = 10,
+        center_khz = 2412000,
+        bandwidth_khz = 20000,
+        mpdus = [[0x88, 0, 1], [0x88, 0, 2]],
+    )
+    event = machine.radio_events(limit = 1)["events"][0]
+    machine.run(instructions = 1)
+    return event["request"]["frame"]
+"#,
+            AgentMachine::Esp32c6(Box::new(machine)),
+            false,
+        )
+        .unwrap();
+        assert_eq!(outcome.value["bytes"], json!([]));
+        assert_eq!(outcome.value["mpdus"], json!([[0x88, 0, 1], [0x88, 0, 2]]));
+        assert_eq!(outcome.value["phy"], json!("wifi-ht20-ampdu"));
     }
 
     #[test]

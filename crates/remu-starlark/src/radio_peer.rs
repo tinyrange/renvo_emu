@@ -151,6 +151,31 @@ impl StarlarkRadioPeer {
                     frame.bytes.len()
                 );
             }
+            if frame.mpdus.len() > 64 {
+                bail!(
+                    "radio peer frame {index} has {} MPDUs; limit is 64",
+                    frame.mpdus.len()
+                );
+            }
+            let aggregate_bytes = frame
+                .mpdus
+                .iter()
+                .try_fold(0_usize, |total, mpdu| total.checked_add(mpdu.len()))
+                .ok_or_else(|| anyhow::anyhow!("radio peer frame {index} byte count overflows"))?;
+            if aggregate_bytes > MAX_PEER_FRAME_BYTES {
+                bail!(
+                    "radio peer frame {index} aggregate has {aggregate_bytes} bytes; limit is {MAX_PEER_FRAME_BYTES}"
+                );
+            }
+            if !frame.mpdus.is_empty()
+                && (!frame.bytes.is_empty()
+                    || frame.protocol != RadioProtocol::Wifi
+                    || frame.phy != "wifi-ht20-ampdu")
+            {
+                bail!(
+                    "radio peer frame {index} aggregate requires Wi-Fi, wifi-ht20-ampdu, and empty scalar bytes"
+                );
+            }
         }
         if let Some(state) = next_state {
             validate_state(&state)?;
@@ -299,6 +324,8 @@ struct ScriptFrame {
     bandwidth_khz: u32,
     phy: String,
     bytes: Vec<u8>,
+    #[serde(default)]
+    mpdus: Vec<Vec<u8>>,
 }
 
 impl ScriptFrame {
@@ -313,6 +340,7 @@ impl ScriptFrame {
                 spectrum: Spectrum::new(self.center_khz, self.bandwidth_khz),
                 phy: self.phy,
                 bytes: self.bytes,
+                mpdus: self.mpdus,
                 origin: FrameOrigin::HostInjection,
             },
         }
@@ -347,6 +375,7 @@ mod tests {
                 spectrum: Spectrum::new(2_405_000, 2_000),
                 phy: "ieee802154-oqpsk-250k".to_owned(),
                 bytes: vec![byte],
+                mpdus: Vec::new(),
                 origin: FrameOrigin::Emulated,
             },
         }
@@ -375,6 +404,7 @@ def on_event(event, state):
             "bytes": packet,
         }],
     }
+
 "#,
             false,
         )
@@ -397,6 +427,45 @@ def on_event(event, state):
         assert_eq!(requests[1].start, SimTime::from_ticks(23));
         assert_eq!(requests[3].frame.bytes[0], 2);
         assert_eq!(requests[3].frame.origin, FrameOrigin::HostInjection);
+    }
+
+    #[test]
+    fn scripted_peer_preserves_one_ampdu_with_bounded_mpdu_boundaries() {
+        let peer = StarlarkRadioPeer::new(
+            "ampdu-peer.star",
+            r#"
+def on_event(event, state):
+    return [{
+        "start": event["request"]["end"] + 1,
+        "end": event["request"]["end"] + 9,
+        "protocol": "wifi",
+        "center_khz": 2412000,
+        "bandwidth_khz": 20000,
+        "phy": "wifi-ht20-ampdu",
+        "bytes": [],
+        "mpdus": [[0x88, 0, 1], [0x88, 0, 2]],
+    }]
+"#,
+            false,
+        )
+        .unwrap();
+        let mut medium = RadioMedium::new(MediumProfile::default()).unwrap();
+        medium.set_peer(Box::new(peer));
+        medium.transmit(emitted(10, 0xaa)).unwrap();
+        let aggregate = medium
+            .events()
+            .iter()
+            .find_map(|event| match event {
+                remu_radio::MediumEvent::Submitted { request, .. }
+                    if request.frame.origin == FrameOrigin::HostInjection =>
+                {
+                    Some(&request.frame)
+                }
+                _ => None,
+            })
+            .expect("scripted peer emitted an aggregate");
+        assert!(aggregate.bytes.is_empty());
+        assert_eq!(aggregate.mpdus, [vec![0x88, 0, 1], vec![0x88, 0, 2]]);
     }
 
     #[test]
@@ -457,6 +526,7 @@ def on_event(event, state):
                     spectrum: Spectrum::new(2_412_000, 20_000),
                     phy: "wifi-ht20".to_owned(),
                     bytes,
+                    mpdus: Vec::new(),
                     origin: FrameOrigin::Emulated,
                 },
             })

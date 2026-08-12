@@ -609,6 +609,7 @@ impl WifiEngine {
                 spectrum: wifi_spectrum(self.channel),
                 phy: "wifi-ht20".to_owned(),
                 bytes,
+                mpdus: Vec::new(),
                 origin: FrameOrigin::Emulated,
             },
             attempts: 0,
@@ -1056,6 +1057,7 @@ mod tests {
             spectrum: wifi_spectrum(6),
             phy: "wifi-ht20".to_owned(),
             bytes: data_frame(other),
+            mpdus: Vec::new(),
             origin: FrameOrigin::HostInjection,
         };
         assert!(!wifi.receive(&incoming).unwrap());

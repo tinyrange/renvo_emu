@@ -6,7 +6,7 @@ impl RiscVMachine {
         let due = self
             .radio_pending_native_wifi
             .iter()
-            .copied()
+            .cloned()
             .filter(|pending| pending.deadline <= self.now)
             .collect::<Vec<_>>();
         for pending in &due {
@@ -23,11 +23,7 @@ impl RiscVMachine {
                         pending.queue
                     ),
                 )?;
-            let outcome = if pending.expected_response.is_some() {
-                remu_devices::EspWifiTxOutcome::AckTimeout
-            } else {
-                remu_devices::EspWifiTxOutcome::Success
-            };
+            let outcome = pending.deadline_outcome();
             self.radio_legality
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio legality validator")

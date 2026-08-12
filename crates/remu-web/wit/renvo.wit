@@ -33,6 +33,7 @@ interface api {
         bandwidth-khz: u32,
         phy: string,
         bytes: list<u8>,
+        mpdus: list<list<u8>>,
         power-dbm: s16,
     }
 

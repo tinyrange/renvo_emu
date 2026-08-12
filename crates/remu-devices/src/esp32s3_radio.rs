@@ -35,6 +35,7 @@ const WIFI_MAC_INTERFACE_ADDRESS_COUNT: usize = 4;
 const WIFI_MAC_TX_QUEUE_CONTROL_HIGH: u64 = 0x0d08;
 const WIFI_MAC_TX_QUEUE_CONTROL_LOW: u64 = 0x0cd0;
 const WIFI_MAC_TX_QUEUE_ENABLE: u32 = 3 << 30;
+const WIFI_MAC_TX_QUEUE_RTS_ENABLED: u32 = 1 << 27;
 const WIFI_MAC_TX_QUEUE_STATE_CLEAR: u64 = 0x0cac;
 const WIFI_MAC_TX_QUEUE_STATE: u64 = 0x0cb0;
 const WIFI_MAC_TX_QUEUE_TIMEOUT_HIGH: u64 = 0x0d04;
@@ -42,6 +43,10 @@ const WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE: u64 = 0x08;
 const WIFI_MAC_TX_QUEUE_COMPLETION_HIGH: u64 = 0x1320;
 const WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE: u64 = 0x4c;
 const WIFI_MAC_TX_QUEUE_COMPLETION_STATUS: u32 = 0xf << 12;
+const WIFI_MAC_TX_QUEUE_COMPLETION_COUNT: u32 = 0xff << 16;
+const WIFI_MAC_TX_QUEUE_BA_STATUS_HIGH: u64 = 0x1334;
+const WIFI_MAC_TX_QUEUE_BA_BITMAP_LOW_HIGH: u64 = 0x1328;
+const WIFI_MAC_TX_QUEUE_BA_BITMAP_HIGH_HIGH: u64 = 0x1324;
 const WIFI_MAC_RX_BA_CONTROL_HIGH: u64 = 0x274;
 const WIFI_MAC_RX_BA_MAC_HIGH_HIGH: u64 = 0x278;
 const WIFI_MAC_RX_BA_MAC_LOW_HIGH: u64 = 0x27c;
@@ -758,6 +763,20 @@ impl Esp32S3WifiMacHandle {
             & 0x0fff
     }
 
+    /// Whether the pinned HAL requested hardware-generated RTS protection.
+    ///
+    /// `mac_tx_set_plcp0` maps software-descriptor bit eight into bit 27 of
+    /// the same descending queue-control word used for the native kick.
+    pub fn tx_rts_enabled(&self, queue: u8) -> bool {
+        let state = self.state.lock().expect("ESP32-S3 Wi-Fi MAC lock poisoned");
+        let offset = WIFI_MAC_TX_QUEUE_CONTROL_HIGH
+            .saturating_sub(u64::from(queue) * WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE);
+        state
+            .registers
+            .get(offset as usize / 4)
+            .is_some_and(|value| value & WIFI_MAC_TX_QUEUE_RTS_ENABLED != 0)
+    }
+
     /// Whether a queue has been kicked but has not yet received a completion.
     pub fn tx_active(&self, queue: u8) -> bool {
         let state = self.state.lock().expect("ESP32-S3 Wi-Fi MAC lock poisoned");
@@ -766,6 +785,18 @@ impl Esp32S3WifiMacHandle {
 
     /// Publishes one native completion record and raises the TX interrupt.
     pub fn complete_tx(&self, queue: u8, outcome: crate::EspWifiTxOutcome) -> bool {
+        let successful_mpdu_count = u8::from(outcome == crate::EspWifiTxOutcome::Success);
+        self.complete_tx_record(queue, outcome, successful_mpdu_count, None)
+    }
+
+    /// Publishes the complete recovered TX/BA record and raises the TX interrupt.
+    pub fn complete_tx_record(
+        &self,
+        queue: u8,
+        outcome: crate::EspWifiTxOutcome,
+        successful_mpdu_count: u8,
+        block_ack: Option<crate::EspWifiTxBlockAck>,
+    ) -> bool {
         let mut state = self.state.lock().expect("ESP32-S3 Wi-Fi MAC lock poisoned");
         let bit = 1_u32 << queue;
         if state.active_tx & bit == 0 {
@@ -778,6 +809,22 @@ impl Esp32S3WifiMacHandle {
         };
         *completion =
             (*completion & !WIFI_MAC_TX_QUEUE_COMPLETION_STATUS) | (outcome.status() << 12);
+        *completion = (*completion & !WIFI_MAC_TX_QUEUE_COMPLETION_COUNT)
+            | (u32::from(successful_mpdu_count) << 16);
+        let distance = u64::from(queue) * WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE;
+        let ba_status_index = (WIFI_MAC_TX_QUEUE_BA_STATUS_HIGH - distance) as usize / 4;
+        let ba_low_index = (WIFI_MAC_TX_QUEUE_BA_BITMAP_LOW_HIGH - distance) as usize / 4;
+        let ba_high_index = (WIFI_MAC_TX_QUEUE_BA_BITMAP_HIGH_HIGH - distance) as usize / 4;
+        let block_ack = block_ack.unwrap_or(crate::EspWifiTxBlockAck {
+            status: 0,
+            starting_sequence: 0,
+            bitmap: 0,
+        });
+        state.registers[ba_status_index] = (state.registers[ba_status_index] & !0x0000_ffff)
+            | (u32::from(block_ack.status & 0x0f) << 12)
+            | u32::from(block_ack.starting_sequence & 0x0fff);
+        state.registers[ba_low_index] = block_ack.bitmap as u32;
+        state.registers[ba_high_index] = (block_ack.bitmap >> 32) as u32;
         state.active_tx &= !bit;
         state.registers[WIFI_MAC_TX_QUEUE_STATE as usize / 4] |= bit;
         state.registers[WIFI_MAC_INTERRUPT_EVENT as usize / 4] |= WIFI_MAC_EVENT_TX_DONE;
