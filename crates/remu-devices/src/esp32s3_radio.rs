@@ -37,6 +37,11 @@ const WIFI_MAC_TX_QUEUE_CONTROL_LOW: u64 = 0x0cd0;
 const WIFI_MAC_TX_QUEUE_ENABLE: u32 = 3 << 30;
 const WIFI_MAC_TX_QUEUE_STATE_CLEAR: u64 = 0x0cac;
 const WIFI_MAC_TX_QUEUE_STATE: u64 = 0x0cb0;
+const WIFI_MAC_TX_QUEUE_TIMEOUT_HIGH: u64 = 0x0d04;
+const WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE: u64 = 0x08;
+const WIFI_MAC_TX_QUEUE_COMPLETION_HIGH: u64 = 0x1320;
+const WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE: u64 = 0x4c;
+const WIFI_MAC_TX_QUEUE_COMPLETION_STATUS: u32 = 0xf << 12;
 const WIFI_MAC_CURRENT_TIME: u64 = 0x2000;
 const WIFI_MAC_TSF_LATCH_CONTROL: u64 = 0x200c;
 const WIFI_MAC_TSF_HIGH: u64 = 0x2018;
@@ -541,6 +546,7 @@ struct Esp32S3WifiMacState {
     registers: Vec<u32>,
     random_state: u32,
     pending_tx: VecDeque<Esp32S3WifiTxDescriptor>,
+    active_tx: u32,
     rx_descriptor: Option<u32>,
 }
 
@@ -549,6 +555,7 @@ impl Esp32S3WifiMacState {
         self.registers.fill(0);
         self.random_state = WIFI_MAC_RANDOM_SEED;
         self.pending_tx.clear();
+        self.active_tx = 0;
         self.rx_descriptor = None;
     }
 
@@ -600,6 +607,45 @@ impl Esp32S3WifiMacHandle {
             .expect("ESP32-S3 Wi-Fi MAC lock poisoned")
             .pending_tx
             .pop_front()
+    }
+
+    /// Returns the firmware-programmed twelve-bit ACK timeout for a queue.
+    pub fn tx_ack_timeout(&self, queue: u8) -> u16 {
+        let state = self.state.lock().expect("ESP32-S3 Wi-Fi MAC lock poisoned");
+        let offset = WIFI_MAC_TX_QUEUE_TIMEOUT_HIGH
+            .saturating_sub(u64::from(queue) * WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE);
+        state
+            .registers
+            .get(offset as usize / 4)
+            .copied()
+            .unwrap_or_default() as u16
+            & 0x0fff
+    }
+
+    /// Whether a queue has been kicked but has not yet received a completion.
+    pub fn tx_active(&self, queue: u8) -> bool {
+        let state = self.state.lock().expect("ESP32-S3 Wi-Fi MAC lock poisoned");
+        state.active_tx & (1 << queue) != 0
+    }
+
+    /// Publishes one native completion record and raises the TX interrupt.
+    pub fn complete_tx(&self, queue: u8, outcome: crate::EspWifiTxOutcome) -> bool {
+        let mut state = self.state.lock().expect("ESP32-S3 Wi-Fi MAC lock poisoned");
+        let bit = 1_u32 << queue;
+        if state.active_tx & bit == 0 {
+            return false;
+        }
+        let offset = WIFI_MAC_TX_QUEUE_COMPLETION_HIGH
+            .saturating_sub(u64::from(queue) * WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE);
+        let Some(completion) = state.registers.get_mut(offset as usize / 4) else {
+            return false;
+        };
+        *completion =
+            (*completion & !WIFI_MAC_TX_QUEUE_COMPLETION_STATUS) | (outcome.status() << 12);
+        state.active_tx &= !bit;
+        state.registers[WIFI_MAC_TX_QUEUE_STATE as usize / 4] |= bit;
+        state.registers[WIFI_MAC_INTERRUPT_EVENT as usize / 4] |= WIFI_MAC_EVENT_TX_DONE;
+        true
     }
 
     /// Returns the current firmware-provided receive descriptor, if armed.
@@ -686,6 +732,7 @@ impl Esp32S3WifiMacRegisters {
                 registers: vec![0; 0x3000 / 4],
                 random_state: WIFI_MAC_RANDOM_SEED,
                 pending_tx: VecDeque::new(),
+                active_tx: 0,
                 rx_descriptor: None,
             })),
         }
@@ -762,17 +809,22 @@ impl Device for Esp32S3WifiMacRegisters {
             && value & WIFI_MAC_TX_QUEUE_ENABLE == WIFI_MAC_TX_QUEUE_ENABLE
         {
             let queue = (WIFI_MAC_TX_QUEUE_CONTROL_HIGH - offset) / 8;
-            if queue < 4 {
-                state.registers[WIFI_MAC_TX_QUEUE_STATE as usize / 4] |= 1 << queue;
+            let bit = 1_u32 << queue;
+            if state.active_tx & bit != 0
+                || state.registers[WIFI_MAC_TX_QUEUE_STATE as usize / 4] & bit != 0
+            {
+                return Err(DeviceError::new(format!(
+                    "ESP32-S3 Wi-Fi queue {queue} was kicked before its previous completion was cleared"
+                )));
             }
             let descriptor = 0x3fc0_0000 | (value & 0x000f_ffff);
             if descriptor != 0x3fc0_0000 {
+                state.active_tx |= bit;
                 state.pending_tx.push_back(Esp32S3WifiTxDescriptor {
                     queue: queue as u8,
                     address: descriptor,
                 });
             }
-            state.registers[WIFI_MAC_INTERRUPT_EVENT as usize / 4] |= WIFI_MAC_EVENT_TX_DONE;
         }
         Ok(())
     }
@@ -1447,11 +1499,29 @@ mod tests {
                 address: 0x3fc0_5678,
             })
         );
+        assert!(!handle.interrupt_pending());
+        assert_eq!(
+            mac.read(WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        assert!(handle.tx_active(0));
+        assert!(handle.complete_tx(0, crate::EspWifiTxOutcome::AckTimeout));
         assert!(handle.interrupt_pending());
         assert_eq!(
             mac.read(WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
                 .unwrap(),
             1
+        );
+        assert_eq!(
+            mac.read(
+                WIFI_MAC_TX_QUEUE_COMPLETION_HIGH,
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap() as u32
+                & WIFI_MAC_TX_QUEUE_COMPLETION_STATUS,
+            5 << 12
         );
         assert_ne!(
             mac.read(WIFI_MAC_INTERRUPT_EVENT, AccessWidth::Word, SimTime::ZERO)

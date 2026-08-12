@@ -587,6 +587,7 @@ impl XtensaMachine {
         let reset_generation = self.syscon.radio_reset_generation();
         if reset_generation != self.radio_reset_generation {
             self.reset_coexistence()?;
+            self.pending_native_wifi.clear();
             self.pending_native_ble_transmissions.clear();
             self.pending_native_ble_receptions.clear();
             self.pending_native_ble_slot_completions.clear();
@@ -655,6 +656,7 @@ impl XtensaMachine {
             self.radio_wifi.advance_to(self.now);
         }
         events = events.saturating_add(self.complete_radio_receptions()?);
+        events = events.saturating_add(self.complete_native_wifi_transmissions()?);
         events = events.saturating_add(self.service_native_ble_crypt()?);
         events = events.saturating_add(self.submit_native_wifi_frames()?);
         events = events.saturating_add(self.submit_native_ble_frames()?);
@@ -744,6 +746,17 @@ impl XtensaMachine {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let duration = frame_duration(bytes.len());
+            let end = self
+                .now
+                .checked_add(duration)
+                .map_err(|_| XtensaMachineError::TimeOverflow)?;
+            let pending = crate::native_wifi::PendingNativeWifiTransmission::new(
+                descriptor.queue,
+                &bytes,
+                end,
+                self.wifi_mac.tx_ack_timeout(descriptor.queue),
+            )
+            .ok_or(XtensaMachineError::TimeOverflow)?;
             let decision = self.radio_coexistence.request(CoexistenceRequest {
                 protocol: RadioProtocol::Wifi,
                 start: self.now,
@@ -758,6 +771,19 @@ impl XtensaMachine {
                 ..
             } = decision
             else {
+                self.radio_legality.require(
+                    RadioSubsystem::Wifi,
+                    RadioLegalityRule::CompletionWithoutOperation,
+                    self.wifi_mac.complete_tx(
+                        descriptor.queue,
+                        remu_devices::EspWifiTxOutcome::TransmitError,
+                    ),
+                    self.now,
+                    format!(
+                        "native TX queue {} rejected its RF-arbitration failure completion",
+                        descriptor.queue
+                    ),
+                )?;
                 continue;
             };
             self.apply_coexistence_preemption(preempted)?;
@@ -770,10 +796,7 @@ impl XtensaMachine {
             let transmission = self.radio_medium.transmit(TxRequest {
                 source: EMULATED_NODE,
                 start: self.now,
-                end: self
-                    .now
-                    .checked_add(duration)
-                    .map_err(|_| XtensaMachineError::TimeOverflow)?,
+                end,
                 power_dbm: 0,
                 frame: RadioFrame {
                     protocol: RadioProtocol::Wifi,
@@ -783,10 +806,55 @@ impl XtensaMachine {
                     origin: FrameOrigin::Emulated,
                 },
             })?;
+            if pending.ack_receiver.is_some() {
+                self.radio_medium.tune_receiver(Receiver {
+                    node: EMULATED_NODE,
+                    protocol: RadioProtocol::Wifi,
+                    spectrum: Spectrum::new(2_412_000, 20_000),
+                    sensitivity_dbm: -100,
+                })?;
+            }
+            self.pending_native_wifi.push(pending);
             self.record_coexistence_transmission(grant, transmission);
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
+    }
+
+    fn complete_native_wifi_transmissions(&mut self) -> Result<u64, XtensaMachineError> {
+        let due = self
+            .pending_native_wifi
+            .iter()
+            .copied()
+            .filter(|pending| pending.deadline <= self.now)
+            .collect::<Vec<_>>();
+        for pending in &due {
+            self.radio_legality.require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::CompletionWithoutOperation,
+                self.wifi_mac.tx_active(pending.queue),
+                self.now,
+                format!(
+                    "native TX queue {} reached its completion deadline without an active hardware operation",
+                    pending.queue
+                ),
+            )?;
+            let outcome = if pending.ack_receiver.is_some() {
+                remu_devices::EspWifiTxOutcome::AckTimeout
+            } else {
+                remu_devices::EspWifiTxOutcome::Success
+            };
+            self.radio_legality.require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::CompletionWithoutOperation,
+                self.wifi_mac.complete_tx(pending.queue, outcome),
+                self.now,
+                format!("native TX queue {} rejected its completion", pending.queue),
+            )?;
+        }
+        self.pending_native_wifi
+            .retain(|pending| pending.deadline > self.now);
+        Ok(due.len() as u64)
     }
 
     fn complete_radio_receptions(&mut self) -> Result<u64, XtensaMachineError> {
@@ -829,6 +897,35 @@ impl XtensaMachine {
         for (frame, signal_dbm, received_at) in deliveries {
             match frame.protocol {
                 RadioProtocol::Wifi => {
+                    if let Some(index) = self
+                        .pending_native_wifi
+                        .iter()
+                        .position(|pending| pending.accepts_ack(&frame.bytes, received_at))
+                    {
+                        let pending = self.pending_native_wifi.remove(index);
+                        self.radio_legality.require(
+                            RadioSubsystem::Wifi,
+                            RadioLegalityRule::CompletionWithoutOperation,
+                            self.wifi_mac.tx_active(pending.queue),
+                            self.now,
+                            format!("ACK arrived for inactive native TX queue {}", pending.queue),
+                        )?;
+                        self.radio_legality.require(
+                            RadioSubsystem::Wifi,
+                            RadioLegalityRule::CompletionWithoutOperation,
+                            self.wifi_mac.complete_tx(
+                                pending.queue,
+                                remu_devices::EspWifiTxOutcome::Success,
+                            ),
+                            self.now,
+                            format!(
+                                "native TX queue {} rejected its ACK completion",
+                                pending.queue
+                            ),
+                        )?;
+                        completed = completed.saturating_add(1);
+                        continue;
+                    }
                     let wifi_mac = self.wifi_mac.clone();
                     let native = self.write_native_wifi_rx(&wifi_mac, &frame.bytes);
                     if self.syscon.wifi_ready() && self.radio_wifi.receive(&frame).unwrap_or(false)

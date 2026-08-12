@@ -80,6 +80,7 @@ run_vendor_coexistence()
         --esp-app-image "$flash" \
         --max-instructions "$minimum_instructions" \
         --radio-input "$radio_input" \
+        --radio-script qualification/radio/wifi-ack-peer.star \
         --radio-replay "$replay" \
         --result "$result" \
         "$@"
@@ -111,12 +112,19 @@ jq -e \
     [ $events[] |
         select(.event == "submitted" and
                .request.frame.origin == "emulated") ] as $emitted |
+    any($events[];
+        .event == "submitted" and
+        .request.frame.protocol == "wifi" and
+        .request.frame.origin == "host-injection" and
+        .request.frame.bytes[0:2] == [212, 0]) and
     ([ $events[] |
         select(.event == "submitted" and
-               .request.frame.origin == "host-injection") ] | length) == $expected_host and
+               .request.frame.origin == "host-injection" and
+               .request.frame.bytes[0:2] != [212, 0]) ] | length) == $expected_host and
     ([ $events[] |
         select(.event == "submitted" and
-               .request.frame.origin == "host-injection") |
+               .request.frame.origin == "host-injection" and
+               .request.frame.bytes[0:2] != [212, 0]) |
         . as $submitted |
         select(any($events[];
             .event == "reception" and
@@ -201,6 +209,8 @@ jq -n \
             real_rom_required: true,
             symbol_dispatch_allowed: false,
             deterministic_replay_required: true,
+            native_wifi_ack_completion_required: true,
+            firmware_owned_wifi_retry_required: true,
             minimum_instructions: $minimum_instructions
         },
         evidence: {
@@ -210,6 +220,7 @@ jq -n \
             flash_sha256: $flash_sha256,
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
+            native_wifi_ack_peer_observed: true,
             firmware_reset_boundaries: $reset_events,
             wifi_ble_coexistence_owned: true,
             native_softap_and_ble_rx: true

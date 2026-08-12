@@ -14,6 +14,7 @@ mod m5sticks3;
 mod m5sticks3_firmware;
 mod mcs51_mcu;
 mod msp430_mcu;
+mod native_wifi;
 mod pic16_mcu;
 mod radio_rom;
 mod riscv;

@@ -536,7 +536,7 @@
       "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
       "license": "Apache-2.0",
       "content_sha256": "f7119149957cac6057a8fb5fc351691df571a26d50540a769040c95e9bbb438f",
-      "use": "ESP32-C6 vendor Wi-Fi MAC archive symbol/import compatibility inventory"
+      "use": "ESP32-C6 vendor Wi-Fi MAC archive offline disassembly: native TX completion register layout, status 0 success/status 4 transmit-error/status 5 ACK-timeout dispatch, and firmware-owned retry resubmission"
     },
     {
       "id": "esp32-wifi-lib-c6-pp",
@@ -556,7 +556,7 @@
       "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
       "license": "Apache-2.0",
       "content_sha256": "cdb95973284cea46a7742224662a0cdc3f4c07dbca769012960d0218c8d2856d",
-      "use": "ESP32-S3 vendor Wi-Fi MAC archive symbol/import compatibility inventory"
+      "use": "ESP32-S3 vendor Wi-Fi MAC archive offline disassembly: native TX completion register layout, status 0 success/status 4 transmit-error/status 5 ACK-timeout dispatch, and firmware-owned retry resubmission"
     },
     {
       "id": "esp32-wifi-lib-s3-pp",

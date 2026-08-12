@@ -250,8 +250,12 @@ hardware contracts; they do not need to duplicate every vendor-stack behavior.
 The presence of a functional host API is not treated as vendor-firmware
 compatibility. The definition of done still requires pinned, unmodified
 ESP-IDF applications to initialize through their real controller/ROM/shared
-memory ABI. Wi-Fi still needs ACK/retry, fragmentation/aggregation, hardware
-crypto, and C6 HE/TWT acceptance. BLE still needs the remaining chip-specific
+memory ABI. Native C6 and S3 Wi-Fi now delay TX completion through airtime,
+accept matching 802.11 ACK control frames, publish vendor status 0 on success
+or status 5 at the firmware-programmed timeout, publish status 4 when shared-RF
+arbitration rejects the attempt, and leave retry resubmission to the genuine
+guest LMAC. Wi-Fi still needs fragmentation/aggregation, hardware
+crypto, RTS/CTS, block ACK, and C6 HE/TWT acceptance. BLE still needs the remaining chip-specific
 controller transport, adaptive hopping, and privacy list behavior.
 The genuine OpenThread radio build now passes raw TX/RX, native CCM* transmit
 security, source matching, energy scan, and sleep/wake through the native C6

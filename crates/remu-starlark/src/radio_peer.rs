@@ -387,6 +387,56 @@ def on_event(event, state):
     }
 
     #[test]
+    fn shared_wifi_ack_peer_script_compiles() {
+        let peer = StarlarkRadioPeer::new(
+            "wifi-ack-peer.star",
+            include_str!("../../../qualification/radio/wifi-ack-peer.star"),
+            false,
+        )
+        .unwrap();
+        let mut medium = RadioMedium::new(MediumProfile::default()).unwrap();
+        medium.set_peer(Box::new(peer));
+        let transmitter = [0x02, 1, 2, 3, 4, 5];
+        let mut bytes = vec![0x08, 0, 0, 0];
+        bytes.extend_from_slice(&[0x02, 6, 7, 8, 9, 10]);
+        bytes.extend_from_slice(&transmitter);
+        bytes.extend_from_slice(&[0; 8]);
+        medium
+            .transmit(TxRequest {
+                source: NodeId(1),
+                start: SimTime::from_ticks(100),
+                end: SimTime::from_ticks(200),
+                power_dbm: 0,
+                frame: RadioFrame {
+                    protocol: RadioProtocol::Wifi,
+                    spectrum: Spectrum::new(2_412_000, 20_000),
+                    phy: "wifi-ht20".to_owned(),
+                    bytes,
+                    origin: FrameOrigin::Emulated,
+                },
+            })
+            .unwrap();
+        let ack = medium
+            .events()
+            .iter()
+            .filter_map(|event| match event {
+                remu_radio::MediumEvent::Submitted { request, .. }
+                    if request.frame.origin == FrameOrigin::HostInjection =>
+                {
+                    Some(request)
+                }
+                _ => None,
+            })
+            .next()
+            .expect("Starlark peer must emit an ACK");
+        assert_eq!(ack.start, SimTime::from_ticks(216));
+        assert_eq!(
+            ack.frame.bytes,
+            [vec![0xd4, 0, 0, 0], transmitter.to_vec()].concat()
+        );
+    }
+
+    #[test]
     fn callback_errors_are_hard_medium_errors() {
         let peer = StarlarkRadioPeer::new(
             "bad.star",

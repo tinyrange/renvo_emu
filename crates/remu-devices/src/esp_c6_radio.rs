@@ -882,10 +882,16 @@ const C6_WIFI_MAC_TX_QUEUE_STATE: u64 = 0xcb8;
 const C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH: u64 = 0xd6c;
 const C6_WIFI_MAC_TX_QUEUE_CONTROL_LOW: u64 = 0xd1c;
 const C6_WIFI_MAC_TX_QUEUE_ENABLE: u32 = 3 << 30;
+const C6_WIFI_MAC_TX_QUEUE_TIMEOUT_HIGH: u64 = 0xd68;
+const C6_WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE: u64 = 0x10;
+const C6_WIFI_MAC_TX_QUEUE_COMPLETION_HIGH: u64 = 0x14ec;
+const C6_WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE: u64 = 0x74;
+const C6_WIFI_MAC_TX_QUEUE_COMPLETION_STATUS: u32 = 0xf << 12;
 
 struct EspC6WifiMacState {
     registers: Vec<u32>,
     pending_tx: VecDeque<EspC6WifiTxDescriptor>,
+    active_tx: u32,
     rx_descriptor: Option<u32>,
 }
 
@@ -893,6 +899,7 @@ impl EspC6WifiMacState {
     fn reset(&mut self) {
         self.registers.fill(0);
         self.pending_tx.clear();
+        self.active_tx = 0;
         self.rx_descriptor = None;
     }
 }
@@ -935,6 +942,45 @@ impl EspC6WifiMacHandle {
             .expect("ESP32-C6 Wi-Fi MAC lock poisoned")
             .pending_tx
             .pop_front()
+    }
+
+    /// Returns the firmware-programmed twelve-bit ACK timeout for a queue.
+    pub fn tx_ack_timeout(&self, queue: u8) -> u16 {
+        let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        let offset = C6_WIFI_MAC_TX_QUEUE_TIMEOUT_HIGH
+            .saturating_sub(u64::from(queue) * C6_WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE);
+        state
+            .registers
+            .get(offset as usize / 4)
+            .copied()
+            .unwrap_or_default() as u16
+            & 0x0fff
+    }
+
+    /// Whether a queue has been kicked but has not yet received a completion.
+    pub fn tx_active(&self, queue: u8) -> bool {
+        let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        state.active_tx & (1 << queue) != 0
+    }
+
+    /// Publishes one native completion record and raises the TX interrupt.
+    pub fn complete_tx(&self, queue: u8, outcome: crate::EspWifiTxOutcome) -> bool {
+        let mut state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        let bit = 1_u32 << queue;
+        if state.active_tx & bit == 0 {
+            return false;
+        }
+        let offset = C6_WIFI_MAC_TX_QUEUE_COMPLETION_HIGH
+            .saturating_sub(u64::from(queue) * C6_WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE);
+        let Some(completion) = state.registers.get_mut(offset as usize / 4) else {
+            return false;
+        };
+        *completion =
+            (*completion & !C6_WIFI_MAC_TX_QUEUE_COMPLETION_STATUS) | (outcome.status() << 12);
+        state.active_tx &= !bit;
+        state.registers[C6_WIFI_MAC_TX_QUEUE_STATE as usize / 4] |= bit;
+        state.registers[C6_WIFI_MAC_INTERRUPT_EVENT as usize / 4] |= C6_WIFI_MAC_EVENT_TX_DONE;
+        true
     }
 
     /// Returns the current firmware-provided receive descriptor, if armed.
@@ -1019,6 +1065,7 @@ impl EspC6WifiMacRegisters {
             state: Arc::new(Mutex::new(EspC6WifiMacState {
                 registers: vec![0; 0x3000 / 4],
                 pending_tx: VecDeque::new(),
+                active_tx: 0,
                 rx_descriptor: None,
             })),
         }
@@ -1090,15 +1137,22 @@ impl Device for EspC6WifiMacRegisters {
         if let Some(queue) = Self::tx_queue(offset)
             && value & C6_WIFI_MAC_TX_QUEUE_ENABLE == C6_WIFI_MAC_TX_QUEUE_ENABLE
         {
-            state.registers[C6_WIFI_MAC_TX_QUEUE_STATE as usize / 4] |= 1 << queue;
+            let bit = 1_u32 << queue;
+            if state.active_tx & bit != 0
+                || state.registers[C6_WIFI_MAC_TX_QUEUE_STATE as usize / 4] & bit != 0
+            {
+                return Err(DeviceError::new(format!(
+                    "ESP32-C6 Wi-Fi queue {queue} was kicked before its previous completion was cleared"
+                )));
+            }
             let descriptor = 0x4080_0000 | (value & 0x000f_ffff);
             if descriptor != 0x4080_0000 {
+                state.active_tx |= bit;
                 state.pending_tx.push_back(EspC6WifiTxDescriptor {
                     queue,
                     address: descriptor,
                 });
             }
-            state.registers[C6_WIFI_MAC_INTERRUPT_EVENT as usize / 4] |= C6_WIFI_MAC_EVENT_TX_DONE;
         }
         Ok(())
     }

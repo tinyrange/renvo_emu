@@ -78,6 +78,7 @@ run_vendor_wifi()
         --esp-app-image "$flash" \
         --max-instructions "$minimum_instructions" \
         --radio-input "$radio_input" \
+        --radio-script qualification/radio/wifi-ack-peer.star \
         --radio-replay "$replay" \
         --result "$result" \
         "$@"
@@ -213,10 +214,16 @@ jq -e \
         .request.frame.bytes[0:2] == [0, 0] and
         .request.frame.bytes[4:10] == [2, 82, 69, 77, 85, 1] and
         .request.frame.bytes[10:16] == $station) and
+    any($events[];
+        .event == "submitted" and
+        .request.frame.protocol == "wifi" and
+        .request.frame.origin == "host-injection" and
+        .request.frame.bytes[0:2] == [212, 0]) and
     ([ $events[] |
         select(.event == "submitted" and
                .request.frame.protocol == "wifi" and
-               .request.frame.origin == "host-injection") |
+               .request.frame.origin == "host-injection" and
+               .request.frame.bytes[0:2] != [212, 0]) |
         . as $submitted |
         select(any($events[];
             .event == "reception" and
@@ -296,6 +303,8 @@ jq -n \
             requires_vendor_station_association: true,
             requires_open_system_authentication: true,
             requires_association_response: true,
+            requires_native_wifi_ack_completion: true,
+            firmware_owns_wifi_retry: true,
             excludes_hardware_fcs_from_replay_frames: true,
             deterministic_replay_required: true,
             minimum_wifi_tx_frames: $minimum_wifi_tx_frames,
@@ -312,6 +321,7 @@ jq -n \
             calibration_completion_paths: true,
             vendor_scan_count: $vendor_scan_count,
             vendor_station_connected: true,
+            native_wifi_ack_peer_observed: true,
             deterministic_replay: true
         }
     }' >"$chip_root/summary.json"

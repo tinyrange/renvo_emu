@@ -793,6 +793,9 @@ impl RiscVMachine {
         if reset_changed.iter().any(|changed| *changed) {
             self.reset_coexistence()?;
         }
+        if reset_changed[0] {
+            self.radio_pending_native_wifi.clear();
+        }
         if self
             .radio_coexistence
             .as_ref()
@@ -904,6 +907,7 @@ impl RiscVMachine {
             &wifi_mac,
             &ble_baseband,
         )?);
+        events = events.saturating_add(self.complete_native_wifi_transmissions(&wifi_mac)?);
         if self
             .radio_pending_ieee802154_cca
             .is_some_and(|at| at <= self.now)
@@ -1189,6 +1193,17 @@ impl RiscVMachine {
                 )?;
             let bytes = self.radio_read_guest_bytes(buffer.wrapping_add(8), length)?;
             let duration = frame_duration(bytes.len());
+            let end = self
+                .now
+                .checked_add(duration)
+                .map_err(|_| MachineError::TimeOverflow)?;
+            let pending = crate::native_wifi::PendingNativeWifiTransmission::new(
+                descriptor.queue,
+                &bytes,
+                end,
+                wifi_mac.tx_ack_timeout(descriptor.queue),
+            )
+            .ok_or(MachineError::TimeOverflow)?;
             let decision = self
                 .radio_coexistence
                 .as_mut()
@@ -1207,6 +1222,22 @@ impl RiscVMachine {
                 ..
             } = decision
             else {
+                self.radio_legality
+                    .as_mut()
+                    .expect("ESP32-C6 machine has a radio legality validator")
+                    .require(
+                        RadioSubsystem::Wifi,
+                        RadioLegalityRule::CompletionWithoutOperation,
+                        wifi_mac.complete_tx(
+                            descriptor.queue,
+                            remu_devices::EspWifiTxOutcome::TransmitError,
+                        ),
+                        self.now,
+                        format!(
+                            "native TX queue {} rejected its RF-arbitration failure completion",
+                            descriptor.queue
+                        ),
+                    )?;
                 continue;
             };
             self.apply_coexistence_preemption(preempted)?;
@@ -1226,10 +1257,7 @@ impl RiscVMachine {
                 .transmit(TxRequest {
                     source: EMULATED_NODE,
                     start: self.now,
-                    end: self
-                        .now
-                        .checked_add(duration)
-                        .map_err(|_| MachineError::TimeOverflow)?,
+                    end,
                     power_dbm: 0,
                     frame: RadioFrame {
                         protocol: RadioProtocol::Wifi,
@@ -1239,10 +1267,67 @@ impl RiscVMachine {
                         origin: FrameOrigin::Emulated,
                     },
                 })?;
+            if pending.ack_receiver.is_some() {
+                self.radio_medium
+                    .as_mut()
+                    .expect("ESP32-C6 machine has a radio medium")
+                    .tune_receiver(Receiver {
+                        node: EMULATED_NODE,
+                        protocol: RadioProtocol::Wifi,
+                        spectrum: Spectrum::new(2_412_000, 20_000),
+                        sensitivity_dbm: -100,
+                    })?;
+            }
+            self.radio_pending_native_wifi.push(pending);
             self.record_coexistence_transmission(grant, transmission);
             submitted = submitted.saturating_add(1);
         }
         Ok(submitted)
+    }
+
+    fn complete_native_wifi_transmissions(
+        &mut self,
+        wifi_mac: &remu_devices::EspC6WifiMacHandle,
+    ) -> Result<u64, MachineError> {
+        let due = self
+            .radio_pending_native_wifi
+            .iter()
+            .copied()
+            .filter(|pending| pending.deadline <= self.now)
+            .collect::<Vec<_>>();
+        for pending in &due {
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .require(
+                    RadioSubsystem::Wifi,
+                    RadioLegalityRule::CompletionWithoutOperation,
+                    wifi_mac.tx_active(pending.queue),
+                    self.now,
+                    format!(
+                        "native TX queue {} reached its completion deadline without an active hardware operation",
+                        pending.queue
+                    ),
+                )?;
+            let outcome = if pending.ack_receiver.is_some() {
+                remu_devices::EspWifiTxOutcome::AckTimeout
+            } else {
+                remu_devices::EspWifiTxOutcome::Success
+            };
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .require(
+                    RadioSubsystem::Wifi,
+                    RadioLegalityRule::CompletionWithoutOperation,
+                    wifi_mac.complete_tx(pending.queue, outcome),
+                    self.now,
+                    format!("native TX queue {} rejected its completion", pending.queue),
+                )?;
+        }
+        self.radio_pending_native_wifi
+            .retain(|pending| pending.deadline > self.now);
+        Ok(due.len() as u64)
     }
 
     fn complete_ieee802154_cca_tx(

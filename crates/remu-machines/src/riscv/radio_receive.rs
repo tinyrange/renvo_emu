@@ -85,6 +85,7 @@ impl RiscVMachine {
                     } if candidate_id == id => Some((
                         request.frame.clone(),
                         medium.received_power_dbm(request.source, EMULATED_NODE, request.power_dbm),
+                        request.start,
                     )),
                     _ => None,
                 });
@@ -94,7 +95,7 @@ impl RiscVMachine {
         let mut completed = 0_u64;
         for (outcome, transmission) in deliveries {
             match (outcome, transmission) {
-                (DeliveryOutcome::Delivered, Some((frame, received_power_dbm)))
+                (DeliveryOutcome::Delivered, Some((frame, received_power_dbm, _)))
                     if frame.protocol == RadioProtocol::Ieee802154 && handle.receiving() =>
                 {
                     if let Some(sequence) = handle.awaiting_ack_sequence() {
@@ -152,9 +153,47 @@ impl RiscVMachine {
                         }
                     }
                 }
-                (DeliveryOutcome::Delivered, Some((frame, _)))
+                (DeliveryOutcome::Delivered, Some((frame, _, received_at)))
                     if frame.protocol == RadioProtocol::Wifi =>
                 {
+                    if let Some(index) = self
+                        .radio_pending_native_wifi
+                        .iter()
+                        .position(|pending| pending.accepts_ack(&frame.bytes, received_at))
+                    {
+                        let pending = self.radio_pending_native_wifi.remove(index);
+                        self.radio_legality
+                            .as_mut()
+                            .expect("ESP32-C6 machine has a radio legality validator")
+                            .require(
+                                RadioSubsystem::Wifi,
+                                RadioLegalityRule::CompletionWithoutOperation,
+                                wifi_mac.tx_active(pending.queue),
+                                self.now,
+                                format!(
+                                    "ACK arrived for inactive native TX queue {}",
+                                    pending.queue
+                                ),
+                            )?;
+                        self.radio_legality
+                            .as_mut()
+                            .expect("ESP32-C6 machine has a radio legality validator")
+                            .require(
+                                RadioSubsystem::Wifi,
+                                RadioLegalityRule::CompletionWithoutOperation,
+                                wifi_mac.complete_tx(
+                                    pending.queue,
+                                    remu_devices::EspWifiTxOutcome::Success,
+                                ),
+                                self.now,
+                                format!(
+                                    "native TX queue {} rejected its ACK completion",
+                                    pending.queue
+                                ),
+                            )?;
+                        completed = completed.saturating_add(1);
+                        continue;
+                    }
                     let native = self.write_native_wifi_rx(wifi_mac, &frame.bytes)?;
                     if self
                         .esp32c6_peripherals
@@ -172,7 +211,7 @@ impl RiscVMachine {
                         completed = completed.saturating_add(1);
                     }
                 }
-                (DeliveryOutcome::Delivered, Some((frame, signal_dbm)))
+                (DeliveryOutcome::Delivered, Some((frame, signal_dbm, _)))
                     if frame.protocol == RadioProtocol::BluetoothLe =>
                 {
                     let native = self.write_native_ble_rx(ble_baseband, &frame, signal_dbm)?;
@@ -192,7 +231,7 @@ impl RiscVMachine {
                 }
                 (
                     DeliveryOutcome::Collision { .. } | DeliveryOutcome::SeededLoss,
-                    Some((frame, _)),
+                    Some((frame, _, _)),
                 ) if frame.protocol == RadioProtocol::Ieee802154 => {
                     let awaiting_ack = handle.awaiting_ack_sequence().is_some();
                     handle.abort(false, 3);

@@ -833,11 +833,29 @@ mod tests {
                 address: 0x4080_1234,
             })
         );
+        assert!(!handle.interrupt_pending());
+        assert_eq!(
+            mac.read(C6_WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+        assert!(handle.tx_active(0));
+        assert!(handle.complete_tx(0, crate::EspWifiTxOutcome::AckTimeout));
         assert!(handle.interrupt_pending());
         assert_eq!(
             mac.read(C6_WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
                 .unwrap(),
             1
+        );
+        assert_eq!(
+            mac.read(
+                C6_WIFI_MAC_TX_QUEUE_COMPLETION_HIGH,
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap() as u32
+                & C6_WIFI_MAC_TX_QUEUE_COMPLETION_STATUS,
+            5 << 12
         );
         mac.write(
             C6_WIFI_MAC_INTERRUPT_CLEAR,
