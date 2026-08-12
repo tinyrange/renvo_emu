@@ -539,6 +539,26 @@
       "use": "Pinned public 802.11ax protocol bit and station PHY-mode definitions for C6 HE acceptance"
     },
     {
+      "id": "esp-idf-wpa-supplicant-license",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/wpa_supplicant/README",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "BSD-3-Clause",
+      "content_sha256": "17ccbcf4b17a910795292fb4a95f4742d2ecda37d06fcf20d60ffbd70cfbc609",
+      "use": "Pre-read license gate for the pinned wpa_supplicant CCMP framing reference"
+    },
+    {
+      "id": "esp-idf-wpa-supplicant-ccmp",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/wpa_supplicant/src/crypto/ccmp.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "BSD-3-Clause",
+      "content_sha256": "01296aa4c5b571fb003949b6da84d233b4c88b1b0c7beb2a896e860a6a680222",
+      "use": "CCMP header, AAD, nonce, PN byte order, eight-byte MIC, QoS priority, address-four, and protected-frame format used to qualify the original native AES-CCM implementation"
+    },
+    {
       "id": "esp32-wifi-lib-readme",
       "kind": "documentation",
       "url": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/README.rst",

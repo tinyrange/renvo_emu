@@ -37,5 +37,5 @@ pub use types::{
 };
 pub use wifi::{
     MacAddress, WifiEngine, WifiError, WifiEvent, WifiMode, WifiNetwork, WifiSecurity,
-    WifiStationState,
+    WifiStationState, protect_native_ccmp_frame, unprotect_native_ccmp_frame,
 };

@@ -2,7 +2,8 @@ use anyhow::{Context, Result, bail};
 use remu_core::SimTime;
 use remu_radio::{
     ExtendedAddress, FrameOrigin, Ieee802154Mac, NodeId, RadioFrame, RadioPeer, RadioProtocol,
-    SecurityMaterial, Spectrum, TransmissionId, TxRequest,
+    SecurityMaterial, Spectrum, TransmissionId, TxRequest, protect_native_ccmp_frame,
+    unprotect_native_ccmp_frame,
 };
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
@@ -228,6 +229,28 @@ fn radio_peer_globals(builder: &mut GlobalsBuilder) {
         )?;
         Ok(json!(payload))
     }
+
+    /// Applies native Wi-Fi CCMP to a preformatted protected frame.
+    fn wifi_ccmp_protect<'v>(
+        #[starlark(require = pos)] frame: Value<'v>,
+        #[starlark(require = pos)] key: Value<'v>,
+    ) -> anyhow::Result<JsonValue> {
+        let mut frame = json_bytes(frame, "wifi_ccmp_protect frame")?;
+        let key = fixed_bytes::<16>(key, "wifi_ccmp_protect key")?;
+        protect_native_ccmp_frame(&key, &mut frame)?;
+        Ok(json!(frame))
+    }
+
+    /// Authenticates and decrypts a preformatted native Wi-Fi CCMP frame.
+    fn wifi_ccmp_unprotect<'v>(
+        #[starlark(require = pos)] frame: Value<'v>,
+        #[starlark(require = pos)] key: Value<'v>,
+    ) -> anyhow::Result<JsonValue> {
+        let mut frame = json_bytes(frame, "wifi_ccmp_unprotect frame")?;
+        let key = fixed_bytes::<16>(key, "wifi_ccmp_unprotect key")?;
+        unprotect_native_ccmp_frame(&key, &mut frame)?;
+        Ok(json!(frame))
+    }
 }
 
 fn json_bytes(value: Value<'_>, name: &str) -> Result<Vec<u8>> {
@@ -384,6 +407,28 @@ def on_event(event, state):
             false,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn scripted_peer_can_exchange_checked_native_ccmp_frames() {
+        let mut peer = StarlarkRadioPeer::new(
+            "wifi-ccmp-peer.star",
+            r#"
+def on_event(event, state):
+    frame = [0x88, 0x41, 0, 0] + [0x02, 0x52, 0x45, 0x4d, 0x55, 0x01] + [0x02, 0, 0, 0, 0, 1] + [0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee] + [0x30, 0x12, 5, 0] + [1, 2, 0, 0x60, 3, 4, 5, 6] + [104, 101, 108, 108, 111, 32, 67, 67, 77, 80] + [0] * 8
+    protected = wifi_ccmp_protect(frame, [i for i in range(16)])
+    plain = wifi_ccmp_unprotect(protected, [i for i in range(16)])
+    return {"state": {"tag": protected[-8:], "plain": plain[34:44]}}
+"#,
+            false,
+        )
+        .unwrap();
+        assert!(peer.invoke(&json!({"event": "probe"})).unwrap().is_empty());
+        assert_eq!(
+            peer.state()["tag"],
+            json!([47, 30, 155, 153, 225, 57, 201, 1])
+        );
+        assert_eq!(peer.state()["plain"], json!(b"hello CCMP"));
     }
 
     #[test]

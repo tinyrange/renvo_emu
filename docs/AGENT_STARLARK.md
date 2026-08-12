@@ -126,6 +126,9 @@ There are intentionally two radio-facing script modes:
 - A radio peer's `on_event(event, state)` callback only receives immutable RF
   events and can return future peer frames. It cannot access the driver,
   machine, memory, registers, symbols, files, clocks, or host networks.
+  Checked `wifi_ccmp_protect()`/`wifi_ccmp_unprotect()` helpers let that peer
+  exchange preformatted native CCMP frames with firmware; they do not select
+  guest key slots or replace the emulated MAC crypto datapath.
 
 That separation lets an agent control the experiment without accidentally
 turning a virtual peer into a hidden high-level implementation of the guest's

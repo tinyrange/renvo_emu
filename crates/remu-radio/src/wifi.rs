@@ -1,4 +1,10 @@
 use crate::{FrameOrigin, RadioFrame, RadioProtocol, Spectrum};
+use aes::Aes128;
+use ccm::{
+    Ccm,
+    aead::{AeadInOut, KeyInit},
+    consts::{U8, U13},
+};
 use remu_core::SimTime;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
@@ -246,6 +252,136 @@ pub enum WifiError {
     /// Completion named a frame that is not awaiting an ACK result.
     #[error("unknown Wi-Fi transmit sequence {0}")]
     UnknownTransmission(u64),
+    /// A native CCMP frame or header does not satisfy the recovered hardware format.
+    #[error("malformed Wi-Fi CCMP frame")]
+    MalformedCcmpFrame,
+    /// A CCMP authentication tag did not verify under the selected hardware key.
+    #[error("Wi-Fi CCMP authentication failed")]
+    CcmpAuthenticationFailed,
+}
+
+/// Applies AES-CCM to a native, preformatted CCMP transmit frame in place.
+///
+/// Guest net80211 has already set Protected Frame, inserted the eight-byte
+/// CCMP header, and reserved the final eight bytes for the hardware MIC. The
+/// MAC encrypts only the bytes between those regions and replaces the MIC
+/// reservation. This matches the boundary used by C6 and S3 vendor LMAC.
+pub fn protect_native_ccmp_frame(key: &[u8; 16], frame: &mut [u8]) -> Result<(), WifiError> {
+    let (header_length, aad, nonce) = ccmp_aad_nonce(frame)?;
+    let payload_start = header_length + 8;
+    let payload_end = frame
+        .len()
+        .checked_sub(8)
+        .filter(|end| *end >= payload_start)
+        .ok_or(WifiError::MalformedCcmpFrame)?;
+    let cipher = Ccm::<Aes128, U8, U13>::new(key.into());
+    let tag = cipher
+        .encrypt_inout_detached(
+            (&nonce).into(),
+            &aad,
+            (&mut frame[payload_start..payload_end]).into(),
+        )
+        .map_err(|_| WifiError::CcmpAuthenticationFailed)?;
+    frame[payload_end..].copy_from_slice(&tag);
+    Ok(())
+}
+
+/// Authenticates and decrypts a native CCMP receive frame in place.
+pub fn unprotect_native_ccmp_frame(key: &[u8; 16], frame: &mut [u8]) -> Result<(), WifiError> {
+    let (header_length, aad, nonce) = ccmp_aad_nonce(frame)?;
+    let payload_start = header_length + 8;
+    let payload_end = frame
+        .len()
+        .checked_sub(8)
+        .filter(|end| *end >= payload_start)
+        .ok_or(WifiError::MalformedCcmpFrame)?;
+    let tag: [u8; 8] = frame[payload_end..]
+        .try_into()
+        .map_err(|_| WifiError::MalformedCcmpFrame)?;
+    let cipher = Ccm::<Aes128, U8, U13>::new(key.into());
+    cipher
+        .decrypt_inout_detached(
+            (&nonce).into(),
+            &aad,
+            (&mut frame[payload_start..payload_end]).into(),
+            (&tag).into(),
+        )
+        .map_err(|_| WifiError::CcmpAuthenticationFailed)
+}
+
+fn ccmp_aad_nonce(frame: &[u8]) -> Result<(usize, Vec<u8>, [u8; 13]), WifiError> {
+    let frame_control = u16::from_le_bytes(
+        frame
+            .get(..2)
+            .ok_or(WifiError::MalformedCcmpFrame)?
+            .try_into()
+            .expect("checked frame-control width"),
+    );
+    let frame_type = frame_control & 0x000c;
+    if !matches!(frame_type, 0x0000 | 0x0008) || frame_control & 0x4000 == 0 {
+        return Err(WifiError::MalformedCcmpFrame);
+    }
+    let address_four = frame_control & 0x0300 == 0x0300;
+    let qos = frame_type == 0x0008 && frame_control & 0x0080 != 0;
+    let high_throughput_control = qos && frame_control & 0x8000 != 0;
+    let header_length = 24
+        + usize::from(address_four) * 6
+        + usize::from(qos) * 2
+        + usize::from(high_throughput_control) * 4;
+    let ccmp = frame
+        .get(header_length..header_length + 8)
+        .ok_or(WifiError::MalformedCcmpFrame)?;
+    if ccmp[2] != 0 || ccmp[3] & 0x3f != 0x20 {
+        return Err(WifiError::MalformedCcmpFrame);
+    }
+
+    let mut authenticated_control = frame_control;
+    if frame_type == 0x0008 {
+        authenticated_control &= !0x0070;
+        if qos {
+            authenticated_control &= !0x8000;
+        }
+    }
+    authenticated_control &= !(0x0800 | 0x1000 | 0x2000);
+    authenticated_control |= 0x4000;
+
+    let mut aad = Vec::with_capacity(30);
+    aad.extend_from_slice(&authenticated_control.to_le_bytes());
+    aad.extend_from_slice(frame.get(4..22).ok_or(WifiError::MalformedCcmpFrame)?);
+    let sequence_control = u16::from_le_bytes(
+        frame
+            .get(22..24)
+            .ok_or(WifiError::MalformedCcmpFrame)?
+            .try_into()
+            .expect("checked sequence-control width"),
+    ) & 0x000f;
+    aad.extend_from_slice(&sequence_control.to_le_bytes());
+    let mut extension = 24;
+    if address_four {
+        aad.extend_from_slice(
+            frame
+                .get(extension..extension + 6)
+                .ok_or(WifiError::MalformedCcmpFrame)?,
+        );
+        extension += 6;
+    }
+    let priority = if qos {
+        let quality = frame
+            .get(extension..extension + 2)
+            .ok_or(WifiError::MalformedCcmpFrame)?;
+        aad.extend_from_slice(&[quality[0] & 0x0f, 0]);
+        quality[0] & 0x0f
+    } else if frame_type == 0 {
+        0x10
+    } else {
+        0
+    };
+
+    let mut nonce = [0_u8; 13];
+    nonce[0] = priority;
+    nonce[1..7].copy_from_slice(frame.get(10..16).ok_or(WifiError::MalformedCcmpFrame)?);
+    nonce[7..].copy_from_slice(&[ccmp[7], ccmp[6], ccmp[5], ccmp[4], ccmp[1], ccmp[0]]);
+    Ok((header_length, aad, nonce))
 }
 
 #[derive(Clone, Debug)]
@@ -842,6 +978,53 @@ mod tests {
         frame.extend_from_slice(&AP.0);
         frame.extend_from_slice(&[0, 0, 1, 2, 3]);
         frame
+    }
+
+    fn native_ccmp_qos_frame() -> Vec<u8> {
+        let mut frame = vec![0x88, 0x41, 0, 0];
+        frame.extend_from_slice(&[0x02, 0x52, 0x45, 0x4d, 0x55, 0x01]);
+        frame.extend_from_slice(&LOCAL.0);
+        frame.extend_from_slice(&[0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee]);
+        frame.extend_from_slice(&[0x30, 0x12]);
+        frame.extend_from_slice(&[5, 0]);
+        frame.extend_from_slice(&[1, 2, 0, 0x60, 3, 4, 5, 6]);
+        frame.extend_from_slice(b"hello CCMP");
+        frame.extend_from_slice(&[0; 8]);
+        frame
+    }
+
+    #[test]
+    fn native_ccmp_matches_an_independent_aes_ccm_vector_and_round_trips() {
+        let key: [u8; 16] = core::array::from_fn(|index| index as u8);
+        let mut frame = native_ccmp_qos_frame();
+        protect_native_ccmp_frame(&key, &mut frame).unwrap();
+        assert_eq!(
+            hex::encode(&frame),
+            "884100000252454d550102000000000102aabbccddee30120500\
+             010200600304050676080b765c08082ec6e32f1e9b99e139c901"
+                .replace(' ', "")
+        );
+        unprotect_native_ccmp_frame(&key, &mut frame).unwrap();
+        assert_eq!(&frame[34..44], b"hello CCMP");
+    }
+
+    #[test]
+    fn native_ccmp_rejects_bad_mic_and_missing_extended_iv() {
+        let key = [0x55; 16];
+        let mut frame = native_ccmp_qos_frame();
+        protect_native_ccmp_frame(&key, &mut frame).unwrap();
+        *frame.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            unprotect_native_ccmp_frame(&key, &mut frame),
+            Err(WifiError::CcmpAuthenticationFailed)
+        );
+
+        let mut malformed = native_ccmp_qos_frame();
+        malformed[29] &= !0x20;
+        assert_eq!(
+            protect_native_ccmp_frame(&key, &mut malformed),
+            Err(WifiError::MalformedCcmpFrame)
+        );
     }
 
     #[test]
