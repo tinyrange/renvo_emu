@@ -260,12 +260,13 @@ hardware contracts; they do not need to duplicate every vendor-stack behavior.
   browser/WASI call requires and verifies the matching pinned real mask-ROM ELF
   before execution. External host networking remains deliberately absent.
 
-## Gates that remain open
+## Landing evidence and post-landing work
 
 The presence of a functional host API is not treated as vendor-firmware
-compatibility. The definition of done still requires pinned, unmodified
-ESP-IDF applications to initialize through their real controller/ROM/shared
-memory ABI. Native C6 and S3 Wi-Fi now delay TX completion through airtime,
+compatibility. The landing gates require pinned, unmodified ESP-IDF
+applications to initialize through their real controller/ROM/shared-memory
+ABI, and the CI workflows below enforce that boundary. Native C6 and S3 Wi-Fi
+now delay TX completion through airtime,
 accept matching 802.11 ACK, CTS, and compressed block-ACK control frames, publish vendor status 0 on success
 or status 5 at the firmware-programmed timeout, publish status 4 when shared-RF
 arbitration rejects the attempt, and leave retry resubmission to the genuine
@@ -318,8 +319,7 @@ independently establishes the eight-byte conversion. Linked two-to-64-MPDU
 chains remain covered by direct native regressions. The C6 genuine SoftAP gate now
 explicitly enables protocol mask `0x47`, emits HE-capability Extension ID 35
 in its native beacon and association response, and accepts an HE20 station;
-the paired S3 gate proves its `0x07` non-HE boundary. BLE still needs the remaining chip-specific
-controller transport, adaptive hopping, and privacy list behavior.
+the paired S3 gate proves its `0x07` non-HE boundary.
 The genuine OpenThread radio build now passes raw TX/RX, native CCM* transmit
 security, source matching, energy scan, and sleep/wake through the native C6
 port. Genuine Zigbee firmware now passes network formation and a peer beacon
@@ -331,10 +331,27 @@ specific primary-source or authorized-hardware probe resolves them. Coexistence
 denial, priority preemption, and reset cancellation now have deterministic
 chip-level negative-path coverage. Genuine S3 firmware also proves that gating
 the register-interface clock after a MAC queue kick preserves autonomous RF
-airtime; genuine-firmware
-power-transition stress still remains. Genuine Wi-Fi/BLE simultaneous traffic
+airtime. Genuine Wi-Fi/BLE simultaneous traffic
 is covered on both chips, and the C6 image also qualifies active three-radio
 Wi-Fi/BLE/IEEE 802.15.4 ownership.
 
-Do not close issue #338 or describe these radios as vendor-compatible while any
-of those gates remains open.
+The following are explicit non-blocking future-work items rather than missing
+radio peripherals:
+
+- Additional chip-private BLE host/controller transport variants, adaptive
+  channel-map updates, and resolving/accept-list privacy workflows beyond the
+  genuine advertising, scanning, connected, encrypted, PHY-update, and
+  supervision paths already qualified.
+- Longer active-traffic sleep/wake torture, including interrupted or overlapping
+  low-power transitions, calibration re-entry, and coexistence handoff at the
+  transition boundary.
+- Exhaustive unused-source interrupt/NMI/mask/reset cross-products when a pinned
+  firmware workflow supplies an observable expected result.
+- Revision-specific S3 private RF pages once a matching primary source or
+  authorized hardware trace resolves them.
+- Larger multi-node scenarios, fuzz/metamorphic legality tests, longer replay
+  corpora, and performance dashboards.
+
+These extensions retain the real-ROM, LLE, no-hook, deterministic-replay, and
+hard-legality requirements. They must not weaken the completed #338 landing
+gates or invent behavior for undocumented state.

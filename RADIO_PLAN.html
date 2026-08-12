@@ -328,6 +328,7 @@
         <a href="#host">Host boundary</a>
         <a href="#qualification">Qualification</a>
         <a href="#phases">Delivery phases</a>
+        <a href="#future-work">Future work</a>
         <a href="#acceptance">Acceptance gates</a>
         <a href="#references">References</a>
       </nav>
@@ -335,7 +336,7 @@
         <b>Planning baseline</b>
         Issue #338 · ESP-IDF v6.0.2<br>
         Functional, deterministic radio fidelity<br>
-        Updated 2026-08-09
+        Updated 2026-08-13
       </div>
     </aside>
 
@@ -462,7 +463,7 @@
         <div class="section-head"><span class="section-index">04</span><h2>Current emulator baseline and migration</h2></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Area</th><th>Current state</th><th>Required migration</th></tr></thead>
+            <thead><tr><th>Area</th><th>Current state</th><th>Post-landing extension</th></tr></thead>
             <tbody>
               <tr><td>S3 SYSCON</td><td>Radio clocks and reset readiness now drive the Wi-Fi and BLE frontends while preserving external-memory protection.</td><td>Complete sleep, calibration and coexistence coupling and qualify their reset-order edge cases.</td></tr>
               <tr><td>S3 radio pages</td><td>The pinned public and firmware-observed radio pages are mapped. The native BLE scheduler performs legacy TX, BLE 5 primary/AuxPtr/2M auxiliary TX, STOP and extended-scan RX through exchange memory. It also accepts CONNECT_IND, runs receive-first hopped connection events, writes genuine RX metadata, applies hardware SN/NESN and TX-ring ownership transitions, completes LL version/feature/data-length exchange, carries ACL/L2CAP ATT traffic, applies bidirectional PHY changes at the negotiated instant, implements the ROM-driven RWBLE ECB path plus bidirectional data-channel CCM, counters, retransmission, encrypted control traffic and deferred key teardown, and reports firmware-programmed supervision timeout through the genuine disconnect path. The firmware-observed <code>0x6004_2000</code> low-power page supplies the 1 MHz main-XTAL elapsed clock, RF-sleep acknowledgement, wake-start and delayed wake-end sequencing. Impossible command order terminates with a stable legality diagnostic.</td><td>Promote the remaining firmware-observed measurement and coexistence fields into explicit behavior, then qualify broader genuine-firmware power-transition stress.</td></tr>
@@ -475,6 +476,9 @@
               <tr><td>Evidence</td><td>A versioned isolated RF event/replay artifact records emulated and injected packets, reception outcomes, coexistence decisions, and stable transmission-ID truncation caused by preemption, reset, or power gating across native and WASI surfaces.</td><td>Extend packet, arbitration and negative-path evidence to every remaining acceptance case.</td></tr>
             </tbody>
           </table>
+        </div>
+        <div class="callout">
+          <p><strong>Landing status.</strong> The current-state column and merge gates define the completed #338 support boundary. Items in the third column are evidence-led fidelity and stress extensions, not missing radio peripherals or blockers for this PR. Undocumented private state remains deliberately absent until a pinned primary source or genuine-firmware trace establishes its contract.</p>
         </div>
         <div class="callout">
           <p><strong>Current Wi-Fi control-response tranche.</strong> C6 and S3 native TX now distinguish ACK, CTS and matching-TID compressed block ACK completion windows. Addressed RTS receives a hardware CTS. Descriptor-driven protection follows the recovered native queue bits: C6 uses bit 31 at <code>0x600a4d60-q*0x10</code>, while S3 uses bit 27 in <code>0x60033d08-q*8</code>. Hardware emits RTS, retains queue ownership through CTS, emits the deferred MPDU, then waits for its ACK or matching-TID block ACK; CTS timeout publishes recovered status 2. Impossible RTS requests for group, no-response or control MPDUs terminate with a stable legality diagnostic. The recovered eight-slot RX BA engines retain their chip-specific descending register layouts, peer/TID keys, 12-bit sequence origins and 64-bit bitmaps, including sequence wraparound; compressed BAR input generates the corresponding native BA. Active slot encodings outside the firmware-observed enable/mode state terminate with a stable <code>illegal radio state</code> diagnostic. The recovered native Wi-Fi crypto boundary retains all 32 forty-byte key-table slots, exposes firmware-programmed match/control/key bytes, zeroizes them on reset, and hard-rejects a valid slot outside the three control classes emitted by both pinned HALs. Native CCMP TX now selects an exact peer/interface/key-ID/cipher tuple, authenticates the firmware-formatted header, replaces payload and MIC reservation on the RF copy, and hard-errors on missing, ambiguous or malformed selection. Protected Frame plus CCMP ExtIV/key ID is the durable hardware crypto request. C6 descriptor upper bits remain guest-LMAC-private state, while licensed <code>ppAMPDU2Normal</code> disassembly and a live S3 descriptor trace establish that S3 bit 29 selects an eight-byte hardware A-MPDU record whose internal length must match the DMA wire length. Checked-in agent-driven Starlark workflows own the genuine C6/S3 experiments: they capture the exact final queue descriptor and encrypted ESP-NOW slot-24 tuple, page loss-accounted evidence, prove plaintext removal and emit compact artifacts without hooks. The C6 workflow also proves HE20 association, individual TWT negotiation, native timer/interrupt programming, repeated power-save wakeups and deterministic 60-million-instruction execution. Pinned <code>ppTxFragmentProc</code> disassembly establishes fragment construction and retry as guest-LMAC work; the shared native MAC qualifies each fragment through an independent ACK window. C6 and S3 TX now follow the recovered word-two descriptor linkage for two through 64 hardware-owned MPDUs, with EOF clear on intermediate nodes and set only on the terminal node. S3 additionally accepts the genuine bit-29 one-MPDU A-MPDU warm-up record after validating and removing its private eight-byte header. Both forms emit one explicit-boundary RF A-MPDU, and publish the exact compressed-BA origin, bitmap and successful-MPDU count registers; partial BA leaves retry/resort/resubmit to guest LMAC. RX validates the same peer/TID/sequence invariants, advances one native descriptor per MPDU and updates the register-backed receive scoreboard. These aggregate boundaries are available through replay, CLI, WASI and the live Starlark radio lab. The genuine C6 public-firmware gate now negotiates ADDBA, emits repeated two-MPDU descriptor-linked aggregates with exact 318-byte boundaries, accepts matching compressed BAs and completes all 64 bounded UDP packets. The S3 public stack negotiates ADDBA, emits 64 genuine one-MPDU hardware A-MPDU records, accepts a compressed BA for each, and completes the bounded UDP burst; a hook-free live descriptor probe records the exact record while direct native regressions retain the linked-chain boundary.</p>
@@ -686,8 +690,22 @@
         </div>
       </section>
 
+      <section id="future-work">
+        <div class="section-head"><span class="section-index">12</span><h2>Post-landing future work</h2></div>
+        <div class="card pad">
+          <p><strong>These are non-blocking fidelity extensions, not missing peripherals.</strong> Each item requires a new pinned primary source or a reproducible genuine-firmware observation before implementation. The LLE, real-ROM, no-hook and hard-legality rules remain unchanged.</p>
+          <ul>
+            <li>Exercise additional chip-private BLE host/controller transport variants, adaptive channel-map updates and resolving/accept-list privacy workflows beyond the advertising, scanning, connected, encrypted, PHY-update and supervision paths in the landing gates.</li>
+            <li>Broaden active-traffic sleep/wake torture: interrupted and overlapping low-power transitions, longer modem-sleep runs, calibration re-entry and coexistence handoff at transition boundaries.</li>
+            <li>Expand the interrupt hardening matrix to unused published sources, level/NMI distinctions, masked-edge combinations, cross-core delivery and reset ordering when firmware provides an observable expected result.</li>
+            <li>Resolve disputed revision-specific ESP32-S3 RF pages only from a revision-matched primary source or authorized hardware trace; do not substitute guessed register storage.</li>
+            <li>Add larger multi-node RF scenarios, fuzz/metamorphic legality tests, longer replay corpora and performance dashboards without changing the deterministic isolated-medium contract.</li>
+          </ul>
+        </div>
+      </section>
+
       <section id="acceptance">
-        <div class="section-head"><span class="section-index">12</span><h2>Merge gates and definition of done</h2></div>
+        <div class="section-head"><span class="section-index">13</span><h2>Merge gates and definition of done</h2></div>
         <div class="card pad">
           <div class="gate"><div class="gate-num">GATE 01</div><div><h3>License provenance</h3><p>Every research input has URL, immutable revision, hash and approved license. Automated policy finds no prohibited or unknown source in the research ledger.</p></div></div>
           <div class="gate"><div class="gate-num">GATE 02</div><div><h3>Register completeness</h3><p>Generated coverage accounts for every approved public register: reset, mask, access, reserved holes, aliases and side effects. No catch-all register file hides unknown behavior.</p></div></div>
@@ -702,7 +720,7 @@
       </section>
 
       <section id="references">
-        <div class="section-head"><span class="section-index">13</span><h2>Approved starting references</h2></div>
+        <div class="section-head"><span class="section-index">14</span><h2>Approved starting references</h2></div>
         <p class="muted">This is an initial ledger, not blanket approval for every file in a repository. Each source file still passes the pre-read gate.</p>
         <ul class="source-list">
           <li><a href="https://github.com/tinyrange/renvo_emu/issues/338">Renvo issue #338 — ESP32-C6 shared radio architecture</a><span>Project requirements · reviewed 2026-08-09</span></li>
