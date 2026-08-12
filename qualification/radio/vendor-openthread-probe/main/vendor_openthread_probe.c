@@ -246,10 +246,23 @@ void app_main(void)
         return;
     }
 
+    enum { POWER_CYCLES = 16 };
+    unsigned completed_power_cycles = 0;
+    otError sleep_error = OT_ERROR_NONE;
+    otError wake_error = OT_ERROR_NONE;
     esp_openthread_lock_acquire(portMAX_DELAY);
-    error = otLinkRawSleep(instance);
-    otError wake_error = error == OT_ERROR_NONE ? otLinkRawReceive(instance) : error;
+    for (unsigned cycle = 0; cycle < POWER_CYCLES; ++cycle) {
+        sleep_error = otLinkRawSleep(instance);
+        if (sleep_error != OT_ERROR_NONE) {
+            break;
+        }
+        wake_error = otLinkRawReceive(instance);
+        if (wake_error != OT_ERROR_NONE) {
+            break;
+        }
+        ++completed_power_cycles;
+    }
     esp_openthread_lock_release();
-    printf("REMU_VENDOR_OPENTHREAD_SLEEP_WAKE sleep=%d wake=%d\n",
-           (int)error, (int)wake_error);
+    printf("REMU_VENDOR_OPENTHREAD_SLEEP_WAKE cycles=%u sleep=%d wake=%d\n",
+           completed_power_cycles, (int)sleep_error, (int)wake_error);
 }

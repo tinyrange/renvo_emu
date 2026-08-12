@@ -149,7 +149,8 @@ jq -e --slurpfile requirements "$requirements" '
     any($events[]; .kind == "Write" and .address == 1611280384 and .value == 65) and
     any($events[]; .kind == "Write" and .address == 1611280384 and .value == 66) and
     any($events[]; .kind == "Write" and .address == 1611280384 and .value == 68) and
-    any($events[]; .kind == "Write" and .address == 1611280384 and .value == 69) and
+    ([ $events[] | select(.kind == "Write" and .address == 1611280384 and .value == 69) ] | length) >= 16 and
+    ([ $events[] | select(.kind == "Write" and .address == 1611280384 and .value == 66) ] | length) >= 18 and
     any($events[]; .kind == "Read" and .address == 1611280484 and .value == 1) and
     any($events[]; .kind == "Write" and .address == 1611280484 and .value == 1) and
     any($events[]; .kind == "Read" and .address == 1611280484 and .value == 2) and
@@ -206,7 +207,7 @@ jq -n \
             requires_native_transmit_security: true,
             requires_source_matching: true,
             requires_energy_scan: true,
-            requires_sleep_wake: true,
+            requires_sleep_wake_cycles: 16,
             requires_native_interrupt_w1c: true,
             deterministic_replay_required: true,
             symbol_dispatch_allowed: false
@@ -234,7 +235,7 @@ jq -n \
                 secured_tx_psdu_with_fcs: $requirements[0].transmit_security.expected_psdu_with_fcs,
                 vendor_register_writes_observed: true
             },
-            sleep_wake_completed: true,
+            sleep_wake_cycles_completed: 16,
             deterministic_result_replay: true,
             deterministic_rf_replay: true
         }

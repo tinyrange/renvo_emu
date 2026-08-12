@@ -310,6 +310,7 @@ impl EspIeee802154Handle {
     pub fn record_filter_failure(&self) {
         let mut state = self.state.lock().expect("802.15.4 state lock poisoned");
         state.registers[0x80 / 4] = (5 << 4) | 1;
+        state.registers[0x88 / 4] &= !((1 << 9) | 0xf);
         state.registers[0x154 / 4] = state.registers[0x154 / 4].wrapping_add(1);
         state.registers[0x64 / 4] |= IEEE802154_EVENT_RX_ABORT;
     }

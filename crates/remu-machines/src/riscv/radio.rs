@@ -1084,6 +1084,18 @@ impl RiscVMachine {
                     self.radio_pending_ieee802154_ack.clear();
                 }
                 EspIeee802154Command::RxStart | EspIeee802154Command::TestRxStart => {
+                    if !modem.ieee802154_ready() {
+                        ieee802154.abort(false, 24);
+                        continue;
+                    }
+                    self.radio_legality
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio legality validator")
+                        .begin_activity(
+                            RadioSubsystem::Ieee802154,
+                            RadioActivity::Receive,
+                            self.now,
+                        )?;
                     self.radio_medium
                         .as_mut()
                         .expect("ESP32-C6 machine has a radio medium")

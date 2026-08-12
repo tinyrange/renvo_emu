@@ -196,6 +196,13 @@ and RF replay artifacts. This closes the OpenThread-to-native-transmit-security
 peripheral handoff; it does not claim a full Thread network exchange or move
 receive decryption out of the guest stack.
 
+The same real-ROM OpenThread image completes sixteen consecutive public
+raw-link sleep/receive cycles. Its MMIO evidence must contain at least sixteen
+native STOP commands and the matching receiver re-arms, and the whole run must
+replay exactly. Focused chip tests additionally gate both 802.15.4 clocks after
+STOP, prove that RF arriving while asleep cannot touch RX DMA, wake and receive
+successfully, and hard-fail if firmware gates the domain while RX is armed.
+
 The complementary full-stack OpenThread gate uses the default FTD and platform
 key-reference configuration. Native SPI1 user commands erase, program, and
 read the NVS partition; the PSA persistent-key import and an immediate NVS

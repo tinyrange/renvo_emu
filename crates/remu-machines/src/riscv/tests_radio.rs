@@ -937,6 +937,127 @@ fn esp32c6_radio_power_gate_truncates_active_airtime() {
 }
 
 #[test]
+fn esp32c6_ieee802154_stop_clock_gate_wake_and_rearm_replays_exactly() {
+    fn run() -> Vec<u8> {
+        let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+        let rx_address = 0x4080_02c0_u32;
+        for (address, value) in [
+            (0x600a_9804, (1 << 23) | (1 << 24)),
+            (0x600a_3048, 3),
+            (0x600a_3004, 1 << 7),
+            (0x600a_30e0, u64::from(rx_address)),
+            (0x600a_3000, 0x42),
+        ] {
+            machine
+                .bus
+                .write(address, AccessWidth::Word, value, machine.now)
+                .unwrap();
+        }
+        assert_eq!(machine.service_radio().unwrap(), 1);
+
+        // The public raw-link sleep sequence stops the MAC before firmware
+        // gates its APB/MAC clocks.
+        machine
+            .bus
+            .write(0x600a_3000, AccessWidth::Word, 0x45, machine.now)
+            .unwrap();
+        assert_eq!(machine.service_radio().unwrap(), 1);
+        machine
+            .bus
+            .write(0x600a_9804, AccessWidth::Word, 0, machine.now)
+            .unwrap();
+        assert_eq!(machine.service_radio().unwrap(), 0);
+
+        let sleeping_frame = remu_radio::Ieee802154Mac::with_fcs(vec![0x01, 0, 0x31]);
+        machine
+            .inject_radio_frame(
+                remu_radio::RadioProtocol::Ieee802154,
+                remu_radio::Spectrum::new(2_405_000, 2_000),
+                "ieee802154-oqpsk-250k",
+                sleeping_frame.clone(),
+                -40,
+            )
+            .unwrap();
+        machine.now += remu_core::SimDuration::from_ticks(sleeping_frame.len() as u64 * 32);
+        assert_eq!(machine.service_radio().unwrap(), 0);
+        assert_eq!(
+            machine.debug_read_memory(u64::from(rx_address), 6).unwrap(),
+            [0xa5; 6]
+        );
+
+        machine
+            .bus
+            .write(
+                0x600a_9804,
+                AccessWidth::Word,
+                (1 << 23) | (1 << 24),
+                machine.now,
+            )
+            .unwrap();
+        assert_eq!(machine.service_radio().unwrap(), 0);
+        machine
+            .bus
+            .write(0x600a_3000, AccessWidth::Word, 0x42, machine.now)
+            .unwrap();
+        assert_eq!(machine.service_radio().unwrap(), 1);
+
+        let wake_frame = remu_radio::Ieee802154Mac::with_fcs(vec![0x01, 0, 0x32]);
+        machine
+            .inject_radio_frame(
+                remu_radio::RadioProtocol::Ieee802154,
+                remu_radio::Spectrum::new(2_405_000, 2_000),
+                "ieee802154-oqpsk-250k",
+                wake_frame.clone(),
+                -40,
+            )
+            .unwrap();
+        machine.now += remu_core::SimDuration::from_ticks(wake_frame.len() as u64 * 32);
+        assert_eq!(machine.service_radio().unwrap(), 1);
+        assert_eq!(
+            machine.debug_read_memory(u64::from(rx_address), 7).unwrap(),
+            [5, 0x01, 0, 0x32, (-80_i8) as u8, 63, 0xa5]
+        );
+        machine.radio_replay_artifact().unwrap().to_json().unwrap()
+    }
+
+    assert_eq!(run(), run());
+}
+
+#[test]
+fn esp32c6_ieee802154_clock_gate_during_receive_is_a_hard_machine_error() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_9804,
+            AccessWidth::Word,
+            (1 << 23) | (1 << 24),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_3048, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_3000, AccessWidth::Word, 0x42, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    machine
+        .bus
+        .write(0x600a_9804, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+
+    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected a radio legality error");
+    };
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Ieee802154);
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DomainReady);
+    assert!(error.detail.contains("Receive"));
+}
+
+#[test]
 fn esp32c6_power_gated_unmapped_grant_is_a_hard_machine_error() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine

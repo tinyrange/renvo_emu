@@ -132,23 +132,28 @@ impl RiscVMachine {
                     match outcome {
                         Ok(Ieee802154RxOutcome::Accepted { frame, .. }) => {
                             self.write_ieee802154_rx(handle, &frame, received_power_dbm)?;
+                            self.complete_ieee802154_receive_activity()?;
                             completed = completed.saturating_add(1);
                         }
                         Ok(Ieee802154RxOutcome::AcceptedWithAck { frame, ack, .. }) => {
                             self.write_ieee802154_rx(handle, &frame, received_power_dbm)?;
+                            self.complete_ieee802154_receive_activity()?;
                             self.submit_ieee802154_ack(handle, ack)?;
                             completed = completed.saturating_add(1);
                         }
                         Ok(Ieee802154RxOutcome::Filtered) => {
                             handle.record_filter_failure();
+                            self.complete_ieee802154_receive_activity()?;
                             completed = completed.saturating_add(1);
                         }
                         Err(remu_radio::Ieee802154Error::InvalidFcs) => {
                             handle.abort(false, 3);
+                            self.complete_ieee802154_receive_activity()?;
                             completed = completed.saturating_add(1);
                         }
                         Err(_) => {
                             handle.abort(false, 4);
+                            self.complete_ieee802154_receive_activity()?;
                             completed = completed.saturating_add(1);
                         }
                     }
@@ -238,6 +243,7 @@ impl RiscVMachine {
                     Some((frame, _, _)),
                 ) if frame.protocol == RadioProtocol::Ieee802154 => {
                     let awaiting_ack = handle.awaiting_ack_sequence().is_some();
+                    let receiving = handle.receiving();
                     handle.abort(false, 3);
                     if awaiting_ack {
                         self.radio_legality
@@ -249,6 +255,8 @@ impl RiscVMachine {
                                 RadioActivity::Idle,
                                 self.now,
                             )?;
+                    } else if receiving {
+                        self.complete_ieee802154_receive_activity()?;
                     }
                     completed = completed.saturating_add(1);
                 }
@@ -258,6 +266,19 @@ impl RiscVMachine {
             }
         }
         Ok(completed)
+    }
+
+    fn complete_ieee802154_receive_activity(&mut self) -> Result<(), MachineError> {
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .transition_activity(
+                RadioSubsystem::Ieee802154,
+                RadioActivity::Receive,
+                RadioActivity::Idle,
+                self.now,
+            )?;
+        Ok(())
     }
 
     fn write_native_ble_rx(
