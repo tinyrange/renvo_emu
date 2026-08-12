@@ -277,9 +277,13 @@ all 32 forty-byte key slots, expose firmware-written match/control/key state,
 zeroize on reset, and hard-reject a valid slot whose control class is outside
 the three encodings emitted by both pinned vendor HALs. A bounded Starlark
 workflow captures and checks the same programming sequence without symbol
-hooks. Wi-Fi still needs fragmentation/aggregation and actual hardware frame crypto,
+hooks. The C6 PHY page now latches the native one-microsecond TSF, runs all four
+target comparators, derives masked/raw/W1C power events, routes them through the
+native Wi-Fi interrupt, and hard-rejects timer-enable/wakeup orders the pinned
+HAL never emits. A second bounded Starlark workflow decodes the same sequence.
+Wi-Fi still needs fragmentation/aggregation and actual hardware frame crypto,
 descriptor-driven RTS protection, broader TX aggregation/BA retry acceptance,
-and C6 TWT acceptance. The C6 genuine SoftAP gate now
+and a genuine public-API C6 TWT acceptance gate. The C6 genuine SoftAP gate now
 explicitly enables protocol mask `0x47`, emits HE-capability Extension ID 35
 in its native beacon and association response, and accepts an HE20 station;
 the paired S3 gate proves its `0x07` non-HE boundary. BLE still needs the remaining chip-specific

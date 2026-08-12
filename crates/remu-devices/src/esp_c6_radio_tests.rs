@@ -1128,6 +1128,129 @@ mod tests {
     }
 
     #[test]
+    fn phy_tsf_latch_and_four_timer_interrupts_follow_vendor_hal_layout() {
+        let mut phy = EspC6PhyRegisters::new("phy");
+        let handle = phy.handle();
+        phy.write(
+            C6_PHY_TSF_LATCH_CONTROL,
+            AccessWidth::Word,
+            1,
+            SimTime::from_ticks(160),
+        )
+        .unwrap();
+        assert_eq!(
+            phy.read(
+                C6_PHY_TSF_LOW,
+                AccessWidth::Word,
+                SimTime::from_ticks(160)
+            )
+            .unwrap(),
+            10
+        );
+        assert_eq!(
+            phy.read(
+                C6_PHY_TSF_HIGH,
+                AccessWidth::Word,
+                SimTime::from_ticks(160)
+            )
+            .unwrap(),
+            0
+        );
+
+        phy.write(
+            C6_PHY_TSF_TIMER_TARGET_BASE,
+            AccessWidth::Word,
+            12,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        phy.write(
+            C6_PHY_POWER_INTERRUPT_CLEAR,
+            AccessWidth::Word,
+            0x80,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        phy.write(
+            C6_PHY_POWER_INTERRUPT_ENABLE,
+            AccessWidth::Word,
+            0x80,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        phy.write(
+            C6_PHY_TSF_TIMER_CONTROL_BASE,
+            AccessWidth::Word,
+            u64::from(C6_PHY_TSF_TIMER_ENABLE | C6_PHY_TSF_TIMER_WAKEUP_ENABLE | 3),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        handle.validate_tsf_timers().unwrap();
+        assert_eq!(handle.advance_to(SimTime::from_ticks(191)), 0);
+        assert_eq!(handle.advance_to(SimTime::from_ticks(192)), 1);
+        assert!(handle.interrupt_pending());
+        assert_eq!(
+            phy.read(
+                C6_PHY_POWER_INTERRUPT_RAW,
+                AccessWidth::Word,
+                SimTime::from_ticks(192)
+            )
+            .unwrap(),
+            0x80
+        );
+        assert_eq!(
+            phy.read(
+                C6_PHY_POWER_INTERRUPT_STATUS,
+                AccessWidth::Word,
+                SimTime::from_ticks(192)
+            )
+            .unwrap(),
+            0x80
+        );
+        phy.write(
+            C6_PHY_POWER_INTERRUPT_CLEAR,
+            AccessWidth::Word,
+            0x80,
+            SimTime::from_ticks(192),
+        )
+        .unwrap();
+        assert!(!handle.interrupt_pending());
+        assert_eq!(handle.advance_to(SimTime::from_ticks(208)), 0);
+    }
+
+    #[test]
+    fn phy_tsf_legality_rejects_orders_the_vendor_hal_never_emits() {
+        let mut phy = EspC6PhyRegisters::new("phy");
+        let handle = phy.handle();
+        phy.write(
+            C6_PHY_TSF_TIMER_CONTROL_BASE,
+            AccessWidth::Word,
+            u64::from(C6_PHY_TSF_TIMER_ENABLE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(
+            handle
+                .validate_tsf_timers()
+                .unwrap_err()
+                .contains("enabled before its firmware interrupt bit")
+        );
+        phy.write(
+            C6_PHY_TSF_TIMER_CONTROL_BASE,
+            AccessWidth::Word,
+            u64::from(C6_PHY_TSF_TIMER_WAKEUP_ENABLE),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(
+            handle
+                .validate_tsf_timers()
+                .unwrap_err()
+                .contains("requests wakeup while disabled")
+        );
+    }
+
+    #[test]
     fn ieee802154_timers_use_simulation_time() {
         let (mut device, handle) = EspIeee802154::new("ieee802154");
         device

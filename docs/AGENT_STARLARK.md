@@ -57,6 +57,11 @@ selects the pinned C6/S3 native key-table windows, summarizes valid-bit,
 control, and key-payload writes, and rejects control classes that neither
 pinned vendor HAL can emit. It observes firmware bus traffic only; key
 installation and frame protection remain native emulated hardware behavior.
+`qualification/starlark/c6_twt_evidence.star` applies the same method to the
+four native C6 TSF timers, their target/control pairs, interrupt-enable and
+W1C event masks, and individual/broadcast TWT control writes. It provides the
+repeatable evidence boundary for promoting TWT behavior into Rust; it does not
+implement timer or power-save behavior in the script.
 
 For an iterative MMIO experiment, narrow the capture before running firmware:
 

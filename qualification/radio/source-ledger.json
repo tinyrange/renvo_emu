@@ -586,7 +586,7 @@
       "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
       "license": "Apache-2.0",
       "content_sha256": "f1d14663e35e25c4ac6df793e361bbef24049ac3004e5cd4be145dcc7c7bd19d",
-      "use": "ESP32-C6 vendor Wi-Fi PHY/protocol archive offline disassembly: native crypto valid bitmap at 0x600a4814, 32-entry table at 0x600a5800 with 40-byte stride, ten-word clear/zeroization sequence, and firmware-emitted control classes 3, 6, and 7"
+      "use": "ESP32-C6 vendor Wi-Fi PHY/protocol archive offline disassembly: native crypto valid bitmap at 0x600a4814, 32-entry table at 0x600a5800 with 40-byte stride, ten-word clear/zeroization sequence, and firmware-emitted control classes 3, 6, and 7; four TSF target/control pairs at 0x600ad074..0x600ad090, power interrupt enable/raw/status/W1C at 0x600ad0a8..0x600ad0b4, TSF latch at 0x600ad014/0x600ad020, and firmware timer-enable ordering"
     },
     {
       "id": "esp32-wifi-lib-s3-net80211",

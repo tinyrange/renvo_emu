@@ -772,7 +772,16 @@ impl RiscVMachine {
         if self.target != TargetId::Esp32c6 {
             return Ok(0);
         }
-        let (modem, ble_modem, ble_baseband, ble_control, ieee802154, interrupt_matrix, wifi_mac) = {
+        let (
+            modem,
+            ble_modem,
+            ble_baseband,
+            ble_control,
+            ieee802154,
+            interrupt_matrix,
+            wifi_mac,
+            phy,
+        ) = {
             let Some(handles) = self.esp32c6_peripherals.as_ref() else {
                 return Ok(0);
             };
@@ -784,6 +793,7 @@ impl RiscVMachine {
                 handles.ieee802154.clone(),
                 handles.interrupt_matrix.clone(),
                 handles.wifi_mac.clone(),
+                handles.phy.clone(),
             )
         };
         let reset_generations = modem.reset_generations();
@@ -862,6 +872,15 @@ impl RiscVMachine {
             self.now,
             crypto_state.err().unwrap_or_default(),
         )?;
+        let tsf_timer_state = phy.validate_tsf_timers();
+        legality.require(
+            RadioSubsystem::Wifi,
+            RadioLegalityRule::SchedulerState,
+            tsf_timer_state.is_ok(),
+            self.now,
+            tsf_timer_state.err().unwrap_or_default(),
+        )?;
+        let tsf_timer_events = phy.advance_to(self.now);
         let awaiting_ack_before_poll = ieee802154.awaiting_ack_sequence().is_some();
         ieee802154.poll(self.now);
         if awaiting_ack_before_poll && ieee802154.awaiting_ack_sequence().is_none() {
@@ -876,7 +895,8 @@ impl RiscVMachine {
                 )?;
         }
         ble_baseband.advance_to(self.now);
-        let mut events = self.service_native_ble_completions(&ble_baseband)?;
+        let mut events =
+            tsf_timer_events.saturating_add(self.service_native_ble_completions(&ble_baseband)?);
         if ble_baseband.take_stop_request() {
             self.radio_c6_ble_receptions.clear();
             self.radio_c6_ble_completion_anchors.clear();
@@ -1133,6 +1153,7 @@ impl RiscVMachine {
         events = events.saturating_add(self.submit_native_wifi_frames(&wifi_mac)?);
         events = events.saturating_add(self.submit_protocol_engine_frames()?);
         let wifi_pending = wifi_mac.interrupt_pending()
+            || phy.interrupt_pending()
             || self.radio_wifi.as_ref().is_some_and(WifiEngine::has_rx);
         let ble_pending = ble_baseband.interrupt_pending()
             || self

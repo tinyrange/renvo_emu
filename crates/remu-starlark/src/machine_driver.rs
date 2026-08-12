@@ -1045,6 +1045,45 @@ def main():
     }
 
     #[test]
+    fn c6_twt_workflow_checks_native_timer_programming_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir(directory.path().join("workflow")).unwrap();
+        fs::write(
+            directory.path().join("workflow/c6_twt.star"),
+            include_str!("../../../qualification/starlark/c6_twt_evidence.star"),
+        )
+        .unwrap();
+        let filename = directory.path().join("driver.star");
+        let outcome = evaluate_agent_script(
+            filename.to_str().unwrap(),
+            r#"
+load("//workflow:c6_twt.star", "require_c6_twt_timer_programming")
+def access(address, value):
+    return {"cursor": 0, "access": {"at": 11, "kind": "Write", "address": address, "width": "Word", "value": value, "region": "esp32c6.phy-registers"}}
+def main():
+    evidence = [
+        access(0x600ad078, 0x12345678),
+        access(0x600ad0b4, 1 << 7),
+        access(0x600ad0a8, 1 << 7),
+        access(0x600ad074, (1 << 31) | (1 << 30) | 3),
+    ]
+    summary = require_c6_twt_timer_programming(evidence)
+    result = machine.run(instructions = 1)
+    return {"summary": summary, "reason": result["reason"]}
+"#,
+            AgentMachine::Esp32c6(Box::new(RiscVMachine::new(TargetId::Esp32c6).unwrap())),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.value["summary"]["programmed_timers"], json!([0]));
+        assert_eq!(
+            outcome.value["summary"]["timer_controls"][0]["mode"],
+            json!(3)
+        );
+    }
+
+    #[test]
     fn agent_script_load_cannot_escape_its_workspace() {
         let directory = tempfile::tempdir().unwrap();
         let filename = directory.path().join("driver.star");

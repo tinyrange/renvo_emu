@@ -24,6 +24,100 @@ fn esp32c6_illegal_wifi_crypto_slot_is_a_hard_firmware_state_error() {
 }
 
 #[test]
+fn esp32c6_illegal_tsf_timer_order_is_a_hard_firmware_state_error() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_d074,
+            AccessWidth::Word,
+            1_u64 << 31,
+            machine.now,
+        )
+        .unwrap();
+
+    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("invalid native TSF timer order should be a hard legality error");
+    };
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Wifi);
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert!(
+        error
+            .detail
+            .contains("enabled before its firmware interrupt bit")
+    );
+}
+
+#[test]
+fn esp32c6_tsf_timer_reaches_firmware_through_native_power_interrupt_status() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            machine.now,
+        )
+        .unwrap();
+    for (address, value) in [
+        (0x600a_d078, 2_u64),
+        (0x600a_d0b4, 0x80),
+        (0x600a_d0a8, 0x80),
+        (0x600a_d074, (1_u64 << 31) | (1 << 30) | 3),
+    ] {
+        machine
+            .bus
+            .write(address, AccessWidth::Word, value, machine.now)
+            .unwrap();
+    }
+    machine.now = SimTime::from_ticks(32);
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x600a_d0ac,
+                AccessWidth::Word,
+                AccessKind::Read,
+                machine.now,
+            )
+            .unwrap(),
+        0x80
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x600a_d0b0,
+                AccessWidth::Word,
+                AccessKind::Read,
+                machine.now,
+            )
+            .unwrap(),
+        0x80
+    );
+    machine
+        .bus
+        .write(0x600a_d0b4, AccessWidth::Word, 0x80, machine.now)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x600a_d0b0,
+                AccessWidth::Word,
+                AccessKind::Read,
+                machine.now,
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(machine.service_radio().unwrap(), 0);
+}
+
+#[test]
 fn esp32c6_radio_frontend_exposes_clock_split_and_ieee802154_events() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine

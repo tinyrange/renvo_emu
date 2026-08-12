@@ -6,14 +6,15 @@ use remu_devices::{
     EspC6Efuse, EspC6Gdma, EspC6GdmaHandle, EspC6Hmac, EspC6InterruptMatrix,
     EspC6InterruptMatrixHandle, EspC6InterruptPriority, EspC6IoMux, EspC6LpAon, EspC6LpAonHandle,
     EspC6LpClkRst, EspC6LpClkRstHandle, EspC6LpTimer, EspC6LpTimerHandle, EspC6ModemControl,
-    EspC6ModemHandle, EspC6PhyRegisters, EspC6Pmu, EspC6PmuHandle, EspC6PowerDetector, EspC6Twai,
-    EspC6TwaiHandle, EspC6Uhci, EspC6WifiMacHandle, EspC6WifiMacRegisters, EspDigitalSignature,
-    EspEtm, EspEtmHandle, EspI2s, EspI2sHandle, EspIeee802154, EspIeee802154Handle, EspLedc,
-    EspLedcHandle, EspLpI2c, EspLpI2cHandle, EspLpUart, EspLpUartHandle, EspLpWatchdog,
-    EspLpWatchdogHandle, EspMcpwm, EspParlio, EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt,
-    EspRmtHandle, EspRsa, EspSarAdc, EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer,
-    EspSystimerHandle, EspUsbSerialJtag, EspUsbSerialJtagHandle, FunctionalUart, SignalHub,
-    UartHandle, new_esp_sdio_slave,
+    EspC6ModemHandle, EspC6PhyRegisters, EspC6PhyRegistersHandle, EspC6Pmu, EspC6PmuHandle,
+    EspC6PowerDetector, EspC6Twai, EspC6TwaiHandle, EspC6Uhci, EspC6WifiMacHandle,
+    EspC6WifiMacRegisters, EspDigitalSignature, EspEtm, EspEtmHandle, EspI2s, EspI2sHandle,
+    EspIeee802154, EspIeee802154Handle, EspLedc, EspLedcHandle, EspLpI2c, EspLpI2cHandle,
+    EspLpUart, EspLpUartHandle, EspLpWatchdog, EspLpWatchdogHandle, EspMcpwm, EspParlio,
+    EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt, EspRmtHandle, EspRsa, EspSarAdc,
+    EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer, EspSystimerHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, FunctionalUart, SignalHub, UartHandle,
+    new_esp_sdio_slave,
 };
 use remu_signals::Logic;
 
@@ -46,6 +47,7 @@ pub(super) struct Esp32c6PeripheralHandles {
     pub(super) systimer: EspSystimerHandle,
     pub(super) sdio: EspSdioSlaveHandle,
     pub(super) wifi_mac: EspC6WifiMacHandle,
+    pub(super) phy: EspC6PhyRegistersHandle,
 }
 
 impl Esp32c6PeripheralHandles {
@@ -101,11 +103,13 @@ pub(super) fn map_esp32c6_peripherals(
     // PHY calibration accesses this radio front-end register page directly.
     // Its analog effects are represented by the functional PHY, while the
     // word state remains coherent for read/modify/write sequences.
+    let phy_device = EspC6PhyRegisters::new("esp32c6.phy-registers");
+    let phy = phy_device.handle();
     bus.map_device(
         "esp32c6.phy-registers",
         0x600a_d000,
         0x1000,
-        Box::new(EspC6PhyRegisters::new("esp32c6.phy-registers")),
+        Box::new(phy_device),
     )?;
     let (ble_modem_device, ble_modem) = EspC6BleModem::new("esp32c6.ble-modem-registers");
     bus.map_device(
@@ -476,6 +480,7 @@ pub(super) fn map_esp32c6_peripherals(
         systimer: systimer_handle,
         sdio: sdio_handle,
         wifi_mac,
+        phy,
     };
     peripherals.clear_host_queues();
     Ok((peripherals, usb_serial_jtag_handle))

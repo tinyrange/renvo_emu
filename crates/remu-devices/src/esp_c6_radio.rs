@@ -708,14 +708,95 @@ impl Device for EspC6BleBaseband {
     }
 }
 
-/// ESP32-C6 PHY-private register page used during calibration.
-///
-/// The first word is the free-running modem timebase. Remaining words retain
-/// software-visible state while analog effects are handled by the functional
-/// radio model.
+// The first word is the free-running modem timebase. The TSF latch, four
+// target comparators, and power-event registers implement their native
+// firmware-visible behavior; other words retain software-visible state while
+// analog effects are handled by the functional radio model.
+const C6_PHY_TSF_LATCH_CONTROL: u64 = 0x014;
+const C6_PHY_TSF_LOW: u64 = 0x020;
+const C6_PHY_TSF_HIGH: u64 = 0x024;
+const C6_PHY_TSF_TIMER_CONTROL_BASE: u64 = 0x074;
+const C6_PHY_TSF_TIMER_TARGET_BASE: u64 = 0x078;
+const C6_PHY_TSF_TIMER_STRIDE: u64 = 8;
+const C6_PHY_POWER_INTERRUPT_ENABLE: u64 = 0x0a8;
+const C6_PHY_POWER_INTERRUPT_RAW: u64 = 0x0ac;
+const C6_PHY_POWER_INTERRUPT_STATUS: u64 = 0x0b0;
+const C6_PHY_POWER_INTERRUPT_CLEAR: u64 = 0x0b4;
+const C6_PHY_TSF_TIMER_ENABLE: u32 = 1 << 31;
+const C6_PHY_TSF_TIMER_WAKEUP_ENABLE: u32 = 1 << 30;
+const C6_PHY_TICKS_PER_TSF_MICROSECOND: u64 = 16;
+
+struct EspC6PhyRegistersState {
+    registers: [u32; 1024],
+    fired_tsf_timers: u8,
+}
+
+/// Host-side view of the native C6 PHY timer and interrupt state.
+#[derive(Clone)]
+pub struct EspC6PhyRegistersHandle {
+    state: Arc<Mutex<EspC6PhyRegistersState>>,
+}
+
+impl EspC6PhyRegistersHandle {
+    /// Advances the four native TSF comparators and returns newly fired timers.
+    pub fn advance_to(&self, at: SimTime) -> u64 {
+        advance_c6_phy_tsf_timers(
+            &mut self
+                .state
+                .lock()
+                .expect("ESP32-C6 PHY register lock poisoned"),
+            at,
+        )
+    }
+
+    /// Reports whether a masked PHY power/timer event is pending.
+    pub fn interrupt_pending(&self) -> bool {
+        let state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 PHY register lock poisoned");
+        state.registers[C6_PHY_POWER_INTERRUPT_STATUS as usize / 4] != 0
+    }
+
+    /// Checks the timer ordering emitted by the pinned C6 vendor HAL.
+    pub fn validate_tsf_timers(&self) -> Result<(), String> {
+        let state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 PHY register lock poisoned");
+        let interrupt_enable = state.registers[C6_PHY_POWER_INTERRUPT_ENABLE as usize / 4];
+        for timer in 0..4 {
+            let control_offset = C6_PHY_TSF_TIMER_CONTROL_BASE + timer * C6_PHY_TSF_TIMER_STRIDE;
+            let control = state.registers[control_offset as usize / 4];
+            let interrupt_bit = 0x80_u32 >> timer;
+            if control & C6_PHY_TSF_TIMER_ENABLE != 0 && interrupt_enable & interrupt_bit == 0 {
+                return Err(format!(
+                    "native TSF timer {timer} is enabled before its firmware interrupt bit"
+                ));
+            }
+            if control & C6_PHY_TSF_TIMER_WAKEUP_ENABLE != 0
+                && control & C6_PHY_TSF_TIMER_ENABLE == 0
+            {
+                return Err(format!(
+                    "native TSF timer {timer} requests wakeup while disabled"
+                ));
+            }
+        }
+        let raw = state.registers[C6_PHY_POWER_INTERRUPT_RAW as usize / 4];
+        let status = state.registers[C6_PHY_POWER_INTERRUPT_STATUS as usize / 4];
+        if status != raw & interrupt_enable {
+            return Err(format!(
+                "native PHY interrupt status {status:#010x} does not match raw {raw:#010x} and enable {interrupt_enable:#010x}"
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// ESP32-C6 PHY-private register page with native TSF timer behavior.
 pub struct EspC6PhyRegisters {
     name: String,
-    registers: [u32; 1024],
+    state: Arc<Mutex<EspC6PhyRegistersState>>,
 }
 
 impl EspC6PhyRegisters {
@@ -723,9 +804,51 @@ impl EspC6PhyRegisters {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            registers: [0; 1024],
+            state: Arc::new(Mutex::new(EspC6PhyRegistersState {
+                registers: [0; 1024],
+                fired_tsf_timers: 0,
+            })),
         }
     }
+
+    /// Returns the machine-facing timer and interrupt handle.
+    pub fn handle(&self) -> EspC6PhyRegistersHandle {
+        EspC6PhyRegistersHandle {
+            state: self.state.clone(),
+        }
+    }
+}
+
+fn c6_phy_tsf_time(at: SimTime) -> u64 {
+    at.ticks() / C6_PHY_TICKS_PER_TSF_MICROSECOND
+}
+
+fn advance_c6_phy_tsf_timers(state: &mut EspC6PhyRegistersState, at: SimTime) -> u64 {
+    let now = c6_phy_tsf_time(at) as u32;
+    let mut fired = 0_u64;
+    for timer in 0..4 {
+        let timer_mask = 1_u8 << timer;
+        if state.fired_tsf_timers & timer_mask != 0 {
+            continue;
+        }
+        let control_offset = C6_PHY_TSF_TIMER_CONTROL_BASE + timer * C6_PHY_TSF_TIMER_STRIDE;
+        let target_offset = C6_PHY_TSF_TIMER_TARGET_BASE + timer * C6_PHY_TSF_TIMER_STRIDE;
+        let control = state.registers[control_offset as usize / 4];
+        if control & C6_PHY_TSF_TIMER_ENABLE == 0 {
+            continue;
+        }
+        let target = state.registers[target_offset as usize / 4];
+        if now.wrapping_sub(target) >= 0x8000_0000 {
+            continue;
+        }
+        state.fired_tsf_timers |= timer_mask;
+        state.registers[C6_PHY_POWER_INTERRUPT_RAW as usize / 4] |= 0x80_u32 >> timer;
+        fired = fired.saturating_add(1);
+    }
+    let raw = state.registers[C6_PHY_POWER_INTERRUPT_RAW as usize / 4];
+    let enable = state.registers[C6_PHY_POWER_INTERRUPT_ENABLE as usize / 4];
+    state.registers[C6_PHY_POWER_INTERRUPT_STATUS as usize / 4] = raw & enable;
+    fired
 }
 
 impl Device for EspC6PhyRegisters {
@@ -742,7 +865,13 @@ impl Device for EspC6PhyRegisters {
         if offset == 0 {
             return Ok(at.ticks() & u64::from(u32::MAX));
         }
-        self.registers
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 PHY register lock poisoned");
+        advance_c6_phy_tsf_timers(&mut state, at);
+        state
+            .registers
             .get(offset as usize / 4)
             .copied()
             .map(u64::from)
@@ -754,23 +883,62 @@ impl Device for EspC6PhyRegisters {
         offset: u64,
         width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
         if width != AccessWidth::Word || !offset.is_multiple_of(4) {
             return Err(DeviceError::new(
                 "ESP32-C6 PHY registers require aligned word access",
             ));
         }
-        let register = self
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 PHY register lock poisoned");
+        advance_c6_phy_tsf_timers(&mut state, at);
+        if offset == C6_PHY_POWER_INTERRUPT_CLEAR {
+            state.registers[C6_PHY_POWER_INTERRUPT_RAW as usize / 4] &= !(value as u32);
+            let raw = state.registers[C6_PHY_POWER_INTERRUPT_RAW as usize / 4];
+            let enable = state.registers[C6_PHY_POWER_INTERRUPT_ENABLE as usize / 4];
+            state.registers[C6_PHY_POWER_INTERRUPT_STATUS as usize / 4] = raw & enable;
+            return Ok(());
+        }
+        if offset == C6_PHY_POWER_INTERRUPT_RAW || offset == C6_PHY_POWER_INTERRUPT_STATUS {
+            return Ok(());
+        }
+        let register = state
             .registers
             .get_mut(offset as usize / 4)
             .ok_or_else(|| DeviceError::new(format!("{} write outside native page", self.name)))?;
         *register = value as u32;
+        if offset == C6_PHY_TSF_LATCH_CONTROL && value & 3 != 0 {
+            let tsf = c6_phy_tsf_time(at);
+            state.registers[C6_PHY_TSF_LOW as usize / 4] = tsf as u32;
+            state.registers[C6_PHY_TSF_HIGH as usize / 4] = (tsf >> 32) as u32;
+        }
+        for timer in 0..4 {
+            let timer_mask = 1_u8 << timer;
+            let control_offset = C6_PHY_TSF_TIMER_CONTROL_BASE + timer * C6_PHY_TSF_TIMER_STRIDE;
+            let target_offset = C6_PHY_TSF_TIMER_TARGET_BASE + timer * C6_PHY_TSF_TIMER_STRIDE;
+            if offset == target_offset
+                || offset == control_offset && value as u32 & C6_PHY_TSF_TIMER_ENABLE == 0
+            {
+                state.fired_tsf_timers &= !timer_mask;
+            }
+        }
+        if offset == C6_PHY_POWER_INTERRUPT_ENABLE {
+            let raw = state.registers[C6_PHY_POWER_INTERRUPT_RAW as usize / 4];
+            state.registers[C6_PHY_POWER_INTERRUPT_STATUS as usize / 4] = raw & value as u32;
+        }
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.registers.fill(0);
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 PHY register lock poisoned");
+        state.registers.fill(0);
+        state.fired_tsf_timers = 0;
     }
 }
 
