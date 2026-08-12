@@ -28,8 +28,12 @@ impl XtensaMachine {
         pending: bool,
     ) -> Result<bool, XtensaMachineError> {
         for core in 0..2_u32 {
-            self.interrupt_matrix
+            let changed = self
+                .interrupt_matrix
                 .set_source_pending(core as usize, source, pending);
+            if !pending && !changed {
+                continue;
+            }
             let interrupt = self.interrupt_matrix.route(core as usize, source);
             if interrupt == u8::MAX || interrupt == 6 {
                 continue;

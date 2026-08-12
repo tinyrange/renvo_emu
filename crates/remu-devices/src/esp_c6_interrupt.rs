@@ -33,6 +33,18 @@ impl EspC6PlicHandle {
         }
     }
 
+    /// Drives all 32 CPU-local interrupt inputs in one update.
+    pub fn set_lines(&self, levels: u32) {
+        let mut state = self.state.borrow_mut();
+        let rising = levels & !state.levels;
+        state.levels = levels;
+        for context in &mut state.contexts {
+            let edge = context.edge;
+            context.pending |= rising & edge;
+            context.pending = (context.pending & edge) | (levels & !edge);
+        }
+    }
+
     /// Returns the machine/user local lines that pass enable, pending,
     /// priority, and threshold selection.
     pub fn deliverable(&self, user: bool) -> u32 {
@@ -60,6 +72,9 @@ impl EspC6PlicState {
     fn deliverable(&self, context: usize) -> u32 {
         let context = &self.contexts[context];
         let candidates = context.enable & context.pending & !context.active;
+        if candidates == 0 {
+            return 0;
+        }
         (0..32).fold(0, |mask, line| {
             let priority = context.priorities[line];
             if candidates & (1 << line) != 0 && priority >= context.threshold {

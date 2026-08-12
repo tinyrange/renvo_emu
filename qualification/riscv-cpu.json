@@ -1,6 +1,6 @@
 {
   "schema": "remu.riscv-cpu.v1",
-  "source_sha256": "c043620a21840045c2ba7e7787b51002ec0ad56f006b358ef057e4c81fcdf754",
+  "source_sha256": "b2d6aca4bee38e5ae42df6129b54bc4345255c04c3283b4e299f9319b436bfed",
   "primary_sources": [
     "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
     "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
@@ -41,7 +41,7 @@
   },
   "negative_tests": {
     "artifact": ".remu/portfolio-smoke/riscv-cpu-unit-tests.txt",
-    "sha256": "1f3fb77dc818cf65d8eefc30712a72bcf427704950d277defa9f21c806189cd0",
+    "sha256": "b014c8687c014671478fd35e37526351d076710a990fc6a67f982033f4e8a192",
     "assertions": [
       "XW is illegal outside QingKe profiles",
       "V2A rejects Zmmul",
@@ -59,7 +59,7 @@
       "cpu": "qingke-v2a",
       "feature": "xw-eight-operations",
       "build_artifact": ".remu/portfolio-smoke/wch-xw-build.json",
-      "build_provenance_sha256": "1f30c3d5ef1ffc7a60127eaaf4cd3c54802ee80d1abe327fb8285a35641579e6",
+      "build_provenance_sha256": "640518b12c6473717d70bdc4eb7e9cf78c4245d250733e9a72ee024b8ba7d5db",
       "elf": ".remu/portfolio-smoke/wch-xw/smoke.elf",
       "elf_sha256": "1222ca42eb6388f293b1dbf395c6ec02d97c82d1092c34be6291701597766083",
       "result_artifact": ".remu/portfolio-smoke/ch32v003-xw-run.json",
@@ -80,7 +80,7 @@
       "cpu": "qingke-v2c",
       "feature": "xw-eight-operations",
       "build_artifact": ".remu/portfolio-smoke/wch-xw-build.json",
-      "build_provenance_sha256": "1f30c3d5ef1ffc7a60127eaaf4cd3c54802ee80d1abe327fb8285a35641579e6",
+      "build_provenance_sha256": "640518b12c6473717d70bdc4eb7e9cf78c4245d250733e9a72ee024b8ba7d5db",
       "elf": ".remu/portfolio-smoke/wch-xw/smoke.elf",
       "elf_sha256": "1222ca42eb6388f293b1dbf395c6ec02d97c82d1092c34be6291701597766083",
       "result_artifact": ".remu/portfolio-smoke/ch32v006-xw-run.json",
@@ -101,7 +101,7 @@
       "cpu": "qingke-v2c",
       "feature": "zmmul",
       "build_artifact": ".remu/portfolio-smoke/wch-zmmul-build.json",
-      "build_provenance_sha256": "81bc6ca8eeb9bf132909aff93a5651b032bc2fd086fcd0dd420d54b8b148bf0d",
+      "build_provenance_sha256": "d673e2cbab25da020c843d16fec91c23b5d793c73c012c40019f3097fef03802",
       "elf": ".remu/portfolio-smoke/wch-zmmul/smoke.elf",
       "elf_sha256": "7d3bb91e96bdbfbfed57d87a24e2951928d9d092fd8ccd629b34037e84a8e658",
       "result_artifact": ".remu/portfolio-smoke/ch32v006-zmmul-run.json",
@@ -122,19 +122,19 @@
       "cpu": "esp-rv32imac-hp",
       "feature": "user-traps-and-pmp-visibility",
       "build_artifact": ".remu/portfolio-smoke/esp32c6-privilege-build.json",
-      "build_provenance_sha256": "7bce95bdc1e83b5ee73b77294fef981904f6facd44133d91ef5dfa2380e20887",
+      "build_provenance_sha256": "88d0b4ec9fac4b1227c382feea9d7b94ad3ed846e235d3267e28e33af24aef78",
       "elf": ".remu/portfolio-smoke/esp32c6-privilege/smoke.elf",
       "elf_sha256": "1937ae2fbc3964056eb6f10814d32c718ff43c18cfd10275f305cc9dd015e5c0",
       "result_artifact": ".remu/portfolio-smoke/esp32c6-privilege-run.json",
-      "result_sha256": "0bb721ffe71583260450d98d7287be9c128891691d4476b19ea2f9d73693a9f5",
+      "result_sha256": "93b94669629bb12d7ec37ad26a5a23362b996cdb9f046467b52c817721d3479c",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
-        "instructions": 27,
-        "time": 27,
+        "instructions": 26,
+        "time": 26,
         "events": 0
       },
-      "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
+      "trace_digest": "83e0c273f38a5d19c32463893663b728e839fa1e2082ee652bc9f6280c08d713",
       "result": "pass"
     },
     {
@@ -143,7 +143,7 @@
       "cpu": "hazard3",
       "feature": "documented-compiler-march",
       "build_artifact": ".remu/portfolio-smoke/hazard3-build.json",
-      "build_provenance_sha256": "74d98c59a7e787994d27b0e6d1eb3778f1e9ca4fdde1ead8bcc51990e63c6a56",
+      "build_provenance_sha256": "96a367097c9ee02002bfe76d123faf2455d8702849059743eacc4488f85e99d8",
       "elf": ".remu/portfolio-smoke/hazard3/smoke.elf",
       "elf_sha256": "0dd19dc8ca2cce47d7941a1b06f0124a6df022d203ca2b6568ab5b954ac9fcfe",
       "result_artifact": ".remu/portfolio-smoke/hazard3-extensions-run.json",

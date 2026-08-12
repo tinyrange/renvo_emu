@@ -101,6 +101,15 @@ impl BusFault {
 
 /// Address space exposed to interpreted CPUs.
 pub trait Bus {
+    /// Fetches up to four instruction bytes through an unobserved fast path.
+    ///
+    /// Implementations return `None` when access observation is enabled or
+    /// the address cannot safely supply four bytes; CPUs then use ordinary
+    /// architecturally sized reads.
+    fn fast_fetch32(&mut self, _address: u64, _at: SimTime) -> Option<Result<u32, BusFault>> {
+        None
+    }
+
     /// Reads data or an instruction from the address space.
     fn read(
         &mut self,

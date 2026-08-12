@@ -137,6 +137,19 @@ impl Esp32S3RtcIoHandle {
 
     /// Returns true when a configured RTC GPIO interrupt is latched.
     pub fn interrupt_pending(&self) -> bool {
+        {
+            let state = self.state.borrow();
+            if state.status != 0 {
+                return true;
+            }
+            if state
+                .pin_config
+                .iter()
+                .all(|configuration| (configuration >> 7) & 7 == 0)
+            {
+                return false;
+            }
+        }
         self.refresh_inputs();
         self.state.borrow().status != 0
     }

@@ -396,6 +396,12 @@ impl XtensaMachine {
         let mut systimer_was_pending = [false; 3];
         let mut timer_group_was_pending = [[false; 2]; 2];
         let mut next_core = 0_u8;
+        let mut native_peripherals_active = !stimuli.is_empty()
+            || self.stop_on_usb_input_complete
+            || self
+                .bus
+                .take_device_access()
+                .is_some_and(|address| address < TEST_GPIO);
         let reason = loop {
             while stimuli
                 .get(next_stimulus)
@@ -406,7 +412,9 @@ impl XtensaMachine {
                 stats.events = stats.events.saturating_add(1);
                 next_stimulus += 1;
             }
-            stats.events = stats.events.saturating_add(self.service_radio()?);
+            if native_peripherals_active {
+                stats.events = stats.events.saturating_add(self.service_radio()?);
+            }
             // The real mask ROM programs SYSTEM.CORE_1_CONTROL_0 with CPU1's
             // reset vector. Observe that MMIO state directly: this keeps the
             // LLE boot path independent of ELF symbols and ROM entry points.
@@ -423,6 +431,15 @@ impl XtensaMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
+            if !native_peripherals_active {
+                let timer_pending = self.timer.poll(self.now);
+                if timer_pending && !timer_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                timer_was_pending = timer_pending;
+                self.cpu.set_interrupt(0, timer_pending)?;
+            }
+            if native_peripherals_active {
             if self.usb_serial_jtag.poll(self.now) {
                 stats.events = stats.events.saturating_add(1);
             }
@@ -696,12 +713,13 @@ impl XtensaMachine {
                     }
                 }
             }
+            }
             let running_cpu1 = next_core == 1 && self.appcpu_boot_address.is_some();
-            let next_pc = if running_cpu1 {
-                self.cpu1.snapshot().pc
+            let next_pc = u64::from(if running_cpu1 {
+                self.cpu1.pc()
             } else {
-                self.cpu.snapshot().pc
-            };
+                self.cpu.pc()
+            });
             if self.breakpoints.contains(&next_pc) {
                 break StopReason::Breakpoint;
             }
@@ -720,9 +738,18 @@ impl XtensaMachine {
                         .checked_add(remu_core::SimDuration::TICK)
                         .map_err(|_| XtensaMachineError::TimeOverflow)?;
                     stats.time = self.now;
-                    self.ledc.poll(self.now)?;
-                    for handle in &self.mcpwm {
-                        handle.poll(self.now)?;
+                    if self
+                        .bus
+                        .take_device_access()
+                        .is_some_and(|address| address < TEST_GPIO)
+                    {
+                        native_peripherals_active = true;
+                    }
+                    if native_peripherals_active {
+                        self.ledc.poll(self.now)?;
+                        for handle in &self.mcpwm {
+                            handle.poll(self.now)?;
+                        }
                     }
                     if let Some(hit) = self.bus.take_watchpoint_hit() {
                         break StopReason::Watchpoint {
@@ -796,7 +823,7 @@ impl XtensaMachine {
             }
             let assist_pc = self.cpu.pc();
             let assist_sp = self.cpu.register(XtensaRegister::A1);
-            let mut pms_bus = pms::Esp32S3PmsBus::new(
+            let mut pms_bus = pms::Esp32S3PmsBus::new_with_mode(
                 &mut self.bus,
                 &self.pms,
                 &self.world_controller,
@@ -805,6 +832,7 @@ impl XtensaMachine {
                 u8::from(running_cpu1),
                 assist_pc,
                 assist_sp,
+                native_peripherals_active,
             );
             let outcome = match self.cpu.step(&mut pms_bus, self.now) {
                 Ok(outcome) => outcome,
@@ -818,17 +846,28 @@ impl XtensaMachine {
             if running_cpu1 {
                 std::mem::swap(&mut self.cpu, &mut self.cpu1);
             }
-            self.apply_pending_mmu_mappings()?;
+            if self
+                .bus
+                .take_device_access()
+                .is_some_and(|address| address < TEST_GPIO)
+            {
+                native_peripherals_active = true;
+            }
+            if native_peripherals_active {
+                self.apply_pending_mmu_mappings()?;
+            }
             stats.instructions = stats.instructions.saturating_add(1);
             self.now = self
                 .now
                 .checked_add(outcome.elapsed)
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
             stats.time = self.now;
-            self.ledc.poll(self.now)?;
-            self.sdm.poll(self.now)?;
-            for handle in &self.mcpwm {
-                handle.poll(self.now)?;
+            if native_peripherals_active {
+                self.ledc.poll(self.now)?;
+                self.sdm.poll(self.now)?;
+                for handle in &self.mcpwm {
+                    handle.poll(self.now)?;
+                }
             }
             next_core = if self.appcpu_boot_address.is_some() {
                 next_core ^ 1

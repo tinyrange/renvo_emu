@@ -147,13 +147,13 @@ impl Device for FunctionalTimer {
 /// Host handle for a deterministic exit convention.
 #[derive(Clone, Default)]
 pub struct ExitHandle {
-    code: Arc<Mutex<Option<u32>>>,
+    code: Rc<Cell<Option<u32>>>,
 }
 
 impl ExitHandle {
     /// Returns a requested exit code.
     pub fn code(&self) -> Option<u32> {
-        *self.code.lock().expect("exit device lock poisoned")
+        self.code.get()
     }
 }
 
@@ -201,13 +201,14 @@ impl Device for ExitDevice {
         if offset != 0 {
             return Err(DeviceError::new("exit device only implements offset zero"));
         }
-        *self.handle.code.lock().expect("exit device lock poisoned") =
-            Some(u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits in u32"));
+        self.handle.code.set(Some(
+            u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits in u32"),
+        ));
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        *self.handle.code.lock().expect("exit device lock poisoned") = None;
+        self.handle.code.set(None);
     }
 }
 

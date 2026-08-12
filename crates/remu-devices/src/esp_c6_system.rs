@@ -229,6 +229,25 @@ impl EspC6InterruptMatrixHandle {
     pub fn route(&self, source: u8) -> Option<u8> {
         self.state.borrow().routes.get(usize::from(source)).copied()
     }
+
+    /// Returns a bit mask of CPU interrupt lines with at least one asserted source.
+    pub fn pending_cpu_interrupts(&self) -> u32 {
+        let state = self.state.borrow();
+        if state.sources.iter().all(|sources| *sources == 0) {
+            return 0;
+        }
+        state
+            .routes
+            .iter()
+            .enumerate()
+            .fold(0_u32, |pending, (source, route)| {
+                if *route < 32 && state.sources[source / 32] & (1 << (source % 32)) != 0 {
+                    pending | (1_u32 << *route)
+                } else {
+                    pending
+                }
+            })
+    }
 }
 
 /// ESP32-C6 peripheral-source interrupt routing matrix.

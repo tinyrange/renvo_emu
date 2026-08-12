@@ -19,9 +19,12 @@ SECTIONS
         *(.sdata .sdata.*)
         PROVIDE(__global_pointer$ = . + 0x800);
     } > DRAM
-    .bss (NOLOAD) : {
+    .bss (NOLOAD) : ALIGN(4) {
+        __bss_start = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)
         *(COMMON)
+        . = ALIGN(4);
+        __bss_end = .;
     } > DRAM
 }

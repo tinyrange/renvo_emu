@@ -152,6 +152,13 @@ impl RiscVMachine {
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
         let mut esp_timer_was_pending = [[false; 2]; 2];
+        let mut native_peripherals_active = self.target != TargetId::Esp32c6
+            || !stimuli.is_empty()
+            || self.stop_on_usb_input_complete
+            || self
+                .bus
+                .take_device_access()
+                .is_some_and(|address| address < TEST_GPIO);
         let reason = loop {
             if let Some(sio) = &self.sio {
                 sio.select_core(0);
@@ -190,17 +197,19 @@ impl RiscVMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
-            if self.breakpoints.contains(&self.cpu.snapshot().pc) {
+            if self.breakpoints.contains(&u64::from(self.cpu.pc())) {
                 break StopReason::Breakpoint;
             }
-            if self.poll_esp32c6_runtime(&mut stats)? {
+            if native_peripherals_active && self.poll_esp32c6_runtime(&mut stats)? {
                 continue;
             }
-            stats.events = stats.events.saturating_add(u64::from(
-                self.esp_usb_serial_jtag
-                    .as_ref()
-                    .is_some_and(|usb| usb.poll(self.now)),
-            ));
+            if native_peripherals_active {
+                stats.events = stats.events.saturating_add(u64::from(
+                    self.esp_usb_serial_jtag
+                        .as_ref()
+                        .is_some_and(|usb| usb.poll(self.now)),
+                ));
+            }
             let timer_pending = self.timer.poll(self.now);
             if timer_pending && !timer_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -250,7 +259,7 @@ impl RiscVMachine {
                         .set_hazard3_external_interrupt(14, usb.interrupt_pending())?;
                 }
             }
-            if self.target == TargetId::Esp32c6 {
+            if self.target == TargetId::Esp32c6 && native_peripherals_active {
                 stats.events = stats.events.saturating_add(self.service_radio()?);
                 // ESP-IDF starts the first FreeRTOS task by raising the
                 // FROM_CPU_INTR0 software interrupt. The C6 interrupt matrix
@@ -465,12 +474,8 @@ impl RiscVMachine {
                 if let (Some(peripherals), Some(plic)) =
                     (&self.esp32c6_peripherals, &self.esp_c6_plic)
                 {
-                    for line in 0..32_u8 {
-                        plic.set_line(
-                            line,
-                            peripherals.interrupt_matrix.cpu_interrupt_pending(line),
-                        );
-                    }
+                    let pending = peripherals.interrupt_matrix.pending_cpu_interrupts();
+                    plic.set_lines(pending);
                 }
                 let plic_machine = self
                     .esp_c6_plic
@@ -480,20 +485,12 @@ impl RiscVMachine {
                     .esp_c6_plic
                     .as_ref()
                     .map_or(0, |plic| plic.deliverable(true));
-                for line in 0..32_u16 {
-                    let bit = 1_u32 << line;
-                    let local = match line {
-                        0 => clint[2],
-                        3 => clint[0],
-                        4 => clint[3],
-                        7 => clint[1],
-                        _ => false,
-                    };
-                    self.cpu.set_interrupt(
-                        line,
-                        local || plic_machine & bit != 0 || plic_user & bit != 0,
-                    )?;
-                }
+                let local = u32::from(clint[2])
+                    | (u32::from(clint[0]) << 3)
+                    | (u32::from(clint[3]) << 4)
+                    | (u32::from(clint[1]) << 7);
+                self.cpu
+                    .set_interrupt_mask(local | plic_machine | plic_user);
             }
             self.bus.clear_watchpoint_hit();
             match self.service_functional_bootrom() {
@@ -504,6 +501,13 @@ impl RiscVMachine {
                         .checked_add(remu_core::SimDuration::TICK)
                         .map_err(|_| MachineError::TimeOverflow)?;
                     stats.time = self.now;
+                    if self
+                        .bus
+                        .take_device_access()
+                        .is_some_and(|address| address < TEST_GPIO)
+                    {
+                        native_peripherals_active = true;
+                    }
                     if let Some(hit) = self.bus.take_watchpoint_hit() {
                         break StopReason::Watchpoint {
                             address: hit.address,
@@ -530,7 +534,14 @@ impl RiscVMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| MachineError::TimeOverflow)?;
             stats.time = self.now;
-            if let Some(peripherals) = &self.esp32c6_peripherals {
+            if self
+                .bus
+                .take_device_access()
+                .is_some_and(|address| address < TEST_GPIO)
+            {
+                native_peripherals_active = true;
+            }
+            if native_peripherals_active && let Some(peripherals) = &self.esp32c6_peripherals {
                 stats.events = stats
                     .events
                     .saturating_add(peripherals.poll_outputs(self.now)?);
@@ -584,7 +595,7 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(1);
                 }
-                if self.breakpoints.contains(&self.cpu1.snapshot().pc) {
+                if self.breakpoints.contains(&u64::from(self.cpu1.pc())) {
                     if let Some(sio) = &self.sio {
                         sio.select_core(0);
                     }
