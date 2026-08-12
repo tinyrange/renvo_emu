@@ -1,6 +1,6 @@
 {
   "schema": "remu.reduction-qualification.v1",
-  "source_sha256": "315ab72835212a8d5d71cf366953c4f2daefa8bd5ccb751e09bd4c17434fc713",
+  "source_sha256": "9ecb4339304884a3e30d39fdffc361614ab67fbe96c4120ad49e67463d6f04ef",
   "axes": [
     "source",
     "compiler_flags",
@@ -12,7 +12,7 @@
       "family": "riscv",
       "target": "ch32v003",
       "artifact": ".remu/qualification/reduction/riscv.json",
-      "artifact_sha256": "8bda441fc37b66373cc54b8ea38eae3efb207c7816c7a6765cacd4c0bcaa1ad8",
+      "artifact_sha256": "067aa230185055dd14f2c0cc66c2a1ca13739441dd2736bad0452eaf39b5d1b6",
       "seeded_expected": 0,
       "original": {
         "source": [
@@ -54,7 +54,7 @@
       "family": "arm",
       "target": "rp2040",
       "artifact": ".remu/qualification/reduction/arm.json",
-      "artifact_sha256": "bd95b85ea3cdb541de1aa7d2287808165d5d5e939d041e8972bcfd21bb2b010e",
+      "artifact_sha256": "2fb02081a7520d522fd8e6fb5190c8ffb7f14e2e70d22ab0bc04aa7060ac19de",
       "seeded_expected": 0,
       "original": {
         "source": [
@@ -96,7 +96,7 @@
       "family": "xtensa",
       "target": "esp32s3",
       "artifact": ".remu/qualification/reduction/xtensa.json",
-      "artifact_sha256": "4b01b061988b0a0d58245c2933d402a309bce5c5d8d63cb2afe600e85734f1e7",
+      "artifact_sha256": "abc30fc4c0f560cb95749042041d46255ac797ce57e650c892f5c0a36df9a247",
       "seeded_expected": 0,
       "original": {
         "source": [

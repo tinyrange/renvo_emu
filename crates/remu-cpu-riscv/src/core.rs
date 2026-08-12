@@ -336,7 +336,7 @@ pub struct RiscVCpu {
     waiting: bool,
     halted: bool,
     privilege: RiscVPrivilege,
-    asserted_interrupts: BTreeSet<u16>,
+    asserted_interrupts: u32,
     qingke_external_interrupts: BTreeSet<u16>,
     hazard3_external_interrupts: BTreeSet<u16>,
     hazard3_external_enabled: [u16; HAZARD3_IRQ_WINDOWS],
@@ -346,6 +346,7 @@ pub struct RiscVCpu {
     esp32c6_active_interrupts: Vec<u16>,
     reservation: Option<u32>,
     pending_memory_trap: Option<(u32, u32)>,
+    pmp_enabled: bool,
 }
 
 impl RiscVCpu {
@@ -362,7 +363,7 @@ impl RiscVCpu {
             waiting: false,
             halted: false,
             privilege: RiscVPrivilege::Machine,
-            asserted_interrupts: BTreeSet::new(),
+            asserted_interrupts: 0,
             qingke_external_interrupts: BTreeSet::new(),
             hazard3_external_interrupts: BTreeSet::new(),
             hazard3_external_enabled: [0; HAZARD3_IRQ_WINDOWS],
@@ -372,6 +373,7 @@ impl RiscVCpu {
             esp32c6_active_interrupts: Vec::new(),
             reservation: None,
             pending_memory_trap: None,
+            pmp_enabled: false,
         };
         cpu.initialize_csrs();
         Ok(cpu)
@@ -385,6 +387,13 @@ impl RiscVCpu {
     /// Current 32-bit program counter.
     pub const fn pc(&self) -> u32 {
         self.pc
+    }
+
+    /// Replaces the complete set of asserted local interrupt lines.
+    pub fn set_interrupt_mask(&mut self, asserted: u32) {
+        self.asserted_interrupts = asserted;
+        self.csrs[usize::from(CSR_MIP)] = asserted;
+        self.csrs[usize::from(CSR_UIP)] = asserted & self.csrs[usize::from(CSR_MIDELEG)];
     }
 
     /// Current architectural privilege level.
@@ -583,10 +592,10 @@ impl RiscVCpu {
     fn refresh_hazard3_machine_external(&mut self) {
         let machine_external = self.hazard3_next_external().is_some();
         if machine_external {
-            self.asserted_interrupts.insert(11);
+            self.asserted_interrupts |= 1 << 11;
             self.csrs[usize::from(CSR_MIP)] |= 1 << 11;
         } else {
-            self.asserted_interrupts.remove(&11);
+            self.asserted_interrupts &= !(1 << 11);
             self.csrs[usize::from(CSR_MIP)] &= !(1 << 11);
         }
     }
@@ -806,6 +815,9 @@ impl RiscVCpu {
         if !self.profile.esp32c6_memory_protection_csrs {
             return Ok(());
         }
+        if !self.pmp_enabled {
+            return Ok(());
+        }
         let bytes = match width {
             AccessWidth::Byte => 1,
             AccessWidth::HalfWord => 2,
@@ -949,6 +961,8 @@ impl RiscVCpu {
                     }
                 }
                 self.csrs[usize::from(address)] = merged;
+                self.pmp_enabled = (CSR_PMPCFG0..=CSR_PMPCFG3)
+                    .any(|csr| self.csrs[usize::from(csr)] & 0x1818_1818 != 0);
             }
             CSR_PMPADDR0..=CSR_PMPADDR15 if self.profile.esp32c6_memory_protection_csrs => {
                 let entry = usize::from(address - CSR_PMPADDR0);
@@ -1024,15 +1038,14 @@ impl RiscVCpu {
         {
             return Some(*line);
         }
-        self.asserted_interrupts
-            .iter()
-            .copied()
+        (0..32_u16)
             .filter(|line| {
-                !(self.profile.esp32c6_memory_protection_csrs
-                    && self.esp32c6_active_interrupts.contains(line)
-                    || *line == 11
-                        && self.profile.interrupt_model == InterruptModel::Hazard3
-                        && self.hazard3_external_active)
+                self.asserted_interrupts & (1_u32 << line) != 0
+                    && !(self.profile.esp32c6_memory_protection_csrs
+                        && self.esp32c6_active_interrupts.contains(line)
+                        || *line == 11
+                            && self.profile.interrupt_model == InterruptModel::Hazard3
+                            && self.hazard3_external_active)
             })
             .find(|line| {
                 let bit = 1_u32 << line;
@@ -1141,7 +1154,7 @@ impl Cpu for RiscVCpu {
         self.waiting = false;
         self.halted = false;
         self.privilege = RiscVPrivilege::Machine;
-        self.asserted_interrupts.clear();
+        self.asserted_interrupts = 0;
         self.qingke_external_interrupts.clear();
         self.hazard3_external_interrupts.clear();
         self.hazard3_external_enabled = [0; HAZARD3_IRQ_WINDOWS];
@@ -1151,6 +1164,7 @@ impl Cpu for RiscVCpu {
         self.esp32c6_active_interrupts.clear();
         self.reservation = None;
         self.pending_memory_trap = None;
+        self.pmp_enabled = false;
         self.initialize_csrs();
         Ok(())
     }
@@ -1176,10 +1190,31 @@ impl Cpu for RiscVCpu {
 
         self.pending_memory_trap = None;
         let execution = (|| {
-            let low = self.fetch16(bus, self.pc, now)?;
+            let prefetched = bus
+                .fast_fetch32(u64::from(self.pc), now)
+                .transpose()
+                .map_err(|fault| {
+                    CpuFault::new(
+                        CpuFaultKind::Bus,
+                        self.pc.into(),
+                        format!("instruction fetch failed: {fault}"),
+                    )
+                })?;
+            if prefetched.is_some() {
+                self.check_pmp_access(self.pc, AccessWidth::HalfWord, AccessKind::Execute)?;
+            }
+            let low = if let Some(instruction) = prefetched {
+                instruction as u16
+            } else {
+                self.fetch16(bus, self.pc, now)?
+            };
             if low & 0x3 == 0x3 {
                 self.check_pmp_access(self.pc, AccessWidth::Word, AccessKind::Execute)?;
-                let high = self.fetch16(bus, self.pc.wrapping_add(2), now)?;
+                let high = if let Some(instruction) = prefetched {
+                    (instruction >> 16) as u16
+                } else {
+                    self.fetch16(bus, self.pc.wrapping_add(2), now)?
+                };
                 self.execute32(u32::from(low) | (u32::from(high) << 16), bus, now)
             } else if self.profile.extension_c {
                 self.execute16(low, bus, now)
@@ -1217,13 +1252,13 @@ impl Cpu for RiscVCpu {
             ));
         }
         if asserted {
-            self.asserted_interrupts.insert(line);
+            self.asserted_interrupts |= 1_u32 << line;
             self.csrs[usize::from(CSR_MIP)] |= 1_u32 << line;
             if self.csrs[usize::from(CSR_MIDELEG)] & (1_u32 << line) != 0 {
                 self.csrs[usize::from(CSR_UIP)] |= 1_u32 << line;
             }
         } else {
-            self.asserted_interrupts.remove(&line);
+            self.asserted_interrupts &= !(1_u32 << line);
             self.csrs[usize::from(CSR_MIP)] &= !(1_u32 << line);
             self.csrs[usize::from(CSR_UIP)] &= !(1_u32 << line);
         }

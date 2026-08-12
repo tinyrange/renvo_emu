@@ -5,7 +5,7 @@ use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{
     DigitalNet, DriverId, Logic, SignalChange, SignalError, SignalId, SignalRegistry, SignalValue,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};

@@ -282,11 +282,13 @@ pub type SharedBusAccessObserver = Rc<RefCell<dyn BusAccessObserver>>;
 pub struct AddressSpace {
     endianness: Endianness,
     regions: Vec<Region>,
+    region_cache: [Option<usize>; 3],
     record_accesses: bool,
     access_log: Vec<BusAccessRecord>,
     access_observer: Option<SharedBusAccessObserver>,
     watchpoints: BTreeSet<u64>,
     watchpoint_hit: Option<BusAccessRecord>,
+    last_device_access: Option<u64>,
 }
 
 impl fmt::Debug for AddressSpace {
@@ -316,11 +318,13 @@ impl AddressSpace {
         Self {
             endianness,
             regions: Vec::new(),
+            region_cache: [None; 3],
             record_accesses: false,
             access_log: Vec::new(),
             access_observer: None,
             watchpoints: BTreeSet::new(),
             watchpoint_hit: None,
+            last_device_access: None,
         }
     }
 
@@ -365,6 +369,11 @@ impl AddressSpace {
         self.watchpoint_hit.take()
     }
 
+    /// Takes the address of the most recent completed device access.
+    pub fn take_device_access(&mut self) -> Option<u64> {
+        self.last_device_access.take()
+    }
+
     fn record_watchpoint_hit(&mut self, record: &BusAccessRecord) {
         if record.kind == AccessKind::Execute || self.watchpoint_hit.is_some() {
             return;
@@ -385,6 +394,11 @@ impl AddressSpace {
         if let Some(observer) = &self.access_observer {
             observer.borrow_mut().observe(&record);
         }
+    }
+
+    #[inline]
+    fn monitors_accesses(&self) -> bool {
+        self.record_accesses || self.access_observer.is_some() || !self.watchpoints.is_empty()
     }
 
     /// Maps zero-filled RAM and returns its shareable backing.
@@ -530,6 +544,7 @@ impl AddressSpace {
             backing,
         });
         self.regions.sort_by_key(|region| region.start);
+        self.region_cache = [None; 3];
         Ok(())
     }
 
@@ -633,10 +648,23 @@ impl AddressSpace {
                     "access address overflow",
                 )
             })?;
-        let Some(region) = self
+        let cache_slot = match access {
+            AccessKind::Execute => 0,
+            AccessKind::Read => 1,
+            AccessKind::Write => 2,
+        };
+        if let Some(index) = self.region_cache[cache_slot]
+            && address >= self.regions[index].start
+            && access_end <= self.regions[index].end
+            && self.regions[index].permissions.permits(access)
+        {
+            return Ok(&mut self.regions[index]);
+        }
+        let Some(index) = self
             .regions
-            .iter_mut()
-            .find(|region| address >= region.start && address < region.end)
+            .partition_point(|region| region.start <= address)
+            .checked_sub(1)
+            .filter(|index| address < self.regions[*index].end)
         else {
             return Err(BusFault::new(
                 BusFaultKind::Unmapped,
@@ -646,6 +674,7 @@ impl AddressSpace {
                 "no mapped region",
             ));
         };
+        let region = &mut self.regions[index];
         if access_end > region.end {
             return Err(BusFault::new(
                 BusFaultKind::Boundary,
@@ -664,11 +693,38 @@ impl AddressSpace {
                 format!("operation not permitted by region {:?}", region.name),
             ));
         }
+        self.region_cache[cache_slot] = Some(index);
         Ok(region)
     }
 }
 
 impl Bus for AddressSpace {
+    fn fast_fetch32(&mut self, address: u64, _at: SimTime) -> Option<Result<u32, BusFault>> {
+        if self.monitors_accesses() {
+            return None;
+        }
+        let endianness = self.endianness;
+        let region = self
+            .region_for(address, AccessWidth::Word, AccessKind::Execute)
+            .ok()?;
+        let relative = usize::try_from(address - region.start).ok()?;
+        let Backing::Memory {
+            storage,
+            storage_offset,
+            ..
+        } = &region.backing
+        else {
+            return None;
+        };
+        let start = *storage_offset + relative;
+        let bytes = storage.bytes.borrow();
+        let raw: [u8; 4] = bytes[start..start + 4].try_into().ok()?;
+        Some(Ok(match endianness {
+            Endianness::Little => u32::from_le_bytes(raw),
+            Endianness::Big => u32::from_be_bytes(raw),
+        }))
+    }
+
     fn read(
         &mut self,
         address: u64,
@@ -677,8 +733,10 @@ impl Bus for AddressSpace {
         at: SimTime,
     ) -> Result<u64, BusFault> {
         let endianness = self.endianness;
+        let monitored = self.monitors_accesses();
         let region = self.region_for(address, width, kind)?;
         let relative = address - region.start;
+        let device_access = matches!(region.backing, Backing::Device(_));
         let value = match &mut region.backing {
             Backing::Memory {
                 storage,
@@ -715,16 +773,20 @@ impl Bus for AddressSpace {
                 )
             })?,
         } & width.value_mask();
-        let region_name = region.name.clone();
-        let record = BusAccessRecord {
-            at,
-            kind,
-            address,
-            width,
-            value,
-            region: region_name,
-        };
-        self.record_completed_access(record);
+        if monitored {
+            let record = BusAccessRecord {
+                at,
+                kind,
+                address,
+                width,
+                value,
+                region: region.name.clone(),
+            };
+            self.record_completed_access(record);
+        }
+        if device_access {
+            self.last_device_access = Some(address);
+        }
         Ok(value)
     }
 
@@ -736,8 +798,10 @@ impl Bus for AddressSpace {
         at: SimTime,
     ) -> Result<(), BusFault> {
         let endianness = self.endianness;
+        let monitored = self.monitors_accesses();
         let region = self.region_for(address, width, AccessKind::Write)?;
         let relative = address - region.start;
+        let device_access = matches!(region.backing, Backing::Device(_));
         let masked = value & width.value_mask();
         match &mut region.backing {
             Backing::Memory {
@@ -779,16 +843,20 @@ impl Bus for AddressSpace {
                 })?;
             }
         }
-        let region_name = region.name.clone();
-        let record = BusAccessRecord {
-            at,
-            kind: AccessKind::Write,
-            address,
-            width,
-            value: masked,
-            region: region_name,
-        };
-        self.record_completed_access(record);
+        if monitored {
+            let record = BusAccessRecord {
+                at,
+                kind: AccessKind::Write,
+                address,
+                width,
+                value: masked,
+                region: region.name.clone(),
+            };
+            self.record_completed_access(record);
+        }
+        if device_access {
+            self.last_device_access = Some(address);
+        }
         Ok(())
     }
 }
@@ -820,6 +888,45 @@ mod tests {
             )
             .unwrap(),
             0x3322
+        );
+    }
+
+    #[test]
+    fn fast_fetch_is_disabled_when_accesses_are_observable() {
+        let mut bus = AddressSpace::default();
+        bus.map_rom("rom", 0x1000, vec![0x11, 0x22, 0x33, 0x44])
+            .unwrap();
+
+        assert_eq!(
+            bus.fast_fetch32(0x1000, SimTime::ZERO)
+                .expect("unobserved memory fetch uses the fast path")
+                .unwrap(),
+            0x4433_2211
+        );
+
+        bus.set_access_recording(true);
+        assert!(bus.fast_fetch32(0x1000, SimTime::ZERO).is_none());
+        bus.set_access_recording(false);
+        bus.add_watchpoint(0x1000);
+        assert!(bus.fast_fetch32(0x1000, SimTime::ZERO).is_none());
+    }
+
+    #[test]
+    fn fast_fetch_falls_back_at_a_region_boundary() {
+        let mut bus = AddressSpace::default();
+        bus.map_rom("rom", 0x1000, vec![0x11, 0x22, 0x33, 0x44])
+            .unwrap();
+
+        assert!(bus.fast_fetch32(0x1002, SimTime::ZERO).is_none());
+        assert_eq!(
+            bus.read(
+                0x1002,
+                AccessWidth::HalfWord,
+                AccessKind::Execute,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x4433
         );
     }
 
