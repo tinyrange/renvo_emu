@@ -162,6 +162,96 @@ fn esp32c6_ieee802154_dma_transmit_and_explicit_host_receive_use_shared_medium()
 }
 
 #[test]
+fn esp32c6_malformed_secured_rx_is_dma_delivered_auto_acked_and_replayable() {
+    fn run() -> Vec<u8> {
+        let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+        let rx_address = 0x4080_0240_u32;
+        machine
+            .bus
+            .write(
+                0x600a_9804,
+                AccessWidth::Word,
+                (1 << 23) | (1 << 24),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        for (address, value) in [
+            (0x600a_3048, 3_u64),
+            // Promiscuous receive plus hardware automatic ACK transmission.
+            (0x600a_3004, (1 << 7) | 1),
+            (0x600a_30e0, u64::from(rx_address)),
+        ] {
+            machine
+                .bus
+                .write(address, AccessWidth::Word, value, SimTime::ZERO)
+                .unwrap();
+        }
+        machine
+            .bus
+            .write(0x600a_3000, AccessWidth::Word, 0x42, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.service_radio().unwrap(), 1);
+
+        let mut frame = Vec::from(0x9869_u16.to_le_bytes());
+        frame.push(0x2a);
+        frame.extend_from_slice(&0x1234_u16.to_le_bytes());
+        frame.extend_from_slice(&0x5678_u16.to_le_bytes());
+        frame.extend_from_slice(&0x9abc_u16.to_le_bytes());
+        // ENC-MIC-32 security control with the required frame counter and MIC
+        // deliberately absent. This is hostile over-air data, not an illegal
+        // peripheral configuration.
+        frame.push(5);
+        let frame = remu_radio::Ieee802154Mac::with_fcs(frame);
+        machine
+            .inject_radio_frame(
+                remu_radio::RadioProtocol::Ieee802154,
+                remu_radio::Spectrum::new(2_405_000, 2_000),
+                "ieee802154-oqpsk-250k",
+                frame.clone(),
+                -40,
+            )
+            .unwrap();
+        machine.now = SimTime::from_ticks(frame.len() as u64 * 32);
+        assert_eq!(machine.service_radio().unwrap(), 1);
+
+        let delivered = &frame[..frame.len() - 2];
+        assert_eq!(
+            machine
+                .debug_read_memory(u64::from(rx_address), delivered.len() + 3)
+                .unwrap(),
+            [
+                vec![(delivered.len() + 2) as u8],
+                delivered.to_vec(),
+                // The default shared-medium path loss turns the injected
+                // -40 dBm transmit power into a deterministic -80 dBm receive
+                // sample, which the native MAC maps to LQI 63.
+                vec![(-80_i8) as u8, 63],
+            ]
+            .concat()
+        );
+        let replay = machine.radio_replay_artifact().unwrap();
+        let ack = replay
+            .events
+            .iter()
+            .find_map(|event| match event {
+                remu_radio::MediumEvent::Submitted { request, .. }
+                    if request.frame.origin == remu_radio::FrameOrigin::Emulated
+                        && request.frame.protocol == remu_radio::RadioProtocol::Ieee802154 =>
+                {
+                    Some(request.frame.bytes.as_slice())
+                }
+                _ => None,
+            })
+            .expect("native MAC emitted an ACK");
+        assert_eq!(&ack[..3], &[0x02, 0, 0x2a]);
+        assert!(remu_radio::Ieee802154Mac::has_valid_fcs(ack));
+        replay.to_json().unwrap()
+    }
+
+    assert_eq!(run(), run());
+}
+
+#[test]
 fn esp32c6_ieee802154_ack_request_enters_native_rx_ack_and_completes_matching_sequence() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let tx_address = 0x4080_0280_u32;

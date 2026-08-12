@@ -857,6 +857,36 @@ mod tests {
     }
 
     #[test]
+    fn malformed_receive_security_remains_guest_stack_input() {
+        // Version 1 data, security enabled, ACK requested, compressed PAN,
+        // short destination/source. The auxiliary header stops after its
+        // security-control byte: hardware still owns FCS/filter/ACK, while
+        // receive security parsing and authentication belong to the guest.
+        let mut frame = Vec::from(0x9869_u16.to_le_bytes());
+        frame.push(0x2a);
+        frame.extend_from_slice(&0x1234_u16.to_le_bytes());
+        frame.extend_from_slice(&0x5678_u16.to_le_bytes());
+        frame.extend_from_slice(&0x9abc_u16.to_le_bytes());
+        frame.push(5);
+        let frame = Ieee802154Mac::with_fcs(frame);
+
+        let mut mac = Ieee802154Mac::new();
+        mac.set_promiscuous(true);
+        mac.set_auto_ack(true);
+        let Ieee802154RxOutcome::AcceptedWithAck {
+            frame: delivered,
+            ack,
+            ..
+        } = mac.receive(&frame).unwrap()
+        else {
+            panic!("valid-FCS secured bytes remain visible to the guest stack");
+        };
+        assert_eq!(delivered, frame[..frame.len() - 2]);
+        assert_eq!(&ack[..3], &[0x02, 0, 0x2a]);
+        assert!(Ieee802154Mac::has_valid_fcs(&ack));
+    }
+
+    #[test]
     fn fcs_and_cca_failures_are_observable() {
         let mut mac = Ieee802154Mac::new();
         let mut frame = data_frame(0xffff, 0xffff, false);

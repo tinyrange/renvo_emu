@@ -170,6 +170,12 @@ and exact replay. The vendor gate additionally proves the public multi-PAN
 index, public no-ACK error mapping, and callback delivery after ACK
 transmission. The focused probe's overlapping frame checks are useful
 low-level regressions, not a requirement to reproduce every vendor-stack test.
+Valid-FCS secured receive frames are DMA-delivered unchanged even when their
+auxiliary security header is truncated. Normal MAC fields may still cause a
+hardware automatic ACK, and both the DMA bytes and emitted ACK repeat exactly
+from reset. Receive security parsing, decryption and authentication remain in
+the guest OpenThread/Zigbee stack; malformed over-air bytes are an ordinary RF
+input and never an `illegal radio state` hard error.
 On transmit, the DMA length is the complete over-the-air PSDU length. Firmware
 reserves its final two bytes while the peripheral calculates and writes the
 FCS; secured frames similarly reserve their selected MIC before the hardware
