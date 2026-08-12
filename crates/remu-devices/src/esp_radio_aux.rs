@@ -120,6 +120,32 @@ pub struct EspSpiMem {
     mmu_items: [u32; 256],
     mmu_pending: Arc<Mutex<Vec<(usize, u32)>>>,
     mmu_dirty: Arc<AtomicBool>,
+    flash_commands: Arc<Mutex<VecDeque<EspSpiFlashCommand>>>,
+    flash_read_data: Arc<Mutex<Vec<u8>>>,
+}
+
+/// One transaction issued by the ESP SPI-memory user-command engine.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EspSpiFlashCommand {
+    /// Reads `length` bytes beginning at the physical byte `address`.
+    Read {
+        /// Physical flash byte address.
+        address: u32,
+        /// Number of bytes requested through the controller data window.
+        length: usize,
+    },
+    /// Programs bytes using NOR one-to-zero semantics.
+    Program {
+        /// Physical flash byte address.
+        address: u32,
+        /// Bytes staged by firmware in W0..W15.
+        data: Vec<u8>,
+    },
+    /// Erases the 4 KiB sector beginning at `address`.
+    EraseSector {
+        /// Aligned physical flash byte address.
+        address: u32,
+    },
 }
 
 /// Observation handle for ESP32-C6 indirect cache-MMU updates.
@@ -127,6 +153,8 @@ pub struct EspSpiMem {
 pub struct EspSpiMemMmuHandle {
     pending: Arc<Mutex<Vec<(usize, u32)>>>,
     dirty: Arc<AtomicBool>,
+    flash_commands: Arc<Mutex<VecDeque<EspSpiFlashCommand>>>,
+    flash_read_data: Arc<Mutex<Vec<u8>>>,
 }
 
 impl EspSpiMemMmuHandle {
@@ -137,6 +165,22 @@ impl EspSpiMemMmuHandle {
         }
         let mut pending = self.pending.lock().expect("ESP SPI MMU lock poisoned");
         std::mem::take(&mut *pending)
+    }
+
+    /// Takes the next SPI-flash transaction issued by guest firmware.
+    pub fn take_flash_command(&self) -> Option<EspSpiFlashCommand> {
+        self.flash_commands
+            .lock()
+            .expect("ESP SPI flash-command lock poisoned")
+            .pop_front()
+    }
+
+    /// Makes bytes returned by a flash-read transaction visible in W0..W15.
+    pub fn complete_flash_read(&self, data: Vec<u8>) {
+        *self
+            .flash_read_data
+            .lock()
+            .expect("ESP SPI flash-response lock poisoned") = data;
     }
 }
 
@@ -163,6 +207,8 @@ impl EspSpiMem {
     ) -> (Self, EspSpiMemMmuHandle) {
         let pending = Arc::new(Mutex::new(Vec::new()));
         let dirty = Arc::new(AtomicBool::new(false));
+        let flash_commands = Arc::new(Mutex::new(VecDeque::new()));
+        let flash_read_data = Arc::new(Mutex::new(Vec::new()));
         let mut registers = vec![0; 0x1000 / 4];
         // On an idle ESP32-C6 MSPI controller all AXI and synchronization
         // FIFOs report empty. The mask ROM waits for the aggregate bit before
@@ -178,13 +224,24 @@ impl EspSpiMem {
                 mmu_items: [0; 256],
                 mmu_pending: pending.clone(),
                 mmu_dirty: dirty.clone(),
+                flash_commands: flash_commands.clone(),
+                flash_read_data: flash_read_data.clone(),
             },
-            EspSpiMemMmuHandle { pending, dirty },
+            EspSpiMemMmuHandle {
+                pending,
+                dirty,
+                flash_commands,
+                flash_read_data,
+            },
         )
     }
 
     fn execute_user_command(&mut self) {
         let command = self.registers[0x20 / 4] as u8;
+        self.flash_read_data
+            .lock()
+            .expect("ESP SPI flash-response lock poisoned")
+            .clear();
         let response = match command {
             // RDID. ESP's ROM helper consumes the bytes in this
             // little-endian word order.
@@ -200,6 +257,52 @@ impl EspSpiMem {
                 0
             }
             0x04 => {
+                self.write_enabled = false;
+                0
+            }
+            // READ4IO. IDF supplies the already-decoded 24-bit byte address
+            // in ADDR and consumes the response through W0..W15.
+            0xbb => {
+                let length = usize::try_from((self.registers[0x28 / 4] & 0x3ff) / 8 + 1)
+                    .expect("SPI read length fits usize");
+                self.flash_commands
+                    .lock()
+                    .expect("ESP SPI flash-command lock poisoned")
+                    .push_back(EspSpiFlashCommand::Read {
+                        address: self.registers[0x04 / 4],
+                        length,
+                    });
+                0
+            }
+            // Page program. The C6 controller exposes a 64-byte W0..W15
+            // window and IDF chunks larger NVS writes accordingly.
+            0x02 if self.write_enabled => {
+                let length = usize::try_from((self.registers[0x24 / 4] & 0x3ff) / 8 + 1)
+                    .expect("SPI program length fits usize")
+                    .min(64);
+                let mut data = Vec::with_capacity(length);
+                for word in &self.registers[0x58 / 4..=0x94 / 4] {
+                    data.extend_from_slice(&word.to_le_bytes());
+                }
+                data.truncate(length);
+                self.flash_commands
+                    .lock()
+                    .expect("ESP SPI flash-command lock poisoned")
+                    .push_back(EspSpiFlashCommand::Program {
+                        address: self.registers[0x04 / 4],
+                        data,
+                    });
+                self.write_enabled = false;
+                0
+            }
+            // 4 KiB sector erase.
+            0x20 if self.write_enabled => {
+                self.flash_commands
+                    .lock()
+                    .expect("ESP SPI flash-command lock poisoned")
+                    .push_back(EspSpiFlashCommand::EraseSector {
+                        address: self.registers[0x04 / 4],
+                    });
                 self.write_enabled = false;
                 0
             }
@@ -222,6 +325,29 @@ impl Device for EspSpiMem {
             ));
         }
         let index = usize::try_from(offset / 4).expect("SPI-memory offset fits");
+        if (0x58..=0x94).contains(&(offset & !3)) {
+            let response = self
+                .flash_read_data
+                .lock()
+                .expect("ESP SPI flash-response lock poisoned");
+            if !response.is_empty() {
+                let start = usize::try_from((offset & !3) - 0x58)
+                    .expect("SPI response offset fits usize");
+                let mut bytes = [0_u8; 4];
+                for (index, byte) in bytes.iter_mut().enumerate() {
+                    *byte = response.get(start + index).copied().unwrap_or(0);
+                }
+                let value = u32::from_le_bytes(bytes);
+                let shift = (offset & 3) * 8;
+                let mask = match width {
+                    AccessWidth::Byte => 0xff,
+                    AccessWidth::HalfWord => 0xffff,
+                    AccessWidth::Word => u64::from(u32::MAX),
+                    AccessWidth::DoubleWord => unreachable!("double-word access rejected"),
+                };
+                return Ok((u64::from(value) >> shift) & mask);
+            }
+        }
         let register = match offset & !3 {
             0x37c => Some(self.mmu_items[usize::from(self.mmu_index)]),
             0x380 => Some(u32::from(self.mmu_index)),
@@ -312,5 +438,13 @@ impl Device for EspSpiMem {
             .expect("ESP SPI MMU lock poisoned")
             .clear();
         self.mmu_dirty.store(false, Ordering::Release);
+        self.flash_commands
+            .lock()
+            .expect("ESP SPI flash-command lock poisoned")
+            .clear();
+        self.flash_read_data
+            .lock()
+            .expect("ESP SPI flash-response lock poisoned")
+            .clear();
     }
 }

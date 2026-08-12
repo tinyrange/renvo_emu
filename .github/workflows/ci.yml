@@ -181,10 +181,10 @@ jobs:
           if-no-files-found: ignore
 
   esp32c6-openthread:
-    name: ESP32-C6 genuine OpenThread native-radio qualification
+    name: ESP32-C6 genuine OpenThread radio and FTD/CLI qualification
     needs: rust
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
@@ -199,12 +199,17 @@ jobs:
       - name: Require genuine OpenThread native-radio workflows
         run: ./scripts/qualify-esp-radio-openthread-vendor.sh esp32c6
 
+      - name: Require genuine OpenThread FTD, persistent keys, and CLI traffic
+        run: ./scripts/qualify-esp-radio-openthread-cli-vendor.sh esp32c6
+
       - name: Upload OpenThread qualification evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: esp32c6-openthread-radio-qualification
-          path: .remu/qualification/radio-openthread-vendor/esp32c6
+          path: |
+            .remu/qualification/radio-openthread-vendor/esp32c6
+            .remu/qualification/radio-openthread-cli-vendor/esp32c6
           if-no-files-found: ignore
 
   esp32c6-zigbee:

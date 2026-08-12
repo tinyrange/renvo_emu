@@ -545,6 +545,96 @@ fn esp32c6_cache_sync_refreshes_stale_rom_mmap_data() {
 }
 
 #[test]
+fn esp32c6_spi1_user_commands_mutate_and_read_the_shared_flash_image() {
+    const SPI1: u64 = 0x6000_3000;
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine.set_esp_flash_image(&vec![0xff; 0x20_000]);
+
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x20, AccessWidth::Word, 0x7000_0002, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x04, AccessWidth::Word, 0x9120, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x24, AccessWidth::Word, 31, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x58, AccessWidth::Word, 0x4433_2211, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    machine.poll_esp32c6_flash_commands().unwrap();
+    assert_eq!(
+        &machine.esp_flash[0x9120..0x9124],
+        &[0x11, 0x22, 0x33, 0x44]
+    );
+
+    machine
+        .bus
+        .write(SPI1 + 0x20, AccessWidth::Word, 0x7000_00bb, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x04, AccessWidth::Word, 0x9120, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x28, AccessWidth::Word, 31, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    machine.poll_esp32c6_flash_commands().unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                SPI1 + 0x58,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x4433_2211
+    );
+
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x20, AccessWidth::Word, 0x7000_0020, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x04, AccessWidth::Word, 0x9000, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    machine.poll_esp32c6_flash_commands().unwrap();
+    assert!(
+        machine.esp_flash[0x9000..0xa000]
+            .iter()
+            .all(|byte| *byte == 0xff)
+    );
+}
+
+#[test]
 fn esp32c6_indirect_mmu_maps_flash_at_the_hardware_cache_base() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let mut flash = vec![0xff; 0x1_0000];

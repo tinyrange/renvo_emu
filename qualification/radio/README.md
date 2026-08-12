@@ -19,6 +19,7 @@ scripts/qualify-esp-radio-ble-vendor.sh esp32c6
 scripts/qualify-esp-radio-ble-vendor.sh esp32s3
 scripts/qualify-esp-radio-ieee802154-vendor.sh esp32c6
 scripts/qualify-esp-radio-openthread-vendor.sh esp32c6
+scripts/qualify-esp-radio-openthread-cli-vendor.sh esp32c6
 scripts/qualify-esp-radio-zigbee-vendor.sh esp32c6
 scripts/qualify-esp-radio-custom-stack.sh esp32c6
 scripts/qualify-esp-radio-custom-stack.sh esp32s3
@@ -189,6 +190,16 @@ and RF replay artifacts. This closes the OpenThread-to-native-transmit-security
 peripheral handoff; it does not claim a full Thread network exchange or move
 receive decryption out of the guest stack.
 
+The complementary full-stack OpenThread gate uses the default FTD and platform
+key-reference configuration. Native SPI1 user commands erase, program, and
+read the NVS partition; the PSA persistent-key import and an immediate NVS
+round trip must both succeed. The application then commits a fixed CLI
+dataset, enables Thread, becomes leader, lists its mesh addresses, and sends a
+multicast CLI ping. Its protected Thread frames traverse the native CCA/TX,
+non-DMA AES idle-completion, W1C interrupt, hardware-FCS, and coexistence paths.
+The result and RF event stream must replay byte-for-byte from reset. A
+deterministic virtual-peer echo reply remains the final request/reply extension.
+
 The Apache-2.0 ESP Zigbee 2.0.3 gate boots its coordinator application through
 the genuine C6 rev0 ROM, forms a native channel-11 network with PAN ID 63100,
 then receives an injected beacon request and emits the coordinator beacon. It
@@ -241,8 +252,9 @@ controller transport, adaptive hopping, and privacy list behavior.
 The genuine OpenThread radio build now passes raw TX/RX, native CCM* transmit
 security, source matching, energy scan, and sleep/wake through the native C6
 port. Genuine Zigbee firmware now passes network formation and a peer beacon
-exchange over the same native C6 boundary. A full Thread CLI exchange still
-remains. Disputed
+exchange over the same native C6 boundary. The full FTD build now reaches
+leader role and sends a protected CLI ping; the deterministic virtual-peer
+echo response remains. Disputed
 ESP32-S3 RF pages remain intentionally unmapped until a revision-
 specific primary-source or authorized-hardware probe resolves them. Coexistence
 denial, priority preemption, reset cancellation, and active clock/power gating

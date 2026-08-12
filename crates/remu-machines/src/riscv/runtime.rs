@@ -51,6 +51,7 @@ impl RiscVMachine {
         &mut self,
         stats: &mut RunStats,
     ) -> Result<bool, MachineError> {
+        self.poll_esp32c6_flash_commands()?;
         // The cache-MMU table is memory-mapped hardware. Real mask-ROM code
         // programs it directly, so consume those writes independently of the
         // functional-ROM compatibility path and expose the selected flash

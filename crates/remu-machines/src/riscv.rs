@@ -14,13 +14,13 @@ use remu_core::{
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
     EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic, EspC6PlicHandle,
-    EspGpio, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank,
-    Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc,
-    Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout,
-    SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle,
-    WchUsart,
+    EspGpio, EspSpiFlashCommand, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
+    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
+    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
+    WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -237,6 +237,7 @@ pub struct RiscVMachine {
     esp_c6_clint: Option<EspC6ClintHandle>,
     esp_c6_extmem: Option<EspC6ExtmemHandle>,
     esp_c6_spimem_mmu: Option<EspSpiMemMmuHandle>,
+    esp_c6_spimem_flash: Option<EspSpiMemMmuHandle>,
     esp32c6_peripherals: Option<Esp32c6PeripheralHandles>,
     radio_medium: Option<RadioMedium>,
     radio_coexistence: Option<CoexistenceArbiter>,
@@ -302,6 +303,7 @@ impl RiscVMachine {
         let mut esp_c6_clint = None;
         let mut esp_c6_extmem = None;
         let mut esp_c6_spimem_mmu = None;
+        let mut esp_c6_spimem_flash = None;
         let mut esp32c6_peripherals = None;
         let radio_medium = if target == TargetId::Esp32c6 {
             Some(RadioMedium::new(MediumProfile::default())?)
@@ -678,12 +680,9 @@ impl RiscVMachine {
                 let (spimem0, spimem0_mmu) = EspSpiMem::new_observed("esp32c6.spimem0");
                 bus.map_device("esp32c6.spimem0", 0x6000_2000, 0x1000, Box::new(spimem0))?;
                 esp_c6_spimem_mmu = Some(spimem0_mmu);
-                bus.map_device(
-                    "esp32c6.spimem1",
-                    0x6000_3000,
-                    0x1000,
-                    Box::new(EspSpiMem::new("esp32c6.spimem1")),
-                )?;
+                let (spimem1, spimem1_flash) = EspSpiMem::new_observed("esp32c6.spimem1");
+                bus.map_device("esp32c6.spimem1", 0x6000_3000, 0x1000, Box::new(spimem1))?;
+                esp_c6_spimem_flash = Some(spimem1_flash);
                 let (peripherals, usb_serial_jtag) =
                     map_esp32c6_peripherals(&mut bus, &signals, &mut chip_uarts)?;
                 esp32c6_peripherals = Some(peripherals);
@@ -789,6 +788,7 @@ impl RiscVMachine {
             esp_c6_clint,
             esp_c6_extmem,
             esp_c6_spimem_mmu,
+            esp_c6_spimem_flash,
             esp32c6_peripherals,
             radio_medium,
             radio_coexistence,

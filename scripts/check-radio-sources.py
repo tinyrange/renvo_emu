@@ -30,6 +30,9 @@ IEEE802154_VENDOR_REQUIREMENTS_PATH = (
 OPENTHREAD_VENDOR_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/openthread-vendor-requirements.json"
 )
+OPENTHREAD_CLI_VENDOR_REQUIREMENTS_PATH = (
+    ROOT / "qualification/radio/openthread-cli-vendor-requirements.json"
+)
 ZIGBEE_VENDOR_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/zigbee-vendor-requirements.json"
 )
@@ -550,6 +553,44 @@ EXPECTED_OPENTHREAD_VENDOR_REQUIREMENTS = {
         "REMU_VENDOR_OPENTHREAD_SLEEP_WAKE sleep=0 wake=0",
     ],
 }
+EXPECTED_OPENTHREAD_CLI_VENDOR_REQUIREMENTS = {
+    "schema": "remu.radio-openthread-cli-vendor-requirements.v1",
+    "source_ledger_entries": [
+        "esp-rom-elfs-20260528",
+        "esp-idf-openthread-full-stack",
+        "espressif-openthread-license",
+        "esp-idf-c6-spimem-registers",
+        "esp-idf-c6-aes-low-level",
+        "esp-idf-c6-aes-hal",
+        "esp-idf-psa-its",
+    ],
+    "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+    "firmware_project": "qualification/radio/vendor-openthread-cli-probe",
+    "firmware_elf": "remu_vendor_openthread_cli_probe.elf",
+    "chip": "esp32c6",
+    "rom_file": "esp32c6_rev0_rom.elf",
+    "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+    "rom_start": "0x40000000",
+    "rom_end": "0x40050000",
+    "minimum_instructions": 20_000_000,
+    "expected_pan_id": 4_660,
+    "minimum_thread_frames": 2,
+    "required_commands": [66, 67, 69, 77, 79],
+    "required_interrupt_causes": [1],
+    "required_uart_substrings": [
+        "REMU_VENDOR_THREAD_PLATFORM result=0",
+        "REMU_VENDOR_THREAD_NVS open=0 set=0 commit=0 get=0 value=72656d75",
+        "REMU_VENDOR_THREAD_PSA init=0 import=0 key=135168",
+        "REMU_VENDOR_THREAD_START result=0",
+        "REMU_VENDOR_THREAD_CLI_COMMAND dataset commit active",
+        "REMU_VENDOR_THREAD_CLI_COMMAND ifconfig up",
+        "REMU_VENDOR_THREAD_CLI_COMMAND thread start",
+        "REMU_VENDOR_THREAD_CLI_COMMAND ping ff02::1 16 1",
+        "REMU_VENDOR_THREAD_BECOME_LEADER error=0 role=4 leader=1",
+        "REMU_VENDOR_THREAD_TASKLETS passes=3 pending=0",
+        "main_task: Returned from app_main()",
+    ],
+}
 EXPECTED_ZIGBEE_VENDOR_REQUIREMENTS = {
     "schema": "remu.radio-zigbee-vendor-requirements.v1",
     "source_ledger_entries": [
@@ -1000,6 +1041,19 @@ def validate_openthread_vendor_requirements(
     )
 
 
+def validate_openthread_cli_vendor_requirements(
+    requirements: dict[str, object], validation: Validation
+) -> None:
+    validation.require(
+        requirements == EXPECTED_OPENTHREAD_CLI_VENDOR_REQUIREMENTS,
+        "genuine full-stack OpenThread CLI acceptance contract changed or is incomplete",
+    )
+    validation.require(
+        (ROOT / str(requirements.get("firmware_project"))).is_dir(),
+        "genuine full-stack OpenThread CLI probe project is missing",
+    )
+
+
 def validate_zigbee_vendor_requirements(
     requirements: dict[str, object], validation: Validation
 ) -> None:
@@ -1143,6 +1197,9 @@ def main() -> int:
     ble_vendor_requirements = load_json(BLE_VENDOR_REQUIREMENTS_PATH)
     ieee802154_vendor_requirements = load_json(IEEE802154_VENDOR_REQUIREMENTS_PATH)
     openthread_vendor_requirements = load_json(OPENTHREAD_VENDOR_REQUIREMENTS_PATH)
+    openthread_cli_vendor_requirements = load_json(
+        OPENTHREAD_CLI_VENDOR_REQUIREMENTS_PATH
+    )
     zigbee_vendor_requirements = load_json(ZIGBEE_VENDOR_REQUIREMENTS_PATH)
     legal_state_contract = load_json(LEGAL_STATE_CONTRACT_PATH)
     validate_ledger(ledger, validation)
@@ -1154,6 +1211,9 @@ def main() -> int:
     validate_ble_vendor_requirements(ble_vendor_requirements, validation)
     validate_ieee802154_vendor_requirements(ieee802154_vendor_requirements, validation)
     validate_openthread_vendor_requirements(openthread_vendor_requirements, validation)
+    validate_openthread_cli_vendor_requirements(
+        openthread_cli_vendor_requirements, validation
+    )
     validate_zigbee_vendor_requirements(zigbee_vendor_requirements, validation)
     validate_legal_state_contract(legal_state_contract, validation)
     if validation.errors:

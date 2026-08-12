@@ -627,6 +627,72 @@ impl RiscVMachine {
         &self.esp_flash
     }
 
+    /// Completes SPI1 user commands issued by the linked ESP-IDF flash
+    /// driver. The controller owns command framing while the machine owns the
+    /// mutable NOR array shared with ROM services and cache mappings.
+    pub(super) fn poll_esp32c6_flash_commands(&mut self) -> Result<(), MachineError> {
+        let Some(handle) = self.esp_c6_spimem_flash.clone() else {
+            return Ok(());
+        };
+        while let Some(command) = handle.take_flash_command() {
+            match command {
+                EspSpiFlashCommand::Read { address, length } => {
+                    let start = usize::try_from(address).expect("32-bit flash address fits usize");
+                    let end = start
+                        .checked_add(length)
+                        .filter(|end| *end <= self.esp_flash.len())
+                        .ok_or_else(|| {
+                            MachineError::Esp32c6BootLayout(format!(
+                                "SPI flash read {address:#x}+{length:#x} exceeds image"
+                            ))
+                        })?;
+                    handle.complete_flash_read(self.esp_flash[start..end].to_vec());
+                }
+                EspSpiFlashCommand::Program { address, data } => {
+                    let start = usize::try_from(address).expect("32-bit flash address fits usize");
+                    if (start & 0xff) + data.len() > 0x100 {
+                        return Err(MachineError::Esp32c6BootLayout(format!(
+                            "SPI flash program {address:#x}+{:#x} crosses a page",
+                            data.len()
+                        )));
+                    }
+                    let end = start
+                        .checked_add(data.len())
+                        .filter(|end| *end <= self.esp_flash.len())
+                        .ok_or_else(|| {
+                            MachineError::Esp32c6BootLayout(format!(
+                                "SPI flash program {address:#x}+{:#x} exceeds image",
+                                data.len()
+                            ))
+                        })?;
+                    for (current, requested) in self.esp_flash[start..end].iter_mut().zip(data) {
+                        *current &= requested;
+                    }
+                    self.esp32c6_flash_dirty = true;
+                }
+                EspSpiFlashCommand::EraseSector { address } => {
+                    if address & 0xfff != 0 {
+                        return Err(MachineError::Esp32c6BootLayout(format!(
+                            "SPI flash sector erase address {address:#x} is unaligned"
+                        )));
+                    }
+                    let start = usize::try_from(address).expect("32-bit flash address fits usize");
+                    let end = start
+                        .checked_add(0x1000)
+                        .filter(|end| *end <= self.esp_flash.len())
+                        .ok_or_else(|| {
+                            MachineError::Esp32c6BootLayout(format!(
+                                "SPI flash sector erase {address:#x}+0x1000 exceeds image"
+                            ))
+                        })?;
+                    self.esp_flash[start..end].fill(0xff);
+                    self.esp32c6_flash_dirty = true;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn refresh_esp32c6_cache(
         &mut self,
         virtual_address: u32,

@@ -753,6 +753,79 @@ fn esp32c6_spimem_reports_idle_axi_fifos_across_reset() {
 }
 
 #[test]
+fn esp32c6_spimem_exports_program_erase_and_read_transactions() {
+    let (mut spimem, handle) = EspSpiMem::new_observed("spimem");
+
+    spimem
+        .write(0, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0x20, AccessWidth::Word, 0x7000_0002, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0x04, AccessWidth::Word, 0x9120, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0x24, AccessWidth::Word, 31, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0x58, AccessWidth::Word, 0x4433_2211, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        handle.take_flash_command(),
+        Some(EspSpiFlashCommand::Program {
+            address: 0x9120,
+            data: vec![0x11, 0x22, 0x33, 0x44],
+        })
+    );
+
+    spimem
+        .write(0, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0x20, AccessWidth::Word, 0x7000_0020, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0x04, AccessWidth::Word, 0x9000, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        handle.take_flash_command(),
+        Some(EspSpiFlashCommand::EraseSector { address: 0x9000 })
+    );
+
+    spimem
+        .write(0x20, AccessWidth::Word, 0x7000_00bb, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0x04, AccessWidth::Word, 0x9000, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0x28, AccessWidth::Word, 31, SimTime::ZERO)
+        .unwrap();
+    spimem
+        .write(0, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        handle.take_flash_command(),
+        Some(EspSpiFlashCommand::Read {
+            address: 0x9000,
+            length: 4,
+        })
+    );
+    handle.complete_flash_read(vec![0xaa, 0xbb, 0xcc, 0xdd]);
+    assert_eq!(
+        spimem.read(0x58, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0xddcc_bbaa
+    );
+}
+
+#[test]
 fn esp32c6_analog_i2c_completes_rfpll_charge_pump_calibration() {
     let mut i2c = EspAnalogI2c::new("analog-i2c");
     let write = (1_u64 << 24) | (0x20_u64 << 16) | (0x0f_u64 << 8) | 0x62;

@@ -96,7 +96,37 @@
       "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
       "license": "Apache-2.0",
       "content_sha256": "8522e90bff59750812fb218319f4d7781bc55e71baab228c12b39307361515f4",
-      "use": "ESP32-C6 SPI-memory idle FIFO status and indirect cache-MMU registers"
+      "use": "ESP32-C6 SPI-memory idle FIFO, user-command framing, data window, and indirect cache-MMU registers"
+    },
+    {
+      "id": "esp-idf-c6-aes-low-level",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hal_security/esp32c6/include/hal/aes_ll.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "8784cef20453a41ccc53e6a73d70b91e548441d3c557f1b311b6c8a2e984f786",
+      "use": "ESP32-C6 AES state values, non-DMA trigger, key, block, and output register contract"
+    },
+    {
+      "id": "esp-idf-c6-aes-hal",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hal_security/aes_hal.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "f349ff83d948ef0faa1870c0384dd2c648adaa5f4590d91756526a902d433ca5",
+      "use": "Vendor distinction between non-DMA AES idle completion and DMA done completion"
+    },
+    {
+      "id": "esp-idf-psa-its",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/mbedtls/port/psa_crypto_storage/esp_psa_its.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "b92cc04b45ac47ef1f710a1ba51979f083d3085e987b7f43daec7d61a42e1911",
+      "use": "ESP-IDF PSA persistent-key storage over NVS erase, program, read, and commit workflows"
     },
     {
       "id": "esp-idf-c6-sha-registers",
@@ -357,6 +387,26 @@
       "license": "Apache-2.0",
       "content_sha256": "f64178b872369df08578eefff27b4b7ba6a7cf600af9d081e7de67d9adabfefa",
       "use": "OpenThread native-radio frame, transmit-security key/counter handoff, error mapping, energy scan, source matching, and sleep/wake boundary"
+    },
+    {
+      "id": "esp-idf-openthread-full-stack",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/openthread/src/esp_openthread.cpp",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "8550838948d3a27aa0f3d4eb03c01db9f55ccbfce7aece0e6e9b1bd8e3f74f6d",
+      "use": "ESP-IDF full OpenThread initialization, FTD task, platform mainloop, and public start boundary"
+    },
+    {
+      "id": "espressif-openthread-license",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/openthread/a98813b30ae58f9a95ece680b9cc46c3874de6ea/LICENSE",
+      "repository": "https://github.com/espressif/openthread",
+      "revision": "a98813b30ae58f9a95ece680b9cc46c3874de6ea",
+      "license": "BSD-3-Clause",
+      "content_sha256": "e164182fc3e6378533ba706800087469a14dcd5913ee55e2e8ae3fb14f3cdbbb",
+      "use": "Pre-read license gate for the pinned full OpenThread FTD and CLI implementation"
     },
     {
       "id": "esp-zigbee-sdk-radio-api-2.0.3",

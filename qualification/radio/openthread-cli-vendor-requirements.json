@@ -1,0 +1,38 @@
+{
+  "schema": "remu.radio-openthread-cli-vendor-requirements.v1",
+  "source_ledger_entries": [
+    "esp-rom-elfs-20260528",
+    "esp-idf-openthread-full-stack",
+    "espressif-openthread-license",
+    "esp-idf-c6-spimem-registers",
+    "esp-idf-c6-aes-low-level",
+    "esp-idf-c6-aes-hal",
+    "esp-idf-psa-its"
+  ],
+  "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+  "firmware_project": "qualification/radio/vendor-openthread-cli-probe",
+  "firmware_elf": "remu_vendor_openthread_cli_probe.elf",
+  "chip": "esp32c6",
+  "rom_file": "esp32c6_rev0_rom.elf",
+  "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+  "rom_start": "0x40000000",
+  "rom_end": "0x40050000",
+  "minimum_instructions": 20000000,
+  "expected_pan_id": 4660,
+  "minimum_thread_frames": 2,
+  "required_commands": [66, 67, 69, 77, 79],
+  "required_interrupt_causes": [1],
+  "required_uart_substrings": [
+    "REMU_VENDOR_THREAD_PLATFORM result=0",
+    "REMU_VENDOR_THREAD_NVS open=0 set=0 commit=0 get=0 value=72656d75",
+    "REMU_VENDOR_THREAD_PSA init=0 import=0 key=135168",
+    "REMU_VENDOR_THREAD_START result=0",
+    "REMU_VENDOR_THREAD_CLI_COMMAND dataset commit active",
+    "REMU_VENDOR_THREAD_CLI_COMMAND ifconfig up",
+    "REMU_VENDOR_THREAD_CLI_COMMAND thread start",
+    "REMU_VENDOR_THREAD_CLI_COMMAND ping ff02::1 16 1",
+    "REMU_VENDOR_THREAD_BECOME_LEADER error=0 role=4 leader=1",
+    "REMU_VENDOR_THREAD_TASKLETS passes=3 pending=0",
+    "main_task: Returned from app_main()"
+  ]
+}
