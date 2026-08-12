@@ -108,6 +108,12 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
         WRITE32(WIFI_QUEUE0_CONTROL,
                 WIFI_QUEUE_ENABLE |
                     ((uintptr_t)remu_wifi_descriptor & 0x000fffffu));
+        for (uint32_t timeout = 0; timeout < 20000u; ++timeout) {
+            if ((READ32(WIFI_QUEUE_STATE) & 1u) != 0 &&
+                (READ32(WIFI_INTERRUPT_EVENT) & WIFI_TX_DONE) != 0) {
+                break;
+            }
+        }
         if ((READ32(WIFI_QUEUE_STATE) & 1u) == 0) {
             failure = 2;
         } else if ((READ32(WIFI_INTERRUPT_EVENT) & WIFI_TX_DONE) == 0) {
