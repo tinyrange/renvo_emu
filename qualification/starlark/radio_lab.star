@@ -11,6 +11,7 @@ load(
     "drain_bus",
     "drain_radio",
     "run_until",
+    "select_bus",
     "wait_for_bus",
     "wait_for_radio",
 )
@@ -23,6 +24,7 @@ load(
 load(
     "//qualification/starlark:wifi_crypto_evidence.star",
     "capture_wifi_crypto",
+    "require_espnow_ccmp_programming",
     "require_wifi_crypto_programming",
     "summarize_wifi_crypto_events",
 )
@@ -50,6 +52,41 @@ def require_wifi_crypto_evidence(cursor = 0, maximum = 8192):
         "batch": batch,
         "summary": require_wifi_crypto_programming(machine.target(), batch["events"]),
     }
+
+def require_espnow_ccmp_evidence(cursor = 0, maximum = 8192):
+    """Requires the exact genuine-firmware encrypted ESP-NOW key tuple."""
+    batch = drain_bus(machine, cursor = cursor, maximum = maximum)
+    return {
+        "batch": batch,
+        "summary": require_espnow_ccmp_programming(machine.target(), batch["events"]),
+    }
+
+def _wifi_security_request_write(access):
+    if access["kind"] != "Write" or access["width"] != "Word":
+        return None
+    address = access["address"]
+    c6_queue = address >= 0x600a4d1c and address <= 0x600a4d6c and (0x600a4d6c - address) % 16 == 0
+    s3_queue = address >= 0x60033cd0 and address <= 0x60033d08 and (0x60033d08 - address) % 8 == 0
+    security_request = access["value"] & 0xe0000000 == 0x20000000
+    if not security_request and not c6_queue and not s3_queue:
+        return None
+    return {
+        "at": access["at"],
+        "kind": "security-request" if security_request else "queue-kick",
+        "address": address,
+        "value": access["value"],
+        "region": access["region"],
+    }
+
+def wifi_security_request_writes(cursor = 0, maximum = 65536, max_matches = 256):
+    """Selects bit-29 native security requests without retaining a broad trace."""
+    return select_bus(
+        machine,
+        _wifi_security_request_write,
+        cursor = cursor,
+        maximum = maximum,
+        max_matches = max_matches,
+    )
 
 def c6_twt_capture(capacity = 4096):
     """Starts the native C6 TWT/TSF capture."""

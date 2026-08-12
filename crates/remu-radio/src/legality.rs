@@ -75,6 +75,8 @@ pub enum RadioLegalityRule {
     DmaAddress,
     /// A firmware-owned DMA length must fit the recovered hardware field.
     DmaLength,
+    /// Hardware frame protection must resolve one firmware-programmed native key.
+    CryptoKeySelection,
     /// A native interrupt requires firmware to have enabled its current domain generation.
     InterruptDomain,
     /// Mutually exclusive controller activities cannot overlap.
@@ -98,6 +100,7 @@ impl RadioLegalityRule {
             Self::MonotonicResetGeneration => "monotonic-reset-generation",
             Self::DmaAddress => "dma-address",
             Self::DmaLength => "dma-length",
+            Self::CryptoKeySelection => "crypto-key-selection",
             Self::InterruptDomain => "interrupt-domain",
             Self::OperationOverlap => "operation-overlap",
             Self::CompletionWithoutOperation => "completion-without-operation",
@@ -108,12 +111,13 @@ impl RadioLegalityRule {
     }
 
     /// Complete stable rule-code inventory used by the source audit.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::MonotonicTime,
         Self::DomainReady,
         Self::MonotonicResetGeneration,
         Self::DmaAddress,
         Self::DmaLength,
+        Self::CryptoKeySelection,
         Self::InterruptDomain,
         Self::OperationOverlap,
         Self::CompletionWithoutOperation,

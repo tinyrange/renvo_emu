@@ -134,3 +134,46 @@ def drain_bus(machine, cursor = 0, page_size = 256, maximum = 4096):
         if page["complete"]:
             return {"complete": True, "cursor": cursor, "events": events}
     return {"complete": False, "cursor": cursor, "events": events}
+
+def select_bus(machine, accept, cursor = 0, page_size = 256, maximum = 65536, max_matches = 256):
+    """Pages a capture while retaining only compact values returned by `accept`.
+
+    This is the preferred REPL discovery primitive for broad native traces: it
+    bounds both scanned records and retained results instead of materializing
+    the whole bus ring in the Starlark heap.
+    """
+    if page_size < 1 or page_size > 4096:
+        fail("page_size must be in 1..4096")
+    if maximum < 1 or maximum > 1000000:
+        fail("maximum must be in 1..1000000")
+    if max_matches < 1 or max_matches > 4096:
+        fail("max_matches must be in 1..4096")
+    matches = []
+    scanned = 0
+    pages = (maximum + page_size - 1) // page_size
+    for _index in range(pages):
+        limit = min(page_size, maximum - scanned)
+        page = machine.bus_events(cursor = cursor, limit = limit)
+        if page["missed_before_cursor"]:
+            fail("bus capture ring dropped %s requested events" % page["missed_before_cursor"])
+        for event in page["events"]:
+            scanned += 1
+            value = accept(event["access"])
+            if value != None:
+                if len(matches) == max_matches:
+                    fail("selected bus evidence exceeded max_matches")
+                matches.append(value)
+        cursor = page["next_cursor"]
+        if page["complete"]:
+            return {
+                "complete": True,
+                "cursor": cursor,
+                "matches": matches,
+                "scanned": scanned,
+            }
+    return {
+        "complete": False,
+        "cursor": cursor,
+        "matches": matches,
+        "scanned": scanned,
+    }

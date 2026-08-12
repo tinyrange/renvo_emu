@@ -120,9 +120,30 @@ void app_main(void)
     memcpy(peer.peer_addr, broadcast, sizeof(peer.peer_addr));
     ESP_ERROR_CHECK(esp_now_add_peer(&peer));
 
+    const uint8_t secure_station[6] = {0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0x01};
+    const uint8_t secure_lmk[ESP_NOW_KEY_LEN] = {
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+    };
+    esp_now_peer_info_t secure_peer = {
+        .channel = 1,
+        .ifidx = WIFI_IF_AP,
+        .encrypt = true,
+    };
+    memcpy(secure_peer.peer_addr, secure_station, sizeof(secure_peer.peer_addr));
+    memcpy(secure_peer.lmk, secure_lmk, sizeof(secure_peer.lmk));
+    ESP_ERROR_CHECK(esp_now_add_peer(&secure_peer));
+
     const uint8_t payload[] = {0x52, 0x45, 0x4d, 0x55};
     esp_err_t send_result = esp_now_send(broadcast, payload, sizeof(payload));
     printf("REMU_VENDOR_ESPNOW_TX_START result=%d\n", (int)send_result);
+    fflush(stdout);
+
+    const uint8_t secure_payload[] = {0x43, 0x43, 0x4d, 0x50};
+    esp_err_t secure_send_result =
+        esp_now_send(secure_station, secure_payload, sizeof(secure_payload));
+    printf("REMU_VENDOR_ESPNOW_SECURE_TX_START result=%d\n",
+           (int)secure_send_result);
     fflush(stdout);
 
     for (unsigned attempt = 0;

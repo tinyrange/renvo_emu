@@ -19,6 +19,16 @@ _WIFI_CRYPTO_LAYOUTS = {
     },
 }
 
+_ESPNOW_CCMP_SLOT = 24
+_ESPNOW_CCMP_MATCH = 0xccbbaa02
+_ESPNOW_CCMP_CONTROL = 0xc16c01dd
+_ESPNOW_CCMP_KEY_WORDS = [
+    0xfefa53b8,
+    0xed440253,
+    0x86a9d3bd,
+    0xcfed0b48,
+]
+
 def wifi_crypto_layout(target):
     """Returns the pinned native key-table capture layout for one target."""
     if target not in _WIFI_CRYPTO_LAYOUTS:
@@ -91,3 +101,49 @@ def require_wifi_crypto_programming(target, events):
     if not summary["key_writes"]:
         fail("firmware did not program the native Wi-Fi crypto key payload")
     return summary
+
+def require_espnow_ccmp_programming(target, events):
+    """Requires the exact pairwise CCMP tuple emitted by the pinned firmware.
+
+    The tuple was recovered from the permissively licensed vendor HAL and then
+    observed at native MMIO while both genuine C6 and S3 firmware configured
+    the encrypted qualification peer.  This assertion never supplies a key to
+    the guest and does not participate in emulation.
+    """
+    summary = require_wifi_crypto_programming(target, events)
+    layout = wifi_crypto_layout(target)
+    slot_base = layout["table"] + _ESPNOW_CCMP_SLOT * 40
+    observed = {}
+    valid = False
+    for event in events:
+        access = event["access"]
+        if access["kind"] != "Write" or access["width"] != "Word":
+            continue
+        address = access["address"]
+        if address == layout["valid"] and access["value"] & (1 << _ESPNOW_CCMP_SLOT):
+            valid = True
+        if address >= slot_base and address < slot_base + 40:
+            observed[address - slot_base] = access["value"]
+
+    if not valid:
+        fail("firmware did not mark native Wi-Fi crypto slot 24 valid")
+    if observed.get(0) != _ESPNOW_CCMP_MATCH:
+        fail("firmware did not program the observed encrypted ESP-NOW peer match")
+    if observed.get(4) != _ESPNOW_CCMP_CONTROL:
+        fail("firmware did not program the observed CCMP/interface/key-ID control tuple")
+    for index in range(len(_ESPNOW_CCMP_KEY_WORDS)):
+        if observed.get(8 + index * 4) != _ESPNOW_CCMP_KEY_WORDS[index]:
+            fail("firmware encrypted ESP-NOW key payload diverged at word %s" % index)
+
+    return {
+        "target": target,
+        "slot": _ESPNOW_CCMP_SLOT,
+        "peer": [0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0x01],
+        "interface": 1,
+        "cipher": "ccmp",
+        "key_id": 3,
+        "control_class": 3,
+        "valid": True,
+        "key_payload_words_verified": len(_ESPNOW_CCMP_KEY_WORDS),
+        "table_writes": summary["table_writes"],
+    }

@@ -54,7 +54,7 @@ impl XtensaMachine {
                 4095,
                 self.now,
             )?;
-            let bytes = (0..length)
+            let mut bytes = (0..length)
                 .map(|offset| {
                     self.bus
                         .read(
@@ -66,6 +66,32 @@ impl XtensaMachine {
                         .map(|value| value as u8)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            // Genuine firmware consumes its intermediate bit-29 security mark
+            // before the final queue kick. Protected Frame plus the CCMP
+            // ExtIV/key-ID header is the durable request seen by the MAC.
+            let protection_requested = control & (1 << 29) != 0
+                || bytes.get(1).is_some_and(|flags| flags & 0x40 != 0);
+            if protection_requested {
+                let key = self.wifi_mac.select_ccmp_tx_key(&bytes);
+                self.radio_legality.require(
+                    RadioSubsystem::Wifi,
+                    RadioLegalityRule::CryptoKeySelection,
+                    key.is_ok(),
+                    self.now,
+                    key.as_ref().err().cloned().unwrap_or_default(),
+                )?;
+                let protected = remu_radio::protect_native_ccmp_frame(
+                    &key.expect("legality accepted the native CCMP key"),
+                    &mut bytes,
+                );
+                self.radio_legality.require(
+                    RadioSubsystem::Wifi,
+                    RadioLegalityRule::CryptoKeySelection,
+                    protected.is_ok(),
+                    self.now,
+                    protected.err().map(|error| error.to_string()).unwrap_or_default(),
+                )?;
+            }
             let duration = frame_duration(bytes.len());
             let end = self
                 .now

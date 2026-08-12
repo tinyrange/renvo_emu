@@ -17,6 +17,12 @@ impl RiscVMachine {
                     12,
                     self.now,
                 )?;
+            let control = self.bus.read(
+                u64::from(descriptor.address),
+                AccessWidth::Word,
+                AccessKind::Read,
+                self.now,
+            )?;
             let buffer = self.bus.read(
                 u64::from(descriptor.address.wrapping_add(4)),
                 AccessWidth::Word,
@@ -59,7 +65,41 @@ impl RiscVMachine {
                     4095,
                     self.now,
                 )?;
-            let bytes = self.radio_read_guest_bytes(buffer.wrapping_add(8), length)?;
+            let mut bytes = self.radio_read_guest_bytes(buffer.wrapping_add(8), length)?;
+            // The vendor preparation path briefly marks an intermediate DMA
+            // word with bit 29, then consumes it while expanding the final
+            // queue descriptor by the eight-byte CCMP header. At the native
+            // queue boundary the durable hardware request is Protected Frame
+            // plus ExtIV/key ID. Accept the direct bit-29 form as well.
+            let protection_requested = control & (1 << 29) != 0
+                || bytes.get(1).is_some_and(|flags| flags & 0x40 != 0);
+            if protection_requested {
+                let key = wifi_mac.select_ccmp_tx_key(&bytes);
+                self.radio_legality
+                    .as_mut()
+                    .expect("ESP32-C6 machine has a radio legality validator")
+                    .require(
+                        RadioSubsystem::Wifi,
+                        RadioLegalityRule::CryptoKeySelection,
+                        key.is_ok(),
+                        self.now,
+                        key.as_ref().err().cloned().unwrap_or_default(),
+                    )?;
+                let protected = remu_radio::protect_native_ccmp_frame(
+                    &key.expect("legality accepted the native CCMP key"),
+                    &mut bytes,
+                );
+                self.radio_legality
+                    .as_mut()
+                    .expect("ESP32-C6 machine has a radio legality validator")
+                    .require(
+                        RadioSubsystem::Wifi,
+                        RadioLegalityRule::CryptoKeySelection,
+                        protected.is_ok(),
+                        self.now,
+                        protected.err().map(|error| error.to_string()).unwrap_or_default(),
+                    )?;
+            }
             let duration = frame_duration(bytes.len());
             let end = self
                 .now

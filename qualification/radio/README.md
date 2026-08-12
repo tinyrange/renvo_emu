@@ -276,13 +276,22 @@ are hard legality errors. The C6 and S3 native Wi-Fi crypto tables now retain
 all 32 forty-byte key slots, expose firmware-written match/control/key state,
 zeroize on reset, and hard-reject a valid slot whose control class is outside
 the three encodings emitted by both pinned vendor HALs. A bounded Starlark
-workflow captures and checks the same programming sequence without symbol
-hooks. The C6 PHY page now latches the native one-microsecond TSF, runs all four
+workflow now drives both genuine firmware experiments, requires their exact
+encrypted ESP-NOW slot-24 peer/interface/key-ID/cipher tuple, and proves that
+native CCMP replaces the plaintext payload and firmware MIC reservation before
+RF submission. The LLE selector also accepts the direct bit-29 descriptor form,
+but the pinned vendor path consumes that intermediate marker while constructing
+the final queue descriptor; its durable hardware request is Protected Frame plus
+the CCMP ExtIV/key ID. Missing, ambiguous, malformed, or unsupported selection
+is a `crypto-key-selection` hard legality error. The workflow pages evidence
+with explicit loss accounting and emits only a compact decision artifact; it
+does not hook symbols or implement peripherals in Starlark. The C6 PHY page now
+latches the native one-microsecond TSF, runs all four
 target comparators, derives masked/raw/W1C power events, routes them through the
 native Wi-Fi interrupt, and hard-rejects timer-enable/wakeup orders the pinned
 HAL never emits. A second bounded Starlark workflow decodes the same sequence.
-Wi-Fi still needs fragmentation/aggregation and actual hardware frame crypto,
-descriptor-driven RTS protection, broader TX aggregation/BA retry acceptance,
+Wi-Fi still needs fragmentation/aggregation, descriptor-driven RTS protection,
+broader TX aggregation/BA retry acceptance,
 and a genuine public-API C6 TWT acceptance gate. The C6 genuine SoftAP gate now
 explicitly enables protocol mask `0x47`, emits HE-capability Extension ID 35
 in its native beacon and association response, and accepts an HE20 station;

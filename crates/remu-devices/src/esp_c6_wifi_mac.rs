@@ -146,6 +146,42 @@ impl EspC6WifiMacHandle {
         Self::crypto_key_entry_from_state(&state, usize::from(slot))
     }
 
+    /// Selects the native CCMP key for a firmware-preformatted protected transmit.
+    pub fn select_ccmp_tx_key(&self, frame: &[u8]) -> Result<[u8; 16], String> {
+        let selector = crate::esp_wifi_common::EspWifiCcmpTxSelector::parse(frame)?;
+        let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        let interface = (0..C6_WIFI_MAC_INTERFACE_ADDRESS_COUNT)
+            .find(|interface| {
+                let offset = *interface as u64 * C6_WIFI_MAC_INTERFACE_ADDRESS_STRIDE;
+                let low =
+                    state.registers[(C6_WIFI_MAC_INTERFACE_ADDRESS_LOW + offset) as usize / 4];
+                let high =
+                    state.registers[(C6_WIFI_MAC_INTERFACE_ADDRESS_HIGH + offset) as usize / 4];
+                high & C6_WIFI_MAC_INTERFACE_ADDRESS_VALID != 0
+                    && selector.transmitter
+                        == [
+                            low as u8,
+                            (low >> 8) as u8,
+                            (low >> 16) as u8,
+                            (low >> 24) as u8,
+                            high as u8,
+                            (high >> 8) as u8,
+                        ]
+            })
+            .ok_or_else(|| {
+                format!(
+                    "hardware-protected TX transmitter {:02x?} does not match a valid interface",
+                    selector.transmitter
+                )
+            })? as u8;
+        crate::esp_wifi_common::select_esp_wifi_ccmp_tx_key(
+            (0..C6_WIFI_MAC_CRYPTO_ENTRY_COUNT)
+                .filter_map(|slot| Self::crypto_key_entry_from_state(&state, slot)),
+            &selector,
+            interface,
+        )
+    }
+
     /// Rejects valid crypto slots with a control class the pinned HAL cannot emit.
     pub fn validate_crypto_key_table(&self) -> Result<(), String> {
         let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");

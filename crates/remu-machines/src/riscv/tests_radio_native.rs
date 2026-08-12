@@ -118,6 +118,149 @@ fn esp32c6_native_wifi_tx_excludes_hardware_fcs_from_the_rf_frame() {
         )));
 }
 
+#[test]
+fn esp32c6_native_wifi_tx_applies_the_firmware_selected_ccmp_key() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let descriptor = 0x4082_1000_u32;
+    let buffer = 0x4082_1100_u32;
+    let local = [0x52, 0x45, 0x02, 0x00, 0x00, 0x01];
+    let peer = [0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0x01];
+    let key = [
+        0xb8, 0x53, 0xfa, 0xfe, 0x53, 0x02, 0x44, 0xed, 0xbd, 0xd3, 0xa9, 0x86, 0x48, 0x0b,
+        0xed, 0xcf,
+    ];
+    machine
+        .bus
+        .write(0x600a_4064, AccessWidth::Word, 0x0002_4552, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_4068, AccessWidth::Word, 0x0001_0100, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_5bc0, AccessWidth::Word, 0xccbb_aa02, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_5bc4, AccessWidth::Word, 0xc16c_01dd, SimTime::ZERO)
+        .unwrap();
+    for (index, word) in key.chunks_exact(4).enumerate() {
+        machine
+            .bus
+            .write(
+                0x600a_5bc8 + index as u64 * 4,
+                AccessWidth::Word,
+                u64::from(u32::from_le_bytes(word.try_into().unwrap())),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(0x600a_4814, AccessWidth::Word, 1 << 24, SimTime::ZERO)
+        .unwrap();
+
+    let mut frame = vec![0xd0, 0x40, 0, 0];
+    frame.extend_from_slice(&peer);
+    frame.extend_from_slice(&local);
+    frame.extend_from_slice(&[0xff; 6]);
+    frame.extend_from_slice(&[0x10, 0]);
+    frame.extend_from_slice(&[1, 0, 0, 0xe0, 0, 0, 0, 0]);
+    frame.extend_from_slice(&[
+        0x7f, 0x18, 0xfe, 0x34, 0xa4, 0xc2, 0xe0, 0xfe, 0xdd, 9, 0x18, 0xfe, 0x34, 4, 2,
+        0x43, 0x43, 0x4d, 0x50,
+    ]);
+    frame.extend_from_slice(&[0; 8]);
+    let mut expected = frame.clone();
+    remu_radio::protect_native_ccmp_frame(&key, &mut expected).unwrap();
+
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    let mut buffer_bytes = Vec::new();
+    buffer_bytes.extend_from_slice(&((frame.len() + 4) as u32).to_le_bytes());
+    buffer_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    buffer_bytes.extend_from_slice(&frame);
+    buffer_bytes.extend_from_slice(&[0; 4]);
+    machine
+        .debug_write_memory(u64::from(buffer), &buffer_bytes)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert!(machine
+        .radio_replay_artifact()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.protocol == remu_radio::RadioProtocol::Wifi
+                    && request.frame.bytes == expected
+        )));
+    assert_ne!(&expected[32..expected.len() - 8], &frame[32..frame.len() - 8]);
+}
+
+#[test]
+fn esp32c6_native_wifi_tx_without_a_selected_crypto_key_is_a_hard_error() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let descriptor = 0x4082_1000_u32;
+    let buffer = 0x4082_1100_u32;
+    let mut frame = vec![0xd0, 0x40, 0, 0];
+    frame.extend_from_slice(&[0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0x01]);
+    frame.extend_from_slice(&[0x52, 0x45, 0x02, 0, 0, 1]);
+    frame.extend_from_slice(&[0xff; 6]);
+    frame.extend_from_slice(&[0x10, 0]);
+    frame.extend_from_slice(&[1, 0, 0, 0xe0, 0, 0, 0, 0]);
+    frame.extend_from_slice(&[0; 16]);
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    let mut buffer_bytes = Vec::new();
+    buffer_bytes.extend_from_slice(&((frame.len() + 4) as u32).to_le_bytes());
+    buffer_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    buffer_bytes.extend_from_slice(&frame);
+    machine
+        .debug_write_memory(u64::from(buffer), &buffer_bytes)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected a radio legality error");
+    };
+    assert_eq!(
+        error.rule,
+        remu_radio::RadioLegalityRule::CryptoKeySelection
+    );
+    assert!(error.detail.contains("does not match a valid interface"));
+}
+
 
 #[test]
 fn esp32c6_matching_native_wifi_ack_completes_successfully() {

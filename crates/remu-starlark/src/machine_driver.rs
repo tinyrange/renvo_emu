@@ -981,16 +981,21 @@ def main():
         let outcome = evaluate_agent_script(
             filename.to_str().unwrap(),
             r#"
-load("//workflow:run.star", "drain_bus", "drain_radio", "run_until")
+load("//workflow:run.star", "drain_bus", "drain_radio", "run_until", "select_bus")
 def accept(machine, result):
     return result
+def select_write(access):
+    if access["kind"] == "Write":
+        return {"address": access["address"], "value": access["value"]}
+    return None
 def main():
     empty = drain_radio(machine, maximum = 1)
     machine.capture_bus(start = 0x40800000, end = 0x40800004, kinds = ["write"])
     machine.write(0x40800000, [1])
     bus = drain_bus(machine, maximum = 1)
+    selected = select_bus(machine, select_write, maximum = 1)
     outcome = run_until(machine, accept, instructions = 1, max_slices = 1)
-    return {"bus": bus, "empty": empty, "outcome": outcome}
+    return {"bus": bus, "empty": empty, "outcome": outcome, "selected": selected}
 "#,
             AgentMachine::Esp32c6(Box::new(RiscVMachine::new(TargetId::Esp32c6).unwrap())),
             false,
@@ -998,6 +1003,7 @@ def main():
         .unwrap();
         assert_eq!(outcome.value["empty"]["complete"], json!(true));
         assert_eq!(outcome.value["bus"]["events"].as_array().unwrap().len(), 1);
+        assert_eq!(outcome.value["selected"]["matches"][0]["value"], json!(1));
         assert_eq!(outcome.value["outcome"]["slices"], json!(1));
         assert_eq!(
             outcome.value["outcome"]["result"]["target"],
@@ -1054,29 +1060,42 @@ def main():
         let outcome = evaluate_agent_script(
             filename.to_str().unwrap(),
             r#"
-load("//workflow:wifi_crypto.star", "require_wifi_crypto_programming")
+load("//workflow:wifi_crypto.star", "require_espnow_ccmp_programming", "require_wifi_crypto_programming")
 def access(address, value):
     return {"cursor": 0, "access": {"at": 9, "kind": "Write", "address": address, "width": "Word", "value": value, "region": "esp32c6.wifi-mac-registers"}}
 def main():
     evidence = [
         access(0x600a5804, (6 << 21) | 0x55),
         access(0x600a5808, 0x03020100),
-        access(0x600a4814, 1),
+        access(0x600a5bc0, 0xccbbaa02),
+        access(0x600a5bc4, 0xc16c01dd),
+        access(0x600a5bc8, 0xfefa53b8),
+        access(0x600a5bcc, 0xed440253),
+        access(0x600a5bd0, 0x86a9d3bd),
+        access(0x600a5bd4, 0xcfed0b48),
+        access(0x600a4814, (1 << 24) | 1),
     ]
     summary = require_wifi_crypto_programming(machine.target(), evidence)
+    espnow = require_espnow_ccmp_programming(machine.target(), evidence)
     result = machine.run(instructions = 1)
-    return {"summary": summary, "reason": result["reason"]}
+    return {"summary": summary, "espnow": espnow, "reason": result["reason"]}
 "#,
             AgentMachine::Esp32c6(Box::new(RiscVMachine::new(TargetId::Esp32c6).unwrap())),
             false,
         )
         .unwrap();
 
-        assert_eq!(outcome.value["summary"]["table_writes"], json!(2));
-        assert_eq!(outcome.value["summary"]["key_writes"], json!(1));
+        assert_eq!(outcome.value["summary"]["table_writes"], json!(8));
+        assert_eq!(outcome.value["summary"]["key_writes"], json!(5));
         assert_eq!(
             outcome.value["summary"]["control_writes"][0]["class"],
             json!(6)
+        );
+        assert_eq!(outcome.value["espnow"]["slot"], json!(24));
+        assert_eq!(outcome.value["espnow"]["cipher"], json!("ccmp"));
+        assert_eq!(
+            outcome.value["espnow"]["key_payload_words_verified"],
+            json!(4)
         );
     }
 

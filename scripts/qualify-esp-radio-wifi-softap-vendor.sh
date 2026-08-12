@@ -136,6 +136,17 @@ jq -e \
     any($events[];
         .event == "submitted" and
         .request.frame.origin == "emulated" and
+        (.request.frame.bytes | length) == 59 and
+        .request.frame.bytes[0:2] == [208, 64] and
+        .request.frame.bytes[4:10] == [2, 170, 187, 204, 221, 1] and
+        .request.frame.bytes[10:16] == $ap and
+        .request.frame.bytes[27] == 224 and
+        ([range(32; 56) as $offset |
+            select(.request.frame.bytes[$offset:$offset + 4] == [67, 67, 77, 80])] | length) == 0 and
+        .request.frame.bytes[51:56] != [0, 239, 190, 173, 222]) and
+    any($events[];
+        .event == "submitted" and
+        .request.frame.origin == "emulated" and
         (.request.frame.bytes | length) == $beacon_length and
         .request.frame.bytes[0:2] == [128, 0] and
         .request.frame.bytes[10:16] == $ap and
@@ -187,16 +198,33 @@ cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
     --elf "$elf" \
     --boot-rom "$rom_root/$rom_file" \
     --esp-app-image "$flash" \
-    --agent-script qualification/agent-driver-smoke.star \
+    --radio-input "$radio_input" \
+    --radio-script qualification/radio/wifi-ack-peer.star \
+    --agent-script qualification/starlark/wifi_crypto_vendor.star \
     --agent-artifact "$chip_root/agent-session.json" \
     --result "$chip_root/agent-result.json"
-jq -e --arg chip "$chip" '
+jq -e --arg chip "$chip" --argjson instructions "$minimum_instructions" '
     .schema == "remu.agent-session.v1" and
     .result == "pass" and
     .target == $chip and
-    .value.slices == 1 and
+    .value.schema == "remu.radio-wifi-crypto-agent.v1" and
+    .value.target == $chip and
+    .value.run.reason == "InstructionLimit" and
+    .value.run.instructions == $instructions and
+    .value.crypto.slot == 24 and
+    .value.crypto.peer == [2, 170, 187, 204, 221, 1] and
+    .value.crypto.interface == 1 and
+    .value.crypto.cipher == "ccmp" and
+    .value.crypto.key_id == 3 and
+    .value.crypto.control_class == 3 and
+    .value.crypto.valid == true and
+    .value.crypto.key_payload_words_verified == 4 and
+    .value.protected_frame.length == 59 and
+    .value.protected_frame.receiver == [2, 170, 187, 204, 221, 1] and
+    .value.protected_frame.plaintext_absent == true and
+    .value.evidence.bus_loss == false and
     .run.reason == "InstructionLimit" and
-    .run.stats.instructions == 16 and
+    .run.stats.instructions == $instructions and
     (.run.uart_bytes | type) == "number" and
     (.run | has("uart") | not) and
     (.run.cpu | has("registers") | not)
@@ -230,6 +258,9 @@ jq -n \
             native_wifi_ack_completion_required: true,
             firmware_owned_wifi_retry_required: true,
             agent_driven_starlark_required: true,
+            firmware_programmed_ccmp_key_selection_required: true,
+            native_hardware_ccmp_tx_required: true,
+            invalid_crypto_selection_is_hard_error: true,
             expected_protocol_mask: $expected_protocol_mask,
             expected_he_extension_id: $expected_he_extension_id,
             minimum_instructions: $minimum_instructions
@@ -243,6 +274,8 @@ jq -n \
             radio_replay_sha256: $radio_replay_sha256,
             agent_session_sha256: $agent_session_sha256,
             workspace_loaded_starlark_workflow: true,
+            exact_firmware_ccmp_tuple_observed: true,
+            protected_espnow_plaintext_absent: true,
             native_wifi_ack_peer_observed: true,
             native_he_capability_and_association: ($expected_he_extension_id != null),
             native_softap_station_association: true,
