@@ -1,5 +1,6 @@
 use super::*;
 use clap::CommandFactory;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
 fn clap_definition_is_internally_consistent() {
@@ -181,6 +182,8 @@ fn direct_run_accepts_agent_script_and_scoped_repl() {
         "--agent-script",
         "drive.star",
         "--agent-repl",
+        "--agent-artifact",
+        "agent.json",
     ])
     .unwrap();
     let Command::Run(arguments) = cli.command else {
@@ -188,6 +191,52 @@ fn direct_run_accepts_agent_script_and_scoped_repl() {
     };
     assert_eq!(arguments.agent_script, Some(PathBuf::from("drive.star")));
     assert!(arguments.agent_repl);
+    assert_eq!(arguments.agent_artifact, Some(PathBuf::from("agent.json")));
+}
+
+#[test]
+fn direct_run_rejects_agent_artifact_without_script() {
+    let error = Cli::try_parse_from([
+        "remu",
+        "run",
+        "--target",
+        "esp32-c6",
+        "--elf",
+        "firmware.elf",
+        "--boot-rom",
+        "rom.elf",
+        "--agent-artifact",
+        "agent.json",
+    ])
+    .unwrap_err();
+    assert!(error.to_string().contains("--agent-script"));
+}
+
+#[test]
+fn agent_artifact_keeps_bulk_transport_output_out_of_the_decision_record() {
+    let outcome = evaluate_agent_script(
+        "artifact.star",
+        "def main():\n    machine.breakpoint(0x40000000)\n    return {\"decision\": machine.run(instructions = 1)[\"reason\"]}\n",
+        AgentMachine::Esp32c6(Box::new(RiscVMachine::new(TargetId::Esp32c6).unwrap())),
+        false,
+    )
+    .unwrap();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "remu-agent-artifact-{}-{nonce}.json",
+        std::process::id()
+    ));
+    crate::run_command::write_agent_artifact(&path, Path::new("artifact.star"), &outcome).unwrap();
+    let artifact: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    fs::remove_file(path).unwrap();
+    assert_eq!(artifact["schema"], "remu.agent-session.v1");
+    assert_eq!(artifact["value"]["decision"], "Breakpoint");
+    assert_eq!(artifact["run"]["uart_bytes"], 0);
+    assert!(artifact["run"].get("uart").is_none());
+    assert!(artifact["run"]["cpu"].get("registers").is_none());
 }
 
 #[test]

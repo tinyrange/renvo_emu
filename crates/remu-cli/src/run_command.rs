@@ -121,6 +121,7 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
                 radio_repl: arguments.radio_repl,
                 agent_script: arguments.agent_script.as_deref(),
                 agent_repl: arguments.agent_repl,
+                agent_artifact: arguments.agent_artifact.as_deref(),
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -146,6 +147,7 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
                 radio_repl: arguments.radio_repl,
                 agent_script: arguments.agent_script.as_deref(),
                 agent_repl: arguments.agent_repl,
+                agent_artifact: arguments.agent_artifact.as_deref(),
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -251,6 +253,7 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
         radio_repl: false,
         agent_script: None,
         agent_repl: false,
+        agent_artifact: None,
         breakpoints: &arguments.breakpoint,
         watchpoints: &arguments.watchpoint,
         signal_stops: &arguments.signal_stops,
@@ -343,6 +346,72 @@ fn write_direct_result(arguments: &RunArgs, result: &RunResult) -> Result<(), Bo
         println!("{}", String::from_utf8(json)?);
     }
     Ok(())
+}
+
+pub(super) fn write_agent_artifact(
+    path: &Path,
+    script: &Path,
+    outcome: &AgentScriptOutcome,
+) -> Result<(), Box<dyn Error>> {
+    let artifact = AgentSessionArtifact {
+        schema: "remu.agent-session.v1",
+        result: "pass",
+        script,
+        target: outcome.result.target,
+        value: &outcome.value,
+        run: AgentRunSummary {
+            reason: &outcome.result.reason,
+            stats: outcome.result.stats,
+            cpu: agent_cpu_summary(&outcome.result.cpu),
+            secondary_cpu: outcome.result.secondary_cpu.as_ref().map(agent_cpu_summary),
+            exit_code: outcome.result.exit_code,
+            uart_bytes: outcome.result.uart.len(),
+            usb_bytes: outcome.result.usb.len(),
+            trace_digest: &outcome.result.trace_digest,
+        },
+    };
+    serde_json::to_writer_pretty(File::create(path)?, &artifact)?;
+    Ok(())
+}
+
+fn agent_cpu_summary(cpu: &CpuSnapshot) -> AgentCpuSummary<'_> {
+    AgentCpuSummary {
+        architecture: &cpu.architecture,
+        pc: cpu.pc,
+        waiting: cpu.waiting,
+        halted: cpu.halted,
+    }
+}
+
+#[derive(Serialize)]
+struct AgentSessionArtifact<'a> {
+    schema: &'static str,
+    result: &'static str,
+    script: &'a Path,
+    target: TargetId,
+    value: &'a serde_json::Value,
+    run: AgentRunSummary<'a>,
+}
+
+#[derive(Serialize)]
+struct AgentRunSummary<'a> {
+    reason: &'a StopReason,
+    stats: RunStats,
+    cpu: AgentCpuSummary<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secondary_cpu: Option<AgentCpuSummary<'a>>,
+    exit_code: Option<u32>,
+    uart_bytes: usize,
+    usb_bytes: usize,
+    trace_digest: &'a str,
+}
+
+#[derive(Serialize)]
+struct AgentCpuSummary<'a> {
+    architecture: &'a Architecture,
+    pc: u64,
+    waiting: bool,
+    halted: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -502,14 +571,17 @@ pub(crate) fn run_loaded_recorded(
                 machine.set_radio_peer(Box::new(peer))?;
             }
             machine.set_access_observer(control.access_observer);
-            if let Some(path) = control.agent_script {
-                let source = fs::read_to_string(path)?;
+            if let Some(script_path) = control.agent_script {
+                let source = fs::read_to_string(script_path)?;
                 let outcome = evaluate_agent_script(
-                    &path.to_string_lossy(),
+                    &script_path.to_string_lossy(),
                     &source,
                     AgentMachine::Esp32c6(Box::new(machine)),
                     control.agent_repl,
                 )?;
+                if let Some(artifact_path) = control.agent_artifact {
+                    write_agent_artifact(artifact_path, script_path, &outcome)?;
+                }
                 if let Some(path) = control.radio_replay {
                     let AgentMachine::Esp32c6(machine) = &outcome.machine else {
                         unreachable!("agent driver changed machine architecture")
@@ -599,14 +671,17 @@ pub(crate) fn run_loaded_recorded(
                 machine.set_radio_peer(Box::new(peer));
             }
             machine.set_access_observer(control.access_observer);
-            if let Some(path) = control.agent_script {
-                let source = fs::read_to_string(path)?;
+            if let Some(script_path) = control.agent_script {
+                let source = fs::read_to_string(script_path)?;
                 let outcome = evaluate_agent_script(
-                    &path.to_string_lossy(),
+                    &script_path.to_string_lossy(),
                     &source,
                     AgentMachine::Esp32s3(Box::new(machine)),
                     control.agent_repl,
                 )?;
+                if let Some(artifact_path) = control.agent_artifact {
+                    write_agent_artifact(artifact_path, script_path, &outcome)?;
+                }
                 if let Some(path) = control.radio_replay {
                     let AgentMachine::Esp32s3(machine) = &outcome.machine else {
                         unreachable!("agent driver changed machine architecture")

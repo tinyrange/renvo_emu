@@ -182,10 +182,31 @@ run_vendor_softap "$chip_root/result-repeat.json" "$chip_root/radio-replay-repea
     --replay "$chip_root/result.json"
 cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
 
+"$remu" run \
+    --target "$chip" \
+    --elf "$elf" \
+    --boot-rom "$rom_root/$rom_file" \
+    --esp-app-image "$flash" \
+    --agent-script qualification/agent-driver-smoke.star \
+    --agent-artifact "$chip_root/agent-session.json" \
+    --result "$chip_root/agent-result.json"
+jq -e --arg chip "$chip" '
+    .schema == "remu.agent-session.v1" and
+    .result == "pass" and
+    .target == $chip and
+    .value.slices == 1 and
+    .run.reason == "InstructionLimit" and
+    .run.stats.instructions == 16 and
+    (.run.uart_bytes | type) == "number" and
+    (.run | has("uart") | not) and
+    (.run.cpu | has("registers") | not)
+' "$chip_root/agent-session.json" >/dev/null
+
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
+agent_session_sha=$(sha256sum "$chip_root/agent-session.json" | cut -d ' ' -f 1)
 jq -n \
     --arg schema remu.radio-wifi-softap-vendor-qualification.v1 \
     --arg chip "$chip" \
@@ -195,6 +216,7 @@ jq -n \
     --arg flash_sha256 "$flash_sha" \
     --arg uart_sha256 "$uart_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
+    --arg agent_session_sha256 "$agent_session_sha" \
     --argjson expected_protocol_mask "$expected_protocol_mask" \
     --argjson expected_he_extension_id "$expected_he_extension_id" \
     --argjson minimum_instructions "$minimum_instructions" \
@@ -207,6 +229,7 @@ jq -n \
             deterministic_replay_required: true,
             native_wifi_ack_completion_required: true,
             firmware_owned_wifi_retry_required: true,
+            agent_driven_starlark_required: true,
             expected_protocol_mask: $expected_protocol_mask,
             expected_he_extension_id: $expected_he_extension_id,
             minimum_instructions: $minimum_instructions
@@ -218,6 +241,8 @@ jq -n \
             flash_sha256: $flash_sha256,
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
+            agent_session_sha256: $agent_session_sha256,
+            workspace_loaded_starlark_workflow: true,
             native_wifi_ack_peer_observed: true,
             native_he_capability_and_association: ($expected_he_extension_id != null),
             native_softap_station_association: true,

@@ -247,7 +247,9 @@ The final distillation gate adds four bounded capabilities:
   Its portfolio proof is `qualification/starlark.json`.
 - ESP32-C6/S3 direct runs can opt into `--agent-script`. Its `main()` receives
   an opaque live-machine capability for bounded run slices, debugger reads and
-  writes, stops, deterministic input, and paginated RF evidence. The separate
+  writes, stops, deterministic input, and paginated RF evidence. Scripts may
+  load workspace-confined `.star` workflow modules, and `--agent-artifact`
+  records their JSON-compatible decisions plus a compact run summary. The separate
   `--radio-script` callback remains machine-isolated. Neither surface offers
   symbol hooks or substitutes Starlark behavior for an LLE peripheral; see
   `docs/AGENT_STARLARK.md`.

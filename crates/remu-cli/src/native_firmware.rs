@@ -29,6 +29,7 @@ pub(super) fn boot_native_image(
         radio_repl: false,
         agent_script: None,
         agent_repl: false,
+        agent_artifact: None,
         breakpoints: &[],
         watchpoints: &[],
         signal_stops: &[],

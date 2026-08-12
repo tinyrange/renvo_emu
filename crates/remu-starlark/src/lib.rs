@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 mod board_dsl;
 mod machine_driver;
 mod radio_peer;
+mod script_loader;
 
 pub use board_dsl::evaluate_board_script;
 pub use machine_driver::{AgentMachine, AgentScriptOutcome, evaluate_agent_script};

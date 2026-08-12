@@ -1,7 +1,7 @@
 //! Renvo Emulator command-line entry point.
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use remu_core::{CpuSnapshot, RunLimits, SimTime, StopReason};
+use remu_core::{Architecture, CpuSnapshot, RunLimits, RunStats, SimTime, StopReason};
 use remu_corpus::{
     BuildArtifact, BuildRequest, CaseReductionResult, CompilerMatrix, DockerCompiler, DockerLimits,
     NamedObservation, ReductionCandidate, ToolchainSpec, compare_observations, reduce_case,
@@ -19,7 +19,9 @@ use remu_machines::{
     XtensaMachine, target_manifest, target_manifests,
 };
 use remu_signals::Logic;
-use remu_starlark::{AgentMachine, StarlarkRadioPeer, evaluate_agent_script, evaluate_script};
+use remu_starlark::{
+    AgentMachine, AgentScriptOutcome, StarlarkRadioPeer, evaluate_agent_script, evaluate_script,
+};
 use remu_trace::{Timescale, TraceSink, VcdWriter};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -325,6 +327,9 @@ struct RunArgs {
     /// Enable scoped `repl()` sessions inside the agent driver script.
     #[arg(long, requires = "agent_script")]
     agent_repl: bool,
+    /// Write the agent script's JSON-compatible return value and final run result.
+    #[arg(long, requires = "agent_script")]
+    agent_artifact: Option<PathBuf>,
     /// Require the complete result to match a prior JSON result exactly.
     #[arg(long)]
     replay: Option<PathBuf>,
@@ -359,6 +364,7 @@ struct DirectRunControl<'a> {
     radio_repl: bool,
     agent_script: Option<&'a Path>,
     agent_repl: bool,
+    agent_artifact: Option<&'a Path>,
     breakpoints: &'a [u64],
     watchpoints: &'a [u64],
     signal_stops: &'a [SignalStopArg],

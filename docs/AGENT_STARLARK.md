@@ -33,6 +33,7 @@ remu run \
   --elf firmware.elf \
   --boot-rom esp32c6_rev0_rom.elf \
   --agent-script drive.star \
+  --agent-artifact agent-session.json \
   --radio-replay radio.json \
   --result result.json
 ```
@@ -40,6 +41,18 @@ remu run \
 Add `--agent-repl` and call `repl()` in `main()` to open Starlark's scoped
 terminal console. The `machine` value and the function's local variables remain
 available. Leaving the REPL resumes the script.
+
+Agent scripts may load reusable `.star` modules below the invocation workspace.
+Workspace labels use `//package:file.star`; parent-directory components,
+non-`.star` files, and symlink escapes are rejected. The checked helper module
+at `qualification/starlark/agent_automation.star` provides bounded
+`run_until()`, `wait_for_radio()`, and paginated `drain_radio()` workflows.
+They advance only through `machine.run()` and observe native replay events.
+
+`--agent-artifact` writes schema `remu.agent-session.v1`: the JSON-compatible
+value returned by `main()` plus a compact final-run summary. The full run and
+RF event stream remain separate `--result` and `--radio-replay` artifacts, so
+long UART/RF histories are not duplicated into the agent artifact.
 
 ## Machine methods
 
@@ -62,7 +75,12 @@ available. Leaving the REPL resumes the script.
 The Starlark evaluator is limited to a 64 MiB heap, ten million stable
 evaluation ticks, and a 256-frame call stack. Native machine work is separately
 bounded by each `run()` call. Paginated radio reads prevent a long vendor run
-from copying its complete event history into the script heap.
+from copying its complete event history into the script heap. The supplied
+automation helper additionally caps each RF drain at 4,096 events by default
+and fails instead of silently accumulating an unbounded history. The main
+source is capped at 8 MiB; its transitive load graph is capped at 256 modules
+and 16 MiB of source, with the same heap, tick, and call-stack limits applied
+while each loaded module initializes.
 
 ## Capability separation
 

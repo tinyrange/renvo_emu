@@ -9,7 +9,7 @@ use remu_radio::{MediumProfile, RadioProtocol, ReplayArtifact, Spectrum};
 use remu_signals::Logic;
 use serde_json::{Value as JsonValue, json};
 use starlark::environment::{GlobalsBuilder, LibraryExtension, Methods, MethodsBuilder, Module};
-use starlark::eval::Evaluator;
+use starlark::eval::{Evaluator, ReturnFileLoader};
 use starlark::starlark_module;
 use starlark::syntax::{AstModule, Dialect};
 use starlark::values::list::UnpackList;
@@ -18,14 +18,17 @@ use starlark::values::{
     starlark_value,
 };
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::assertion_globals;
+use crate::script_loader::{LoadBudget, compile_loads};
 
 const MAX_STARLARK_HEAP_BYTES: usize = 64 << 20;
 const MAX_STARLARK_TICKS: u64 = 10_000_000;
+const MAX_AGENT_SCRIPT_SOURCE_BYTES: usize = 8 << 20;
 const MAX_MACHINE_RUN_INSTRUCTIONS: u64 = 100_000_000;
 const MAX_DEBUG_TRANSFER_BYTES: usize = 1 << 20;
 const MAX_RADIO_EVENTS_PER_READ: usize = 4096;
@@ -514,8 +517,12 @@ pub fn evaluate_agent_script(
     machine: AgentMachine,
     interactive: bool,
 ) -> Result<AgentScriptOutcome> {
+    if source.len() > MAX_AGENT_SCRIPT_SOURCE_BYTES {
+        bail!("agent script exceeds {MAX_AGENT_SCRIPT_SOURCE_BYTES} source bytes");
+    }
     let source = format!("repl = breakpoint\n{source}");
-    let ast = AstModule::parse(filename, source, &Dialect::Extended)
+    let dialect = Dialect::Extended;
+    let ast = AstModule::parse(filename, source, &dialect)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
     let mut globals = GlobalsBuilder::extended_by(&[
         LibraryExtension::Breakpoint,
@@ -526,6 +533,22 @@ pub fn evaluate_agent_script(
     ]);
     assertion_globals(&mut globals);
     let globals = globals.build();
+    let load_root = agent_load_root(filename);
+    let compiled_modules = compile_loads(
+        &ast,
+        &load_root,
+        &globals,
+        &dialect,
+        &mut BTreeSet::new(),
+        &mut LoadBudget::default(),
+    )?;
+    let references: HashMap<&str, &starlark::environment::FrozenModule> = compiled_modules
+        .iter()
+        .map(|(name, module)| (name.as_str(), module))
+        .collect();
+    let file_loader = ReturnFileLoader {
+        modules: &references,
+    };
     let session = AgentSessionGuard::insert(machine);
     let value = Module::with_temp_heap(|module| -> Result<JsonValue> {
         let machine = module
@@ -533,6 +556,7 @@ pub fn evaluate_agent_script(
             .alloc(AgentMachineValue { session: session.0 });
         module.set("machine", machine);
         let mut evaluator = Evaluator::new(&module);
+        evaluator.set_loader(&file_loader);
         evaluator.set_max_callstack_size(256)?;
         evaluator.set_max_heap_size(MAX_STARLARK_HEAP_BYTES)?;
         evaluator.set_max_tick_count(MAX_STARLARK_TICKS)?;
@@ -567,9 +591,26 @@ pub fn evaluate_agent_script(
     })
 }
 
+fn agent_load_root(filename: &str) -> PathBuf {
+    let path = Path::new(filename);
+    if path.is_absolute() {
+        if let Ok(workspace) = std::env::current_dir()
+            && path.starts_with(&workspace)
+        {
+            return workspace;
+        }
+        path.parent()
+            .unwrap_or_else(|| Path::new("/"))
+            .to_path_buf()
+    } else {
+        PathBuf::from(".")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn c6_agent_script_resumes_machine_and_pages_radio_evidence() {
@@ -659,5 +700,53 @@ def main():
                 .to_string()
                 .contains("must call machine.run at least once")
         );
+    }
+
+    #[test]
+    fn agent_script_loads_workspace_confined_workflow_modules() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir(directory.path().join("workflow")).unwrap();
+        fs::write(
+            directory.path().join("workflow/run.star"),
+            include_str!("../../../qualification/starlark/agent_automation.star"),
+        )
+        .unwrap();
+        let filename = directory.path().join("driver.star");
+        let outcome = evaluate_agent_script(
+            filename.to_str().unwrap(),
+            r#"
+load("//workflow:run.star", "drain_radio", "run_until")
+def accept(machine, result):
+    return result
+def main():
+    empty = drain_radio(machine, maximum = 1)
+    outcome = run_until(machine, accept, instructions = 1, max_slices = 1)
+    return {"empty": empty, "outcome": outcome}
+"#,
+            AgentMachine::Esp32c6(Box::new(RiscVMachine::new(TargetId::Esp32c6).unwrap())),
+            false,
+        )
+        .unwrap();
+        assert_eq!(outcome.value["empty"]["complete"], json!(true));
+        assert_eq!(outcome.value["outcome"]["slices"], json!(1));
+        assert_eq!(
+            outcome.value["outcome"]["result"]["target"],
+            json!("esp32c6")
+        );
+    }
+
+    #[test]
+    fn agent_script_load_cannot_escape_its_workspace() {
+        let directory = tempfile::tempdir().unwrap();
+        let filename = directory.path().join("driver.star");
+        let error = evaluate_agent_script(
+            filename.to_str().unwrap(),
+            "load(\"../outside.star\", \"value\")\ndef main():\n    return value\n",
+            AgentMachine::Esp32c6(Box::new(RiscVMachine::new(TargetId::Esp32c6).unwrap())),
+            false,
+        )
+        .err()
+        .expect("escaping load must fail");
+        assert!(error.to_string().contains("escapes the Starlark root"));
     }
 }
