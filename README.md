@@ -292,6 +292,17 @@ it cannot inspect CPU state, memory, registers, symbols, files, or host network
 resources. `--radio-repl` enables `repl()`/`breakpoint()` inside that callback,
 which is useful for iterating on virtual peers while genuine firmware controls
 the low-level radio peripheral.
+
+For agent-driven investigation, `remu run --agent-script drive.star` exposes a
+long-lived, opaque ESP32-C6 or ESP32-S3 `machine` value to the script's
+`main()` function. Bounded methods resume execution, inspect CPU and memory,
+set debug stops, drive GPIO/USB input, inject isolated RF frames, and page
+through replay evidence. `--agent-repl` enables a scoped `repl()` call in the
+same live session. This driver is an orchestration and diagnostics boundary:
+it has no symbol-hook API and does not implement peripheral behavior in
+Starlark. Real mask ROM remains mandatory. See
+[agent-driven Starlark](docs/AGENT_STARLARK.md).
+
 The RISC-V, Arm RP, and Xtensa machine APIs now expose named `Compiler` and
 `Native` UART endpoints for the transport-coupling work that follows; vendor
 UART adapters remain target-specific for now.

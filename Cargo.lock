@@ -1606,6 +1606,7 @@ dependencies = [
  "remu-devices",
  "remu-machines",
  "remu-radio",
+ "remu-signals",
  "serde",
  "serde_json",
  "starlark",

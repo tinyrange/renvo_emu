@@ -19,7 +19,7 @@ use remu_machines::{
     XtensaMachine, target_manifest, target_manifests,
 };
 use remu_signals::Logic;
-use remu_starlark::{StarlarkRadioPeer, evaluate_script};
+use remu_starlark::{AgentMachine, StarlarkRadioPeer, evaluate_agent_script, evaluate_script};
 use remu_trace::{Timescale, TraceSink, VcdWriter};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -319,6 +319,12 @@ struct RunArgs {
     /// Enable `repl()`/`breakpoint()` terminal sessions inside the radio script.
     #[arg(long, requires = "radio_script")]
     radio_repl: bool,
+    /// Drive a live ESP32-C6/ESP32-S3 machine from a bounded Starlark `main()`.
+    #[arg(long, requires = "boot_rom")]
+    agent_script: Option<PathBuf>,
+    /// Enable scoped `repl()` sessions inside the agent driver script.
+    #[arg(long, requires = "agent_script")]
+    agent_repl: bool,
     /// Require the complete result to match a prior JSON result exactly.
     #[arg(long)]
     replay: Option<PathBuf>,
@@ -351,6 +357,8 @@ struct DirectRunControl<'a> {
     radio_input: Option<&'a Path>,
     radio_script: Option<&'a Path>,
     radio_repl: bool,
+    agent_script: Option<&'a Path>,
+    agent_repl: bool,
     breakpoints: &'a [u64],
     watchpoints: &'a [u64],
     signal_stops: &'a [SignalStopArg],

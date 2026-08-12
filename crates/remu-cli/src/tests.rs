@@ -168,6 +168,46 @@ fn direct_run_accepts_radio_script_and_repl() {
 }
 
 #[test]
+fn direct_run_accepts_agent_script_and_scoped_repl() {
+    let cli = Cli::try_parse_from([
+        "remu",
+        "run",
+        "--target",
+        "esp32-c6",
+        "--elf",
+        "firmware.elf",
+        "--boot-rom",
+        "rom.elf",
+        "--agent-script",
+        "drive.star",
+        "--agent-repl",
+    ])
+    .unwrap();
+    let Command::Run(arguments) = cli.command else {
+        panic!("expected run command");
+    };
+    assert_eq!(arguments.agent_script, Some(PathBuf::from("drive.star")));
+    assert!(arguments.agent_repl);
+}
+
+#[test]
+fn direct_run_rejects_agent_repl_without_script() {
+    let error = Cli::try_parse_from([
+        "remu",
+        "run",
+        "--target",
+        "esp32-c6",
+        "--elf",
+        "firmware.elf",
+        "--boot-rom",
+        "rom.elf",
+        "--agent-repl",
+    ])
+    .unwrap_err();
+    assert!(error.to_string().contains("--agent-script"));
+}
+
+#[test]
 fn direct_run_rejects_radio_repl_without_script() {
     assert!(
         Cli::try_parse_from([

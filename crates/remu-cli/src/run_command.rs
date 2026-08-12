@@ -50,7 +50,8 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
     let uses_native_esp_image = arguments.esp_app_image.is_some();
     let uses_radio = arguments.radio_input.is_some()
         || arguments.radio_replay.is_some()
-        || arguments.radio_script.is_some();
+        || arguments.radio_script.is_some()
+        || arguments.agent_script.is_some();
     if matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
         && (uses_native_esp_image || uses_radio)
         && esp_boot_rom.is_none()
@@ -70,6 +71,16 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
     if arguments.radio_script.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
     {
         return Err("--radio-script is supported only with ESP32-C6/ESP32-S3 execution".into());
+    }
+    if arguments.agent_script.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
+    {
+        return Err("--agent-script is supported only with ESP32-C6/ESP32-S3 execution".into());
+    }
+    if arguments.agent_script.is_some() && arguments.vcd.is_some() {
+        return Err("--agent-script does not yet support a multi-slice --vcd stream".into());
+    }
+    if arguments.agent_script.is_some() && !arguments.pins.is_empty() {
+        return Err("use machine.pin() instead of --pin with --agent-script".into());
     }
     let (esp32c6_mmu_page_size, esp32c6_flash_image, esp32c6_boot_image, esp32s3_boot_image) =
         validate_esp_boot_image(arguments, target, &image)?;
@@ -108,6 +119,8 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
                 radio_input: arguments.radio_input.as_deref(),
                 radio_script: arguments.radio_script.as_deref(),
                 radio_repl: arguments.radio_repl,
+                agent_script: arguments.agent_script.as_deref(),
+                agent_repl: arguments.agent_repl,
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -131,6 +144,8 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
                 radio_input: arguments.radio_input.as_deref(),
                 radio_script: arguments.radio_script.as_deref(),
                 radio_repl: arguments.radio_repl,
+                agent_script: arguments.agent_script.as_deref(),
+                agent_repl: arguments.agent_repl,
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -234,6 +249,8 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
         radio_input: None,
         radio_script: None,
         radio_repl: false,
+        agent_script: None,
+        agent_repl: false,
         breakpoints: &arguments.breakpoint,
         watchpoints: &arguments.watchpoint,
         signal_stops: &arguments.signal_stops,
@@ -485,6 +502,25 @@ pub(crate) fn run_loaded_recorded(
                 machine.set_radio_peer(Box::new(peer))?;
             }
             machine.set_access_observer(control.access_observer);
+            if let Some(path) = control.agent_script {
+                let source = fs::read_to_string(path)?;
+                let outcome = evaluate_agent_script(
+                    &path.to_string_lossy(),
+                    &source,
+                    AgentMachine::Esp32c6(Box::new(machine)),
+                    control.agent_repl,
+                )?;
+                if let Some(path) = control.radio_replay {
+                    let AgentMachine::Esp32c6(machine) = &outcome.machine else {
+                        unreachable!("agent driver changed machine architecture")
+                    };
+                    let artifact = machine
+                        .radio_replay_artifact()
+                        .ok_or("ESP32-C6 radio replay artifact is unavailable")?;
+                    write_radio_replay(path, &artifact)?;
+                }
+                return Ok(outcome.result);
+            }
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
             if let Some(path) = control.radio_replay {
                 let artifact = machine
@@ -563,6 +599,22 @@ pub(crate) fn run_loaded_recorded(
                 machine.set_radio_peer(Box::new(peer));
             }
             machine.set_access_observer(control.access_observer);
+            if let Some(path) = control.agent_script {
+                let source = fs::read_to_string(path)?;
+                let outcome = evaluate_agent_script(
+                    &path.to_string_lossy(),
+                    &source,
+                    AgentMachine::Esp32s3(Box::new(machine)),
+                    control.agent_repl,
+                )?;
+                if let Some(path) = control.radio_replay {
+                    let AgentMachine::Esp32s3(machine) = &outcome.machine else {
+                        unreachable!("agent driver changed machine architecture")
+                    };
+                    write_radio_replay(path, &machine.radio_replay_artifact())?;
+                }
+                return Ok(outcome.result);
+            }
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
             if let Some(path) = control.radio_replay {
                 write_radio_replay(path, &machine.radio_replay_artifact())?;

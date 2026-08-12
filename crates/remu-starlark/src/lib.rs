@@ -1,4 +1,5 @@
-//! Bounded Starlark assertions and declarative board assembly.
+//! Bounded Starlark assertions, agent-driven machine sessions, and declarative
+//! board assembly.
 //!
 //! Assertion scripts receive JSON values selected by the caller. Board scripts
 //! produce immutable scenarios for the Rust machine layer. Neither mode owns
@@ -14,9 +15,11 @@ use starlark::values::{Value, none::NoneType};
 use std::collections::BTreeMap;
 
 mod board_dsl;
+mod machine_driver;
 mod radio_peer;
 
 pub use board_dsl::evaluate_board_script;
+pub use machine_driver::{AgentMachine, AgentScriptOutcome, evaluate_agent_script};
 pub use radio_peer::StarlarkRadioPeer;
 
 #[starlark_module]

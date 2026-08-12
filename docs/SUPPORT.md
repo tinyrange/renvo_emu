@@ -243,9 +243,14 @@ The final distillation gate adds four bounded capabilities:
 - `remu corpus reduce` minimizes source fragments, flags and numeric inputs,
   recompiling every predicate inside the pinned Docker toolchain. The checked
   three-family evidence is `qualification/reduction.json`.
-- `remu script` evaluates Starlark assertions over caller-selected JSON only;
-  scripting never owns a machine or kernel state. Its portfolio proof is
-  `qualification/starlark.json`.
+- `remu script` evaluates Starlark assertions over caller-selected JSON only.
+  Its portfolio proof is `qualification/starlark.json`.
+- ESP32-C6/S3 direct runs can opt into `--agent-script`. Its `main()` receives
+  an opaque live-machine capability for bounded run slices, debugger reads and
+  writes, stops, deterministic input, and paginated RF evidence. The separate
+  `--radio-script` callback remains machine-isolated. Neither surface offers
+  symbol hooks or substitutes Starlark behavior for an LLE peripheral; see
+  `docs/AGENT_STARLARK.md`.
 - `remu board` resolves loaded Starlark board definitions into immutable
   topology/actions, then hands that scenario to the Rust board runner. It does
   not expose live CPU, scheduler, or peripheral state to the Starlark VM. With
