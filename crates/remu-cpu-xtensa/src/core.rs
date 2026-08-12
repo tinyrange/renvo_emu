@@ -11,7 +11,7 @@ use remu_core::{
     AccessKind, AccessWidth, Architecture, Bus, Cpu, CpuFault, CpuFaultKind, CpuSnapshot,
     RegisterValue, ResetKind, SimDuration, SimTime, StepOutcome, StepReason,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 mod execution;
@@ -122,7 +122,7 @@ pub struct XtensaCpu {
     loop_count: u32,
     waiting: bool,
     halted: bool,
-    interrupts: BTreeSet<u16>,
+    interrupts: u32,
     software_interrupts: u32,
 }
 
@@ -145,7 +145,7 @@ impl XtensaCpu {
             loop_count: 0,
             waiting: false,
             halted: false,
-            interrupts: BTreeSet::new(),
+            interrupts: 0,
             software_interrupts: 0,
         }
     }
@@ -164,7 +164,7 @@ impl XtensaCpu {
         self.loop_count = 0;
         self.waiting = false;
         self.halted = false;
-        self.interrupts.clear();
+        self.interrupts = 0;
         self.software_interrupts = 0;
     }
 
@@ -354,7 +354,7 @@ impl Cpu for XtensaCpu {
         self.loop_count = 0;
         self.waiting = false;
         self.halted = false;
-        self.interrupts.clear();
+        self.interrupts = 0;
         self.software_interrupts = 0;
         Ok(())
     }
@@ -414,14 +414,24 @@ impl Cpu for XtensaCpu {
                 reason: StepReason::WaitForInterrupt,
             });
         }
-        let first = self.read(bus, self.pc, AccessWidth::Byte, AccessKind::Execute, now)?;
-        let halfword = self.read(
-            bus,
-            self.pc,
-            AccessWidth::HalfWord,
-            AccessKind::Execute,
-            now,
-        )? as u16;
+        let prefetched = bus
+            .fast_fetch32(u64::from(self.pc), now)
+            .transpose()
+            .map_err(|error| self.fault(CpuFaultKind::Bus, error.to_string()))?;
+        let (first, halfword) = if let Some(instruction) = prefetched {
+            (instruction & 0xff, instruction as u16)
+        } else {
+            (
+                self.read(bus, self.pc, AccessWidth::Byte, AccessKind::Execute, now)?,
+                self.read(
+                    bus,
+                    self.pc,
+                    AccessWidth::HalfWord,
+                    AccessKind::Execute,
+                    now,
+                )? as u16,
+            )
+        };
         let instruction_pc = self.pc;
         let narrow = matches!(first & 0xf, 0x8..=0xd);
         let sequential_pc = instruction_pc.wrapping_add(if narrow { 2 } else { 3 });
@@ -436,13 +446,17 @@ impl Cpu for XtensaCpu {
             self.execute_narrow(instruction, bus, now)?
         } else {
             let low = u32::from(halfword);
-            let high = self.read(
-                bus,
-                self.pc.wrapping_add(2),
-                AccessWidth::Byte,
-                AccessKind::Execute,
-                now,
-            )?;
+            let high = if let Some(instruction) = prefetched {
+                instruction >> 16 & 0xff
+            } else {
+                self.read(
+                    bus,
+                    self.pc.wrapping_add(2),
+                    AccessWidth::Byte,
+                    AccessKind::Execute,
+                    now,
+                )?
+            };
             self.execute_wide(low | (high << 16), bus, now)?
         };
         if matches!(reason, StepReason::Advanced) && self.loop_count != 0 {
@@ -476,17 +490,14 @@ impl Cpu for XtensaCpu {
                 "Xtensa interrupt line exceeds modeled range",
             ));
         }
+        let bit = 1_u32 << line;
         if asserted {
-            self.interrupts.insert(line);
+            self.interrupts |= bit;
             self.waiting = false;
         } else {
-            self.interrupts.remove(&line);
+            self.interrupts &= !bit;
         }
-        let mut pending = self.software_interrupts;
-        for interrupt in &self.interrupts {
-            pending |= 1_u32 << u32::from(*interrupt);
-        }
-        self.special_registers[226] = pending;
+        self.special_registers[226] = self.software_interrupts | self.interrupts;
         Ok(())
     }
 

@@ -8,11 +8,11 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "950cccde713a284981b79779705f5a25a1fe43cc24709b02fa500d59281c9145"
+      "sha256": "bf835f4aaca18af998e12eaac0442eb252e05c77594cb434b429d51fea82170c"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "ad7f00ed30d548f58c2a2140bf87a67d9fffb94a0d8e40ef578f55b811ed7c63"
+      "sha256": "24a5f93c9c10339cd2e477fa097b361073ec35aec7018f9b5e3bc74069e4666d"
     },
     {
       "path": "qualification/xtensa-cpu.json",
@@ -20,27 +20,27 @@
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "a8a4e55942499b347db0778506c05288f72b5b47edb092c9370823f13946a879"
+      "sha256": "2471d4fe188df7c4a7d4bd491524210a805d5623c13ee3d165a282d0923eb0cb"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "ecd9ded76206e1460eac37727af32e58b5bb1e64b90c7677d70944b90c788dec"
+      "sha256": "71d833107cdeac8cc546ebd71124d9ead68f45649026678f9f02113f0bf289fd"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "4764d176e8d253e06d239900bb1aa579b1e3f65f0fe2758e2ee4bd6bc76e5606"
+      "sha256": "3b890b1f89b26d27cb19a0faf322c509c879c00ac7ae6768e99de4203c411728"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "d238df9418c6693bec871dca5576c2906ec22c526f40095616769b19ce3be675"
+      "sha256": "86c04438fee03bf2d3ab42c5fa057625d861d40b3dc084d7023cf1ace726cd79"
     },
     {
       "path": "qualification/rust-abi.json",
-      "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67"
+      "sha256": "1d28fc6dfe3bdc71623390c1bda1e6f61ae6a5c5d2e52f529fa8915ccf27262c"
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "74a8d67294a06c0df7ee4a3a47d2287754ee0d202e1970584500a4cbcb75c35a"
+      "sha256": "4c74cb10294012a135f9d5b1285143ec26f50eee6326f1c3b959e3fba9536803"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -514,8 +514,8 @@
       "fidelity": "functional",
       "id": "esp32c6",
       "known_gaps": [
-        "PMP permission enforcement, complete interrupt-matrix behavior, and vendor cache behavior are not implemented yet",
-        "LP core and wireless peripherals are deferred",
+        "PMU, cache, interrupt and watchdog timing is instruction ordered rather than cycle accurate",
+        "Trace capture, analog physics, full monitor/APM policy engines and wireless peripherals are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "GPIO proof covers the low output bank and enable set/clear paths, not the complete GPIO matrix.",
         "UART0 is transmit-focused and does not model physical baud timing.",

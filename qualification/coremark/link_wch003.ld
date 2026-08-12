@@ -19,10 +19,13 @@ SECTIONS
         *(.sdata .sdata.*)
         PROVIDE(__global_pointer$ = . + 0x800);
     } > RAM
-    .bss (NOLOAD) : {
+    .bss (NOLOAD) : ALIGN(4) {
+        __bss_start = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)
         *(COMMON)
+        . = ALIGN(4);
+        __bss_end = .;
     } > RAM
     ASSERT(. <= ORIGIN(RAM) + LENGTH(RAM) - 512,
            "CH32V003 CoreMark image leaves less than 512 bytes for stack")

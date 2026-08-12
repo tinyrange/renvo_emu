@@ -5,12 +5,9 @@ use crate::{
     TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop, target_manifest,
 };
 use md5::{Digest, Md5};
-use remu_bus::{
-    AddressSpace, Endianness, MapError, Permissions, SharedBusAccessObserver, SharedMemory,
-};
+use remu_bus::{AddressSpace, Endianness, Permissions, SharedBusAccessObserver, SharedMemory};
 use remu_core::{
-    AccessKind, AccessWidth, Bus, Cpu, CpuFault, RunLimits, RunStats, SimTime, StepReason,
-    StopReason,
+    AccessKind, AccessWidth, Bus, Cpu, RunLimits, RunStats, SimTime, StepReason, StopReason,
 };
 use remu_cpu_xtensa::{XtensaCpu, XtensaRegister};
 use remu_devices::{
@@ -31,58 +28,17 @@ use remu_devices::{
     TimerHandle, UartHandle,
 };
 use remu_image::{EspFlashImage, FirmwareArchitecture, FirmwareImage};
-use remu_signals::{Logic, SignalError};
-use remu_trace::{TraceDigest, TraceError, TraceSink};
+use remu_signals::Logic;
+use remu_trace::{TraceDigest, TraceSink};
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use thiserror::Error;
+mod error;
 mod functional_rom;
 mod interrupts;
 mod peripheral_dma;
 mod peripheral_handles;
 mod pms;
-/// ESP32-S3 machine construction or execution failure.
-#[derive(Debug, Error)]
-pub enum XtensaMachineError {
-    /// Only ESP32-S3 uses this initial LX7 machine.
-    #[error("target {0} does not have the runnable Xtensa LX7 profile")]
-    UnsupportedTarget(TargetId),
-    /// Address map construction failed.
-    #[error(transparent)]
-    Map(#[from] MapError),
-    /// CPU operation failed.
-    #[error(transparent)]
-    Cpu(#[from] CpuFault),
-    /// Signal construction failed.
-    #[error(transparent)]
-    Signal(#[from] SignalError),
-    /// Host peripheral operation failed.
-    #[error(transparent)]
-    Device(#[from] remu_bus::DeviceError),
-    /// Trace output failed.
-    #[error(transparent)]
-    Trace(#[from] TraceError),
-    /// Firmware has the wrong architecture.
-    #[error("firmware architecture {0:?} does not match ESP32-S3 Xtensa")]
-    Architecture(FirmwareArchitecture),
-    /// Entry exceeds 32-bit address space.
-    #[error("firmware entry {0:#x} exceeds the Xtensa address space")]
-    EntryRange(u64),
-    /// Segment is outside the direct-load map.
-    #[error("cannot load firmware segment at {address:#x}: {message}")]
-    Load {
-        /// Segment start.
-        address: u64,
-        /// Bus diagnostic.
-        message: String,
-    },
-    /// Runs must be bounded.
-    #[error("at least one run limit is required")]
-    MissingRunLimit,
-    /// Virtual time overflowed.
-    #[error("simulation time overflow")]
-    TimeOverflow,
-}
+pub use error::XtensaMachineError;
 mod usb_host;
 use usb_host::{EspDwc2Host, FunctionalSha256, appcpu_systimer_level};
 /// Runnable direct-ELF ESP32-S3 CPU0/unicore slice.
@@ -1019,6 +975,12 @@ impl XtensaMachine {
         let mut systimer_was_pending = [false; 3];
         let mut timer_group_was_pending = [[false; 2]; 2];
         let mut next_core = 0_u8;
+        let mut native_peripherals_active = !stimuli.is_empty()
+            || self.stop_on_usb_input_complete
+            || self
+                .bus
+                .take_device_access()
+                .is_some_and(|address| address < TEST_GPIO);
         let reason = loop {
             while stimuli
                 .get(next_stimulus)
@@ -1041,265 +1003,279 @@ impl XtensaMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
-            if self.usb_serial_jtag.poll(self.now) {
-                stats.events = stats.events.saturating_add(1);
-            }
-            if self.uhci.poll_gdma(&self.gdma) != 0 {
-                stats.events = stats.events.saturating_add(1);
-            }
-            if self.uhci1.poll_gdma(&self.gdma) != 0
-                || self.service_peri_backup()?
-                || self.service_assist_debug_logs()?
-            {
-                stats.events = stats.events.saturating_add(1);
-            }
-            let uhci_pending = self.update_uhci_interrupt_lines()?;
-            if uhci_pending && !uhci_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            uhci_was_pending = uhci_pending;
-            let peri_backup_pending = self.update_peri_backup_interrupt_lines()?;
-            if peri_backup_pending && !peri_backup_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            peri_backup_was_pending = peri_backup_pending;
-            let assist_debug_pending = self.update_assist_debug_interrupt_lines()?;
-            if assist_debug_pending && !assist_debug_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            assist_debug_was_pending = assist_debug_pending;
-            let syscon_pending = self.update_syscon_interrupt_lines()?;
-            if syscon_pending && !syscon_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            syscon_was_pending = syscon_pending;
-            let extmem_pending = self.update_extmem_interrupt_lines()?;
-            if extmem_pending && !extmem_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            extmem_was_pending = extmem_pending;
-            let pms_pending = self.update_pms_interrupt_lines()?;
-            if pms_pending && !pms_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            pms_was_pending = pms_pending;
-            let timer_pending = self.timer.poll(self.now);
-            if timer_pending && !timer_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            timer_was_pending = timer_pending;
-            self.cpu.set_interrupt(0, timer_pending)?;
-            // Once CDC traffic starts, advance the external host only while
-            // the application core is parked in WAITI. This models a
-            // deterministic, low-speed host and prevents an endpoint
-            // completion from preempting an arbitrary logical register
-            // window in the functional CPU model.
-            if !self.usb_host.input_started()
-                || self.usb_host.can_poll()
-                || self.cpu1.waiting_for_interrupt()
-            {
-                stats.events = stats.events.saturating_add(self.usb_host.poll(
-                    self.now,
-                    &self.usb_otg,
-                    &self.usb_wrap,
-                ));
-            }
-            if self.stop_on_usb_input_complete && self.usb_host.input_complete() {
-                break StopReason::HostInputComplete;
-            }
-            let usb_pending = self.usb_otg.interrupt_pending();
-            if usb_pending && !usb_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            usb_was_pending = usb_pending;
-            if usb_pending
-                && std::env::var_os("REMU_DEBUG_USB").is_some()
-                && self.now.ticks().is_multiple_of(100_000)
-            {
-                let (ps0, pending0, enable0) = self.cpu.interrupt_state();
-                let (ps1, pending1, enable1) = self.cpu1.interrupt_state();
-                let table1 = self
-                    .bus
-                    .read(
-                        0x3fc9_f448 + 2 * 8,
-                        AccessWidth::Word,
-                        AccessKind::Read,
-                        self.now,
-                    )
-                    .unwrap_or(0);
-                let table13 = self
-                    .bus
-                    .read(
-                        0x3fc9_f448 + 13 * 2 * 8,
-                        AccessWidth::Word,
-                        AccessKind::Read,
-                        self.now,
-                    )
-                    .unwrap_or(0);
-                let table_usb = self
-                    .bus
-                    .read(
-                        0x3fc9_f448 + (4 * 2 + 1) * 8,
-                        AccessWidth::Word,
-                        AccessKind::Read,
-                        self.now,
-                    )
-                    .unwrap_or(0);
-                eprintln!(
-                    "dwc2 cpu pending at={} cpu0={pending0:#x}/{enable0:#x} ps={ps0:#x} cpu1={pending1:#x}/{enable1:#x} ps={ps1:#x} table1={table1:#x} table13={table13:#x} usb={table_usb:#x}",
-                    self.now.ticks()
-                );
-            }
-            for core in 0..2_u32 {
-                // Native ESP32-S3 treats the internal CPU interrupt
-                // destinations (including the reset value 16) as disabled
-                // for peripheral sources; the matrix handle normalizes them
-                // to its disabled sentinel.
-                self.interrupt_matrix
-                    .set_source_pending(core as usize, 38, usb_pending);
-                let interrupt = self.interrupt_matrix.route(core as usize, 38);
-                if interrupt != u8::MAX && interrupt != 6 {
-                    if core == 0 {
-                        self.cpu.set_interrupt(u16::from(interrupt), usb_pending)?;
-                    } else if self.appcpu_boot_address.is_some() {
-                        self.cpu1.set_interrupt(u16::from(interrupt), usb_pending)?;
-                    }
-                }
-            }
-            let usb_serial_pending = self.usb_serial_jtag.interrupt_pending();
-            if usb_serial_pending && !usb_serial_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            usb_serial_was_pending = usb_serial_pending;
-            for core in 0..2_u32 {
-                // ESP-IDF uses interrupt-matrix source 48 for the USB
-                // Serial/JTAG controller on ESP32-S3.
-                let interrupt = self.interrupt_matrix.route(core as usize, 48);
-                if interrupt == u8::MAX || interrupt == 6 {
-                    continue;
-                }
-                if core == 0 {
-                    self.cpu
-                        .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
-                } else if self.appcpu_boot_address.is_some() {
-                    self.cpu1
-                        .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
-                }
-            }
-            let rtc_pending = self.update_rtc_interrupt_lines()?;
-            if rtc_pending && !rtc_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            rtc_was_pending = rtc_pending;
-            for core in 0..2_u32 {
-                let crosscore_pending = self.system.from_cpu_pending(core as usize);
-                let newly_pending = crosscore_pending && !crosscore_was_pending[core as usize];
-                if newly_pending {
+            if !native_peripherals_active {
+                let timer_pending = self.timer.poll(self.now);
+                if timer_pending && !timer_was_pending {
                     stats.events = stats.events.saturating_add(1);
                 }
-                crosscore_was_pending[core as usize] = crosscore_pending;
-                let source = 79 + core;
-                self.interrupt_matrix.set_source_pending(
-                    core as usize,
-                    source as usize,
-                    crosscore_pending,
-                );
-                let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
-                if interrupt != u8::MAX {
-                    if newly_pending && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some() {
-                        let (ps, pending_bits, enable_bits) = if core == 0 {
-                            self.cpu.interrupt_state()
-                        } else {
-                            self.cpu1.interrupt_state()
-                        };
-                        eprintln!(
-                            "crosscore core={core} source={source} line={interrupt} at={} ps={ps:#x} pending={pending_bits:#x} enable={enable_bits:#x}",
-                            self.now.ticks(),
-                        );
-                    }
-                    if core == 0 {
-                        self.cpu
-                            .set_interrupt(u16::from(interrupt), crosscore_pending)?;
-                    } else if self.appcpu_boot_address.is_some() {
-                        self.cpu1
-                            .set_interrupt(u16::from(interrupt), crosscore_pending)?;
-                    }
-                }
+                timer_was_pending = timer_pending;
+                self.cpu.set_interrupt(0, timer_pending)?;
             }
-            for (target, pending) in self.systimer.pending(self.now).into_iter().enumerate() {
-                let newly_pending = pending && !systimer_was_pending[target];
-                if newly_pending {
+            if native_peripherals_active {
+                if self.usb_serial_jtag.poll(self.now) {
                     stats.events = stats.events.saturating_add(1);
                 }
-                systimer_was_pending[target] = pending;
-                let source = 57 + u32::try_from(target).expect("three timer targets fit u32");
-                let core = u32::try_from(target).expect("three timer targets fit u32");
-                self.interrupt_matrix
-                    .set_source_pending(core as usize, source as usize, pending);
-                let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
-                if interrupt != u8::MAX {
-                    if pending
-                        && newly_pending
-                        && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some()
-                    {
-                        let (ps, pending_bits, enable_bits) = if core == 0 {
-                            self.cpu.interrupt_state()
-                        } else {
-                            self.cpu1.interrupt_state()
-                        };
-                        eprintln!(
-                            "systimer target={target} source={source} line={interrupt} at={} ps={ps:#x} pending={pending_bits:#x} enable={enable_bits:#x}",
-                            self.now.ticks(),
-                        );
-                    }
-                    self.set_systimer_interrupt(core, u32::from(interrupt), pending)?;
-                } else if pending
-                    && newly_pending
-                    && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some()
+                if self.uhci.poll_gdma(&self.gdma) != 0 {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                if self.uhci1.poll_gdma(&self.gdma) != 0
+                    || self.service_peri_backup()?
+                    || self.service_assist_debug_logs()?
                 {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                let uhci_pending = self.update_uhci_interrupt_lines()?;
+                if uhci_pending && !uhci_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                uhci_was_pending = uhci_pending;
+                let peri_backup_pending = self.update_peri_backup_interrupt_lines()?;
+                if peri_backup_pending && !peri_backup_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                peri_backup_was_pending = peri_backup_pending;
+                let assist_debug_pending = self.update_assist_debug_interrupt_lines()?;
+                if assist_debug_pending && !assist_debug_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                assist_debug_was_pending = assist_debug_pending;
+                let syscon_pending = self.update_syscon_interrupt_lines()?;
+                if syscon_pending && !syscon_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                syscon_was_pending = syscon_pending;
+                let extmem_pending = self.update_extmem_interrupt_lines()?;
+                if extmem_pending && !extmem_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                extmem_was_pending = extmem_pending;
+                let pms_pending = self.update_pms_interrupt_lines()?;
+                if pms_pending && !pms_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                pms_was_pending = pms_pending;
+                let timer_pending = self.timer.poll(self.now);
+                if timer_pending && !timer_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                timer_was_pending = timer_pending;
+                self.cpu.set_interrupt(0, timer_pending)?;
+                // Once CDC traffic starts, advance the external host only while
+                // the application core is parked in WAITI. This models a
+                // deterministic, low-speed host and prevents an endpoint
+                // completion from preempting an arbitrary logical register
+                // window in the functional CPU model.
+                if !self.usb_host.input_started()
+                    || self.usb_host.can_poll()
+                    || self.cpu1.waiting_for_interrupt()
+                {
+                    stats.events = stats.events.saturating_add(self.usb_host.poll(
+                        self.now,
+                        &self.usb_otg,
+                        &self.usb_wrap,
+                    ));
+                }
+                if self.stop_on_usb_input_complete && self.usb_host.input_complete() {
+                    break StopReason::HostInputComplete;
+                }
+                let usb_pending = self.usb_otg.interrupt_pending();
+                if usb_pending && !usb_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                usb_was_pending = usb_pending;
+                if usb_pending
+                    && std::env::var_os("REMU_DEBUG_USB").is_some()
+                    && self.now.ticks().is_multiple_of(100_000)
+                {
+                    let (ps0, pending0, enable0) = self.cpu.interrupt_state();
+                    let (ps1, pending1, enable1) = self.cpu1.interrupt_state();
+                    let table1 = self
+                        .bus
+                        .read(
+                            0x3fc9_f448 + 2 * 8,
+                            AccessWidth::Word,
+                            AccessKind::Read,
+                            self.now,
+                        )
+                        .unwrap_or(0);
+                    let table13 = self
+                        .bus
+                        .read(
+                            0x3fc9_f448 + 13 * 2 * 8,
+                            AccessWidth::Word,
+                            AccessKind::Read,
+                            self.now,
+                        )
+                        .unwrap_or(0);
+                    let table_usb = self
+                        .bus
+                        .read(
+                            0x3fc9_f448 + (4 * 2 + 1) * 8,
+                            AccessWidth::Word,
+                            AccessKind::Read,
+                            self.now,
+                        )
+                        .unwrap_or(0);
                     eprintln!(
-                        "systimer target={target} source={source} has no route at={}",
+                        "dwc2 cpu pending at={} cpu0={pending0:#x}/{enable0:#x} ps={ps0:#x} cpu1={pending1:#x}/{enable1:#x} ps={ps1:#x} table1={table1:#x} table13={table13:#x} usb={table_usb:#x}",
                         self.now.ticks()
                     );
                 }
-            }
-            for (group, handle) in self.timer_groups.iter().enumerate() {
-                for (timer, pending) in handle.pending(self.now).into_iter().enumerate() {
-                    let source = match (group, timer) {
-                        (0, 0) => 50,
-                        (0, 1) => 51,
-                        (1, 0) => 53,
-                        (1, 1) => 54,
-                        _ => unreachable!("two ESP32-S3 groups with two timers"),
-                    };
-                    if pending && !timer_group_was_pending[group][timer] {
+                for core in 0..2_u32 {
+                    // Native ESP32-S3 treats the internal CPU interrupt
+                    // destinations (including the reset value 16) as disabled
+                    // for peripheral sources; the matrix handle normalizes them
+                    // to its disabled sentinel.
+                    self.interrupt_matrix
+                        .set_source_pending(core as usize, 38, usb_pending);
+                    let interrupt = self.interrupt_matrix.route(core as usize, 38);
+                    if interrupt != u8::MAX && interrupt != 6 {
+                        if core == 0 {
+                            self.cpu.set_interrupt(u16::from(interrupt), usb_pending)?;
+                        } else if self.appcpu_boot_address.is_some() {
+                            self.cpu1.set_interrupt(u16::from(interrupt), usb_pending)?;
+                        }
+                    }
+                }
+                let usb_serial_pending = self.usb_serial_jtag.interrupt_pending();
+                if usb_serial_pending && !usb_serial_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                usb_serial_was_pending = usb_serial_pending;
+                for core in 0..2_u32 {
+                    // ESP-IDF uses interrupt-matrix source 48 for the USB
+                    // Serial/JTAG controller on ESP32-S3.
+                    let interrupt = self.interrupt_matrix.route(core as usize, 48);
+                    if interrupt == u8::MAX || interrupt == 6 {
+                        continue;
+                    }
+                    if core == 0 {
+                        self.cpu
+                            .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
+                    } else if self.appcpu_boot_address.is_some() {
+                        self.cpu1
+                            .set_interrupt(u16::from(interrupt), usb_serial_pending)?;
+                    }
+                }
+                let rtc_pending = self.update_rtc_interrupt_lines()?;
+                if rtc_pending && !rtc_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                rtc_was_pending = rtc_pending;
+                for core in 0..2_u32 {
+                    let crosscore_pending = self.system.from_cpu_pending(core as usize);
+                    let newly_pending = crosscore_pending && !crosscore_was_pending[core as usize];
+                    if newly_pending {
                         stats.events = stats.events.saturating_add(1);
                     }
-                    timer_group_was_pending[group][timer] = pending;
-                    for core in 0..2_u32 {
-                        self.interrupt_matrix.set_source_pending(
-                            core as usize,
-                            source as usize,
-                            pending,
-                        );
-                        let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
-                        if interrupt == u8::MAX || interrupt == 6 {
-                            continue;
+                    crosscore_was_pending[core as usize] = crosscore_pending;
+                    let source = 79 + core;
+                    self.interrupt_matrix.set_source_pending(
+                        core as usize,
+                        source as usize,
+                        crosscore_pending,
+                    );
+                    let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
+                    if interrupt != u8::MAX {
+                        if newly_pending && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some() {
+                            let (ps, pending_bits, enable_bits) = if core == 0 {
+                                self.cpu.interrupt_state()
+                            } else {
+                                self.cpu1.interrupt_state()
+                            };
+                            eprintln!(
+                                "crosscore core={core} source={source} line={interrupt} at={} ps={ps:#x} pending={pending_bits:#x} enable={enable_bits:#x}",
+                                self.now.ticks(),
+                            );
                         }
                         if core == 0 {
-                            self.cpu.set_interrupt(u16::from(interrupt), pending)?;
+                            self.cpu
+                                .set_interrupt(u16::from(interrupt), crosscore_pending)?;
                         } else if self.appcpu_boot_address.is_some() {
-                            self.cpu1.set_interrupt(u16::from(interrupt), pending)?;
+                            self.cpu1
+                                .set_interrupt(u16::from(interrupt), crosscore_pending)?;
+                        }
+                    }
+                }
+                for (target, pending) in self.systimer.pending(self.now).into_iter().enumerate() {
+                    let newly_pending = pending && !systimer_was_pending[target];
+                    if newly_pending {
+                        stats.events = stats.events.saturating_add(1);
+                    }
+                    systimer_was_pending[target] = pending;
+                    let source = 57 + u32::try_from(target).expect("three timer targets fit u32");
+                    let core = u32::try_from(target).expect("three timer targets fit u32");
+                    self.interrupt_matrix.set_source_pending(
+                        core as usize,
+                        source as usize,
+                        pending,
+                    );
+                    let interrupt = self.interrupt_matrix.route(core as usize, source as usize);
+                    if interrupt != u8::MAX {
+                        if pending
+                            && newly_pending
+                            && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some()
+                        {
+                            let (ps, pending_bits, enable_bits) = if core == 0 {
+                                self.cpu.interrupt_state()
+                            } else {
+                                self.cpu1.interrupt_state()
+                            };
+                            eprintln!(
+                                "systimer target={target} source={source} line={interrupt} at={} ps={ps:#x} pending={pending_bits:#x} enable={enable_bits:#x}",
+                                self.now.ticks(),
+                            );
+                        }
+                        self.set_systimer_interrupt(core, u32::from(interrupt), pending)?;
+                    } else if pending
+                        && newly_pending
+                        && std::env::var_os("REMU_DEBUG_INTERRUPTS").is_some()
+                    {
+                        eprintln!(
+                            "systimer target={target} source={source} has no route at={}",
+                            self.now.ticks()
+                        );
+                    }
+                }
+                for (group, handle) in self.timer_groups.iter().enumerate() {
+                    for (timer, pending) in handle.pending(self.now).into_iter().enumerate() {
+                        let source = match (group, timer) {
+                            (0, 0) => 50,
+                            (0, 1) => 51,
+                            (1, 0) => 53,
+                            (1, 1) => 54,
+                            _ => unreachable!("two ESP32-S3 groups with two timers"),
+                        };
+                        if pending && !timer_group_was_pending[group][timer] {
+                            stats.events = stats.events.saturating_add(1);
+                        }
+                        timer_group_was_pending[group][timer] = pending;
+                        for core in 0..2_u32 {
+                            self.interrupt_matrix.set_source_pending(
+                                core as usize,
+                                source as usize,
+                                pending,
+                            );
+                            let interrupt =
+                                self.interrupt_matrix.route(core as usize, source as usize);
+                            if interrupt == u8::MAX || interrupt == 6 {
+                                continue;
+                            }
+                            if core == 0 {
+                                self.cpu.set_interrupt(u16::from(interrupt), pending)?;
+                            } else if self.appcpu_boot_address.is_some() {
+                                self.cpu1.set_interrupt(u16::from(interrupt), pending)?;
+                            }
                         }
                     }
                 }
             }
             let running_cpu1 = next_core == 1 && self.appcpu_boot_address.is_some();
-            let next_pc = if running_cpu1 {
-                self.cpu1.snapshot().pc
+            let next_pc = u64::from(if running_cpu1 {
+                self.cpu1.pc()
             } else {
-                self.cpu.snapshot().pc
-            };
+                self.cpu.pc()
+            });
             if self.breakpoints.contains(&next_pc) {
                 break StopReason::Breakpoint;
             }
@@ -1393,7 +1369,7 @@ impl XtensaMachine {
             }
             let assist_pc = self.cpu.pc();
             let assist_sp = self.cpu.register(XtensaRegister::A1);
-            let mut pms_bus = pms::Esp32S3PmsBus::new(
+            let mut pms_bus = pms::Esp32S3PmsBus::new_with_mode(
                 &mut self.bus,
                 &self.pms,
                 &self.world_controller,
@@ -1402,6 +1378,7 @@ impl XtensaMachine {
                 u8::from(running_cpu1),
                 assist_pc,
                 assist_sp,
+                native_peripherals_active,
             );
             let outcome = match self.cpu.step(&mut pms_bus, self.now) {
                 Ok(outcome) => outcome,
@@ -1415,17 +1392,28 @@ impl XtensaMachine {
             if running_cpu1 {
                 std::mem::swap(&mut self.cpu, &mut self.cpu1);
             }
-            self.apply_pending_mmu_mappings()?;
+            if self
+                .bus
+                .take_device_access()
+                .is_some_and(|address| address < TEST_GPIO)
+            {
+                native_peripherals_active = true;
+            }
+            if native_peripherals_active {
+                self.apply_pending_mmu_mappings()?;
+            }
             stats.instructions = stats.instructions.saturating_add(1);
             self.now = self
                 .now
                 .checked_add(outcome.elapsed)
                 .map_err(|_| XtensaMachineError::TimeOverflow)?;
             stats.time = self.now;
-            self.ledc.poll(self.now)?;
-            self.sdm.poll(self.now)?;
-            for handle in &self.mcpwm {
-                handle.poll(self.now)?;
+            if native_peripherals_active {
+                self.ledc.poll(self.now)?;
+                self.sdm.poll(self.now)?;
+                for handle in &self.mcpwm {
+                    handle.poll(self.now)?;
+                }
             }
             next_core = if self.appcpu_boot_address.is_some() {
                 next_core ^ 1

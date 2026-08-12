@@ -16,5 +16,11 @@ SECTIONS
         *(.rodata .rodata.*)
     } > IRAM
     .data : { *(.data .data.*) } > DRAM
-    .bss (NOLOAD) : { *(.bss .bss.*) *(COMMON) } > DRAM
+    .bss (NOLOAD) : ALIGN(4) {
+        __bss_start = .;
+        *(.bss .bss.*)
+        *(COMMON)
+        . = ALIGN(4);
+        __bss_end = .;
+    } > DRAM
 }

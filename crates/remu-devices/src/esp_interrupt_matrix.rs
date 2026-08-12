@@ -153,39 +153,31 @@ impl EspInterruptMatrixState {
             .and_then(|routes| routes.get_mut(source))
         {
             *route = (interrupt & ESP_INTERRUPT_ROUTE_MASK) as u8;
-            self.recompute_status(core);
         }
     }
 
-    fn set_pending(&mut self, core: usize, source: usize, pending: bool) {
+    fn set_pending(&mut self, core: usize, source: usize, pending: bool) -> bool {
         if let Some(source_pending) = self
             .pending
             .get_mut(core)
             .and_then(|sources| sources.get_mut(source))
         {
-            *source_pending = pending;
-            self.recompute_status(core);
-        }
-    }
-
-    fn recompute_status(&mut self, core: usize) {
-        let Some(pending) = self.pending.get(core) else {
-            return;
-        };
-        let Some(status) = self.status.get_mut(core) else {
-            return;
-        };
-        status.fill(0);
-        // Status bits identify the peripheral source, not its selected CPU
-        // interrupt destination. A source remains observable here even when
-        // it is routed to one of the native internal/disabled destinations.
-        for (source, is_pending) in pending.iter().enumerate() {
-            if *is_pending {
-                let bank = source / 32;
-                let bit = u32::try_from(source % 32).expect("status bit fits");
-                status[bank] |= 1 << bit;
+            if *source_pending == pending {
+                return false;
             }
+            *source_pending = pending;
+            if let Some(status) = self.status.get_mut(core) {
+                let bank = source / 32;
+                let bit = 1_u32 << (source % 32);
+                if pending {
+                    status[bank] |= bit;
+                } else {
+                    status[bank] &= !bit;
+                }
+            }
+            return true;
         }
+        false
     }
 
     fn status(&self, core: usize, bank: usize) -> u32 {
@@ -216,8 +208,8 @@ impl EspInterruptMatrixHandle {
 
     /// Updates a source's pending state so native status words reflect the
     /// scheduler's current peripheral-source view.
-    pub fn set_source_pending(&self, core: usize, source: usize, pending: bool) {
-        self.state.borrow_mut().set_pending(core, source, pending);
+    pub fn set_source_pending(&self, core: usize, source: usize, pending: bool) -> bool {
+        self.state.borrow_mut().set_pending(core, source, pending)
     }
 }
 

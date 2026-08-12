@@ -3,7 +3,7 @@
   "generated_by": "scripts/qualify-vendor-samples.sh",
   "source_sha256": "d989a3b2d9da63820b32ea90829a858194c216640bf9ffc16413bc6606bfdd6f",
   "result": "pass",
-  "adapter_sha256": "9cca59e1e369ed2fddab1c9bb669720ff44a7761330e7fbf978eccb47b061996",
+  "adapter_sha256": "070eae3b63a3e5b1fbb6456d2b55a01835f918c6ae0cb10fefc1df6d46cae034",
   "sources": [
     {
       "corpus": "wch-evt",
@@ -41,7 +41,7 @@
       "sample_sha256": "b40b009fc1f744b56d4d760a5c3baafd17dfbb621f66f9045cb35131e99d4c0e",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/wch/build.json",
-      "build_sha256": "1df676a47f9c0ac43ea3071fc20fc196a378b61decdf583e0d99b7585a5945c2",
+      "build_sha256": "3d6b20a0fb4e0e13c26721f241a11d58893f54535f3c95d8814ccb6669f220c4",
       "run": ".remu/qualification/vendor-samples/ch32v003/run.json",
       "run_sha256": "2faea28e1d37e9a4adfef52119bdfe51805c20d7dd2939c857eb86552f5424ff"
     },
@@ -51,7 +51,7 @@
       "sample_sha256": "b40b009fc1f744b56d4d760a5c3baafd17dfbb621f66f9045cb35131e99d4c0e",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/wch/build.json",
-      "build_sha256": "1df676a47f9c0ac43ea3071fc20fc196a378b61decdf583e0d99b7585a5945c2",
+      "build_sha256": "3d6b20a0fb4e0e13c26721f241a11d58893f54535f3c95d8814ccb6669f220c4",
       "run": ".remu/qualification/vendor-samples/ch32v006/run.json",
       "run_sha256": "976c99669f6790b07d383e21a3293139801ae833df63eb320305a74f1506634c"
     },
@@ -61,7 +61,7 @@
       "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/rp2040/build.json",
-      "build_sha256": "09ed88d5d3214474a6e23eae9ace2bdb3526a62ee365c6f9360acc6919598db1",
+      "build_sha256": "735429eda8446e0ebae8c40218ee40cd352c19fe06499c27ea6dd9946aad4a3d",
       "run": ".remu/qualification/vendor-samples/rp2040/run.json",
       "run_sha256": "4752cacbc1233143fe17167f002cb064b23a29d53c669b083f4a520ed656380f"
     },
@@ -71,7 +71,7 @@
       "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/rp2350-arm/build.json",
-      "build_sha256": "37ae897e6a2ff80e0e16354c9e4cef94e47f78f88d39ad7a303e2c1a06e1e308",
+      "build_sha256": "e2eee423c44e7bdf9bc998b5e5913575fe051c072f8e34c6f1d377f18c61d5e5",
       "run": ".remu/qualification/vendor-samples/rp2350-arm/run.json",
       "run_sha256": "260d102f35d5a56e00ca36fabe63cc76ac273122cf2feabc2b853045858315c8"
     },
@@ -81,7 +81,7 @@
       "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/rp2350-riscv/build.json",
-      "build_sha256": "851b95425dbb48354fa4f7bcb81d96dcc9ebf0bc604f8a943285c33387d62e38",
+      "build_sha256": "5710e04b806e71ddd3456a6aa2d27fb593261bf50c302e21103737a79755fb8a",
       "run": ".remu/qualification/vendor-samples/rp2350-riscv/run.json",
       "run_sha256": "9dd2debe53b52f44e6f8b62713258061138d72e7ccf2a240608413453e92c91b"
     },
@@ -91,9 +91,9 @@
       "sample_sha256": "b2d1c8573307e010d276d2d0df537f1fe752416f8422e267aa8b1661c1744595",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/esp32s3/build.json",
-      "build_sha256": "cc30ec25dbe41ee19305f702f276d5c0f21cdbe2c553658ec889eb5469a9684a",
+      "build_sha256": "d27417b2b4502a5795445d467bdc4d61e61b647d8339f6cc162bfdda48af39f1",
       "run": ".remu/qualification/vendor-samples/esp32s3/run.json",
-      "run_sha256": "e3448bc71d653c8914b93dec92af729028abde7a2a16292a3af7671ec656dad1"
+      "run_sha256": "d6a128a1dbc2fca259f6a2d5c8e4fa7eeb7e659984ee13fcfee456e54817c503"
     },
     {
       "target": "esp32c6",
@@ -101,9 +101,9 @@
       "sample_sha256": "b2d1c8573307e010d276d2d0df537f1fe752416f8422e267aa8b1661c1744595",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/esp32c6/build.json",
-      "build_sha256": "6766d8174048c57f49784d7d585ec39af3335cedc81aaf2c2c2be4e3fd8076e1",
+      "build_sha256": "9fc8e98d33dafe032e763501af83162b31110dddaec9509ada88c2fb32e5cafb",
       "run": ".remu/qualification/vendor-samples/esp32c6/run.json",
-      "run_sha256": "5865a64a96721b9f2f47072134239b7ebff3dec45e5474476ab1b8c3b31c161f"
+      "run_sha256": "ed5b48aa89d01b1a3224ec58e26a6bde8a1769e9e8e11204130c2902ea648ef7"
     }
   ]
 }
