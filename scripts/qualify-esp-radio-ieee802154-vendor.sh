@@ -107,6 +107,17 @@ done
 
 jq -e '
     .events as $events |
+    .coexistence_events as $coex |
+    all($events[] |
+        select(.event == "submitted" and
+               .request.frame.protocol == "ieee802154" and
+               .request.frame.origin == "emulated");
+        . as $transmission |
+        any($coex[];
+            .event == "granted" and
+            .protocol == "ieee802154" and
+            .start == $transmission.request.start and
+            .end == $transmission.request.end)) and
     ([ $events[] |
         select(.event == "submitted" and
                .request.frame.protocol == "ieee802154" and
@@ -248,6 +259,7 @@ jq -n \
             requires_firmware_owned_csma_retry: true,
             requires_multipan_filtering: true,
             requires_automatic_ack_transmit: true,
+            requires_auto_ack_coexistence_grant: true,
             requires_frame_pending_ack: true,
             requires_ack_success: true,
             requires_no_ack_timeout: true,

@@ -246,7 +246,7 @@ pub struct RiscVMachine {
     radio_ble: Option<BleController>,
     radio_legality: Option<RadioLegalityValidator>,
     radio_pending_ieee802154_tx: Vec<(TransmissionId, CoexistenceGrantId, SimTime, Option<u8>)>,
-    radio_pending_ieee802154_ack: Vec<SimTime>,
+    radio_pending_ieee802154_ack: Vec<(TransmissionId, CoexistenceGrantId, SimTime)>,
     radio_pending_ieee802154_cca: Option<SimTime>,
     radio_pending_native_wifi: Vec<crate::native_wifi::PendingNativeWifiTransmission>,
     radio_c6_ble_receptions: Vec<radio::PendingNativeBleReception>,

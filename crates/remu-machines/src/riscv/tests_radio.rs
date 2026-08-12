@@ -245,10 +245,84 @@ fn esp32c6_malformed_secured_rx_is_dma_delivered_auto_acked_and_replayable() {
             .expect("native MAC emitted an ACK");
         assert_eq!(&ack[..3], &[0x02, 0, 0x2a]);
         assert!(remu_radio::Ieee802154Mac::has_valid_fcs(ack));
-        replay.to_json().unwrap()
+        assert!(replay.coexistence_events.iter().any(|event| matches!(
+            event,
+            remu_radio::CoexistenceEvent::Granted {
+                protocol: remu_radio::RadioProtocol::Ieee802154,
+                ..
+            }
+        )));
+        let ack_airtime = remu_core::SimDuration::from_ticks(ack.len() as u64 * 32);
+        machine.now += ack_airtime;
+        assert_eq!(machine.service_radio().unwrap(), 1);
+        assert!(machine.radio_pending_ieee802154_ack.is_empty());
+        machine.radio_replay_artifact().unwrap().to_json().unwrap()
     }
 
     assert_eq!(run(), run());
+}
+
+#[test]
+fn esp32c6_clock_gate_during_hardware_auto_ack_is_a_hard_machine_error() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let rx_address = 0x4080_02e0_u32;
+    for (address, value) in [
+        (0x600a_9804, (1 << 23) | (1 << 24)),
+        (0x600a_3048, 3),
+        (0x600a_3004, (1 << 7) | 1),
+        (0x600a_30e0, u64::from(rx_address)),
+        (0x600a_3000, 0x42),
+    ] {
+        machine
+            .bus
+            .write(address, AccessWidth::Word, value, SimTime::ZERO)
+            .unwrap();
+    }
+    assert_eq!(machine.service_radio().unwrap(), 1);
+
+    let mut frame = Vec::from(0x9869_u16.to_le_bytes());
+    frame.push(0x2a);
+    frame.extend_from_slice(&0x1234_u16.to_le_bytes());
+    frame.extend_from_slice(&0x5678_u16.to_le_bytes());
+    frame.extend_from_slice(&0x9abc_u16.to_le_bytes());
+    frame.push(5);
+    let frame = remu_radio::Ieee802154Mac::with_fcs(frame);
+    machine
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Ieee802154,
+            remu_radio::Spectrum::new(2_405_000, 2_000),
+            "ieee802154-oqpsk-250k",
+            frame.clone(),
+            -40,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(frame.len() as u64 * 32);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(machine.radio_pending_ieee802154_ack.len(), 1);
+
+    machine
+        .bus
+        .write(0x600a_9804, AccessWidth::Word, 0, machine.now)
+        .unwrap();
+    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected a radio legality error");
+    };
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Ieee802154);
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DomainReady);
+    assert!(error.detail.contains("Transmit"));
+    let replay = machine.radio_replay_artifact().unwrap();
+    assert!(matches!(
+        replay.events.last(),
+        Some(remu_radio::MediumEvent::Truncated { at, .. }) if *at == machine.now
+    ));
+    assert!(matches!(
+        replay.coexistence_events.last(),
+        Some(remu_radio::CoexistenceEvent::PowerDown {
+            protocol: remu_radio::RadioProtocol::Ieee802154,
+            at,
+            ..
+        }) if *at == machine.now
+    ));
 }
 
 #[test]

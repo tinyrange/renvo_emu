@@ -823,11 +823,51 @@ impl RiscVMachine {
         ack: Vec<u8>,
     ) -> Result<(), MachineError> {
         let spectrum = ieee802154_spectrum(handle.channel());
+        let duration = frame_duration(ack.len());
         let end = self
             .now
-            .checked_add(frame_duration(ack.len()))
+            .checked_add(duration)
             .map_err(|_| MachineError::TimeOverflow)?;
-        self.radio_medium
+        let decision = self
+            .radio_coexistence
+            .as_mut()
+            .expect("ESP32-C6 machine has a coexistence arbiter")
+            .request(CoexistenceRequest {
+                protocol: RadioProtocol::Ieee802154,
+                start: self.now,
+                duration,
+                priority: handle.coexistence_priority(),
+                preemptible: true,
+            })?;
+        let CoexistenceDecision::Granted {
+            id: grant,
+            protocol: granted_protocol,
+            preempted,
+            ..
+        } = decision
+        else {
+            return Ok(());
+        };
+        self.apply_coexistence_preemption(preempted)?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .validate_coexistence_ownership(
+                RadioSubsystem::Ieee802154,
+                RadioProtocol::Ieee802154,
+                granted_protocol,
+                self.now,
+            )?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .begin_activity(
+                RadioSubsystem::Ieee802154,
+                RadioActivity::Transmit,
+                self.now,
+            )?;
+        let transmission = self
+            .radio_medium
             .as_mut()
             .expect("ESP32-C6 machine has a radio medium")
             .transmit(TxRequest {
@@ -843,7 +883,9 @@ impl RiscVMachine {
                     origin: FrameOrigin::Emulated,
                 },
             })?;
-        self.radio_pending_ieee802154_ack.push(end);
+        self.record_coexistence_transmission(grant, transmission);
+        self.radio_pending_ieee802154_ack
+            .push((transmission, grant, end));
         Ok(())
     }
 

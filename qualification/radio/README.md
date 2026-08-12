@@ -247,7 +247,9 @@ hardware contracts; they do not need to duplicate every vendor-stack behavior.
   transmit security with published negative reason codes, timers, W1C events,
   abort reasons, counters, and interrupt source 12. The genuine ESP-IDF gate
   covers both clear and busy CCA: it observes public error 1, clears the abort
-  cause, and performs a firmware-owned successful retry.
+  cause, and performs a firmware-owned successful retry. Hardware automatic
+  ACK airtime uses the same native coexistence grant and legality lifecycle as
+  firmware-requested TX; gating its clock mid-ACK is a hard state error.
 - A shared BLE H4 controller for C6 and S3 with periodic advertising/scanning,
   initiating, ACL, encryption, data-length, PHY, privacy-facing queries,
   deterministic peers, and controller events.

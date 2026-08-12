@@ -919,12 +919,21 @@ impl RiscVMachine {
         let completed_acks = self
             .radio_pending_ieee802154_ack
             .iter()
-            .filter(|end| **end <= self.now)
+            .filter(|(_, _, end)| *end <= self.now)
             .count();
         if completed_acks != 0 {
             ieee802154.complete_ack_tx();
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .transition_activity(
+                    RadioSubsystem::Ieee802154,
+                    RadioActivity::Transmit,
+                    RadioActivity::Idle,
+                    self.now,
+                )?;
             self.radio_pending_ieee802154_ack
-                .retain(|end| *end > self.now);
+                .retain(|(_, _, end)| *end > self.now);
             events = events.saturating_add(completed_acks as u64);
         }
         let completed = self
