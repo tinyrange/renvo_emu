@@ -519,6 +519,26 @@
       "use": "Pre-read repository license gate for ESP-IDF v6.0.2 RF object libraries"
     },
     {
+      "id": "esp-idf-wifi-public-api",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_wifi/include/esp_wifi.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "3e65f83a899ed2e0b29a6e2e251d5946ca96d25c15fe4fc1fc077ef3d009610c",
+      "use": "Public Wi-Fi protocol configuration and query API used by the genuine C6 HE qualification probe"
+    },
+    {
+      "id": "esp-idf-wifi-public-types",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_wifi/include/esp_wifi_types_generic.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "a7fa0cd42cc347fd05abc1d33d5781baf87d3dd00d6778329249e8a4438b9654",
+      "use": "Pinned public 802.11ax protocol bit and station PHY-mode definitions for C6 HE acceptance"
+    },
+    {
       "id": "esp32-wifi-lib-readme",
       "kind": "documentation",
       "url": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/README.rst",

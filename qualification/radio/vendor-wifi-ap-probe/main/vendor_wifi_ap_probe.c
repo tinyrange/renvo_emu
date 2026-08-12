@@ -92,13 +92,21 @@ void app_main(void)
         },
     };
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &configuration));
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+    const uint8_t he_protocols = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G |
+                                 WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX;
+    ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_AP, he_protocols));
+#endif
     ESP_ERROR_CHECK(esp_wifi_start());
 
     uint8_t ap_address[6];
+    uint8_t protocols = 0;
     ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_AP, ap_address));
-    printf("REMU_VENDOR_SOFTAP_CONFIG mac=");
-    print_mac(ap_address);
-    printf(" channel=1 ssid=REMU-SOFTAP\n");
+    ESP_ERROR_CHECK(esp_wifi_get_protocol(WIFI_IF_AP, &protocols));
+    printf("REMU_VENDOR_SOFTAP_CONFIG mac=%02x:%02x:%02x:%02x:%02x:%02x"
+           " channel=1 ssid=REMU-SOFTAP protocols=0x%02x\n",
+           ap_address[0], ap_address[1], ap_address[2], ap_address[3],
+           ap_address[4], ap_address[5], (unsigned)protocols);
     fflush(stdout);
 
     ESP_ERROR_CHECK(esp_now_init());

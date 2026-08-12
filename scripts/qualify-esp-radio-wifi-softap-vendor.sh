@@ -28,6 +28,8 @@ expected_ap_mac=$(jq -c --arg chip "$chip" '.chips[$chip].expected_ap_mac' "$req
 expected_beacon_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_beacon_length' "$requirements")
 expected_authentication_response_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_authentication_response_length' "$requirements")
 expected_association_response_length=$(jq -r --arg chip "$chip" '.chips[$chip].expected_association_response_length' "$requirements")
+expected_protocol_mask=$(jq -r --arg chip "$chip" '.chips[$chip].expected_protocol_mask' "$requirements")
+expected_he_extension_id=$(jq -c --arg chip "$chip" '.chips[$chip].expected_he_extension_id' "$requirements")
 
 rm -rf "$chip_root"
 mkdir -p "$chip_root"
@@ -100,7 +102,12 @@ jq -e \
     --argjson ap "$expected_ap_mac" \
     --argjson beacon_length "$expected_beacon_length" \
     --argjson authentication_length "$expected_authentication_response_length" \
-    --argjson association_length "$expected_association_response_length" '
+    --argjson association_length "$expected_association_response_length" \
+    --argjson he_extension_id "$expected_he_extension_id" '
+    def has_extension($identifier):
+        . as $bytes |
+        any(range(0; ($bytes | length) - 2);
+            $bytes[.] == 255 and $bytes[. + 2] == $identifier);
     .events as $events |
     any($events[];
         .event == "submitted" and
@@ -131,7 +138,13 @@ jq -e \
         .request.frame.origin == "emulated" and
         (.request.frame.bytes | length) == $beacon_length and
         .request.frame.bytes[0:2] == [128, 0] and
-        .request.frame.bytes[10:16] == $ap) and
+        .request.frame.bytes[10:16] == $ap and
+        (.request.frame.bytes |
+            if $he_extension_id == null then
+                (has_extension(35) | not)
+            else
+                has_extension($he_extension_id)
+            end)) and
     any($events[];
         .event == "submitted" and
         .request.frame.origin == "emulated" and
@@ -145,7 +158,13 @@ jq -e \
         (.request.frame.bytes | length) == $association_length and
         .request.frame.bytes[0:2] == [16, 0] and
         .request.frame.bytes[4:10] == [2, 170, 187, 204, 221, 1] and
-        .request.frame.bytes[10:16] == $ap)
+        .request.frame.bytes[10:16] == $ap and
+        (.request.frame.bytes |
+            if $he_extension_id == null then
+                (has_extension(35) | not)
+            else
+                has_extension($he_extension_id)
+            end))
 ' "$chip_root/radio-replay.json" >/dev/null
 
 jq -r '.uart[]' "$chip_root/result.json" | awk '{ printf "%c", $1 }' >"$chip_root/uart.log"
@@ -176,6 +195,8 @@ jq -n \
     --arg flash_sha256 "$flash_sha" \
     --arg uart_sha256 "$uart_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
+    --argjson expected_protocol_mask "$expected_protocol_mask" \
+    --argjson expected_he_extension_id "$expected_he_extension_id" \
     --argjson minimum_instructions "$minimum_instructions" \
     '{
         schema: $schema,
@@ -186,6 +207,8 @@ jq -n \
             deterministic_replay_required: true,
             native_wifi_ack_completion_required: true,
             firmware_owned_wifi_retry_required: true,
+            expected_protocol_mask: $expected_protocol_mask,
+            expected_he_extension_id: $expected_he_extension_id,
             minimum_instructions: $minimum_instructions
         },
         evidence: {
@@ -196,6 +219,7 @@ jq -n \
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
             native_wifi_ack_peer_observed: true,
+            native_he_capability_and_association: ($expected_he_extension_id != null),
             native_softap_station_association: true,
             native_esp_now_tx_rx: true
         }
