@@ -77,12 +77,12 @@ EXPECTED_ROM_REQUIREMENTS = {
         "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
         "rom_start": "0x40000000",
         "rom_end": "0x40050000",
-        "minimum_instructions": 20_000_000,
+        "minimum_instructions": 60_000_000,
         "minimum_wifi_tx_frames": 4,
         "radio_input": "qualification/radio/wifi-association-vendor-esp32c6.json",
         "expected_station_mac": [82, 69, 2, 0, 0, 0],
         "expected_auth_request_length": 30,
-        "expected_association_request_length": 45,
+        "expected_association_request_length": 151,
         "calibration_regions": [
             "esp32c6.i2c-ana-mst",
             "esp32c6.power-detector",
@@ -104,6 +104,11 @@ EXPECTED_ROM_REQUIREMENTS = {
             "wifi:state: assoc -> run",
             "wifi:connected with REMU-AP, aid = 1",
             "REMU_VENDOR_WIFI_CONNECT_DONE connected=1 reason=-1",
+            "REMU_VENDOR_WIFI_PHY_MODE result=0 mode=6",
+            "REMU_VENDOR_WIFI_ITWT_START config=0 offset=0 setup=0 flow=0",
+            "REMU_VENDOR_WIFI_ITWT_SETUP status=1 flow=0 twt=7",
+            "REMU_VENDOR_WIFI_ITWT_STATUS reported=1 status=1 bitmap_result=0 bitmap=0x1",
+            "REMU_VENDOR_WIFI_ITWT_WAKEUP count=1 type=0 id=0",
         ],
     },
     "esp32s3": {
@@ -851,16 +856,34 @@ def validate_rom_requirements(requirements: dict[str, object], validation: Valid
         if radio_input.is_file():
             fixture = load_json(radio_input)
             frames = fixture.get("frames", [])
-            validation.require(
-                fixture.get("schema") == "remu.radio-input.v1"
-                and len(frames) == 4,
-                f"{chip} vendor gate must use four deterministic association frames",
-            )
-            validation.require(
-                [frame.get("bytes", [None])[0] for frame in frames]
-                == [0x80, 0x80, 0xB0, 0x10],
-                f"{chip} vendor gate must provide beacon, directed beacon, authentication, and association responses",
-            )
+            if chip == "esp32c6":
+                validation.require(
+                    fixture.get("schema") == "remu.radio-input.v1"
+                    and len(frames) == 2,
+                    "esp32c6 vendor gate must use two deterministic HE beacons",
+                )
+                validation.require(
+                    [frame.get("bytes", [None])[0] for frame in frames]
+                    == [0x80, 0x80]
+                    and all(frame.get("phy") == "wifi-he20" for frame in frames),
+                    "esp32c6 vendor gate must provide broadcast and directed HE beacons",
+                )
+                validation.require(
+                    (ROOT / "qualification/radio/wifi-twt-ap-peer.star").is_file()
+                    and (ROOT / "qualification/starlark/c6_twt_vendor.star").is_file(),
+                    "esp32c6 vendor gate must include its RF-only TWT peer and bounded agent evidence",
+                )
+            else:
+                validation.require(
+                    fixture.get("schema") == "remu.radio-input.v1"
+                    and len(frames) == 4,
+                    f"{chip} vendor gate must use four deterministic association frames",
+                )
+                validation.require(
+                    [frame.get("bytes", [None])[0] for frame in frames]
+                    == [0x80, 0x80, 0xB0, 0x10],
+                    f"{chip} vendor gate must provide beacon, directed beacon, authentication, and association responses",
+                )
 
 
 def validate_wifi_softap_vendor_requirements(

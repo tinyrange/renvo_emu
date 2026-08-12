@@ -249,7 +249,9 @@ The final distillation gate adds four bounded capabilities:
   an opaque live-machine capability for bounded run slices, debugger reads and
   writes, stops, deterministic input, and paginated RF evidence. Scripts may
   load workspace-confined `.star` workflow modules, and `--agent-artifact`
-  records their JSON-compatible decisions plus a compact run summary. The separate
+  records their JSON-compatible decisions plus a compact run summary. The C6
+  real-ROM gate uses this surface to prove genuine HE20/iTWT timer re-arming
+  and repeated wake events over 60 million instructions. The separate
   `--radio-script` callback remains machine-isolated. Neither surface offers
   symbol hooks or substitutes Starlark behavior for an LLE peripheral; see
   `docs/AGENT_STARLARK.md`.

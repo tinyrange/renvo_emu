@@ -53,6 +53,14 @@ fn esp32c6_tsf_timer_reaches_firmware_through_native_power_interrupt_status() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine
         .bus
+        .write(0x6001_0000, AccessWidth::Word, 5, machine.now)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6001_0008, AccessWidth::Word, 6, machine.now)
+        .unwrap();
+    machine
+        .bus
         .write(
             0x600a_9814,
             AccessWidth::Word,
@@ -74,6 +82,9 @@ fn esp32c6_tsf_timer_reaches_firmware_through_native_power_interrupt_status() {
     machine.now = SimTime::from_ticks(32);
 
     assert_eq!(machine.service_radio().unwrap(), 1);
+    let interrupt_matrix = &machine.esp32c6_peripherals.as_ref().unwrap().interrupt_matrix;
+    assert!(!interrupt_matrix.cpu_interrupt_pending(5));
+    assert!(interrupt_matrix.cpu_interrupt_pending(6));
     assert_eq!(
         machine
             .bus

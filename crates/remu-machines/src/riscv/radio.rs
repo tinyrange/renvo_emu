@@ -1152,9 +1152,10 @@ impl RiscVMachine {
         }
         events = events.saturating_add(self.submit_native_wifi_frames(&wifi_mac)?);
         events = events.saturating_add(self.submit_protocol_engine_frames()?);
-        let wifi_pending = wifi_mac.interrupt_pending()
-            || phy.interrupt_pending()
+        let wifi_mac_pending = wifi_mac.interrupt_pending()
             || self.radio_wifi.as_ref().is_some_and(WifiEngine::has_rx);
+        let wifi_power_pending = phy.interrupt_pending();
+        let wifi_pending = wifi_mac_pending || wifi_power_pending;
         let ble_pending = ble_baseband.interrupt_pending()
             || self
                 .radio_ble
@@ -1168,7 +1169,11 @@ impl RiscVMachine {
         legality.observe_interrupt(RadioSubsystem::Wifi, wifi_pending, self.now)?;
         legality.observe_interrupt(RadioSubsystem::BluetoothLe, ble_pending, self.now)?;
         legality.observe_interrupt(RadioSubsystem::Ieee802154, ieee802154_pending, self.now)?;
-        interrupt_matrix.set_source(0, wifi_pending);
+        // C6 exposes distinct native interrupt-matrix inputs for the MAC and
+        // power/TSF block.  In particular, TWT compare events must reach the
+        // vendor power ISR (source 2), not the packet-MAC ISR (source 0).
+        interrupt_matrix.set_source(0, wifi_mac_pending);
+        interrupt_matrix.set_source(2, wifi_power_pending);
         interrupt_matrix.set_source(4, ble_pending);
         // Source 5 is the separately exposed BT_BB line. Current C6 controller
         // firmware installs its combined native PHY ISR on BT_MAC source 4,

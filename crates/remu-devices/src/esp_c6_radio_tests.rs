@@ -852,6 +852,24 @@ mod tests {
     }
 
     #[test]
+    fn wifi_mac_rx_descriptor_reload_command_self_clears() {
+        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let configuration = 0x8803_0000_u32;
+        mac.write(
+            C6_WIFI_MAC_RX_CONTROL,
+            AccessWidth::Word,
+            u64::from(configuration | C6_WIFI_MAC_RX_DESCRIPTOR_RELOAD),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            mac.read(C6_WIFI_MAC_RX_CONTROL, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            u64::from(configuration)
+        );
+    }
+
+    #[test]
     fn wifi_mac_rx_match_uses_firmware_programmed_interface_address() {
         let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
         let handle = mac.handle();
@@ -982,6 +1000,26 @@ mod tests {
             .unwrap() as u32
                 & C6_WIFI_MAC_TX_QUEUE_COMPLETION_STATUS,
             5 << 12
+        );
+        assert_eq!(
+            mac.read(
+                C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT_HIGH,
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap() as u32
+                & C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT,
+            1 << 16
+        );
+        assert_eq!(
+            mac.read(
+                C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH,
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap() as u32
+                & C6_WIFI_MAC_TX_QUEUE_ENABLE,
+            1 << 30
         );
         mac.write(
             C6_WIFI_MAC_INTERRUPT_CLEAR,

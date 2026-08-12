@@ -30,13 +30,32 @@ impl RiscVMachine {
                 self.now,
             )?;
             let buffer = buffer as u32;
-            let wire_length = self.bus.read(
+            let wire_word = self.bus.read(
                 u64::from(buffer),
                 AccessWidth::Word,
                 AccessKind::Read,
                 self.now,
-            )?;
-            let wire_length = wire_length as usize;
+            )? as u32;
+            // The pinned C6 LMAC writes the 12-bit PSDU length in the low
+            // field.  Its genuine HE/TWT path also sets bit 24 before handing
+            // the same buffer to the native queue; disassembly shows LMAC
+            // tests descriptor flags independently of the length passed to
+            // hal_mac_tx_set_ppdu.  Preserve that observed flag boundary and
+            // reject every other high-bit encoding instead of silently
+            // interpreting flags as a giant DMA transfer.
+            const WIRE_LENGTH_MASK: u32 = 0x0fff;
+            const OBSERVED_WIRE_FLAGS: u32 = 1 << 24;
+            self.radio_legality
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio legality validator")
+                .require(
+                    RadioSubsystem::Wifi,
+                    remu_radio::RadioLegalityRule::DmaLength,
+                    wire_word & !(WIRE_LENGTH_MASK | OBSERVED_WIRE_FLAGS) == 0,
+                    self.now,
+                    format!("TX DMA wire word {wire_word:#010x} has unobserved flag bits"),
+                )?;
+            let wire_length = (wire_word & WIRE_LENGTH_MASK) as usize;
             self.radio_legality
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio legality validator")

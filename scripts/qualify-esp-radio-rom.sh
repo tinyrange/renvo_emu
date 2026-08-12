@@ -71,17 +71,36 @@ run_vendor_wifi()
     result=$1
     replay=$2
     shift 2
-    "$remu" run \
-        --target "$chip" \
-        --elf "$elf" \
-        --boot-rom "$rom_root/$rom_file" \
-        --esp-app-image "$flash" \
-        --max-instructions "$minimum_instructions" \
-        --radio-input "$radio_input" \
-        --radio-script qualification/radio/wifi-ack-peer.star \
-        --radio-replay "$replay" \
-        --result "$result" \
-        "$@"
+    case "$chip" in
+        esp32c6)
+            "$remu" run \
+                --target "$chip" \
+                --elf "$elf" \
+                --boot-rom "$rom_root/$rom_file" \
+                --esp-app-image "$flash" \
+                --max-instructions "$minimum_instructions" \
+                --radio-input "$radio_input" \
+                --radio-script qualification/radio/wifi-twt-ap-peer.star \
+                --agent-script qualification/starlark/c6_twt_vendor.star \
+                --agent-artifact "${result%.json}-agent.json" \
+                --radio-replay "$replay" \
+                --result "$result" \
+                "$@"
+            ;;
+        esp32s3)
+            "$remu" run \
+                --target "$chip" \
+                --elf "$elf" \
+                --boot-rom "$rom_root/$rom_file" \
+                --esp-app-image "$flash" \
+                --max-instructions "$minimum_instructions" \
+                --radio-input "$radio_input" \
+                --radio-script qualification/radio/wifi-ack-peer.star \
+                --radio-replay "$replay" \
+                --result "$result" \
+                "$@"
+            ;;
+    esac
 }
 
 case "$chip" in
@@ -229,8 +248,31 @@ jq -e \
             .event == "reception" and
             .id == $submitted.id and
             .receiver == 1 and
-            .outcome.kind == "delivered")) ] | length) == 4
+            .outcome.kind == "delivered")) ] | length) >= 4
 ' "$chip_root/radio-replay.json" >/dev/null
+
+if [ "$chip" = esp32c6 ]
+then
+    jq -e '
+        .value.run.reason == "InstructionLimit" and
+        .value.run.instructions == 60000000 and
+        .value.evidence.bus_loss == false and
+        (.value.twt.programmed_timers | index(0)) != null and
+        ([.value.twt.timer_targets[] | select(.timer == 0)] | length) >= 2 and
+        any(.value.twt.timer_controls[];
+            .timer == 0 and .enabled == true and .wakeup == true) and
+        any(.value.twt.itwt_writes[]; .value == 1)
+    ' "$chip_root/result-agent.json" >/dev/null
+    jq -e '
+        any(.events[];
+            .event == "submitted" and
+            .request.frame.protocol == "wifi" and
+            .request.frame.origin == "host-injection" and
+            .request.frame.bytes[0:2] == [208, 0] and
+            .request.frame.bytes[24:29] == [22, 6, 1, 216, 15] and
+            (.request.frame.bytes[30] % 16) == 8)
+    ' "$chip_root/radio-replay.json" >/dev/null
+fi
 
 jq -r '.uart[]' "$chip_root/result.json" | awk '{ printf "%c", $1 }' >"$chip_root/uart.log"
 jq -r --arg chip "$chip" '.chips[$chip].required_uart_substrings[]' "$requirements" |
@@ -257,12 +299,24 @@ jq -e --argjson instructions "$minimum_instructions" \
     '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
     "$chip_root/result-repeat.json" >/dev/null
 cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
+if [ "$chip" = esp32c6 ]
+then
+    cmp "$chip_root/result-agent.json" "$chip_root/result-repeat-agent.json"
+fi
 
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 calibration_bus_sha=$(sha256sum "$chip_root/calibration-bus.json" | cut -d ' ' -f 1)
+if [ "$chip" = esp32c6 ]
+then
+    requires_native_itwt=true
+    twt_agent_sha=$(sha256sum "$chip_root/result-agent.json" | cut -d ' ' -f 1)
+else
+    requires_native_itwt=false
+    twt_agent_sha=
+fi
 jq -n \
     --arg schema remu.radio-rom-qualification.v3 \
     --arg chip "$chip" \
@@ -273,6 +327,8 @@ jq -n \
     --arg uart_sha256 "$uart_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
     --arg calibration_bus_sha256 "$calibration_bus_sha" \
+    --arg twt_agent_sha256 "$twt_agent_sha" \
+    --argjson requires_native_itwt "$requires_native_itwt" \
     --argjson calibration_regions "$calibration_regions" \
     --argjson entry "$entry" \
     --argjson minimum_instructions "$minimum_instructions" \
@@ -304,6 +360,9 @@ jq -n \
             requires_open_system_authentication: true,
             requires_association_response: true,
             requires_native_wifi_ack_completion: true,
+            requires_native_c6_itwt: $requires_native_itwt,
+            requires_firmware_twt_wakeup: $requires_native_itwt,
+            agent_driven_starlark_evidence: $requires_native_itwt,
             firmware_owns_wifi_retry: true,
             excludes_hardware_fcs_from_replay_frames: true,
             deterministic_replay_required: true,
@@ -318,10 +377,12 @@ jq -n \
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
             calibration_bus_sha256: $calibration_bus_sha256,
+            twt_agent_sha256: $twt_agent_sha256,
             calibration_completion_paths: true,
             vendor_scan_count: $vendor_scan_count,
             vendor_station_connected: true,
             native_wifi_ack_peer_observed: true,
+            native_c6_itwt_observed: $requires_native_itwt,
             deterministic_replay: true
         }
     }' >"$chip_root/summary.json"

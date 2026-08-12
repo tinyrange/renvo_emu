@@ -203,7 +203,7 @@ impl RiscVMachine {
                         wifi_mac,
                         &frame.bytes,
                     )?;
-                    let native = self.write_native_wifi_rx(wifi_mac, &frame.bytes)?;
+                    let native = self.write_native_wifi_rx(wifi_mac, &frame)?;
                     if self
                         .esp32c6_peripherals
                         .as_ref()
@@ -619,7 +619,7 @@ impl RiscVMachine {
     fn write_native_wifi_rx(
         &mut self,
         wifi_mac: &remu_devices::EspC6WifiMacHandle,
-        frame: &[u8],
+        frame: &RadioFrame,
     ) -> Result<bool, MachineError> {
         let Some(descriptor) = wifi_mac.rx_descriptor() else {
             return Ok(false);
@@ -646,19 +646,22 @@ impl RiscVMachine {
             self.now,
         )? as u32;
         let capacity = (control & 0x3fff) as usize;
-        let rx_match = wifi_mac.rx_match_mask(frame.get(4..10).unwrap_or_default());
+        let rx_match = wifi_mac.rx_match_mask(frame.bytes.get(4..10).unwrap_or_default());
         if rx_match == 0 {
             return Ok(false);
         }
         let metadata = c6_wifi_rx_metadata(frame, rx_match, self.now);
-        let total = metadata.len().saturating_add(frame.len()).saturating_add(4);
+        let total = metadata
+            .len()
+            .saturating_add(frame.bytes.len())
+            .saturating_add(4);
         if buffer == 0 || total > capacity || total > 0x3fff {
             return Ok(false);
         }
         self.radio_write_guest_bytes(buffer, &metadata)?;
-        self.radio_write_guest_bytes(buffer.wrapping_add(metadata.len() as u32), frame)?;
+        self.radio_write_guest_bytes(buffer.wrapping_add(metadata.len() as u32), &frame.bytes)?;
         self.radio_write_guest_bytes(
-            buffer.wrapping_add((metadata.len() + frame.len()) as u32),
+            buffer.wrapping_add((metadata.len() + frame.bytes.len()) as u32),
             &[0; 4],
         )?;
         let completed = (control & 0x0000_3fff) | ((total as u32) << 14) | (1 << 30);
@@ -1063,16 +1066,29 @@ fn c6_ble_pointer(raw: u32) -> Option<u32> {
     (low != 0 && low < 0x0008_0000).then_some(0x4080_0000 | low)
 }
 
-fn c6_wifi_rx_metadata(frame: &[u8], rx_match: u8, at: remu_core::SimTime) -> [u8; 92] {
+fn c6_wifi_rx_metadata(
+    frame: &RadioFrame,
+    rx_match: u8,
+    at: remu_core::SimTime,
+) -> [u8; 92] {
     let mut metadata = [0_u8; 92];
     metadata[0] = (-40_i8) as u8;
     metadata[3] = (rx_match & 0x0f) << 4;
-    metadata[11] = u8::from(frame.get(4).is_some_and(|address| address & 1 != 0)) << 7;
+    metadata[11] =
+        u8::from(frame.bytes.get(4).is_some_and(|address| address & 1 != 0)) << 7;
     metadata[12..16].copy_from_slice(&(at.ticks() as u32).to_le_bytes());
     metadata[20] = (-95_i8) as u8;
     metadata[21] = 1;
-    let signal_length = frame.len().saturating_add(4).min(0x3fff) as u32;
-    let dump_length = frame.len().min(0x3fff) as u32;
+    // ESP32-C6 MAC-v2 exposes the received baseband format in the low nibble
+    // of byte 39. Genuine net80211 uses this native RX metadata, not beacon
+    // information elements alone, when deciding the negotiated PHY mode.
+    metadata[39] = match frame.phy.as_str() {
+        "wifi-he20" => 4,
+        "wifi-ht20" => 2,
+        _ => 1,
+    };
+    let signal_length = frame.bytes.len().saturating_add(4).min(0x3fff) as u32;
+    let dump_length = frame.bytes.len().min(0x3fff) as u32;
     metadata[84..88].copy_from_slice(&(signal_length | (dump_length << 16)).to_le_bytes());
     metadata
 }

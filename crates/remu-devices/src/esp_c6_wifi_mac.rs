@@ -6,6 +6,8 @@ const C6_WIFI_MAC_INTERRUPT_EVENT: u64 = 0xc48;
 const C6_WIFI_MAC_INTERRUPT_CLEAR: u64 = 0xc4c;
 const C6_WIFI_MAC_EVENT_TX_DONE: u32 = 1 << 7;
 const C6_WIFI_MAC_EVENT_RX_DONE: u32 = 1 << 14;
+const C6_WIFI_MAC_RX_CONTROL: u64 = 0x080;
+const C6_WIFI_MAC_RX_DESCRIPTOR_RELOAD: u32 = 1 << 0;
 const C6_WIFI_MAC_RX_BASE: u64 = 0x084;
 const C6_WIFI_MAC_RX_NEXT: u64 = 0x088;
 const C6_WIFI_MAC_RX_LAST: u64 = 0x08c;
@@ -20,11 +22,14 @@ const C6_WIFI_MAC_TX_QUEUE_STATE: u64 = 0xcb8;
 const C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH: u64 = 0xd6c;
 const C6_WIFI_MAC_TX_QUEUE_CONTROL_LOW: u64 = 0xd1c;
 const C6_WIFI_MAC_TX_QUEUE_ENABLE: u32 = 3 << 30;
+const C6_WIFI_MAC_TX_QUEUE_ENABLED: u32 = 1 << 31;
 const C6_WIFI_MAC_TX_QUEUE_TIMEOUT_HIGH: u64 = 0xd68;
 const C6_WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE: u64 = 0x10;
 const C6_WIFI_MAC_TX_QUEUE_COMPLETION_HIGH: u64 = 0x14ec;
+const C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT_HIGH: u64 = 0x14e8;
 const C6_WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE: u64 = 0x74;
 const C6_WIFI_MAC_TX_QUEUE_COMPLETION_STATUS: u32 = 0xf << 12;
+const C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT: u32 = 0xff << 16;
 const C6_WIFI_MAC_RX_BA_CONTROL_HIGH: u64 = 0x290;
 const C6_WIFI_MAC_RX_BA_MAC_HIGH_HIGH: u64 = 0x294;
 const C6_WIFI_MAC_RX_BA_MAC_LOW_HIGH: u64 = 0x298;
@@ -253,6 +258,28 @@ impl EspC6WifiMacHandle {
         };
         *completion =
             (*completion & !C6_WIFI_MAC_TX_QUEUE_COMPLETION_STATUS) | (outcome.status() << 12);
+        let count_offset = C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT_HIGH
+            .saturating_sub(u64::from(queue) * C6_WIFI_MAC_TX_QUEUE_COMPLETION_STRIDE);
+        let Some(count) = state.registers.get_mut(count_offset as usize / 4) else {
+            return false;
+        };
+        // hal_mac_get_txq_complete extracts the number of successfully
+        // completed MPDUs from bits 16..23 of the preceding completion word.
+        // A zero count makes LMAC report success but retain the MSDU until its
+        // lifetime expires, at which point it invokes the completion callback
+        // again for an object that ppProcTxDone has already recycled.
+        *count = (*count & !C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT) | (1 << 16);
+        let control_offset = C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH
+            .saturating_sub(u64::from(queue) * C6_WIFI_MAC_TX_QUEUE_TIMEOUT_STRIDE);
+        let Some(control) = state.registers.get_mut(control_offset as usize / 4) else {
+            return false;
+        };
+        // The native queue's enabled bit is hardware-owned after a kick.  It
+        // drops at completion while the adjacent valid bit remains available
+        // for the HAL to invalidate explicitly.  Keeping enabled asserted
+        // makes hal_mac_deinit_twt_tx flush an already completed and recycled
+        // MSDU when the station enters its TWT sleep interval.
+        *control &= !C6_WIFI_MAC_TX_QUEUE_ENABLED;
         state.active_tx &= !bit;
         state.registers[C6_WIFI_MAC_TX_QUEUE_STATE as usize / 4] |= bit;
         state.registers[C6_WIFI_MAC_INTERRUPT_EVENT as usize / 4] |= C6_WIFI_MAC_EVENT_TX_DONE;
@@ -466,6 +493,13 @@ impl Device for EspC6WifiMacRegisters {
         *state.registers.get_mut(index).ok_or_else(|| {
             DeviceError::new(format!("{} write outside native page", self.name))
         })? = value;
+        if offset == C6_WIFI_MAC_RX_CONTROL && value & C6_WIFI_MAC_RX_DESCRIPTOR_RELOAD != 0 {
+            // hal_mac_rx_set_dscr_reload raises a hardware command bit and
+            // hal_mac_rx_is_dscr_reload polls until the MAC consumes it.  The
+            // command completes synchronously in this functional frontend;
+            // retaining bit zero deadlocks genuine net80211 in the poll loop.
+            state.registers[index] &= !C6_WIFI_MAC_RX_DESCRIPTOR_RELOAD;
+        }
         if offset == C6_WIFI_MAC_RX_BASE {
             state.rx_descriptor = (value != 0).then_some(value);
             state.registers[C6_WIFI_MAC_RX_NEXT as usize / 4] = value;

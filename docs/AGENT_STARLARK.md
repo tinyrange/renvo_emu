@@ -82,7 +82,11 @@ installation and frame protection remain native emulated hardware behavior.
 four native C6 TSF timers, their target/control pairs, interrupt-enable and
 W1C event masks, and individual/broadcast TWT control writes. It provides the
 repeatable evidence boundary for promoting TWT behavior into Rust; it does not
-implement timer or power-save behavior in the script.
+implement timer or power-save behavior in the script. The noninteractive
+`qualification/starlark/c6_twt_vendor.star` gate runs genuine vendor firmware
+for 60 million instructions, requires repeated native timer programming and
+wake events, and rejects capture loss. Its separate RF-only peer negotiates
+HE20 and individual TWT without access to the machine capability.
 
 For an iterative MMIO experiment, narrow the capture before running firmware:
 

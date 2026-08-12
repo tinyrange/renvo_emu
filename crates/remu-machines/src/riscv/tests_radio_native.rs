@@ -119,6 +119,85 @@ fn esp32c6_native_wifi_tx_excludes_hardware_fcs_from_the_rf_frame() {
 }
 
 #[test]
+fn esp32c6_native_wifi_tx_accepts_the_firmware_observed_he_flag() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let descriptor = 0x4082_1000_u32;
+    let buffer = 0x4082_1100_u32;
+    let frame: Vec<u8> = (0_u8..30).collect();
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    let mut buffer_bytes = Vec::new();
+    buffer_bytes.extend_from_slice(&((1_u32 << 24) | 34).to_le_bytes());
+    buffer_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    buffer_bytes.extend_from_slice(&frame);
+    buffer_bytes.extend_from_slice(&[0; 4]);
+    machine
+        .debug_write_memory(u64::from(buffer), &buffer_bytes)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert!(machine
+        .radio_replay_artifact()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.bytes == frame
+        )));
+}
+
+#[test]
+fn esp32c6_native_wifi_tx_rejects_unobserved_wire_flags() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let descriptor = 0x4082_1000_u32;
+    let buffer = 0x4082_1100_u32;
+    machine
+        .debug_write_memory(
+            u64::from(descriptor),
+            &[
+                0, 0, 0, 0,
+                0, 0x11, 0x82, 0x40,
+                0, 0, 0, 0,
+            ],
+        )
+        .unwrap();
+    machine
+        .debug_write_memory(u64::from(buffer), &((1_u32 << 25) | 34).to_le_bytes())
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            u64::from((3_u32 << 30) | (descriptor & 0x000f_ffff)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("expected an illegal radio state");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DmaLength);
+    assert!(error.detail.contains("unobserved flag bits"));
+}
+
+#[test]
 fn esp32c6_native_wifi_tx_applies_the_firmware_selected_ccmp_key() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let descriptor = 0x4082_1000_u32;
@@ -610,6 +689,13 @@ fn esp32c6_native_ble_scan_writes_the_firmware_owned_rx_ring() {
         .unwrap();
     machine.now = SimTime::from_ticks(512);
     assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .debug_read_memory(u64::from(buffer) + 39, 1)
+            .unwrap(),
+        [2],
+        "native MAC-v2 metadata reports the injected HT baseband format"
+    );
     assert_eq!(
         machine
             .debug_read_memory(u64::from(buffer) + 0x1c, frame.len())
