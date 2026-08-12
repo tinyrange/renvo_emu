@@ -297,7 +297,10 @@ For agent-driven investigation, `remu run --agent-script drive.star` exposes a
 long-lived, opaque ESP32-C6 or ESP32-S3 `machine` value to the script's
 `main()` function. Bounded methods resume execution, inspect CPU and memory,
 set debug stops, drive GPIO/USB input, inject isolated RF frames, and page
-through replay evidence. Scripts can load workspace-confined reusable `.star`
+through replay evidence. A filtered bounded bus-capture ring lets the same
+live script or REPL inspect native MMIO/DMA sequences without retaining an
+unbounded trace, and composes with the existing streaming `--bus-log`. Scripts
+can load workspace-confined reusable `.star`
 workflows, `--agent-repl` enables a scoped `repl()` call in the same live
 session, and `--agent-artifact` records the script result without duplicating
 the full UART/RF streams. This driver is an orchestration and diagnostics boundary:

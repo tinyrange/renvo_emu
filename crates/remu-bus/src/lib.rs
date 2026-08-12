@@ -278,6 +278,18 @@ pub trait BusAccessObserver {
 /// Shareable observer handle used by machines with more than one access space.
 pub type SharedBusAccessObserver = Rc<RefCell<dyn BusAccessObserver>>;
 
+struct FanoutBusAccessObserver {
+    observers: Vec<SharedBusAccessObserver>,
+}
+
+impl BusAccessObserver for FanoutBusAccessObserver {
+    fn observe(&mut self, record: &BusAccessRecord) {
+        for observer in &self.observers {
+            observer.borrow_mut().observe(record);
+        }
+    }
+}
+
 /// Deterministic, non-overlapping address space.
 pub struct AddressSpace {
     endianness: Endianness,
@@ -342,6 +354,19 @@ impl AddressSpace {
     /// Installs or removes a streaming completed-access observer.
     pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
         self.access_observer = observer;
+    }
+
+    /// Adds a streaming observer while preserving any observer already installed.
+    ///
+    /// This is useful when an interactive debugger needs a bounded diagnostic
+    /// view at the same time as a host frontend streams the complete log.
+    pub fn add_access_observer(&mut self, observer: SharedBusAccessObserver) {
+        self.access_observer = Some(match self.access_observer.take() {
+            Some(previous) => Rc::new(RefCell::new(FanoutBusAccessObserver {
+                observers: vec![previous, observer],
+            })),
+            None => observer,
+        });
     }
 
     /// Adds a byte address that stops the owning machine on a completed data access.
@@ -953,5 +978,28 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].kind, AccessKind::Write);
         assert_eq!(records[1].kind, AccessKind::Execute);
+    }
+
+    #[test]
+    fn added_observer_preserves_the_existing_stream() {
+        let first = Rc::new(RefCell::new(Vec::new()));
+        let second = Rc::new(RefCell::new(Vec::new()));
+        let mut bus = AddressSpace::default();
+        bus.map_ram("ram", 0x1000, 16, true).unwrap();
+        bus.set_access_observer(Some(Rc::new(RefCell::new(CollectingObserver(
+            first.clone(),
+        )))));
+        bus.add_access_observer(Rc::new(RefCell::new(CollectingObserver(second.clone()))));
+
+        bus.write(
+            0x1000,
+            AccessWidth::Word,
+            0x4433_2211,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+
+        assert_eq!(*first.borrow(), *second.borrow());
+        assert_eq!(first.borrow().len(), 1);
     }
 }

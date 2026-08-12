@@ -3,7 +3,8 @@
 
 use allocative::Allocative;
 use anyhow::{Context, Result, bail};
-use remu_core::{RunLimits, SimTime};
+use remu_bus::{BusAccessObserver, BusAccessRecord, SharedBusAccessObserver};
+use remu_core::{AccessKind, RunLimits, SimTime};
 use remu_machines::{RiscVMachine, RunResult, TargetId, XtensaMachine};
 use remu_radio::{MediumProfile, RadioProtocol, ReplayArtifact, Spectrum};
 use remu_signals::Logic;
@@ -18,9 +19,10 @@ use starlark::values::{
     starlark_value,
 };
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::assertion_globals;
@@ -32,6 +34,11 @@ const MAX_AGENT_SCRIPT_SOURCE_BYTES: usize = 8 << 20;
 const MAX_MACHINE_RUN_INSTRUCTIONS: u64 = 100_000_000;
 const MAX_DEBUG_TRANSFER_BYTES: usize = 1 << 20;
 const MAX_RADIO_EVENTS_PER_READ: usize = 4096;
+const MAX_BUS_EVENTS_PER_READ: usize = 4096;
+const MAX_BUS_CAPTURE_RECORDS: usize = 65_536;
+const BUS_CAPTURE_READ: u8 = 1 << 0;
+const BUS_CAPTURE_WRITE: u8 = 1 << 1;
+const BUS_CAPTURE_EXECUTE: u8 = 1 << 2;
 
 /// One live machine supported by the agent-driver surface.
 pub enum AgentMachine {
@@ -148,11 +155,127 @@ impl AgentMachine {
             Self::Esp32s3(machine) => machine.radio_replay_artifact(),
         }
     }
+
+    fn add_access_observer(&mut self, observer: SharedBusAccessObserver) {
+        match self {
+            Self::Esp32c6(machine) => machine.add_access_observer(observer),
+            Self::Esp32s3(machine) => machine.add_access_observer(observer),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AgentBusCapture {
+    enabled: bool,
+    start: u64,
+    end: u64,
+    kinds: u8,
+    regions: BTreeSet<String>,
+    capacity: usize,
+    next_cursor: u64,
+    dropped: u64,
+    records: VecDeque<(u64, BusAccessRecord)>,
+}
+
+impl Default for AgentBusCapture {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            start: 0,
+            end: u64::MAX,
+            kinds: BUS_CAPTURE_READ | BUS_CAPTURE_WRITE,
+            regions: BTreeSet::new(),
+            capacity: 4096,
+            next_cursor: 0,
+            dropped: 0,
+            records: VecDeque::new(),
+        }
+    }
+}
+
+impl AgentBusCapture {
+    fn accepts(&self, record: &BusAccessRecord) -> bool {
+        let kind = match record.kind {
+            AccessKind::Read => BUS_CAPTURE_READ,
+            AccessKind::Write => BUS_CAPTURE_WRITE,
+            AccessKind::Execute => BUS_CAPTURE_EXECUTE,
+        };
+        let access_end = record
+            .address
+            .saturating_add(u64::from(record.width.bytes()));
+        self.enabled
+            && self.kinds & kind != 0
+            && record.address < self.end
+            && access_end > self.start
+            && (self.regions.is_empty() || self.regions.contains(&record.region))
+    }
+
+    fn configure(
+        &mut self,
+        start: u64,
+        end: u64,
+        regions: BTreeSet<String>,
+        kinds: &[String],
+        capacity: usize,
+    ) -> Result<()> {
+        if start >= end {
+            bail!("bus capture start must be below end");
+        }
+        if capacity == 0 || capacity > MAX_BUS_CAPTURE_RECORDS {
+            bail!("bus capture capacity must be in 1..={MAX_BUS_CAPTURE_RECORDS}");
+        }
+        let mut kind_mask = 0;
+        for kind in kinds {
+            match kind.as_str() {
+                "read" => kind_mask |= BUS_CAPTURE_READ,
+                "write" => kind_mask |= BUS_CAPTURE_WRITE,
+                "execute" => kind_mask |= BUS_CAPTURE_EXECUTE,
+                _ => bail!("unknown bus access kind {kind:?}"),
+            }
+        }
+        if kind_mask == 0 {
+            bail!("bus capture requires at least one access kind");
+        }
+        self.enabled = true;
+        self.start = start;
+        self.end = end;
+        self.kinds = kind_mask;
+        self.regions = regions;
+        self.capacity = capacity;
+        self.next_cursor = 0;
+        self.dropped = 0;
+        self.records.clear();
+        Ok(())
+    }
+
+    fn record(&mut self, record: &BusAccessRecord) {
+        if !self.accepts(record) {
+            return;
+        }
+        let cursor = self.next_cursor;
+        self.next_cursor = self.next_cursor.saturating_add(1);
+        if self.records.len() == self.capacity {
+            self.records.pop_front();
+            self.dropped = self.dropped.saturating_add(1);
+        }
+        self.records.push_back((cursor, record.clone()));
+    }
+}
+
+struct AgentBusObserver {
+    capture: Rc<RefCell<AgentBusCapture>>,
+}
+
+impl BusAccessObserver for AgentBusObserver {
+    fn observe(&mut self, record: &BusAccessRecord) {
+        self.capture.borrow_mut().record(record);
+    }
 }
 
 struct AgentSession {
     machine: Option<AgentMachine>,
     last_result: Option<RunResult>,
+    bus_capture: Rc<RefCell<AgentBusCapture>>,
 }
 
 thread_local! {
@@ -164,7 +287,7 @@ static NEXT_AGENT_SESSION: AtomicU64 = AtomicU64::new(1);
 struct AgentSessionGuard(u64);
 
 impl AgentSessionGuard {
-    fn insert(machine: AgentMachine) -> Self {
+    fn insert(machine: AgentMachine, bus_capture: Rc<RefCell<AgentBusCapture>>) -> Self {
         let id = NEXT_AGENT_SESSION.fetch_add(1, Ordering::Relaxed);
         AGENT_SESSIONS.with(|sessions| {
             let previous = sessions.borrow_mut().insert(
@@ -172,6 +295,7 @@ impl AgentSessionGuard {
                 AgentSession {
                     machine: Some(machine),
                     last_result: None,
+                    bus_capture,
                 },
             );
             debug_assert!(previous.is_none());
@@ -492,6 +616,104 @@ fn agent_machine_methods(builder: &mut MethodsBuilder) {
             }))
         })
     }
+
+    /// Starts a fresh bounded bus-access capture for a native address/region window.
+    fn capture_bus<'v>(
+        #[starlark(this)] this: Value<'v>,
+        #[starlark(default = 0)] start: u64,
+        end: Option<u64>,
+        regions: Option<UnpackList<String>>,
+        kinds: Option<UnpackList<String>>,
+        #[starlark(default = 4096)] capacity: u32,
+    ) -> anyhow::Result<NoneType> {
+        let driver = agent_machine(this)?;
+        let end = end.unwrap_or(u64::MAX);
+        let regions = regions
+            .unwrap_or_default()
+            .items
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let kinds = kinds.map_or_else(
+            || vec!["read".to_owned(), "write".to_owned()],
+            |kinds| kinds.items,
+        );
+        let capacity = usize::try_from(capacity).context("bus capacity does not fit usize")?;
+        AGENT_SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let session = sessions
+                .get(&driver.session)
+                .context("agent machine session is no longer available")?;
+            session
+                .bus_capture
+                .borrow_mut()
+                .configure(start, end, regions, &kinds, capacity)
+        })?;
+        Ok(NoneType)
+    }
+
+    /// Stops recording new bus accesses while retaining the bounded evidence window.
+    fn stop_bus_capture<'v>(#[starlark(this)] this: Value<'v>) -> anyhow::Result<NoneType> {
+        let driver = agent_machine(this)?;
+        AGENT_SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let session = sessions
+                .get(&driver.session)
+                .context("agent machine session is no longer available")?;
+            session.bus_capture.borrow_mut().enabled = false;
+            Ok::<(), anyhow::Error>(())
+        })?;
+        Ok(NoneType)
+    }
+
+    /// Returns a bounded page from the current filtered bus-access capture.
+    fn bus_events<'v>(
+        #[starlark(this)] this: Value<'v>,
+        #[starlark(default = 0)] cursor: u64,
+        #[starlark(default = 256)] limit: u32,
+    ) -> anyhow::Result<JsonValue> {
+        let driver = agent_machine(this)?;
+        let limit = usize::try_from(limit).context("bus event limit does not fit usize")?;
+        if limit == 0 || limit > MAX_BUS_EVENTS_PER_READ {
+            bail!("bus event limit must be in 1..={MAX_BUS_EVENTS_PER_READ}");
+        }
+        AGENT_SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let session = sessions
+                .get(&driver.session)
+                .context("agent machine session is no longer available")?;
+            let capture = session.bus_capture.borrow();
+            let earliest = capture
+                .records
+                .front()
+                .map_or(capture.next_cursor, |(cursor, _)| *cursor);
+            let start = cursor.max(earliest);
+            let records = capture
+                .records
+                .iter()
+                .filter(|(record_cursor, _)| *record_cursor >= start)
+                .take(limit)
+                .map(|(record_cursor, record)| json!({"cursor": record_cursor, "access": record}))
+                .collect::<Vec<_>>();
+            let next_cursor = records
+                .last()
+                .and_then(|record| record.get("cursor"))
+                .and_then(JsonValue::as_u64)
+                .map_or(start, |cursor| cursor.saturating_add(1));
+            Ok(json!({
+                "schema": "remu.agent-bus-events.v1",
+                "cursor": cursor,
+                "earliest_cursor": earliest,
+                "next_cursor": next_cursor,
+                "complete": next_cursor >= capture.next_cursor,
+                "enabled": capture.enabled,
+                "captured": capture.next_cursor,
+                "retained": capture.records.len(),
+                "dropped": capture.dropped,
+                "missed_before_cursor": earliest.saturating_sub(cursor),
+                "events": records,
+            }))
+        })
+    }
 }
 
 starlark::methods_static!(AGENT_MACHINE_METHODS = agent_machine_methods);
@@ -514,7 +736,7 @@ pub struct AgentScriptOutcome {
 pub fn evaluate_agent_script(
     filename: &str,
     source: &str,
-    machine: AgentMachine,
+    mut machine: AgentMachine,
     interactive: bool,
 ) -> Result<AgentScriptOutcome> {
     if source.len() > MAX_AGENT_SCRIPT_SOURCE_BYTES {
@@ -549,7 +771,11 @@ pub fn evaluate_agent_script(
     let file_loader = ReturnFileLoader {
         modules: &references,
     };
-    let session = AgentSessionGuard::insert(machine);
+    let bus_capture = Rc::new(RefCell::new(AgentBusCapture::default()));
+    machine.add_access_observer(Rc::new(RefCell::new(AgentBusObserver {
+        capture: bus_capture.clone(),
+    })));
+    let session = AgentSessionGuard::insert(machine, bus_capture);
     let value = Module::with_temp_heap(|module| -> Result<JsonValue> {
         let machine = module
             .heap()
@@ -667,6 +893,46 @@ def main():
     }
 
     #[test]
+    fn agent_bus_capture_filters_pages_and_reports_ring_loss() {
+        let machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+        let outcome = evaluate_agent_script(
+            "agent.star",
+            r#"
+def main():
+    machine.capture_bus(
+        start = 0x40800000,
+        end = 0x40800010,
+        regions = ["hp-sram"],
+        kinds = ["write"],
+        capacity = 2,
+    )
+    machine.write(0x40800000, [0x11, 0x22, 0x33])
+    machine.read(0x40800000, 3)
+    machine.stop_bus_capture()
+    first = machine.bus_events(cursor = 0, limit = 1)
+    second = machine.bus_events(cursor = first["next_cursor"], limit = 1)
+    result = machine.run(instructions = 1)
+    return {"first": first, "second": second, "result": result["reason"]}
+"#,
+            AgentMachine::Esp32c6(Box::new(machine)),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.value["first"]["captured"], json!(3));
+        assert_eq!(outcome.value["first"]["retained"], json!(2));
+        assert_eq!(outcome.value["first"]["dropped"], json!(1));
+        assert_eq!(outcome.value["first"]["missed_before_cursor"], json!(1));
+        assert_eq!(outcome.value["first"]["events"][0]["cursor"], json!(1));
+        assert_eq!(
+            outcome.value["first"]["events"][0]["access"]["kind"],
+            json!("Write")
+        );
+        assert_eq!(outcome.value["second"]["events"][0]["cursor"], json!(2));
+        assert_eq!(outcome.value["second"]["complete"], json!(true));
+    }
+
+    #[test]
     fn failed_agent_script_releases_its_scoped_session() {
         let machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
         let error = evaluate_agent_script(
@@ -715,19 +981,23 @@ def main():
         let outcome = evaluate_agent_script(
             filename.to_str().unwrap(),
             r#"
-load("//workflow:run.star", "drain_radio", "run_until")
+load("//workflow:run.star", "drain_bus", "drain_radio", "run_until")
 def accept(machine, result):
     return result
 def main():
     empty = drain_radio(machine, maximum = 1)
+    machine.capture_bus(start = 0x40800000, end = 0x40800004, kinds = ["write"])
+    machine.write(0x40800000, [1])
+    bus = drain_bus(machine, maximum = 1)
     outcome = run_until(machine, accept, instructions = 1, max_slices = 1)
-    return {"empty": empty, "outcome": outcome}
+    return {"bus": bus, "empty": empty, "outcome": outcome}
 "#,
             AgentMachine::Esp32c6(Box::new(RiscVMachine::new(TargetId::Esp32c6).unwrap())),
             false,
         )
         .unwrap();
         assert_eq!(outcome.value["empty"]["complete"], json!(true));
+        assert_eq!(outcome.value["bus"]["events"].as_array().unwrap().len(), 1);
         assert_eq!(outcome.value["outcome"]["slices"], json!(1));
         assert_eq!(
             outcome.value["outcome"]["result"]["target"],

@@ -11,6 +11,7 @@ repository.workspace = true
 allocative.workspace = true
 anyhow = "1.0.100"
 remu-core.workspace = true
+remu-bus.workspace = true
 remu-devices.workspace = true
 remu-machines.workspace = true
 remu-radio.workspace = true

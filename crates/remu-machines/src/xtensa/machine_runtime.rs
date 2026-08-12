@@ -248,6 +248,11 @@ impl XtensaMachine {
         self.bus.set_access_observer(observer);
     }
 
+    /// Adds a streaming completed-access observer without replacing existing diagnostics.
+    pub fn add_access_observer(&mut self, observer: SharedBusAccessObserver) {
+        self.bus.add_access_observer(observer);
+    }
+
     /// Returns completed bus operations when recording is enabled.
     pub fn access_log(&self) -> &[remu_bus::BusAccessRecord] {
         self.bus.access_log()

@@ -47,7 +47,31 @@ Workspace labels use `//package:file.star`; parent-directory components,
 non-`.star` files, and symlink escapes are rejected. The checked helper module
 at `qualification/starlark/agent_automation.star` provides bounded
 `run_until()`, `wait_for_radio()`, and paginated `drain_radio()` workflows.
-They advance only through `machine.run()` and observe native replay events.
+It also provides `wait_for_bus()` and `drain_bus()` for a configured bounded
+bus capture. They advance only through `machine.run()` and observe native
+machine evidence.
+
+For an iterative MMIO experiment, narrow the capture before running firmware:
+
+```starlark
+machine.capture_bus(
+    start = 0x600a4000,
+    end = 0x600a7000,
+    regions = ["esp32c6.wifi-mac-registers"],
+    kinds = ["read", "write"],
+    capacity = 8192,
+)
+result = machine.run(instructions = 100000)
+page = machine.bus_events(cursor = 0, limit = 256)
+repl()
+```
+
+The capture is a ring with an explicit capacity rather than an unbounded log.
+Every page reports retained and dropped counts plus cursor loss. The checked
+`drain_bus()` helper fails on loss so a qualification script cannot silently
+accept incomplete hardware evidence. `stop_bus_capture()` freezes the retained
+window while it is inspected. Existing CLI `--bus-log` streaming continues in
+parallel when both facilities are enabled.
 
 `--agent-artifact` writes schema `remu.agent-session.v1`: the JSON-compatible
 value returned by `main()` plus a compact final-run summary. The full run and
@@ -71,6 +95,9 @@ long UART/RF histories are not duplicated into the agent artifact.
 | `inject_radio(...)` | Schedules an explicit Wi-Fi, BLE, or 802.15.4 frame in the isolated deterministic medium. |
 | `radio_events(cursor=0, limit=256)` | Returns at most 4096 append-only RF events and a continuation cursor. |
 | `coexistence_events(cursor=0, limit=256)` | Returns at most 4096 coexistence grant, denial, preemption, and release events. |
+| `capture_bus(start=0, end=None, regions=None, kinds=None, capacity=4096)` | Clears and starts a bounded filtered bus ring. Kinds default to reads and writes; the hard capacity ceiling is 65,536 records. |
+| `stop_bus_capture()` | Stops adding records while retaining the current ring. |
+| `bus_events(cursor=0, limit=256)` | Pages at most 4096 retained accesses with stable cursors and explicit drop/loss accounting. |
 
 The Starlark evaluator is limited to a 64 MiB heap, ten million stable
 evaluation ticks, and a 256-frame call stack. Native machine work is separately
