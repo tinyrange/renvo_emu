@@ -589,7 +589,7 @@ EXPECTED_OPENTHREAD_CLI_VENDOR_REQUIREMENTS = {
     "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
     "rom_start": "0x40000000",
     "rom_end": "0x40050000",
-    "minimum_instructions": 30_000_000,
+    "minimum_instructions": 36_000_000,
     "expected_pan_id": 4_660,
     "minimum_thread_frames": 6,
     "required_commands": [66, 67, 69, 77, 79],
