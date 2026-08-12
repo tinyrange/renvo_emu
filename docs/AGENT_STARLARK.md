@@ -42,6 +42,27 @@ Add `--agent-repl` and call `repl()` in `main()` to open Starlark's scoped
 terminal console. The `machine` value and the function's local variables remain
 available. Leaving the REPL resumes the script.
 
+For open-ended radio investigation, the checked-in
+`qualification/starlark/radio_lab.star` entrypoint applies that pattern without
+requiring a disposable driver script:
+
+```sh
+remu run \
+  --target esp32c6 \
+  --elf firmware.elf \
+  --boot-rom esp32c6_rev0_rom.elf \
+  --agent-script qualification/starlark/radio_lab.star \
+  --agent-repl \
+  --agent-artifact radio-lab.json
+```
+
+The REPL retains the native `machine`, the initial bounded run result, generic
+run/evidence helpers, and checked Wi-Fi crypto and C6 TWT capture helpers. An
+interactive finding should be reduced to a bounded helper assertion and then
+promoted to Rust device behavior plus a regression test. The lab itself never
+implements a peripheral, dispatches on guest symbols, or relaxes the required
+real-ROM boundary.
+
 Agent scripts may load reusable `.star` modules below the invocation workspace.
 Workspace labels use `//package:file.star`; parent-directory components,
 non-`.star` files, and symlink escapes are rejected. The checked helper module

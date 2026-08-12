@@ -1006,6 +1006,42 @@ def main():
     }
 
     #[test]
+    fn checked_in_radio_lab_loads_all_workflow_modules() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let filename = workspace.join("qualification/starlark/radio_lab.star");
+        let source = fs::read_to_string(&filename).unwrap();
+        let source = format!("repl = breakpoint\n{source}");
+        let dialect = Dialect::Extended;
+        let ast = AstModule::parse(filename.to_str().unwrap(), source, &dialect).unwrap();
+        let mut globals = GlobalsBuilder::extended_by(&[
+            LibraryExtension::Breakpoint,
+            LibraryExtension::Json,
+            LibraryExtension::Print,
+            LibraryExtension::Pprint,
+            LibraryExtension::StructType,
+        ]);
+        assertion_globals(&mut globals);
+        let modules = compile_loads(
+            &ast,
+            &workspace,
+            &globals.build(),
+            &dialect,
+            &mut BTreeSet::new(),
+            &mut LoadBudget::default(),
+        )
+        .unwrap();
+
+        assert_eq!(modules.len(), 3);
+        let module_names = modules
+            .iter()
+            .map(|(name, _module)| name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(module_names.contains("//qualification/starlark:agent_automation.star"));
+        assert!(module_names.contains("//qualification/starlark:c6_twt_evidence.star"));
+        assert!(module_names.contains("//qualification/starlark:wifi_crypto_evidence.star"));
+    }
+
+    #[test]
     fn wifi_crypto_workflow_checks_native_table_evidence() {
         let directory = tempfile::tempdir().unwrap();
         fs::create_dir(directory.path().join("workflow")).unwrap();
