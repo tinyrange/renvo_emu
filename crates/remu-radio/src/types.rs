@@ -182,3 +182,19 @@ pub enum MediumEvent {
         outcome: DeliveryOutcome,
     },
 }
+
+/// Deterministic external peer invoked for each frame emitted by an emulated
+/// radio. Implementations may only return future medium transmissions; they do
+/// not receive CPU, memory, register, or peripheral access.
+pub trait RadioPeer: core::fmt::Debug {
+    /// Stable diagnostic name for this peer implementation.
+    fn name(&self) -> &str;
+
+    /// Observes one accepted emulated transmission and returns zero or more
+    /// explicit peer transmissions to insert into the isolated medium.
+    fn on_transmit(
+        &mut self,
+        id: TransmissionId,
+        request: &TxRequest,
+    ) -> Result<Vec<TxRequest>, String>;
+}

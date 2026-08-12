@@ -25,6 +25,8 @@ pub(super) fn boot_native_image(
         esp_boot_rom: None,
         radio_replay: None,
         radio_input: None,
+        radio_script: None,
+        radio_repl: false,
         breakpoints: &[],
         watchpoints: &[],
         signal_stops: &[],

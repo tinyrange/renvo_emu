@@ -16,6 +16,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "openthread/cli.h"
+#include "openthread/link.h"
 #include "openthread/tasklet.h"
 #include "openthread/thread.h"
 #include "openthread/thread_ftd.h"
@@ -99,7 +100,6 @@ static void start_as_leader(otInstance *instance)
     char state[] = "state";
     char dataset[] = "dataset active -x";
     char ipaddr[] = "ipaddr";
-    char ping[] = "ping ff02::1 16 1";
     esp_openthread_lock_acquire(portMAX_DELAY);
     otCliInputLine(start);
     otError leader_error = otThreadBecomeLeader(instance);
@@ -107,20 +107,32 @@ static void start_as_leader(otInstance *instance)
     otCliInputLine(state);
     otCliInputLine(dataset);
     otCliInputLine(ipaddr);
-    otCliInputLine(ping);
     unsigned tasklet_passes = 0;
     while (otTaskletsArePending(instance) && tasklet_passes < 64) {
         otTaskletsProcess(instance);
         tasklet_passes++;
     }
     printf("REMU_VENDOR_THREAD_CLI_COMMAND thread start\n");
-    printf("REMU_VENDOR_THREAD_CLI_COMMAND ping ff02::1 16 1\n");
     printf("REMU_VENDOR_THREAD_BECOME_LEADER error=%u role=%u leader=%u\n",
            (unsigned)leader_error, (unsigned)role,
            role == OT_DEVICE_ROLE_LEADER ? 1u : 0u);
     printf("REMU_VENDOR_THREAD_TASKLETS passes=%u pending=%u\n",
            tasklet_passes, otTaskletsArePending(instance) ? 1u : 0u);
     esp_openthread_lock_release();
+}
+
+static bool wait_for_child(otInstance *instance, otChildInfo *child)
+{
+    for (unsigned attempt = 0; attempt < 4096; attempt++) {
+        esp_openthread_lock_acquire(portMAX_DELAY);
+        otError error = otThreadGetChildInfoByIndex(instance, 0, child);
+        esp_openthread_lock_release();
+        if (error == OT_ERROR_NONE) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return false;
 }
 
 void app_main(void)
@@ -172,7 +184,14 @@ void app_main(void)
     esp_openthread_lock_acquire(portMAX_DELAY);
     otInstance *instance = esp_openthread_get_instance();
     otCliInit(instance, cli_output, NULL);
+    const otExtAddress fixed_ext_address = {
+        .m8 = {0x0a, 0x27, 0x45, 0x63, 0x67, 0x85, 0xa3, 0xc1},
+    };
+    otError ext_address_error =
+        otLinkSetExtendedAddress(instance, &fixed_ext_address);
     esp_openthread_lock_release();
+    printf("REMU_VENDOR_THREAD_EXT_ADDRESS error=%u\n",
+           (unsigned)ext_address_error);
 
     run_cli("dataset init new");
     run_cli("dataset activetimestamp 1");
@@ -186,4 +205,15 @@ void app_main(void)
     run_cli("routerselectionjitter 1");
     run_cli("ifconfig up");
     start_as_leader(instance);
+
+    otChildInfo child = {0};
+    bool child_attached = wait_for_child(instance, &child);
+    printf("REMU_VENDOR_THREAD_CHILD attached=%u rloc16=%04x\n",
+           child_attached ? 1u : 0u, (unsigned)child.mRloc16);
+    if (!child_attached) {
+        return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+    run_cli("ping fe80::1 16 1");
+    vTaskDelay(pdMS_TO_TICKS(100));
 }

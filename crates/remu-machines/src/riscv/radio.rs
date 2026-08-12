@@ -8,8 +8,8 @@ use remu_radio::{
     BleController, BleLinkDirection, CoexistenceDecision, CoexistenceGrantId, CoexistenceRequest,
     DeliveryOutcome, ExtendedAddress, FrameOrigin, Ieee802154CcaMode, Ieee802154Error,
     Ieee802154Mac, Ieee802154RxOutcome, MediumEvent, NodeId, PanInterface, RadioActivity,
-    RadioDmaDirection, RadioFrame, RadioLegalityRule, RadioProtocol, RadioSubsystem, Receiver,
-    ReplayArtifact, ShortAddress, Spectrum, TransmissionId, TxRequest, WifiEngine,
+    RadioDmaDirection, RadioFrame, RadioLegalityRule, RadioPeer, RadioProtocol, RadioSubsystem,
+    Receiver, ReplayArtifact, ShortAddress, Spectrum, TransmissionId, TxRequest, WifiEngine,
     ble_link_decrypt_pdu, ble_link_encrypt_pdu,
 };
 
@@ -564,6 +564,20 @@ impl C6BleLinkSequence {
 }
 
 impl RiscVMachine {
+    /// Attaches a deterministic external peer to the ESP32-C6 isolated RF
+    /// medium. The peer observes emitted frames only and cannot access machine
+    /// state.
+    pub fn set_radio_peer(&mut self, peer: Box<dyn RadioPeer>) -> Result<(), MachineError> {
+        if self.target != TargetId::Esp32c6 {
+            return Err(MachineError::UnsupportedTarget(self.target));
+        }
+        self.radio_medium
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio medium")
+            .set_peer(peer);
+        Ok(())
+    }
+
     fn reset_coexistence(&mut self) -> Result<(), MachineError> {
         let active_airtime = self
             .radio_coexistence
@@ -803,6 +817,10 @@ impl RiscVMachine {
             self.radio_pending_ieee802154_tx.clear();
             self.radio_pending_ieee802154_ack.clear();
             self.radio_pending_ieee802154_cca = None;
+            self.radio_medium
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio medium")
+                .remove_receiver(EMULATED_NODE, RadioProtocol::Ieee802154);
         }
         self.radio_c6_reset_generations = reset_generations;
         let legality = self
@@ -960,6 +978,10 @@ impl RiscVMachine {
             events = events.saturating_add(1);
             match command {
                 EspIeee802154Command::TxStart => {
+                    self.radio_medium
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio medium")
+                        .remove_receiver(EMULATED_NODE, RadioProtocol::Ieee802154);
                     if !modem.ieee802154_ready() {
                         ieee802154.abort(true, 17);
                         continue;
@@ -967,6 +989,10 @@ impl RiscVMachine {
                     self.submit_ieee802154_tx(&ieee802154)?;
                 }
                 EspIeee802154Command::CcaTxStart => {
+                    self.radio_medium
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio medium")
+                        .remove_receiver(EMULATED_NODE, RadioProtocol::Ieee802154);
                     if !modem.ieee802154_ready() {
                         ieee802154.abort(true, 17);
                         continue;
@@ -1038,6 +1064,10 @@ impl RiscVMachine {
                     }
                 }
                 EspIeee802154Command::Stop | EspIeee802154Command::TestStop => {
+                    self.radio_medium
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio medium")
+                        .remove_receiver(EMULATED_NODE, RadioProtocol::Ieee802154);
                     self.radio_legality
                         .as_mut()
                         .expect("ESP32-C6 machine has a radio legality validator")
@@ -1049,9 +1079,18 @@ impl RiscVMachine {
                     }
                     self.radio_pending_ieee802154_ack.clear();
                 }
-                EspIeee802154Command::RxStart
-                | EspIeee802154Command::TestTxStart
-                | EspIeee802154Command::TestRxStart
+                EspIeee802154Command::RxStart | EspIeee802154Command::TestRxStart => {
+                    self.radio_medium
+                        .as_mut()
+                        .expect("ESP32-C6 machine has a radio medium")
+                        .tune_receiver(Receiver {
+                            node: EMULATED_NODE,
+                            protocol: RadioProtocol::Ieee802154,
+                            spectrum: ieee802154_spectrum(ieee802154.channel()),
+                            sensitivity_dbm: -100,
+                        })?;
+                }
+                EspIeee802154Command::TestTxStart
                 | EspIeee802154Command::Timer0Start
                 | EspIeee802154Command::Timer0Stop
                 | EspIeee802154Command::Timer1Start

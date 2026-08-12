@@ -1,6 +1,6 @@
 use crate::{
-    DeliveryOutcome, MediumEvent, MediumProfile, NodeId, RadioProtocol, Receiver, TransmissionId,
-    TxRequest,
+    DeliveryOutcome, FrameOrigin, MediumEvent, MediumProfile, NodeId, RadioPeer, RadioProtocol,
+    Receiver, TransmissionId, TxRequest,
 };
 use remu_core::SimTime;
 use std::collections::BTreeMap;
@@ -58,6 +58,22 @@ pub enum MediumError {
     /// Stable transmission identifiers have been exhausted.
     #[error("transmission identifier space exhausted")]
     IdentifierExhausted,
+    /// A deterministic external peer failed while handling an emitted frame.
+    #[error("radio peer {peer:?} failed: {message}")]
+    Peer {
+        /// Stable peer diagnostic name.
+        peer: String,
+        /// Script or protocol failure detail.
+        message: String,
+    },
+    /// External peers may inject host-origin frames only.
+    #[error("radio peer {peer:?} returned frame origin {origin:?}; expected host-injection")]
+    PeerFrameOrigin {
+        /// Stable peer diagnostic name.
+        peer: String,
+        /// Invalid origin supplied by the peer.
+        origin: FrameOrigin,
+    },
     /// A requested transmission identifier does not exist in retained medium history.
     #[error("transmission {0:?} is not present in the medium")]
     UnknownTransmission(TransmissionId),
@@ -79,7 +95,7 @@ pub enum MediumError {
 }
 
 /// Deterministic shared RF medium with no implicit host networking.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct RadioMedium {
     profile: MediumProfile,
     now: SimTime,
@@ -88,6 +104,7 @@ pub struct RadioMedium {
     path_loss_db: BTreeMap<(NodeId, NodeId), i16>,
     transmissions: Vec<PendingTransmission>,
     events: Vec<MediumEvent>,
+    peer: Option<Box<dyn RadioPeer>>,
 }
 
 impl RadioMedium {
@@ -104,7 +121,14 @@ impl RadioMedium {
             path_loss_db: BTreeMap::new(),
             transmissions: Vec::new(),
             events: Vec::new(),
+            peer: None,
         })
+    }
+
+    /// Installs one deterministic external peer. Replacing a peer does not
+    /// alter retained RF history.
+    pub fn set_peer(&mut self, peer: Box<dyn RadioPeer>) {
+        self.peer = Some(peer);
     }
 
     /// Current monotonic medium timestamp.
@@ -237,9 +261,33 @@ impl RadioMedium {
         });
         self.transmissions.push(PendingTransmission {
             id,
-            request,
+            request: request.clone(),
             resolved: false,
         });
+        if request.frame.origin == FrameOrigin::Emulated {
+            let replies = if let Some(peer) = self.peer.as_mut() {
+                let name = peer.name().to_owned();
+                peer.on_transmit(id, &request)
+                    .map_err(|message| MediumError::Peer {
+                        peer: name,
+                        message,
+                    })?
+            } else {
+                Vec::new()
+            };
+            for reply in replies {
+                if reply.frame.origin != FrameOrigin::HostInjection {
+                    return Err(MediumError::PeerFrameOrigin {
+                        peer: self
+                            .peer
+                            .as_ref()
+                            .map_or("external".to_owned(), |peer| peer.name().to_owned()),
+                        origin: reply.frame.origin,
+                    });
+                }
+                self.transmit(reply)?;
+            }
+        }
         Ok(id)
     }
 

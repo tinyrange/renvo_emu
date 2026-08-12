@@ -285,6 +285,13 @@ The generic board/component scenario validates topology and digital protocol
 models independently. Live ESP32-C6 firmware MMIO is not yet routed into its
 assembled board graph. The M5StickS3 scenario does bind live ESP32-S3 firmware
 to its complete non-radio board graph end to end.
+For radio workflows, `remu run --radio-script peer.star` attaches a bounded,
+event-driven Starlark peer to the isolated RF medium. Its `on_event(event,
+state)` callback can retain explicit JSON state and schedule future RF frames;
+it cannot inspect CPU state, memory, registers, symbols, files, or host network
+resources. `--radio-repl` enables `repl()`/`breakpoint()` inside that callback,
+which is useful for iterating on virtual peers while genuine firmware controls
+the low-level radio peripheral.
 The RISC-V, Arm RP, and Xtensa machine APIs now expose named `Compiler` and
 `Native` UART endpoints for the transport-coupling work that follows; vendor
 UART adapters remain target-specific for now.

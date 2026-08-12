@@ -14,8 +14,10 @@ use starlark::values::{Value, none::NoneType};
 use std::collections::BTreeMap;
 
 mod board_dsl;
+mod radio_peer;
 
 pub use board_dsl::evaluate_board_script;
+pub use radio_peer::StarlarkRadioPeer;
 
 #[starlark_module]
 fn assertion_globals(builder: &mut GlobalsBuilder) {

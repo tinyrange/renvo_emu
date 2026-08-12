@@ -48,7 +48,9 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
         return Err("--boot-rom is supported only with ESP32-C6/ESP32-S3 direct execution".into());
     }
     let uses_native_esp_image = arguments.esp_app_image.is_some();
-    let uses_radio = arguments.radio_input.is_some() || arguments.radio_replay.is_some();
+    let uses_radio = arguments.radio_input.is_some()
+        || arguments.radio_replay.is_some()
+        || arguments.radio_script.is_some();
     if matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
         && (uses_native_esp_image || uses_radio)
         && esp_boot_rom.is_none()
@@ -64,6 +66,10 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
     }
     if arguments.radio_input.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3) {
         return Err("--radio-input is supported only with ESP32-C6/ESP32-S3 execution".into());
+    }
+    if arguments.radio_script.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
+    {
+        return Err("--radio-script is supported only with ESP32-C6/ESP32-S3 execution".into());
     }
     let (esp32c6_mmu_page_size, esp32c6_flash_image, esp32c6_boot_image, esp32s3_boot_image) =
         validate_esp_boot_image(arguments, target, &image)?;
@@ -100,6 +106,8 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
                 esp_boot_rom: esp_boot_rom.clone(),
                 radio_replay: arguments.radio_replay.as_deref(),
                 radio_input: arguments.radio_input.as_deref(),
+                radio_script: arguments.radio_script.as_deref(),
+                radio_repl: arguments.radio_repl,
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -121,6 +129,8 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
                 esp_boot_rom,
                 radio_replay: arguments.radio_replay.as_deref(),
                 radio_input: arguments.radio_input.as_deref(),
+                radio_script: arguments.radio_script.as_deref(),
+                radio_repl: arguments.radio_repl,
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -222,6 +232,8 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
         esp_boot_rom: None,
         radio_replay: None,
         radio_input: None,
+        radio_script: None,
+        radio_repl: false,
         breakpoints: &arguments.breakpoint,
         watchpoints: &arguments.watchpoint,
         signal_stops: &arguments.signal_stops,
@@ -469,6 +481,9 @@ pub(crate) fn run_loaded_recorded(
                     frame.power_dbm,
                 )?;
             }
+            if let Some(peer) = read_radio_peer(control.radio_script, control.radio_repl)? {
+                machine.set_radio_peer(Box::new(peer))?;
+            }
             machine.set_access_observer(control.access_observer);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
             if let Some(path) = control.radio_replay {
@@ -543,6 +558,9 @@ pub(crate) fn run_loaded_recorded(
                     frame.bytes,
                     frame.power_dbm,
                 )?;
+            }
+            if let Some(peer) = read_radio_peer(control.radio_script, control.radio_repl)? {
+                machine.set_radio_peer(Box::new(peer));
             }
             machine.set_access_observer(control.access_observer);
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
@@ -650,6 +668,21 @@ fn read_radio_input(path: Option<&Path>) -> Result<Vec<DirectRadioFrame>, Box<dy
         .into());
     }
     Ok(input.frames)
+}
+
+fn read_radio_peer(
+    path: Option<&Path>,
+    interactive: bool,
+) -> Result<Option<StarlarkRadioPeer>, Box<dyn Error>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let source = fs::read_to_string(path)?;
+    Ok(Some(StarlarkRadioPeer::new(
+        &path.to_string_lossy(),
+        &source,
+        interactive,
+    )?))
 }
 
 pub(super) fn parse_stimulus(value: &str) -> Result<PinStimulus, Box<dyn Error>> {

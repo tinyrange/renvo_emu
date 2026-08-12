@@ -31,6 +31,7 @@ expected_rom_sha=$(jq -r '.rom_sha256' "$requirements")
 minimum_instructions=$(jq -r '.minimum_instructions' "$requirements")
 rom_start=$(jq -r '.rom_start' "$requirements")
 rom_end=$(jq -r '.rom_end' "$requirements")
+radio_script=qualification/radio/openthread-cli-peer-esp32c6.star
 
 rm -rf "$chip_root"
 mkdir -p "$chip_root"
@@ -79,6 +80,7 @@ run_vendor_openthread_cli()
         --boot-rom "$rom_root/$rom_file" \
         --esp-app-image "$flash" \
         --max-instructions "$minimum_instructions" \
+        --radio-script "$radio_script" \
         --radio-replay "$replay" \
         --result "$result" \
         "$@"
@@ -118,13 +120,20 @@ jq -e --slurpfile requirements "$requirements" '
         select(.event == "submitted" and
                .request.frame.protocol == "ieee802154" and
                .request.frame.origin == "emulated" and
+               (.request.frame.bytes | length) > 5 and
                .request.frame.spectrum.center_khz == 2405000 and
                .request.frame.bytes[3:5] == [52, 18])] as $frames |
     ($frames | length) >= $requirements[0].minimum_thread_frames and
     any($frames[]; .request.frame.bytes[0:2] == [65, 216] and
                    (.request.frame.bytes | length) >= 70) and
-    any($frames[]; .request.frame.bytes[0:2] == [73, 216] and
-                   (.request.frame.bytes | length) >= 50) and
+    any($frames[]; .request.frame.bytes[0:2] == [105, 220] and
+                   (.request.frame.bytes | length) == 60 and
+                   .request.frame.bytes[21:27] == [13, 2, 0, 0, 0, 1]) and
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "host-injection" and
+        .request.frame.bytes[0:3] == [105, 220, 96] and
+        .request.frame.bytes[21:27] == [13, 3, 0, 0, 0, 1]) and
+    any(.events[]; .event == "reception" and .outcome.kind == "delivered") and
     ([.coexistence_events[] |
         select(.event == "granted" and .protocol == "ieee802154")] | length)
         == ($frames | length)
@@ -187,6 +196,7 @@ elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
+radio_script_sha=$(sha256sum "$radio_script" | cut -d ' ' -f 1)
 bus_sha=$(sha256sum "$chip_root/peripheral-bus.json" | cut -d ' ' -f 1)
 jq -n \
     --arg schema remu.radio-openthread-cli-vendor-qualification.v1 \
@@ -197,6 +207,7 @@ jq -n \
     --arg flash_sha256 "$flash_sha" \
     --arg uart_sha256 "$uart_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
+    --arg radio_script_sha256 "$radio_script_sha" \
     --arg bus_sha256 "$bus_sha" \
     --argjson entry "$entry" \
     --argjson minimum_instructions "$minimum_instructions" \
@@ -219,6 +230,10 @@ jq -n \
             requires_default_platform_key_references: true,
             requires_nvs_psa_persistence: true,
             requires_cli_dataset_and_ping: true,
+            requires_event_driven_starlark_peer: true,
+            radio_script_sha256: $radio_script_sha256,
+            requires_authenticated_parent_child_attach: true,
+            requires_protected_unicast_echo: true,
             requires_native_thread_tx: true,
             requires_native_aes: true,
             requires_native_interrupt_w1c: true,
@@ -237,6 +252,8 @@ jq -n \
                 select(.event == "submitted" and
                        .request.frame.protocol == "ieee802154")] | length),
             leader_role: 4,
+            child_attached: true,
+            protected_echo_reply: true,
             pan_id: $requirements[0].expected_pan_id,
             nvs_round_trip: true,
             psa_persistent_key_import: true,

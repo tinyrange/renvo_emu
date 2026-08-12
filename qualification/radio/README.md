@@ -194,11 +194,15 @@ The complementary full-stack OpenThread gate uses the default FTD and platform
 key-reference configuration. Native SPI1 user commands erase, program, and
 read the NVS partition; the PSA persistent-key import and an immediate NVS
 round trip must both succeed. The application then commits a fixed CLI
-dataset, enables Thread, becomes leader, lists its mesh addresses, and sends a
-multicast CLI ping. Its protected Thread frames traverse the native CCA/TX,
-non-DMA AES idle-completion, W1C interrupt, hardware-FCS, and coexistence paths.
-The result and RF event stream must replay byte-for-byte from reset. A
-deterministic virtual-peer echo reply remains the final request/reply extension.
+dataset, enables Thread, becomes leader, and lists its mesh addresses. A
+bounded event-driven Starlark peer reacts only to emitted RF frames: it performs
+the authenticated Parent/Child exchange and returns a protected unicast ICMPv6
+echo reply. The genuine CLI must expose the child and report its echo response.
+All guest radio configuration still traverses native CCA/TX/RX, AES, W1C,
+hardware-FCS, and coexistence paths. The peer has explicit JSON state and no
+machine, memory, register, symbol, filesystem, clock, or network capabilities;
+`--radio-repl` optionally opens a debugger in its callback scope. The result
+and RF event stream must replay byte-for-byte from reset.
 
 The Apache-2.0 ESP Zigbee 2.0.3 gate boots its coordinator application through
 the genuine C6 rev0 ROM, forms a native channel-11 network with PAN ID 63100,

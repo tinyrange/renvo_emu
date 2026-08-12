@@ -19,7 +19,7 @@ use remu_machines::{
     XtensaMachine, target_manifest, target_manifests,
 };
 use remu_signals::Logic;
-use remu_starlark::evaluate_script;
+use remu_starlark::{StarlarkRadioPeer, evaluate_script};
 use remu_trace::{Timescale, TraceSink, VcdWriter};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -313,6 +313,12 @@ struct RunArgs {
     /// Read deterministic timestamped RF input frames from a JSON artifact.
     #[arg(long)]
     radio_input: Option<PathBuf>,
+    /// Run an event-driven deterministic Starlark peer on emitted RF frames.
+    #[arg(long)]
+    radio_script: Option<PathBuf>,
+    /// Enable `repl()`/`breakpoint()` terminal sessions inside the radio script.
+    #[arg(long, requires = "radio_script")]
+    radio_repl: bool,
     /// Require the complete result to match a prior JSON result exactly.
     #[arg(long)]
     replay: Option<PathBuf>,
@@ -343,6 +349,8 @@ struct DirectRunControl<'a> {
     esp_boot_rom: Option<FirmwareImage>,
     radio_replay: Option<&'a Path>,
     radio_input: Option<&'a Path>,
+    radio_script: Option<&'a Path>,
+    radio_repl: bool,
     breakpoints: &'a [u64],
     watchpoints: &'a [u64],
     signal_stops: &'a [SignalStopArg],

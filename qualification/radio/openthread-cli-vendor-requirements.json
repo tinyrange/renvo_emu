@@ -17,9 +17,9 @@
   "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
   "rom_start": "0x40000000",
   "rom_end": "0x40050000",
-  "minimum_instructions": 20000000,
+  "minimum_instructions": 30000000,
   "expected_pan_id": 4660,
-  "minimum_thread_frames": 2,
+  "minimum_thread_frames": 6,
   "required_commands": [66, 67, 69, 77, 79],
   "required_interrupt_causes": [1],
   "required_uart_substrings": [
@@ -27,12 +27,16 @@
     "REMU_VENDOR_THREAD_NVS open=0 set=0 commit=0 get=0 value=72656d75",
     "REMU_VENDOR_THREAD_PSA init=0 import=0 key=135168",
     "REMU_VENDOR_THREAD_START result=0",
+    "REMU_VENDOR_THREAD_EXT_ADDRESS error=0",
     "REMU_VENDOR_THREAD_CLI_COMMAND dataset commit active",
     "REMU_VENDOR_THREAD_CLI_COMMAND ifconfig up",
     "REMU_VENDOR_THREAD_CLI_COMMAND thread start",
-    "REMU_VENDOR_THREAD_CLI_COMMAND ping ff02::1 16 1",
+    "REMU_VENDOR_THREAD_CHILD attached=1 rloc16=",
+    "REMU_VENDOR_THREAD_CLI_COMMAND ping fe80::1 16 1",
+    "24 bytes from REMU_VENDOR_THREAD_CLI_OUTPUT fe80:0:0:0:0:0:0:1REMU_VENDOR_THREAD_CLI_OUTPUT : icmp_seq=1",
     "REMU_VENDOR_THREAD_BECOME_LEADER error=0 role=4 leader=1",
-    "REMU_VENDOR_THREAD_TASKLETS passes=3 pending=0",
+    "REMU_VENDOR_THREAD_TASKLETS passes=",
+    "pending=0",
     "main_task: Returned from app_main()"
   ]
 }

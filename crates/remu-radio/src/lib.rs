@@ -32,8 +32,8 @@ pub use legality::{
 pub use medium::{MediumError, RadioMedium};
 pub use replay::{ReplayArtifact, ReplayError};
 pub use types::{
-    DeliveryOutcome, FrameOrigin, MediumEvent, MediumProfile, NodeId, RadioFrame, RadioProtocol,
-    Receiver, Spectrum, TransmissionId, TxRequest,
+    DeliveryOutcome, FrameOrigin, MediumEvent, MediumProfile, NodeId, RadioFrame, RadioPeer,
+    RadioProtocol, Receiver, Spectrum, TransmissionId, TxRequest,
 };
 pub use wifi::{
     MacAddress, WifiEngine, WifiError, WifiEvent, WifiMode, WifiNetwork, WifiSecurity,

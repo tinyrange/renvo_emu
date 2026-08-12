@@ -3,8 +3,8 @@ use remu_core::{AccessKind, AccessWidth, Bus, SimDuration};
 use remu_radio::{
     BleController, BleLinkDirection, CoexistenceDecision, CoexistenceGrantId, CoexistenceRequest,
     DeliveryOutcome, FrameOrigin, MediumEvent, NodeId, RadioDmaDirection, RadioFrame,
-    RadioLegalityRule, RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact, Spectrum,
-    TransmissionId, TxRequest, WifiEngine, ble_link_decrypt_pdu, ble_link_encrypt_pdu,
+    RadioLegalityRule, RadioPeer, RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact,
+    Spectrum, TransmissionId, TxRequest, WifiEngine, ble_link_decrypt_pdu, ble_link_encrypt_pdu,
 };
 const EMULATED_NODE: NodeId = NodeId(1);
 const HOST_NODE: NodeId = NodeId(0);
@@ -29,6 +29,13 @@ const S3_BLE_CLOCK_CYCLE_TICKS: u64 = (S3_BLE_COARSE_MASK + 1) * S3_BLE_HALF_SLO
 const BLE_ADVERTISING_ACCESS_ADDRESS: u32 = 0x8e89_bed6;
 
 impl XtensaMachine {
+    /// Attaches a deterministic external peer to the ESP32-S3 isolated RF
+    /// medium. The peer observes emitted frames only and cannot access machine
+    /// state.
+    pub fn set_radio_peer(&mut self, peer: Box<dyn RadioPeer>) {
+        self.radio_medium.set_peer(peer);
+    }
+
     fn reset_coexistence(&mut self) -> Result<(), XtensaMachineError> {
         let active_airtime = self
             .radio_coexistence

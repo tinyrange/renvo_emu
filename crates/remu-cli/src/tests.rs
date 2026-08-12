@@ -147,6 +147,43 @@ fn direct_run_accepts_radio_input_artifact() {
 }
 
 #[test]
+fn direct_run_accepts_radio_script_and_repl() {
+    let parsed = Cli::try_parse_from([
+        "remu",
+        "run",
+        "--target",
+        "esp32c6",
+        "--elf",
+        "firmware.elf",
+        "--radio-script",
+        "peer.star",
+        "--radio-repl",
+    ])
+    .unwrap();
+    let Command::Run(arguments) = parsed.command else {
+        panic!("expected direct run");
+    };
+    assert_eq!(arguments.radio_script, Some(PathBuf::from("peer.star")));
+    assert!(arguments.radio_repl);
+}
+
+#[test]
+fn direct_run_rejects_radio_repl_without_script() {
+    assert!(
+        Cli::try_parse_from([
+            "remu",
+            "run",
+            "--target",
+            "esp32c6",
+            "--elf",
+            "firmware.elf",
+            "--radio-repl",
+        ])
+        .is_err()
+    );
+}
+
+#[test]
 fn direct_run_accepts_esp32c6_boot_image_validation() {
     let parsed = Cli::try_parse_from([
         "remu",
