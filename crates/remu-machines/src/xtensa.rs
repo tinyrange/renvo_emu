@@ -961,6 +961,7 @@ impl XtensaMachine {
         let mut stimuli = stimuli.to_vec();
         stimuli.sort_by_key(|stimulus| stimulus.at);
         let mut next_stimulus = 0;
+        self.cpu.set_interrupt(0, self.timer.pending())?;
         let mut timer_was_pending = false;
         let mut usb_was_pending = false;
         let mut usb_serial_was_pending = false;
@@ -981,6 +982,8 @@ impl XtensaMachine {
                 .bus
                 .take_device_access()
                 .is_some_and(|address| address < TEST_GPIO);
+        let breakpoints_active = !self.breakpoints.is_empty();
+        let watchpoints_active = self.bus.has_watchpoints();
         let reason = loop {
             while stimuli
                 .get(next_stimulus)
@@ -1004,12 +1007,14 @@ impl XtensaMachine {
                 break StopReason::TimeLimit;
             }
             if !native_peripherals_active {
-                let timer_pending = self.timer.poll(self.now);
-                if timer_pending && !timer_was_pending {
-                    stats.events = stats.events.saturating_add(1);
+                if timer_was_pending || self.timer.active() {
+                    let timer_pending = self.timer.poll(self.now);
+                    if timer_pending && !timer_was_pending {
+                        stats.events = stats.events.saturating_add(1);
+                    }
+                    timer_was_pending = timer_pending;
+                    self.cpu.set_interrupt(0, timer_pending)?;
                 }
-                timer_was_pending = timer_pending;
-                self.cpu.set_interrupt(0, timer_pending)?;
             }
             if native_peripherals_active {
                 if self.usb_serial_jtag.poll(self.now) {
@@ -1276,47 +1281,51 @@ impl XtensaMachine {
             } else {
                 self.cpu.pc()
             });
-            if self.breakpoints.contains(&next_pc) {
+            if breakpoints_active && self.breakpoints.contains(&next_pc) {
                 break StopReason::Breakpoint;
             }
             if running_cpu1 {
                 std::mem::swap(&mut self.cpu, &mut self.cpu1);
             }
-            self.bus.clear_watchpoint_hit();
-            match self.service_functional_rom() {
-                Ok(true) => {
-                    if running_cpu1 {
-                        std::mem::swap(&mut self.cpu, &mut self.cpu1);
-                    }
-                    stats.instructions = stats.instructions.saturating_add(1);
-                    self.now = self
-                        .now
-                        .checked_add(remu_core::SimDuration::TICK)
-                        .map_err(|_| XtensaMachineError::TimeOverflow)?;
-                    stats.time = self.now;
-                    self.ledc.poll(self.now)?;
-                    for handle in &self.mcpwm {
-                        handle.poll(self.now)?;
-                    }
-                    if let Some(hit) = self.bus.take_watchpoint_hit() {
-                        break StopReason::Watchpoint {
-                            address: hit.address,
-                            access: hit.kind,
+            if watchpoints_active {
+                self.bus.clear_watchpoint_hit();
+            }
+            if Self::functional_rom_address(self.cpu.pc()) {
+                match self.service_functional_rom() {
+                    Ok(true) => {
+                        if running_cpu1 {
+                            std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                        }
+                        stats.instructions = stats.instructions.saturating_add(1);
+                        self.now = self
+                            .now
+                            .checked_add(remu_core::SimDuration::TICK)
+                            .map_err(|_| XtensaMachineError::TimeOverflow)?;
+                        stats.time = self.now;
+                        self.ledc.poll(self.now)?;
+                        for handle in &self.mcpwm {
+                            handle.poll(self.now)?;
+                        }
+                        if watchpoints_active && let Some(hit) = self.bus.take_watchpoint_hit() {
+                            break StopReason::Watchpoint {
+                                address: hit.address,
+                                access: hit.kind,
+                            };
+                        }
+                        next_core = if self.appcpu_boot_address.is_some() {
+                            next_core ^ 1
+                        } else {
+                            0
                         };
+                        continue;
                     }
-                    next_core = if self.appcpu_boot_address.is_some() {
-                        next_core ^ 1
-                    } else {
-                        0
-                    };
-                    continue;
-                }
-                Ok(false) => {}
-                Err(message) => {
-                    if running_cpu1 {
-                        std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                    Ok(false) => {}
+                    Err(message) => {
+                        if running_cpu1 {
+                            std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                        }
+                        break StopReason::Fault(message);
                     }
-                    break StopReason::Fault(message);
                 }
             }
             if (0x4200_0000..0x4400_0000).contains(&self.cpu.pc())
@@ -1367,20 +1376,25 @@ impl XtensaMachine {
                 }
                 self.windowed_handoff_pending = false;
             }
-            let assist_pc = self.cpu.pc();
-            let assist_sp = self.cpu.register(XtensaRegister::A1);
-            let mut pms_bus = pms::Esp32S3PmsBus::new_with_mode(
-                &mut self.bus,
-                &self.pms,
-                &self.world_controller,
-                &self.extmem,
-                &self.assist_debug,
-                u8::from(running_cpu1),
-                assist_pc,
-                assist_sp,
-                native_peripherals_active,
-            );
-            let outcome = match self.cpu.step(&mut pms_bus, self.now) {
+            let step = if native_peripherals_active {
+                let assist_pc = self.cpu.pc();
+                let assist_sp = self.cpu.register(XtensaRegister::A1);
+                let mut pms_bus = pms::Esp32S3PmsBus::new_with_mode(
+                    &mut self.bus,
+                    &self.pms,
+                    &self.world_controller,
+                    &self.extmem,
+                    &self.assist_debug,
+                    u8::from(running_cpu1),
+                    assist_pc,
+                    assist_sp,
+                    true,
+                );
+                self.cpu.step(&mut pms_bus, self.now)
+            } else {
+                self.cpu.step(&mut self.bus, self.now)
+            };
+            let outcome = match step {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     if running_cpu1 {
@@ -1420,27 +1434,29 @@ impl XtensaMachine {
             } else {
                 0
             };
-            let mut signal_stop = None;
-            let mut changes = self.signals.drain_changes();
-            changes.sort_by_key(|change| change.at);
-            if let Some(change) = changes.last()
-                && change.at > self.now
-            {
-                self.now = change.at;
-                stats.time = self.now;
-            }
-            for change in changes {
-                signal_stop =
-                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                digest.change(&change);
-                if let Some(sink) = trace.as_deref_mut() {
-                    sink.change(&change)?;
+            if self.signals.has_changes() {
+                let mut signal_stop = None;
+                let mut changes = self.signals.drain_changes();
+                changes.sort_by_key(|change| change.at);
+                if let Some(change) = changes.last()
+                    && change.at > self.now
+                {
+                    self.now = change.at;
+                    stats.time = self.now;
+                }
+                for change in changes {
+                    signal_stop =
+                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
+                    digest.change(&change);
+                    if let Some(sink) = trace.as_deref_mut() {
+                        sink.change(&change)?;
+                    }
+                }
+                if let Some(path) = signal_stop {
+                    break StopReason::Signal(path);
                 }
             }
-            if let Some(path) = signal_stop {
-                break StopReason::Signal(path);
-            }
-            if let Some(hit) = self.bus.take_watchpoint_hit() {
+            if watchpoints_active && let Some(hit) = self.bus.take_watchpoint_hit() {
                 break StopReason::Watchpoint {
                     address: hit.address,
                     access: hit.kind,

@@ -37,6 +37,7 @@ mod esp32c6_peripherals;
 use esp32c6_peripherals::{Esp32c6PeripheralHandles, map_esp32c6_peripherals};
 mod esp_bootrom_primary;
 mod esp_bootrom_secondary;
+mod functional_bootrom;
 mod heap;
 use heap::EspFunctionalHeap;
 mod image;
@@ -747,21 +748,6 @@ impl RiscVMachine {
         })
     }
 
-    fn service_functional_bootrom(&mut self) -> Result<bool, String> {
-        if self.target == TargetId::Esp32c6 {
-            let pc = self.cpu.pc();
-            let result = (|| {
-                if self.service_esp32c6_bootrom_primary(pc)? {
-                    return Ok(true);
-                }
-                self.service_esp32c6_bootrom_secondary(pc)
-            })();
-            return result
-                .map_err(|error| format!("ESP32-C6 functional service at PC {pc:#010x}: {error}"));
-        }
-        self.service_rp2350_bootrom()
-    }
-
     /// Selected target.
     pub const fn target(&self) -> TargetId {
         self.target
@@ -886,6 +872,8 @@ impl RiscVMachine {
         let mut stimuli = stimuli.to_vec();
         stimuli.sort_by_key(|stimulus| stimulus.at);
         let mut next_stimulus = 0;
+        self.cpu
+            .set_interrupt(TIMER_INTERRUPT, self.timer.pending())?;
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
@@ -899,6 +887,8 @@ impl RiscVMachine {
                 .bus
                 .take_device_access()
                 .is_some_and(|address| address < TEST_GPIO);
+        let breakpoints_active = !self.breakpoints.is_empty();
+        let watchpoints_active = self.bus.has_watchpoints();
         let reason = loop {
             if let Some(sio) = &self.sio {
                 sio.select_core(0);
@@ -937,7 +927,7 @@ impl RiscVMachine {
             if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
                 break StopReason::TimeLimit;
             }
-            if self.breakpoints.contains(&u64::from(self.cpu.pc())) {
+            if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu.pc())) {
                 break StopReason::Breakpoint;
             }
             if native_peripherals_active && self.poll_esp32c6_runtime(&mut stats)? {
@@ -950,12 +940,14 @@ impl RiscVMachine {
                         .is_some_and(|usb| usb.poll(self.now)),
                 ));
             }
-            let timer_pending = self.timer.poll(self.now);
-            if timer_pending && !timer_was_pending {
-                stats.events = stats.events.saturating_add(1);
+            if timer_was_pending || self.timer.active() {
+                let timer_pending = self.timer.poll(self.now);
+                if timer_pending && !timer_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                timer_was_pending = timer_pending;
+                self.cpu.set_interrupt(TIMER_INTERRUPT, timer_pending)?;
             }
-            timer_was_pending = timer_pending;
-            self.cpu.set_interrupt(TIMER_INTERRUPT, timer_pending)?;
             if let (Some(timer), Some(pfic)) = (&self.wch_timer, &self.wch_pfic) {
                 const TIM2_INTERRUPT: u16 = 38;
                 let pending = timer.pending(self.now);
@@ -1260,32 +1252,38 @@ impl RiscVMachine {
                 self.cpu
                     .set_interrupt_mask(local | plic_machine | plic_user);
             }
-            self.bus.clear_watchpoint_hit();
-            match self.service_functional_bootrom() {
-                Ok(true) => {
-                    stats.instructions = stats.instructions.saturating_add(1);
-                    self.now = self
-                        .now
-                        .checked_add(remu_core::SimDuration::TICK)
-                        .map_err(|_| MachineError::TimeOverflow)?;
-                    stats.time = self.now;
-                    if self
-                        .bus
-                        .take_device_access()
-                        .is_some_and(|address| address < TEST_GPIO)
-                    {
-                        native_peripherals_active = true;
+            if watchpoints_active {
+                self.bus.clear_watchpoint_hit();
+            }
+            let service_possible = self.target != TargetId::Esp32c6
+                || Self::esp32c6_functional_service_address(self.cpu.pc());
+            if service_possible {
+                match self.service_functional_bootrom() {
+                    Ok(true) => {
+                        stats.instructions = stats.instructions.saturating_add(1);
+                        self.now = self
+                            .now
+                            .checked_add(remu_core::SimDuration::TICK)
+                            .map_err(|_| MachineError::TimeOverflow)?;
+                        stats.time = self.now;
+                        if self
+                            .bus
+                            .take_device_access()
+                            .is_some_and(|address| address < TEST_GPIO)
+                        {
+                            native_peripherals_active = true;
+                        }
+                        if watchpoints_active && let Some(hit) = self.bus.take_watchpoint_hit() {
+                            break StopReason::Watchpoint {
+                                address: hit.address,
+                                access: hit.kind,
+                            };
+                        }
+                        continue;
                     }
-                    if let Some(hit) = self.bus.take_watchpoint_hit() {
-                        break StopReason::Watchpoint {
-                            address: hit.address,
-                            access: hit.kind,
-                        };
-                    }
-                    continue;
+                    Ok(false) => {}
+                    Err(message) => break StopReason::Fault(message),
                 }
-                Ok(false) => {}
-                Err(message) => break StopReason::Fault(message),
             }
             let instruction_pc = self.cpu.pc();
             let outcome = match self.cpu.step(&mut self.bus, self.now) {
@@ -1315,19 +1313,21 @@ impl RiscVMachine {
                     .saturating_add(peripherals.poll_outputs(self.now)?);
             }
 
-            let mut signal_stop = None;
-            for change in self.signals.drain_changes() {
-                signal_stop =
-                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                digest.change(&change);
-                if let Some(sink) = trace.as_deref_mut() {
-                    sink.change(&change)?;
+            if self.signals.has_changes() {
+                let mut signal_stop = None;
+                for change in self.signals.drain_changes() {
+                    signal_stop =
+                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
+                    digest.change(&change);
+                    if let Some(sink) = trace.as_deref_mut() {
+                        sink.change(&change)?;
+                    }
+                }
+                if let Some(path) = signal_stop {
+                    break StopReason::Signal(path);
                 }
             }
-            if let Some(path) = signal_stop {
-                break StopReason::Signal(path);
-            }
-            if let Some(hit) = self.bus.take_watchpoint_hit() {
+            if watchpoints_active && let Some(hit) = self.bus.take_watchpoint_hit() {
                 break StopReason::Watchpoint {
                     address: hit.address,
                     access: hit.kind,
@@ -1363,7 +1363,7 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(1);
                 }
-                if self.breakpoints.contains(&u64::from(self.cpu1.pc())) {
+                if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu1.pc())) {
                     if let Some(sio) = &self.sio {
                         sio.select_core(0);
                     }

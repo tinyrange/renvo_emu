@@ -690,18 +690,25 @@ impl RiscVCpu {
         }
     }
 
+    #[inline(always)]
     fn check_register(&self, index: u8) -> Result<(), CpuFault> {
-        if index >= self.profile.registers {
-            return Err(CpuFault::new(
-                CpuFaultKind::IllegalInstruction,
-                self.pc.into(),
-                format!(
-                    "register x{index} is not available in {}",
-                    self.profile.name
-                ),
-            ));
+        if index < self.profile.registers {
+            return Ok(());
         }
-        Ok(())
+        self.invalid_register(index)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn invalid_register(&self, index: u8) -> Result<(), CpuFault> {
+        Err(CpuFault::new(
+            CpuFaultKind::IllegalInstruction,
+            self.pc.into(),
+            format!(
+                "register x{index} is not available in {}",
+                self.profile.name
+            ),
+        ))
     }
 
     fn write_register(&mut self, index: u8, value: u32) {
@@ -711,6 +718,7 @@ impl RiscVCpu {
         self.registers[0] = 0;
     }
 
+    #[inline(always)]
     fn read_register(&self, index: u8) -> Result<u32, CpuFault> {
         self.check_register(index)?;
         Ok(self.registers[usize::from(index)])
@@ -742,6 +750,9 @@ impl RiscVCpu {
         now: SimTime,
     ) -> Result<u32, CpuFault> {
         self.check_pmp_access(address, width, AccessKind::Read)?;
+        if let Some(value) = bus.fast_read(u64::from(address), width) {
+            return Ok(value as u32);
+        }
         bus.read(u64::from(address), width, AccessKind::Read, now)
             .map(|value| value as u32)
             .map_err(|fault| {
@@ -763,6 +774,9 @@ impl RiscVCpu {
     ) -> Result<(), CpuFault> {
         self.check_pmp_access(address, width, AccessKind::Write)?;
         self.reservation = None;
+        if bus.fast_write(u64::from(address), width, u64::from(value)) {
+            return Ok(());
+        }
         bus.write(u64::from(address), width, u64::from(value), now)
             .map_err(|fault| {
                 CpuFault::new(
@@ -809,18 +823,26 @@ impl RiscVCpu {
         }
     }
 
+    #[inline(always)]
     fn check_pmp_access(
         &mut self,
         address: u32,
         width: AccessWidth,
         kind: AccessKind,
     ) -> Result<(), CpuFault> {
-        if !self.profile.esp32c6_memory_protection_csrs {
+        if !self.profile.esp32c6_memory_protection_csrs || !self.pmp_enabled {
             return Ok(());
         }
-        if !self.pmp_enabled {
-            return Ok(());
-        }
+        self.check_enabled_pmp_access(address, width, kind)
+    }
+
+    #[inline(never)]
+    fn check_enabled_pmp_access(
+        &mut self,
+        address: u32,
+        width: AccessWidth,
+        kind: AccessKind,
+    ) -> Result<(), CpuFault> {
         let bytes = match width {
             AccessWidth::Byte => 1,
             AccessWidth::HalfWord => 2,

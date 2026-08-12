@@ -302,6 +302,11 @@ impl XtensaCpu {
         kind: AccessKind,
         now: SimTime,
     ) -> Result<u32, CpuFault> {
+        if kind == AccessKind::Read
+            && let Some(value) = bus.fast_read(u64::from(address), width)
+        {
+            return Ok(value as u32);
+        }
         bus.read(u64::from(address), width, kind, now)
             .map(|value| value as u32)
             .map_err(|error| self.fault(CpuFaultKind::Bus, error.to_string()))
@@ -315,6 +320,9 @@ impl XtensaCpu {
         value: u32,
         now: SimTime,
     ) -> Result<(), CpuFault> {
+        if bus.fast_write(u64::from(address), width, u64::from(value)) {
+            return Ok(());
+        }
         bus.write(u64::from(address), width, u64::from(value), now)
             .map_err(|error| self.fault(CpuFaultKind::Bus, error.to_string()))
     }

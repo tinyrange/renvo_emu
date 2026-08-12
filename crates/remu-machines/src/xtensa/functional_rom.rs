@@ -135,6 +135,9 @@ impl XtensaMachine {
 
     pub(super) fn service_functional_rom(&mut self) -> Result<bool, String> {
         let pc = self.cpu.pc();
+        if !Self::functional_rom_address(pc) {
+            return Ok(false);
+        }
         // The verified-image handoff has the same externally visible flash
         // state as a completed second-stage bootloader. IDF's early probe has
         // already initialized the static host/chip-driver fields; publish the
@@ -1033,5 +1036,13 @@ impl XtensaMachine {
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    #[inline(always)]
+    pub(super) const fn functional_rom_address(pc: u32) -> bool {
+        matches!(
+            pc >> 16,
+            0x4000 | 0x4038 | 0x4200 | 0x420d | 0x4212 | 0x4213
+        ) || (pc >= 0x4037_f000 && pc < 0x4038_0000)
     }
 }
