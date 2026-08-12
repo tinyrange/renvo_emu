@@ -22,6 +22,7 @@ fn image_with_segment(address: u64, data: Vec<u8>) -> FirmwareImage {
 }
 
 include!("tests_radio.rs");
+include!("tests_radio_ble.rs");
 include!("tests_image.rs");
 
 #[test]

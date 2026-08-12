@@ -1494,9 +1494,7 @@ fn s3_wifi_rx_metadata(frame: &[u8], rx_match: u8, at: remu_core::SimTime) -> [u
     metadata[44..48].copy_from_slice(&signal_length.to_le_bytes());
     metadata
 }
-
 include!("radio_ble.rs");
-
 #[cfg(test)]
 #[path = "radio_tests.rs"]
 mod tests;
