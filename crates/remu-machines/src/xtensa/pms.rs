@@ -77,6 +77,16 @@ impl Bus for Esp32S3PmsBus<'_> {
         }
     }
 
+    fn fast_read(&mut self, address: u64, width: AccessWidth) -> Option<u64> {
+        (!self.protection_active)
+            .then(|| self.bus.fast_read(address, width))
+            .flatten()
+    }
+
+    fn fast_write(&mut self, address: u64, width: AccessWidth, value: u64) -> bool {
+        !self.protection_active && self.bus.fast_write(address, width, value)
+    }
+
     fn read(
         &mut self,
         address: u64,

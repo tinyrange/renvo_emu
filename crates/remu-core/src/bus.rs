@@ -110,6 +110,18 @@ pub trait Bus {
         None
     }
 
+    /// Reads unobserved data directly from ordinary memory when possible.
+    fn fast_read(&mut self, _address: u64, _width: AccessWidth) -> Option<u64> {
+        None
+    }
+
+    /// Writes unobserved data directly to ordinary memory when possible.
+    ///
+    /// Returns true when the write completed; false requests the ordinary bus path.
+    fn fast_write(&mut self, _address: u64, _width: AccessWidth, _value: u64) -> bool {
+        false
+    }
+
     /// Reads data or an instruction from the address space.
     fn read(
         &mut self,
