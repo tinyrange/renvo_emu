@@ -854,6 +854,14 @@ impl RiscVMachine {
             Some(reset_generations[3]),
             self.now,
         )?;
+        let crypto_state = wifi_mac.validate_crypto_key_table();
+        legality.require(
+            RadioSubsystem::Wifi,
+            RadioLegalityRule::SchedulerState,
+            crypto_state.is_ok(),
+            self.now,
+            crypto_state.err().unwrap_or_default(),
+        )?;
         let awaiting_ack_before_poll = ieee802154.awaiting_ack_sequence().is_some();
         ieee802154.poll(self.now);
         if awaiting_ack_before_poll && ieee802154.awaiting_ack_sequence().is_none() {

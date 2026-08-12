@@ -1006,6 +1006,45 @@ def main():
     }
 
     #[test]
+    fn wifi_crypto_workflow_checks_native_table_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir(directory.path().join("workflow")).unwrap();
+        fs::write(
+            directory.path().join("workflow/wifi_crypto.star"),
+            include_str!("../../../qualification/starlark/wifi_crypto_evidence.star"),
+        )
+        .unwrap();
+        let filename = directory.path().join("driver.star");
+        let outcome = evaluate_agent_script(
+            filename.to_str().unwrap(),
+            r#"
+load("//workflow:wifi_crypto.star", "require_wifi_crypto_programming")
+def access(address, value):
+    return {"cursor": 0, "access": {"at": 9, "kind": "Write", "address": address, "width": "Word", "value": value, "region": "esp32c6.wifi-mac-registers"}}
+def main():
+    evidence = [
+        access(0x600a5804, (6 << 21) | 0x55),
+        access(0x600a5808, 0x03020100),
+        access(0x600a4814, 1),
+    ]
+    summary = require_wifi_crypto_programming(machine.target(), evidence)
+    result = machine.run(instructions = 1)
+    return {"summary": summary, "reason": result["reason"]}
+"#,
+            AgentMachine::Esp32c6(Box::new(RiscVMachine::new(TargetId::Esp32c6).unwrap())),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.value["summary"]["table_writes"], json!(2));
+        assert_eq!(outcome.value["summary"]["key_writes"], json!(1));
+        assert_eq!(
+            outcome.value["summary"]["control_writes"][0]["class"],
+            json!(6)
+        );
+    }
+
+    #[test]
     fn agent_script_load_cannot_escape_its_workspace() {
         let directory = tempfile::tempdir().unwrap();
         let filename = directory.path().join("driver.star");

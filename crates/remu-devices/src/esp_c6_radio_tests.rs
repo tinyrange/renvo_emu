@@ -150,6 +150,81 @@ mod tests {
     }
 
     #[test]
+    fn wifi_crypto_table_exposes_valid_hal_entries_and_reset_zeroizes_them() {
+        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        let slot = 2_u64;
+        let base = C6_WIFI_MAC_CRYPTO_TABLE + slot * C6_WIFI_MAC_CRYPTO_ENTRY_STRIDE;
+        mac.write(base, AccessWidth::Word, 0x4433_2211, SimTime::ZERO)
+            .unwrap();
+        mac.write(
+            base + 4,
+            AccessWidth::Word,
+            u64::from((6_u32 << 21) | 0x6655),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        for word in 0..8_u64 {
+            mac.write(
+                base + 8 + word * 4,
+                AccessWidth::Word,
+                0x0302_0100 + word * 0x0404_0404,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        }
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_VALID,
+            AccessWidth::Word,
+            1 << slot,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        let entry = handle.crypto_key_entry(slot as u8).unwrap();
+        assert_eq!(entry.match_low, 0x4433_2211);
+        assert_eq!(entry.control, (6 << 21) | 0x6655);
+        assert_eq!(&entry.key[..8], &[0, 1, 2, 3, 4, 5, 6, 7]);
+        assert!(handle.validate_crypto_key_table().is_ok());
+
+        mac.reset(ResetKind::PowerOn);
+        assert!(handle.crypto_key_entry(slot as u8).is_none());
+        for word in 0..C6_WIFI_MAC_CRYPTO_ENTRY_WORDS as u64 {
+            assert_eq!(
+                mac.read(base + word * 4, AccessWidth::Word, SimTime::ZERO)
+                    .unwrap(),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn wifi_crypto_table_rejects_a_valid_slot_outside_hal_control_classes() {
+        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_TABLE + 4,
+            AccessWidth::Word,
+            1 << 21,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_VALID,
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(
+            handle
+                .validate_crypto_key_table()
+                .unwrap_err()
+                .contains("impossible control class 1")
+        );
+    }
+
+    #[test]
     fn c6_ble_sleep_timer_rejects_impossible_wake_ordering() {
         let (mut modem, _) = EspC6BleModem::new("ble-modem");
         let enable_error = modem

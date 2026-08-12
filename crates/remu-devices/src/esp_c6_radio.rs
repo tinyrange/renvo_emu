@@ -898,6 +898,11 @@ const C6_WIFI_MAC_RX_BA_COUNT: usize = 8;
 const C6_WIFI_MAC_RX_BA_VALID: u32 = 1 << 31;
 const C6_WIFI_MAC_RX_BA_ACTIVE: u32 = 3 << 30;
 const C6_WIFI_MAC_RX_BA_MODE: u32 = 5;
+const C6_WIFI_MAC_CRYPTO_VALID: u64 = 0x814;
+const C6_WIFI_MAC_CRYPTO_TABLE: u64 = 0x1800;
+const C6_WIFI_MAC_CRYPTO_ENTRY_STRIDE: u64 = 0x28;
+const C6_WIFI_MAC_CRYPTO_ENTRY_WORDS: usize = 10;
+const C6_WIFI_MAC_CRYPTO_ENTRY_COUNT: usize = 32;
 
 struct EspC6WifiMacState {
     registers: Vec<u32>,
@@ -938,6 +943,32 @@ pub struct EspC6WifiMacHandle {
 }
 
 impl EspC6WifiMacHandle {
+    fn crypto_key_entry_from_state(
+        state: &EspC6WifiMacState,
+        slot: usize,
+    ) -> Option<crate::EspWifiCryptoKeyEntry> {
+        if slot >= C6_WIFI_MAC_CRYPTO_ENTRY_COUNT
+            || state.registers[C6_WIFI_MAC_CRYPTO_VALID as usize / 4] & (1 << slot) == 0
+        {
+            return None;
+        }
+        let base =
+            (C6_WIFI_MAC_CRYPTO_TABLE + slot as u64 * C6_WIFI_MAC_CRYPTO_ENTRY_STRIDE) as usize / 4;
+        let words = state
+            .registers
+            .get(base..base + C6_WIFI_MAC_CRYPTO_ENTRY_WORDS)?;
+        let mut key = [0_u8; 32];
+        for (destination, word) in key.chunks_exact_mut(4).zip(&words[2..]) {
+            destination.copy_from_slice(&word.to_le_bytes());
+        }
+        Some(crate::EspWifiCryptoKeyEntry {
+            slot: slot as u8,
+            match_low: words[0],
+            control: words[1],
+            key,
+        })
+    }
+
     fn rx_block_ack_slot(state: &EspC6WifiMacState, peer: &[u8; 6], tid: u8) -> Option<usize> {
         (0..C6_WIFI_MAC_RX_BA_COUNT).find(|slot| {
             let distance = *slot as u64 * C6_WIFI_MAC_RX_BA_STRIDE;
@@ -965,6 +996,33 @@ impl EspC6WifiMacHandle {
             {
                 return Err(format!(
                     "RX block-ACK slot {slot} has impossible active control {control:#010x}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns one valid firmware-programmed native crypto-table entry.
+    pub fn crypto_key_entry(&self, slot: u8) -> Option<crate::EspWifiCryptoKeyEntry> {
+        let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        Self::crypto_key_entry_from_state(&state, usize::from(slot))
+    }
+
+    /// Rejects valid crypto slots with a control class the pinned HAL cannot emit.
+    pub fn validate_crypto_key_table(&self) -> Result<(), String> {
+        let state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
+        let valid = state.registers[C6_WIFI_MAC_CRYPTO_VALID as usize / 4];
+        for slot in 0..C6_WIFI_MAC_CRYPTO_ENTRY_COUNT {
+            if valid & (1 << slot) == 0 {
+                continue;
+            }
+            let entry = Self::crypto_key_entry_from_state(&state, slot)
+                .expect("C6 crypto table fits its native register window");
+            let control_class = (entry.control >> 21) & 7;
+            if !matches!(control_class, 3 | 6 | 7) {
+                return Err(format!(
+                    "crypto key slot {slot} has impossible control class {control_class} in {:#010x}",
+                    entry.control
                 ));
             }
         }

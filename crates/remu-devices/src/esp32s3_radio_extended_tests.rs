@@ -1,6 +1,76 @@
 use super::*;
 
 #[test]
+fn wifi_crypto_table_matches_the_s3_hal_layout_and_zeroizes_on_reset() {
+    let mut mac = Esp32S3WifiMacRegisters::new("wifi-mac");
+    let handle = mac.handle();
+    let slot = 3_u64;
+    let base = WIFI_MAC_CRYPTO_TABLE + slot * WIFI_MAC_CRYPTO_ENTRY_STRIDE;
+    mac.write(base, AccessWidth::Word, 0x4433_2211, SimTime::ZERO)
+        .unwrap();
+    mac.write(
+        base + 4,
+        AccessWidth::Word,
+        u64::from((7_u32 << 21) | 0x6655),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    for word in 0..8_u64 {
+        mac.write(
+            base + 8 + word * 4,
+            AccessWidth::Word,
+            0x0302_0100 + word * 0x0404_0404,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    }
+    mac.write(
+        WIFI_MAC_CRYPTO_VALID,
+        AccessWidth::Word,
+        1 << slot,
+        SimTime::ZERO,
+    )
+    .unwrap();
+
+    let entry = handle.crypto_key_entry(slot as u8).unwrap();
+    assert_eq!(entry.match_low, 0x4433_2211);
+    assert_eq!(entry.control, (7 << 21) | 0x6655);
+    assert_eq!(&entry.key[..8], &[0, 1, 2, 3, 4, 5, 6, 7]);
+    assert!(handle.validate_crypto_key_table().is_ok());
+
+    mac.reset(ResetKind::PowerOn);
+    assert!(handle.crypto_key_entry(slot as u8).is_none());
+    for word in 0..WIFI_MAC_CRYPTO_ENTRY_WORDS as u64 {
+        assert_eq!(
+            mac.read(base + word * 4, AccessWidth::Word, SimTime::ZERO)
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn wifi_crypto_table_rejects_a_valid_slot_outside_hal_control_classes() {
+    let mut mac = Esp32S3WifiMacRegisters::new("wifi-mac");
+    let handle = mac.handle();
+    mac.write(
+        WIFI_MAC_CRYPTO_TABLE + 4,
+        AccessWidth::Word,
+        2 << 21,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    mac.write(WIFI_MAC_CRYPTO_VALID, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert!(
+        handle
+            .validate_crypto_key_table()
+            .unwrap_err()
+            .contains("impossible control class 2")
+    );
+}
+
+#[test]
 fn ble_half_slot_timer_raises_one_native_interrupt_at_programmed_fine_time() {
     let mut ble = Esp32S3BleExchangeMemoryRegisters::new("ble");
     let handle = ble.handle();

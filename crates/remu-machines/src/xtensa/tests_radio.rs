@@ -1,4 +1,29 @@
 #[test]
+fn esp32s3_illegal_wifi_crypto_slot_is_a_hard_firmware_state_error() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine
+        .bus
+        .write(
+            0x6003_4404,
+            AccessWidth::Word,
+            2 << 21,
+            machine.now,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x6003_3814, AccessWidth::Word, 1, machine.now)
+        .unwrap();
+
+    let XtensaMachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("invalid native crypto entry should be a hard legality error");
+    };
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Wifi);
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert!(error.detail.contains("impossible control class 2"));
+}
+
+#[test]
 fn esp32s3_wifi_and_ble_use_shared_deterministic_radio_api() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let mut wifi_frame = vec![0_u8; 24];

@@ -626,6 +626,14 @@ impl XtensaMachine {
             Some(reset_generation),
             self.now,
         )?;
+        let crypto_state = self.wifi_mac.validate_crypto_key_table();
+        self.radio_legality.require(
+            RadioSubsystem::Wifi,
+            RadioLegalityRule::SchedulerState,
+            crypto_state.is_ok(),
+            self.now,
+            crypto_state.err().unwrap_or_default(),
+        )?;
         self.radio_medium.advance_to(self.now)?;
         self.radio_coexistence.advance_to(self.now)?;
         self.complete_native_ble_slot_states()?;

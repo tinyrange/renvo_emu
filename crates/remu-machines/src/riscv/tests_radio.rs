@@ -1,4 +1,29 @@
 #[test]
+fn esp32c6_illegal_wifi_crypto_slot_is_a_hard_firmware_state_error() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_5804,
+            AccessWidth::Word,
+            1 << 21,
+            machine.now,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_4814, AccessWidth::Word, 1, machine.now)
+        .unwrap();
+
+    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
+        panic!("invalid native crypto entry should be a hard legality error");
+    };
+    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Wifi);
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::SchedulerState);
+    assert!(error.detail.contains("impossible control class 1"));
+}
+
+#[test]
 fn esp32c6_radio_frontend_exposes_clock_split_and_ieee802154_events() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine

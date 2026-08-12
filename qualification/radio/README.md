@@ -272,7 +272,12 @@ arbitration rejects the attempt, and leave retry resubmission to the genuine
 guest LMAC. Addressed inbound RTS receives a hardware CTS; firmware-programmed
 RX BA sessions score QoS sequence numbers with 12-bit wraparound and answer a
 compressed BAR from their native 64-bit bitmap. Impossible active BA encodings
-are hard legality errors. Wi-Fi still needs fragmentation/aggregation, hardware crypto,
+are hard legality errors. The C6 and S3 native Wi-Fi crypto tables now retain
+all 32 forty-byte key slots, expose firmware-written match/control/key state,
+zeroize on reset, and hard-reject a valid slot whose control class is outside
+the three encodings emitted by both pinned vendor HALs. A bounded Starlark
+workflow captures and checks the same programming sequence without symbol
+hooks. Wi-Fi still needs fragmentation/aggregation and actual hardware frame crypto,
 descriptor-driven RTS protection, broader TX aggregation/BA retry acceptance,
 and C6 TWT acceptance. The C6 genuine SoftAP gate now
 explicitly enables protocol mask `0x47`, emits HE-capability Extension ID 35

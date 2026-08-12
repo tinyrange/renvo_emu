@@ -51,6 +51,13 @@ It also provides `wait_for_bus()` and `drain_bus()` for a configured bounded
 bus capture. They advance only through `machine.run()` and observe native
 machine evidence.
 
+Radio investigations can layer checked, peripheral-specific interpreters over
+that generic capture. `qualification/starlark/wifi_crypto_evidence.star`
+selects the pinned C6/S3 native key-table windows, summarizes valid-bit,
+control, and key-payload writes, and rejects control classes that neither
+pinned vendor HAL can emit. It observes firmware bus traffic only; key
+installation and frame protection remain native emulated hardware behavior.
+
 For an iterative MMIO experiment, narrow the capture before running firmware:
 
 ```starlark
