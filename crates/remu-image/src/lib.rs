@@ -164,9 +164,9 @@ impl FirmwareImage {
             let mut data = vec![0; memory_size];
             data[..source.len()].copy_from_slice(source);
             let (executable, writable) = match segment.flags() {
-                SegmentFlags::Elf { p_flags } => (
-                    p_flags & object::elf::PF_X != 0,
-                    p_flags & object::elf::PF_W != 0,
+                SegmentFlags::Elf { p_flags, .. } => (
+                    p_flags.contains(object::elf::PF_X),
+                    p_flags.contains(object::elf::PF_W),
                 ),
                 _ => (false, false),
             };
@@ -236,9 +236,9 @@ impl FirmwareImage {
         let mut sections = Vec::new();
         for section in file.sections() {
             let (executable, writable) = match section.flags() {
-                SectionFlags::Elf { sh_flags } => (
-                    sh_flags & u64::from(SHF_EXECINSTR) != 0,
-                    sh_flags & u64::from(SHF_WRITE) != 0,
+                SectionFlags::Elf { sh_flags, .. } => (
+                    sh_flags.contains(SHF_EXECINSTR),
+                    sh_flags.contains(SHF_WRITE),
                 ),
                 _ => (false, false),
             };
@@ -519,7 +519,7 @@ mod tests {
         put_u32(&mut bytes, 64, 0x1000);
         put_u32(&mut bytes, 68, 4);
         put_u32(&mut bytes, 72, 8);
-        put_u32(&mut bytes, 76, object::elf::PF_R | object::elf::PF_X);
+        put_u32(&mut bytes, 76, (object::elf::PF_R | object::elf::PF_X).0);
         put_u32(&mut bytes, 80, 4);
         bytes[0x100..0x104].copy_from_slice(&[0x13, 0, 0, 0]);
         bytes
