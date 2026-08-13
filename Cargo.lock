@@ -52,7 +52,7 @@ dependencies = [
  "bumpalo",
  "ctor",
  "hashbrown 0.16.1",
- "num-bigint",
+ "num-bigint 0.4.8",
 ]
 
 [[package]]
@@ -1123,6 +1123,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-integer"
 version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1179,7 +1189,7 @@ dependencies = [
  "fancy-regex",
  "indexmap",
  "inventory",
- "num-bigint",
+ "num-bigint 0.4.8",
  "once_cell",
  "pagable_derive",
  "parking_lot",
@@ -1517,7 +1527,7 @@ name = "remu-devices"
 version = "0.1.0"
 dependencies = [
  "aes",
- "num-bigint",
+ "num-bigint 0.5.1",
  "remu-bus",
  "remu-core",
  "remu-signals",
@@ -1886,7 +1896,7 @@ dependencies = [
  "itertools",
  "maplit",
  "memoffset",
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-traits",
  "once_cell",
  "pagable",
@@ -1949,7 +1959,7 @@ dependencies = [
  "logos",
  "lsp-types",
  "memchr",
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-traits",
  "once_cell",
  "pagable",
