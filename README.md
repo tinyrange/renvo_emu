@@ -17,7 +17,7 @@ includes mainstream parts alongside QingKe, MSP430, PIC16, AVR, and MCS-51
 devices that are often missing from general-purpose emulators.
 
 Renvo Emulator does **not** currently claim cycle accuracy, complete ISA
-coverage, complete peripheral coverage, radio simulation, or arbitrary SDK
+coverage, complete peripheral coverage, physical RF accuracy, or arbitrary SDK
 compatibility. One abstract tick represents a completed instruction or
 architectural action. That timing is deterministic and useful for ordering,
 timers, and waveforms, but it is not silicon time.
@@ -107,7 +107,10 @@ For compiler and ABI work, run an ELF directly:
 
 Direct ESP execution is an architectural/compiler oracle, not proof that a
 bootloader accepts the flash layout. Supplying `--esp-app-image` adds a separate
-esptool-compatible application-image validation step.
+esptool-compatible application-image validation step and requires `--boot-rom`
+with the target's real mask-ROM ELF. ESP32-C6/S3 native firmware boot and
+radio-capable direct runs likewise require the matching ROM. A direct ELF run
+that only tests CPU/compiler behavior remains exempt.
 
 The ESP32-S3 model also exposes a functional RMT slice. Transmit channels 0–3
 accept native FIFO pulse items at `0x6001_6000`, set completion status, and
@@ -282,6 +285,29 @@ The generic board/component scenario validates topology and digital protocol
 models independently. Live ESP32-C6 firmware MMIO is not yet routed into its
 assembled board graph. The M5StickS3 scenario does bind live ESP32-S3 firmware
 to its complete non-radio board graph end to end.
+For radio workflows, `remu run --radio-script peer.star` attaches a bounded,
+event-driven Starlark peer to the isolated RF medium. Its `on_event(event,
+state)` callback can retain explicit JSON state and schedule future RF frames;
+it cannot inspect CPU state, memory, registers, symbols, files, or host network
+resources. `--radio-repl` enables `repl()`/`breakpoint()` inside that callback,
+which is useful for iterating on virtual peers while genuine firmware controls
+the low-level radio peripheral.
+
+For agent-driven investigation, `remu run --agent-script drive.star` exposes a
+long-lived, opaque ESP32-C6 or ESP32-S3 `machine` value to the script's
+`main()` function. Bounded methods resume execution, inspect CPU and memory,
+set debug stops, drive GPIO/USB input, inject isolated RF frames, and page
+through replay evidence. A filtered bounded bus-capture ring lets the same
+live script or REPL inspect native MMIO/DMA sequences without retaining an
+unbounded trace, and composes with the existing streaming `--bus-log`. Scripts
+can load workspace-confined reusable `.star`
+workflows, `--agent-repl` enables a scoped `repl()` call in the same live
+session, and `--agent-artifact` records the script result without duplicating
+the full UART/RF streams. This driver is an orchestration and diagnostics boundary:
+it has no symbol-hook API and does not implement peripheral behavior in
+Starlark. Real mask ROM remains mandatory. See
+[agent-driven Starlark](docs/AGENT_STARLARK.md).
+
 The RISC-V, Arm RP, and Xtensa machine APIs now expose named `Compiler` and
 `Native` UART endpoints for the transport-coupling work that follows; vendor
 UART adapters remain target-specific for now.

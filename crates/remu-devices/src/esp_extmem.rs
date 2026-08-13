@@ -404,6 +404,11 @@ impl Esp32S3ExtmemHandle {
         self.state.borrow_mut().configure_boot_caches();
     }
 
+    /// Returns whether hardware register state currently permits I-cache fetches.
+    pub fn instruction_cache_enabled(&self) -> bool {
+        self.state.borrow().enabled(CacheKind::Instruction)
+    }
+
     /// Records and validates a CPU access through one of the cached external-memory aliases.
     pub fn observe_access(&self, core: u8, address: u32, access: AccessKind) -> bool {
         self.state
@@ -528,7 +533,12 @@ impl Device for Esp32S3Extmem {
             0x04c | 0x0a0 if stored & (0x260) != 0 => {
                 state.set_register(offset, (stored & !0x260) | 8);
             }
-            0x150 | 0x154 => state.set_register(offset, (stored & 3) | 4),
+            // Freeze control exposes the request in bit 0, the mode in bit 1,
+            // and the hardware freeze acknowledgement in bit 2. The cache
+            // transition is deterministic and immediate at this fidelity.
+            0x150 | 0x154 => {
+                state.set_register(offset, (stored & 3) | ((stored & 1) << 2));
+            }
             _ => {}
         }
         Ok(())
@@ -633,6 +643,34 @@ mod tests {
         write(&mut device, 0x0c4, 1);
         assert_eq!(read(&mut device, 0x0d8), 0);
         assert_eq!(read(&mut device, 0x0d0), 0);
+    }
+
+    #[test]
+    fn cache_freeze_acknowledgement_tracks_enable_request() {
+        let (mut device, _) = Esp32S3Extmem::new("extmem");
+        for offset in [0x150, 0x154] {
+            assert_eq!(read(&mut device, offset), 4);
+            write(&mut device, offset, 3);
+            assert_eq!(read(&mut device, offset), 7);
+            write(&mut device, offset, 2);
+            assert_eq!(read(&mut device, offset), 2);
+            write(&mut device, offset, 1);
+            assert_eq!(read(&mut device, offset), 5);
+            write(&mut device, offset, 0);
+            assert_eq!(read(&mut device, offset), 0);
+        }
+    }
+
+    #[test]
+    fn cache_handle_reports_instruction_enable_from_register_state() {
+        let (mut device, handle) = Esp32S3Extmem::new("extmem");
+        assert!(!handle.instruction_cache_enabled());
+        handle.configure_boot_caches();
+        assert!(handle.instruction_cache_enabled());
+        write(&mut device, 0x060, 0);
+        assert!(!handle.instruction_cache_enabled());
+        write(&mut device, 0x060, 1);
+        assert!(handle.instruction_cache_enabled());
     }
 
     #[test]

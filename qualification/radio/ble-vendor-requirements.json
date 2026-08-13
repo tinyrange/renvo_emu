@@ -1,0 +1,184 @@
+{
+  "schema": "remu.radio-ble-vendor-requirements.v9",
+  "source_ledger_entry": "esp-rom-elfs-20260528",
+  "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+  "firmware_project": "qualification/radio/vendor-ble-probe",
+  "firmware_elf": "remu_vendor_ble_probe.elf",
+  "sleep_sdkconfig_defaults": "qualification/radio/sdkconfig.ble-sleep.defaults",
+  "chips": {
+    "esp32c6": {
+      "rom_file": "esp32c6_rev0_rom.elf",
+      "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+      "rom_start": "0x40000000",
+      "rom_end": "0x40050000",
+      "minimum_instructions": 20000000,
+      "sleep_minimum_instructions": 20000000,
+      "minimum_sleep_native_tx": 100,
+      "required_sleep_uart_substrings": [
+        "REMU_VENDOR_BLE_INIT result=0",
+        "REMU_VENDOR_BLE_SEQUENCE result=1",
+        "REMU_VENDOR_BLE_ADV_START result=0",
+        "REMU_VENDOR_BLE_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_CONNECTABLE_ADV_START result=0"
+      ],
+      "radio_input": "qualification/radio/ble-advertisement-vendor-esp32c6.json",
+      "supervision_input_prefix": 8,
+      "supervision_timeout_units": 10,
+      "required_supervision_uart_substrings": [
+        "REMU_VENDOR_BLE_CONNECT status=0 handle=0",
+        "REMU_VENDOR_BLE_CONNECTION_READY handle=0",
+        "REMU_VENDOR_BLE_DISCONNECT reason=520 handle=0",
+        "REMU_VENDOR_BLE_SUPERVISION_TIMEOUT observed=1",
+        "REMU_VENDOR_BLE_SCAN_START result=0"
+      ],
+      "required_uart_substrings": [
+        "REMU_VENDOR_BLE_INIT result=0",
+        "REMU_VENDOR_BLE_SEQUENCE result=1",
+        "REMU_VENDOR_BLE_ADV_START result=0",
+        "REMU_VENDOR_BLE_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_CONNECT status=0 handle=0",
+        "REMU_VENDOR_BLE_CONNECTION_READY handle=0",
+        "REMU_VENDOR_BLE_LTK_STORE result=0 handle=0",
+        "REMU_VENDOR_BLE_MTU handle=0 cid=4 value=247",
+        "REMU_VENDOR_BLE_PHY status=0 handle=0 tx=2 rx=2",
+        "REMU_VENDOR_BLE_ENCRYPTION status=0 handle=0 encrypted=1",
+        "REMU_VENDOR_BLE_ENCRYPTION_OBSERVED value=1",
+        "REMU_VENDOR_BLE_DISCONNECT reason=531 handle=0",
+        "REMU_VENDOR_BLE_REMOTE_TERMINATE observed=1",
+        "REMU_VENDOR_BLE_CONNECTED_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_SCAN_START result=0",
+        "REMU_VENDOR_BLE_EXT_SCAN_REPORT props=16 status=0 legacy=3 length=6 rssi=-80 02 01 06 02 09 52"
+      ],
+      "expected_native_tx": {
+        "legacy": {
+          "center_khz": 2480000,
+          "phy": "ble-1m",
+          "bytes": [66, 21, 6, 5, 4, 3, 2, 193, 2, 1, 6, 11, 9, 82, 101, 110, 118, 111, 45, 66, 76, 69, 49]
+        },
+        "extended_primary": {
+          "center_khz": 2480000,
+          "phy": "ble-1m",
+          "bytes": [71, 7, 6, 24, 1, 48, 36, 15, 32]
+        },
+        "extended_auxiliary": {
+          "center_khz": 2478000,
+          "phy": "ble-2m",
+          "bytes": [71, 24, 9, 9, 6, 5, 4, 3, 2, 193, 1, 48, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84]
+        }
+      },
+      "expected_connection_tx": [
+        {"center_khz": 2424000, "phy": "ble-1m", "bytes": [7, 6, 12, 14, 229, 2, 0, 0]},
+        {"center_khz": 2436000, "phy": "ble-1m", "bytes": [9, 0]},
+        {"center_khz": 2446000, "phy": "ble-1m", "bytes": [7, 9, 14, 255, 127, 1, 7, 144, 27, 0, 0]},
+        {"center_khz": 2456000, "phy": "ble-1m", "bytes": [9, 0]},
+        {"center_khz": 2466000, "phy": "ble-1m", "bytes": [7, 9, 20, 251, 0, 144, 66, 251, 0, 144, 66]},
+        {"center_khz": 2476000, "phy": "ble-1m", "bytes": [10, 7, 3, 0, 4, 0, 3, 0, 1]},
+        {"center_khz": 2410000, "phy": "ble-1m", "bytes": [5, 0]},
+        {"center_khz": 2420000, "phy": "ble-1m", "bytes": [9, 0]},
+        {"center_khz": 2432000, "phy": "ble-1m", "bytes": [7, 3, 23, 7, 7]},
+        {"center_khz": 2428000, "phy": "ble-2m", "bytes": [9, 0]},
+        {"center_khz": 2438000, "phy": "ble-2m", "bytes": [5, 0]},
+        {"center_khz": 2448000, "phy": "ble-2m", "bytes": [11, 13, 4, 141, 208, 115, 22, 185, 92, 255, 162, 234, 71, 164, 7]},
+        {"center_khz": 2458000, "phy": "ble-2m", "bytes": [7, 1, 5]},
+        {"center_khz": 2458000, "phy": "ble-2m", "bytes": [11, 5, 190, 15, 2, 176, 173]},
+        {"center_khz": 2468000, "phy": "ble-2m", "bytes": [5, 4, 130, 147, 20, 244]},
+        {"center_khz": 2478000, "phy": "ble-2m", "bytes": [9, 4, 223, 121, 237, 71]}
+      ]
+    },
+    "esp32s3": {
+      "rom_file": "esp32s3_rev0_rom.elf",
+      "rom_sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
+      "rom_start": "0x40000000",
+      "rom_end": "0x40070000",
+      "minimum_instructions": 24000000,
+      "sleep_minimum_instructions": 16000000,
+      "minimum_sleep_native_tx": 4,
+      "required_sleep_uart_substrings": [
+        "REMU_VENDOR_BLE_INIT result=0",
+        "REMU_VENDOR_BLE_SEQUENCE result=1",
+        "REMU_VENDOR_BLE_ADV_START result=0",
+        "REMU_VENDOR_BLE_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_CONNECTABLE_ADV_START result=0"
+      ],
+      "radio_input": "qualification/radio/ble-advertisement-vendor-esp32s3.json",
+      "supervision_input_prefix": 8,
+      "supervision_timeout_units": 10,
+      "required_supervision_uart_substrings": [
+        "REMU_VENDOR_BLE_CONNECT status=0 handle=1",
+        "REMU_VENDOR_BLE_CONNECTION_READY handle=1",
+        "REMU_VENDOR_BLE_DISCONNECT reason=520 handle=1",
+        "REMU_VENDOR_BLE_SUPERVISION_TIMEOUT observed=1",
+        "REMU_VENDOR_BLE_SCAN_START result=0"
+      ],
+      "required_uart_substrings": [
+        "REMU_VENDOR_BLE_INIT result=0",
+        "REMU_VENDOR_BLE_SEQUENCE result=1",
+        "REMU_VENDOR_BLE_ADV_START result=0",
+        "REMU_VENDOR_BLE_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_START result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_STOP result=0",
+        "REMU_VENDOR_BLE_EXT_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_CONNECT status=0 handle=1",
+        "REMU_VENDOR_BLE_CONNECTION_READY handle=1",
+        "REMU_VENDOR_BLE_LTK_STORE result=0 handle=1",
+        "REMU_VENDOR_BLE_MTU handle=1 cid=4 value=247",
+        "REMU_VENDOR_BLE_PHY status=0 handle=1 tx=2 rx=2",
+        "REMU_VENDOR_BLE_ENCRYPTION status=0 handle=1 encrypted=1",
+        "REMU_VENDOR_BLE_ENCRYPTION_OBSERVED value=1",
+        "REMU_VENDOR_BLE_DISCONNECT reason=531 handle=1",
+        "REMU_VENDOR_BLE_REMOTE_TERMINATE observed=1",
+        "REMU_VENDOR_BLE_CONNECTED_ADV_REMOVE result=0",
+        "REMU_VENDOR_BLE_SCAN_START result=0",
+        "REMU_VENDOR_BLE_EXT_SCAN_REPORT props=16 status=0 legacy=3 length=6 rssi=-80 02 01 06 02 09 52"
+      ],
+      "expected_native_tx": {
+        "legacy": {
+          "center_khz": 2480000,
+          "phy": "ble-1m",
+          "bytes": [98, 21, 2, 17, 34, 51, 68, 85, 2, 1, 6, 11, 9, 82, 101, 110, 118, 111, 45, 66, 76, 69, 49]
+        },
+        "extended_primary": {
+          "center_khz": 2480000,
+          "phy": "ble-1m",
+          "bytes": [39, 7, 6, 24, 27, 39, 32, 5, 32]
+        },
+        "extended_auxiliary": {
+          "center_khz": 2470000,
+          "phy": "ble-2m",
+          "bytes": [103, 24, 9, 9, 6, 5, 4, 3, 2, 193, 27, 0, 2, 1, 6, 10, 9, 82, 101, 110, 118, 111, 45, 69, 88, 84]
+        }
+      },
+      "expected_connection_tx": [
+        {"center_khz": 2414000, "phy": "ble-1m", "bytes": [23, 6, 12, 9, 229, 2, 22, 0]},
+        {"center_khz": 2424000, "phy": "ble-1m", "bytes": [9, 0]},
+        {"center_khz": 2436000, "phy": "ble-1m", "bytes": [23, 9, 14, 255, 249, 1, 0, 0, 0, 0, 0]},
+        {"center_khz": 2446000, "phy": "ble-1m", "bytes": [9, 0]},
+        {"center_khz": 2456000, "phy": "ble-1m", "bytes": [23, 9, 20, 251, 0, 144, 66, 251, 0, 144, 66]},
+        {"center_khz": 2466000, "phy": "ble-1m", "bytes": [9, 0]},
+        {"center_khz": 2476000, "phy": "ble-1m", "bytes": [22, 7, 3, 0, 4, 0, 3, 0, 1]},
+        {"center_khz": 2410000, "phy": "ble-1m", "bytes": [9, 0]},
+        {"center_khz": 2420000, "phy": "ble-1m", "bytes": [23, 3, 23, 7, 7]},
+        {"center_khz": 2428000, "phy": "ble-2m", "bytes": [9, 0]},
+        {"center_khz": 2438000, "phy": "ble-2m", "bytes": [6, 7, 3, 0, 4, 0, 3, 0, 1]},
+        {"center_khz": 2448000, "phy": "ble-2m", "bytes": [23, 13, 4, 148, 152, 161, 139, 96, 198, 11, 118, 133, 78, 93, 65]},
+        {"center_khz": 2458000, "phy": "ble-2m", "bytes": [9, 0]},
+        {"center_khz": 2468000, "phy": "ble-2m", "bytes": [23, 1, 5]},
+        {"center_khz": 2478000, "phy": "ble-2m", "bytes": [13, 4, 183, 214, 102, 185]},
+        {"center_khz": 2412000, "phy": "ble-2m", "bytes": [19, 9, 132, 215, 145, 229, 140, 100, 130, 134, 94]}
+      ]
+    }
+  }
+}

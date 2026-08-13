@@ -443,6 +443,13 @@ const MANIFESTS: &[TargetManifest] = &[
         cpus: &[XTENSA_LX7],
         memory: &[
             MemoryRegion {
+                name: "rom",
+                start: 0x4000_0000,
+                size: 384 * 1024,
+                kind: MemoryKind::Rom,
+                executable: true,
+            },
+            MemoryRegion {
                 name: "dram",
                 start: 0x3fc8_8000,
                 size: 480 * 1024,

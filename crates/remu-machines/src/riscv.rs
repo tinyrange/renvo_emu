@@ -13,17 +13,22 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspAnalogI2c, EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic,
-    EspC6PlicHandle, EspGpio, EspSpiMem, EspTimerGroup, EspTimerGroupHandle, EspTimerGroupKind,
-    EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank,
-    Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc,
-    Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle, RpTimerLayout,
-    SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle,
-    WchUsart,
+    EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic, EspC6PlicHandle,
+    EspGpio, EspSpiFlashCommand, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup, EspTimerGroupHandle,
+    EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
+    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
+    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
+    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
+    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
+    WchTimerHandle, WchUsart,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
+};
+use remu_radio::{
+    BdAddress, BleController, CoexistenceArbiter, CoexistenceError, CoexistenceGrantId,
+    Ieee802154Mac, MacAddress, MediumError, MediumProfile, RadioChip, RadioLegalityError,
+    RadioLegalityValidator, RadioMedium, TransmissionId, WifiEngine,
 };
 use remu_signals::{Logic, SignalError};
 use remu_trace::{TraceDigest, TraceError, TraceSink};
@@ -42,6 +47,7 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod lp_uart;
+mod radio;
 mod rp_bootrom;
 mod runtime;
 mod watchdog;
@@ -62,12 +68,19 @@ const ESP_ROM_FLASH_END_STUB: u32 = 0x4004_fe04;
 const ESP_ROM_FLASH_CHIP_CHECK_STUB: u32 = 0x4004_fe08;
 const ESP_ROM_FLASH_DETECT_SIZE_STUB: u32 = 0x4004_fe0c;
 const ESP_ROM_FLASH_OK_STUB: u32 = 0x4004_fe10;
+const ESP_ROM_PHY_NOOP_STUB: u32 = 0x4004_fe14;
+const ESP_ROM_PHY_I2C_STABLE_STUB: u32 = 0x4004_fe18;
 const ESP_ROM_COEX_VERSION: u32 = 0x4004_fdc0;
+const ESP_ROM_PHY_FUNCTION_TABLE: u32 = 0x4087_f000;
 const ESP_ROM_DEFAULT_FLASH: u32 = 0x4087_fa00;
 const ESP_ROM_FLASH_DRIVER: u32 = 0x4087_f900;
 const ESP_ROM_FLASH_HOST: u32 = 0x4087_f700;
 const ESP_FUNCTIONAL_MMAP_BASE: u32 = 0x4280_0000;
+const ESP32C6_CACHE_MMU_VADDR_BASE: u32 = 0x4200_0000;
 const ESP32C6_SYSTIMER_BASE: u64 = 0x6000_a000;
+// The direct-mode core advances one simulation tick per 160 MHz CPU action;
+// the ESP32-C6 system timer runs from its 16 MHz clock source.
+const ESP32C6_CPU_TICKS_PER_SYSTIMER_TICK: u64 = 10;
 const ESP32C6_SYSTIMER_TARGET_VALUE: u64 = ESP32C6_SYSTIMER_BASE + 0x1c;
 const ESP32C6_SYSTIMER_TARGET_CONF: u64 = ESP32C6_SYSTIMER_BASE + 0x34;
 const ESP32C6_SYSTIMER_INT_ENA: u64 = ESP32C6_SYSTIMER_BASE + 0x64;
@@ -102,6 +115,18 @@ pub enum MachineError {
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
+    /// Deterministic RF-medium operation failed.
+    #[error(transparent)]
+    Radio(#[from] MediumError),
+    /// Shared-RF coexistence arbitration failed.
+    #[error(transparent)]
+    Coexistence(#[from] CoexistenceError),
+    /// Firmware configured a state outside the recovered native-radio contract.
+    #[error(transparent)]
+    RadioLegality(#[from] RadioLegalityError),
+    /// Firmware has not released the selected radio domain from reset and enabled its clocks.
+    #[error("{0} radio domain is clock-gated or held in reset")]
+    RadioNotReady(&'static str),
     /// Firmware architecture does not match this machine.
     #[error("firmware architecture {actual:?} does not match RISC-V target {target}")]
     Architecture {
@@ -176,6 +201,7 @@ pub struct RiscVMachine {
     cpu: RiscVCpu,
     cpu1: RiscVCpu,
     cpu1_active: bool,
+    boot_rom_loaded: bool,
     sio: Option<RpSioHandle>,
     bus: AddressSpace,
     signals: SignalHub,
@@ -205,11 +231,33 @@ pub struct RiscVMachine {
     esp_flash_guard: u32,
     esp_reset_reason: u32,
     esp_flash: Vec<u8>,
+    esp32c6_materialized_mmu: [u32; 256],
+    esp32c6_flash_dirty: bool,
     esp_timer_groups: Vec<EspTimerGroupHandle>,
     esp_c6_plic: Option<EspC6PlicHandle>,
     esp_c6_clint: Option<EspC6ClintHandle>,
     esp_c6_extmem: Option<EspC6ExtmemHandle>,
+    esp_c6_spimem_mmu: Option<EspSpiMemMmuHandle>,
+    esp_c6_spimem_flash: Option<EspSpiMemMmuHandle>,
     esp32c6_peripherals: Option<Esp32c6PeripheralHandles>,
+    radio_medium: Option<RadioMedium>,
+    radio_coexistence: Option<CoexistenceArbiter>,
+    radio_ieee802154_mac: Option<Ieee802154Mac>,
+    radio_wifi: Option<WifiEngine>,
+    radio_ble: Option<BleController>,
+    radio_legality: Option<RadioLegalityValidator>,
+    radio_pending_ieee802154_tx: Vec<(TransmissionId, CoexistenceGrantId, SimTime, Option<u8>)>,
+    radio_pending_ieee802154_ack: Vec<(TransmissionId, CoexistenceGrantId, SimTime)>,
+    radio_pending_ieee802154_cca: Option<SimTime>,
+    radio_pending_native_wifi: Vec<crate::native_wifi::PendingNativeWifiTransmission>,
+    radio_c6_ble_receptions: Vec<radio::PendingNativeBleReception>,
+    radio_c6_ble_completion_anchors: BTreeMap<u32, u32>,
+    radio_c6_ble_schedule_records: Vec<u32>,
+    radio_c6_pending_ble_transmissions: Vec<radio::PendingNativeBleTransmission>,
+    radio_c6_ble_link_sequences: BTreeMap<u32, radio::C6BleLinkSequence>,
+    radio_c6_reset_generations: [u64; 4],
+    radio_coexistence_transmission: Option<(CoexistenceGrantId, TransmissionId)>,
+    radio_event_cursor: usize,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
     pio: Vec<RpPioHandle>,
@@ -256,7 +304,22 @@ impl RiscVMachine {
         let mut esp_c6_plic = None;
         let mut esp_c6_clint = None;
         let mut esp_c6_extmem = None;
+        let mut esp_c6_spimem_mmu = None;
+        let mut esp_c6_spimem_flash = None;
         let mut esp32c6_peripherals = None;
+        let radio_medium = if target == TargetId::Esp32c6 {
+            Some(RadioMedium::new(MediumProfile::default())?)
+        } else {
+            None
+        };
+        let radio_coexistence = (target == TargetId::Esp32c6).then(CoexistenceArbiter::new);
+        let radio_ieee802154_mac = (target == TargetId::Esp32c6).then(Ieee802154Mac::new);
+        let radio_wifi = (target == TargetId::Esp32c6)
+            .then(|| WifiEngine::new(MacAddress([0x02, 0, 0, 0, 0xc6, 1])));
+        let radio_ble = (target == TargetId::Esp32c6)
+            .then(|| BleController::new(BdAddress([1, 0xc6, 0, 0, 0, 0x02]), 0x32c6_5eed));
+        let radio_legality =
+            (target == TargetId::Esp32c6).then(|| RadioLegalityValidator::new(RadioChip::Esp32C6));
         let mut wch_timer = None;
         let mut wch_pfic = None;
         let mut sio = None;
@@ -616,24 +679,12 @@ impl RiscVMachine {
                 let (extmem, extmem_handle) = EspC6Extmem::new("esp32c6.extmem");
                 bus.map_device("esp32c6.extmem", 0x600c_8000, 0x1000, Box::new(extmem))?;
                 esp_c6_extmem = Some(extmem_handle);
-                bus.map_device(
-                    "esp32c6.modem-lpcon",
-                    0x600a_f000,
-                    0x1000,
-                    Box::new(EspAnalogI2c::new("esp32c6.modem-lpcon")),
-                )?;
-                bus.map_device(
-                    "esp32c6.spimem0",
-                    0x6000_2000,
-                    0x1000,
-                    Box::new(EspSpiMem::new("esp32c6.spimem0")),
-                )?;
-                bus.map_device(
-                    "esp32c6.spimem1",
-                    0x6000_3000,
-                    0x1000,
-                    Box::new(EspSpiMem::new("esp32c6.spimem1")),
-                )?;
+                let (spimem0, spimem0_mmu) = EspSpiMem::new_observed("esp32c6.spimem0");
+                bus.map_device("esp32c6.spimem0", 0x6000_2000, 0x1000, Box::new(spimem0))?;
+                esp_c6_spimem_mmu = Some(spimem0_mmu);
+                let (spimem1, spimem1_flash) = EspSpiMem::new_observed("esp32c6.spimem1");
+                bus.map_device("esp32c6.spimem1", 0x6000_3000, 0x1000, Box::new(spimem1))?;
+                esp_c6_spimem_flash = Some(spimem1_flash);
                 let (peripherals, usb_serial_jtag) =
                     map_esp32c6_peripherals(&mut bus, &signals, &mut chip_uarts)?;
                 esp32c6_peripherals = Some(peripherals);
@@ -646,11 +697,14 @@ impl RiscVMachine {
                     bus.map_device(name, base, 0x1000, Box::new(device))?;
                     esp_timer_groups.push(handle);
                 }
-                let (device, handle) = EspGpio::new(
+                // GPIO9 has an internal pull-up on a normal ESP32-C6 reset.
+                // The ROM samples it as strap bit 3 and selects SPI flash boot.
+                let (device, handle) = EspGpio::new_with_strap(
                     "esp32c6.gpio",
                     31,
                     "board.esp32c6.chip_gpio",
                     signals.clone(),
+                    3 << 2,
                 )?;
                 bus.map_device("esp32c6.gpio", 0x6009_1000, 0x1000, Box::new(device))?;
                 chip_gpio.push(handle);
@@ -699,6 +753,7 @@ impl RiscVMachine {
             cpu: RiscVCpu::new(profile.clone())?,
             cpu1: RiscVCpu::new(secondary_profile)?,
             cpu1_active: false,
+            boot_rom_loaded: false,
             sio,
             bus,
             signals,
@@ -728,11 +783,33 @@ impl RiscVMachine {
             esp_flash_guard: 0,
             esp_reset_reason: 1,
             esp_flash: Vec::new(),
+            esp32c6_materialized_mmu: [u32::MAX; 256],
+            esp32c6_flash_dirty: false,
             esp_timer_groups,
             esp_c6_plic,
             esp_c6_clint,
             esp_c6_extmem,
+            esp_c6_spimem_mmu,
+            esp_c6_spimem_flash,
             esp32c6_peripherals,
+            radio_medium,
+            radio_coexistence,
+            radio_ieee802154_mac,
+            radio_wifi,
+            radio_ble,
+            radio_legality,
+            radio_pending_ieee802154_tx: Vec::new(),
+            radio_pending_ieee802154_ack: Vec::new(),
+            radio_pending_ieee802154_cca: None,
+            radio_pending_native_wifi: Vec::new(),
+            radio_c6_ble_receptions: Vec::new(),
+            radio_c6_ble_completion_anchors: BTreeMap::new(),
+            radio_c6_ble_schedule_records: Vec::new(),
+            radio_c6_pending_ble_transmissions: Vec::new(),
+            radio_c6_ble_link_sequences: BTreeMap::new(),
+            radio_c6_reset_generations: [0; 4],
+            radio_coexistence_transmission: None,
+            radio_event_cursor: 0,
             flash_storage,
             chip_timers,
             pio,
@@ -747,743 +824,8 @@ impl RiscVMachine {
             signal_stops: Vec::new(),
         })
     }
-
-    /// Selected target.
-    pub const fn target(&self) -> TargetId {
-        self.target
-    }
-
-    /// Enables or disables completed bus-access recording.
-    pub fn set_access_recording(&mut self, enabled: bool) {
-        self.bus.set_access_recording(enabled);
-    }
-
-    /// Installs or removes a streaming completed-access observer.
-    pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
-        self.bus.set_access_observer(observer);
-    }
-
-    /// Returns completed bus operations when recording is enabled.
-    pub fn access_log(&self) -> &[remu_bus::BusAccessRecord] {
-        self.bus.access_log()
-    }
-
-    /// Stops before executing an instruction at `address`.
-    pub fn add_breakpoint(&mut self, address: u64) {
-        self.breakpoints.insert(address);
-    }
-
-    /// Removes one debugger execution breakpoint.
-    pub fn remove_breakpoint(&mut self, address: u64) {
-        self.breakpoints.remove(&address);
-    }
-
-    /// Returns the current CPU0 snapshot for debugger adapters.
-    pub fn debug_snapshot(&self) -> CpuSnapshot {
-        self.cpu.snapshot()
-    }
-
-    /// Reads guest-visible bytes for a debugger.
-    pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
-        (0..length)
-            .map(|offset| {
-                self.bus
-                    .read(
-                        address.saturating_add(offset as u64),
-                        AccessWidth::Byte,
-                        AccessKind::Read,
-                        self.now,
-                    )
-                    .map(|value| value as u8)
-                    .map_err(|error| error.to_string())
-            })
-            .collect()
-    }
-
-    /// Writes guest-visible bytes for a debugger.
-    pub fn debug_write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), String> {
-        for (offset, byte) in bytes.iter().enumerate() {
-            self.bus
-                .write(
-                    address.saturating_add(offset as u64),
-                    AccessWidth::Byte,
-                    u64::from(*byte),
-                    self.now,
-                )
-                .map_err(|error| error.to_string())?;
-        }
-        Ok(())
-    }
-
-    /// Stops after a completed CPU data access overlaps `address`.
-    pub fn add_watchpoint(&mut self, address: u64) {
-        self.bus.add_watchpoint(address);
-    }
-
-    /// Stops when the named signal satisfies `edge`.
-    pub fn add_signal_stop(&mut self, path: &str, edge: SignalEdge) -> Result<(), MachineError> {
-        self.signal_stops
-            .push(resolve_signal_stop(&self.signals, path, edge)?);
-        Ok(())
-    }
-
-    /// Removes configured user breakpoints and data watchpoints.
-    pub fn clear_debug_stops(&mut self) {
-        self.breakpoints.clear();
-        self.bus.clear_watchpoints();
-        self.signal_stops.clear();
-    }
-
-    /// Runs until a terminal condition and optionally streams signal changes.
-    pub fn run(
-        &mut self,
-        limits: RunLimits,
-        trace: Option<&mut dyn TraceSink>,
-    ) -> Result<RunResult, MachineError> {
-        self.run_with_stimuli(limits, &[], trace)
-    }
-
-    /// Runs with timestamped external GPIO stimulus.
-    pub fn run_with_stimuli(
-        &mut self,
-        limits: RunLimits,
-        stimuli: &[PinStimulus],
-        mut trace: Option<&mut dyn TraceSink>,
-    ) -> Result<RunResult, MachineError> {
-        if limits.instructions.is_none() && limits.deadline.is_none() {
-            return Err(MachineError::MissingRunLimit);
-        }
-
-        let mut digest = TraceDigest::new();
-        self.signals.with_registry(|registry| {
-            digest.begin(registry);
-            if let Some(sink) = trace.as_deref_mut() {
-                sink.begin(registry)
-            } else {
-                Ok(())
-            }
-        })?;
-
-        let mut stats = RunStats {
-            instructions: 0,
-            time: self.now,
-            events: 0,
-        };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
-        self.cpu
-            .set_interrupt(TIMER_INTERRUPT, self.timer.pending())?;
-        let mut timer_was_pending = false;
-        let mut wch_timer_was_pending = false;
-        let mut chip_timer_was_pending = 0_u16;
-        let mut esp_crosscore_was_pending = false;
-        let mut esp_usb_was_pending = false;
-        let mut esp_timer_was_pending = [[false; 2]; 2];
-        let mut native_peripherals_active = self.target != TargetId::Esp32c6
-            || !stimuli.is_empty()
-            || self.stop_on_usb_input_complete
-            || self
-                .bus
-                .take_device_access()
-                .is_some_and(|address| address < TEST_GPIO);
-        let breakpoints_active = !self.breakpoints.is_empty();
-        let watchpoints_active = self.bus.has_watchpoints();
-        let reason = loop {
-            if let Some(sio) = &self.sio {
-                sio.select_core(0);
-            }
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
-                self.set_pin(stimulus.pin, stimulus.value)?;
-                stats.events = stats.events.saturating_add(1);
-                next_stimulus += 1;
-            }
-            if let Some(code) = self.exit.code() {
-                let _ = code;
-                break StopReason::Halted;
-            }
-            if self.stop_on_usb_input_complete
-                && (self
-                    .usb_host
-                    .as_ref()
-                    .is_some_and(Rp2040UsbHost::input_complete)
-                    || self
-                        .esp_usb_serial_jtag
-                        .as_ref()
-                        .is_some_and(EspUsbSerialJtagHandle::input_complete))
-            {
-                break StopReason::HostInputComplete;
-            }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
-            }
-            if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu.pc())) {
-                break StopReason::Breakpoint;
-            }
-            if native_peripherals_active && self.poll_esp32c6_runtime(&mut stats)? {
-                continue;
-            }
-            if native_peripherals_active {
-                stats.events = stats.events.saturating_add(u64::from(
-                    self.esp_usb_serial_jtag
-                        .as_ref()
-                        .is_some_and(|usb| usb.poll(self.now)),
-                ));
-            }
-            if timer_was_pending || self.timer.active() {
-                let timer_pending = self.timer.poll(self.now);
-                if timer_pending && !timer_was_pending {
-                    stats.events = stats.events.saturating_add(1);
-                }
-                timer_was_pending = timer_pending;
-                self.cpu.set_interrupt(TIMER_INTERRUPT, timer_pending)?;
-            }
-            if let (Some(timer), Some(pfic)) = (&self.wch_timer, &self.wch_pfic) {
-                const TIM2_INTERRUPT: u16 = 38;
-                let pending = timer.pending(self.now);
-                pfic.set_pending(TIM2_INTERRUPT, pending);
-                let deliver = pfic.next_pending() == Some(TIM2_INTERRUPT);
-                if deliver && !wch_timer_was_pending {
-                    stats.events = stats.events.saturating_add(1);
-                }
-                wch_timer_was_pending = deliver;
-                self.cpu
-                    .set_qingke_external_interrupt(TIM2_INTERRUPT, deliver)?;
-            }
-            if self.target == TargetId::Rp2350 {
-                let chip_timer_pending =
-                    self.chip_timers
-                        .iter()
-                        .enumerate()
-                        .fold(0_u16, |pending, (timer, handle)| {
-                            pending | (u16::from(handle.pending(self.now)) << (timer * 4))
-                        });
-                stats.events = stats.events.saturating_add(u64::from(
-                    (chip_timer_pending & !chip_timer_was_pending).count_ones(),
-                ));
-                chip_timer_was_pending = chip_timer_pending;
-                for pio in &self.pio {
-                    if pio.poll(self.now)? {
-                        stats.events = stats.events.saturating_add(1);
-                    }
-                }
-                for line in 0..self.chip_timers.len() * 4 {
-                    self.cpu.set_hazard3_external_interrupt(
-                        u16::try_from(line).expect("RP timer IRQ line fits u16"),
-                        chip_timer_pending & (1 << line) != 0,
-                    )?;
-                }
-                if let Some(usb) = &self.usb {
-                    if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
-                        stats.events = stats.events.saturating_add(host.poll(self.now, usb, dpram));
-                    }
-                    self.cpu
-                        .set_hazard3_external_interrupt(14, usb.interrupt_pending())?;
-                }
-            }
-            if self.target == TargetId::Esp32c6 && native_peripherals_active {
-                // ESP-IDF starts the first FreeRTOS task by raising the
-                // FROM_CPU_INTR0 software interrupt. The C6 interrupt matrix
-                // routes source 22 to a local CPU interrupt configured by the
-                // ROM calls retained above.
-                let crosscore_pending = self
-                    .bus
-                    .read(
-                        0x600c_5090,
-                        remu_core::AccessWidth::Word,
-                        remu_core::AccessKind::Read,
-                        self.now,
-                    )
-                    .map_err(MachineError::Bus)?
-                    != 0;
-                if let Some(peripherals) = &self.esp32c6_peripherals {
-                    peripherals
-                        .interrupt_matrix
-                        .set_source(22, crosscore_pending);
-                }
-                let interrupt = self.esp_interrupt_routes.get(&22).copied().unwrap_or(2);
-                let priority = if interrupt < 32 {
-                    self.bus
-                        .read(
-                            u64::from(0x2000_1010_u32 + interrupt * 4),
-                            remu_core::AccessWidth::Word,
-                            remu_core::AccessKind::Read,
-                            self.now,
-                        )
-                        .map_err(MachineError::Bus)? as u32
-                } else {
-                    0
-                };
-                let threshold = self
-                    .bus
-                    .read(
-                        0x2000_1090,
-                        remu_core::AccessWidth::Word,
-                        remu_core::AccessKind::Read,
-                        self.now,
-                    )
-                    .map_err(MachineError::Bus)? as u32;
-                let deliver = crosscore_pending
-                    && self.esp_enabled_interrupts.contains(&interrupt)
-                    && priority >= threshold;
-                if deliver && !esp_crosscore_was_pending {
-                    stats.events = stats.events.saturating_add(1);
-                }
-                esp_crosscore_was_pending = deliver;
-                if interrupt < 32 {
-                    if let Some(plic) = &self.esp_c6_plic {
-                        plic.set_line(interrupt as u8, crosscore_pending);
-                    }
-                    self.cpu.set_interrupt(interrupt as u16, deliver)?;
-                }
-                for (group, handle) in self.esp_timer_groups.iter().enumerate() {
-                    for (timer, pending) in handle.pending(self.now).into_iter().enumerate() {
-                        let source = match (group, timer) {
-                            (0, 0) => 51,
-                            (0, 1) => 52,
-                            (1, 0) => 54,
-                            (1, 1) => 55,
-                            _ => continue,
-                        };
-                        if let Some(peripherals) = &self.esp32c6_peripherals {
-                            peripherals
-                                .interrupt_matrix
-                                .set_source(source as u8, pending);
-                        }
-                        let Some(interrupt) = self.esp_interrupt_routes.get(&source).copied()
-                        else {
-                            continue;
-                        };
-                        let priority = self
-                            .esp_interrupt_priorities
-                            .get(&interrupt)
-                            .copied()
-                            .unwrap_or(0);
-                        let deliver = pending
-                            && self.esp_enabled_interrupts.contains(&interrupt)
-                            && priority >= self.esp_interrupt_threshold;
-                        if deliver && !esp_timer_was_pending[group][timer] {
-                            stats.events = stats.events.saturating_add(1);
-                        }
-                        esp_timer_was_pending[group][timer] = deliver;
-                        if interrupt < 32 {
-                            if let Some(plic) = &self.esp_c6_plic {
-                                plic.set_line(interrupt as u8, pending);
-                            }
-                            self.cpu.set_interrupt(interrupt as u16, deliver)?;
-                        }
-                    }
-                }
-                const SYSTIMER_INT_RAW: u64 = 0x6000_a068;
-                const SYSTIMER_INT_CLR: u64 = 0x6000_a06c;
-                const SYSTIMER_INT_ST: u64 = 0x6000_a070;
-                let clear = self
-                    .bus
-                    .read(
-                        SYSTIMER_INT_CLR,
-                        AccessWidth::Word,
-                        AccessKind::Read,
-                        self.now,
-                    )
-                    .map_err(MachineError::Bus)? as u8;
-                if clear != 0 {
-                    self.esp_systimer_raw &= !clear;
-                    self.bus
-                        .write(SYSTIMER_INT_CLR, AccessWidth::Word, 0, self.now)
-                        .map_err(MachineError::Bus)?;
-                }
-                let counter = self.now.ticks().wrapping_add(self.esp_systimer_offset);
-                for alarm in 0..self.esp_systimer_next.len() {
-                    let due = self.esp_systimer_interrupt_enabled[alarm]
-                        && counter >= self.esp_systimer_next[alarm];
-                    if due {
-                        self.esp_systimer_raw |= 1 << alarm;
-                        let period = self.esp_systimer_periods[alarm];
-                        self.esp_systimer_next[alarm] = if period == 0 {
-                            u64::MAX
-                        } else {
-                            self.esp_systimer_next[alarm].wrapping_add(period)
-                        };
-                    }
-                    let source = 57 + alarm as u32;
-                    if let Some(peripherals) = &self.esp32c6_peripherals {
-                        peripherals
-                            .interrupt_matrix
-                            .set_source(source as u8, self.esp_systimer_raw & (1 << alarm) != 0);
-                    }
-                    let Some(interrupt) = self.esp_interrupt_routes.get(&source).copied() else {
-                        continue;
-                    };
-                    let priority = if interrupt < 32 {
-                        self.bus
-                            .read(
-                                u64::from(0x2000_1010_u32 + interrupt * 4),
-                                remu_core::AccessWidth::Word,
-                                remu_core::AccessKind::Read,
-                                self.now,
-                            )
-                            .map_err(MachineError::Bus)? as u32
-                    } else {
-                        0
-                    };
-                    let threshold = self
-                        .bus
-                        .read(
-                            0x2000_1090,
-                            remu_core::AccessWidth::Word,
-                            remu_core::AccessKind::Read,
-                            self.now,
-                        )
-                        .map_err(MachineError::Bus)? as u32;
-                    let deliver = self.esp_systimer_raw & (1 << alarm) != 0
-                        && self.esp_enabled_interrupts.contains(&interrupt)
-                        && priority >= threshold;
-                    if deliver {
-                        stats.events = stats.events.saturating_add(1);
-                    }
-                    if interrupt < 32 {
-                        if let Some(plic) = &self.esp_c6_plic {
-                            plic.set_line(
-                                interrupt as u8,
-                                self.esp_systimer_raw & (1 << alarm) != 0,
-                            );
-                        }
-                        self.cpu.set_interrupt(interrupt as u16, deliver)?;
-                    }
-                }
-                let enabled_mask = self
-                    .esp_systimer_interrupt_enabled
-                    .iter()
-                    .enumerate()
-                    .fold(0_u8, |mask, (alarm, enabled)| {
-                        mask | (u8::from(*enabled) << alarm)
-                    });
-                self.bus
-                    .write(
-                        SYSTIMER_INT_RAW,
-                        AccessWidth::Word,
-                        u64::from(self.esp_systimer_raw),
-                        self.now,
-                    )
-                    .map_err(MachineError::Bus)?;
-                self.bus
-                    .write(
-                        SYSTIMER_INT_ST,
-                        AccessWidth::Word,
-                        u64::from(self.esp_systimer_raw & enabled_mask),
-                        self.now,
-                    )
-                    .map_err(MachineError::Bus)?;
-                if let Some(usb) = &self.esp_usb_serial_jtag
-                    && let Some(interrupt) = self.esp_interrupt_routes.get(&48).copied()
-                {
-                    if let Some(peripherals) = &self.esp32c6_peripherals {
-                        peripherals
-                            .interrupt_matrix
-                            .set_source(48, usb.interrupt_pending());
-                    }
-                    let priority = if interrupt < 32 {
-                        self.bus
-                            .read(
-                                u64::from(0x2000_1010_u32 + interrupt * 4),
-                                remu_core::AccessWidth::Word,
-                                remu_core::AccessKind::Read,
-                                self.now,
-                            )
-                            .map_err(MachineError::Bus)? as u32
-                    } else {
-                        0
-                    };
-                    let threshold = self
-                        .bus
-                        .read(
-                            0x2000_1090,
-                            remu_core::AccessWidth::Word,
-                            remu_core::AccessKind::Read,
-                            self.now,
-                        )
-                        .map_err(MachineError::Bus)? as u32;
-                    let deliver = usb.interrupt_pending()
-                        && self.esp_enabled_interrupts.contains(&interrupt)
-                        && priority >= threshold;
-                    if deliver && !esp_usb_was_pending {
-                        stats.events = stats.events.saturating_add(1);
-                    }
-                    esp_usb_was_pending = deliver;
-                    if interrupt < 32 {
-                        if let Some(plic) = &self.esp_c6_plic {
-                            plic.set_line(interrupt as u8, usb.interrupt_pending());
-                        }
-                        self.cpu.set_interrupt(interrupt as u16, deliver)?;
-                    }
-                }
-                let clint = self
-                    .esp_c6_clint
-                    .as_ref()
-                    .map_or([false; 4], |clint| clint.pending(self.now));
-                if let (Some(peripherals), Some(plic)) =
-                    (&self.esp32c6_peripherals, &self.esp_c6_plic)
-                {
-                    let pending = peripherals.interrupt_matrix.pending_cpu_interrupts();
-                    plic.set_lines(pending);
-                }
-                let plic_machine = self
-                    .esp_c6_plic
-                    .as_ref()
-                    .map_or(0, |plic| plic.deliverable(false));
-                let plic_user = self
-                    .esp_c6_plic
-                    .as_ref()
-                    .map_or(0, |plic| plic.deliverable(true));
-                let local = u32::from(clint[2])
-                    | (u32::from(clint[0]) << 3)
-                    | (u32::from(clint[3]) << 4)
-                    | (u32::from(clint[1]) << 7);
-                self.cpu
-                    .set_interrupt_mask(local | plic_machine | plic_user);
-            }
-            if watchpoints_active {
-                self.bus.clear_watchpoint_hit();
-            }
-            let service_possible = self.target != TargetId::Esp32c6
-                || Self::esp32c6_functional_service_address(self.cpu.pc());
-            if service_possible {
-                match self.service_functional_bootrom() {
-                    Ok(true) => {
-                        stats.instructions = stats.instructions.saturating_add(1);
-                        self.now = self
-                            .now
-                            .checked_add(remu_core::SimDuration::TICK)
-                            .map_err(|_| MachineError::TimeOverflow)?;
-                        stats.time = self.now;
-                        if self
-                            .bus
-                            .take_device_access()
-                            .is_some_and(|address| address < TEST_GPIO)
-                        {
-                            native_peripherals_active = true;
-                        }
-                        if watchpoints_active && let Some(hit) = self.bus.take_watchpoint_hit() {
-                            break StopReason::Watchpoint {
-                                address: hit.address,
-                                access: hit.kind,
-                            };
-                        }
-                        continue;
-                    }
-                    Ok(false) => {}
-                    Err(message) => break StopReason::Fault(message),
-                }
-            }
-            let instruction_pc = self.cpu.pc();
-            let outcome = match self.cpu.step(&mut self.bus, self.now) {
-                Ok(outcome) => outcome,
-                Err(error) => {
-                    break StopReason::Fault(format!(
-                        "RISC-V CPU fault at PC {instruction_pc:#010x}: {error}"
-                    ));
-                }
-            };
-            stats.instructions = stats.instructions.saturating_add(1);
-            self.now = self
-                .now
-                .checked_add(outcome.elapsed)
-                .map_err(|_| MachineError::TimeOverflow)?;
-            stats.time = self.now;
-            if self
-                .bus
-                .take_device_access()
-                .is_some_and(|address| address < TEST_GPIO)
-            {
-                native_peripherals_active = true;
-            }
-            if native_peripherals_active && let Some(peripherals) = &self.esp32c6_peripherals {
-                stats.events = stats
-                    .events
-                    .saturating_add(peripherals.poll_outputs(self.now)?);
-            }
-
-            if self.signals.has_changes() {
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
-                    break StopReason::Signal(path);
-                }
-            }
-            if watchpoints_active && let Some(hit) = self.bus.take_watchpoint_hit() {
-                break StopReason::Watchpoint {
-                    address: hit.address,
-                    access: hit.kind,
-                };
-            }
-
-            match outcome.reason {
-                StepReason::Advanced | StepReason::WaitForInterrupt => {}
-                StepReason::Halted => break StopReason::Halted,
-                StepReason::Breakpoint => break StopReason::Breakpoint,
-            }
-
-            if let Some(launch) = self.sio.as_ref().and_then(RpSioHandle::take_core1_launch) {
-                if let Err(error) = self.cpu1.set_trap_vector(launch.vector_table) {
-                    break StopReason::Fault(format!("RISC-V hart 1 launch: {error}"));
-                }
-                if let Err(error) = self
-                    .cpu1
-                    .set_register(RiscVRegister::Sp, launch.stack_pointer)
-                {
-                    break StopReason::Fault(format!("RISC-V hart 1 launch: {error}"));
-                }
-                if let Err(error) = self.cpu1.set_register(RiscVRegister::Ra, 0x80) {
-                    break StopReason::Fault(format!("RISC-V hart 1 launch: {error}"));
-                }
-                if let Err(error) = self.cpu1.set_pc(launch.entry) {
-                    break StopReason::Fault(format!("RISC-V hart 1 launch: {error}"));
-                }
-                self.cpu1_active = true;
-                stats.events = stats.events.saturating_add(1);
-            }
-            if self.cpu1_active {
-                if let Some(sio) = &self.sio {
-                    sio.select_core(1);
-                }
-                if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu1.pc())) {
-                    if let Some(sio) = &self.sio {
-                        sio.select_core(0);
-                    }
-                    break StopReason::Breakpoint;
-                }
-                self.bus.clear_watchpoint_hit();
-                std::mem::swap(&mut self.cpu, &mut self.cpu1);
-                let hart1_rom = self.service_functional_bootrom();
-                std::mem::swap(&mut self.cpu, &mut self.cpu1);
-                match hart1_rom {
-                    Ok(true) => {
-                        stats.instructions = stats.instructions.saturating_add(1);
-                        self.now = self
-                            .now
-                            .checked_add(remu_core::SimDuration::TICK)
-                            .map_err(|_| MachineError::TimeOverflow)?;
-                        stats.time = self.now;
-                        if let Some(hit) = self.bus.take_watchpoint_hit() {
-                            if let Some(sio) = &self.sio {
-                                sio.select_core(0);
-                            }
-                            break StopReason::Watchpoint {
-                                address: hit.address,
-                                access: hit.kind,
-                            };
-                        }
-                    }
-                    Ok(false) => {
-                        let instruction_pc = self.cpu1.pc();
-                        let hart1_outcome = match self.cpu1.step(&mut self.bus, self.now) {
-                            Ok(outcome) => outcome,
-                            Err(error) => {
-                                if let Some(sio) = &self.sio {
-                                    sio.select_core(0);
-                                }
-                                break StopReason::Fault(format!(
-                                    "RISC-V hart 1 fault at PC {instruction_pc:#010x}: {error}"
-                                ));
-                            }
-                        };
-                        stats.instructions = stats.instructions.saturating_add(1);
-                        self.now = self
-                            .now
-                            .checked_add(hart1_outcome.elapsed)
-                            .map_err(|_| MachineError::TimeOverflow)?;
-                        stats.time = self.now;
-                        if let Some(hit) = self.bus.take_watchpoint_hit() {
-                            if let Some(sio) = &self.sio {
-                                sio.select_core(0);
-                            }
-                            break StopReason::Watchpoint {
-                                address: hit.address,
-                                access: hit.kind,
-                            };
-                        }
-                        match hart1_outcome.reason {
-                            StepReason::Advanced | StepReason::WaitForInterrupt => {}
-                            StepReason::Halted => self.cpu1_active = false,
-                            StepReason::Breakpoint => {
-                                if let Some(sio) = &self.sio {
-                                    sio.select_core(0);
-                                }
-                                break StopReason::Breakpoint;
-                            }
-                        }
-                    }
-                    Err(message) => {
-                        if let Some(sio) = &self.sio {
-                            sio.select_core(0);
-                        }
-                        break StopReason::Fault(format!("RISC-V hart 1 ROM: {message}"));
-                    }
-                }
-                if let Some(sio) = &self.sio {
-                    sio.select_core(0);
-                }
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
-                    break StopReason::Signal(path);
-                }
-            }
-        };
-
-        if let Some(sink) = trace {
-            sink.finish()?;
-        }
-        Ok(RunResult {
-            target: self.target,
-            reason,
-            stats,
-            cpu: self.cpu.snapshot(),
-            secondary_cpu: self.cpu1_active.then(|| self.cpu1.snapshot()),
-            exit_code: self.exit.code(),
-            uart: {
-                let mut bytes = self.uart.bytes();
-                for uart in &self.chip_uarts {
-                    bytes.extend(uart.bytes());
-                }
-                bytes
-            },
-            usb: self.esp_usb_serial_jtag.as_ref().map_or_else(
-                || {
-                    self.usb_host
-                        .as_ref()
-                        .map_or_else(Vec::new, Rp2040UsbHost::output)
-                },
-                EspUsbSerialJtagHandle::output,
-            ),
-            trace_digest: digest.finish(),
-        })
-    }
 }
+include!("riscv/machine_runtime.rs");
 
 #[cfg(test)]
 mod tests;

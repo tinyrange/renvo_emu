@@ -75,8 +75,71 @@ impl RiscVMachine {
                 self.complete_host_call(0)?;
                 Ok(true)
             }
+            ESP_ROM_PHY_NOOP_STUB => {
+                self.complete_host_call(0)?;
+                Ok(true)
+            }
+            ESP_ROM_PHY_I2C_STABLE_STUB => {
+                self.complete_host_call(91)?;
+                Ok(true)
+            }
             0x4000_0afc => {
                 self.complete_host_call(ESP_ROM_COEX_VERSION)?;
+                Ok(true)
+            }
+            // Coexistence ROM requests are acknowledged here; actual RF-path
+            // ownership is enforced by the shared deterministic arbiter when
+            // each protocol submits work to its controller model.
+            0x4000_0b00..=0x4000_0b48 => {
+                self.complete_host_call(0)?;
+                Ok(true)
+            }
+            0x4000_0b4c | 0x4000_0bd8 => {
+                self.complete_host_call(ESP_ROM_COEX_VERSION)?;
+                Ok(true)
+            }
+            // net80211 mask-ROM routines are represented by the functional
+            // Wi-Fi MAC and deterministic medium.
+            0x4000_0b50..=0x4000_0bd4 => {
+                self.complete_host_call(0)?;
+                Ok(true)
+            }
+            // Packet-processing ROM entries are the hardware-facing half of
+            // the closed Wi-Fi library. Renvo Emulator's functional MAC owns
+            // scheduling, rate choice, queues, and TX/RX completion, so these
+            // published ROM ABI calls are synchronous ordering points. The
+            // first entry is the numeric ROM interface version.
+            0x4000_0bdc..=0x4000_0e54 => {
+                self.complete_host_call(0)?;
+                Ok(true)
+            }
+            // The C6 PHY ROM publishes its retained parameter block through
+            // this accessor. A blank deterministic block selects the full
+            // calibration path without importing proprietary PHY code.
+            0x4000_1104 => {
+                self.complete_host_call(0x4087_fce8)?;
+                Ok(true)
+            }
+            // The functional PHY model owns the calibrated radio state, so
+            // selecting/installing mask-ROM PHY callbacks is an ordering
+            // point rather than a second implementation of the analog PHY.
+            0x4000_1108 => {
+                let mut table = Vec::with_capacity(256);
+                for _ in 0..64 {
+                    table.extend_from_slice(&ESP_ROM_PHY_NOOP_STUB.to_le_bytes());
+                }
+                table[80..84].copy_from_slice(&ESP_ROM_PHY_I2C_STABLE_STUB.to_le_bytes());
+                self.bus
+                    .load(u64::from(ESP_ROM_PHY_FUNCTION_TABLE), &table)
+                    .map_err(|error| error.to_string())?;
+                self.complete_host_call(ESP_ROM_PHY_FUNCTION_TABLE)?;
+                Ok(true)
+            }
+            // The proprietary analog calibration implementation is not
+            // executed. These documented C6 PHY-ROM ABI entries complete
+            // against Renvo Emulator's deterministic functional PHY instead.
+            0x4000_110c..=0x4000_148c => {
+                self.complete_host_call(0)?;
                 Ok(true)
             }
             // ESP32-C6 mask-ROM rtc_get_reset_reason /
@@ -125,6 +188,30 @@ impl RiscVMachine {
             // uart_tx_wait_idle: the functional UART drains immediately.
             0x4000_0078 => {
                 self.complete_host_call(0)?;
+                Ok(true)
+            }
+            // crc32_le(initial, bytes, length). ESP-IDF uses this ROM helper
+            // while initializing radio calibration/NVS state.
+            0x4000_0758 => {
+                let mut crc = self
+                    .cpu
+                    .register(RiscVRegister::A0)
+                    .map_err(|error| error.to_string())?;
+                let input = self
+                    .cpu
+                    .register(RiscVRegister::A1)
+                    .map_err(|error| error.to_string())?;
+                let length = self
+                    .cpu
+                    .register(RiscVRegister::A2)
+                    .map_err(|error| error.to_string())? as usize;
+                for byte in self.read_guest_bytes(input, length)? {
+                    crc ^= u32::from(byte);
+                    for _ in 0..8 {
+                        crc = (crc >> 1) ^ (0xedb8_8320 & 0_u32.wrapping_sub(crc & 1));
+                    }
+                }
+                self.complete_host_call(crc)?;
                 Ok(true)
             }
             0x4000_01e4 => {
@@ -246,6 +333,7 @@ impl RiscVMachine {
             }
             0x4000_0238 => {
                 self.esp_flash.fill(0xff);
+                self.esp32c6_flash_dirty = true;
                 self.complete_host_call(0)?;
                 Ok(true)
             }
@@ -268,6 +356,7 @@ impl RiscVMachine {
                         )
                     })?;
                 self.esp_flash[address..end].fill(0xff);
+                self.esp32c6_flash_dirty = true;
                 self.complete_host_call(0)?;
                 Ok(true)
             }
@@ -327,6 +416,7 @@ impl RiscVMachine {
                 {
                     *current &= requested;
                 }
+                self.esp32c6_flash_dirty = true;
                 self.complete_host_call(0)?;
                 Ok(true)
             }

@@ -237,9 +237,12 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
             }
             _ => {}
         }
-        if arguments.boot_rom.is_some() {
-            return Err("--boot-rom is not used by the ESP mask-ROM image handoff".into());
-        }
+        let boot_rom_path = arguments.boot_rom.as_ref().ok_or_else(|| {
+            format!("{target} native firmware boot requires --boot-rom with the matching real mask-ROM image")
+        })?;
+        let boot_rom_bytes = fs::read(boot_rom_path)?;
+        remu_machines::verify_esp_radio_rom(target, &boot_rom_bytes)?;
+        let boot_rom = FirmwareImage::parse_addressed_sections(&boot_rom_bytes)?;
         let flash = if bytes.starts_with(b"UF2\n") {
             let uf2 = Uf2Image::parse(&bytes)?;
             let payload_length = uf2
@@ -319,6 +322,7 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
         let result = match target {
             TargetId::Esp32c6 => {
                 let mut machine = RiscVMachine::new(target)?;
+                machine.load_boot_rom(&boot_rom)?;
                 machine.set_esp_flash_image(&flash_state);
                 machine.load_esp_application(&image)?;
                 if let Some(payload) = &usb_input {
@@ -339,6 +343,7 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
             }
             TargetId::Esp32s3 => {
                 let mut machine = XtensaMachine::new(target)?;
+                machine.load_boot_rom(&boot_rom)?;
                 machine.set_esp_flash_image(&flash_state);
                 machine.load_esp_application(&image)?;
                 if let Some(payload) = &usb_input {

@@ -1,0 +1,68 @@
+{
+  "schema": "remu.radio-input.v1",
+  "frames": [
+    {
+      "at": 18000000,
+      "protocol": "wifi",
+      "center_khz": 2412000,
+      "bandwidth_khz": 20000,
+      "phy": "wifi-ht20",
+      "bytes": [176, 0, 0, 0, 85, 68, 51, 34, 17, 1, 2, 170, 187, 204, 221, 1, 85, 68, 51, 34, 17, 1, 16, 0, 0, 0, 1, 0, 0, 0],
+      "power_dbm": -40
+    },
+    {
+      "at": 20000000,
+      "protocol": "wifi",
+      "center_khz": 2412000,
+      "bandwidth_khz": 20000,
+      "phy": "wifi-ht20",
+      "bytes": [0, 0, 0, 0, 85, 68, 51, 34, 17, 1, 2, 170, 187, 204, 221, 1, 85, 68, 51, 34, 17, 1, 32, 0, 1, 0, 10, 0, 0, 9, 82, 69, 77, 85, 45, 67, 79, 69, 88, 1, 1, 130],
+      "power_dbm": -40
+    },
+    {
+      "at": 22000000,
+      "protocol": "bluetooth-le",
+      "center_khz": 2480000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [66, 12, 170, 187, 204, 221, 238, 193, 2, 1, 6, 2, 9, 82],
+      "power_dbm": -40
+    },
+    {
+      "at": 23000000,
+      "protocol": "bluetooth-le",
+      "center_khz": 2480000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [66, 12, 170, 187, 204, 221, 238, 193, 2, 1, 6, 2, 9, 82],
+      "power_dbm": -40
+    },
+    {
+      "at": 24000000,
+      "protocol": "bluetooth-le",
+      "center_khz": 2480000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [66, 12, 170, 187, 204, 221, 238, 193, 2, 1, 6, 2, 9, 82],
+      "power_dbm": -40
+    },
+    {
+      "at": 25000000,
+      "protocol": "bluetooth-le",
+      "center_khz": 2480000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [66, 12, 170, 187, 204, 221, 238, 193, 2, 1, 6, 2, 9, 82],
+      "power_dbm": -40
+    },
+    {
+      "at": 26000000,
+      "protocol": "bluetooth-le",
+      "center_khz": 2480000,
+      "bandwidth_khz": 2000,
+      "phy": "ble-1m",
+      "bytes": [66, 12, 170, 187, 204, 221, 238, 193, 2, 1, 6, 2, 9, 82],
+      "power_dbm": -40
+    }
+  ]
+}

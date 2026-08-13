@@ -21,12 +21,17 @@ pub(super) struct DirectAccessOutput {
 }
 
 impl DirectAccessOutput {
-    pub(super) fn new(bus_log: Option<&Path>, coverage: bool) -> io::Result<Self> {
+    pub(super) fn new(
+        bus_log: Option<&Path>,
+        bus_log_regions: &[String],
+        coverage: bool,
+    ) -> io::Result<Self> {
         let bus_log = bus_log.map(create_bus_log).transpose()?;
         let enabled = bus_log.is_some() || coverage;
         Ok(Self {
             state: Rc::new(RefCell::new(DirectAccessState {
                 bus_log,
+                bus_log_regions: bus_log_regions.iter().cloned().collect(),
                 coverage: coverage.then(AccessSummary::default),
             })),
             enabled,
@@ -64,8 +69,10 @@ struct DirectAccessObserver {
 impl BusAccessObserver for DirectAccessObserver {
     fn observe(&mut self, record: &BusAccessRecord) {
         let mut state = self.state.borrow_mut();
-        if let Some(writer) = &mut state.bus_log {
-            writer.record(record);
+        if retain_in_bus_log(&state.bus_log_regions, record) {
+            if let Some(writer) = &mut state.bus_log {
+                writer.record(record);
+            }
         }
         if record.kind == AccessKind::Execute {
             if let Some(coverage) = &mut state.coverage {
@@ -76,8 +83,13 @@ impl BusAccessObserver for DirectAccessObserver {
     }
 }
 
+fn retain_in_bus_log(regions: &BTreeSet<String>, record: &BusAccessRecord) -> bool {
+    regions.is_empty() || regions.contains(&record.region)
+}
+
 struct DirectAccessState {
     bus_log: Option<StreamingAccessLog<BufWriter<File>>>,
+    bus_log_regions: BTreeSet<String>,
     coverage: Option<AccessSummary>,
 }
 
@@ -181,6 +193,15 @@ mod tests {
         }
         stream.finish().unwrap();
         assert_eq!(stream.writer, serde_json::to_vec_pretty(&records).unwrap());
+    }
+
+    #[test]
+    fn bus_log_region_filter_matches_exact_region_names() {
+        let records = records();
+        assert!(retain_in_bus_log(&BTreeSet::new(), &records[0]));
+        let regions = BTreeSet::from(["esp32c6.gpio".to_owned()]);
+        assert!(!retain_in_bus_log(&regions, &records[0]));
+        assert!(retain_in_bus_log(&regions, &records[1]));
     }
 
     #[test]

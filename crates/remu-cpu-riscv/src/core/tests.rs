@@ -110,6 +110,15 @@ fn esp32c6_memory_protection_csrs_persist_and_reset() {
     }
     cpu.write_csr(CSR_ESP_PCCR_MACHINE, 1234).unwrap();
     assert_eq!(cpu.read_csr(CSR_ESP_PCCR_MACHINE).unwrap(), 1234);
+    assert_eq!(cpu.read_csr(CSR_ESP_PCCR_USER).unwrap(), 1234);
+    cpu.write_csr(CSR_ESP_PCCR_USER, 5678).unwrap();
+    assert_eq!(cpu.read_csr(CSR_ESP_PCCR_MACHINE).unwrap(), 5678);
+    cpu.write_csr(CSR_ESP_PCER_USER, 0x55aa).unwrap();
+    cpu.write_csr(CSR_ESP_PCMR_USER, 3).unwrap();
+    assert_eq!(cpu.read_csr(CSR_ESP_PCER_MACHINE).unwrap(), 0x55aa);
+    assert_eq!(cpu.read_csr(CSR_ESP_PCER_USER).unwrap(), 0x55aa);
+    assert_eq!(cpu.read_csr(CSR_ESP_PCMR_MACHINE).unwrap(), 3);
+    assert_eq!(cpu.read_csr(CSR_ESP_PCMR_USER).unwrap(), 3);
 
     cpu.reset(ResetKind::PowerOn, &mut bus).unwrap();
     assert_eq!(cpu.read_csr(CSR_PMPCFG0).unwrap(), 0);
@@ -117,8 +126,11 @@ fn esp32c6_memory_protection_csrs_persist_and_reset() {
     assert_eq!(cpu.read_csr(CSR_PMACFG0).unwrap(), 0);
     assert_eq!(cpu.read_csr(CSR_PMAADDR15).unwrap(), 0);
     assert_eq!(cpu.read_csr(CSR_ESP_PCER_MACHINE).unwrap(), 0);
+    assert_eq!(cpu.read_csr(CSR_ESP_PCER_USER).unwrap(), 0);
     assert_eq!(cpu.read_csr(CSR_ESP_PCMR_MACHINE).unwrap(), 0);
+    assert_eq!(cpu.read_csr(CSR_ESP_PCMR_USER).unwrap(), 0);
     assert_eq!(cpu.read_csr(CSR_ESP_PCCR_MACHINE).unwrap(), 0);
+    assert_eq!(cpu.read_csr(CSR_ESP_PCCR_USER).unwrap(), 0);
 }
 
 #[test]

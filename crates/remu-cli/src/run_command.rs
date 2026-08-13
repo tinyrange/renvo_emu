@@ -37,7 +37,53 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
         .ok_or("one of --elf or --hex is required")?;
     let bytes = fs::read(elf)?;
     let image = FirmwareImage::parse(&bytes)?;
-    validate_esp32c6_boot_image(arguments, target, &image)?;
+    let esp_boot_rom = if let Some(path) = &arguments.boot_rom {
+        let bytes = fs::read(path)?;
+        remu_machines::verify_esp_radio_rom(target, &bytes)?;
+        Some(FirmwareImage::parse_addressed_sections(&bytes)?)
+    } else {
+        None
+    };
+    if esp_boot_rom.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3) {
+        return Err("--boot-rom is supported only with ESP32-C6/ESP32-S3 direct execution".into());
+    }
+    let uses_native_esp_image = arguments.esp_app_image.is_some();
+    let uses_radio = arguments.radio_input.is_some()
+        || arguments.radio_replay.is_some()
+        || arguments.radio_script.is_some()
+        || arguments.agent_script.is_some();
+    if matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
+        && (uses_native_esp_image || uses_radio)
+        && esp_boot_rom.is_none()
+    {
+        return Err(format!(
+            "{target} native/radio execution requires --boot-rom with the matching real mask-ROM image"
+        )
+        .into());
+    }
+    if arguments.radio_replay.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
+    {
+        return Err("--radio-replay is supported only with ESP32-C6/ESP32-S3 execution".into());
+    }
+    if arguments.radio_input.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3) {
+        return Err("--radio-input is supported only with ESP32-C6/ESP32-S3 execution".into());
+    }
+    if arguments.radio_script.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
+    {
+        return Err("--radio-script is supported only with ESP32-C6/ESP32-S3 execution".into());
+    }
+    if arguments.agent_script.is_some() && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3)
+    {
+        return Err("--agent-script is supported only with ESP32-C6/ESP32-S3 execution".into());
+    }
+    if arguments.agent_script.is_some() && arguments.vcd.is_some() {
+        return Err("--agent-script does not yet support a multi-slice --vcd stream".into());
+    }
+    if arguments.agent_script.is_some() && !arguments.pins.is_empty() {
+        return Err("use machine.pin() instead of --pin with --agent-script".into());
+    }
+    let (esp32c6_mmu_page_size, esp32c6_flash_image, esp32c6_boot_image, esp32s3_boot_image) =
+        validate_esp_boot_image(arguments, target, &image)?;
     let limits = RunLimits {
         instructions: Some(arguments.max_instructions),
         deadline: arguments.deadline.map(SimTime::from_ticks),
@@ -47,8 +93,11 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|value| parse_stimulus(value))
         .collect::<Result<Vec<_>, _>>()?;
-    let access_output =
-        DirectAccessOutput::new(arguments.bus_log.as_deref(), arguments.coverage.is_some())?;
+    let access_output = DirectAccessOutput::new(
+        arguments.bus_log.as_deref(),
+        &arguments.bus_log_region,
+        arguments.coverage.is_some(),
+    )?;
     let observer = access_output.observer();
     let result = if let Some(path) = &arguments.vcd {
         let output = File::create(path)?;
@@ -61,6 +110,18 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
             Some(&mut writer),
             DirectRunControl {
                 access_observer: observer.clone(),
+                esp32c6_mmu_page_size,
+                esp32c6_flash_image: esp32c6_flash_image.clone(),
+                esp32c6_boot_image: esp32c6_boot_image.clone(),
+                esp32s3_boot_image: esp32s3_boot_image.clone(),
+                esp_boot_rom: esp_boot_rom.clone(),
+                radio_replay: arguments.radio_replay.as_deref(),
+                radio_input: arguments.radio_input.as_deref(),
+                radio_script: arguments.radio_script.as_deref(),
+                radio_repl: arguments.radio_repl,
+                agent_script: arguments.agent_script.as_deref(),
+                agent_repl: arguments.agent_repl,
+                agent_artifact: arguments.agent_artifact.as_deref(),
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -75,6 +136,18 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
             None,
             DirectRunControl {
                 access_observer: observer,
+                esp32c6_mmu_page_size,
+                esp32c6_flash_image,
+                esp32c6_boot_image,
+                esp32s3_boot_image,
+                esp_boot_rom,
+                radio_replay: arguments.radio_replay.as_deref(),
+                radio_input: arguments.radio_input.as_deref(),
+                radio_script: arguments.radio_script.as_deref(),
+                radio_repl: arguments.radio_repl,
+                agent_script: arguments.agent_script.as_deref(),
+                agent_repl: arguments.agent_repl,
+                agent_artifact: arguments.agent_artifact.as_deref(),
                 breakpoints: &arguments.breakpoint,
                 watchpoints: &arguments.watchpoint,
                 signal_stops: &arguments.signal_stops,
@@ -92,11 +165,19 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
     write_direct_result(arguments, &result)
 }
 
-fn validate_esp32c6_boot_image(
+fn validate_esp_boot_image(
     arguments: &RunArgs,
     target: TargetId,
     elf: &FirmwareImage,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<
+    (
+        Option<u32>,
+        Option<Vec<u8>>,
+        Option<(EspExecutableImage, u32)>,
+        Option<(EspFlashImage, Vec<u8>)>,
+    ),
+    Box<dyn Error>,
+> {
     let Some(path) = &arguments.esp_app_image else {
         if target == TargetId::Esp32c6 {
             eprintln!(
@@ -104,16 +185,38 @@ fn validate_esp32c6_boot_image(
                  pass --esp-app-image to validate an esptool application image"
             );
         }
-        return Ok(());
+        return Ok((None, None, None, None));
     };
-    if target != TargetId::Esp32c6 {
-        return Err("--esp-app-image is supported only with --target esp32c6".into());
+    let bytes = fs::read(path)?;
+    if target == TargetId::Esp32s3 {
+        let flash = EspFlashImage::parse(&bytes).map_err(|error| {
+            format!("ESP32-S3 --esp-app-image must be a merged flash image: {error}")
+        })?;
+        return Ok((None, None, None, Some((flash, bytes))));
     }
-    let application = EspExecutableImage::parse(&fs::read(path)?)?;
-    let partition_offset = u32::try_from(arguments.esp_app_offset.unwrap_or(0x1_0000))
-        .map_err(|_| "--esp-app-offset must fit in 32 bits")?;
+    if target != TargetId::Esp32c6 {
+        return Err("--esp-app-image is supported only with ESP32-C6/ESP32-S3".into());
+    }
+    let (application, partition_offset, flash_image) = match EspFlashImage::parse(&bytes) {
+        Ok(flash) => (
+            flash.application,
+            flash.application_partition.offset,
+            Some(bytes),
+        ),
+        Err(_) => {
+            let application = EspExecutableImage::parse(&bytes)?;
+            let partition_offset = u32::try_from(arguments.esp_app_offset.unwrap_or(0x1_0000))
+                .map_err(|_| "--esp-app-offset must fit in 32 bits")?;
+            (application, partition_offset, None)
+        }
+    };
     RiscVMachine::validate_esp32c6_boot_image(elf, &application, partition_offset)?;
-    Ok(())
+    Ok((
+        Some(RiscVMachine::esp32c6_image_mmu_page_size(&application)?),
+        flash_image,
+        Some((application, partition_offset)),
+        None,
+    ))
 }
 
 fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box<dyn Error>> {
@@ -132,10 +235,25 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
         .iter()
         .map(|value| parse_stimulus(value))
         .collect::<Result<Vec<_>, _>>()?;
-    let access_output =
-        DirectAccessOutput::new(arguments.bus_log.as_deref(), arguments.coverage.is_some())?;
+    let access_output = DirectAccessOutput::new(
+        arguments.bus_log.as_deref(),
+        &arguments.bus_log_region,
+        arguments.coverage.is_some(),
+    )?;
     let control = DirectRunControl {
         access_observer: access_output.observer(),
+        esp32c6_mmu_page_size: None,
+        esp32c6_flash_image: None,
+        esp32c6_boot_image: None,
+        esp32s3_boot_image: None,
+        esp_boot_rom: None,
+        radio_replay: None,
+        radio_input: None,
+        radio_script: None,
+        radio_repl: false,
+        agent_script: None,
+        agent_repl: false,
+        agent_artifact: None,
         breakpoints: &arguments.breakpoint,
         watchpoints: &arguments.watchpoint,
         signal_stops: &arguments.signal_stops,
@@ -228,6 +346,72 @@ fn write_direct_result(arguments: &RunArgs, result: &RunResult) -> Result<(), Bo
         println!("{}", String::from_utf8(json)?);
     }
     Ok(())
+}
+
+pub(super) fn write_agent_artifact(
+    path: &Path,
+    script: &Path,
+    outcome: &AgentScriptOutcome,
+) -> Result<(), Box<dyn Error>> {
+    let artifact = AgentSessionArtifact {
+        schema: "remu.agent-session.v1",
+        result: "pass",
+        script,
+        target: outcome.result.target,
+        value: &outcome.value,
+        run: AgentRunSummary {
+            reason: &outcome.result.reason,
+            stats: outcome.result.stats,
+            cpu: agent_cpu_summary(&outcome.result.cpu),
+            secondary_cpu: outcome.result.secondary_cpu.as_ref().map(agent_cpu_summary),
+            exit_code: outcome.result.exit_code,
+            uart_bytes: outcome.result.uart.len(),
+            usb_bytes: outcome.result.usb.len(),
+            trace_digest: &outcome.result.trace_digest,
+        },
+    };
+    serde_json::to_writer_pretty(File::create(path)?, &artifact)?;
+    Ok(())
+}
+
+fn agent_cpu_summary(cpu: &CpuSnapshot) -> AgentCpuSummary<'_> {
+    AgentCpuSummary {
+        architecture: &cpu.architecture,
+        pc: cpu.pc,
+        waiting: cpu.waiting,
+        halted: cpu.halted,
+    }
+}
+
+#[derive(Serialize)]
+struct AgentSessionArtifact<'a> {
+    schema: &'static str,
+    result: &'static str,
+    script: &'a Path,
+    target: TargetId,
+    value: &'a serde_json::Value,
+    run: AgentRunSummary<'a>,
+}
+
+#[derive(Serialize)]
+struct AgentRunSummary<'a> {
+    reason: &'a StopReason,
+    stats: RunStats,
+    cpu: AgentCpuSummary<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secondary_cpu: Option<AgentCpuSummary<'a>>,
+    exit_code: Option<u32>,
+    uart_bytes: usize,
+    usb_bytes: usize,
+    trace_digest: &'a str,
+}
+
+#[derive(Serialize)]
+struct AgentCpuSummary<'a> {
+    architecture: &'a Architecture,
+    pc: u64,
+    waiting: bool,
+    halted: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -349,6 +533,21 @@ pub(crate) fn run_loaded_recorded(
         FirmwareArchitecture::RiscV32 => {
             let mut machine = RiscVMachine::new(target)?;
             machine.load_firmware(image)?;
+            // Direct handoff setup supplies compatibility data for the
+            // functional ROM. In low-level mode, load the real ROM second so
+            // its immutable code and ROM-owned interface data are authoritative.
+            if let Some(boot_rom) = &control.esp_boot_rom {
+                machine.load_boot_rom(boot_rom)?;
+            }
+            if let Some(page_size) = control.esp32c6_mmu_page_size {
+                machine.configure_esp32c6_mmu_page_size(page_size)?;
+            }
+            if let Some(flash_image) = &control.esp32c6_flash_image {
+                machine.set_esp_flash_image(flash_image);
+            }
+            if let Some((application, partition_offset)) = &control.esp32c6_boot_image {
+                machine.configure_esp32c6_boot_mappings(application, *partition_offset)?;
+            }
             for address in control.breakpoints {
                 machine.add_breakpoint(*address);
             }
@@ -358,8 +557,60 @@ pub(crate) fn run_loaded_recorded(
             for stop in control.signal_stops {
                 machine.add_signal_stop(&stop.path, stop.edge)?;
             }
+            for frame in read_radio_input(control.radio_input)? {
+                let spectrum = remu_radio::Spectrum::new(frame.center_khz, frame.bandwidth_khz);
+                if frame.mpdus.is_empty() {
+                    machine.inject_radio_frame_at(
+                        SimTime::from_ticks(frame.at),
+                        frame.protocol.into(),
+                        spectrum,
+                        frame.phy,
+                        frame.bytes,
+                        frame.power_dbm,
+                    )?;
+                } else {
+                    validate_direct_wifi_ampdu(&frame)?;
+                    machine.inject_wifi_ampdu_at(
+                        SimTime::from_ticks(frame.at),
+                        spectrum,
+                        frame.mpdus,
+                        frame.power_dbm,
+                    )?;
+                }
+            }
+            if let Some(peer) = read_radio_peer(control.radio_script, control.radio_repl)? {
+                machine.set_radio_peer(Box::new(peer))?;
+            }
             machine.set_access_observer(control.access_observer);
+            if let Some(script_path) = control.agent_script {
+                let source = fs::read_to_string(script_path)?;
+                let outcome = evaluate_agent_script(
+                    &script_path.to_string_lossy(),
+                    &source,
+                    AgentMachine::Esp32c6(Box::new(machine)),
+                    control.agent_repl,
+                )?;
+                if let Some(artifact_path) = control.agent_artifact {
+                    write_agent_artifact(artifact_path, script_path, &outcome)?;
+                }
+                if let Some(path) = control.radio_replay {
+                    let AgentMachine::Esp32c6(machine) = &outcome.machine else {
+                        unreachable!("agent driver changed machine architecture")
+                    };
+                    let artifact = machine
+                        .radio_replay_artifact()
+                        .ok_or("ESP32-C6 radio replay artifact is unavailable")?;
+                    write_radio_replay(path, &artifact)?;
+                }
+                return Ok(outcome.result);
+            }
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
+            if let Some(path) = control.radio_replay {
+                let artifact = machine
+                    .radio_replay_artifact()
+                    .ok_or("ESP32-C6 radio replay artifact is unavailable")?;
+                write_radio_replay(path, &artifact)?;
+            }
             Ok(result)
         }
         FirmwareArchitecture::Arm => {
@@ -400,7 +651,14 @@ pub(crate) fn run_loaded_recorded(
         }
         FirmwareArchitecture::Xtensa => {
             let mut machine = XtensaMachine::new(target)?;
+            if let Some(boot_rom) = &control.esp_boot_rom {
+                machine.load_boot_rom(boot_rom)?;
+            }
             machine.load_firmware(image)?;
+            if let Some((flash, bytes)) = &control.esp32s3_boot_image {
+                machine.set_esp_flash_image(bytes);
+                machine.load_esp_application(flash)?;
+            }
             for address in control.breakpoints {
                 machine.add_breakpoint(*address);
             }
@@ -410,8 +668,54 @@ pub(crate) fn run_loaded_recorded(
             for stop in control.signal_stops {
                 machine.add_signal_stop(&stop.path, stop.edge)?;
             }
+            for frame in read_radio_input(control.radio_input)? {
+                let spectrum = remu_radio::Spectrum::new(frame.center_khz, frame.bandwidth_khz);
+                if frame.mpdus.is_empty() {
+                    machine.inject_radio_frame_at(
+                        SimTime::from_ticks(frame.at),
+                        frame.protocol.into(),
+                        spectrum,
+                        frame.phy,
+                        frame.bytes,
+                        frame.power_dbm,
+                    )?;
+                } else {
+                    validate_direct_wifi_ampdu(&frame)?;
+                    machine.inject_wifi_ampdu_at(
+                        SimTime::from_ticks(frame.at),
+                        spectrum,
+                        frame.mpdus,
+                        frame.power_dbm,
+                    )?;
+                }
+            }
+            if let Some(peer) = read_radio_peer(control.radio_script, control.radio_repl)? {
+                machine.set_radio_peer(Box::new(peer));
+            }
             machine.set_access_observer(control.access_observer);
+            if let Some(script_path) = control.agent_script {
+                let source = fs::read_to_string(script_path)?;
+                let outcome = evaluate_agent_script(
+                    &script_path.to_string_lossy(),
+                    &source,
+                    AgentMachine::Esp32s3(Box::new(machine)),
+                    control.agent_repl,
+                )?;
+                if let Some(artifact_path) = control.agent_artifact {
+                    write_agent_artifact(artifact_path, script_path, &outcome)?;
+                }
+                if let Some(path) = control.radio_replay {
+                    let AgentMachine::Esp32s3(machine) = &outcome.machine else {
+                        unreachable!("agent driver changed machine architecture")
+                    };
+                    write_radio_replay(path, &machine.radio_replay_artifact())?;
+                }
+                return Ok(outcome.result);
+            }
             let result = machine.run_with_stimuli(limits, stimuli, trace)?;
+            if let Some(path) = control.radio_replay {
+                write_radio_replay(path, &machine.radio_replay_artifact())?;
+            }
             Ok(result)
         }
         FirmwareArchitecture::Avr8 => {
@@ -452,6 +756,98 @@ pub(crate) fn run_loaded_recorded(
         )
         .into()),
     }
+}
+
+fn write_radio_replay(path: &Path, artifact: &impl Serialize) -> Result<(), Box<dyn Error>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, serde_json::to_vec_pretty(artifact)?)?;
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum DirectRadioProtocol {
+    Wifi,
+    BluetoothLe,
+    Ieee802154,
+}
+
+impl From<DirectRadioProtocol> for remu_radio::RadioProtocol {
+    fn from(value: DirectRadioProtocol) -> Self {
+        match value {
+            DirectRadioProtocol::Wifi => Self::Wifi,
+            DirectRadioProtocol::BluetoothLe => Self::BluetoothLe,
+            DirectRadioProtocol::Ieee802154 => Self::Ieee802154,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectRadioFrame {
+    at: u64,
+    protocol: DirectRadioProtocol,
+    center_khz: u32,
+    bandwidth_khz: u32,
+    phy: String,
+    #[serde(default)]
+    bytes: Vec<u8>,
+    #[serde(default)]
+    mpdus: Vec<Vec<u8>>,
+    power_dbm: i16,
+}
+
+fn validate_direct_wifi_ampdu(frame: &DirectRadioFrame) -> Result<(), Box<dyn Error>> {
+    if frame.protocol != DirectRadioProtocol::Wifi
+        || frame.phy != "wifi-ht20-ampdu"
+        || !frame.bytes.is_empty()
+    {
+        return Err(
+            "aggregate radio input requires protocol=wifi, phy=wifi-ht20-ampdu, and empty bytes"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectRadioInput {
+    schema: String,
+    frames: Vec<DirectRadioFrame>,
+}
+
+fn read_radio_input(path: Option<&Path>) -> Result<Vec<DirectRadioFrame>, Box<dyn Error>> {
+    let Some(path) = path else {
+        return Ok(Vec::new());
+    };
+    let input: DirectRadioInput = serde_json::from_slice(&fs::read(path)?)?;
+    if input.schema != "remu.radio-input.v1" {
+        return Err(format!(
+            "unsupported radio-input schema {:?} in {}",
+            input.schema,
+            path.display()
+        )
+        .into());
+    }
+    Ok(input.frames)
+}
+
+fn read_radio_peer(
+    path: Option<&Path>,
+    interactive: bool,
+) -> Result<Option<StarlarkRadioPeer>, Box<dyn Error>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let source = fs::read_to_string(path)?;
+    Ok(Some(StarlarkRadioPeer::new(
+        &path.to_string_lossy(),
+        &source,
+        interactive,
+    )?))
 }
 
 pub(super) fn parse_stimulus(value: &str) -> Result<PinStimulus, Box<dyn Error>> {
@@ -503,4 +899,46 @@ pub(super) fn parse_signal_stop(value: &str) -> Result<SignalStopArg, String> {
         path: path.to_owned(),
         edge,
     })
+}
+
+#[cfg(test)]
+mod radio_input_tests {
+    use super::*;
+
+    #[test]
+    fn aggregate_input_preserves_mpdu_boundaries_and_defaults_scalar_bytes() {
+        let input: DirectRadioInput = serde_json::from_value(serde_json::json!({
+            "schema": "remu.radio-input.v1",
+            "frames": [{
+                "at": 10,
+                "protocol": "wifi",
+                "center_khz": 2_412_000,
+                "bandwidth_khz": 20_000,
+                "phy": "wifi-ht20-ampdu",
+                "mpdus": [[0x88, 0, 1], [0x88, 0, 2]],
+                "power_dbm": -40
+            }]
+        }))
+        .unwrap();
+        let frame = &input.frames[0];
+        assert!(frame.bytes.is_empty());
+        assert_eq!(frame.mpdus, [[0x88, 0, 1], [0x88, 0, 2]]);
+        validate_direct_wifi_ampdu(frame).unwrap();
+    }
+
+    #[test]
+    fn aggregate_input_rejects_mixed_scalar_payload() {
+        let frame = DirectRadioFrame {
+            at: 10,
+            protocol: DirectRadioProtocol::Wifi,
+            center_khz: 2_412_000,
+            bandwidth_khz: 20_000,
+            phy: "wifi-ht20-ampdu".to_owned(),
+            bytes: vec![1],
+            mpdus: vec![vec![0x88, 0, 1], vec![0x88, 0, 2]],
+            power_dbm: -40,
+        };
+        let error = validate_direct_wifi_ampdu(&frame).unwrap_err();
+        assert!(error.to_string().contains("empty bytes"));
+    }
 }

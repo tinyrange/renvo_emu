@@ -1,0 +1,632 @@
+{
+  "schema": "remu.radio-source-ledger.v1",
+  "policy": {
+    "allowed_code_licenses": [
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "MIT",
+      "Zlib"
+    ],
+    "denied_license_families": [
+      "AGPL",
+      "GPL",
+      "LGPL",
+      "SSPL",
+      "source-available",
+      "unknown"
+    ],
+    "rule": "Read code only after its repository and file license are verified. Record an immutable revision and content digest before using factual observations. Do not copy vendor implementation code."
+  },
+  "sources": [
+    {
+      "id": "renvo-issue-338",
+      "kind": "project-requirement",
+      "url": "https://github.com/tinyrange/renvo_emu/issues/338",
+      "revision": "updated-2026-08-07T13:07:16Z",
+      "content_sha256": "d8af3a1e9856b465f7756e96e359d0f7579696d52fd24d97c3aa187b0917534a",
+      "use": "Project-owned scope and acceptance criteria"
+    },
+    {
+      "id": "esp-idf-license",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/LICENSE",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "use": "Pre-read repository license gate for ESP-IDF v6.0.2"
+    },
+    {
+      "id": "esp-idf-c6-register-bases",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/reg_base.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "c7149e5147c1ff30f8950aeaad88d58b3fff6123ad52af20a1c86f13e0e94160",
+      "use": "ESP32-C6 public peripheral base addresses"
+    },
+    {
+      "id": "esp-idf-c6-pcr-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/pcr_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "8972e97ee3629b97db85b4b41b11e2223d4429ec0b2f154a4a5bafa42f8eed21",
+      "use": "ESP32-C6 PCR clock selection, divider, crystal-frequency, and reset fields"
+    },
+    {
+      "id": "esp-idf-c6-extmem-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/extmem_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "1894ef8380456fc1bced46da9fe0f5026c97924ed46d1ba75fcd63a6e62f49c8",
+      "use": "ESP32-C6 cache autoload reset, status, and writable-field contract"
+    },
+    {
+      "id": "esp-idf-c6-lp-clkrst-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/lp_clkrst_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "2a778d6def05ecdf326b68b386f92507c800dd6bedd2c767a5c3d31d35b852e3",
+      "use": "ESP32-C6 reset-cause register offsets, causes, flags, and reset defaults"
+    },
+    {
+      "id": "esp-idf-c6-gpio-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/gpio_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "cdfd68565fd88be714a14748d02395acf5fbe98261568460a442a76aafe574b0",
+      "use": "ESP32-C6 GPIO strap-register address used by the mask-ROM boot-mode decision"
+    },
+    {
+      "id": "esp-idf-c6-spimem-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/spi_mem_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "8522e90bff59750812fb218319f4d7781bc55e71baab228c12b39307361515f4",
+      "use": "ESP32-C6 SPI-memory idle FIFO, user-command framing, data window, and indirect cache-MMU registers"
+    },
+    {
+      "id": "esp-idf-c6-aes-low-level",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hal_security/esp32c6/include/hal/aes_ll.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "8784cef20453a41ccc53e6a73d70b91e548441d3c557f1b311b6c8a2e984f786",
+      "use": "ESP32-C6 AES state values, non-DMA trigger, key, block, and output register contract"
+    },
+    {
+      "id": "esp-idf-c6-aes-hal",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hal_security/aes_hal.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "f349ff83d948ef0faa1870c0384dd2c648adaa5f4590d91756526a902d433ca5",
+      "use": "Vendor distinction between non-DMA AES idle completion and DMA done completion"
+    },
+    {
+      "id": "esp-idf-psa-its",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/mbedtls/port/psa_crypto_storage/esp_psa_its.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "b92cc04b45ac47ef1f710a1ba51979f083d3085e987b7f43daec7d61a42e1911",
+      "use": "ESP-IDF PSA persistent-key storage over NVS erase, program, read, and commit workflows"
+    },
+    {
+      "id": "esp-idf-c6-sha-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/sha_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "397facf8d310a575f10576e33902c536f40504ea1a6af279a8787467d53b6bab",
+      "use": "ESP32-C6 SHA mode, start/continue, busy, digest-state, and message-block registers"
+    },
+    {
+      "id": "esp-idf-c6-sha-low-level",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hal_security/esp32c6/include/hal/sha_ll.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "672d3b6edb601f800fbb5999490d1614c7e73616051258939e3bd2df22636b00",
+      "use": "Pinned vendor interpretation of SHA block start, continuation, message loading, and digest-state resume"
+    },
+    {
+      "id": "esp-idf-c6-lp-wdt-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/lp_wdt_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "f22073cf306696c84e9982192303b349050866e49e04a3c2a954b3ce93a1be6f",
+      "use": "ESP32-C6 low-power watchdog configuration, slow-clock holds, actions, feed, and protection contract"
+    },
+    {
+      "id": "esp-idf-c6-timer-group-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/timer_group_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "cd796b0e8280b68060d8e3dfb0e0f2f55c74067a447f29439be1245cbb78adfb",
+      "use": "ESP32-C6 main-watchdog source-clock prescaler and stage-hold register contract"
+    },
+    {
+      "id": "esp-idf-c6-systimer-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/systimer_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "39b95cb7d46cc1377415c370a2c7044cae4caf91856dbdf46e913a82789a78a0",
+      "use": "ESP32-C6 system-timer target comparators, work enable, periodic mode, and interrupt raw/status/clear registers"
+    },
+    {
+      "id": "esp-idf-bootloader-watchdog",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/bootloader_support/src/bootloader_init.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "172800d28c89042b4ce101ec17a6625dabd2f5ec17921394ee6f5f2c774cefcd",
+      "use": "Pinned ESP-IDF bootloader conversion of watchdog timeouts into RTC slow-clock ticks"
+    },
+    {
+      "id": "esp-idf-c6-low-power-csrs",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hw_support/lowpower/port/esp32c6/sleep_cpu.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "98f205903d1e433a904aa190dfb1b79019578311e05821601d657f221ebd5264",
+      "use": "ESP32-C6 user-visible performance-counter enable, mode, and counter CSR aliases"
+    },
+    {
+      "id": "esp-idf-c6-spimem-flash-low-level",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hal_mspi/esp32c6/include/hal/spimem_flash_ll.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "89886d6e81e684f76316bd7e612a0bee0d991b1dc335bd6d6d88726c405de922",
+      "use": "ESP32-C6 vendor startup interpretation of PCR MSPI source-clock fields"
+    },
+    {
+      "id": "esp-idf-cpu-start",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_system/port/cpu_start.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "a2eba91e3cb6465abb3f8216e58c3a0ad3d5cb02096cb67439348b2f4d88cbab",
+      "use": "Unmodified ESP-IDF direct-application startup and initialization acceptance path"
+    },
+    {
+      "id": "esp-idf-app-description",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_app_format/include/esp_app_desc.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "ab1a97ec7bf48c4c0a40cec748f66c37c20b8c0bb4f35478f2a7d86b5234acc9",
+      "use": "ESP-IDF application descriptor MMU page-size handoff field"
+    },
+    {
+      "id": "esp-idf-c6-mmu-low-level",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/hal/esp32c6/include/hal/mmu_ll.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "e76f242c7ef3324e259ceb5ce70b1aba34419f76900736b2d4b890b8ab7b855e",
+      "use": "ESP32-C6 MMU page-size encoding and supported sizes"
+    },
+    {
+      "id": "esp-idf-mmu-hal",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/hal/mmu_hal.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "8fb1e2d017557a093a1fcc5add97d8d74cb195147adf2ae0efb6e5505686573f",
+      "use": "Vendor MMU dynamic-mapping alignment and page-count acceptance behavior"
+    },
+    {
+      "id": "esp-idf-c6-modem-register-bases",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/include/modem/reg_base.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "83bf8450e9825cedbf901a0be63dad03be9ff27c49663c3b02e724f1c6c517ef",
+      "use": "ESP32-C6 MODEM_SYSCON and MODEM_LPCON public base addresses"
+    },
+    {
+      "id": "esp-idf-c6-modem-syscon-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/include/modem/modem_syscon_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "7e08b6db172a81c665c70f0b3dafb85df04a5661c17b1acb0af6df67bdf719e7",
+      "use": "ESP32-C6 modem clock, reset, power-state, and security register fields"
+    },
+    {
+      "id": "esp-idf-c6-modem-lpcon-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/include/modem/modem_lpcon_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "22153f97481d511f747cf99a38fee5178c9a5b92a9dd6e5b1a0f61f38ef7b86b",
+      "use": "ESP32-C6 low-power modem clock, reset, and status register fields"
+    },
+    {
+      "id": "esp-idf-c6-modem-syscon-low-level-api",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/hal/esp32c6/include/hal/modem_syscon_ll.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "59277116c2f3eaa7aefc2fc50902ea1c2d6f9c0ad6f634dcabce4a021bfc02c3",
+      "use": "Public ESP32-C6 IEEE 802.15.4 and modem-security clock programming sequence"
+    },
+    {
+      "id": "esp-idf-c6-ieee802154-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/ieee802154_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "2d19c130356367a268b74652a116fc687092900ac05e5665ca5c7cf99596883e",
+      "use": "ESP32-C6 IEEE 802.15.4 public MAC register contract"
+    },
+    {
+      "id": "esp-idf-c6-ieee802154-register-layout",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/register/soc/ieee802154_struct.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "6e733572226f014dcbac8a5a3ca9c1040af60b5c0ba6671e76b88090f5334a27",
+      "use": "ESP32-C6 IEEE 802.15.4 register layout and bitfield contract"
+    },
+    {
+      "id": "esp-idf-c6-ieee802154-low-level-api",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hal_ieee802154/esp32c6/include/hal/ieee802154_ll.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "34ffda943f3e23c76d03c5c083cd639217b92524dbbab9b0af3ebbdedcc69378",
+      "use": "Public ESP32-C6 command, event, DMA, filter, timing, and security programming contract"
+    },
+    {
+      "id": "esp-idf-ieee802154-common-low-level-api",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_hal_ieee802154/include/hal/ieee802154_common_ll.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "26d217deb2a8e0669b4d68841e9a5eaa227854c6cedb28fce891d261ad93dbde",
+      "use": "Public IEEE 802.15.4 command, event, DMA, filter, timing, and security programming contract"
+    },
+    {
+      "id": "esp-idf-ieee802154-security-driver",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/ieee802154/driver/esp_ieee802154_sec.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "c4f4cd4158fa8cde2c846ef52771ab3bf8b6858178de0082c55ff5fca2301918",
+      "use": "Public ESP-IDF security-offset, nonce, key, and transmit programming sequence"
+    },
+    {
+      "id": "esp-idf-ieee802154-frame-driver",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/ieee802154/driver/esp_ieee802154_frame.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "af84dc5dcc04d1ee20fd2f686ebc7220793791c7eb50bfd41107727a58d2df3d",
+      "use": "Public ESP-IDF IEEE 802.15.4 header and auxiliary security offset rules"
+    },
+    {
+      "id": "esp-idf-ieee802154-device-driver",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/ieee802154/driver/esp_ieee802154_dev.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "c1e59f3c2224ead6ee203ad0178cd126b848c503604c29fcf830cd33161f972c",
+      "use": "Public vendor TX/RX/ED ISR lifecycle and native RX DMA RSSI/LQI replacement contract"
+    },
+    {
+      "id": "esp-idf-ieee802154-utility-driver",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/ieee802154/driver/esp_ieee802154_util.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "b9eeed6e71a9bdc7b3be457a705f3d57b92f286bb5bea1911e17fecc0d95dad4",
+      "use": "Public vendor IEEE channel-to-native-frequency encoding"
+    },
+    {
+      "id": "esp-idf-ieee802154-public-api",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/ieee802154/include/esp_ieee802154.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "ceed75f557a896c09e722acacafb35ab3993335378c47526e18e89084c438ef3",
+      "use": "Public vendor callback context, frame layout, hardware-generated transmit FCS, PHY-length, and receive-buffer ownership contract"
+    },
+    {
+      "id": "esp-idf-openthread-radio-port",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/openthread/src/port/esp_openthread_radio.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "f64178b872369df08578eefff27b4b7ba6a7cf600af9d081e7de67d9adabfefa",
+      "use": "OpenThread native-radio frame, transmit-security key/counter handoff, error mapping, energy scan, source matching, and sleep/wake boundary"
+    },
+    {
+      "id": "esp-idf-openthread-full-stack",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/openthread/src/esp_openthread.cpp",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "8550838948d3a27aa0f3d4eb03c01db9f55ccbfce7aece0e6e9b1bd8e3f74f6d",
+      "use": "ESP-IDF full OpenThread initialization, FTD task, platform mainloop, and public start boundary"
+    },
+    {
+      "id": "espressif-openthread-license",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/openthread/a98813b30ae58f9a95ece680b9cc46c3874de6ea/LICENSE",
+      "repository": "https://github.com/espressif/openthread",
+      "revision": "a98813b30ae58f9a95ece680b9cc46c3874de6ea",
+      "license": "BSD-3-Clause",
+      "content_sha256": "e164182fc3e6378533ba706800087469a14dcd5913ee55e2e8ae3fb14f3cdbbb",
+      "use": "Pre-read license gate for the pinned full OpenThread FTD and CLI implementation"
+    },
+    {
+      "id": "esp-zigbee-sdk-radio-api-2.0.3",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-zigbee-sdk/d893459a9ed8ccb29721e292fc06b7a094c72d80/components/esp-zigbee-lib/include/ezbee/platform/radio.h",
+      "repository": "https://github.com/espressif/esp-zigbee-sdk",
+      "revision": "d893459a9ed8ccb29721e292fc06b7a094c72d80",
+      "license": "Apache-2.0",
+      "content_sha256": "b027b27cb4d0ebe9538ec73ad53968e49ac1d35e4d7da8d2a637e610c40d78bb",
+      "use": "ESP Zigbee 2.0.3 native-radio frame, PHY-length, FCS, CCA, retry, and callback contract without the retired ZBOSS dependency"
+    },
+    {
+      "id": "esp-idf-c6-interrupts",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32c6/include/soc/interrupts.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "9f3e7f87728386b58cc377f423b78b97b1f8427248394c88780aeda4082ee44c",
+      "use": "ESP32-C6 public radio interrupt source inventory"
+    },
+    {
+      "id": "esp-idf-s3-register-bases",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32s3/register/soc/reg_base.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "802685ed7862544287fa1abf87e4864220d4a086f72f6636dde9ee555d297f66",
+      "use": "ESP32-S3 candidate radio bases; disputed mappings remain quarantined"
+    },
+    {
+      "id": "esp-idf-s3-system-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32s3/register/soc/system_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "83439de5edf634caa160c8ca925cc0867f04faa9b01ac3ef5d7970bba2ac6f3c",
+      "use": "ESP32-S3 top-level peripheral clock/reset context"
+    },
+    {
+      "id": "esp-idf-s3-syscon-registers",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32s3/register/soc/syscon_reg.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "e7308c331bd0930ebba313df8c169ca44d660ec3a009f8606adb7fd485866209",
+      "use": "ESP32-S3 published Wi-Fi/BLE clock, reset, baseband, and frontend-memory control fields"
+    },
+    {
+      "id": "esp-idf-s3-interrupts",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/soc/esp32s3/include/soc/interrupts.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "eebd270b70b53305ab3f158917949dfdda423375cd93d952a024ab372bbd9434",
+      "use": "ESP32-S3 public radio interrupt source inventory"
+    },
+    {
+      "id": "esp-rom-elfs-20260528",
+      "kind": "code",
+      "url": "https://github.com/espressif/esp-rom-elfs/releases/download/20260528/esp-rom-elfs-20260528.tar.gz",
+      "repository": "https://github.com/espressif/esp-rom-elfs",
+      "revision": "37b4a88f50e151f1b9e0d6c5409471035ea0ea37",
+      "license": "Apache-2.0",
+      "content_sha256": "caa463d3cbef2430a5a35847c1d9f2f152403b17a802050927ff60c8da54fe46",
+      "use": "Executable ESP32-C6 rev0 and ESP32-S3 rev0 mask-ROM bytes; symbols are offline reverse-engineering labels only"
+    },
+    {
+      "id": "esp-phy-lib-license",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-phy-lib/59c1234e929212aec0fdda75769b759951235536/LICENSE",
+      "repository": "https://github.com/espressif/esp-phy-lib",
+      "revision": "59c1234e929212aec0fdda75769b759951235536",
+      "license": "Apache-2.0",
+      "content_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "use": "Pre-read repository license gate for the ESP-IDF v6.0.2 PHY object libraries"
+    },
+    {
+      "id": "esp-phy-lib-c6-phy",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-phy-lib/59c1234e929212aec0fdda75769b759951235536/esp32c6/libphy.a",
+      "repository": "https://github.com/espressif/esp-phy-lib",
+      "revision": "59c1234e929212aec0fdda75769b759951235536",
+      "license": "Apache-2.0",
+      "content_sha256": "fdba95c59c03560620c399f43a72a16230a8ab6fced172f3103ac6a29c36f43a",
+      "use": "ESP32-C6 vendor PHY archive used only for offline register-protocol reconstruction"
+    },
+    {
+      "id": "esp-phy-lib-s3-phy",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-phy-lib/59c1234e929212aec0fdda75769b759951235536/esp32s3/libphy.a",
+      "repository": "https://github.com/espressif/esp-phy-lib",
+      "revision": "59c1234e929212aec0fdda75769b759951235536",
+      "license": "Apache-2.0",
+      "content_sha256": "038ac2bc37dc297e295811bc095d2b360a49aa0dddaa51ccb4b60ce2d1b2b73f",
+      "use": "ESP32-S3 vendor PHY archive used only for offline register-protocol reconstruction"
+    },
+    {
+      "id": "esp32-wifi-lib-license",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/LICENSE",
+      "repository": "https://github.com/espressif/esp32-wifi-lib",
+      "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
+      "license": "Apache-2.0",
+      "content_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "use": "Pre-read repository license gate for ESP-IDF v6.0.2 RF object libraries"
+    },
+    {
+      "id": "esp-idf-wifi-public-api",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_wifi/include/esp_wifi.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "3e65f83a899ed2e0b29a6e2e251d5946ca96d25c15fe4fc1fc077ef3d009610c",
+      "use": "Public Wi-Fi protocol configuration and query API used by the genuine C6 HE qualification probe"
+    },
+    {
+      "id": "esp-idf-wifi-public-types",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/esp_wifi/include/esp_wifi_types_generic.h",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "Apache-2.0",
+      "content_sha256": "a7fa0cd42cc347fd05abc1d33d5781baf87d3dd00d6778329249e8a4438b9654",
+      "use": "Pinned public 802.11ax protocol bit and station PHY-mode definitions for C6 HE acceptance"
+    },
+    {
+      "id": "esp-idf-wpa-supplicant-license",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/wpa_supplicant/README",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "BSD-3-Clause",
+      "content_sha256": "17ccbcf4b17a910795292fb4a95f4742d2ecda37d06fcf20d60ffbd70cfbc609",
+      "use": "Pre-read license gate for the pinned wpa_supplicant CCMP framing reference"
+    },
+    {
+      "id": "esp-idf-wpa-supplicant-ccmp",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/components/wpa_supplicant/src/crypto/ccmp.c",
+      "repository": "https://github.com/espressif/esp-idf",
+      "revision": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+      "license": "BSD-3-Clause",
+      "content_sha256": "01296aa4c5b571fb003949b6da84d233b4c88b1b0c7beb2a896e860a6a680222",
+      "use": "CCMP header, AAD, nonce, PN byte order, eight-byte MIC, QoS priority, address-four, and protected-frame format used to qualify the original native AES-CCM implementation"
+    },
+    {
+      "id": "esp32-wifi-lib-readme",
+      "kind": "documentation",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/README.rst",
+      "repository": "https://github.com/espressif/esp32-wifi-lib",
+      "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
+      "license": "Apache-2.0",
+      "content_sha256": "022e8b5b4aef443c7284f09ad3b5f78db534b42c7d018bc19c274b8af01cf46e",
+      "use": "Object-library chip inventory and published version/link metadata only"
+    },
+    {
+      "id": "esp32-wifi-lib-c6-net80211",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/esp32c6/libnet80211.a",
+      "repository": "https://github.com/espressif/esp32-wifi-lib",
+      "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
+      "license": "Apache-2.0",
+      "content_sha256": "f7119149957cac6057a8fb5fc351691df571a26d50540a769040c95e9bbb438f",
+      "use": "ESP32-C6 vendor Wi-Fi MAC archive offline disassembly: native TX completion and RTS/CTS response dispatch; eight descending RX block-ACK session slots, peer/TID keys, 12-bit sequence origin and 64-bit bitmap; TX BA status/start at 0x600a54dc-q*0x74, bitmap at 0x600a54d8/0x600a54d4-q*0x74, and successful-MPDU count at 0x600a54e8-q*0x74; status 0 success/status 1 RTS-error/status 2 CTS-timeout/status 4 transmit-error/status 5 ACK-timeout dispatch; and firmware-owned retry/resort/resubmission"
+    },
+    {
+      "id": "esp32-wifi-lib-c6-pp",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/esp32c6/libpp.a",
+      "repository": "https://github.com/espressif/esp32-wifi-lib",
+      "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
+      "license": "Apache-2.0",
+      "content_sha256": "f1d14663e35e25c4ac6df793e361bbef24049ac3004e5cd4be145dcc7c7bd19d",
+      "use": "ESP32-C6 vendor Wi-Fi PHY/protocol archive offline disassembly: native crypto valid bitmap at 0x600a4814, 32-entry table at 0x600a5800 with 40-byte stride, ten-word clear/zeroization sequence, and firmware-emitted control classes 3, 6, and 7; four TSF target/control pairs at 0x600ad074..0x600ad090, power interrupt enable/raw/status/W1C at 0x600ad0a8..0x600ad0b4, TSF latch at 0x600ad014/0x600ad020, and firmware timer-enable ordering; mac_tx_set_plcp0 descriptor-bit-8 RTS request, hal_he_set_tx_protection queue register 0x600a4d60-q*0x10 bit 31, firmware-owned ppTxFragmentProc fragmentation, ppAdd2AMPDUTail/ppSubFromAMPDU/ppAssembleAMPDU descriptor-word-two aggregate linkage, and lmacTxFrame/lmacRetryTxFrame/lmacDisableTransmit/lmacStopTransmit tests and updates establishing that the internal word contributes a low 12-bit DMA length while upper bits 16, 17, 19, 22, 24, 29 and others are independently inspected guest-LMAC-private state rather than MAC frame-type or hardware-legality flags; genuine C6 firmware emits combinations including 0x00030000, 0x00050000, and 0x01080000"
+    },
+    {
+      "id": "esp32-wifi-lib-s3-net80211",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/esp32s3/libnet80211.a",
+      "repository": "https://github.com/espressif/esp32-wifi-lib",
+      "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
+      "license": "Apache-2.0",
+      "content_sha256": "cdb95973284cea46a7742224662a0cdc3f4c07dbca769012960d0218c8d2856d",
+      "use": "ESP32-S3 vendor Wi-Fi MAC archive offline disassembly: native TX completion and RTS/CTS response dispatch; eight descending RX block-ACK session slots, peer/TID keys, 12-bit sequence origin and 64-bit bitmap; TX BA status/start at 0x60034334-q*0x4c, bitmap at 0x60034328/0x60034324-q*0x4c, and count/status at 0x60034320-q*0x4c; status 0 success/status 1 RTS-error/status 2 CTS-timeout/status 4 transmit-error/status 5 ACK-timeout dispatch; and firmware-owned retry/resort/resubmission"
+    },
+    {
+      "id": "esp32-wifi-lib-s3-pp",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/esp32s3/libpp.a",
+      "repository": "https://github.com/espressif/esp32-wifi-lib",
+      "revision": "bb69e7e609c9a9a909ddd1ed175f36df2bd13801",
+      "license": "Apache-2.0",
+      "content_sha256": "f82e51e2a788dba351e4f9dd407c07ce32aee33a3f3215832796386b21c3c5f1",
+      "use": "ESP32-S3 vendor Wi-Fi PHY/protocol archive offline disassembly: native crypto valid bitmap at 0x60033814, 32-entry table at 0x60034400 with 40-byte stride, ten-word clear/zeroization sequence, and firmware-emitted control classes 3, 6, and 7; mac_tx_set_plcp0 descriptor-bit-8 RTS request mapped to queue control 0x60033d08-q*8 bit 27; firmware-owned ppTxFragmentProc fragmentation; ppAdd2AMPDUTail/ppAssembleAMPDU descriptor-word-two aggregate linkage; and ppAMPDU2Normal clearing descriptor bit 29, subtracting eight from the DMA length, and advancing the payload pointer by eight, matching the genuine one-MPDU hardware A-MPDU records"
+    },
+    {
+      "id": "esp32c3-bt-lib-license",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp32c3-bt-lib/0a08c4b32f3666003080b662a1a61794da24ff0f/LICENSE",
+      "repository": "https://github.com/espressif/esp32c3-bt-lib",
+      "revision": "0a08c4b32f3666003080b662a1a61794da24ff0f",
+      "license": "Apache-2.0",
+      "content_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "use": "Pre-read repository license gate for the ESP-IDF v6.0.2 ESP32-S3 BLE controller archive"
+    },
+    {
+      "id": "esp32c3-bt-lib-s3-controller",
+      "kind": "code",
+      "url": "https://raw.githubusercontent.com/espressif/esp32c3-bt-lib/0a08c4b32f3666003080b662a1a61794da24ff0f/esp32s3/libbtdm_app.a",
+      "repository": "https://github.com/espressif/esp32c3-bt-lib",
+      "revision": "0a08c4b32f3666003080b662a1a61794da24ff0f",
+      "license": "Apache-2.0",
+      "content_sha256": "513488f088f7806c5a815580fd00e189265962a8824091b1e60618b7f345d0c1",
+      "use": "ESP32-S3 vendor BLE controller archive used only for offline hardware-contract reconstruction"
+    }
+  ]
+}

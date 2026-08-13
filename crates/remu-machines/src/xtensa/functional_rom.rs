@@ -1,6 +1,9 @@
 use super::*;
 
 impl XtensaMachine {
+    const PP_POST_QUEUE_RETURN: u32 = 0x3ff1_c004;
+    const PP_POST_QUEUE_ITEM: u32 = 0x3ff1_d100;
+
     fn complete_functional_rom_call(&mut self, result: u32) -> Result<(), String> {
         self.cpu
             .complete_functional_call(result)
@@ -50,6 +53,73 @@ impl XtensaMachine {
         Ok(bytes)
     }
 
+    fn read_guest_u32(&mut self, address: u32) -> Result<u32, String> {
+        self.bus
+            .read(
+                u64::from(address),
+                AccessWidth::Word,
+                AccessKind::Read,
+                self.now,
+            )
+            .map(|value| value as u32)
+            .map_err(|error| error.to_string())
+    }
+
+    fn read_guest_u8(&mut self, address: u32) -> Result<u8, String> {
+        self.read_guest_bytes(address, 1)
+            .map(|bytes| bytes.into_iter().next().unwrap_or_default())
+    }
+
+    fn read_guest_u16(&mut self, address: u32) -> Result<u16, String> {
+        let bytes = self.read_guest_bytes(address, 2)?;
+        Ok(u16::from_le_bytes(
+            bytes.try_into().expect("two bytes were requested"),
+        ))
+    }
+
+    fn write_guest_u16(&mut self, address: u32, value: u16) -> Result<(), String> {
+        self.write_guest_bytes(address, &value.to_le_bytes())
+    }
+
+    fn pp_rate_timing(&mut self, rate: u8, payload_bits: u64) -> Result<(u16, u16), String> {
+        const OUR_CONTROLS: u32 = 0x3fce_f1ac;
+        let multiplier =
+            u64::from(self.read_guest_u32(OUR_CONTROLS.wrapping_add(u32::from(rate) * 8))?);
+        let (base, overhead, aligned) = if rate == 41 || rate == 42 {
+            (16_u16, 288_u16, true)
+        } else if rate < 5 {
+            (10, 192, false)
+        } else if rate < 8 {
+            (10, 96, false)
+        } else if rate <= 15 {
+            (16, 20, true)
+        } else {
+            (16, 36, true)
+        };
+        let duration = multiplier
+            .saturating_mul(payload_bits)
+            .saturating_add(0x3ffff)
+            >> 18;
+        let duration = if aligned {
+            duration.saturating_add(3) & !3
+        } else {
+            duration
+        };
+        Ok((base, overhead.wrapping_add(duration as u16)))
+    }
+
+    fn pp_block_ack_time(&mut self, rate: u8) -> Result<u16, String> {
+        const OUR_CONTROLS: u32 = 0x3fce_f1ac;
+        let control_rate = self.read_guest_u8(
+            OUR_CONTROLS
+                .wrapping_add(u32::from(rate) * 8)
+                .wrapping_add(6),
+        )?;
+        let (base, duration) =
+            self.pp_rate_timing(control_rate, if control_rate < 8 { 240 } else { 67 })?;
+        Ok(base.wrapping_add(duration))
+    }
+
     fn functional_rom_printf(&mut self) -> Result<u32, String> {
         let format_address = self.cpu.register(XtensaRegister::A2);
         let format = self.read_guest_c_string(format_address, 4096)?;
@@ -95,7 +165,26 @@ impl XtensaMachine {
             }
             let conversion = format.get(index).copied().unwrap_or_default();
             index += usize::from(index < format.len());
-            let argument = arguments.get(next_argument).copied().unwrap_or_default();
+            let argument = if let Some(argument) = arguments.get(next_argument).copied() {
+                argument
+            } else {
+                // Windowed Xtensa passes the first six function arguments in
+                // a2-a7 and places subsequent 32-bit words at the caller's
+                // outgoing stack area, starting at a1 + 0.
+                let stack_index = next_argument - arguments.len();
+                self.bus
+                    .read(
+                        u64::from(
+                            self.cpu
+                                .register(XtensaRegister::A1)
+                                .wrapping_add((stack_index * 4) as u32),
+                        ),
+                        AccessWidth::Word,
+                        AccessKind::Read,
+                        self.now,
+                    )
+                    .map_err(|error| error.to_string())? as u32
+            };
             next_argument += 1;
             let rendered = match conversion {
                 b's' => self.read_guest_c_string(argument, 4096)?,
@@ -134,9 +223,21 @@ impl XtensaMachine {
     }
 
     pub(super) fn service_functional_rom(&mut self) -> Result<bool, String> {
+        if self.boot_rom_loaded {
+            return Ok(false);
+        }
         let pc = self.cpu.pc();
         if !Self::functional_rom_address(pc) {
             return Ok(false);
+        }
+        if pc == Self::PP_POST_QUEUE_RETURN {
+            // FreeRTOS queue wrappers return pdTRUE (1) on success, whereas
+            // the mask-ROM pp_post ABI returns zero on success. RETW has
+            // restored the synthetic caller window, so the callback's a2
+            // result is visible in that caller's outgoing a10 register.
+            let queue_result = self.cpu.register(XtensaRegister::A10);
+            self.complete_functional_rom_call(u32::from(queue_result != 1))?;
+            return Ok(true);
         }
         // The verified-image handoff has the same externally visible flash
         // state as a completed second-stage bootloader. IDF's early probe has
@@ -145,7 +246,7 @@ impl XtensaMachine {
         if pc == 0x4213_8764 {
             self.write_guest_bytes(0x3fca_6850, &0x3fca_1dfc_u32.to_le_bytes())?;
             self.write_guest_bytes(0x3fca_1dfc + 20, &(16_u32 * 1024 * 1024).to_le_bytes())?;
-            self.write_guest_bytes(0x3fca_1dfc + 24, &0x0016_40c8_u32.to_le_bytes())?;
+            self.write_guest_bytes(0x3fca_1dfc + 24, &0x0018_40c8_u32.to_le_bytes())?;
             return Ok(false);
         }
         // CPU1 has accepted the nonblocking IPC request and entered
@@ -264,6 +365,175 @@ impl XtensaMachine {
             }
             // Watchdog disable.
             0x4000_0714 => self.complete_functional_rom_call(0)?,
+            // ESP32-S3 mask-ROM pp_post(signal, payload). The vendor PP task
+            // consumes an eight-byte item from xphyQueue. This reproduces the
+            // ROM's signal coalescing and invokes the firmware-provided
+            // queue_send_from_isr adapter, leaving ppTask and its callbacks
+            // to execute as native esp32-wifi-lib code.
+            0x4000_56e8 => {
+                let signal = self.cpu.register(XtensaRegister::A2);
+                let payload = self.cpu.register(XtensaRegister::A3);
+                let signal_counts = self.read_guest_u32(0x3fce_f930)?;
+                if signal_counts == 0 {
+                    return Err("pp_post used before pp signal counters were installed".to_owned());
+                }
+                let count_address = signal_counts.wrapping_add(signal);
+                let count = self
+                    .read_guest_bytes(count_address, 1)?
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default();
+                // Signals 6-8 carry distinct configuration requests and are
+                // deliberately not coalesced by the original ROM.
+                if count != 0 && !(6..=8).contains(&signal) {
+                    self.complete_functional_rom_call(0)?;
+                } else {
+                    self.write_guest_bytes(count_address, &[count.wrapping_add(1)])?;
+                    self.write_guest_bytes(Self::PP_POST_QUEUE_ITEM, &signal.to_le_bytes())?;
+                    self.write_guest_bytes(Self::PP_POST_QUEUE_ITEM + 4, &payload.to_le_bytes())?;
+                    self.write_guest_bytes(Self::PP_POST_QUEUE_ITEM + 8, &0_u32.to_le_bytes())?;
+
+                    let queue = self.read_guest_u32(0x3fce_f904)?;
+                    let osi_functions = self.read_guest_u32(0x3fce_f940)?;
+                    let queue_send_from_isr =
+                        self.read_guest_u32(osi_functions.wrapping_add(104))?;
+                    if queue == 0 || queue_send_from_isr == 0 {
+                        return Err(format!(
+                            "pp_post signal {signal} has uninitialized queue state"
+                        ));
+                    }
+                    self.cpu
+                        .begin_functional_call(
+                            queue_send_from_isr,
+                            Self::PP_POST_QUEUE_RETURN,
+                            &[
+                                queue,
+                                Self::PP_POST_QUEUE_ITEM,
+                                Self::PP_POST_QUEUE_ITEM + 8,
+                            ],
+                        )
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+            // config_is_cache_tx_buf_enabled reads bit 1 of the native
+            // g_wifi_menuconfig word at offset 64 through its ROM-installed
+            // interface pointer.
+            0x4000_5964 => {
+                let menu_config = self.read_guest_u32(0x3fce_f908)?;
+                if menu_config == 0 {
+                    return Err(
+                        "Wi-Fi cache-buffer query used before menu config initialization"
+                            .to_owned(),
+                    );
+                }
+                let flags = self.read_guest_u32(menu_config.wrapping_add(64))?;
+                self.complete_functional_rom_call((flags >> 1) & 1)?;
+            }
+            // rc_get_trc_by_index selects the per-connection rate-control
+            // context using trc_ctl_ptr's active bitmap, with the two ROM
+            // fallback slots at g_per_conn_trc + 68/+72.
+            0x4000_5724 => {
+                let interface = self.cpu.register(XtensaRegister::A2) as u8;
+                let index = self.cpu.register(XtensaRegister::A3) as u8;
+                let trc_control = self.read_guest_u32(0x3fce_f8ec)?;
+                if trc_control == 0 {
+                    return Err("rate-control query used before trc initialization".to_owned());
+                }
+                let active = self.read_guest_u32(trc_control.wrapping_add(20))?;
+                let selected = if interface == 0 {
+                    if active & (1_u32 << (u32::from(index) & 31)) != 0 {
+                        self.read_guest_u32(0x3fce_f860 + u32::from(index) * 4)?
+                    } else {
+                        self.read_guest_u32(0x3fce_f860 + 68)?
+                    }
+                } else if index != 0 && active & (1_u32 << (u32::from(index) & 31)) != 0 {
+                    self.read_guest_u32(0x3fce_f860 + u32::from(index) * 4)?
+                } else {
+                    self.read_guest_u32(0x3fce_f860 + 72)?
+                };
+                self.complete_functional_rom_call(selected)?;
+            }
+            // RC_GetBlockAckTime and ppCalFrameTimes are fixed-point airtime
+            // calculations over the mask-ROM our_controls rate table.
+            0x4000_525c => {
+                let rate = self.cpu.register(XtensaRegister::A2) as u8;
+                let duration = self.pp_block_ack_time(rate)?;
+                self.complete_functional_rom_call(u32::from(duration))?;
+            }
+            0x4000_5544 => {
+                const OUR_CONTROLS: u32 = 0x3fce_f1ac;
+                let frame = self.cpu.register(XtensaRegister::A2);
+                let descriptor = self.read_guest_u32(frame.wrapping_add(44))?;
+                let flags = self.read_guest_u32(descriptor)?;
+                let rate = self.read_guest_u8(descriptor.wrapping_add(12))?;
+                let ack_time = if flags & 0x0008_0000 != 0 {
+                    self.pp_block_ack_time(rate)?
+                } else if flags & 0x402 == 0 {
+                    let control_rate = self.read_guest_u8(
+                        OUR_CONTROLS
+                            .wrapping_add(u32::from(rate) * 8)
+                            .wrapping_add(6),
+                    )?;
+                    self.read_guest_u16(
+                        OUR_CONTROLS
+                            .wrapping_add(u32::from(control_rate) * 8)
+                            .wrapping_add(4),
+                    )?
+                } else {
+                    0
+                };
+                self.write_guest_u16(descriptor.wrapping_add(10), ack_time)?;
+
+                let frame_length = self
+                    .read_guest_u16(frame.wrapping_add(20))?
+                    .wrapping_add(self.read_guest_u16(frame.wrapping_add(22))?);
+                let (base, duration) = self.pp_rate_timing(
+                    rate,
+                    u64::from(frame_length).saturating_mul(8).saturating_add(22),
+                )?;
+                self.write_guest_u16(
+                    descriptor.wrapping_add(14),
+                    ack_time.wrapping_add(base).wrapping_add(duration),
+                )?;
+                self.complete_functional_rom_call(0)?;
+            }
+            // phy_get_romfuncs exposes the writable ROM PHY dispatch table.
+            // ESP-IDF immediately patches target-specific RAM overrides into
+            // this reserved block before invoking PHY initialization.
+            0x4000_5c58 => {
+                // Slot 38 is rom_phy_byte_to_word, used to checksum persisted
+                // calibration data before deciding whether to recalibrate.
+                self.write_guest_bytes(0x3fce_f3d8 + 152, &0x4005_5d4c_u32.to_le_bytes())?;
+                // Slot 59 is rom_abs_temp; IDF's calibration-data validator
+                // calls it before target-specific RAM overrides are installed.
+                self.write_guest_bytes(0x3fce_f3d8 + 236, &0x4005_5bf4_u32.to_le_bytes())?;
+                self.complete_functional_rom_call(0x3fce_f3d8)?;
+            }
+            // rom_phy_param_addr installs ESP-IDF's calibration parameter
+            // block in the ROM interface word.
+            0x4000_6324 => {
+                let parameters = self.cpu.register(XtensaRegister::A2);
+                self.write_guest_bytes(0x3fce_f81c, &parameters.to_le_bytes())?;
+                self.complete_functional_rom_call(0)?;
+            }
+            // rom_abs_temp: signed wrapping absolute value used by RF
+            // calibration range checks.
+            0x4005_5bf4 => {
+                let value = self.cpu.register(XtensaRegister::A2) as i32;
+                self.complete_functional_rom_call(value.wrapping_abs() as u32)?;
+            }
+            // rom_phy_byte_to_word performs an unaligned little-endian load
+            // from the persisted calibration byte stream.
+            0x4005_5d4c => {
+                let address = self.cpu.register(XtensaRegister::A2);
+                let bytes = self.read_guest_bytes(address, 4)?;
+                let value = u32::from_le_bytes(
+                    bytes
+                        .try_into()
+                        .expect("four calibration bytes were requested"),
+                );
+                self.complete_functional_rom_call(value)?;
+            }
             // ets_set_appcpu_boot_addr(entry). The mask ROM releases CPU1 at
             // this address; Renvo Emulator then interprets both cores over the shared
             // address space.
@@ -507,6 +777,15 @@ impl XtensaMachine {
                 let length = self.read_guest_c_string(string, 1024 * 1024)?.len();
                 self.complete_functional_rom_call(length as u32)?;
             }
+            // strnlen
+            0x4000_13f8 => {
+                let string = self.cpu.register(XtensaRegister::A2);
+                let maximum = self.cpu.register(XtensaRegister::A3) as usize;
+                let length = self
+                    .read_guest_c_string(string, maximum.min(1024 * 1024))?
+                    .len();
+                self.complete_functional_rom_call(length as u32)?;
+            }
             // qsort. IDF startup sorts eight-byte reserved-memory ranges by
             // their first signed address field. Keep that ROM callback
             // contract explicit; singleton arrays are naturally unchanged.
@@ -514,12 +793,9 @@ impl XtensaMachine {
                 let base = self.cpu.register(XtensaRegister::A2);
                 let count = self.cpu.register(XtensaRegister::A3) as usize;
                 let size = self.cpu.register(XtensaRegister::A4) as usize;
-                let comparator = self.cpu.register(XtensaRegister::A5);
                 if count > 1 {
-                    if comparator != 0x4212_82dc || size < 4 {
-                        return Err(format!(
-                            "unsupported functional qsort comparator {comparator:#010x}, size {size}"
-                        ));
+                    if size < 4 {
+                        return Err(format!("unsupported functional qsort item size {size}"));
                     }
                     let mut records = (0..count)
                         .map(|index| {
@@ -823,6 +1099,15 @@ impl XtensaMachine {
             // persistent C string; expose an emulator-owned string in the
             // modeled ROM data window so IDF can copy and report it normally.
             0x4000_5b68 => self.complete_functional_rom_call(0x3ff1_e000)?,
+            // Apache-2.0 esp32-wifi-lib build identifiers. Native libpp and
+            // libnet80211 use these strings to verify the matching ROM ABI.
+            0x4000_5250 | 0x4000_59b8 => self.complete_functional_rom_call(0x3ff1_e000)?,
+            // ESP32-S3 Bluetooth controller ROM bootstrap. Controller packet
+            // behavior is supplied by the shared deterministic BLE engine;
+            // the mask-ROM data initializer has no additional guest-visible
+            // state in that functional boundary.
+            0x4000_2aa8 => self.complete_functional_rom_call(0)?,
+            0x4000_2a9c => self.complete_functional_rom_call(0x3ff1_e000)?,
             // ROM libgcc scalar floating-point helpers. Keep arguments and
             // results as raw ABI payloads so NaNs and signed zero survive.
             0x4000_2190 | 0x4000_2274 | 0x4000_243c | 0x4000_2508 => {
@@ -1040,9 +1325,11 @@ impl XtensaMachine {
 
     #[inline(always)]
     pub(super) const fn functional_rom_address(pc: u32) -> bool {
-        matches!(
-            pc >> 16,
-            0x4000 | 0x4038 | 0x4200 | 0x420d | 0x4212 | 0x4213
-        ) || (pc >= 0x4037_f000 && pc < 0x4038_0000)
+        pc == Self::PP_POST_QUEUE_RETURN
+            || matches!(
+                pc >> 16,
+                0x4000 | 0x4038 | 0x4200 | 0x420d | 0x4212 | 0x4213
+            )
+            || (pc >= 0x4037_f000 && pc < 0x4038_0000)
     }
 }

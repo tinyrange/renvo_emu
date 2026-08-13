@@ -15,9 +15,21 @@ pub(super) fn boot_native_image(
         instructions: Some(arguments.max_instructions),
         deadline: arguments.deadline.map(SimTime::from_ticks),
     };
-    let access_output = DirectAccessOutput::new(arguments.bus_log.as_deref(), false)?;
+    let access_output = DirectAccessOutput::new(arguments.bus_log.as_deref(), &[], false)?;
     let control = DirectRunControl {
         access_observer: access_output.observer(),
+        esp32c6_mmu_page_size: None,
+        esp32c6_flash_image: None,
+        esp32c6_boot_image: None,
+        esp32s3_boot_image: None,
+        esp_boot_rom: None,
+        radio_replay: None,
+        radio_input: None,
+        radio_script: None,
+        radio_repl: false,
+        agent_script: None,
+        agent_repl: false,
+        agent_artifact: None,
         breakpoints: &[],
         watchpoints: &[],
         signal_stops: &[],

@@ -40,7 +40,7 @@ Status meanings:
 | Reduce seeded divergence on RISC-V, Arm and Xtensa | Proven | `qualification/reduction.json` records every Docker build/run evaluation and the one-item source/flag/input reproducer on CH32V003, RP2040 and ESP32-S3; final repeats are identical |
 | Publish coverage, fidelity, unsupported behavior, provenance and licences | Proven | `qualification/dashboard.html` and `.json` combine six source-linked target manifests, passing corpus, generated register coverage, known deviations and sample licence/provenance without claiming cycle or full-silicon fidelity |
 | Identical results across supported hosts | Proven | `scripts/qualify-host-determinism.sh` publishes the same canonical fake-multicore/timer digest on the supported Linux/amd64 and Linux/arm64 hosts |
-| Separate CPU/device/trace/script/CLI boundaries | Proven | CPU, machine, device, trace, corpus, GDB and Starlark crates remain separate; `remu script` evaluates explicit JSON, while the later board DSL builds immutable scenarios without owning kernel state |
+| Separate CPU/device/trace/script/CLI boundaries | Proven | CPU, machine, device, trace, corpus, GDB and Starlark crates remain separate; `remu script` evaluates explicit JSON, the board DSL builds immutable scenarios, isolated radio-peer callbacks only receive RF events, and an explicit ESP agent-driver mode owns a scoped opaque machine capability |
 
 ## ESP32-S3 USB OTG closure
 

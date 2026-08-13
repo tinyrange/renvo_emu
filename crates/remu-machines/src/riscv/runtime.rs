@@ -38,7 +38,12 @@ impl RiscVMachine {
         self.esp_systimer_interrupt_enabled = [false; 3];
         self.esp_systimer_raw = 0;
         self.esp_flash_guard = 0;
+        self.esp32c6_materialized_mmu.fill(u32::MAX);
+        self.esp32c6_flash_dirty = false;
         self.esp_reset_reason = 1;
+        if let Some(peripherals) = &self.esp32c6_peripherals {
+            peripherals.lp_clkrst.set_reset_cause(1);
+        }
         Ok(())
     }
 
@@ -46,6 +51,12 @@ impl RiscVMachine {
         &mut self,
         stats: &mut RunStats,
     ) -> Result<bool, MachineError> {
+        self.poll_esp32c6_flash_commands()?;
+        // The cache-MMU table is memory-mapped hardware. Real mask-ROM code
+        // programs it directly, so consume those writes independently of the
+        // functional-ROM compatibility path and expose the selected flash
+        // page before the guest's next instruction.
+        self.refresh_esp32c6_mmu_mappings()?;
         if self.poll_esp32c6_watchdog(stats)? {
             return Ok(true);
         }
@@ -66,6 +77,7 @@ impl RiscVMachine {
         if peripherals.lp_aon.take_system_reset() {
             self.esp_reset_reason = 0x03;
             self.bus.reset_devices(ResetKind::Software);
+            peripherals.lp_clkrst.set_reset_cause(0x03);
             self.cpu.reset(ResetKind::Software, &mut self.bus)?;
             self.cpu1.reset(ResetKind::Software, &mut self.bus)?;
             self.cpu1_active = false;

@@ -123,6 +123,12 @@ impl Bus for Esp32S3PmsBus<'_> {
             }
             Ok(value)
         } else {
+            if std::env::var_os("REMU_DEBUG_PMS").is_some() {
+                eprintln!(
+                    "S3 PMS denied {kind:?} {width:?} read at {address:#010x}, PC={:#010x}",
+                    self.pc
+                );
+            }
             // The PMS fabric responds to denied internal/PIF reads with zero.
             Ok(0)
         }
@@ -167,6 +173,12 @@ impl Bus for Esp32S3PmsBus<'_> {
             }
             Ok(())
         } else {
+            if std::env::var_os("REMU_DEBUG_PMS").is_some() {
+                eprintln!(
+                    "S3 PMS denied {width:?} write at {address:#010x}, value={value:#x}, PC={:#010x}",
+                    self.pc
+                );
+            }
             // Denied writes complete on the fabric without reaching the slave.
             Ok(())
         }

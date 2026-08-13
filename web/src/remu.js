@@ -30,6 +30,21 @@ function options(value = {}) {
   };
 }
 
+function radioOptions(value = {}) {
+  return {
+    run: options(value.run ?? value),
+    radioFrames: (value.radioFrames ?? []).map((frame) => ({
+      at: integer(frame.at, "radioFrame.at"),
+      protocol: frame.protocol,
+      centerKHz: frame.centerKHz,
+      bandwidthKHz: frame.bandwidthKHz,
+      phy: frame.phy,
+      bytes: bytes(frame.bytes),
+      powerDbm: frame.powerDbm ?? 0,
+    })),
+  };
+}
+
 function call(operation) {
   try {
     return operation();
@@ -62,6 +77,23 @@ export class Renvo {
 
   static runElf(target, firmware, runOptions) {
     return JSON.parse(this.runElfJson(target, firmware, runOptions));
+  }
+
+  static runRadioElfJson(target, firmware, bootRom, runOptions) {
+    return call(() =>
+      api.runRadioElf(
+        target,
+        bytes(firmware),
+        bytes(bootRom),
+        radioOptions(runOptions),
+      ),
+    );
+  }
+
+  static runRadioElf(target, firmware, bootRom, runOptions) {
+    return JSON.parse(
+      this.runRadioElfJson(target, firmware, bootRom, runOptions),
+    );
   }
 
   static runIntelHexJson(target, firmware, runOptions) {

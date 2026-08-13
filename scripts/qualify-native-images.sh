@@ -17,6 +17,12 @@ do
 done
 test -s "$firmware_cache/M5STACK_NANOC6-20260406-v1.28.0.bin"
 test -s "$firmware_cache/M5STACK_ATOMS3_LITE-20260406-v1.28.0.bin"
+rom_root=${REMU_ESP_ROM_DIR:-.remu/qualification/esp-rom-elfs/20260528}
+if [ ! -s "$rom_root/esp32c6_rev0_rom.elf" ] ||
+   [ ! -s "$rom_root/esp32s3_rev0_rom.elf" ]
+then
+    REMU_ESP_ROM_DIR=$rom_root scripts/fetch-esp-rom-elfs.sh >/dev/null
+fi
 
 cargo build -q -p remu-cli
 remu=target/debug/remu
@@ -183,17 +189,21 @@ run_pair()
     shift 5
     output="$artifact_root/run/$id"
     mkdir -p "$output"
-    native_cpu=
-    if [ "$id" = rp2350-riscv ]
-    then
-        native_cpu=--cpu=riscv
-    fi
     "$remu" run --target "$target" "$direct_flag" "$direct_image" \
         --max-instructions 200000 --vcd "$output/direct.vcd" \
         --result "$output/direct.json" "$@"
-    "$remu" firmware boot --target "$target" --image "$native_image" \
+    set -- "$remu" firmware boot --target "$target" --image "$native_image" \
         --max-instructions 200000 --vcd "$output/native.vcd" \
-        --result "$output/native.json" $native_cpu "$@"
+        --result "$output/native.json" "$@"
+    if [ "$id" = rp2350-riscv ]
+    then
+        set -- "$@" --cpu=riscv
+    fi
+    case "$target" in
+        esp32c6) set -- "$@" --boot-rom "$rom_root/esp32c6_rev0_rom.elf" ;;
+        esp32s3) set -- "$@" --boot-rom "$rom_root/esp32s3_rev0_rom.elf" ;;
+    esac
+    "$@"
 }
 
 run_pair ch32v003 ch32v003 --elf "$artifact_root/build/wch/probe.elf" \
@@ -243,7 +253,8 @@ expect_failure()
 expect_failure wrong-rp-family "$remu" firmware boot --target rp2350 \
     --image "$artifact_root/images/rp2040.uf2" --max-instructions 1
 expect_failure wrong-esp-chip "$remu" firmware boot --target esp32c6 \
-    --image "$artifact_root/images/esp32s3.bin" --max-instructions 1
+    --image "$artifact_root/images/esp32s3.bin" \
+    --boot-rom "$rom_root/esp32c6_rev0_rom.elf" --max-instructions 1
 expect_failure raw-format-mismatch "$remu" firmware boot --target ch32v003 \
     --image "$artifact_root/build/wch/probe.bin" --format uf2 --max-instructions 1
 expect_failure wrong-hex-target "$remu" firmware boot --target pic16f15376 \

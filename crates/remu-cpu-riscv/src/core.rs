@@ -18,56 +18,8 @@ use std::collections::BTreeSet;
 
 mod decode;
 mod execution;
-
 use decode::*;
-const CSR_MSTATUS: u16 = 0x300;
-const CSR_USTATUS: u16 = 0x000;
-const CSR_UIE: u16 = 0x004;
-const CSR_UTVEC: u16 = 0x005;
-const CSR_USCRATCH: u16 = 0x040;
-const CSR_UEPC: u16 = 0x041;
-const CSR_UCAUSE: u16 = 0x042;
-const CSR_UTVAL: u16 = 0x043;
-const CSR_UIP: u16 = 0x044;
-const CSR_MISA: u16 = 0x301;
-const CSR_MEDELEG: u16 = 0x302;
-const CSR_MIDELEG: u16 = 0x303;
-const CSR_MIE: u16 = 0x304;
-const CSR_MTVEC: u16 = 0x305;
-const CSR_MCOUNTEREN: u16 = 0x306;
-const CSR_MSCRATCH: u16 = 0x340;
-const CSR_MEPC: u16 = 0x341;
-const CSR_MCAUSE: u16 = 0x342;
-const CSR_MTVAL: u16 = 0x343;
-const CSR_MIP: u16 = 0x344;
-const CSR_PMPCFG0: u16 = 0x3a0;
-const CSR_PMPCFG3: u16 = 0x3a3;
-const CSR_PMPADDR0: u16 = 0x3b0;
-const CSR_PMPADDR15: u16 = 0x3bf;
-const CSR_ESP_PCER_MACHINE: u16 = 0x7e0;
-const CSR_ESP_PCMR_MACHINE: u16 = 0x7e1;
-const CSR_ESP_PCCR_MACHINE: u16 = 0x7e2;
-const CSR_MCYCLE: u16 = 0xb00;
-const CSR_MINSTRET: u16 = 0xb02;
-const CSR_MCYCLEH: u16 = 0xb80;
-const CSR_MINSTRETH: u16 = 0xb82;
-const CSR_PMACFG0: u16 = 0xbc0;
-const CSR_PMACFG15: u16 = 0xbcf;
-const CSR_PMAADDR0: u16 = 0xbd0;
-const CSR_PMAADDR15: u16 = 0xbdf;
-const CSR_MEIEA: u16 = 0xbe0;
-const CSR_MEIPA: u16 = 0xbe1;
-const CSR_MEIFA: u16 = 0xbe2;
-const CSR_MEIPRA: u16 = 0xbe3;
-const CSR_MEINEXT: u16 = 0xbe4;
-const CSR_MEICONTEXT: u16 = 0xbe5;
-const CSR_QINGKE_INTSYSCR: u16 = 0x804;
-const MSTATUS_MIE: u32 = 1 << 3;
-const MSTATUS_MPIE: u32 = 1 << 7;
-const MSTATUS_MPP: u32 = 3 << 11;
-const USTATUS_UIE: u32 = 1;
-const USTATUS_UPIE: u32 = 1 << 4;
-const HAZARD3_IRQ_WINDOWS: usize = 32;
+include!("core/constants.rs");
 
 /// Interrupt and trap behaviour selected by a chip profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -910,8 +862,16 @@ impl RiscVCpu {
             {
                 self.csrs[usize::from(address)]
             }
-            CSR_ESP_PCCR_MACHINE if self.profile.esp32c6_memory_protection_csrs => {
+            CSR_ESP_PCCR_MACHINE | CSR_ESP_PCCR_USER
+                if self.profile.esp32c6_memory_protection_csrs =>
+            {
                 self.cycle as u32
+            }
+            CSR_ESP_PCER_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCER_MACHINE)]
+            }
+            CSR_ESP_PCMR_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCMR_MACHINE)]
             }
             CSR_QINGKE_INTSYSCR if self.profile.interrupt_model == InterruptModel::QingKe => {
                 self.csrs[usize::from(address)]
@@ -1005,8 +965,16 @@ impl RiscVCpu {
             {
                 self.csrs[usize::from(address)] = value;
             }
-            CSR_ESP_PCCR_MACHINE if self.profile.esp32c6_memory_protection_csrs => {
+            CSR_ESP_PCCR_MACHINE | CSR_ESP_PCCR_USER
+                if self.profile.esp32c6_memory_protection_csrs =>
+            {
                 self.cycle = (self.cycle & 0xffff_ffff_0000_0000) | u64::from(value);
+            }
+            CSR_ESP_PCER_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCER_MACHINE)] = value;
+            }
+            CSR_ESP_PCMR_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCMR_MACHINE)] = value;
             }
             CSR_QINGKE_INTSYSCR if self.profile.interrupt_model == InterruptModel::QingKe => {
                 self.csrs[usize::from(address)] = value;

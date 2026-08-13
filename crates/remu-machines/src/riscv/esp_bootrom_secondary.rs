@@ -25,17 +25,37 @@ impl RiscVMachine {
             // The mapped application segments are already visible through
             // Renvo Emulator's deterministic flash view, so enabling the ROM
             // instruction cache is an ordering point.
-            0x4000_0694 | 0x4000_06a8 => {
+            0x4000_0690 | 0x4000_0694 | 0x4000_0698 | 0x4000_069c | 0x4000_06a0 | 0x4000_06a4
+            | 0x4000_06a8 => {
                 self.refresh_esp32c6_cache(ESP_FUNCTIONAL_MMAP_BASE, u32::MAX)
                     .map_err(|error| error.to_string())?;
                 self.complete_host_call(0)?;
+                Ok(true)
+            }
+            // Cache maintenance and lock/preload controls complete
+            // synchronously in the functional cache model.
+            0x4000_0640 | 0x4000_0648 | 0x4000_064c => {
+                self.refresh_esp32c6_mmu_mappings()
+                    .map_err(|error| error.to_string())?;
+                self.complete_host_call(0)?;
+                Ok(true)
+            }
+            0x4000_0644 | 0x4000_0650 | 0x4000_0654 | 0x4000_0658 | 0x4000_065c | 0x4000_0660
+            | 0x4000_0668 | 0x4000_066c | 0x4000_0670 | 0x4000_0674 | 0x4000_0678 | 0x4000_067c
+            | 0x4000_0680 | 0x4000_0684 | 0x4000_0688 | 0x4000_068c => {
+                self.complete_host_call(0)?;
+                Ok(true)
+            }
+            0x4000_0664 => {
+                self.complete_host_call(1)?;
                 Ok(true)
             }
             // ESP-IDF's ROM-resident watchdog HAL. Renvo Emulator does not advance
             // a watchdog countdown in functional mode, but preserves
             // enable state per HAL context so driver probes remain
             // coherent.
-            0x4000_039c | 0x4000_03a0 | 0x4000_03a4 | 0x4000_03b0 | 0x4000_03b4 | 0x4000_03b8 => {
+            0x4000_0394 | 0x4000_0398 | 0x4000_039c | 0x4000_03a0 | 0x4000_03a4 | 0x4000_03b0
+            | 0x4000_03b4 | 0x4000_03b8 => {
                 self.complete_host_call(0)?;
                 Ok(true)
             }
@@ -94,7 +114,11 @@ impl RiscVMachine {
                 Ok(true)
             }
             0x4000_03cc | 0x4000_03d0 => {
-                let counter = self.now.ticks().wrapping_add(self.esp_systimer_offset);
+                let counter = self
+                    .now
+                    .ticks()
+                    .wrapping_div(ESP32C6_CPU_TICKS_PER_SYSTIMER_TICK)
+                    .wrapping_add(self.esp_systimer_offset);
                 self.complete_host_call_u64(counter)?;
                 Ok(true)
             }
@@ -157,6 +181,7 @@ impl RiscVMachine {
                         self.esp_systimer_next[alarm] = self
                             .now
                             .ticks()
+                            .wrapping_div(ESP32C6_CPU_TICKS_PER_SYSTIMER_TICK)
                             .wrapping_add(self.esp_systimer_offset)
                             .wrapping_add(u64::from(value));
                     }
@@ -224,6 +249,7 @@ impl RiscVMachine {
                     self.esp_systimer_next[alarm] = self
                         .now
                         .ticks()
+                        .wrapping_div(ESP32C6_CPU_TICKS_PER_SYSTIMER_TICK)
                         .wrapping_add(self.esp_systimer_offset)
                         .wrapping_add(self.esp_systimer_periods[alarm]);
                 }

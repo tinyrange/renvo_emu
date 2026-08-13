@@ -77,7 +77,7 @@ impl EspC6PlicState {
         }
         (0..32).fold(0, |mask, line| {
             let priority = context.priorities[line];
-            if candidates & (1 << line) != 0 && priority > context.threshold {
+            if candidates & (1 << line) != 0 && priority >= context.threshold {
                 mask | (1 << line)
             } else {
                 mask
@@ -413,6 +413,22 @@ mod tests {
         assert_eq!(handle.deliverable(false), 1 << 5);
         handle.set_line(5, false);
         assert_eq!(handle.deliverable(false), 0);
+    }
+
+    #[test]
+    fn plic_accepts_an_interrupt_at_the_programmed_threshold_level() {
+        let (mut machine, _, handle) = EspC6Plic::new_pair("m", "u");
+        machine
+            .write(0, AccessWidth::Word, 1 << 8, SimTime::ZERO)
+            .unwrap();
+        machine
+            .write(0x30, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .write(0x90, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        handle.set_line(8, true);
+        assert_eq!(handle.deliverable(false), 1 << 8);
     }
 
     #[test]

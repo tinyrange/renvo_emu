@@ -3,6 +3,9 @@ use super::*;
 impl RiscVMachine {
     pub(super) fn service_functional_bootrom(&mut self) -> Result<bool, String> {
         if self.target == TargetId::Esp32c6 {
+            if self.boot_rom_loaded {
+                return Ok(false);
+            }
             let pc = self.cpu.pc();
             if !Self::esp32c6_functional_service_address(pc) {
                 return Ok(false);

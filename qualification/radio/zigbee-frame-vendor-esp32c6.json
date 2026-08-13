@@ -1,0 +1,14 @@
+{
+  "schema": "remu.radio-input.v1",
+  "frames": [
+    {
+      "at": 12000000,
+      "protocol": "ieee802154",
+      "center_khz": 2405000,
+      "bandwidth_khz": 2000,
+      "phy": "ieee802154-oqpsk-250k",
+      "bytes": [3, 8, 85, 255, 255, 255, 255, 7, 222, 125],
+      "power_dbm": -40
+    }
+  ]
+}

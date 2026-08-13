@@ -59,6 +59,7 @@ import { Renvo } from "./src/remu.js";
 
 const targets = Renvo.listTargets();
 const firmware = new Uint8Array(await file.arrayBuffer());
+const bootRom = new Uint8Array(await romFile.arrayBuffer());
 
 const result = Renvo.runElf("esp32c6", firmware, {
   maxInstructions: 1_000_000,
@@ -68,6 +69,22 @@ const result = Renvo.runElf("esp32c6", firmware, {
     { at: 200, pin: 9, value: "one" },
   ],
 });
+
+const radioResult = Renvo.runRadioElf("esp32c6", firmware, bootRom, {
+  maxInstructions: 1_000_000,
+  deadlineTicks: 2_000_000,
+  radioFrames: [{
+    at: 500,
+    protocol: "ieee802154",
+    centerKHz: 2_405_000,
+    bandwidthKHz: 2_000,
+    phy: "ieee802154-oqpsk-250k",
+    bytes: new Uint8Array([/* complete PSDU including FCS */]),
+    powerDbm: 0,
+  }],
+});
+
+console.log(radioResult.radio.events);
 ```
 
 The public methods are:
@@ -76,6 +93,11 @@ The public methods are:
 - `Renvo.inspectElf(bytes)` — parses a supported 32-bit little-endian ELF.
 - `Renvo.runElf(target, bytes, options)` — runs ELF firmware on the matching
   machine model and returns the normal structured run result.
+- `Renvo.runRadioElf(target, bytes, bootRom, options)` — runs ESP32-C6 or
+  ESP32-S3 firmware with timestamped, host-isolated RF input and returns both
+  the normal result and versioned packet/coexistence replay evidence. `bootRom`
+  must be the matching pinned revision-zero mask-ROM ELF; its SHA-256 is
+  verified before parsing or execution.
 - `Renvo.runIntelHex(target, bytes, options)` — runs Intel HEX on PIC16F15376 or
   EFM8BB52F32G.
 - `Renvo.*Json(...)` variants — return the exact JSON boundary text without

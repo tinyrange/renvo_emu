@@ -1,5 +1,5 @@
 use super::*;
-use remu_image::{EspImageHeader, EspImageSegment, FirmwareSegment};
+use remu_image::{EspImageHeader, EspImageSegment, FirmwareSegment, FirmwareSymbol};
 use remu_trace::{Timescale, VcdWriter};
 
 fn esp32c6_header(entry: u32, segment_count: u8) -> EspImageHeader {
@@ -38,6 +38,7 @@ fn esp32c6_elf(entry: u64, address: u64, data: Vec<u8>) -> FirmwareImage {
 fn app_descriptor() -> Vec<u8> {
     let mut descriptor = vec![0; 256];
     descriptor[..4].copy_from_slice(&0xabcd_5432_u32.to_le_bytes());
+    descriptor[180] = 16;
     descriptor
 }
 
@@ -104,7 +105,7 @@ fn esp32c6_boot_validator_rejects_the_merged_descriptor_and_text_reproducer() {
 }
 
 #[test]
-fn esp32c6_direct_elf_leaves_the_bss_tail_poisoned() {
+fn esp32c6_direct_elf_materializes_the_zero_fill_tail() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let initialized = [0x13, 0, 0, 0];
     let mut data = initialized.to_vec();
@@ -128,9 +129,43 @@ fn esp32c6_direct_elf_leaves_the_bss_tail_poisoned() {
 
     assert_eq!(
         machine.debug_read_memory(0x4080_0000, 12).unwrap(),
-        [
-            0x13, 0, 0, 0, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5
-        ]
+        [0x13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+}
+
+#[test]
+fn esp32c6_direct_elf_flash_dummy_does_not_overwrite_executable_load() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let image = FirmwareImage {
+        architecture: FirmwareArchitecture::RiscV32,
+        entry: 0x4200_0020,
+        segments: vec![
+            FirmwareSegment {
+                address: 0x4200_0020,
+                load_address: None,
+                data: vec![0x13, 0, 0, 0, 0x13, 0, 0, 0],
+                initialized_size: 8,
+                executable: true,
+                writable: false,
+                alignment: 4,
+            },
+            FirmwareSegment {
+                address: 0x4200_0020,
+                load_address: None,
+                data: vec![0; 12],
+                initialized_size: 12,
+                executable: false,
+                writable: true,
+                alignment: 4,
+            },
+        ],
+        symbols: Vec::new(),
+    };
+
+    machine.load_firmware(&image).unwrap();
+    assert_eq!(
+        machine.debug_read_memory(0x4200_0020, 12).unwrap(),
+        [0x13, 0, 0, 0, 0x13, 0, 0, 0, 0, 0, 0, 0]
     );
 }
 
@@ -162,6 +197,81 @@ fn esp32c6_rom_systimer_period_is_visible_to_inlined_isr_reads() {
             .unwrap()
             & ((1 << 26) - 1),
         1_000
+    );
+}
+
+#[test]
+fn esp32c6_real_rom_bytes_disable_functional_address_dispatch() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let image = FirmwareImage {
+        architecture: FirmwareArchitecture::RiscV32,
+        entry: 0x4000_0000,
+        segments: vec![FirmwareSegment {
+            address: 0x4000_0100,
+            load_address: None,
+            data: vec![0x13, 0, 0, 0],
+            initialized_size: 4,
+            executable: true,
+            writable: false,
+            alignment: 4,
+        }],
+        symbols: vec![FirmwareSymbol {
+            name: "a_name_that_must_not_drive_runtime_dispatch".to_owned(),
+            address: 0x4000_03d8,
+            size: 4,
+            code: true,
+        }],
+    };
+
+    machine.load_boot_rom(&image).unwrap();
+    machine.cpu.set_pc(0x4000_03d8).unwrap();
+
+    assert!(!machine.service_functional_bootrom().unwrap());
+    assert_eq!(
+        machine.debug_read_memory(0x4000_0100, 4).unwrap(),
+        [0x13, 0, 0, 0]
+    );
+}
+
+#[test]
+fn esp32c6_real_rom_loader_ignores_elf_unwind_metadata_in_xip_window() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine.bus.load(0x4200_0000, &[0x13, 0, 0, 0]).unwrap();
+    let image = FirmwareImage {
+        architecture: FirmwareArchitecture::RiscV32,
+        entry: 0x4000_0000,
+        segments: vec![
+            FirmwareSegment {
+                address: 0x4087_f100,
+                load_address: None,
+                data: vec![0x55, 0, 0, 0],
+                initialized_size: 1,
+                executable: false,
+                writable: true,
+                alignment: 4,
+            },
+            FirmwareSegment {
+                address: 0x4200_0000,
+                load_address: None,
+                data: vec![0x10, 0, 0, 0],
+                initialized_size: 4,
+                executable: false,
+                writable: false,
+                alignment: 4,
+            },
+        ],
+        symbols: Vec::new(),
+    };
+
+    machine.load_boot_rom(&image).unwrap();
+
+    assert_eq!(
+        machine.debug_read_memory(0x4200_0000, 4).unwrap(),
+        [0x13, 0, 0, 0]
+    );
+    assert_eq!(
+        machine.debug_read_memory(0x4087_f100, 4).unwrap(),
+        [0x55, 0, 0, 0]
     );
 }
 
@@ -217,8 +327,20 @@ fn esp32c6_non_radio_inventory_is_mapped_at_vendor_addresses() {
     for (name, start, size) in expected {
         assert_eq!(regions.get(name), Some(&(start, size)), "{name}");
     }
-    assert!(!regions.contains_key("esp32c6.ieee802154"));
+    for (name, start, size) in [
+        ("esp32c6.ieee802154", 0x600a_3000, 0x188),
+        ("esp32c6.modem-syscon", 0x600a_9800, 0x800),
+        ("esp32c6.modem-lpcon", 0x600a_f000, 0x800),
+        ("esp32c6.i2c-ana-mst", 0x600a_f800, 0x100),
+        ("esp32c6.phy-i2c-command-memory", 0x600a_fc00, 0x400),
+    ] {
+        assert_eq!(regions.get(name), Some(&(start, size)), "{name}");
+    }
 }
+
+include!("tests_radio.rs");
+include!("tests_radio_native.rs");
+include!("tests_radio_wifi_completion.rs");
 
 #[test]
 fn esp32c6_host_bridges_cover_spi_audio_can_etm_parlio_dma_lp_i2c_and_sdio() {
@@ -421,6 +543,118 @@ fn esp32c6_cache_sync_refreshes_stale_rom_mmap_data() {
             .debug_read_memory(u64::from(ESP_FUNCTIONAL_MMAP_BASE), 1)
             .unwrap(),
         [0xaa]
+    );
+}
+
+#[test]
+fn esp32c6_spi1_user_commands_mutate_and_read_the_shared_flash_image() {
+    const SPI1: u64 = 0x6000_3000;
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    machine.set_esp_flash_image(&vec![0xff; 0x20_000]);
+
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x20, AccessWidth::Word, 0x7000_0002, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x04, AccessWidth::Word, 0x9120, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x24, AccessWidth::Word, 31, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x58, AccessWidth::Word, 0x4433_2211, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    machine.poll_esp32c6_flash_commands().unwrap();
+    assert_eq!(
+        &machine.esp_flash[0x9120..0x9124],
+        &[0x11, 0x22, 0x33, 0x44]
+    );
+
+    machine
+        .bus
+        .write(SPI1 + 0x20, AccessWidth::Word, 0x7000_00bb, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x04, AccessWidth::Word, 0x9120, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x28, AccessWidth::Word, 31, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    machine.poll_esp32c6_flash_commands().unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                SPI1 + 0x58,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x4433_2211
+    );
+
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 30, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x20, AccessWidth::Word, 0x7000_0020, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1 + 0x04, AccessWidth::Word, 0x9000, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(SPI1, AccessWidth::Word, 1 << 18, SimTime::ZERO)
+        .unwrap();
+    machine.poll_esp32c6_flash_commands().unwrap();
+    assert!(
+        machine.esp_flash[0x9000..0xa000]
+            .iter()
+            .all(|byte| *byte == 0xff)
+    );
+}
+
+#[test]
+fn esp32c6_indirect_mmu_maps_flash_at_the_hardware_cache_base() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let mut flash = vec![0xff; 0x1_0000];
+    flash[0x8000..0x8004].copy_from_slice(&[0xde, 0xad, 0xbe, 0xef]);
+    machine.set_esp_flash_image(&flash);
+    machine.configure_esp32c6_mmu_page_size(0x8000).unwrap();
+    machine
+        .bus
+        .write(0x6000_2380, AccessWidth::Word, 8, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x6000_237c, AccessWidth::Word, 0x201, SimTime::ZERO)
+        .unwrap();
+    machine.refresh_esp32c6_mmu_mappings().unwrap();
+    assert_eq!(
+        machine.debug_read_memory(0x4204_0000, 4).unwrap(),
+        [0xde, 0xad, 0xbe, 0xef]
     );
 }
 
