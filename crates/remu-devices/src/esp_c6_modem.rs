@@ -10,6 +10,7 @@ pub enum EspC6ModemBank {
 struct ModemState {
     syscon: [u32; 512],
     lpcon: [u32; 512],
+    wifi_rf: Option<EspC6PowerDetectorHandle>,
     wifi_reset_generation: u64,
     ble_reset_generation: u64,
     ieee802154_reset_generation: u64,
@@ -25,6 +26,9 @@ impl ModemState {
         self.lpcon = [0; 512];
         self.lpcon[10] = (1 << 0) | (1 << 2) | (1 << 4) | (4 << 15);
         self.lpcon[11] = 35_676_736;
+        if let Some(wifi_rf) = &self.wifi_rf {
+            wifi_rf.invalidate_wifi_rf();
+        }
         self.wifi_reset_generation = self.wifi_reset_generation.wrapping_add(1);
         self.ble_reset_generation = self.ble_reset_generation.wrapping_add(1);
         self.ieee802154_reset_generation = self.ieee802154_reset_generation.wrapping_add(1);
@@ -95,9 +99,28 @@ impl EspC6ModemControl {
         syscon_name: impl Into<String>,
         lpcon_name: impl Into<String>,
     ) -> (Self, Self, EspC6ModemHandle) {
+        Self::new_pair_inner(syscon_name, lpcon_name, None)
+    }
+
+    /// Creates a paired modem bank that invalidates causal Wi-Fi RF state at
+    /// the exact guest-visible reset edge.
+    pub fn new_pair_with_wifi_rf_reset(
+        syscon_name: impl Into<String>,
+        lpcon_name: impl Into<String>,
+        wifi_rf: EspC6PowerDetectorHandle,
+    ) -> (Self, Self, EspC6ModemHandle) {
+        Self::new_pair_inner(syscon_name, lpcon_name, Some(wifi_rf))
+    }
+
+    fn new_pair_inner(
+        syscon_name: impl Into<String>,
+        lpcon_name: impl Into<String>,
+        wifi_rf: Option<EspC6PowerDetectorHandle>,
+    ) -> (Self, Self, EspC6ModemHandle) {
         let state = Arc::new(Mutex::new(ModemState {
             syscon: [0; 512],
             lpcon: [0; 512],
+            wifi_rf,
             wifi_reset_generation: 0,
             ble_reset_generation: 0,
             ieee802154_reset_generation: 0,
@@ -164,6 +187,9 @@ impl EspC6ModemControl {
         match self.bank {
             EspC6ModemBank::Syscon => {
                 if rising & ((1 << 8) | (1 << 10) | (1 << 14)) != 0 {
+                    if let Some(wifi_rf) = &state.wifi_rf {
+                        wifi_rf.invalidate_wifi_rf();
+                    }
                     state.wifi_reset_generation = state.wifi_reset_generation.wrapping_add(1);
                 }
                 if rising & ((1 << 15) | (1 << 16) | (1 << 17) | (1 << 18)) != 0 {

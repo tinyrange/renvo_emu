@@ -253,7 +253,13 @@ impl RiscVMachine {
                 RadioLegalityRule::RfPllLock,
                 snapshot.pll_locked,
                 self.now,
-                "Wi-Fi airtime requested before an RFPLL channel strobe completed",
+                format!(
+                    "Wi-Fi airtime requested before an RFPLL channel strobe completed; RF snapshot generation {}, calibration generation {}, channel {:?}, bandwidth {:?}",
+                    snapshot.generation,
+                    snapshot.calibration_generation,
+                    snapshot.channel,
+                    snapshot.bandwidth_khz,
+                ),
             )?;
         self.radio_legality
             .as_mut()
@@ -503,7 +509,6 @@ impl RiscVMachine {
         }
         if reset_changed[0] {
             self.radio_pending_native_wifi.clear();
-            wifi_rf.invalidate_wifi_rf();
         }
         if wifi_mac_reset_changed {
             if self
@@ -520,7 +525,6 @@ impl RiscVMachine {
                 .as_mut()
                 .expect("ESP32-C6 machine has a radio medium")
                 .remove_receiver(EMULATED_NODE, RadioProtocol::Wifi);
-            wifi_rf.invalidate_wifi_rf();
             self.radio_c6_wifi_mac_reset_generation = wifi_mac_reset_generation;
         }
         if self
@@ -637,9 +641,6 @@ impl RiscVMachine {
                     spectrum,
                     sensitivity_dbm: -100,
                 })?;
-        } else if wifi_mac.rx_descriptor().is_some() {
-            let _ = self.c6_wifi_rf_airtime()?;
-            unreachable!("incomplete Wi-Fi RF state passed its legality checks");
         } else if !self
             .radio_pending_native_wifi
             .iter()

@@ -77,6 +77,48 @@ mod tests {
     }
 
     #[test]
+    fn c6_wifi_rf_accepts_exact_vendor_power_and_calibration_program() {
+        let mut device = EspC6PowerDetector::new("power-detector");
+        let handle = device.handle();
+        write_rf(
+            &mut device,
+            C6_FREQUENCY_CONTROL,
+            C6_FREQUENCY_HT20_MODE
+                + C6_FREQUENCY_CHANNEL_BASE
+                + C6_FREQUENCY_CHANNEL_STRIDE,
+        );
+        for (second, final_word) in C6_VENDOR_GAIN_PROGRAM {
+            write_rf(&mut device, C6_TX_GAIN_FIRST, 0x4020_0000);
+            write_rf(&mut device, C6_TX_GAIN_SECOND, second);
+            write_rf(&mut device, C6_TX_GAIN_FINAL, final_word);
+        }
+        write_rf(&mut device, C6_FRONTEND_FORCE, 0);
+
+        let snapshot = handle.wifi_rf_snapshot();
+        assert_eq!(snapshot.channel, Some(1));
+        assert_eq!(snapshot.power_qdbm, Some(C6_VENDOR_TX_POWER_QDBM));
+        assert_eq!(snapshot.gain_entries, C6_TX_GAIN_ENTRY_COUNT);
+        assert!(snapshot.calibration_valid);
+        assert!(snapshot.airtime_ready());
+    }
+
+    #[test]
+    fn c6_wifi_rf_preserves_operational_state_across_vendor_calibration_mode() {
+        let mut device = EspC6PowerDetector::new("power-detector");
+        let handle = device.handle();
+        program_wifi_rf(&mut device, 1, 56);
+        let operational = handle.wifi_rf_snapshot();
+
+        // The pinned vendor PHY strobes 0x5284 mode while calibrating and then
+        // restores 0x4284 mode without another start edge. This is not an
+        // operational Wi-Fi channel/bandwidth selection.
+        write_rf(&mut device, C6_FREQUENCY_CONTROL, 0x5284_4600);
+        write_rf(&mut device, C6_FREQUENCY_CONTROL, 0x4284_0600);
+
+        assert_eq!(handle.wifi_rf_snapshot(), operational);
+    }
+
+    #[test]
     fn c6_wifi_rf_rejects_partial_sequences_and_invalidates_on_reset() {
         let mut device = EspC6PowerDetector::new("power-detector");
         let handle = device.handle();
@@ -90,7 +132,7 @@ mod tests {
         write_rf(&mut device, C6_FRONTEND_FORCE, 0x100);
         let invalid = handle.wifi_rf_snapshot();
         assert_eq!(invalid.channel, None);
-        assert!(invalid.pll_locked);
+        assert!(!invalid.pll_locked);
         assert!(!invalid.calibration_valid);
         assert_eq!(invalid.power_qdbm, None);
         assert_eq!(invalid.frontend_released, None);

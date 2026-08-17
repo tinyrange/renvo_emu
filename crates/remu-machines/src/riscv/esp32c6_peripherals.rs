@@ -87,8 +87,13 @@ pub(super) fn map_esp32c6_peripherals(
     signals: &SignalHub,
     chip_uarts: &mut Vec<UartHandle>,
 ) -> Result<(Esp32c6PeripheralHandles, EspUsbSerialJtagHandle), MachineError> {
-    let (modem_syscon, modem_lpcon, modem) =
-        EspC6ModemControl::new_pair("esp32c6.modem-syscon", "esp32c6.modem-lpcon");
+    let power_detector = EspC6PowerDetector::new("esp32c6.power-detector");
+    let wifi_rf = power_detector.handle();
+    let (modem_syscon, modem_lpcon, modem) = EspC6ModemControl::new_pair_with_wifi_rf_reset(
+        "esp32c6.modem-syscon",
+        "esp32c6.modem-lpcon",
+        wifi_rf.clone(),
+    );
     bus.map_device(
         "esp32c6.modem-syscon",
         0x600a_9800,
@@ -414,8 +419,6 @@ pub(super) fn map_esp32c6_peripherals(
         )?;
     }
 
-    let power_detector = EspC6PowerDetector::new("esp32c6.power-detector");
-    let wifi_rf = power_detector.handle();
     bus.map_device(
         "esp32c6.power-detector",
         0x600a_0000,

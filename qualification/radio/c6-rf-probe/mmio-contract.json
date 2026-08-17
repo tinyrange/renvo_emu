@@ -259,9 +259,9 @@
       "lifecycle": ["reset"],
       "technical_function": "Starts native Wi-Fi reset and reports synchronous ready acknowledgement.",
       "value_constraints": "Write start bit 1, then require ready bit 0 on readback.",
-      "side_effect": "Zeroizes MAC state, advances reset generation, and invalidates RF calibration.",
+      "side_effect": "Zeroizes MAC DMA, queue, interrupt, and crypto state and advances the MAC reset generation without invalidating independently programmed RF calibration.",
       "failure_mode": "Missing ready acknowledgement returns a stable initialization failure.",
-      "provenance": "Pinned oracle trace and reset-generation tests."
+      "provenance": "Pinned oracle trace, genuine ESP-IDF initialization ordering, and reset-generation tests."
     },
     {
       "symbol": "C6_REG_WIFI_CRYPTO_SLOT0",

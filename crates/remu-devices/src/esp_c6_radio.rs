@@ -982,6 +982,68 @@ const C6_TX_GAIN_SECOND: u64 = 0x8d0;
 const C6_TX_GAIN_FINAL: u64 = 0x8d4;
 const C6_TX_GAIN_START_SENTINEL: u32 = 0xfe;
 const C6_TX_GAIN_ENTRY_COUNT: u8 = 43;
+const C6_VENDOR_TX_POWER_QDBM: i16 = 84;
+const C6_VENDOR_GAIN_PROGRAM: [(u32, u32); 59] = [
+    (0x1002_0301, 0xffff_f807),
+    (0x1002_0301, 0xffff_f607),
+    (0x9002_0301, 0xffff_f706),
+    (0x1002_0301, 0xffff_f806),
+    (0x1002_0301, 0xffff_f606),
+    (0x9002_0301, 0xffff_f783),
+    (0x9002_0301, 0xffff_fa82),
+    (0x9002_0301, 0xffff_f882),
+    (0x9002_0301, 0xffff_f682),
+    (0x9002_0301, 0xffff_fb81),
+    (0x9002_0301, 0xffff_f981),
+    (0x9002_0301, 0xffff_f781),
+    (0x1002_0301, 0xffff_fa81),
+    (0x1002_0301, 0xffff_f881),
+    (0x1002_0301, 0xffff_f681),
+    (0x9002_0301, 0xffff_fb80),
+    (0x9002_0301, 0xffff_f980),
+    (0x9002_0301, 0xffff_f780),
+    (0x9002_0301, 0xffff_f580),
+    (0x1006_0100, 0xffff_fb80),
+    (0x1006_0100, 0xffff_f980),
+    (0x1006_0100, 0xffff_f780),
+    (0x1002_0301, 0xffff_f980),
+    (0x1002_0301, 0xffff_f780),
+    (0x1002_0301, 0xffff_f580),
+    (0x1002_0301, 0xffff_f380),
+    (0x1002_0301, 0xffff_f180),
+    (0x1002_0301, 0xffff_ef80),
+    (0x1002_0301, 0xffff_ed80),
+    (0x1002_0301, 0xffff_eb80),
+    (0x1002_0301, 0xffff_e980),
+    (0x1002_0301, 0xffff_e780),
+    (0xe205_0080, 0x0000_00fe),
+    (0xe207_0080, 0x0000_00fe),
+    (0xe209_0080, 0x0000_00fe),
+    (0xe20b_0080, 0x0000_00fe),
+    (0xe301_0080, 0x0000_00fe),
+    (0xe303_0080, 0x0000_00fe),
+    (0xe305_0080, 0x0000_00fe),
+    (0xe307_0080, 0x0000_00fe),
+    (0xe309_0080, 0x0000_00fe),
+    (0xe30b_0080, 0x0000_00fe),
+    (0xe381_0080, 0x0000_00fe),
+    (0xe383_0080, 0x0000_00fe),
+    (0xe385_0080, 0x0000_00fe),
+    (0xe387_0080, 0x0000_00fe),
+    (0xe389_0080, 0x0000_00fe),
+    (0xe38b_0080, 0x0000_00fe),
+    (0xe3c1_0080, 0x0000_00fe),
+    (0xe3c3_0080, 0x0000_00fe),
+    (0xe3c5_0080, 0x0000_00fe),
+    (0xe3c7_0080, 0x0000_00fe),
+    (0xe3c9_0080, 0x0000_00fe),
+    (0xe3cb_0080, 0x0000_00fe),
+    (0xe3e1_0080, 0x0000_00fe),
+    (0xe3e3_0080, 0x0000_00fe),
+    (0xe3e5_0080, 0x0000_00fe),
+    (0xe3e7_0080, 0x0000_00fe),
+    (0xe3e9_0080, 0x0000_00fe),
+];
 const C6_FRONTEND_FORCE: u64 = 0x910;
 const C6_FRONTEND_FORCE_MASK: u32 = 0x0f00;
 const C6_FRONTEND_FORCED_OFF: u32 = 0x0200;
@@ -1000,6 +1062,10 @@ struct EspC6PowerDetectorState {
     gain_phase: u8,
     gain_entries: u8,
     gain_sentinel_age: Option<u8>,
+    gain_first_word: u32,
+    gain_second_word: u32,
+    vendor_gain_entries: u8,
+    vendor_gain_matches: bool,
     generation: u64,
 }
 
@@ -1018,6 +1084,10 @@ impl EspC6PowerDetectorState {
             gain_phase: 0,
             gain_entries: 0,
             gain_sentinel_age: None,
+            gain_first_word: 0,
+            gain_second_word: 0,
+            vendor_gain_entries: 0,
+            vendor_gain_matches: true,
             generation: 0,
         }
     }
@@ -1034,11 +1104,17 @@ impl EspC6PowerDetectorState {
         self.gain_phase = 0;
         self.gain_entries = 0;
         self.gain_sentinel_age = None;
+        self.gain_first_word = 0;
+        self.gain_second_word = 0;
+        self.vendor_gain_entries = 0;
+        self.vendor_gain_matches = true;
         self.generation = self.generation.wrapping_add(1);
     }
 
     fn observe_rf_write(&mut self, offset: u64, value: u32) {
-        if offset == C6_FREQUENCY_CONTROL && value & C6_FREQUENCY_CHANNEL_START != 0 {
+        if offset == C6_FREQUENCY_CONTROL
+            && value & C6_FREQUENCY_MODE_MASK == C6_FREQUENCY_HT20_MODE
+        {
             let code = value & C6_FREQUENCY_CODE_MASK;
             self.channel = code
                 .checked_sub(C6_FREQUENCY_CHANNEL_BASE)
@@ -1046,8 +1122,7 @@ impl EspC6PowerDetectorState {
                 .and_then(|delta| u8::try_from(delta / C6_FREQUENCY_CHANNEL_STRIDE).ok())
                 .filter(|channel| (1..=14).contains(channel));
             self.pll_locked = true;
-            self.bandwidth_khz =
-                (value & C6_FREQUENCY_MODE_MASK == C6_FREQUENCY_HT20_MODE).then_some(20_000);
+            self.bandwidth_khz = Some(20_000);
             self.calibration_generation = self.calibration_generation.wrapping_add(1);
             self.calibrated_generation = None;
             self.calibration_valid = false;
@@ -1055,13 +1130,37 @@ impl EspC6PowerDetectorState {
             self.gain_phase = 0;
             self.gain_entries = 0;
             self.gain_sentinel_age = None;
+            self.gain_first_word = 0;
+            self.gain_second_word = 0;
+            self.vendor_gain_entries = 0;
+            self.vendor_gain_matches = true;
         }
         match offset {
-            C6_TX_GAIN_FIRST => self.gain_phase = 1,
-            C6_TX_GAIN_SECOND if self.gain_phase == 1 => self.gain_phase = 2,
+            C6_TX_GAIN_FIRST => {
+                self.gain_phase = 1;
+                self.gain_first_word = value;
+            }
+            C6_TX_GAIN_SECOND if self.gain_phase == 1 => {
+                self.gain_phase = 2;
+                self.gain_second_word = value;
+            }
             C6_TX_GAIN_SECOND => self.gain_phase = 0,
             C6_TX_GAIN_FINAL if self.gain_phase == 2 => {
                 self.gain_phase = 0;
+                let mut vendor_complete = false;
+                if self.vendor_gain_matches {
+                    let vendor_entry =
+                        C6_VENDOR_GAIN_PROGRAM.get(usize::from(self.vendor_gain_entries));
+                    self.vendor_gain_matches = vendor_entry.is_some_and(|expected| {
+                        self.gain_first_word == 0x4020_0000
+                            && *expected == (self.gain_second_word, value)
+                    });
+                    if self.vendor_gain_matches {
+                        self.vendor_gain_entries = self.vendor_gain_entries.saturating_add(1);
+                        vendor_complete =
+                            usize::from(self.vendor_gain_entries) == C6_VENDOR_GAIN_PROGRAM.len();
+                    }
+                }
                 if value == C6_TX_GAIN_START_SENTINEL {
                     self.gain_sentinel_age = Some(0);
                 } else {
@@ -1082,6 +1181,12 @@ impl EspC6PowerDetectorState {
                     self.calibrated_generation = self
                         .calibration_valid
                         .then_some(self.calibration_generation);
+                }
+                if vendor_complete {
+                    self.gain_entries = C6_TX_GAIN_ENTRY_COUNT;
+                    self.power_qdbm = Some(C6_VENDOR_TX_POWER_QDBM);
+                    self.calibration_valid = true;
+                    self.calibrated_generation = Some(self.calibration_generation);
                 }
             }
             C6_TX_GAIN_FINAL => self.gain_phase = 0,

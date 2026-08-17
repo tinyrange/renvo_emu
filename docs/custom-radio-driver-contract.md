@@ -93,12 +93,27 @@ completes a hardware action synchronously:
 | Phase | Required discipline |
 |---|---|
 | Initialization | Preserve unrelated clock/interrupt state with documented read-modify-write operations. Do not treat reset state as configured RF state. |
-| Reset | Stop RX, reset the MAC, invalidate cached RF state, and require the modeled ready acknowledgement. Reset generation changes retire prior DMA, calibration, and crypto ownership. |
+| Reset | Stop RX and require the modeled ready acknowledgement. A MAC-only reset retires MAC DMA, queue, interrupt, and crypto ownership but preserves independently programmed RF calibration. A modem-domain Wi-Fi reset also invalidates cached RF state and requires complete RF reconfiguration. |
 | RF configuration | Force the frontend off, complete channel programming, write the full ordered gain table, then explicitly release the frontend. |
-| Receive | Prepare a valid internal-memory descriptor before transferring RX ownership. Stop by retiring the descriptor and frontend state. |
+| Receive | Prepare a valid internal-memory descriptor before transferring RX ownership. A descriptor may remain armed while the frontend is forced off; it is DMA storage, not an airtime request. Actual receive airtime still requires the frontend to be released. |
 | Transmit | Validate frame bounds, prepare descriptor contents, transfer one queue ownership, require matching event and queue completion, clear both, and bound the wait. |
 | Security | Populate every word of a supported native key slot before setting its valid bit. Selection must be unique for peer, interface, key ID, and cipher. |
 | Diagnostic | UART checkpoints may report state but must not create radio state or bypass normal MMIO. |
+
+The emulator recognizes two independently bounded gain-program families. The
+project-owned custom driver must emit one of the exact 43-tuple 8, 14, or
+20 dBm profiles declared by its manifest. The pinned genuine ESP-IDF Wi-Fi
+workload emits a distinct exact 59-tuple sequence: 32 transmit-power tuples
+followed by 27 calibration tuples, all with `0x40200000` as the first word.
+Only a byte-for-byte complete vendor sequence establishes its observed
+21 dBm (`84` quarter-dBm) ceiling. Partial, reordered, or cross-family tuples
+do not establish calibration.
+
+`RFPLL_CHANNEL_CONTROL` mode `0x4284` plus the start bit is the observed
+operational HT20 channel selection and advances the Wi-Fi RF configuration
+generation. Genuine firmware also strobes mode `0x5284` during internal PHY
+calibration, then restores `0x4284` without a new start edge. That calibration
+mode does not replace or invalidate the last operational Wi-Fi channel state.
 
 Poll loops must have a deterministic bound and a named timeout result. A
 missing event is never converted into success. W1C events and queue ownership

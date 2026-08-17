@@ -100,6 +100,13 @@ interrupt, and reduced-analysis artifacts while bounding the complete trace to
 64 MiB. This vendor-backed oracle is evidence for the independent HAL; it is
 not itself the issue #356 acceptance firmware.
 
+The genuine vendor Wi-Fi qualification workloads exercise a separate observed
+59-tuple power/calibration program at the same three gain registers. Renvo
+accepts that sequence only when all 59 tuples match in order, and preserves the
+last operational `0x4284` HT20 state across the vendor PHY's internal `0x5284`
+calibration strobes. These vendor observations do not broaden the custom
+driver's exact 43-tuple contract.
+
 The pinned ROM fetch installs the C6 rev0 and S3 rev0 Apache-2.0 ELF artifacts
 under `.remu/qualification/esp-rom-elfs/20260528`. Renvo executes their mapped
 ROM sections as guest instructions. ELF symbols may label offline disassembly,
