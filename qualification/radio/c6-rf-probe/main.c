@@ -5,6 +5,7 @@
 #include "hal/c6/phy.h"
 #include "hal/c6/rf.h"
 #include "hal/c6/uart.h"
+#include "station.h"
 
 static char command[64];
 static uint32_t command_length;
@@ -112,15 +113,18 @@ static void self_test(void)
     (void)c6_rf_configure(6, 14);
     c6_mac_rx_start();
     checkpoint("READY", 0);
+    checkpoint("OPEN_START", c6_station_start());
 }
 
 int main(void)
 {
     self_test();
+    uint8_t received_frame[256];
     for (;;) {
         uint32_t wire_length;
         int8_t rssi;
-        int received = c6_mac_rx_poll(&wire_length, &rssi);
+        int received = c6_mac_rx_copy(received_frame, sizeof(received_frame),
+                                       &wire_length, &rssi);
         if (received != 0) {
             c6_uart_puts("REMU_C6_RF event=RX result=");
             c6_uart_put_u32(received > 0 ? 0u : 1u);
@@ -130,6 +134,15 @@ int main(void)
             if (rssi < 0) c6_uart_putc('-');
             c6_uart_put_u32(rssi < 0 ? (uint32_t)-rssi : (uint32_t)rssi);
             c6_uart_putc('\n');
+            if (received > 0) {
+                uint32_t events = c6_station_receive(received_frame, wire_length);
+                if ((events & C6_STATION_SCANNED) != 0) checkpoint("OPEN_SCAN", 0);
+                if ((events & C6_STATION_AUTHENTICATED) != 0) checkpoint("OPEN_AUTH", 0);
+                if ((events & C6_STATION_ASSOCIATED) != 0) checkpoint("OPEN_ASSOC", 0);
+                if ((events & C6_STATION_L2_TX) != 0) checkpoint("OPEN_L2_TX", 0);
+                if ((events & C6_STATION_L2_RX) != 0) checkpoint("OPEN_L2_RX", 0);
+                if ((events & C6_STATION_FAILED) != 0) checkpoint("OPEN_FAILED", -1);
+            }
         }
         int byte = c6_uart_getc_nonblocking();
         if (byte < 0) continue;

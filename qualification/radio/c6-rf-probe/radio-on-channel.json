@@ -2,7 +2,7 @@
   "schema": "remu.radio-input.v1",
   "frames": [
     {
-      "at": 16000,
+      "at": 19000,
       "protocol": "wifi",
       "center_khz": 2437000,
       "bandwidth_khz": 20000,

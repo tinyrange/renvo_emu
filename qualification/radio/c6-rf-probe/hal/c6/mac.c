@@ -85,6 +85,23 @@ int c6_mac_tx_probe(const char *tag)
 {
     if (!c6_rf_ready()) return -1;
     (void)make_probe_request(tag);
+    return c6_mac_tx_frame(c6_rf_probe_tx_buffer + 8u,
+                           (uint32_t)c6_rf_probe_tx_buffer[0] - 4u);
+}
+
+int c6_mac_tx_frame(const uint8_t *frame, uint32_t length)
+{
+    if (!c6_rf_ready()) return -1;
+    if (length < 10u || length + 12u > sizeof(c6_rf_probe_tx_buffer)) return -3;
+    c6_rf_probe_tx_buffer[0] = (uint8_t)(length + 4u);
+    for (uint32_t index = 1; index < 8u; ++index) {
+        c6_rf_probe_tx_buffer[index] = 0;
+    }
+    if (frame != c6_rf_probe_tx_buffer + 8u) {
+        for (uint32_t index = 0; index < length; ++index) {
+            c6_rf_probe_tx_buffer[8u + index] = frame[index];
+        }
+    }
     c6_dma_tx_descriptor(&c6_rf_probe_tx_descriptor, c6_rf_probe_tx_buffer);
     c6_write32(WIFI_QUEUE2_CONTROL,
                WIFI_QUEUE_ENABLE |
@@ -125,6 +142,28 @@ int c6_mac_rx_poll(uint32_t *wire_length, int8_t *rssi)
         return -1;
     }
     *wire_length = length - WIFI_RX_METADATA;
+    *rssi = (int8_t)c6_rf_probe_rx_buffer[11];
+    c6_write32(WIFI_INTERRUPT_CLEAR, WIFI_RX_DONE);
+    c6_mac_rx_start();
+    return 1;
+}
+
+int c6_mac_rx_copy(uint8_t *frame, uint32_t capacity,
+                   uint32_t *length, int8_t *rssi)
+{
+    if ((c6_read32(WIFI_INTERRUPT_EVENT) & WIFI_RX_DONE) == 0) return 0;
+    uint32_t control = c6_rf_probe_rx_descriptor.control;
+    uint32_t dma_length = (control >> 14) & 0x3fffu;
+    if ((control & (1u << 31)) != 0 || (control & (1u << 30)) == 0 ||
+        dma_length < WIFI_RX_METADATA + 4u || dma_length > WIFI_RX_CAPACITY) {
+        return -1;
+    }
+    uint32_t frame_length = dma_length - WIFI_RX_METADATA - 4u;
+    if (frame_length > capacity) return -2;
+    for (uint32_t index = 0; index < frame_length; ++index) {
+        frame[index] = c6_rf_probe_rx_buffer[WIFI_RX_METADATA + index];
+    }
+    *length = frame_length;
     *rssi = (int8_t)c6_rf_probe_rx_buffer[11];
     c6_write32(WIFI_INTERRUPT_CLEAR, WIFI_RX_DONE);
     c6_mac_rx_start();

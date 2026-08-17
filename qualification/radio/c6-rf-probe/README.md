@@ -8,7 +8,9 @@ outputs of the pinned public-API oracle described in `../RADIO_PLAN.html`.
 `scripts/qualify-c6-rf-probe.sh` builds the firmware, creates one ESP flash
 image, boots that exact image through Renvo's genuine-ROM path twice, checks
 determinism, checks channels 1/6/11 and powers 8/14/20 dBm, and proves both
-on-channel receive and wrong-channel rejection. Generated evidence is written
+on-channel receive, wrong-channel rejection, and a deterministic project-owned
+open-system station exchange through scan, authentication, association, and
+bidirectional L2. Generated evidence is written
 below `.remu/qualification/c6-rf-probe`.
 
 The image also exposes a newline-delimited UART0 protocol at 115200 baud:

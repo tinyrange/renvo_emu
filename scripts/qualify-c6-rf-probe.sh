@@ -37,7 +37,7 @@ fi
     --toolchain toolchains/riscv32-esp-gcc-esp32c6.toml \
     --source "$source_root" --output "$out" --target esp32c6 \
     --artifact "$artifact_root/build.json" -- \
-    -O2 -Wall -Wextra -Werror start.S main.c \
+    -O2 -Wall -Wextra -Werror start.S main.c station.c \
     hal/c6/dma.c hal/c6/rf.c hal/c6/phy.c hal/c6/mac.c hal/c6/uart.c \
     -Wl,-T,link-esp32c6.ld,-Map,/workspace/out/c6-rf-probe.map \
     -o /workspace/out/c6-rf-probe.elf
@@ -81,6 +81,21 @@ cmp "$artifact_root/run-a-replay.json" "$artifact_root/run-b-replay.json"
 run_case on-channel "$source_root/radio-on-channel.json"
 run_case wrong-channel "$source_root/radio-wrong-channel.json"
 
+"$remu" firmware boot --target esp32c6 \
+    --image "$artifact_root/c6-rf-probe-flash.bin" --boot-rom "$rom" \
+    --max-instructions "$max_instructions" \
+    --radio-script "$source_root/open-ap-peer.star" \
+    --radio-replay "$artifact_root/open-station-replay.json" \
+    --result "$artifact_root/open-station-result.json"
+"$remu" firmware boot --target esp32c6 \
+    --image "$artifact_root/c6-rf-probe-flash.bin" --boot-rom "$rom" \
+    --max-instructions "$max_instructions" \
+    --radio-script "$source_root/open-ap-peer.star" \
+    --radio-replay "$artifact_root/open-station-repeat-replay.json" \
+    --result "$artifact_root/open-station-repeat-result.json"
+cmp "$artifact_root/open-station-result.json" "$artifact_root/open-station-repeat-result.json"
+cmp "$artifact_root/open-station-replay.json" "$artifact_root/open-station-repeat-replay.json"
+
 uart=$(jq -r '.uart | implode' "$artifact_root/run-a-result.json")
 jq -r '.required_checkpoints[]' "$requirements" | while IFS= read -r checkpoint; do
     if ! printf '%s' "$uart" | rg -F "event=$checkpoint result=0" >/dev/null; then
@@ -112,6 +127,30 @@ jq -e '.uart | implode | contains("event=RX result=0")' \
     "$artifact_root/on-channel-result.json" >/dev/null
 jq -e '.uart | implode | contains("event=RX result=0") | not' \
     "$artifact_root/wrong-channel-result.json" >/dev/null
+jq -r '.open_station_checkpoints[]' "$requirements" | while IFS= read -r checkpoint; do
+    if ! jq -e --arg checkpoint "$checkpoint" \
+        '.uart | implode | contains("event=" + $checkpoint + " result=0")' \
+        "$artifact_root/open-station-result.json" >/dev/null; then
+        echo "open station omitted checkpoint $checkpoint" >&2
+        exit 1
+    fi
+done
+jq -e '
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "emulated" and
+        .request.frame.bytes[0:2] == [176, 0]) and
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "emulated" and
+        .request.frame.bytes[0:2] == [0, 0]) and
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "emulated" and
+        .request.frame.bytes[0:2] == [8, 1] and
+        .request.frame.bytes[24:36] == [170,170,3,0,0,0,136,181,80,73,78,71]) and
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "host-injection" and
+        .request.frame.bytes[0:2] == [8, 2] and
+        .request.frame.bytes[24:36] == [170,170,3,0,0,0,136,181,80,79,78,71])
+' "$artifact_root/open-station-replay.json" >/dev/null
 
 elf_sha=$(sha256sum "$out/c6-rf-probe.elf" | cut -d ' ' -f 1)
 app_sha=$(sha256sum "$out/c6-rf-probe-app.bin" | cut -d ' ' -f 1)
@@ -127,6 +166,8 @@ jq -n --arg elf_sha "$elf_sha" --arg app_sha "$app_sha" \
         channel_power_airtime: "pass",
         receive_on_channel: "pass",
         reject_wrong_channel: "pass",
+        open_system_station: "pass",
+        bidirectional_l2: "pass",
         physical_hardware: "not-run",
         hashes: {elf: $elf_sha, application: $app_sha, exact_flash: $flash_sha,
                  base_flash: $base_sha, mask_rom: $rom_sha}

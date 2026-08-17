@@ -18,6 +18,14 @@
     "RESET-P14",
     "READY"
   ],
+  "open_station_checkpoints": [
+    "OPEN_START",
+    "OPEN_SCAN",
+    "OPEN_AUTH",
+    "OPEN_ASSOC",
+    "OPEN_L2_TX",
+    "OPEN_L2_RX"
+  ],
   "required_airtime": [
     {"ssid": "REMU-C6-RF-CH1-P08", "center_khz": 2412000, "power_dbm": 8},
     {"ssid": "REMU-C6-RF-CH6-P14", "center_khz": 2437000, "power_dbm": 14},
