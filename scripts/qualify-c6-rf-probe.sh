@@ -65,7 +65,7 @@ if [ -n "$(nm -u "$out/c6-rf-probe.elf")" ]; then
     nm -u "$out/c6-rf-probe.elf" >&2
     exit 1
 fi
-if nm "$out/c6-rf-probe.elf" | rg -i '[[:space:]](esp_wifi_|esp_phy_|net80211|pp_attach|wpa_supplicant)' >/dev/null; then
+if nm "$out/c6-rf-probe.elf" | grep -Ei '[[:space:]](esp_wifi_|esp_phy_|net80211|pp_attach|wpa_supplicant)' >/dev/null; then
     echo "c6-rf-probe links a prohibited vendor radio symbol" >&2
     exit 1
 fi
@@ -127,7 +127,7 @@ cmp "$artifact_root/wpa2-station-replay.json" "$artifact_root/wpa2-station-repea
 
 uart=$(jq -r '.uart | implode' "$artifact_root/run-a-result.json")
 jq -r '.required_checkpoints[]' "$requirements" | while IFS= read -r checkpoint; do
-    if ! printf '%s' "$uart" | rg -F "event=$checkpoint result=0" >/dev/null; then
+    if ! printf '%s' "$uart" | grep -F "event=$checkpoint result=0" >/dev/null; then
         echo "missing successful checkpoint $checkpoint" >&2
         exit 1
     fi
