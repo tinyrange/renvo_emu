@@ -924,6 +924,7 @@ fn esp32c6_native_wifi_rx_dma_writes_metadata_frame_and_completion() {
 #[test]
 fn esp32c6_native_wifi_ampdu_rx_advances_one_descriptor_per_mpdu() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     machine
         .bus
         .write(
@@ -1014,6 +1015,7 @@ fn esp32c6_native_wifi_ampdu_rx_advances_one_descriptor_per_mpdu() {
 #[test]
 fn esp32c6_single_mpdu_aggregate_is_a_hard_legality_error() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let mut mpdu = vec![0x88, 0, 0, 0];
     mpdu.extend_from_slice(&[0x02, 6, 7, 8, 9, 10]);
     mpdu.extend_from_slice(&[0x02, 1, 2, 3, 4, 5]);

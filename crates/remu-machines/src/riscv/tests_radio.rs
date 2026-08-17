@@ -83,6 +83,20 @@ fn esp32c6_wifi_receive_tuning_follows_guest_rf_state() {
     let mut off_channel = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     program_esp32c6_wifi_rf(&mut off_channel, 6, 56);
     off_channel
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            off_channel.now,
+        )
+        .unwrap();
+    off_channel
+        .bus
+        .write(0x600a_4084, AccessWidth::Word, 0x4080_1000, off_channel.now)
+        .unwrap();
+    off_channel.service_radio().unwrap();
+    off_channel
         .inject_radio_frame(
             remu_radio::RadioProtocol::Wifi,
             remu_radio::Spectrum::new(2_412_000, 20_000),
@@ -103,6 +117,20 @@ fn esp32c6_wifi_receive_tuning_follows_guest_rf_state() {
 
     let mut on_channel = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     program_esp32c6_wifi_rf(&mut on_channel, 6, 56);
+    on_channel
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            on_channel.now,
+        )
+        .unwrap();
+    on_channel
+        .bus
+        .write(0x600a_4084, AccessWidth::Word, 0x4080_1000, on_channel.now)
+        .unwrap();
+    on_channel.service_radio().unwrap();
     on_channel
         .inject_radio_frame(
             remu_radio::RadioProtocol::Wifi,
@@ -128,15 +156,20 @@ fn esp32c6_wifi_receive_tuning_follows_guest_rf_state() {
         .bus
         .write(0x600a_0910, AccessWidth::Word, 0x200, disabled.now)
         .unwrap();
-    let MachineError::RadioLegality(error) = disabled
-        .inject_radio_frame(
-            remu_radio::RadioProtocol::Wifi,
-            remu_radio::Spectrum::new(2_412_000, 20_000),
-            "wifi-ht20",
-            vec![0x80; 16],
-            -30,
+    disabled
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            disabled.now,
         )
-        .unwrap_err()
+        .unwrap();
+    disabled
+        .bus
+        .write(0x600a_4084, AccessWidth::Word, 0x4080_1000, disabled.now)
+        .unwrap();
+    let MachineError::RadioLegality(error) = disabled.service_radio().unwrap_err()
     else {
         panic!("RX while the frontend is forced off should be a hard legality error");
     };

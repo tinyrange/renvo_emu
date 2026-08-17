@@ -816,21 +816,18 @@ impl RiscVMachine {
         if self.target != TargetId::Esp32c6 {
             return Err(MachineError::UnsupportedTarget(self.target));
         }
-        let receiver_spectrum = if protocol == RadioProtocol::Wifi {
-            self.c6_wifi_rf_airtime()?.0
-        } else {
-            spectrum
-        };
         let medium = self
             .radio_medium
             .as_mut()
             .expect("ESP32-C6 machine has a radio medium");
-        medium.tune_receiver(Receiver {
-            node: EMULATED_NODE,
-            protocol,
-            spectrum: receiver_spectrum,
-            sensitivity_dbm: -100,
-        })?;
+        if protocol != RadioProtocol::Wifi {
+            medium.tune_receiver(Receiver {
+                node: EMULATED_NODE,
+                protocol,
+                spectrum,
+                sensitivity_dbm: -100,
+            })?;
+        }
         let duration = frame_duration(bytes.len());
         medium.transmit(TxRequest {
             source: HOST_NODE,
@@ -869,12 +866,6 @@ impl RiscVMachine {
             .radio_medium
             .as_mut()
             .expect("ESP32-C6 machine has a radio medium");
-        medium.tune_receiver(Receiver {
-            node: EMULATED_NODE,
-            protocol: RadioProtocol::Wifi,
-            spectrum,
-            sensitivity_dbm: -100,
-        })?;
         let length = mpdus.iter().map(Vec::len).sum();
         let duration = frame_duration(length);
         medium.transmit(TxRequest {
@@ -1051,6 +1042,31 @@ impl RiscVMachine {
         events = events.saturating_add(self.service_native_ble_schedules(&ble_baseband)?);
         events = events.saturating_add(self.service_native_ble_conflicts(&ble_baseband)?);
         self.sync_ieee802154_configuration(&ieee802154)?;
+
+        if wifi_rf.wifi_rf_snapshot().airtime_ready() {
+            let spectrum = self.c6_wifi_rf_airtime()?.0;
+            self.radio_medium
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio medium")
+                .tune_receiver(Receiver {
+                    node: EMULATED_NODE,
+                    protocol: RadioProtocol::Wifi,
+                    spectrum,
+                    sensitivity_dbm: -100,
+                })?;
+        } else if wifi_mac.rx_descriptor().is_some() {
+            let _ = self.c6_wifi_rf_airtime()?;
+            unreachable!("incomplete Wi-Fi RF state passed its legality checks");
+        } else if !self
+            .radio_pending_native_wifi
+            .iter()
+            .any(|pending| pending.expected_response.is_some())
+        {
+            self.radio_medium
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio medium")
+                .remove_receiver(EMULATED_NODE, RadioProtocol::Wifi);
+        }
 
         self.radio_medium
             .as_mut()
