@@ -665,15 +665,27 @@ EXPECTED_ZIGBEE_VENDOR_REQUIREMENTS = {
         "REMU_VENDOR_ZIGBEE_STEERING_START result=0",
     ],
     "expected_host_beacon_request": [3, 8, 85, 255, 255, 255, 255, 7, 222, 125],
-    "expected_emulated_frame_lengths": [10, 56, 28, 56],
-    "expected_emulated_frame_controls": [[3, 8], [65, 136], [0, 128], [65, 136]],
+    "expected_minimum_emulated_frames": 4,
+    "expected_maximum_emulated_frames": 5,
+    "expected_beacon_request_control": [3, 8],
+    "expected_data_frame_control": [65, 136],
+    "expected_beacon_response_control": [0, 128],
+    "expected_beacon_request_length": 10,
+    "expected_beacon_response_length": 28,
+    "expected_formation_data_shape": {
+        "length": 56,
+        "nwk_control_le": [72, 18],
+        "count": 2,
+    },
+    "allowed_optional_data_shapes": [
+        {"length": 47, "nwk_control_le": [9, 18], "maximum_count": 1}
+    ],
     "expected_pan_id_le": [124, 246],
     "expected_beacon_request_body": [255, 255, 255, 255, 7],
     "expected_beacon_response_body": [
         124, 246, 0, 0, 255, 79, 0, 0, 0, 34, 132, 82, 69, 77, 85, 45,
         90, 66, 1, 255, 255, 255, 0,
     ],
-    "expected_beacon_response_index": 2,
     "required_commands": [66, 67, 68, 69, 77, 79],
     "required_interrupt_causes": [1, 2, 64],
 }

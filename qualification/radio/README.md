@@ -293,9 +293,13 @@ and RF event stream must replay byte-for-byte from reset.
 The Apache-2.0 ESP Zigbee 2.0.3 gate boots its coordinator application through
 the genuine C6 rev0 ROM, forms a native channel-11 network with PAN ID 63100,
 then receives an injected beacon request and emits the coordinator beacon. It
-pins the emitted frame shapes and complete beacon semantics, validates every
-hardware-generated FCS, native command and W1C interrupt cause, coexistence
-grant, ROM/application coverage and byte-identical execution-result/RF replay.
+pins the mandatory request, two formation-data frames, and complete beacon
+semantics. Clean component builds may additionally emit one observed 47-byte
+NWK command (`0x1209`) between the formation frames; that exact control/length
+shape is allowed while all other additions are rejected. The gate validates
+every hardware-generated FCS, native command and W1C interrupt cause,
+coexistence grant, ROM/application coverage and byte-identical
+execution-result/RF replay.
 The component lock, license and all
 three C6 library archives are independently hashed; the retired ZBOSS
 dependency is rejected by the qualification gate.
