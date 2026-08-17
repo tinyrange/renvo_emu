@@ -9,6 +9,13 @@
   },
   "max_instructions": 100000,
   "wpa2_max_instructions": 1000000,
+  "mmio_contract": {
+    "path": "qualification/radio/c6-rf-probe/mmio-contract.json",
+    "schema": "remu.custom-radio-driver-mmio.v1",
+    "checker": "scripts/check-c6-custom-driver-contract.py",
+    "dependency_count": 24,
+    "radio_dependency_count": 18
+  },
   "wpa2_psk": {
     "ssid": "REMU-C6-WPA2",
     "passphrase": "renvo-c6-wpa2",

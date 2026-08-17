@@ -1,15 +1,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "mmio.h"
+#include "registers.h"
 #include "uart.h"
 
-#define UART0_BASE 0x60000000u
-#define UART_FIFO (UART0_BASE + 0x00u)
-#define UART_STATUS (UART0_BASE + 0x1cu)
 #define UART_RXFIFO_COUNT_MASK 0x3ffu
 
 void c6_uart_putc(char value)
 {
-    c6_write32(UART_FIFO, (uint8_t)value);
+    c6_write32(C6_REG_UART_FIFO, (uint8_t)value);
 }
 
 void c6_uart_puts(const char *value)
@@ -34,8 +32,8 @@ void c6_uart_put_u32(uint32_t value)
 
 int c6_uart_getc_nonblocking(void)
 {
-    if ((c6_read32(UART_STATUS) & UART_RXFIFO_COUNT_MASK) == 0) {
-        return -1;
+    if ((c6_read32(C6_REG_UART_STATUS) & UART_RXFIFO_COUNT_MASK) == 0) {
+        return C6_UART_NO_DATA;
     }
-    return (int)(c6_read32(UART_FIFO) & 0xffu);
+    return (int)(c6_read32(C6_REG_UART_FIFO) & 0xffu);
 }

@@ -9,6 +9,7 @@ socket or joins a physical network.
 ```sh
 python3 scripts/check-radio-sources.py
 python3 scripts/check-c6-rf-register-reference.py
+python3 scripts/check-c6-custom-driver-contract.py
 scripts/fetch-esp-rom-elfs.sh
 scripts/capture-c6-rf-oracle.sh
 scripts/qualify-esp-radio-rom.sh esp32c6
@@ -65,6 +66,12 @@ scripts/generate-c6-rf-register-reference.py \
   --markdown docs/esp32c6-rf-register-reference.md
 scripts/check-c6-rf-register-reference.py
 ```
+
+Project-owned native drivers additionally follow
+[`docs/custom-radio-driver-contract.md`](../../docs/custom-radio-driver-contract.md).
+The C6 gate compares every low-level MMIO call with the driver manifest and RF
+reference, rejects trace-only unknown dependencies and access broadening, and
+requires named HAL error results.
 
 For issue #356 RF/PHY recovery, the same bounded/streaming bus evidence now
 correlates RISC-V accesses with the causative PC without exposing PC to device

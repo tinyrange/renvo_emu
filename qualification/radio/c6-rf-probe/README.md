@@ -35,3 +35,35 @@ power, spectral mask, harmonics, EVM, or per-device calibration. The repository
 therefore provides no script that flashes or executes this probe on physical
 radio hardware, and emulator evidence must not be represented as a physical RF
 pass.
+
+## Audited driver contract
+
+`mmio-contract.json` is the complete dependency and failure-semantics manifest
+for this independent driver. All 24 peripheral dependencies are centralized in
+`hal/c6/registers.h`; 18 are radio registers and one is a bounded ten-word
+crypto region. The remaining entries are interrupt-controller and UART
+platform dependencies. Each entry records its exact access direction,
+lifecycle, evidence tier, constraints, side effects, provenance, and failure
+mode.
+
+`scripts/check-c6-custom-driver-contract.py` rejects raw peripheral addresses
+outside that header, undeclared or unused symbols, overlapping/unbounded
+regions, read/write expansion, trace-only unknown radio registers, false
+`trace-causal` claims, and anonymous numeric negative returns in the HAL. See
+[`docs/custom-radio-driver-contract.md`](../../../docs/custom-radio-driver-contract.md)
+for the extension and review rules.
+
+The public HAL result codes are stable and subsystem-specific:
+
+- RF: invalid channel, invalid power, or not initialized;
+- MAC: not ready, timeout, invalid TX frame, invalid RX descriptor, or output
+  buffer too small;
+- PHY: reset did not acknowledge ready; and
+- UART: no input byte is currently available.
+
+Run the static gate before building the exact image:
+
+```sh
+scripts/check-c6-custom-driver-contract.py
+REMU_BIN=target/release/remu scripts/qualify-c6-rf-probe.sh
+```

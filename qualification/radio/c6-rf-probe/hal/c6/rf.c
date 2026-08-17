@@ -1,12 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "mmio.h"
+#include "registers.h"
 #include "rf.h"
 
-#define RF_FREQUENCY_CONTROL 0x600a00c0u
-#define RF_GAIN_FIRST 0x600a08ccu
-#define RF_GAIN_SECOND 0x600a08d0u
-#define RF_GAIN_FINAL 0x600a08d4u
-#define RF_FRONTEND_FORCE 0x600a0910u
 #define RF_FRONTEND_OFF 0x200u
 #define RF_FREQUENCY_PREFIX 0x42844000u
 #define RF_FREQUENCY_BASE 0x380u
@@ -122,16 +118,16 @@ int c6_rf_configure(uint8_t channel, uint8_t power_dbm)
     if (channel < 1u || channel > 13u) return C6_RF_INVALID_CHANNEL;
     if (table == 0) return C6_RF_INVALID_POWER;
 
-    c6_write32(RF_FRONTEND_FORCE, RF_FRONTEND_OFF);
-    c6_write32(RF_FREQUENCY_CONTROL,
+    c6_write32(C6_REG_RF_FRONTEND_FORCE, RF_FRONTEND_OFF);
+    c6_write32(C6_REG_RFPLL_CHANNEL_CONTROL,
                RF_FREQUENCY_PREFIX + RF_FREQUENCY_BASE +
                    (uint32_t)channel * RF_FREQUENCY_STRIDE);
     for (uint32_t index = 0; index < RF_GAIN_COUNT; ++index) {
-        c6_write32(RF_GAIN_FIRST, table[index].first);
-        c6_write32(RF_GAIN_SECOND, table[index].second);
-        c6_write32(RF_GAIN_FINAL, table[index].final);
+        c6_write32(C6_REG_TX_GAIN_FIRST, table[index].first);
+        c6_write32(C6_REG_TX_GAIN_SECOND, table[index].second);
+        c6_write32(C6_REG_TX_GAIN_FINAL, table[index].final);
     }
-    c6_write32(RF_FRONTEND_FORCE, 0);
+    c6_write32(C6_REG_RF_FRONTEND_FORCE, 0);
     active_channel = channel;
     active_power = power_dbm;
     rx_enabled = 1;
@@ -152,7 +148,7 @@ int c6_rf_set_power(uint8_t power_dbm)
 
 void c6_rf_rx_enable(int enabled)
 {
-    c6_write32(RF_FRONTEND_FORCE, enabled ? 0u : RF_FRONTEND_OFF);
+    c6_write32(C6_REG_RF_FRONTEND_FORCE, enabled ? 0u : RF_FRONTEND_OFF);
     rx_enabled = enabled != 0;
 }
 
