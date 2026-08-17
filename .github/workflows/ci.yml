@@ -130,7 +130,7 @@ jobs:
         run: docker build --tag remu/riscv32-esp-gcc:local toolchains/riscv32-esp-gcc
 
       - name: Build pinned ESP32-C6 packaging image
-        run: docker build --tag remu/nanoc6-esptool:5.3.0 hardware/nanoc6
+        run: docker build --file hardware/nanoc6/Dockerfile.esptool --tag remu/nanoc6-esptool:5.3.0 hardware/nanoc6
 
       - name: Fetch pinned ESP32-C6 base image
         run: ./scripts/fetch-micropython.sh
