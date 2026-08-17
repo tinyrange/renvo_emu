@@ -15,6 +15,7 @@ command -v tar >/dev/null
 command -v readelf >/dev/null
 
 curl --fail --location --silent --show-error \
+    --connect-timeout 30 --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 120 \
     --output "$temporary_dir/$archive" "$url"
 printf '%s  %s\n' "$archive_sha256" "$temporary_dir/$archive" | sha256sum -c -
 
