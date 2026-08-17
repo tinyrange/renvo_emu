@@ -686,6 +686,20 @@ impl RiscVMachine {
     }
 
     pub(super) fn c6_wifi_rf_airtime(&mut self) -> Result<(Spectrum, i16), MachineError> {
+        let domain_ready = self
+            .esp32c6_peripherals
+            .as_ref()
+            .is_some_and(|handles| handles.modem.wifi_ready());
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::DomainReady,
+                domain_ready,
+                self.now,
+                "Wi-Fi RF airtime requested while its APB/MAC clock domain is disabled",
+            )?;
         let snapshot = self
             .esp32c6_peripherals
             .as_ref()
@@ -712,8 +726,10 @@ impl RiscVMachine {
                 snapshot.calibration_valid,
                 self.now,
                 format!(
-                    "Wi-Fi RF calibration is absent or stale in generation {}",
-                    snapshot.generation
+                    "Wi-Fi RF calibration {:?} is absent or stale for configuration generation {} in reset generation {}",
+                    snapshot.calibrated_generation,
+                    snapshot.calibration_generation,
+                    snapshot.generation,
                 ),
             )?;
         self.radio_legality
@@ -748,9 +764,12 @@ impl RiscVMachine {
             .require(
                 RadioSubsystem::Wifi,
                 RadioLegalityRule::RfBandwidth,
-                true,
+                snapshot.bandwidth_khz == Some(20_000),
                 self.now,
-                "native C6 Wi-Fi path is fixed to the recovered 20 MHz bandwidth",
+                format!(
+                    "native C6 Wi-Fi RFPLL selected unsupported bandwidth {:?}",
+                    snapshot.bandwidth_khz
+                ),
             )?;
         self.radio_legality
             .as_mut()
@@ -766,7 +785,12 @@ impl RiscVMachine {
                 ),
             )?;
         Ok((
-            Spectrum::new(center_khz.expect("legality accepted RF channel"), 20_000),
+            Spectrum::new(
+                center_khz.expect("legality accepted RF channel"),
+                snapshot
+                    .bandwidth_khz
+                    .expect("legality accepted RF bandwidth"),
+            ),
             snapshot
                 .power_qdbm
                 .expect("legality accepted RF power profile")
@@ -930,6 +954,9 @@ impl RiscVMachine {
             )
         };
         let reset_generations = modem.reset_generations();
+        let wifi_mac_reset_generation = wifi_mac.reset_generation();
+        let wifi_mac_reset_changed =
+            wifi_mac_reset_generation != self.radio_c6_wifi_mac_reset_generation;
         let reset_changed = std::array::from_fn::<_, 4, _>(|index| {
             reset_generations[index] != self.radio_c6_reset_generations[index]
         });
@@ -939,6 +966,24 @@ impl RiscVMachine {
         if reset_changed[0] {
             self.radio_pending_native_wifi.clear();
             wifi_rf.invalidate_wifi_rf();
+        }
+        if wifi_mac_reset_changed {
+            if self
+                .radio_coexistence
+                .as_ref()
+                .expect("ESP32-C6 machine has a coexistence arbiter")
+                .active_grant()
+                .is_some_and(|(_, protocol, _)| protocol == RadioProtocol::Wifi)
+            {
+                self.reset_coexistence()?;
+            }
+            self.radio_pending_native_wifi.clear();
+            self.radio_medium
+                .as_mut()
+                .expect("ESP32-C6 machine has a radio medium")
+                .remove_receiver(EMULATED_NODE, RadioProtocol::Wifi);
+            wifi_rf.invalidate_wifi_rf();
+            self.radio_c6_wifi_mac_reset_generation = wifi_mac_reset_generation;
         }
         if self
             .radio_coexistence

@@ -43,6 +43,15 @@ fn app_descriptor() -> Vec<u8> {
 }
 
 fn program_esp32c6_wifi_rf(machine: &mut RiscVMachine, channel: u8, power_qdbm: i16) {
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            machine.now,
+        )
+        .unwrap();
     let frequency_code = 0x380 + u64::from(channel) * 0x280;
     machine
         .bus

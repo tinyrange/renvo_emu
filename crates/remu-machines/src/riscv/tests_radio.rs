@@ -14,10 +14,25 @@ fn esp32c6_wifi_airtime_uses_causal_rf_channel_and_power() {
 #[test]
 fn esp32c6_wifi_airtime_rejects_incomplete_stale_and_forced_rf_state() {
     let mut missing = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    missing
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            missing.now,
+        )
+        .unwrap();
     let MachineError::RadioLegality(error) = missing.c6_wifi_rf_airtime().unwrap_err() else {
         panic!("missing RF state should be a hard legality error");
     };
     assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfPllLock);
+
+    let mut clocks_off = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let MachineError::RadioLegality(error) = clocks_off.c6_wifi_rf_airtime().unwrap_err() else {
+        panic!("power-gated RF airtime should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DomainReady);
 
     let mut incomplete = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     program_esp32c6_wifi_rf(&mut incomplete, 6, 56);
@@ -35,6 +50,61 @@ fn esp32c6_wifi_airtime_rejects_incomplete_stale_and_forced_rf_state() {
         panic!("incomplete replacement gain table should be a hard legality error");
     };
     assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfCalibration);
+
+    let mut changed_channel = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut changed_channel, 1, 56);
+    changed_channel
+        .bus
+        .write(
+            0x600a_00c0,
+            AccessWidth::Word,
+            0x4284_4000 + 0x380 + 6 * 0x280,
+            changed_channel.now,
+        )
+        .unwrap();
+    let MachineError::RadioLegality(error) = changed_channel.c6_wifi_rf_airtime().unwrap_err()
+    else {
+        panic!("channel change without recalibration should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfCalibration);
+
+    let mut unsupported_bandwidth = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut unsupported_bandwidth, 6, 56);
+    unsupported_bandwidth
+        .bus
+        .write(
+            0x600a_00c0,
+            AccessWidth::Word,
+            0x4684_4000 + 0x380 + 6 * 0x280,
+            unsupported_bandwidth.now,
+        )
+        .unwrap();
+    for entry in 0..43_u64 {
+        let final_word = if entry == 0 {
+            0xfe
+        } else if entry == 42 {
+            u64::from(((56_i32 - 133) * 128) as u32)
+        } else {
+            entry
+        };
+        for (address, value) in [
+            (0x600a_08cc, entry),
+            (0x600a_08d0, entry),
+            (0x600a_08d4, final_word),
+        ] {
+            unsupported_bandwidth
+                .bus
+                .write(address, AccessWidth::Word, value, unsupported_bandwidth.now)
+                .unwrap();
+        }
+    }
+    let MachineError::RadioLegality(error) = unsupported_bandwidth
+        .c6_wifi_rf_airtime()
+        .unwrap_err()
+    else {
+        panic!("unsupported bandwidth should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfBandwidth);
 
     let mut unsupported_power = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     program_esp32c6_wifi_rf(&mut unsupported_power, 6, 34);
@@ -71,6 +141,56 @@ fn esp32c6_wifi_airtime_rejects_incomplete_stale_and_forced_rf_state() {
         .invalidate_wifi_rf();
     let MachineError::RadioLegality(error) = stale.c6_wifi_rf_airtime().unwrap_err() else {
         panic!("reset-invalidated RF state should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfPllLock);
+}
+
+#[test]
+fn esp32c6_native_mac_reset_invalidates_rf_generation_and_pending_queues() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 6, 56);
+    machine
+        .bus
+        .write(
+            0x600a_4084,
+            AccessWidth::Word,
+            0x4080_1000,
+            machine.now,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            (3_u64 << 30) | 0x2000,
+            machine.now,
+        )
+        .unwrap();
+    let handles = machine.esp32c6_peripherals.as_ref().unwrap();
+    assert!(handles.wifi_mac.rx_descriptor().is_some());
+    assert!(handles.wifi_mac.tx_active(0));
+    let rf_generation = handles.wifi_rf.wifi_rf_snapshot().generation;
+
+    machine
+        .bus
+        .write(
+            0x600a_4ddc,
+            AccessWidth::Word,
+            1 << 1,
+            machine.now,
+        )
+        .unwrap();
+    machine.service_radio().unwrap();
+
+    let handles = machine.esp32c6_peripherals.as_ref().unwrap();
+    assert!(handles.wifi_mac.rx_descriptor().is_none());
+    assert!(!handles.wifi_mac.tx_active(0));
+    let snapshot = handles.wifi_rf.wifi_rf_snapshot();
+    assert_eq!(snapshot.generation, rf_generation + 1);
+    assert!(!snapshot.airtime_ready());
+    let MachineError::RadioLegality(error) = machine.c6_wifi_rf_airtime().unwrap_err() else {
+        panic!("native MAC reset should stale RF configuration");
     };
     assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfPllLock);
 }

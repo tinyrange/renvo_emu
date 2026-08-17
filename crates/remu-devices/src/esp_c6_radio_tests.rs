@@ -55,8 +55,13 @@ mod tests {
                 program_wifi_rf(&mut device, channel, power_qdbm);
                 let snapshot = handle.wifi_rf_snapshot();
                 assert_eq!(snapshot.channel, Some(channel));
+                assert_eq!(snapshot.bandwidth_khz, Some(20_000));
                 assert!(snapshot.pll_locked);
                 assert!(snapshot.calibration_valid);
+                assert_eq!(
+                    snapshot.calibrated_generation,
+                    Some(snapshot.calibration_generation)
+                );
                 assert_eq!(snapshot.center_khz(), Some(center_khz));
                 assert_eq!(snapshot.power_qdbm, Some(power_qdbm));
                 assert_eq!(snapshot.frontend_released, Some(true));
@@ -93,6 +98,21 @@ mod tests {
 
         program_wifi_rf(&mut device, 6, 56);
         let configured = handle.wifi_rf_snapshot();
+        write_rf(
+            &mut device,
+            C6_FREQUENCY_CONTROL,
+            C6_FREQUENCY_HT20_MODE
+                + C6_FREQUENCY_CHANNEL_BASE
+                + 11 * C6_FREQUENCY_CHANNEL_STRIDE,
+        );
+        let changed = handle.wifi_rf_snapshot();
+        assert_eq!(changed.channel, Some(11));
+        assert!(!changed.calibration_valid);
+        assert_eq!(changed.calibrated_generation, None);
+        assert_eq!(
+            changed.calibration_generation,
+            configured.calibration_generation + 1
+        );
         device.reset(ResetKind::Software);
         let reset = handle.wifi_rf_snapshot();
         assert!(!reset.airtime_ready());
@@ -944,6 +964,24 @@ mod tests {
     #[test]
     fn wifi_mac_reset_command_sets_ready_status() {
         let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        mac.write(
+            C6_WIFI_MAC_RX_BASE,
+            AccessWidth::Word,
+            0x4080_1000,
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH,
+            AccessWidth::Word,
+            u64::from(C6_WIFI_MAC_TX_QUEUE_ENABLE | 0x1000),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert!(handle.tx_active(0));
+        assert!(handle.rx_descriptor().is_some());
+        let generation = handle.reset_generation();
         mac.write(
             C6_WIFI_MAC_RESET_CONTROL,
             AccessWidth::Word,
@@ -957,6 +995,10 @@ mod tests {
                 & u64::from(C6_WIFI_MAC_RESET_READY),
             u64::from(C6_WIFI_MAC_RESET_READY)
         );
+        assert_eq!(handle.reset_generation(), generation + 1);
+        assert!(!handle.tx_active(0));
+        assert!(handle.take_tx_descriptor().is_none());
+        assert!(handle.rx_descriptor().is_none());
     }
 
     #[test]

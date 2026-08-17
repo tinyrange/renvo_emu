@@ -57,6 +57,7 @@ struct EspC6WifiMacState {
     pending_tx: VecDeque<EspC6WifiTxDescriptor>,
     active_tx: u32,
     rx_descriptor: Option<u32>,
+    reset_generation: u64,
 }
 
 impl EspC6WifiMacState {
@@ -65,6 +66,7 @@ impl EspC6WifiMacState {
         self.pending_tx.clear();
         self.active_tx = 0;
         self.rx_descriptor = None;
+        self.reset_generation = self.reset_generation.wrapping_add(1);
     }
 }
 
@@ -91,6 +93,14 @@ pub struct EspC6WifiMacHandle {
 }
 
 impl EspC6WifiMacHandle {
+    /// Returns the generation incremented by each native MAC reset command.
+    pub fn reset_generation(&self) -> u64 {
+        self.state
+            .lock()
+            .expect("ESP32-C6 Wi-Fi MAC lock poisoned")
+            .reset_generation
+    }
+
     fn crypto_key_entry_from_state(
         state: &EspC6WifiMacState,
         slot: usize,
@@ -474,6 +484,7 @@ impl EspC6WifiMacRegisters {
                 pending_tx: VecDeque::new(),
                 active_tx: 0,
                 rx_descriptor: None,
+                reset_generation: 0,
             })),
         }
     }
@@ -520,7 +531,7 @@ impl Device for EspC6WifiMacRegisters {
     ) -> Result<(), DeviceError> {
         let index = checked_word_index(&self.name, offset, width)?;
         let mut state = self.state.lock().expect("ESP32-C6 Wi-Fi MAC lock poisoned");
-        let mut value = u32::try_from(value)
+        let value = u32::try_from(value)
             .map_err(|_| DeviceError::new("ESP32-C6 Wi-Fi MAC rejects wide writes"))?;
         if offset == C6_WIFI_MAC_INTERRUPT_CLEAR {
             state.registers[C6_WIFI_MAC_INTERRUPT_EVENT as usize / 4] &= !value;
@@ -532,7 +543,9 @@ impl Device for EspC6WifiMacRegisters {
             return Ok(());
         }
         if offset == C6_WIFI_MAC_RESET_CONTROL && value & C6_WIFI_MAC_RESET_START != 0 {
-            value |= C6_WIFI_MAC_RESET_READY;
+            state.reset();
+            state.registers[index] = value | C6_WIFI_MAC_RESET_READY;
+            return Ok(());
         }
         *state.registers.get_mut(index).ok_or_else(|| {
             DeviceError::new(format!("{} write outside native page", self.name))
