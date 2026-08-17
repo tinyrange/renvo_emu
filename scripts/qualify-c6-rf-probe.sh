@@ -225,7 +225,7 @@ jq -n --arg elf_sha "$elf_sha" --arg app_sha "$app_sha" \
         bidirectional_l2: "pass",
         wpa2_psk_eapol: "pass",
         ccmp_bidirectional_l2: "pass",
-        physical_hardware: "not-run",
+        qualification_scope: "software-emulator-only",
         hashes: {elf: $elf_sha, application: $app_sha, exact_flash: $flash_sha,
                  base_flash: $base_sha, mask_rom: $rom_sha}
     }' >"$artifact_root/summary.json"

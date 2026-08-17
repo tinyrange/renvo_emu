@@ -29,8 +29,9 @@ The image also exposes a newline-delimited UART0 protocol at 115200 baud:
 `INIT`, `CHANNEL n`, `POWER n`, `RX START`, `RX STOP`, `TX tag`, and
 `RESET RADIO`. Every operation emits a stable `REMU_C6_RF` checkpoint.
 
-Run `scripts/qualify-c6-rf-probe-hardware.sh /dev/ttyACM0` to flash the same
-generated image to a physical ESP32-C6 and capture its checkpoints. A hardware
-pass is never inferred from an emulator run; the hardware evidence file is
-created only after a real serial device has been opened and the required
-checkpoints have been observed.
+This qualification is intentionally software-emulator-only. The recovered
+low-level RF sequences have not been validated for radiated operation, output
+power, spectral mask, harmonics, EVM, or per-device calibration. The repository
+therefore provides no script that flashes or executes this probe on physical
+radio hardware, and emulator evidence must not be represented as a physical RF
+pass.
