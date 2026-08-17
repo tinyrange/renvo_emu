@@ -1045,7 +1045,7 @@ impl EspC6PowerDetectorState {
                 .filter(|delta| delta % C6_FREQUENCY_CHANNEL_STRIDE == 0)
                 .and_then(|delta| u8::try_from(delta / C6_FREQUENCY_CHANNEL_STRIDE).ok())
                 .filter(|channel| (1..=14).contains(channel));
-            self.pll_locked = self.channel.is_some();
+            self.pll_locked = true;
             self.bandwidth_khz =
                 (value & C6_FREQUENCY_MODE_MASK == C6_FREQUENCY_HT20_MODE).then_some(20_000);
             self.calibration_generation = self.calibration_generation.wrapping_add(1);

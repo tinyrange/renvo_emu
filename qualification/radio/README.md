@@ -8,6 +8,7 @@ socket or joins a physical network.
 
 ```sh
 python3 scripts/check-radio-sources.py
+python3 scripts/check-c6-rf-register-reference.py
 scripts/fetch-esp-rom-elfs.sh
 scripts/capture-c6-rf-oracle.sh
 scripts/qualify-esp-radio-rom.sh esp32c6
@@ -38,6 +39,32 @@ every research input. `inventory.json` records protocol applicability, public
 MMIO blocks, disputed address claims, and every radio interrupt source. The
 source checker fails closed for code or documentation whose license is absent,
 unknown, or outside the explicit permissive allowlist.
+
+## C6 RF register and error reference
+
+[`docs/esp32c6-rf-register-reference.md`](../../docs/esp32c6-rf-register-reference.md)
+is the readable index for the union of every ESP32-C6 RF register with explicit
+Renvo semantics and every non-UART address in the pinned public-API oracle bus
+trace. Its companion `c6-rf-register-reference.json` retains every observed
+read value, write value, changed post-value, access count, time bound and
+observational PC, as well as modeled masks and reset values where known.
+Unknown private fields remain explicitly unknown. This is an evidence-bounded
+emulator reference, not a silicon programming manual.
+
+`c6-rf-error-corpus.json` pins the seed, iteration count, minimal distinguishing
+mutation and expected rule for all seven causal Wi-Fi RF legality errors. The
+structure-aware test named in that corpus runs 2,048 deterministic mutations
+and asserts each individual result. Regenerate the register artifacts after a
+new pinned oracle capture with:
+
+```sh
+scripts/generate-c6-rf-register-reference.py \
+  --bus .remu/qualification/c6-rf-oracle/oracle-bus.json \
+  --requirements qualification/radio/c6-rf-oracle-requirements.json \
+  --json qualification/radio/c6-rf-register-reference.json \
+  --markdown docs/esp32c6-rf-register-reference.md
+scripts/check-c6-rf-register-reference.py
+```
 
 For issue #356 RF/PHY recovery, the same bounded/streaming bus evidence now
 correlates RISC-V accesses with the causative PC without exposing PC to device

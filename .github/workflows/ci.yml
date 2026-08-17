@@ -68,6 +68,9 @@ jobs:
       - name: Check radio provenance and inventory
         run: ./scripts/check-radio-sources.py
 
+      - name: Check C6 RF register and error references
+        run: ./scripts/check-c6-rf-register-reference.py
+
       - name: Check package manifests
         run: cargo package --workspace --locked --allow-dirty --no-verify --list >/dev/null
 

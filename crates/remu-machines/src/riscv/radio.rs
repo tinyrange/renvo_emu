@@ -715,7 +715,7 @@ impl RiscVMachine {
                 RadioLegalityRule::RfPllLock,
                 snapshot.pll_locked,
                 self.now,
-                "Wi-Fi airtime requested before a valid RFPLL channel strobe completed",
+                "Wi-Fi airtime requested before an RFPLL channel strobe completed",
             )?;
         self.radio_legality
             .as_mut()

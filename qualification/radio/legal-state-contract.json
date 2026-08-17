@@ -35,6 +35,8 @@
     "qualification/radio/ieee802154-vendor-requirements.json",
     "qualification/radio/openthread-vendor-requirements.json",
     "qualification/radio/custom-stack-probe/requirements.json",
+    "qualification/radio/c6-rf-register-reference.json",
+    "qualification/radio/c6-rf-error-corpus.json",
     "qualification/radio/source-ledger.json"
   ],
   "chips": {
