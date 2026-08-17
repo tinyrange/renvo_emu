@@ -117,6 +117,9 @@ opt into a side-effect-free internal snapshot, as the proven C6 RF/PHY banks
 do; the tracer never calls a read-sensitive register accessor to obtain them.
 PC and value correlation are trace evidence only and are not available to
 peripheral behavior.
+The separate CLI `--interrupt-log` stream records C6 radio interrupt-source
+transitions while an agent session runs; it composes with both the bounded bus
+ring and `--bus-log` without adding unbounded in-memory state.
 
 `--agent-artifact` writes schema `remu.agent-session.v1`: the JSON-compatible
 value returned by `main()` plus a compact final-run summary. The full run and

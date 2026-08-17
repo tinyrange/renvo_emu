@@ -300,6 +300,9 @@ struct RunArgs {
     /// Retain only accesses to this exact bus-region name in --bus-log; repeatable.
     #[arg(long, requires = "bus_log")]
     bus_log_region: Vec<String>,
+    /// Stream machine interrupt-source level transitions to this JSON file.
+    #[arg(long)]
+    interrupt_log: Option<PathBuf>,
     /// esptool application or merged flash binary for ESP32-C6/ESP32-S3.
     #[arg(long, requires = "elf", conflicts_with = "hex")]
     esp_app_image: Option<PathBuf>,

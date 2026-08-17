@@ -290,6 +290,22 @@ pub struct BusAccessRecord {
     pub region: String,
 }
 
+/// One machine interrupt-source transition emitted in execution order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct InterruptTransitionRecord {
+    /// Transition timestamp.
+    pub at: SimTime,
+    /// Program counter when the transition is synchronously attributable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pc: Option<u64>,
+    /// Stable machine-facing interrupt-source name.
+    pub source: String,
+    /// Native source number within the owning interrupt fabric.
+    pub line: u16,
+    /// New source level.
+    pub asserted: bool,
+}
+
 /// Receives completed bus operations without retaining them in the address space.
 ///
 /// Observers are intended for streaming diagnostics such as CLI bus logs. The
@@ -298,6 +314,9 @@ pub struct BusAccessRecord {
 pub trait BusAccessObserver {
     /// Observes one successfully completed operation in execution order.
     fn observe(&mut self, record: &BusAccessRecord);
+
+    /// Observes one interrupt-source level transition in execution order.
+    fn observe_interrupt(&mut self, _record: &InterruptTransitionRecord) {}
 }
 
 /// Shareable observer handle used by machines with more than one access space.
@@ -311,6 +330,12 @@ impl BusAccessObserver for FanoutBusAccessObserver {
     fn observe(&mut self, record: &BusAccessRecord) {
         for observer in &self.observers {
             observer.borrow_mut().observe(record);
+        }
+    }
+
+    fn observe_interrupt(&mut self, record: &InterruptTransitionRecord) {
+        for observer in &self.observers {
+            observer.borrow_mut().observe_interrupt(record);
         }
     }
 }
@@ -400,6 +425,30 @@ impl AddressSpace {
     /// from device APIs so peripheral behavior cannot consume it.
     pub fn set_observation_pc(&mut self, pc: Option<u64>) {
         self.observation_pc = pc;
+    }
+
+    /// Emits one machine interrupt-source transition to streaming observers.
+    ///
+    /// Interrupt delivery remains owned by the machine and CPU; this method is
+    /// observational only and intentionally has no retained in-memory mode.
+    pub fn observe_interrupt_transition(
+        &mut self,
+        at: SimTime,
+        source: impl Into<String>,
+        line: u16,
+        asserted: bool,
+    ) {
+        if let Some(observer) = &self.access_observer {
+            observer
+                .borrow_mut()
+                .observe_interrupt(&InterruptTransitionRecord {
+                    at,
+                    pc: self.observation_pc,
+                    source: source.into(),
+                    line,
+                    asserted,
+                });
+        }
     }
 
     /// Adds a streaming observer while preserving any observer already installed.
@@ -1159,6 +1208,16 @@ mod tests {
         }
     }
 
+    struct InterruptCollectingObserver(Rc<RefCell<Vec<InterruptTransitionRecord>>>);
+
+    impl BusAccessObserver for InterruptCollectingObserver {
+        fn observe(&mut self, _record: &BusAccessRecord) {}
+
+        fn observe_interrupt(&mut self, record: &InterruptTransitionRecord) {
+            self.0.borrow_mut().push(record.clone());
+        }
+    }
+
     struct TraceableRegister {
         value: u64,
         reads: Rc<Cell<u32>>,
@@ -1495,6 +1554,40 @@ mod tests {
         assert_eq!(reads.get(), 0);
         assert_eq!(records.borrow()[0].pre_value, Some(0x11));
         assert_eq!(records.borrow()[0].post_value, Some(0x22));
+    }
+
+    #[test]
+    fn interrupt_transitions_are_observational_and_pc_scoped() {
+        let transitions = Rc::new(RefCell::new(Vec::new()));
+        let mut bus = AddressSpace::default();
+        bus.set_access_observer(Some(Rc::new(RefCell::new(InterruptCollectingObserver(
+            transitions.clone(),
+        )))));
+
+        bus.set_observation_pc(Some(0x4000_1234));
+        bus.observe_interrupt_transition(SimTime::from_ticks(7), "radio", 12, true);
+        bus.set_observation_pc(None);
+        bus.observe_interrupt_transition(SimTime::from_ticks(8), "radio", 12, false);
+
+        assert_eq!(
+            *transitions.borrow(),
+            [
+                InterruptTransitionRecord {
+                    at: SimTime::from_ticks(7),
+                    pc: Some(0x4000_1234),
+                    source: "radio".to_owned(),
+                    line: 12,
+                    asserted: true,
+                },
+                InterruptTransitionRecord {
+                    at: SimTime::from_ticks(8),
+                    pc: None,
+                    source: "radio".to_owned(),
+                    line: 12,
+                    asserted: false,
+                },
+            ]
+        );
     }
 
     #[test]

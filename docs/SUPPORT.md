@@ -344,6 +344,10 @@ the model opts into a side-effect-free internal snapshot; the tracer never
 issues a second, potentially side-effecting MMIO read to discover an old value.
 The proven C6 RF/PHY register banks provide that snapshot. These fields are
 observational and cannot affect bus or device behavior.
+`--interrupt-log PATH` independently streams source-level transitions as
+timestamped JSON. C6 radio sources use their native interrupt-matrix numbers;
+only level changes are emitted, and autonomous transitions omit `pc` instead
+of inheriting the preceding instruction.
 
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the

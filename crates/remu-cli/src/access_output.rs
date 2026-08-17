@@ -1,4 +1,6 @@
-use remu_bus::{BusAccessObserver, BusAccessRecord, SharedBusAccessObserver};
+use remu_bus::{
+    BusAccessObserver, BusAccessRecord, InterruptTransitionRecord, SharedBusAccessObserver,
+};
 use remu_core::AccessKind;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -24,14 +26,17 @@ impl DirectAccessOutput {
     pub(super) fn new(
         bus_log: Option<&Path>,
         bus_log_regions: &[String],
+        interrupt_log: Option<&Path>,
         coverage: bool,
     ) -> io::Result<Self> {
         let bus_log = bus_log.map(create_bus_log).transpose()?;
-        let enabled = bus_log.is_some() || coverage;
+        let interrupt_log = interrupt_log.map(create_interrupt_log).transpose()?;
+        let enabled = bus_log.is_some() || interrupt_log.is_some() || coverage;
         Ok(Self {
             state: Rc::new(RefCell::new(DirectAccessState {
                 bus_log,
                 bus_log_regions: bus_log_regions.iter().cloned().collect(),
+                interrupt_log,
                 coverage: coverage.then(AccessSummary::default),
             })),
             enabled,
@@ -51,6 +56,9 @@ impl DirectAccessOutput {
         if let Some(writer) = &mut state.bus_log {
             writer.finish()?;
         }
+        if let Some(writer) = &mut state.interrupt_log {
+            writer.finish()?;
+        }
         Ok(state.coverage.take().unwrap_or_default())
     }
 }
@@ -60,6 +68,15 @@ fn create_bus_log(path: &Path) -> io::Result<StreamingAccessLog<BufWriter<File>>
         fs::create_dir_all(parent)?;
     }
     Ok(StreamingAccessLog::new(BufWriter::new(File::create(path)?)))
+}
+
+fn create_interrupt_log(path: &Path) -> io::Result<StreamingInterruptLog<BufWriter<File>>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    Ok(StreamingInterruptLog::new(BufWriter::new(File::create(
+        path,
+    )?)))
 }
 
 struct DirectAccessObserver {
@@ -81,6 +98,12 @@ impl BusAccessObserver for DirectAccessObserver {
             }
         }
     }
+
+    fn observe_interrupt(&mut self, record: &InterruptTransitionRecord) {
+        if let Some(writer) = &mut self.state.borrow_mut().interrupt_log {
+            writer.record(record);
+        }
+    }
 }
 
 fn retain_in_bus_log(regions: &BTreeSet<String>, record: &BusAccessRecord) -> bool {
@@ -90,6 +113,7 @@ fn retain_in_bus_log(regions: &BTreeSet<String>, record: &BusAccessRecord) -> bo
 struct DirectAccessState {
     bus_log: Option<StreamingAccessLog<BufWriter<File>>>,
     bus_log_regions: BTreeSet<String>,
+    interrupt_log: Option<StreamingInterruptLog<BufWriter<File>>>,
     coverage: Option<AccessSummary>,
 }
 
@@ -100,6 +124,22 @@ struct StreamingAccessLog<W> {
     records: u64,
     error: Option<String>,
     finished: bool,
+}
+
+struct StreamingInterruptLog<W>(StreamingAccessLog<W>);
+
+impl<W: Write> StreamingInterruptLog<W> {
+    const fn new(writer: W) -> Self {
+        Self(StreamingAccessLog::new(writer))
+    }
+
+    fn record(&mut self, record: &InterruptTransitionRecord) {
+        self.0.record_serializable(record);
+    }
+
+    fn finish(&mut self) -> io::Result<()> {
+        self.0.finish()
+    }
 }
 
 impl<W: Write> StreamingAccessLog<W> {
@@ -113,6 +153,10 @@ impl<W: Write> StreamingAccessLog<W> {
     }
 
     fn record(&mut self, record: &BusAccessRecord) {
+        self.record_serializable(record);
+    }
+
+    fn record_serializable(&mut self, record: &impl serde::Serialize) {
         if self.error.is_some() || self.finished {
             return;
         }
@@ -144,7 +188,7 @@ impl<W: Write> StreamingAccessLog<W> {
 fn write_pretty_array_element(
     writer: &mut dyn Write,
     first: bool,
-    record: &BusAccessRecord,
+    record: &impl serde::Serialize,
 ) -> io::Result<()> {
     let encoded = serde_json::to_vec_pretty(record).map_err(io::Error::other)?;
     writer.write_all(if first { b"[\n" } else { b",\n" })?;
@@ -215,5 +259,34 @@ mod tests {
         let mut stream = StreamingAccessLog::new(Vec::new());
         stream.finish().unwrap();
         assert_eq!(stream.writer, b"[]");
+    }
+
+    #[test]
+    fn interrupt_stream_is_incremental_pretty_json() {
+        let records = vec![
+            InterruptTransitionRecord {
+                at: SimTime::from_ticks(4),
+                pc: None,
+                source: "esp32c6.wifi-mac".to_owned(),
+                line: 0,
+                asserted: true,
+            },
+            InterruptTransitionRecord {
+                at: SimTime::from_ticks(9),
+                pc: None,
+                source: "esp32c6.wifi-mac".to_owned(),
+                line: 0,
+                asserted: false,
+            },
+        ];
+        let mut stream = StreamingInterruptLog::new(Vec::new());
+        for record in &records {
+            stream.record(record);
+        }
+        stream.finish().unwrap();
+        assert_eq!(
+            stream.0.writer,
+            serde_json::to_vec_pretty(&records).unwrap()
+        );
     }
 }

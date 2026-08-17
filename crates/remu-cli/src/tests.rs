@@ -92,6 +92,28 @@ fn direct_run_accepts_bus_log_artifact() {
 }
 
 #[test]
+fn direct_run_accepts_interrupt_transition_log() {
+    let parsed = Cli::try_parse_from([
+        "remu",
+        "run",
+        "--target",
+        "esp32c6",
+        "--elf",
+        "firmware.elf",
+        "--interrupt-log",
+        "interrupts.json",
+    ])
+    .unwrap();
+    let Command::Run(arguments) = parsed.command else {
+        panic!("expected direct run");
+    };
+    assert_eq!(
+        arguments.interrupt_log,
+        Some(PathBuf::from("interrupts.json"))
+    );
+}
+
+#[test]
 fn direct_run_rejects_bus_log_region_without_bus_log() {
     let result = Cli::try_parse_from([
         "remu",

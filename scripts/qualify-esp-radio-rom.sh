@@ -108,6 +108,7 @@ case "$chip" in
         run_vendor_wifi "$chip_root/result.json" "$chip_root/radio-replay.json" \
             --coverage "$chip_root/coverage.json" \
             --bus-log "$chip_root/calibration-bus.json" \
+            --interrupt-log "$chip_root/interrupts.json" \
             --bus-log-region esp32c6.i2c-ana-mst \
             --bus-log-region esp32c6.modem-lpcon \
             --bus-log-region esp32c6.modem-syscon \
@@ -192,6 +193,19 @@ case "$chip" in
                 .address == 1611269280 and .kind == "Read" and
                 (((.value / 65536) | floor) % 2) == 1)
         ' "$chip_root/calibration-bus.json" >/dev/null
+        jq -e '
+            length > 0 and
+            all(.[];
+                (.line == 0 or .line == 2 or .line == 4 or .line == 5 or
+                 .line == 7 or .line == 12) and
+                (has("pc") | not)) and
+            any(.[]; .asserted == true) and
+            any(.[]; .asserted == false) and
+            any(.[]; .source == "esp32c6.wifi-mac" and .asserted == true) and
+            any(.[]; .source == "esp32c6.wifi-mac" and .asserted == false) and
+            any(.[]; .source == "esp32c6.wifi-power" and .asserted == true) and
+            any(.[]; .source == "esp32c6.wifi-power" and .asserted == false)
+        ' "$chip_root/interrupts.json" >/dev/null
         ;;
     esp32s3)
         jq -e '
@@ -303,8 +317,15 @@ then
     exit 1
 fi
 
-run_vendor_wifi "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" \
-    --replay "$chip_root/result.json"
+if [ "$chip" = esp32c6 ]
+then
+    run_vendor_wifi "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" \
+        --interrupt-log "$chip_root/interrupts-repeat.json" \
+        --replay "$chip_root/result.json"
+else
+    run_vendor_wifi "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" \
+        --replay "$chip_root/result.json"
+fi
 jq -e --argjson instructions "$minimum_instructions" \
     '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
     "$chip_root/result-repeat.json" >/dev/null
@@ -312,6 +333,7 @@ cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
 if [ "$chip" = esp32c6 ]
 then
     cmp "$chip_root/result-agent.json" "$chip_root/result-repeat-agent.json"
+    cmp "$chip_root/interrupts.json" "$chip_root/interrupts-repeat.json"
 fi
 
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
@@ -323,9 +345,15 @@ if [ "$chip" = esp32c6 ]
 then
     requires_native_itwt=true
     twt_agent_sha=$(sha256sum "$chip_root/result-agent.json" | cut -d ' ' -f 1)
+    interrupt_sha=$(sha256sum "$chip_root/interrupts.json" | cut -d ' ' -f 1)
+    interrupt_count=$(jq length "$chip_root/interrupts.json")
+    interrupt_sources=$(jq -c '[.[].line] | unique' "$chip_root/interrupts.json")
 else
     requires_native_itwt=false
     twt_agent_sha=
+    interrupt_sha=
+    interrupt_count=0
+    interrupt_sources='[]'
 fi
 jq -n \
     --arg schema remu.radio-rom-qualification.v3 \
@@ -338,6 +366,9 @@ jq -n \
     --arg radio_replay_sha256 "$radio_replay_sha" \
     --arg calibration_bus_sha256 "$calibration_bus_sha" \
     --arg twt_agent_sha256 "$twt_agent_sha" \
+    --arg interrupt_sha256 "$interrupt_sha" \
+    --argjson interrupt_count "$interrupt_count" \
+    --argjson interrupt_sources "$interrupt_sources" \
     --argjson requires_native_itwt "$requires_native_itwt" \
     --argjson calibration_regions "$calibration_regions" \
     --argjson entry "$entry" \
@@ -366,6 +397,7 @@ jq -n \
             requires_firmware_observed_calibration: true,
             requires_observational_pc_correlation: ($chip == "esp32c6"),
             requires_safe_write_pre_post_values: ($chip == "esp32c6"),
+            requires_interrupt_transitions: ($chip == "esp32c6"),
             calibration_regions: $calibration_regions,
             requires_vendor_scan_result: true,
             requires_vendor_station_association: true,
@@ -390,9 +422,14 @@ jq -n \
             radio_replay_sha256: $radio_replay_sha256,
             calibration_bus_sha256: $calibration_bus_sha256,
             twt_agent_sha256: $twt_agent_sha256,
+            interrupt_sha256: $interrupt_sha256,
+            interrupt_transition_count: $interrupt_count,
+            interrupt_sources: $interrupt_sources,
             calibration_completion_paths: true,
             observational_pc_correlation: ($chip == "esp32c6"),
             safe_write_pre_post_values: ($chip == "esp32c6"),
+            interrupt_transitions: ($chip == "esp32c6"),
+            deterministic_interrupt_transitions: ($chip == "esp32c6"),
             vendor_scan_count: $vendor_scan_count,
             vendor_station_connected: true,
             native_wifi_ack_peer_observed: true,

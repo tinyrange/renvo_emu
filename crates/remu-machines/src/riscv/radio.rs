@@ -1207,6 +1207,8 @@ impl RiscVMachine {
                 .radio_ble
                 .as_ref()
                 .is_some_and(BleController::has_h4_output);
+        let ble_baseband_pending = ble_baseband.interrupt_pending();
+        let ble_modem_pending = ble_modem.interrupt_pending(self.now);
         let ieee802154_pending = ieee802154.interrupt_pending();
         let legality = self
             .radio_legality
@@ -1215,6 +1217,23 @@ impl RiscVMachine {
         legality.observe_interrupt(RadioSubsystem::Wifi, wifi_pending, self.now)?;
         legality.observe_interrupt(RadioSubsystem::BluetoothLe, ble_pending, self.now)?;
         legality.observe_interrupt(RadioSubsystem::Ieee802154, ieee802154_pending, self.now)?;
+        for (index, (source, line, asserted)) in [
+            ("esp32c6.wifi-mac", 0_u16, wifi_mac_pending),
+            ("esp32c6.wifi-power", 2, wifi_power_pending),
+            ("esp32c6.bluetooth-mac", 4, ble_pending),
+            ("esp32c6.bluetooth-baseband", 5, ble_baseband_pending),
+            ("esp32c6.lp-timer", 7, ble_modem_pending),
+            ("esp32c6.ieee802154", 12, ieee802154_pending),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if self.radio_c6_interrupt_sources[index] != asserted {
+                self.bus
+                    .observe_interrupt_transition(self.now, source, line, asserted);
+                self.radio_c6_interrupt_sources[index] = asserted;
+            }
+        }
         // C6 exposes distinct native interrupt-matrix inputs for the MAC and
         // power/TSF block.  In particular, TWT compare events must reach the
         // vendor power ISR (source 2), not the packet-MAC ISR (source 0).
@@ -1224,10 +1243,10 @@ impl RiscVMachine {
         // Source 5 is the separately exposed BT_BB line. Current C6 controller
         // firmware installs its combined native PHY ISR on BT_MAC source 4,
         // while freestanding stacks may route the baseband source directly.
-        interrupt_matrix.set_source(5, ble_baseband.interrupt_pending());
+        interrupt_matrix.set_source(5, ble_baseband_pending);
         // Genuine C6 BLE sleep firmware routes the modem wake compare through
         // LP_TIMER source 7 before enabling the controller's BT_MAC line.
-        interrupt_matrix.set_source(7, ble_modem.interrupt_pending(self.now));
+        interrupt_matrix.set_source(7, ble_modem_pending);
         interrupt_matrix.set_source(12, ieee802154_pending);
         Ok(events)
     }

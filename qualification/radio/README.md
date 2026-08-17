@@ -46,6 +46,9 @@ evidence from a side-effect-free internal snapshot, so tracing never performs
 an extra read of a potentially read-sensitive register. The C6 calibration filter spans
 the PHY/MAC, baseband, frontend, MODEM_SYSCON, private PHY, MODEM_LPCON,
 analog-I2C, and PHY command-SRAM regions listed in issue #356.
+The same genuine-ROM gate streams native C6 radio interrupt-source transitions,
+requires assertion and deassertion evidence without stale PC attribution, and
+compares that stream byte-for-byte on the repeat-from-reset run.
 
 The pinned ROM fetch installs the C6 rev0 and S3 rev0 Apache-2.0 ELF artifacts
 under `.remu/qualification/esp-rom-elfs/20260528`. Renvo executes their mapped

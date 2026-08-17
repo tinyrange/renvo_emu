@@ -96,6 +96,7 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
     let access_output = DirectAccessOutput::new(
         arguments.bus_log.as_deref(),
         &arguments.bus_log_region,
+        arguments.interrupt_log.as_deref(),
         arguments.coverage.is_some(),
     )?;
     let observer = access_output.observer();
@@ -238,6 +239,7 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
     let access_output = DirectAccessOutput::new(
         arguments.bus_log.as_deref(),
         &arguments.bus_log_region,
+        arguments.interrupt_log.as_deref(),
         arguments.coverage.is_some(),
     )?;
     let control = DirectRunControl {
