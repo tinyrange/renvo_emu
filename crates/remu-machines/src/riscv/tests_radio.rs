@@ -76,6 +76,74 @@ fn esp32c6_wifi_airtime_rejects_incomplete_stale_and_forced_rf_state() {
 }
 
 #[test]
+fn esp32c6_wifi_receive_tuning_follows_guest_rf_state() {
+    let frame = vec![0x80; 16];
+    let duration = SimTime::from_ticks(frame.len() as u64 * 32);
+
+    let mut off_channel = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut off_channel, 6, 56);
+    off_channel
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            frame.clone(),
+            -30,
+        )
+        .unwrap();
+    off_channel
+        .radio_medium
+        .as_mut()
+        .unwrap()
+        .advance_to(duration)
+        .unwrap();
+    assert!(!off_channel.radio_medium.as_ref().unwrap().events().iter().any(
+        |event| matches!(event, remu_radio::MediumEvent::Reception { receiver, .. } if *receiver == remu_radio::NodeId(1))
+    ));
+
+    let mut on_channel = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut on_channel, 6, 56);
+    on_channel
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_437_000, 20_000),
+            "wifi-ht20",
+            frame,
+            -30,
+        )
+        .unwrap();
+    on_channel
+        .radio_medium
+        .as_mut()
+        .unwrap()
+        .advance_to(duration)
+        .unwrap();
+    assert!(on_channel.radio_medium.as_ref().unwrap().events().iter().any(
+        |event| matches!(event, remu_radio::MediumEvent::Reception { receiver, outcome: remu_radio::DeliveryOutcome::Delivered, .. } if *receiver == remu_radio::NodeId(1))
+    ));
+
+    let mut disabled = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut disabled, 1, 56);
+    disabled
+        .bus
+        .write(0x600a_0910, AccessWidth::Word, 0x200, disabled.now)
+        .unwrap();
+    let MachineError::RadioLegality(error) = disabled
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            vec![0x80; 16],
+            -30,
+        )
+        .unwrap_err()
+    else {
+        panic!("RX while the frontend is forced off should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfFrontend);
+}
+
+#[test]
 fn esp32c6_illegal_wifi_crypto_slot_is_a_hard_firmware_state_error() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine

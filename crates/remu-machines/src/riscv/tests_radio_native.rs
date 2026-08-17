@@ -32,6 +32,7 @@ fn esp32c6_illegal_native_wifi_dma_is_a_hard_machine_error() {
 #[test]
 fn esp32c6_illegal_native_wifi_ba_state_is_a_hard_machine_error() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     machine
         .bus
         .write(
@@ -843,6 +844,7 @@ fn esp32c6_ble_peripheral_sequence_tracks_ack_duplicates_and_control_pdus() {
 #[test]
 fn esp32c6_native_wifi_rx_dma_writes_metadata_frame_and_completion() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     machine
         .bus
         .write(

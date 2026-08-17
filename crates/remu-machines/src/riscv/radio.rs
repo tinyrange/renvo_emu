@@ -816,6 +816,11 @@ impl RiscVMachine {
         if self.target != TargetId::Esp32c6 {
             return Err(MachineError::UnsupportedTarget(self.target));
         }
+        let receiver_spectrum = if protocol == RadioProtocol::Wifi {
+            self.c6_wifi_rf_airtime()?.0
+        } else {
+            spectrum
+        };
         let medium = self
             .radio_medium
             .as_mut()
@@ -823,7 +828,7 @@ impl RiscVMachine {
         medium.tune_receiver(Receiver {
             node: EMULATED_NODE,
             protocol,
-            spectrum,
+            spectrum: receiver_spectrum,
             sensitivity_dbm: -100,
         })?;
         let duration = frame_duration(bytes.len());
