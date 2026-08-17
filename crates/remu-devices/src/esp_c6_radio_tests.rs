@@ -327,6 +327,74 @@ mod tests {
     }
 
     #[test]
+    fn wifi_crypto_table_selects_ccmp_receive_key_by_interface_and_transmitter() {
+        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        let local = [0x02, 0, 0, 0, 0, 0xc6];
+        let peer = [0x02, 0x52, 0x45, 0x4d, 0x55, 2];
+        let key = [
+            0x3e, 0x29, 0x42, 0x5f, 0xcd, 0x3c, 0x44, 0xd0, 0x1b, 0x29, 0x87, 0x87,
+            0x47, 0x51, 0xb9, 0x98,
+        ];
+        mac.write(
+            C6_WIFI_MAC_INTERFACE_ADDRESS_LOW,
+            AccessWidth::Word,
+            u64::from(u32::from_le_bytes(local[..4].try_into().unwrap())),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_INTERFACE_ADDRESS_HIGH,
+            AccessWidth::Word,
+            u64::from(u16::from_le_bytes(local[4..].try_into().unwrap()))
+                | u64::from(C6_WIFI_MAC_INTERFACE_ADDRESS_VALID),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_TABLE,
+            AccessWidth::Word,
+            u64::from(u32::from_le_bytes(peer[..4].try_into().unwrap())),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_TABLE + 4,
+            AccessWidth::Word,
+            u64::from(u16::from_le_bytes(peer[4..].try_into().unwrap()))
+                | (3 << 18)
+                | (3 << 21),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        for (index, word) in key.chunks_exact(4).enumerate() {
+            mac.write(
+                C6_WIFI_MAC_CRYPTO_TABLE + 8 + index as u64 * 4,
+                AccessWidth::Word,
+                u64::from(u32::from_le_bytes(word.try_into().unwrap())),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        }
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_VALID,
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        let mut frame = vec![0x08, 0x42, 0, 0];
+        frame.extend_from_slice(&local);
+        frame.extend_from_slice(&peer);
+        frame.extend_from_slice(&peer);
+        frame.extend_from_slice(&[0, 0]);
+        frame.extend_from_slice(&[1, 0, 0, 0x20, 0, 0, 0, 0]);
+        frame.extend_from_slice(&[0; 16]);
+        assert_eq!(handle.select_ccmp_rx_key(&frame).unwrap(), key);
+    }
+
+    #[test]
     fn wifi_crypto_table_rejects_a_valid_slot_outside_hal_control_classes() {
         let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
         let handle = mac.handle();

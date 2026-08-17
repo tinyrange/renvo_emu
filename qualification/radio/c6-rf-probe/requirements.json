@@ -8,6 +8,14 @@
     "application_offset": 65536
   },
   "max_instructions": 100000,
+  "wpa2_max_instructions": 1000000,
+  "wpa2_psk": {
+    "ssid": "REMU-C6-WPA2",
+    "passphrase": "renvo-c6-wpa2",
+    "pbkdf2_hmac_sha1_iterations": 4096,
+    "pmk_hex": "6711aed40e7692154acfdfa8b0fd6d67bd2eb8384c98dc924159c3eea58101d9",
+    "tk_hex": "3e29425fcd3c44d01b2987874751b998"
+  },
   "required_checkpoints": [
     "INIT",
     "CH1-P08",
@@ -25,6 +33,17 @@
     "OPEN_ASSOC",
     "OPEN_L2_TX",
     "OPEN_L2_RX"
+  ],
+  "wpa2_station_checkpoints": [
+    "WPA2_START",
+    "WPA2_SCAN",
+    "WPA2_AUTH",
+    "WPA2_ASSOC",
+    "EAPOL_M2",
+    "EAPOL_M4",
+    "CCMP_INSTALLED",
+    "CCMP_TX",
+    "CCMP_RX"
   ],
   "required_airtime": [
     {"ssid": "REMU-C6-RF-CH1-P08", "center_khz": 2412000, "power_dbm": 8},

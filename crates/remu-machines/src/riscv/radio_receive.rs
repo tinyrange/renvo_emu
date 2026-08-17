@@ -158,7 +158,7 @@ impl RiscVMachine {
                         }
                     }
                 }
-                (DeliveryOutcome::Delivered, Some((frame, _, received_at)))
+                (DeliveryOutcome::Delivered, Some((mut frame, _, received_at)))
                     if frame.protocol == RadioProtocol::Wifi =>
                 {
                     if !frame.mpdus.is_empty() {
@@ -265,6 +265,33 @@ impl RiscVMachine {
                             )?;
                         completed = completed.saturating_add(1);
                         continue;
+                    }
+                    if frame.bytes.get(1).is_some_and(|flags| flags & 0x40 != 0) {
+                        let key = wifi_mac.select_ccmp_rx_key(&frame.bytes);
+                        self.radio_legality
+                            .as_mut()
+                            .expect("ESP32-C6 machine has a radio legality validator")
+                            .require(
+                                RadioSubsystem::Wifi,
+                                RadioLegalityRule::CryptoKeySelection,
+                                key.is_ok(),
+                                self.now,
+                                key.as_ref().err().cloned().unwrap_or_default(),
+                            )?;
+                        let unprotected = remu_radio::unprotect_native_ccmp_frame(
+                            &key.expect("legality accepted native CCMP RX key"),
+                            &mut frame.bytes,
+                        );
+                        self.radio_legality
+                            .as_mut()
+                            .expect("ESP32-C6 machine has a radio legality validator")
+                            .require(
+                                RadioSubsystem::Wifi,
+                                RadioLegalityRule::CryptoKeySelection,
+                                unprotected.is_ok(),
+                                self.now,
+                                unprotected.err().map(|error| error.to_string()).unwrap_or_default(),
+                            )?;
                     }
                     let responded = self.submit_native_wifi_receive_response(
                         wifi_mac,

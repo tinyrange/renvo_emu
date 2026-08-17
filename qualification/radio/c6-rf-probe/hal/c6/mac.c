@@ -23,8 +23,13 @@
 #define PLIC_THRESHOLD (PLIC_MACHINE_BASE + 0x0090u)
 #define WIFI_RX_CAPACITY 512u
 #define WIFI_RX_METADATA 92u
+#define WIFI_INTERFACE_ADDRESS_LOW (WIFI_MAC_BASE + 0x05cu)
+#define WIFI_INTERFACE_ADDRESS_HIGH (WIFI_MAC_BASE + 0x060u)
+#define WIFI_INTERFACE_ADDRESS_VALID (1u << 16)
+#define WIFI_CRYPTO_VALID (WIFI_MAC_BASE + 0x814u)
+#define WIFI_CRYPTO_TABLE (WIFI_MAC_BASE + 0x1800u)
 
-uint8_t c6_rf_probe_tx_buffer[96] __attribute__((aligned(4)));
+uint8_t c6_rf_probe_tx_buffer[256] __attribute__((aligned(4)));
 struct c6_dma_descriptor c6_rf_probe_tx_descriptor __attribute__((aligned(4)));
 uint8_t c6_rf_probe_rx_buffer[WIFI_RX_CAPACITY] __attribute__((aligned(4)));
 struct c6_dma_descriptor c6_rf_probe_rx_descriptor __attribute__((aligned(4)));
@@ -168,4 +173,35 @@ int c6_mac_rx_copy(uint8_t *frame, uint32_t capacity,
     c6_write32(WIFI_INTERRUPT_CLEAR, WIFI_RX_DONE);
     c6_mac_rx_start();
     return 1;
+}
+
+void c6_mac_set_interface_address(const uint8_t address[6])
+{
+    uint32_t low = (uint32_t)address[0] | (uint32_t)address[1] << 8 |
+                   (uint32_t)address[2] << 16 | (uint32_t)address[3] << 24;
+    uint32_t high = (uint32_t)address[4] | (uint32_t)address[5] << 8 |
+                    WIFI_INTERFACE_ADDRESS_VALID;
+    c6_write32(WIFI_INTERFACE_ADDRESS_LOW, low);
+    c6_write32(WIFI_INTERFACE_ADDRESS_HIGH, high);
+}
+
+void c6_mac_install_ccmp(const uint8_t peer[6], const uint8_t key[16])
+{
+    uint32_t match = (uint32_t)peer[0] | (uint32_t)peer[1] << 8 |
+                     (uint32_t)peer[2] << 16 | (uint32_t)peer[3] << 24;
+    uint32_t control = (uint32_t)peer[4] | (uint32_t)peer[5] << 8 |
+                       (3u << 18) | (3u << 21);
+    c6_write32(WIFI_CRYPTO_TABLE, match);
+    c6_write32(WIFI_CRYPTO_TABLE + 4u, control);
+    for (uint32_t index = 0; index < 4u; ++index) {
+        uint32_t word = (uint32_t)key[index * 4u] |
+                        (uint32_t)key[index * 4u + 1u] << 8 |
+                        (uint32_t)key[index * 4u + 2u] << 16 |
+                        (uint32_t)key[index * 4u + 3u] << 24;
+        c6_write32(WIFI_CRYPTO_TABLE + 8u + index * 4u, word);
+    }
+    for (uint32_t index = 4u; index < 8u; ++index) {
+        c6_write32(WIFI_CRYPTO_TABLE + 8u + index * 4u, 0);
+    }
+    c6_write32(WIFI_CRYPTO_VALID, c6_read32(WIFI_CRYPTO_VALID) | 1u);
 }

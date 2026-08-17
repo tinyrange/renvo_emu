@@ -178,6 +178,38 @@ pub(crate) fn select_esp_wifi_ccmp_tx_key(
     })
 }
 
+pub(crate) fn select_esp_wifi_ccmp_rx_key(
+    entries: impl IntoIterator<Item = EspWifiCryptoKeyEntry>,
+    selector: &EspWifiCcmpTxSelector,
+    interface: u8,
+) -> Result<[u8; 16], String> {
+    let mut selected = None;
+    for entry in entries {
+        if entry.interface() != interface
+            || entry.key_id() != selector.key_id
+            || entry.peer() != selector.transmitter
+        {
+            continue;
+        }
+        let Some(key) = entry.ccmp_key() else {
+            continue;
+        };
+        if let Some((previous, _)) = selected {
+            return Err(format!(
+                "hardware-protected RX ambiguously matches crypto slots {previous} and {}",
+                entry.slot
+            ));
+        }
+        selected = Some((entry.slot, key));
+    }
+    selected.map(|(_, key)| key).ok_or_else(|| {
+        format!(
+            "hardware-protected RX has no CCMP key for interface {interface}, key ID {}, peer {:02x?}",
+            selector.key_id, selector.transmitter
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::EspWifiTxOutcome;

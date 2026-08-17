@@ -13,6 +13,7 @@ base=$(jq -r '.base_flash.path' "$requirements")
 base_sha=$(jq -r '.base_flash.sha256' "$requirements")
 offset=$(jq -r '.base_flash.application_offset' "$requirements")
 max_instructions=$(jq -r '.max_instructions' "$requirements")
+wpa2_max_instructions=$(jq -r '.wpa2_max_instructions' "$requirements")
 package_image=$(resolve_toolchain_image sha256:5aa633e02afc7f2657a5ddc76bdd1ba0f720545e8d6b8690eeca045c29496e09 remu/nanoc6-esptool:5.3.0)
 rom_root=${REMU_ESP_ROM_DIR:-.remu/qualification/esp-rom-elfs/20260528}
 rom=$rom_root/esp32c6_rev0_rom.elf
@@ -23,6 +24,23 @@ if [ ! -s "$rom" ]; then
     REMU_ESP_ROM_DIR=$rom_root scripts/fetch-esp-rom-elfs.sh >/dev/null
 fi
 docker image inspect "$package_image" >/dev/null
+python3 - "$requirements" <<'PY'
+import hashlib
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    config = json.load(stream)["wpa2_psk"]
+pmk = hashlib.pbkdf2_hmac(
+    "sha1",
+    config["passphrase"].encode(),
+    config["ssid"].encode(),
+    config["pbkdf2_hmac_sha1_iterations"],
+    32,
+)
+if pmk.hex() != config["pmk_hex"]:
+    raise SystemExit("pinned WPA2 PMK does not match the declared PSK credential")
+PY
 
 rm -rf "$artifact_root"
 mkdir -p "$out"
@@ -37,7 +55,7 @@ fi
     --toolchain toolchains/riscv32-esp-gcc-esp32c6.toml \
     --source "$source_root" --output "$out" --target esp32c6 \
     --artifact "$artifact_root/build.json" -- \
-    -O2 -Wall -Wextra -Werror start.S main.c station.c \
+    -O2 -ffreestanding -fno-builtin -Wall -Wextra -Werror start.S main.c station.c wpa2.c crypto.c \
     hal/c6/dma.c hal/c6/rf.c hal/c6/phy.c hal/c6/mac.c hal/c6/uart.c \
     -Wl,-T,link-esp32c6.ld,-Map,/workspace/out/c6-rf-probe.map \
     -o /workspace/out/c6-rf-probe.elf
@@ -96,6 +114,17 @@ run_case wrong-channel "$source_root/radio-wrong-channel.json"
 cmp "$artifact_root/open-station-result.json" "$artifact_root/open-station-repeat-result.json"
 cmp "$artifact_root/open-station-replay.json" "$artifact_root/open-station-repeat-replay.json"
 
+for name in wpa2-station wpa2-station-repeat; do
+    "$remu" firmware boot --target esp32c6 \
+        --image "$artifact_root/c6-rf-probe-flash.bin" --boot-rom "$rom" \
+        --max-instructions "$wpa2_max_instructions" \
+        --radio-script "$source_root/wpa2-ap-peer.star" \
+        --radio-replay "$artifact_root/$name-replay.json" \
+        --result "$artifact_root/$name-result.json"
+done
+cmp "$artifact_root/wpa2-station-result.json" "$artifact_root/wpa2-station-repeat-result.json"
+cmp "$artifact_root/wpa2-station-replay.json" "$artifact_root/wpa2-station-repeat-replay.json"
+
 uart=$(jq -r '.uart | implode' "$artifact_root/run-a-result.json")
 jq -r '.required_checkpoints[]' "$requirements" | while IFS= read -r checkpoint; do
     if ! printf '%s' "$uart" | rg -F "event=$checkpoint result=0" >/dev/null; then
@@ -151,6 +180,32 @@ jq -e '
         .request.frame.bytes[0:2] == [8, 2] and
         .request.frame.bytes[24:36] == [170,170,3,0,0,0,136,181,80,79,78,71])
 ' "$artifact_root/open-station-replay.json" >/dev/null
+jq -r '.wpa2_station_checkpoints[]' "$requirements" | while IFS= read -r checkpoint; do
+    if ! jq -e --arg checkpoint "$checkpoint" \
+        '.uart | implode | contains("event=" + $checkpoint + " result=0")' \
+        "$artifact_root/wpa2-station-result.json" >/dev/null; then
+        echo "WPA2 station omitted checkpoint $checkpoint" >&2
+        exit 1
+    fi
+done
+jq -e '
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "emulated" and
+        .request.frame.bytes[24:32] == [170,170,3,0,0,0,136,142] and
+        .request.frame.bytes[37:39] == [1,10]) and
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "emulated" and
+        .request.frame.bytes[24:32] == [170,170,3,0,0,0,136,142] and
+        .request.frame.bytes[37:39] == [3,10]) and
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "emulated" and
+        .request.frame.bytes[0:2] == [8,65] and
+        .request.frame.bytes[32:44] != [170,170,3,0,0,0,136,181,80,73,78,71]) and
+    any(.events[]; .event == "submitted" and
+        .request.frame.origin == "host-injection" and
+        .request.frame.bytes[0:2] == [8,66] and
+        .request.frame.bytes[32:44] != [170,170,3,0,0,0,136,181,80,79,78,71])
+' "$artifact_root/wpa2-station-replay.json" >/dev/null
 
 elf_sha=$(sha256sum "$out/c6-rf-probe.elf" | cut -d ' ' -f 1)
 app_sha=$(sha256sum "$out/c6-rf-probe-app.bin" | cut -d ' ' -f 1)
@@ -168,6 +223,8 @@ jq -n --arg elf_sha "$elf_sha" --arg app_sha "$app_sha" \
         reject_wrong_channel: "pass",
         open_system_station: "pass",
         bidirectional_l2: "pass",
+        wpa2_psk_eapol: "pass",
+        ccmp_bidirectional_l2: "pass",
         physical_hardware: "not-run",
         hashes: {elf: $elf_sha, application: $app_sha, exact_flash: $flash_sha,
                  base_flash: $base_sha, mask_rom: $rom_sha}

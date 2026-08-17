@@ -10,8 +10,20 @@ image, boots that exact image through Renvo's genuine-ROM path twice, checks
 determinism, checks channels 1/6/11 and powers 8/14/20 dBm, and proves both
 on-channel receive, wrong-channel rejection, and a deterministic project-owned
 open-system station exchange through scan, authentication, association, and
-bidirectional L2. Generated evidence is written
+bidirectional L2. It then runs a second project-owned station against the
+deterministic WPA2-PSK peer, validates the M1/M3 transcript, derives the PTK,
+installs the temporal key into the recovered C6 hardware table, and proves
+authenticated CCMP transmit and receive. Both station runs repeat byte-for-byte.
+Generated evidence is written
 below `.remu/qualification/c6-rf-probe`.
+
+The WPA2 fixture uses SSID `REMU-C6-WPA2` and passphrase
+`renvo-c6-wpa2`. `requirements.json` pins the standard 4096-round
+PBKDF2-HMAC-SHA1 result, and the qualification script re-derives it
+independently before executing the image. The firmware implements SHA-1,
+HMAC-SHA1, PBKDF2, the WPA pairwise expansion and EAPOL MIC handling itself;
+the pinned PMK keeps the bounded exact-image run focused on the causal EAPOL
+and C6 hardware-CCMP path.
 
 The image also exposes a newline-delimited UART0 protocol at 115200 baud:
 `INIT`, `CHANNEL n`, `POWER n`, `RX START`, `RX STOP`, `TX tag`, and

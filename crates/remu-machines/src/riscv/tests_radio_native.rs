@@ -922,6 +922,125 @@ fn esp32c6_native_wifi_rx_dma_writes_metadata_frame_and_completion() {
 }
 
 #[test]
+fn esp32c6_native_wifi_rx_authenticates_and_decrypts_firmware_selected_ccmp() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
+    let local = [0x02, 0, 0, 0, 0, 0xc6];
+    let peer = [0x02, 0x52, 0x45, 0x4d, 0x55, 2];
+    let key = [
+        0x3e, 0x29, 0x42, 0x5f, 0xcd, 0x3c, 0x44, 0xd0, 0x1b, 0x29, 0x87, 0x87, 0x47,
+        0x51, 0xb9, 0x98,
+    ];
+    machine
+        .bus
+        .write(
+            0x600a_405c,
+            AccessWidth::Word,
+            u64::from(u32::from_le_bytes(local[..4].try_into().unwrap())),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_4060, AccessWidth::Word, 0x0001_c600, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_5800,
+            AccessWidth::Word,
+            u64::from(u32::from_le_bytes(peer[..4].try_into().unwrap())),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_5804, AccessWidth::Word, 0x006c_0255, SimTime::ZERO)
+        .unwrap();
+    for (index, word) in key.chunks_exact(4).enumerate() {
+        machine
+            .bus
+            .write(
+                0x600a_5808 + index as u64 * 4,
+                AccessWidth::Word,
+                u64::from(u32::from_le_bytes(word.try_into().unwrap())),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(0x600a_4814, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+
+    let descriptor = 0x4080_1000_u32;
+    let buffer = 0x4080_1100_u32;
+    let capacity = 512_u32;
+    let control = (1 << 31) | (capacity << 14) | capacity;
+    let mut descriptor_bytes = Vec::new();
+    descriptor_bytes.extend_from_slice(&control.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&buffer.to_le_bytes());
+    descriptor_bytes.extend_from_slice(&0_u32.to_le_bytes());
+    machine
+        .debug_write_memory(u64::from(descriptor), &descriptor_bytes)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4084,
+            AccessWidth::Word,
+            u64::from(descriptor),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_4c40, AccessWidth::Word, 1 << 14, SimTime::ZERO)
+        .unwrap();
+
+    let mut plain = vec![0x08, 0x42, 0, 0];
+    plain.extend_from_slice(&local);
+    plain.extend_from_slice(&peer);
+    plain.extend_from_slice(&peer);
+    plain.extend_from_slice(&[0, 0]);
+    plain.extend_from_slice(&[2, 0, 0, 0x20, 0, 0, 0, 0]);
+    plain.extend_from_slice(&[
+        0xaa, 0xaa, 3, 0, 0, 0, 0x88, 0xb5, b'P', b'O', b'N', b'G',
+    ]);
+    plain.extend_from_slice(&[0; 8]);
+    let mut encrypted = plain.clone();
+    remu_radio::protect_native_ccmp_frame(&key, &mut encrypted).unwrap();
+    machine
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            encrypted.clone(),
+            -35,
+        )
+        .unwrap();
+    machine.now = SimTime::from_ticks(encrypted.len() as u64 * 32);
+    assert_eq!(machine.service_radio().unwrap(), 1);
+    assert_eq!(
+        machine
+            .debug_read_memory(u64::from(buffer) + 92 + 32, 12)
+            .unwrap(),
+        plain[32..44]
+    );
+    assert!(machine
+        .radio_replay_artifact()
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| matches!(
+            event,
+            remu_radio::MediumEvent::Submitted { request, .. }
+                if request.frame.origin == remu_radio::FrameOrigin::HostInjection
+                    && request.frame.bytes == encrypted
+        )));
+}
+
+#[test]
 fn esp32c6_native_wifi_ampdu_rx_advances_one_descriptor_per_mpdu() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     program_esp32c6_wifi_rf(&mut machine, 1, 56);

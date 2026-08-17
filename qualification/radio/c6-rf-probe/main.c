@@ -6,9 +6,11 @@
 #include "hal/c6/rf.h"
 #include "hal/c6/uart.h"
 #include "station.h"
+#include "wpa2.h"
 
 static char command[64];
 static uint32_t command_length;
+static int wpa2_started;
 
 static int equals(const char *left, const char *right)
 {
@@ -142,6 +144,20 @@ int main(void)
                 if ((events & C6_STATION_L2_TX) != 0) checkpoint("OPEN_L2_TX", 0);
                 if ((events & C6_STATION_L2_RX) != 0) checkpoint("OPEN_L2_RX", 0);
                 if ((events & C6_STATION_FAILED) != 0) checkpoint("OPEN_FAILED", -1);
+                if ((events & C6_STATION_L2_RX) != 0 && !wpa2_started) {
+                    wpa2_started = 1;
+                    checkpoint("WPA2_START", c6_wpa2_start());
+                }
+                uint32_t wpa2 = c6_wpa2_receive(received_frame, wire_length);
+                if ((wpa2 & C6_WPA2_SCANNED) != 0) checkpoint("WPA2_SCAN", 0);
+                if ((wpa2 & C6_WPA2_AUTHENTICATED) != 0) checkpoint("WPA2_AUTH", 0);
+                if ((wpa2 & C6_WPA2_ASSOCIATED) != 0) checkpoint("WPA2_ASSOC", 0);
+                if ((wpa2 & C6_WPA2_EAPOL_M2) != 0) checkpoint("EAPOL_M2", 0);
+                if ((wpa2 & C6_WPA2_EAPOL_M4) != 0) checkpoint("EAPOL_M4", 0);
+                if ((wpa2 & C6_WPA2_CCMP_INSTALLED) != 0) checkpoint("CCMP_INSTALLED", 0);
+                if ((wpa2 & C6_WPA2_CCMP_TX) != 0) checkpoint("CCMP_TX", 0);
+                if ((wpa2 & C6_WPA2_CCMP_RX) != 0) checkpoint("CCMP_RX", 0);
+                if ((wpa2 & C6_WPA2_FAILED) != 0) checkpoint("WPA2_FAILED", -1);
             }
         }
         int byte = c6_uart_getc_nonblocking();
