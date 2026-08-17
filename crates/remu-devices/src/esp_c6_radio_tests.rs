@@ -132,7 +132,7 @@ mod tests {
         write_rf(&mut device, C6_FRONTEND_FORCE, 0x100);
         let invalid = handle.wifi_rf_snapshot();
         assert_eq!(invalid.channel, None);
-        assert!(!invalid.pll_locked);
+        assert!(invalid.pll_locked);
         assert!(!invalid.calibration_valid);
         assert_eq!(invalid.power_qdbm, None);
         assert_eq!(invalid.frontend_released, None);

@@ -973,6 +973,7 @@ const C6_FREQUENCY_CHANNEL_BASE: u32 = 0x380;
 const C6_FREQUENCY_CHANNEL_STRIDE: u32 = 0x280;
 const C6_FREQUENCY_MODE_MASK: u32 = 0xffff_c000;
 const C6_FREQUENCY_HT20_MODE: u32 = 0x4284_4000;
+const C6_FREQUENCY_VENDOR_CALIBRATION_MODE: u32 = 0x5284_4000;
 const C6_IQ_ESTIMATE_CONTROL: u64 = 0x474;
 const C6_IQ_ESTIMATE_STATUS: u64 = 0x4a0;
 const C6_IQ_ESTIMATE_START: u32 = 1 << 1;
@@ -1112,8 +1113,10 @@ impl EspC6PowerDetectorState {
     }
 
     fn observe_rf_write(&mut self, offset: u64, value: u32) {
+        let frequency_mode = value & C6_FREQUENCY_MODE_MASK;
         if offset == C6_FREQUENCY_CONTROL
-            && value & C6_FREQUENCY_MODE_MASK == C6_FREQUENCY_HT20_MODE
+            && value & C6_FREQUENCY_CHANNEL_START != 0
+            && frequency_mode != C6_FREQUENCY_VENDOR_CALIBRATION_MODE
         {
             let code = value & C6_FREQUENCY_CODE_MASK;
             self.channel = code
@@ -1122,7 +1125,7 @@ impl EspC6PowerDetectorState {
                 .and_then(|delta| u8::try_from(delta / C6_FREQUENCY_CHANNEL_STRIDE).ok())
                 .filter(|channel| (1..=14).contains(channel));
             self.pll_locked = true;
-            self.bandwidth_khz = Some(20_000);
+            self.bandwidth_khz = (frequency_mode == C6_FREQUENCY_HT20_MODE).then_some(20_000);
             self.calibration_generation = self.calibration_generation.wrapping_add(1);
             self.calibrated_generation = None;
             self.calibration_valid = false;
