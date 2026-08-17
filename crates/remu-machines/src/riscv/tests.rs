@@ -723,6 +723,40 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 }
 
 #[test]
+fn riscv_bus_trace_correlates_cpu_accesses_but_not_debugger_reads() {
+    // lui x1,0x20000; addi x2,x0,7; sw x2,0(x1); ebreak
+    let program = [0x2000_00b7_u32, 0x0070_0113, 0x0020_a023, 0x0010_0073]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>();
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    machine.load_bytes(0, &program).unwrap();
+    machine.set_entry(0).unwrap();
+    machine.set_access_recording(true);
+
+    let result = machine
+        .run(
+            RunLimits {
+                instructions: Some(16),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.reason, StopReason::Halted);
+    let cpu_write = machine
+        .access_log()
+        .iter()
+        .find(|record| record.kind == AccessKind::Write && record.address == 0x2000_0000)
+        .unwrap();
+    assert_eq!(cpu_write.pc, Some(8));
+
+    let prior_records = machine.access_log().len();
+    assert_eq!(machine.debug_read_memory(0x2000_0000, 1).unwrap(), [7]);
+    assert_eq!(machine.access_log()[prior_records].pc, None);
+}
+
+#[test]
 fn gpio_facade_streams_valid_vcd() {
     // lui x1,0xffff0; addi x2,x0,1; sw x2,0(x1); sw x2,4(x1); ebreak
     let program = [

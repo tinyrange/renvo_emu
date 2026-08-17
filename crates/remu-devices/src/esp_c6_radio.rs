@@ -932,6 +932,22 @@ impl Device for EspC6PhyRegisters {
         Ok(())
     }
 
+    fn trace_value(&self, offset: u64, width: AccessWidth, at: SimTime) -> Option<u64> {
+        if width != AccessWidth::Word || !offset.is_multiple_of(4) {
+            return None;
+        }
+        if offset == 0 {
+            return Some(at.ticks() & u64::from(u32::MAX));
+        }
+        self.state
+            .lock()
+            .expect("ESP32-C6 PHY register lock poisoned")
+            .registers
+            .get(offset as usize / 4)
+            .copied()
+            .map(u64::from)
+    }
+
     fn reset(&mut self, _kind: ResetKind) {
         let mut state = self
             .state
@@ -1021,6 +1037,13 @@ impl Device for EspC6PowerDetector {
             self.registers[C6_IQ_ESTIMATE_STATUS as usize / 4] |= C6_IQ_ESTIMATE_DONE;
         }
         Ok(())
+    }
+
+    fn trace_value(&self, offset: u64, width: AccessWidth, _at: SimTime) -> Option<u64> {
+        (width == AccessWidth::Word && offset.is_multiple_of(4))
+            .then(|| self.registers.get(offset as usize / 4).copied())
+            .flatten()
+            .map(u64::from)
     }
 
     fn reset(&mut self, _kind: ResetKind) {
@@ -1260,6 +1283,12 @@ impl Device for EspC6ModemControl {
             self.record_reset_edges(&mut state, old, new);
         }
         Ok(())
+    }
+
+    fn trace_value(&self, offset: u64, width: AccessWidth, _at: SimTime) -> Option<u64> {
+        let index = checked_word_index(&self.name, offset, width).ok()?;
+        let state = self.state.lock().ok()?;
+        self.registers(&state).get(index).copied().map(u64::from)
     }
 
     fn reset(&mut self, _kind: ResetKind) {

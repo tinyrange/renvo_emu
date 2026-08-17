@@ -24,7 +24,12 @@
       "expected_association_request_length": 151,
       "calibration_regions": [
         "esp32c6.i2c-ana-mst",
+        "esp32c6.modem-lpcon",
+        "esp32c6.modem-syscon",
         "esp32c6.power-detector",
+        "esp32c6.phy-baseband-registers",
+        "esp32c6.phy-front-end-registers",
+        "esp32c6.phy-mac-registers",
         "esp32c6.phy-registers",
         "esp32c6.phy-i2c-command-memory"
       ],

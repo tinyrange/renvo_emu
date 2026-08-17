@@ -109,7 +109,12 @@ case "$chip" in
             --coverage "$chip_root/coverage.json" \
             --bus-log "$chip_root/calibration-bus.json" \
             --bus-log-region esp32c6.i2c-ana-mst \
+            --bus-log-region esp32c6.modem-lpcon \
+            --bus-log-region esp32c6.modem-syscon \
             --bus-log-region esp32c6.power-detector \
+            --bus-log-region esp32c6.phy-baseband-registers \
+            --bus-log-region esp32c6.phy-front-end-registers \
+            --bus-log-region esp32c6.phy-mac-registers \
             --bus-log-region esp32c6.phy-registers \
             --bus-log-region esp32c6.phy-i2c-command-memory
         ;;
@@ -153,6 +158,11 @@ case "$chip" in
     esp32c6)
         jq -e '
             . as $records |
+            all($records[]; has("pc")) and
+            all($records[] | select(.kind == "Write");
+                has("pre_value") and has("post_value")) and
+            any($records[];
+                .kind == "Write" and .pre_value != .post_value) and
             ([ $records[] |
                 select(.region == "esp32c6.phy-i2c-command-memory" and
                        .kind == "Write") ] | length) >= 30 and
@@ -354,6 +364,8 @@ jq -n \
             requires_native_wifi_dma_tx: true,
             requires_native_wifi_dma_rx: true,
             requires_firmware_observed_calibration: true,
+            requires_observational_pc_correlation: ($chip == "esp32c6"),
+            requires_safe_write_pre_post_values: ($chip == "esp32c6"),
             calibration_regions: $calibration_regions,
             requires_vendor_scan_result: true,
             requires_vendor_station_association: true,
@@ -379,6 +391,8 @@ jq -n \
             calibration_bus_sha256: $calibration_bus_sha256,
             twt_agent_sha256: $twt_agent_sha256,
             calibration_completion_paths: true,
+            observational_pc_correlation: ($chip == "esp32c6"),
+            safe_write_pre_post_values: ($chip == "esp32c6"),
             vendor_scan_count: $vendor_scan_count,
             vendor_station_connected: true,
             native_wifi_ack_peer_observed: true,

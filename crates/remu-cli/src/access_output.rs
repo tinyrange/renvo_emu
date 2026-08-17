@@ -167,18 +167,24 @@ mod tests {
         vec![
             BusAccessRecord {
                 at: SimTime::from_ticks(1),
+                pc: Some(0x4200_0000),
                 kind: AccessKind::Execute,
                 address: 0x4200_0000,
                 width: AccessWidth::Word,
                 value: 0x1234_5678,
+                pre_value: None,
+                post_value: None,
                 region: "esp32c6.irom".to_owned(),
             },
             BusAccessRecord {
                 at: SimTime::from_ticks(2),
+                pc: Some(0x4200_0004),
                 kind: AccessKind::Write,
                 address: 0x6009_1004,
                 width: AccessWidth::Word,
                 value: 1 << 7,
+                pre_value: Some(0),
+                post_value: Some(1 << 7),
                 region: "esp32c6.gpio".to_owned(),
             },
         ]

@@ -110,6 +110,14 @@ accept incomplete hardware evidence. `stop_bus_capture()` freezes the retained
 window while it is inspected. Existing CLI `--bus-log` streaming continues in
 parallel when both facilities are enabled.
 
+Captured RISC-V CPU accesses carry their causative instruction `pc`; autonomous
+device/DMA and agent reads or writes omit it. Safe direct-memory writes expose
+`pre_value` and `post_value`. MMIO models omit those fields by default and may
+opt into a side-effect-free internal snapshot, as the proven C6 RF/PHY banks
+do; the tracer never calls a read-sensitive register accessor to obtain them.
+PC and value correlation are trace evidence only and are not available to
+peripheral behavior.
+
 `--agent-artifact` writes schema `remu.agent-session.v1`: the JSON-compatible
 value returned by `main()` plus a compact final-run summary. The full run and
 RF event stream remain separate `--result` and `--radio-replay` artifacts, so

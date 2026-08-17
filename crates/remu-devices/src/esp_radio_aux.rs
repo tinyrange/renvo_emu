@@ -99,6 +99,13 @@ impl Device for EspAnalogI2c {
         Ok(())
     }
 
+    fn trace_value(&self, offset: u64, width: AccessWidth, _at: SimTime) -> Option<u64> {
+        (width == AccessWidth::Word && offset.is_multiple_of(4))
+            .then(|| self.registers.get(offset as usize / 4).copied())
+            .flatten()
+            .map(u64::from)
+    }
+
     fn reset(&mut self, _kind: ResetKind) {
         self.registers.fill(0);
         self.analog.clear();

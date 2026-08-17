@@ -38,6 +38,15 @@ MMIO blocks, disputed address claims, and every radio interrupt source. The
 source checker fails closed for code or documentation whose license is absent,
 unknown, or outside the explicit permissive allowlist.
 
+For issue #356 RF/PHY recovery, the same bounded/streaming bus evidence now
+correlates RISC-V accesses with the causative PC without exposing PC to device
+models. Autonomous DMA/shared-memory activity deliberately has no PC. Direct
+memory writes record safe pre/post values. The C6 RF/PHY models emit the same
+evidence from a side-effect-free internal snapshot, so tracing never performs
+an extra read of a potentially read-sensitive register. The C6 calibration filter spans
+the PHY/MAC, baseband, frontend, MODEM_SYSCON, private PHY, MODEM_LPCON,
+analog-I2C, and PHY command-SRAM regions listed in issue #356.
+
 The pinned ROM fetch installs the C6 rev0 and S3 rev0 Apache-2.0 ELF artifacts
 under `.remu/qualification/esp-rom-elfs/20260528`. Renvo executes their mapped
 ROM sections as guest instructions. ELF symbols may label offline disassembly,

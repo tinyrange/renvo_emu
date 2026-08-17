@@ -142,6 +142,15 @@ pub trait Device {
         at: SimTime,
     ) -> Result<(), DeviceError>;
 
+    /// Returns a side-effect-free register value for trace correlation.
+    ///
+    /// Devices opt in only when their internal model can safely expose the
+    /// value. The address space never substitutes a call to [`Device::read`],
+    /// because reads may acknowledge or otherwise mutate hardware state.
+    fn trace_value(&self, _offset: u64, _width: AccessWidth, _at: SimTime) -> Option<u64> {
+        None
+    }
+
     /// Applies a device reset.
     fn reset(&mut self, _kind: ResetKind) {}
 }
@@ -253,6 +262,13 @@ impl fmt::Debug for Region {
 pub struct BusAccessRecord {
     /// Operation timestamp.
     pub at: SimTime,
+    /// Program counter whose execution caused this operation, when known.
+    ///
+    /// This is observation-only context supplied by the owning machine. Bus
+    /// and device behavior must never depend on it. Autonomous device, DMA,
+    /// debugger, and host accesses deliberately omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pc: Option<u64>,
     /// Operation type.
     pub kind: AccessKind,
     /// First byte address.
@@ -261,6 +277,15 @@ pub struct BusAccessRecord {
     pub width: AccessWidth,
     /// Read result or written value.
     pub value: u64,
+    /// Safely observed value before a write, when the backing permits it.
+    ///
+    /// This is currently populated for direct memory and omitted for devices;
+    /// the bus never performs an extra device read to obtain trace evidence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_value: Option<u64>,
+    /// Safely observed value after a write, when the backing permits it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub post_value: Option<u64>,
     /// Mapped region name.
     pub region: String,
 }
@@ -298,6 +323,7 @@ pub struct AddressSpace {
     record_accesses: bool,
     access_log: Vec<BusAccessRecord>,
     access_observer: Option<SharedBusAccessObserver>,
+    observation_pc: Option<u64>,
     watchpoints: BTreeSet<u64>,
     write_watchpoints: BTreeSet<u64>,
     masked_write_watchpoints: BTreeMap<u64, (u64, u64)>,
@@ -338,6 +364,7 @@ impl AddressSpace {
             record_accesses: false,
             access_log: Vec::new(),
             access_observer: None,
+            observation_pc: None,
             watchpoints: BTreeSet::new(),
             write_watchpoints: BTreeSet::new(),
             masked_write_watchpoints: BTreeMap::new(),
@@ -364,6 +391,15 @@ impl AddressSpace {
     /// Installs or removes a streaming completed-access observer.
     pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
         self.access_observer = observer;
+    }
+
+    /// Sets observation-only PC context for subsequently completed accesses.
+    ///
+    /// Machines should set this immediately before one CPU or emulated-ROM
+    /// action and clear it immediately afterwards. It is intentionally absent
+    /// from device APIs so peripheral behavior cannot consume it.
+    pub fn set_observation_pc(&mut self, pc: Option<u64>) {
+        self.observation_pc = pc;
     }
 
     /// Adds a streaming observer while preserving any observer already installed.
@@ -930,6 +966,7 @@ impl Bus for AddressSpace {
     ) -> Result<u64, BusFault> {
         let endianness = self.endianness;
         let monitored = self.monitors_accesses();
+        let observation_pc = self.observation_pc;
         let region = self.region_for(address, width, kind)?;
         let relative = address - region.start;
         let device_access = matches!(region.backing, Backing::Device(_));
@@ -972,10 +1009,13 @@ impl Bus for AddressSpace {
         if monitored {
             let record = BusAccessRecord {
                 at,
+                pc: observation_pc,
                 kind,
                 address,
                 width,
                 value,
+                pre_value: None,
+                post_value: None,
                 region: region.name.clone(),
             };
             self.record_completed_access(record);
@@ -995,10 +1035,12 @@ impl Bus for AddressSpace {
     ) -> Result<(), BusFault> {
         let endianness = self.endianness;
         let monitored = self.monitors_accesses();
+        let observation_pc = self.observation_pc;
         let region = self.region_for(address, width, AccessKind::Write)?;
         let relative = address - region.start;
         let device_access = matches!(region.backing, Backing::Device(_));
         let masked = value & width.value_mask();
+        let mut safe_values = (None, None);
         match &mut region.backing {
             Backing::Memory {
                 storage,
@@ -1010,6 +1052,21 @@ impl Bus for AddressSpace {
                         + usize::try_from(relative).expect("mapped offset fits usize");
                     let end = start + usize::from(width.bytes());
                     let mut bytes = storage.bytes.borrow_mut();
+                    let previous = monitored.then(|| match endianness {
+                        Endianness::Little => bytes[start..end]
+                            .iter()
+                            .enumerate()
+                            .fold(0_u64, |value, (index, byte)| {
+                                value | (u64::from(*byte) << (index * 8))
+                            }),
+                        Endianness::Big => bytes[start..end]
+                            .iter()
+                            .rev()
+                            .enumerate()
+                            .fold(0_u64, |value, (index, byte)| {
+                                value | (u64::from(*byte) << (index * 8))
+                            }),
+                    });
                     match endianness {
                         Endianness::Little => {
                             for (index, byte) in bytes[start..end].iter_mut().enumerate() {
@@ -1025,9 +1082,34 @@ impl Bus for AddressSpace {
                             }
                         }
                     }
+                    safe_values = (previous, previous.map(|_| masked));
+                } else if monitored {
+                    let start = *storage_offset
+                        + usize::try_from(relative).expect("mapped offset fits usize");
+                    let end = start + usize::from(width.bytes());
+                    let bytes = storage.bytes.borrow();
+                    let previous = match endianness {
+                        Endianness::Little => bytes[start..end]
+                            .iter()
+                            .enumerate()
+                            .fold(0_u64, |value, (index, byte)| {
+                                value | (u64::from(*byte) << (index * 8))
+                            }),
+                        Endianness::Big => bytes[start..end]
+                            .iter()
+                            .rev()
+                            .enumerate()
+                            .fold(0_u64, |value, (index, byte)| {
+                                value | (u64::from(*byte) << (index * 8))
+                            }),
+                    };
+                    safe_values = (Some(previous), Some(previous));
                 }
             }
             Backing::Device(device) => {
+                let pre_value = monitored
+                    .then(|| device.trace_value(relative, width, at))
+                    .flatten();
                 device.write(relative, width, masked, at).map_err(|error| {
                     BusFault::new(
                         BusFaultKind::Device,
@@ -1037,15 +1119,22 @@ impl Bus for AddressSpace {
                         format!("{}: {error}", device.name()),
                     )
                 })?;
+                let post_value = monitored
+                    .then(|| device.trace_value(relative, width, at))
+                    .flatten();
+                safe_values = (pre_value, post_value);
             }
         }
         if monitored {
             let record = BusAccessRecord {
                 at,
+                pc: observation_pc,
                 kind: AccessKind::Write,
                 address,
                 width,
                 value: masked,
+                pre_value: safe_values.0,
+                post_value: safe_values.1,
                 region: region.name.clone(),
             };
             self.record_completed_access(record);
@@ -1060,12 +1149,49 @@ impl Bus for AddressSpace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     struct CollectingObserver(Rc<RefCell<Vec<BusAccessRecord>>>);
 
     impl BusAccessObserver for CollectingObserver {
         fn observe(&mut self, record: &BusAccessRecord) {
             self.0.borrow_mut().push(record.clone());
+        }
+    }
+
+    struct TraceableRegister {
+        value: u64,
+        reads: Rc<Cell<u32>>,
+    }
+
+    impl Device for TraceableRegister {
+        fn name(&self) -> &str {
+            "traceable-register"
+        }
+
+        fn read(
+            &mut self,
+            _offset: u64,
+            _width: AccessWidth,
+            _at: SimTime,
+        ) -> Result<u64, DeviceError> {
+            self.reads.set(self.reads.get() + 1);
+            Ok(self.value)
+        }
+
+        fn write(
+            &mut self,
+            _offset: u64,
+            _width: AccessWidth,
+            value: u64,
+            _at: SimTime,
+        ) -> Result<(), DeviceError> {
+            self.value = value;
+            Ok(())
+        }
+
+        fn trace_value(&self, _offset: u64, _width: AccessWidth, _at: SimTime) -> Option<u64> {
+            Some(self.value)
         }
     }
 
@@ -1317,6 +1443,58 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].kind, AccessKind::Write);
         assert_eq!(records[1].kind, AccessKind::Execute);
+    }
+
+    #[test]
+    fn observation_pc_is_correlated_without_leaking_into_later_activity() {
+        let records = Rc::new(RefCell::new(Vec::new()));
+        let observer: SharedBusAccessObserver =
+            Rc::new(RefCell::new(CollectingObserver(records.clone())));
+        let mut bus = AddressSpace::default();
+        bus.map_ram("ram", 0x1000, 16, true).unwrap();
+        bus.set_access_observer(Some(observer));
+
+        bus.set_observation_pc(Some(0x4200_1234));
+        bus.write(0x1000, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
+        bus.set_observation_pc(None);
+        bus.write(0x1004, AccessWidth::Word, 2, SimTime::from_ticks(1))
+            .unwrap();
+
+        let records = records.borrow();
+        assert_eq!(records[0].pc, Some(0x4200_1234));
+        assert_eq!(records[0].pre_value, Some(0));
+        assert_eq!(records[0].post_value, Some(1));
+        assert_eq!(records[1].pc, None);
+        assert_eq!(records[1].pre_value, Some(0));
+        assert_eq!(records[1].post_value, Some(2));
+    }
+
+    #[test]
+    fn device_pre_post_trace_uses_snapshot_hook_without_reading() {
+        let records = Rc::new(RefCell::new(Vec::new()));
+        let reads = Rc::new(Cell::new(0));
+        let mut bus = AddressSpace::default();
+        bus.map_device(
+            "register",
+            0x2000,
+            4,
+            Box::new(TraceableRegister {
+                value: 0x11,
+                reads: reads.clone(),
+            }),
+        )
+        .unwrap();
+        bus.set_access_observer(Some(Rc::new(RefCell::new(CollectingObserver(
+            records.clone(),
+        )))));
+
+        bus.write(0x2000, AccessWidth::Word, 0x22, SimTime::ZERO)
+            .unwrap();
+
+        assert_eq!(reads.get(), 0);
+        assert_eq!(records.borrow()[0].pre_value, Some(0x11));
+        assert_eq!(records.borrow()[0].post_value, Some(0x22));
     }
 
     #[test]

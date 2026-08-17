@@ -312,10 +312,13 @@ impl Pic16McuMachine {
                 let pc = self.cpu.snapshot().pc as u16;
                 let record = BusAccessRecord {
                     at: self.now,
+                    pc: Some(u64::from(pc)),
                     kind: AccessKind::Execute,
                     address: u64::from(pc),
                     width: AccessWidth::HalfWord,
                     value: u64::from(self.cpu.program_word(pc).unwrap_or(0x3fff)),
+                    pre_value: None,
+                    post_value: None,
                     region: "pic16f15376.program".to_owned(),
                 };
                 if self.record_accesses {
