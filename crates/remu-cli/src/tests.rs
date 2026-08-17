@@ -62,6 +62,56 @@ fn firmware_boot_accepts_repeatable_pin_stimulus() {
 }
 
 #[test]
+fn firmware_boot_accepts_radio_input_replay_and_peer() {
+    let parsed = Cli::try_parse_from([
+        "remu",
+        "firmware",
+        "boot",
+        "--target",
+        "esp32c6",
+        "--image",
+        "firmware.bin",
+        "--boot-rom",
+        "rom.elf",
+        "--radio-input",
+        "input.json",
+        "--radio-replay",
+        "replay.json",
+        "--radio-script",
+        "peer.star",
+        "--radio-repl",
+    ])
+    .unwrap();
+    let Command::Firmware {
+        command: FirmwareCommand::Boot(arguments),
+    } = parsed.command
+    else {
+        panic!("expected firmware boot");
+    };
+    assert_eq!(arguments.radio_input, Some(PathBuf::from("input.json")));
+    assert_eq!(arguments.radio_replay, Some(PathBuf::from("replay.json")));
+    assert_eq!(arguments.radio_script, Some(PathBuf::from("peer.star")));
+    assert!(arguments.radio_repl);
+}
+
+#[test]
+fn firmware_boot_rejects_radio_repl_without_peer() {
+    assert!(
+        Cli::try_parse_from([
+            "remu",
+            "firmware",
+            "boot",
+            "--target",
+            "esp32c6",
+            "--image",
+            "firmware.bin",
+            "--radio-repl",
+        ])
+        .is_err()
+    );
+}
+
+#[test]
 fn direct_run_accepts_bus_log_artifact() {
     let parsed = Cli::try_parse_from([
         "remu",

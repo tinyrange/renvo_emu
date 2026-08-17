@@ -255,6 +255,18 @@ struct FirmwareBootArgs {
     /// Optional JSON record of completed memory and MMIO operations.
     #[arg(long)]
     bus_log: Option<PathBuf>,
+    /// Write the deterministic isolated RF-medium replay artifact as JSON.
+    #[arg(long)]
+    radio_replay: Option<PathBuf>,
+    /// Read deterministic timestamped RF input frames from a JSON artifact.
+    #[arg(long)]
+    radio_input: Option<PathBuf>,
+    /// Run an event-driven deterministic Starlark peer on emitted RF frames.
+    #[arg(long)]
+    radio_script: Option<PathBuf>,
+    /// Enable `repl()`/`breakpoint()` sessions inside the radio script.
+    #[arg(long, requires = "radio_script")]
+    radio_repl: bool,
 }
 
 #[derive(Debug, Args)]

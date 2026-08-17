@@ -222,6 +222,12 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
             crate::native_firmware::boot_native_image(arguments, target, &bytes, &stimuli)?;
         return write_run_result(&result, arguments.result.as_deref());
     }
+    let uses_radio = arguments.radio_input.is_some()
+        || arguments.radio_replay.is_some()
+        || arguments.radio_script.is_some();
+    if uses_radio && !matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3) {
+        return Err("native RF input/replay is supported only for ESP32-C6/ESP32-S3".into());
+    }
     if matches!(target, TargetId::Esp32c6 | TargetId::Esp32s3) {
         match arguments.format {
             FirmwareFormatArg::IntelHex | FirmwareFormatArg::RawBin => {
@@ -325,6 +331,12 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
                 machine.load_boot_rom(&boot_rom)?;
                 machine.set_esp_flash_image(&flash_state);
                 machine.load_esp_application(&image)?;
+                crate::run_command::configure_riscv_radio(
+                    &mut machine,
+                    arguments.radio_input.as_deref(),
+                    arguments.radio_script.as_deref(),
+                    arguments.radio_repl,
+                )?;
                 if let Some(payload) = &usb_input {
                     machine.queue_usb_input(payload);
                 }
@@ -338,6 +350,10 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
                     machine.run_with_stimuli(limits, &stimuli, None)?
                 };
                 write_access_log(arguments.bus_log.as_deref(), machine.access_log())?;
+                crate::run_command::write_riscv_radio_replay(
+                    &machine,
+                    arguments.radio_replay.as_deref(),
+                )?;
                 write_flash_state(arguments.flash_state.as_deref(), machine.esp_flash_image())?;
                 result
             }
