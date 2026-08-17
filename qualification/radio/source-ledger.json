@@ -29,6 +29,14 @@
       "use": "Project-owned scope and acceptance criteria"
     },
     {
+      "id": "renvo-issue-356",
+      "kind": "project-requirement",
+      "url": "https://github.com/tinyrange/renvo_emu/issues/356",
+      "revision": "updated-2026-08-13T02:04:03Z",
+      "content_sha256": "99176819eb4d1a9622222a77ec4fd28b8d1a642432591746fff04413d4916423",
+      "use": "Causal ESP32-C6 RF/PHY oracle and vendor-independent Wi-Fi acceptance criteria"
+    },
+    {
       "id": "esp-idf-license",
       "kind": "code",
       "url": "https://raw.githubusercontent.com/espressif/esp-idf/7101770dc6db2667b3c477cc31365dd1acd6db4e/LICENSE",

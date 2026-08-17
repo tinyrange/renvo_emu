@@ -9,6 +9,7 @@ socket or joins a physical network.
 ```sh
 python3 scripts/check-radio-sources.py
 scripts/fetch-esp-rom-elfs.sh
+scripts/capture-c6-rf-oracle.sh
 scripts/qualify-esp-radio-rom.sh esp32c6
 scripts/qualify-esp-radio-rom.sh esp32s3
 scripts/qualify-esp-radio-wifi-softap-vendor.sh esp32c6
@@ -49,6 +50,21 @@ analog-I2C, and PHY command-SRAM regions listed in issue #356.
 The same genuine-ROM gate streams native C6 radio interrupt-source transitions,
 requires assertion and deassertion evidence without stale PC attribution, and
 compares that stream byte-for-byte on the repeat-from-reset run.
+
+`capture-c6-rf-oracle.sh` is the separate issue #356 perturbation workflow. It
+builds a project-owned, public-API ESP-IDF oracle against the pinned 6.0.2
+container and runs it through the genuine C6 rev0 ROM. Flushed UART boundaries
+partition cold start, channels 1/6/11, 8/14/20 dBm requested maxima, warm
+stop/start, and deinitialize/reinitialize without hooks. Each stage emits a
+uniquely tagged raw probe request. `analyze-c6-rf-oracle.py` reduces the ordered
+trace to candidate contracts with immutable source provenance and confidence:
+the RFPLL frequency strobe/code on `0x600a00c0`, the 43-entry transmit-gain
+tuple ending at `0x600a08d4`, and the frontend force-off/release field on
+`0x600a0910`. PC values are retained only as observational evidence. The
+capture repeats from reset and requires byte-identical result, RF replay, bus,
+interrupt, and reduced-analysis artifacts while bounding the complete trace to
+64 MiB. This vendor-backed oracle is evidence for the independent HAL; it is
+not itself the issue #356 acceptance firmware.
 
 The pinned ROM fetch installs the C6 rev0 and S3 rev0 Apache-2.0 ELF artifacts
 under `.remu/qualification/esp-rom-elfs/20260528`. Renvo executes their mapped

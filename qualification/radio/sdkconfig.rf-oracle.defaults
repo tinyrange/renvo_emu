@@ -1,0 +1,7 @@
+# Eliminate wall-clock fields from the required vendor-oracle build.
+CONFIG_APP_REPRODUCIBLE_BUILD=y
+# CONFIG_APP_COMPILE_TIME_DATE is not set
+# CONFIG_BOOTLOADER_COMPILE_TIME_DATE is not set
+
+# Preserve the genuine RF calibration path while avoiding host NVS state.
+CONFIG_ESP_WIFI_NVS_ENABLED=n
