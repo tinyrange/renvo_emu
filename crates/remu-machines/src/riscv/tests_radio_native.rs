@@ -76,6 +76,7 @@ fn esp32c6_illegal_native_wifi_ba_state_is_a_hard_machine_error() {
 #[test]
 fn esp32c6_native_wifi_tx_excludes_hardware_fcs_from_the_rf_frame() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let frame: Vec<u8> = (0_u8..30).collect();
@@ -121,6 +122,7 @@ fn esp32c6_native_wifi_tx_excludes_hardware_fcs_from_the_rf_frame() {
 #[test]
 fn esp32c6_native_wifi_tx_accepts_the_firmware_observed_he_flag() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let frame: Vec<u8> = (0_u8..30).collect();
@@ -165,6 +167,7 @@ fn esp32c6_native_wifi_tx_accepts_the_firmware_observed_he_flag() {
 #[test]
 fn esp32c6_native_wifi_tx_preserves_guest_lmac_private_bits_on_non_qos_frame() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let frame = [0x08_u8, 0, 0, 0, 0x02, 0, 0, 0, 0, 1, 0x52, 0x45, 2, 0, 0, 1];
@@ -199,6 +202,7 @@ fn esp32c6_native_wifi_tx_preserves_guest_lmac_private_bits_on_non_qos_frame() {
 #[test]
 fn esp32c6_native_wifi_tx_accepts_genuine_unprotected_qos_descriptor_flags() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let frame = [
@@ -249,6 +253,7 @@ fn esp32c6_native_wifi_tx_accepts_genuine_unprotected_qos_descriptor_flags() {
 #[test]
 fn esp32c6_native_wifi_tx_applies_the_firmware_selected_ccmp_key() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let local = [0x52, 0x45, 0x02, 0x00, 0x00, 0x01];
@@ -393,6 +398,7 @@ fn esp32c6_native_wifi_tx_without_a_selected_crypto_key_is_a_hard_error() {
 #[test]
 fn esp32c6_matching_native_wifi_ack_completes_successfully() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let transmitter = [0x02, 1, 2, 3, 4, 5];
@@ -454,6 +460,7 @@ fn esp32c6_matching_native_wifi_ack_completes_successfully() {
 #[test]
 fn esp32c6_native_wifi_rts_receives_a_hardware_cts() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     machine
         .bus
         .write(

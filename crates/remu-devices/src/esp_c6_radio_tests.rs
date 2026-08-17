@@ -2,6 +2,114 @@
 mod tests {
     use super::*;
 
+    fn write_rf(device: &mut EspC6PowerDetector, offset: u64, value: u32) {
+        device
+            .write(offset, AccessWidth::Word, value.into(), SimTime::ZERO)
+            .unwrap();
+    }
+
+    fn program_wifi_rf(
+        device: &mut EspC6PowerDetector,
+        channel: u8,
+        power_qdbm: i16,
+    ) {
+        let frequency_code =
+            C6_FREQUENCY_CHANNEL_BASE + u32::from(channel) * C6_FREQUENCY_CHANNEL_STRIDE;
+        write_rf(
+            device,
+            C6_FREQUENCY_CONTROL,
+            0x4284_0000 | C6_FREQUENCY_CHANNEL_START | frequency_code,
+        );
+        write_rf(
+            device,
+            C6_IQ_ESTIMATE_CONTROL,
+            C6_IQ_ESTIMATE_START,
+        );
+        for entry in 0..C6_TX_GAIN_ENTRY_COUNT {
+            write_rf(device, C6_TX_GAIN_FIRST, u32::from(entry));
+            write_rf(device, C6_TX_GAIN_SECOND, u32::from(entry));
+            let final_word = if entry == 0 {
+                C6_TX_GAIN_START_SENTINEL
+            } else if entry + 1 == C6_TX_GAIN_ENTRY_COUNT {
+                ((i32::from(power_qdbm) - 133) * 128) as u32
+            } else {
+                u32::from(entry)
+            };
+            write_rf(device, C6_TX_GAIN_FINAL, final_word);
+        }
+        write_rf(device, C6_FRONTEND_FORCE, 0);
+    }
+
+    #[test]
+    fn c6_wifi_rf_snapshot_tracks_channel_power_and_frontend_causally() {
+        for (channel, center_khz) in [
+            (1, 2_412_000),
+            (6, 2_437_000),
+            (11, 2_462_000),
+        ] {
+            for power_qdbm in [32, 56, 80] {
+                let mut device = EspC6PowerDetector::new("power-detector");
+                let handle = device.handle();
+                assert!(!handle.wifi_rf_snapshot().airtime_ready());
+
+                program_wifi_rf(&mut device, channel, power_qdbm);
+                let snapshot = handle.wifi_rf_snapshot();
+                assert_eq!(snapshot.channel, Some(channel));
+                assert!(snapshot.pll_locked);
+                assert!(snapshot.calibration_valid);
+                assert_eq!(snapshot.center_khz(), Some(center_khz));
+                assert_eq!(snapshot.power_qdbm, Some(power_qdbm));
+                assert_eq!(snapshot.frontend_released, Some(true));
+                assert_eq!(snapshot.gain_entries, C6_TX_GAIN_ENTRY_COUNT);
+                assert!(snapshot.airtime_ready());
+
+                write_rf(&mut device, C6_FRONTEND_FORCE, C6_FRONTEND_FORCED_OFF);
+                assert!(!handle.wifi_rf_snapshot().airtime_ready());
+                write_rf(&mut device, C6_FRONTEND_FORCE, 0);
+                assert!(handle.wifi_rf_snapshot().airtime_ready());
+            }
+        }
+    }
+
+    #[test]
+    fn c6_wifi_rf_rejects_partial_sequences_and_invalidates_on_reset() {
+        let mut device = EspC6PowerDetector::new("power-detector");
+        let handle = device.handle();
+        write_rf(
+            &mut device,
+            C6_FREQUENCY_CONTROL,
+            C6_FREQUENCY_CHANNEL_START | 0x123,
+        );
+        write_rf(&mut device, C6_TX_GAIN_FIRST, 0);
+        write_rf(&mut device, C6_TX_GAIN_FINAL, C6_TX_GAIN_START_SENTINEL);
+        write_rf(&mut device, C6_FRONTEND_FORCE, 0x100);
+        let invalid = handle.wifi_rf_snapshot();
+        assert_eq!(invalid.channel, None);
+        assert!(!invalid.pll_locked);
+        assert!(!invalid.calibration_valid);
+        assert_eq!(invalid.power_qdbm, None);
+        assert_eq!(invalid.frontend_released, None);
+        assert!(!invalid.airtime_ready());
+
+        program_wifi_rf(&mut device, 6, 56);
+        let configured = handle.wifi_rf_snapshot();
+        device.reset(ResetKind::Software);
+        let reset = handle.wifi_rf_snapshot();
+        assert!(!reset.airtime_ready());
+        assert_eq!(reset.channel, None);
+        assert!(!reset.pll_locked);
+        assert!(!reset.calibration_valid);
+        assert_eq!(reset.power_qdbm, None);
+        assert_eq!(reset.frontend_released, None);
+        assert_eq!(reset.generation, configured.generation + 1);
+
+        program_wifi_rf(&mut device, 11, 80);
+        handle.invalidate_wifi_rf();
+        let invalidated = handle.wifi_rf_snapshot();
+        assert!(!invalidated.airtime_ready());
+        assert_eq!(invalidated.generation, reset.generation + 1);
+    }
+
     #[test]
     fn c6_ble_sleep_timer_advances_at_the_firmware_selected_rate() {
         let (mut modem, handle) = EspC6BleModem::new("ble-modem");

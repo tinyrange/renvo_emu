@@ -179,6 +179,7 @@ impl RiscVMachine {
                     granted_protocol,
                     self.now,
                 )?;
+            let (spectrum, power_dbm) = self.c6_wifi_rf_airtime()?;
             let transmission = self
                 .radio_medium
                 .as_mut()
@@ -187,10 +188,10 @@ impl RiscVMachine {
                     source: EMULATED_NODE,
                     start: self.now,
                     end,
-                    power_dbm: 0,
+                    power_dbm,
                     frame: RadioFrame {
                         protocol: RadioProtocol::Wifi,
-                        spectrum: Spectrum::new(2_412_000, 20_000),
+                        spectrum,
                         phy: phy.to_owned(),
                         bytes,
                         mpdus,
@@ -204,7 +205,7 @@ impl RiscVMachine {
                     .tune_receiver(Receiver {
                         node: EMULATED_NODE,
                         protocol: RadioProtocol::Wifi,
-                        spectrum: Spectrum::new(2_412_000, 20_000),
+                        spectrum,
                         sensitivity_dbm: -100,
                     })?;
             }
@@ -394,6 +395,7 @@ impl RiscVMachine {
                 granted_protocol,
                 self.now,
             )?;
+        let (spectrum, power_dbm) = self.c6_wifi_rf_airtime()?;
         let transmission = self
             .radio_medium
             .as_mut()
@@ -402,10 +404,10 @@ impl RiscVMachine {
                 source: EMULATED_NODE,
                 start: self.now,
                 end,
-                power_dbm: 0,
+                power_dbm,
                 frame: RadioFrame {
                     protocol: RadioProtocol::Wifi,
-                    spectrum: Spectrum::new(2_412_000, 20_000),
+                    spectrum,
                     phy: phy.to_owned(),
                     bytes,
                     mpdus,
@@ -419,7 +421,7 @@ impl RiscVMachine {
                 .tune_receiver(Receiver {
                     node: EMULATED_NODE,
                     protocol: RadioProtocol::Wifi,
-                    spectrum: Spectrum::new(2_412_000, 20_000),
+                    spectrum,
                     sensitivity_dbm: -100,
                 })?;
         }

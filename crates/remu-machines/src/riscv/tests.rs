@@ -42,6 +42,46 @@ fn app_descriptor() -> Vec<u8> {
     descriptor
 }
 
+fn program_esp32c6_wifi_rf(machine: &mut RiscVMachine, channel: u8, power_qdbm: i16) {
+    let frequency_code = 0x380 + u64::from(channel) * 0x280;
+    machine
+        .bus
+        .write(
+            0x600a_00c0,
+            AccessWidth::Word,
+            0x4284_0000 | (1 << 14) | frequency_code,
+            machine.now,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_0474, AccessWidth::Word, 1 << 1, machine.now)
+        .unwrap();
+    for entry in 0..43_u64 {
+        let final_word = if entry == 0 {
+            0xfe
+        } else if entry == 42 {
+            u64::from(((i32::from(power_qdbm) - 133) * 128) as u32)
+        } else {
+            entry
+        };
+        for (address, value) in [
+            (0x600a_08cc, entry),
+            (0x600a_08d0, entry),
+            (0x600a_08d4, final_word),
+        ] {
+            machine
+                .bus
+                .write(address, AccessWidth::Word, value, machine.now)
+                .unwrap();
+        }
+    }
+    machine
+        .bus
+        .write(0x600a_0910, AccessWidth::Word, 0, machine.now)
+        .unwrap();
+}
+
 #[test]
 fn esp32c6_boot_validator_accepts_separate_descriptor_and_text_mappings() {
     let text = (0_u8..64).collect::<Vec<_>>();

@@ -968,10 +968,186 @@ const C6_FREQUENCY_CONTROL: u64 = 0x0c0;
 const C6_FREQUENCY_STATUS: u64 = 0x0cc;
 const C6_FREQUENCY_CHANNEL_START: u32 = 1 << 14;
 const C6_FREQUENCY_CHANNEL_DONE: u32 = 1 << 8;
+const C6_FREQUENCY_CODE_MASK: u32 = 0x3fff;
+const C6_FREQUENCY_CHANNEL_BASE: u32 = 0x380;
+const C6_FREQUENCY_CHANNEL_STRIDE: u32 = 0x280;
 const C6_IQ_ESTIMATE_CONTROL: u64 = 0x474;
 const C6_IQ_ESTIMATE_STATUS: u64 = 0x4a0;
 const C6_IQ_ESTIMATE_START: u32 = 1 << 1;
 const C6_IQ_ESTIMATE_DONE: u32 = 1 << 16;
+const C6_TX_GAIN_FIRST: u64 = 0x8cc;
+const C6_TX_GAIN_SECOND: u64 = 0x8d0;
+const C6_TX_GAIN_FINAL: u64 = 0x8d4;
+const C6_TX_GAIN_START_SENTINEL: u32 = 0xfe;
+const C6_TX_GAIN_ENTRY_COUNT: u8 = 43;
+const C6_FRONTEND_FORCE: u64 = 0x910;
+const C6_FRONTEND_FORCE_MASK: u32 = 0x0f00;
+const C6_FRONTEND_FORCED_OFF: u32 = 0x0200;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EspC6PowerDetectorState {
+    registers: [u32; 1024],
+    channel: Option<u8>,
+    pll_locked: bool,
+    calibration_valid: bool,
+    power_qdbm: Option<i16>,
+    frontend_released: Option<bool>,
+    gain_phase: u8,
+    gain_entries: u8,
+    gain_sentinel_age: Option<u8>,
+    generation: u64,
+}
+
+impl EspC6PowerDetectorState {
+    fn new() -> Self {
+        Self {
+            registers: [0; 1024],
+            channel: None,
+            pll_locked: false,
+            calibration_valid: false,
+            power_qdbm: None,
+            frontend_released: None,
+            gain_phase: 0,
+            gain_entries: 0,
+            gain_sentinel_age: None,
+            generation: 0,
+        }
+    }
+
+    fn invalidate_rf(&mut self) {
+        self.channel = None;
+        self.pll_locked = false;
+        self.calibration_valid = false;
+        self.power_qdbm = None;
+        self.frontend_released = None;
+        self.gain_phase = 0;
+        self.gain_entries = 0;
+        self.gain_sentinel_age = None;
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    fn observe_rf_write(&mut self, offset: u64, value: u32) {
+        if offset == C6_FREQUENCY_CONTROL && value & C6_FREQUENCY_CHANNEL_START != 0 {
+            let code = value & C6_FREQUENCY_CODE_MASK;
+            self.channel = code
+                .checked_sub(C6_FREQUENCY_CHANNEL_BASE)
+                .filter(|delta| delta % C6_FREQUENCY_CHANNEL_STRIDE == 0)
+                .and_then(|delta| u8::try_from(delta / C6_FREQUENCY_CHANNEL_STRIDE).ok())
+                .filter(|channel| (1..=14).contains(channel));
+            self.pll_locked = self.channel.is_some();
+        }
+        match offset {
+            C6_TX_GAIN_FIRST => self.gain_phase = 1,
+            C6_TX_GAIN_SECOND if self.gain_phase == 1 => self.gain_phase = 2,
+            C6_TX_GAIN_SECOND => self.gain_phase = 0,
+            C6_TX_GAIN_FINAL if self.gain_phase == 2 => {
+                self.gain_phase = 0;
+                if value == C6_TX_GAIN_START_SENTINEL {
+                    self.gain_sentinel_age = Some(0);
+                } else {
+                    self.gain_sentinel_age = self
+                        .gain_sentinel_age
+                        .and_then(|age| age.checked_add(1))
+                        .filter(|age| *age < C6_TX_GAIN_ENTRY_COUNT);
+                }
+                self.gain_entries = self.gain_entries.saturating_add(1);
+                if self.gain_entries >= C6_TX_GAIN_ENTRY_COUNT {
+                    self.gain_entries = C6_TX_GAIN_ENTRY_COUNT;
+                    let decoded = (value as i32) / 128 + 133;
+                    self.power_qdbm = self
+                        .gain_sentinel_age
+                        .and_then(|_| i16::try_from(decoded).ok())
+                        .filter(|power| (8..=84).contains(power));
+                    self.calibration_valid = self.power_qdbm.is_some();
+                }
+            }
+            C6_TX_GAIN_FINAL => self.gain_phase = 0,
+            _ => {}
+        }
+
+        if offset == C6_FRONTEND_FORCE {
+            self.frontend_released = match value & C6_FRONTEND_FORCE_MASK {
+                0 => Some(true),
+                C6_FRONTEND_FORCED_OFF => Some(false),
+                _ => None,
+            };
+        }
+    }
+}
+
+/// Causal ESP32-C6 Wi-Fi RF configuration recovered from native register writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EspC6WifiRfSnapshot {
+    /// Selected 2.4 GHz Wi-Fi channel, if a valid RFPLL strobe was observed.
+    pub channel: Option<u8>,
+    /// Whether the last RFPLL channel strobe completed with a supported code.
+    pub pll_locked: bool,
+    /// Whether calibration completed since the current reset/invalidation.
+    pub calibration_valid: bool,
+    /// Requested transmit-power ceiling in quarter-dBm, after a complete gain table.
+    pub power_qdbm: Option<i16>,
+    /// Whether the Wi-Fi frontend was explicitly released or forced off.
+    pub frontend_released: Option<bool>,
+    /// Number of entries accepted from the current 43-entry gain table.
+    pub gain_entries: u8,
+    /// Reset/invalidation generation for stale-state detection.
+    pub generation: u64,
+}
+
+impl EspC6WifiRfSnapshot {
+    /// Returns the selected center frequency using the 2.4 GHz channel plan.
+    pub fn center_khz(self) -> Option<u32> {
+        let channel = self.channel?;
+        match channel {
+            1..=13 => Some(2_412_000 + u32::from(channel - 1) * 5_000),
+            14 => Some(2_484_000),
+            _ => None,
+        }
+    }
+
+    /// Returns true only when all causal state needed for Wi-Fi airtime is present.
+    pub fn airtime_ready(self) -> bool {
+        self.center_khz().is_some()
+            && self.pll_locked
+            && self.calibration_valid
+            && self.power_qdbm.is_some()
+            && self.frontend_released == Some(true)
+            && self.gain_entries == C6_TX_GAIN_ENTRY_COUNT
+    }
+}
+
+/// Machine-facing view of the ESP32-C6 RF configuration.
+#[derive(Clone, Debug)]
+pub struct EspC6PowerDetectorHandle {
+    state: Arc<Mutex<EspC6PowerDetectorState>>,
+}
+
+impl EspC6PowerDetectorHandle {
+    /// Returns a coherent snapshot derived entirely from guest MMIO writes.
+    pub fn wifi_rf_snapshot(&self) -> EspC6WifiRfSnapshot {
+        let state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 power-detector lock poisoned");
+        EspC6WifiRfSnapshot {
+            channel: state.channel,
+            pll_locked: state.pll_locked,
+            calibration_valid: state.calibration_valid,
+            power_qdbm: state.power_qdbm,
+            frontend_released: state.frontend_released,
+            gain_entries: state.gain_entries,
+            generation: state.generation,
+        }
+    }
+
+    /// Invalidates all causal RF state after a Wi-Fi reset edge.
+    pub fn invalidate_wifi_rf(&self) {
+        self.state
+            .lock()
+            .expect("ESP32-C6 power-detector lock poisoned")
+            .invalidate_rf();
+    }
+}
 
 /// ESP32-C6 RF power-detector and calibration register page.
 ///
@@ -981,7 +1157,7 @@ const C6_IQ_ESTIMATE_DONE: u32 = 1 << 16;
 /// zero until an analog RF environment is attached.
 pub struct EspC6PowerDetector {
     name: String,
-    registers: [u32; 1024],
+    state: Arc<Mutex<EspC6PowerDetectorState>>,
 }
 
 impl EspC6PowerDetector {
@@ -989,7 +1165,14 @@ impl EspC6PowerDetector {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            registers: [0; 1024],
+            state: Arc::new(Mutex::new(EspC6PowerDetectorState::new())),
+        }
+    }
+
+    /// Returns the machine-facing causal RF-state handle.
+    pub fn handle(&self) -> EspC6PowerDetectorHandle {
+        EspC6PowerDetectorHandle {
+            state: self.state.clone(),
         }
     }
 }
@@ -1001,7 +1184,10 @@ impl Device for EspC6PowerDetector {
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         let index = checked_word_index(&self.name, offset, width)?;
-        self.registers
+        self.state
+            .lock()
+            .expect("ESP32-C6 power-detector lock poisoned")
+            .registers
             .get(index)
             .copied()
             .map(u64::from)
@@ -1018,36 +1204,49 @@ impl Device for EspC6PowerDetector {
         let index = checked_word_index(&self.name, offset, width)?;
         let value = u32::try_from(value)
             .map_err(|_| DeviceError::new("ESP32-C6 power detector rejects wide writes"))?;
-        let register = self
-            .registers
-            .get_mut(index)
-            .ok_or_else(|| DeviceError::new(format!("{} write outside native page", self.name)))?;
-        *register = value & !C6_POWER_DETECTOR_DONE;
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 power-detector lock poisoned");
+        if index >= state.registers.len() {
+            return Err(DeviceError::new(format!(
+                "{} write outside native page",
+                self.name
+            )));
+        }
+        state.registers[index] = value & !C6_POWER_DETECTOR_DONE;
         if offset == C6_POWER_DETECTOR_CONVERSION && value & C6_POWER_DETECTOR_START != 0 {
-            *register |= C6_POWER_DETECTOR_DONE;
+            state.registers[index] |= C6_POWER_DETECTOR_DONE;
         }
         if offset == C6_POWER_DETECTOR_TONE_CONTROL && value & C6_POWER_DETECTOR_START != 0 {
-            let status = &mut self.registers[C6_POWER_DETECTOR_TONE_STATUS as usize / 4];
+            let status = &mut state.registers[C6_POWER_DETECTOR_TONE_STATUS as usize / 4];
             *status = (*status & !(7 << 14)) | C6_POWER_DETECTOR_TONE_IDLE;
         }
         if offset == C6_FREQUENCY_CONTROL && value & C6_FREQUENCY_CHANNEL_START != 0 {
-            self.registers[C6_FREQUENCY_STATUS as usize / 4] |= C6_FREQUENCY_CHANNEL_DONE;
+            state.registers[C6_FREQUENCY_STATUS as usize / 4] |= C6_FREQUENCY_CHANNEL_DONE;
         }
         if offset == C6_IQ_ESTIMATE_CONTROL && value & C6_IQ_ESTIMATE_START != 0 {
-            self.registers[C6_IQ_ESTIMATE_STATUS as usize / 4] |= C6_IQ_ESTIMATE_DONE;
+            state.registers[C6_IQ_ESTIMATE_STATUS as usize / 4] |= C6_IQ_ESTIMATE_DONE;
         }
+        state.observe_rf_write(offset, value);
         Ok(())
     }
 
     fn trace_value(&self, offset: u64, width: AccessWidth, _at: SimTime) -> Option<u64> {
+        let state = self.state.lock().ok()?;
         (width == AccessWidth::Word && offset.is_multiple_of(4))
-            .then(|| self.registers.get(offset as usize / 4).copied())
+            .then(|| state.registers.get(offset as usize / 4).copied())
             .flatten()
             .map(u64::from)
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.registers.fill(0);
+        let mut state = self
+            .state
+            .lock()
+            .expect("ESP32-C6 power-detector lock poisoned");
+        state.registers.fill(0);
+        state.invalidate_rf();
     }
 }
 

@@ -685,6 +685,95 @@ impl RiscVMachine {
             .ok_or(MachineError::UnsupportedTarget(self.target))
     }
 
+    pub(super) fn c6_wifi_rf_airtime(&mut self) -> Result<(Spectrum, i16), MachineError> {
+        let snapshot = self
+            .esp32c6_peripherals
+            .as_ref()
+            .expect("ESP32-C6 machine has peripheral handles")
+            .wifi_rf
+            .wifi_rf_snapshot();
+        let center_khz = snapshot.center_khz();
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::RfPllLock,
+                snapshot.pll_locked,
+                self.now,
+                "Wi-Fi airtime requested before a valid RFPLL channel strobe completed",
+            )?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::RfCalibration,
+                snapshot.calibration_valid,
+                self.now,
+                format!(
+                    "Wi-Fi RF calibration is absent or stale in generation {}",
+                    snapshot.generation
+                ),
+            )?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::RfChannel,
+                center_khz.is_some(),
+                self.now,
+                format!("unsupported Wi-Fi RF channel {:?}", snapshot.channel),
+            )?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::RfPower,
+                snapshot.gain_entries == 43
+                    && snapshot
+                        .power_qdbm
+                        .is_some_and(|power| (8..=84).contains(&power) && power % 4 == 0),
+                self.now,
+                format!(
+                    "Wi-Fi RF gain table has {} entries and power {:?} quarter-dBm",
+                    snapshot.gain_entries, snapshot.power_qdbm
+                ),
+            )?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::RfBandwidth,
+                true,
+                self.now,
+                "native C6 Wi-Fi path is fixed to the recovered 20 MHz bandwidth",
+            )?;
+        self.radio_legality
+            .as_mut()
+            .expect("ESP32-C6 machine has a radio legality validator")
+            .require(
+                RadioSubsystem::Wifi,
+                RadioLegalityRule::RfFrontend,
+                snapshot.frontend_released == Some(true),
+                self.now,
+                format!(
+                    "Wi-Fi frontend release state is {:?}",
+                    snapshot.frontend_released
+                ),
+            )?;
+        Ok((
+            Spectrum::new(center_khz.expect("legality accepted RF channel"), 20_000),
+            snapshot
+                .power_qdbm
+                .expect("legality accepted RF power profile")
+                / 4,
+        ))
+    }
+
     /// Returns the C6 functional BLE HCI controller when its domain is ready.
     pub fn ble_controller(&mut self) -> Result<&mut BleController, MachineError> {
         let ready = self
@@ -827,6 +916,7 @@ impl RiscVMachine {
             interrupt_matrix,
             wifi_mac,
             phy,
+            wifi_rf,
         ) = {
             let Some(handles) = self.esp32c6_peripherals.as_ref() else {
                 return Ok(0);
@@ -840,6 +930,7 @@ impl RiscVMachine {
                 handles.interrupt_matrix.clone(),
                 handles.wifi_mac.clone(),
                 handles.phy.clone(),
+                handles.wifi_rf.clone(),
             )
         };
         let reset_generations = modem.reset_generations();
@@ -851,6 +942,7 @@ impl RiscVMachine {
         }
         if reset_changed[0] {
             self.radio_pending_native_wifi.clear();
+            wifi_rf.invalidate_wifi_rf();
         }
         if self
             .radio_coexistence

@@ -89,6 +89,18 @@ pub enum RadioLegalityRule {
     MemoryMapping,
     /// RF activity must agree with the active coexistence grant.
     CoexistenceOwnership,
+    /// Wi-Fi airtime requires a completed and locked RFPLL selection.
+    RfPllLock,
+    /// RF calibration state must belong to the current radio-reset generation.
+    RfCalibration,
+    /// The selected RF channel must be supported by the recovered channel plan.
+    RfChannel,
+    /// The transmit-power request must come from a complete supported gain table.
+    RfPower,
+    /// The selected RF bandwidth must be supported by the native PHY contract.
+    RfBandwidth,
+    /// The RF frontend must be explicitly released before airtime begins.
+    RfFrontend,
 }
 
 impl RadioLegalityRule {
@@ -107,11 +119,17 @@ impl RadioLegalityRule {
             Self::SchedulerState => "scheduler-state",
             Self::MemoryMapping => "memory-mapping",
             Self::CoexistenceOwnership => "coexistence-ownership",
+            Self::RfPllLock => "rf-pll-lock",
+            Self::RfCalibration => "rf-calibration",
+            Self::RfChannel => "rf-channel",
+            Self::RfPower => "rf-power",
+            Self::RfBandwidth => "rf-bandwidth",
+            Self::RfFrontend => "rf-frontend",
         }
     }
 
     /// Complete stable rule-code inventory used by the source audit.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 18] = [
         Self::MonotonicTime,
         Self::DomainReady,
         Self::MonotonicResetGeneration,
@@ -124,6 +142,12 @@ impl RadioLegalityRule {
         Self::SchedulerState,
         Self::MemoryMapping,
         Self::CoexistenceOwnership,
+        Self::RfPllLock,
+        Self::RfCalibration,
+        Self::RfChannel,
+        Self::RfPower,
+        Self::RfBandwidth,
+        Self::RfFrontend,
     ];
 }
 

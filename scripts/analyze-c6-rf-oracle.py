@@ -192,6 +192,22 @@ def main() -> None:
         ]
         if len(matching_submissions) != 1:
             raise SystemExit(f"missing tagged RF submission {ssid}")
+        expected_airtime = {
+            "center_khz": (
+                2_484_000
+                if expected["channel"] == 14
+                else 2_412_000 + (int(expected["channel"]) - 1) * 5_000
+            ),
+            "bandwidth_khz": 20_000,
+            "power_dbm": int(expected["power_qdbm"]) // 4,
+        }
+        observed_airtime = matching_submissions[0]
+        for field, value in expected_airtime.items():
+            if observed_airtime[field] != value:
+                raise SystemExit(
+                    f"causal airtime mismatch for {name}: {field}="
+                    f"{observed_airtime[field]}, expected {value}"
+                )
         stage_summaries.append(
             {
                 "name": name,

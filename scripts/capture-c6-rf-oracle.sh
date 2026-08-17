@@ -110,7 +110,7 @@ jq -n \
         trace_bytes: $trace_bytes,
         deterministic: true,
         recovered_candidates: $analysis[0].recovered_candidates,
-        current_airtime: [
+        qualified_airtime: [
             $analysis[0].stages[] |
             {
                 name,

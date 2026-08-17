@@ -68,6 +68,12 @@ EXPECTED_LEGAL_STATE_RULES = [
     "scheduler-state",
     "memory-mapping",
     "coexistence-ownership",
+    "rf-pll-lock",
+    "rf-calibration",
+    "rf-channel",
+    "rf-power",
+    "rf-bandwidth",
+    "rf-frontend",
 ]
 BLOCK_STATUSES = {"required", "discovery-required", "disputed-revision", "not-present"}
 EXPECTED_ROM_REQUIREMENTS = {
