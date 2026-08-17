@@ -156,6 +156,10 @@ emulator state and terminates with the stable hard-error diagnostic defined by
 `legal-state-contract.json`. On C6, the same genuine image also enables the
 public IEEE 802.15.4 driver and transmits while Wi-Fi remains active and BLE is
 scanning, so all three silicon radio families cross the same ownership gate.
+Its pinned replay contains four distinct modem reset service boundaries. Wi-Fi
+RF state is invalidated synchronously at the causal MODEM_SYSCON edge, so the
+former delayed invalidation is not counted as a separate coexistence reset
+boundary.
 Firmware radio-reset assertions cancel pending native work, active ownership,
 and its exact in-flight medium transmission. Firmware clock/power gating also
 cancels active ownership and airtime. The append-only artifacts retain the
