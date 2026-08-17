@@ -7,11 +7,11 @@ use remu_devices::{
     EspC6InterruptMatrixHandle, EspC6InterruptPriority, EspC6IoMux, EspC6LpAon, EspC6LpAonHandle,
     EspC6LpClkRst, EspC6LpClkRstHandle, EspC6LpTimer, EspC6LpTimerHandle, EspC6ModemControl,
     EspC6ModemHandle, EspC6PhyRegisters, EspC6PhyRegistersHandle, EspC6Pmu, EspC6PmuHandle,
-    EspC6PowerDetector, EspC6Twai, EspC6TwaiHandle, EspC6Uhci, EspC6WifiMacHandle,
-    EspC6WifiMacRegisters, EspDigitalSignature, EspEtm, EspEtmHandle, EspI2s, EspI2sHandle,
-    EspIeee802154, EspIeee802154Handle, EspLedc, EspLedcHandle, EspLpI2c, EspLpI2cHandle,
-    EspLpUart, EspLpUartHandle, EspLpWatchdog, EspLpWatchdogHandle, EspMcpwm, EspParlio,
-    EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt, EspRmtHandle, EspRsa, EspSarAdc,
+    EspC6PowerDetector, EspC6PowerDetectorHandle, EspC6Twai, EspC6TwaiHandle, EspC6Uhci,
+    EspC6WifiMacHandle, EspC6WifiMacRegisters, EspDigitalSignature, EspEtm, EspEtmHandle, EspI2s,
+    EspI2sHandle, EspIeee802154, EspIeee802154Handle, EspLedc, EspLedcHandle, EspLpI2c,
+    EspLpI2cHandle, EspLpUart, EspLpUartHandle, EspLpWatchdog, EspLpWatchdogHandle, EspMcpwm,
+    EspParlio, EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt, EspRmtHandle, EspRsa, EspSarAdc,
     EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer, EspSystimerHandle,
     EspUsbSerialJtag, EspUsbSerialJtagHandle, FunctionalUart, SignalHub, UartHandle,
     new_esp_sdio_slave,
@@ -48,6 +48,7 @@ pub(super) struct Esp32c6PeripheralHandles {
     pub(super) sdio: EspSdioSlaveHandle,
     pub(super) wifi_mac: EspC6WifiMacHandle,
     pub(super) phy: EspC6PhyRegistersHandle,
+    pub(super) wifi_rf: EspC6PowerDetectorHandle,
 }
 
 impl Esp32c6PeripheralHandles {
@@ -86,8 +87,13 @@ pub(super) fn map_esp32c6_peripherals(
     signals: &SignalHub,
     chip_uarts: &mut Vec<UartHandle>,
 ) -> Result<(Esp32c6PeripheralHandles, EspUsbSerialJtagHandle), MachineError> {
-    let (modem_syscon, modem_lpcon, modem) =
-        EspC6ModemControl::new_pair("esp32c6.modem-syscon", "esp32c6.modem-lpcon");
+    let power_detector = EspC6PowerDetector::new("esp32c6.power-detector");
+    let wifi_rf = power_detector.handle();
+    let (modem_syscon, modem_lpcon, modem) = EspC6ModemControl::new_pair_with_wifi_rf_reset(
+        "esp32c6.modem-syscon",
+        "esp32c6.modem-lpcon",
+        wifi_rf.clone(),
+    );
     bus.map_device(
         "esp32c6.modem-syscon",
         0x600a_9800,
@@ -417,7 +423,7 @@ pub(super) fn map_esp32c6_peripherals(
         "esp32c6.power-detector",
         0x600a_0000,
         0x1000,
-        Box::new(EspC6PowerDetector::new("esp32c6.power-detector")),
+        Box::new(power_detector),
     )?;
 
     // ESP-IDF consults these documented PCR reset fields during its direct
@@ -481,6 +487,7 @@ pub(super) fn map_esp32c6_peripherals(
         sdio: sdio_handle,
         wifi_mac,
         phy,
+        wifi_rf,
     };
     peripherals.clear_host_queues();
     Ok((peripherals, usb_serial_jtag_handle))

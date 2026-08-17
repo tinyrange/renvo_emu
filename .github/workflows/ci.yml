@@ -68,6 +68,12 @@ jobs:
       - name: Check radio provenance and inventory
         run: ./scripts/check-radio-sources.py
 
+      - name: Check C6 RF register and error references
+        run: ./scripts/check-c6-rf-register-reference.py
+
+      - name: Check C6 custom radio driver contract
+        run: ./scripts/check-c6-custom-driver-contract.py
+
       - name: Check package manifests
         run: cargo package --workspace --locked --allow-dirty --no-verify --list >/dev/null
 
@@ -123,11 +129,20 @@ jobs:
       - name: Build pinned Espressif RISC-V GCC image
         run: docker build --tag remu/riscv32-esp-gcc:local toolchains/riscv32-esp-gcc
 
+      - name: Build pinned ESP32-C6 packaging image
+        run: docker build --file hardware/nanoc6/Dockerfile.esptool --tag remu/nanoc6-esptool:5.3.0 hardware/nanoc6
+
+      - name: Fetch pinned ESP32-C6 base image
+        run: ./scripts/fetch-micropython.sh
+
       - name: Run native peripheral and radio qualification
         run: ./scripts/qualify-esp32c6-peripherals.sh
 
       - name: Run vendor-independent radio contract coverage
         run: ./scripts/qualify-esp-radio-custom-stack.sh esp32c6
+
+      - name: Run exact-image C6 RF station and WPA2 qualification
+        run: ./scripts/qualify-c6-rf-probe.sh
 
       - name: Upload qualification evidence
         if: always()
@@ -137,6 +152,7 @@ jobs:
           path: |
             .remu/qualification/esp32c6-peripherals
             .remu/qualification/radio-custom-stack/esp32c6
+            .remu/qualification/c6-rf-probe
           if-no-files-found: ignore
 
   esp-radio-rom:

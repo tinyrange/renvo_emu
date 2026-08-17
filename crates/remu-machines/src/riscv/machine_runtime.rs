@@ -497,7 +497,11 @@ impl RiscVMachine {
             let service_possible = self.target != TargetId::Esp32c6
                 || Self::esp32c6_functional_service_address(self.cpu.pc());
             if service_possible {
-                match self.service_functional_bootrom() {
+                self.bus
+                    .set_observation_pc(Some(u64::from(self.cpu.pc())));
+                let service_result = self.service_functional_bootrom();
+                self.bus.set_observation_pc(None);
+                match service_result {
                     Ok(true) => {
                         stats.instructions = stats.instructions.saturating_add(1);
                         self.now = self
@@ -525,7 +529,11 @@ impl RiscVMachine {
                 }
             }
             let instruction_pc = self.cpu.pc();
-            let outcome = match self.cpu.step(&mut self.bus, self.now) {
+            self.bus
+                .set_observation_pc(Some(u64::from(instruction_pc)));
+            let step_result = self.cpu.step(&mut self.bus, self.now);
+            self.bus.set_observation_pc(None);
+            let outcome = match step_result {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     break StopReason::Fault(format!(
@@ -609,9 +617,12 @@ impl RiscVMachine {
                     break StopReason::Breakpoint;
                 }
                 self.bus.clear_watchpoint_hit();
+                self.bus
+                    .set_observation_pc(Some(u64::from(self.cpu1.pc())));
                 std::mem::swap(&mut self.cpu, &mut self.cpu1);
                 let hart1_rom = self.service_functional_bootrom();
                 std::mem::swap(&mut self.cpu, &mut self.cpu1);
+                self.bus.set_observation_pc(None);
                 match hart1_rom {
                     Ok(true) => {
                         stats.instructions = stats.instructions.saturating_add(1);
@@ -632,7 +643,11 @@ impl RiscVMachine {
                     }
                     Ok(false) => {
                         let instruction_pc = self.cpu1.pc();
-                        let hart1_outcome = match self.cpu1.step(&mut self.bus, self.now) {
+                        self.bus
+                            .set_observation_pc(Some(u64::from(instruction_pc)));
+                        let hart1_step = self.cpu1.step(&mut self.bus, self.now);
+                        self.bus.set_observation_pc(None);
+                        let hart1_outcome = match hart1_step {
                             Ok(outcome) => outcome,
                             Err(error) => {
                                 if let Some(sio) = &self.sio {

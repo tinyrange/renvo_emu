@@ -42,6 +42,55 @@ fn app_descriptor() -> Vec<u8> {
     descriptor
 }
 
+fn program_esp32c6_wifi_rf(machine: &mut RiscVMachine, channel: u8, power_qdbm: i16) {
+    machine
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            machine.now,
+        )
+        .unwrap();
+    let frequency_code = 0x380 + u64::from(channel) * 0x280;
+    machine
+        .bus
+        .write(
+            0x600a_00c0,
+            AccessWidth::Word,
+            0x4284_0000 | (1 << 14) | frequency_code,
+            machine.now,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_0474, AccessWidth::Word, 1 << 1, machine.now)
+        .unwrap();
+    for entry in 0..43_u64 {
+        let final_word = if entry == 0 {
+            0xfe
+        } else if entry == 42 {
+            u64::from(((i32::from(power_qdbm) - 133) * 128) as u32)
+        } else {
+            entry
+        };
+        for (address, value) in [
+            (0x600a_08cc, entry),
+            (0x600a_08d0, entry),
+            (0x600a_08d4, final_word),
+        ] {
+            machine
+                .bus
+                .write(address, AccessWidth::Word, value, machine.now)
+                .unwrap();
+        }
+    }
+    machine
+        .bus
+        .write(0x600a_0910, AccessWidth::Word, 0, machine.now)
+        .unwrap();
+}
+
 #[test]
 fn esp32c6_boot_validator_accepts_separate_descriptor_and_text_mappings() {
     let text = (0_u8..64).collect::<Vec<_>>();
@@ -339,6 +388,7 @@ fn esp32c6_non_radio_inventory_is_mapped_at_vendor_addresses() {
 }
 
 include!("tests_radio.rs");
+include!("tests_radio_rf_fuzz.rs");
 include!("tests_radio_native.rs");
 include!("tests_radio_wifi_completion.rs");
 
@@ -720,6 +770,40 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
         assert_eq!(result.reason, StopReason::Halted, "{target}");
         assert_eq!(result.cpu.registers[3].value, 12, "{target}");
     }
+}
+
+#[test]
+fn riscv_bus_trace_correlates_cpu_accesses_but_not_debugger_reads() {
+    // lui x1,0x20000; addi x2,x0,7; sw x2,0(x1); ebreak
+    let program = [0x2000_00b7_u32, 0x0070_0113, 0x0020_a023, 0x0010_0073]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>();
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    machine.load_bytes(0, &program).unwrap();
+    machine.set_entry(0).unwrap();
+    machine.set_access_recording(true);
+
+    let result = machine
+        .run(
+            RunLimits {
+                instructions: Some(16),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.reason, StopReason::Halted);
+    let cpu_write = machine
+        .access_log()
+        .iter()
+        .find(|record| record.kind == AccessKind::Write && record.address == 0x2000_0000)
+        .unwrap();
+    assert_eq!(cpu_write.pc, Some(8));
+
+    let prior_records = machine.access_log().len();
+    assert_eq!(machine.debug_read_memory(0x2000_0000, 1).unwrap(), [7]);
+    assert_eq!(machine.access_log()[prior_records].pc, None);
 }
 
 #[test]

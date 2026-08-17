@@ -142,6 +142,15 @@ pub trait Device {
         at: SimTime,
     ) -> Result<(), DeviceError>;
 
+    /// Returns a side-effect-free register value for trace correlation.
+    ///
+    /// Devices opt in only when their internal model can safely expose the
+    /// value. The address space never substitutes a call to [`Device::read`],
+    /// because reads may acknowledge or otherwise mutate hardware state.
+    fn trace_value(&self, _offset: u64, _width: AccessWidth, _at: SimTime) -> Option<u64> {
+        None
+    }
+
     /// Applies a device reset.
     fn reset(&mut self, _kind: ResetKind) {}
 }
@@ -253,6 +262,13 @@ impl fmt::Debug for Region {
 pub struct BusAccessRecord {
     /// Operation timestamp.
     pub at: SimTime,
+    /// Program counter whose execution caused this operation, when known.
+    ///
+    /// This is observation-only context supplied by the owning machine. Bus
+    /// and device behavior must never depend on it. Autonomous device, DMA,
+    /// debugger, and host accesses deliberately omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pc: Option<u64>,
     /// Operation type.
     pub kind: AccessKind,
     /// First byte address.
@@ -261,8 +277,33 @@ pub struct BusAccessRecord {
     pub width: AccessWidth,
     /// Read result or written value.
     pub value: u64,
+    /// Safely observed value before a write, when the backing permits it.
+    ///
+    /// This is currently populated for direct memory and omitted for devices;
+    /// the bus never performs an extra device read to obtain trace evidence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_value: Option<u64>,
+    /// Safely observed value after a write, when the backing permits it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub post_value: Option<u64>,
     /// Mapped region name.
     pub region: String,
+}
+
+/// One machine interrupt-source transition emitted in execution order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct InterruptTransitionRecord {
+    /// Transition timestamp.
+    pub at: SimTime,
+    /// Program counter when the transition is synchronously attributable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pc: Option<u64>,
+    /// Stable machine-facing interrupt-source name.
+    pub source: String,
+    /// Native source number within the owning interrupt fabric.
+    pub line: u16,
+    /// New source level.
+    pub asserted: bool,
 }
 
 /// Receives completed bus operations without retaining them in the address space.
@@ -273,6 +314,9 @@ pub struct BusAccessRecord {
 pub trait BusAccessObserver {
     /// Observes one successfully completed operation in execution order.
     fn observe(&mut self, record: &BusAccessRecord);
+
+    /// Observes one interrupt-source level transition in execution order.
+    fn observe_interrupt(&mut self, _record: &InterruptTransitionRecord) {}
 }
 
 /// Shareable observer handle used by machines with more than one access space.
@@ -288,6 +332,12 @@ impl BusAccessObserver for FanoutBusAccessObserver {
             observer.borrow_mut().observe(record);
         }
     }
+
+    fn observe_interrupt(&mut self, record: &InterruptTransitionRecord) {
+        for observer in &self.observers {
+            observer.borrow_mut().observe_interrupt(record);
+        }
+    }
 }
 
 /// Deterministic, non-overlapping address space.
@@ -298,6 +348,7 @@ pub struct AddressSpace {
     record_accesses: bool,
     access_log: Vec<BusAccessRecord>,
     access_observer: Option<SharedBusAccessObserver>,
+    observation_pc: Option<u64>,
     watchpoints: BTreeSet<u64>,
     write_watchpoints: BTreeSet<u64>,
     masked_write_watchpoints: BTreeMap<u64, (u64, u64)>,
@@ -338,6 +389,7 @@ impl AddressSpace {
             record_accesses: false,
             access_log: Vec::new(),
             access_observer: None,
+            observation_pc: None,
             watchpoints: BTreeSet::new(),
             write_watchpoints: BTreeSet::new(),
             masked_write_watchpoints: BTreeMap::new(),
@@ -364,6 +416,39 @@ impl AddressSpace {
     /// Installs or removes a streaming completed-access observer.
     pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
         self.access_observer = observer;
+    }
+
+    /// Sets observation-only PC context for subsequently completed accesses.
+    ///
+    /// Machines should set this immediately before one CPU or emulated-ROM
+    /// action and clear it immediately afterwards. It is intentionally absent
+    /// from device APIs so peripheral behavior cannot consume it.
+    pub fn set_observation_pc(&mut self, pc: Option<u64>) {
+        self.observation_pc = pc;
+    }
+
+    /// Emits one machine interrupt-source transition to streaming observers.
+    ///
+    /// Interrupt delivery remains owned by the machine and CPU; this method is
+    /// observational only and intentionally has no retained in-memory mode.
+    pub fn observe_interrupt_transition(
+        &mut self,
+        at: SimTime,
+        source: impl Into<String>,
+        line: u16,
+        asserted: bool,
+    ) {
+        if let Some(observer) = &self.access_observer {
+            observer
+                .borrow_mut()
+                .observe_interrupt(&InterruptTransitionRecord {
+                    at,
+                    pc: self.observation_pc,
+                    source: source.into(),
+                    line,
+                    asserted,
+                });
+        }
     }
 
     /// Adds a streaming observer while preserving any observer already installed.
@@ -930,6 +1015,7 @@ impl Bus for AddressSpace {
     ) -> Result<u64, BusFault> {
         let endianness = self.endianness;
         let monitored = self.monitors_accesses();
+        let observation_pc = self.observation_pc;
         let region = self.region_for(address, width, kind)?;
         let relative = address - region.start;
         let device_access = matches!(region.backing, Backing::Device(_));
@@ -972,10 +1058,13 @@ impl Bus for AddressSpace {
         if monitored {
             let record = BusAccessRecord {
                 at,
+                pc: observation_pc,
                 kind,
                 address,
                 width,
                 value,
+                pre_value: None,
+                post_value: None,
                 region: region.name.clone(),
             };
             self.record_completed_access(record);
@@ -995,10 +1084,12 @@ impl Bus for AddressSpace {
     ) -> Result<(), BusFault> {
         let endianness = self.endianness;
         let monitored = self.monitors_accesses();
+        let observation_pc = self.observation_pc;
         let region = self.region_for(address, width, AccessKind::Write)?;
         let relative = address - region.start;
         let device_access = matches!(region.backing, Backing::Device(_));
         let masked = value & width.value_mask();
+        let mut safe_values = (None, None);
         match &mut region.backing {
             Backing::Memory {
                 storage,
@@ -1010,6 +1101,21 @@ impl Bus for AddressSpace {
                         + usize::try_from(relative).expect("mapped offset fits usize");
                     let end = start + usize::from(width.bytes());
                     let mut bytes = storage.bytes.borrow_mut();
+                    let previous = monitored.then(|| match endianness {
+                        Endianness::Little => bytes[start..end]
+                            .iter()
+                            .enumerate()
+                            .fold(0_u64, |value, (index, byte)| {
+                                value | (u64::from(*byte) << (index * 8))
+                            }),
+                        Endianness::Big => bytes[start..end]
+                            .iter()
+                            .rev()
+                            .enumerate()
+                            .fold(0_u64, |value, (index, byte)| {
+                                value | (u64::from(*byte) << (index * 8))
+                            }),
+                    });
                     match endianness {
                         Endianness::Little => {
                             for (index, byte) in bytes[start..end].iter_mut().enumerate() {
@@ -1025,9 +1131,34 @@ impl Bus for AddressSpace {
                             }
                         }
                     }
+                    safe_values = (previous, previous.map(|_| masked));
+                } else if monitored {
+                    let start = *storage_offset
+                        + usize::try_from(relative).expect("mapped offset fits usize");
+                    let end = start + usize::from(width.bytes());
+                    let bytes = storage.bytes.borrow();
+                    let previous = match endianness {
+                        Endianness::Little => bytes[start..end]
+                            .iter()
+                            .enumerate()
+                            .fold(0_u64, |value, (index, byte)| {
+                                value | (u64::from(*byte) << (index * 8))
+                            }),
+                        Endianness::Big => bytes[start..end]
+                            .iter()
+                            .rev()
+                            .enumerate()
+                            .fold(0_u64, |value, (index, byte)| {
+                                value | (u64::from(*byte) << (index * 8))
+                            }),
+                    };
+                    safe_values = (Some(previous), Some(previous));
                 }
             }
             Backing::Device(device) => {
+                let pre_value = monitored
+                    .then(|| device.trace_value(relative, width, at))
+                    .flatten();
                 device.write(relative, width, masked, at).map_err(|error| {
                     BusFault::new(
                         BusFaultKind::Device,
@@ -1037,15 +1168,22 @@ impl Bus for AddressSpace {
                         format!("{}: {error}", device.name()),
                     )
                 })?;
+                let post_value = monitored
+                    .then(|| device.trace_value(relative, width, at))
+                    .flatten();
+                safe_values = (pre_value, post_value);
             }
         }
         if monitored {
             let record = BusAccessRecord {
                 at,
+                pc: observation_pc,
                 kind: AccessKind::Write,
                 address,
                 width,
                 value: masked,
+                pre_value: safe_values.0,
+                post_value: safe_values.1,
                 region: region.name.clone(),
             };
             self.record_completed_access(record);
@@ -1058,287 +1196,4 @@ impl Bus for AddressSpace {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct CollectingObserver(Rc<RefCell<Vec<BusAccessRecord>>>);
-
-    impl BusAccessObserver for CollectingObserver {
-        fn observe(&mut self, record: &BusAccessRecord) {
-            self.0.borrow_mut().push(record.clone());
-        }
-    }
-
-    #[test]
-    fn maps_and_accesses_little_endian_memory() {
-        let mut bus = AddressSpace::default();
-        bus.map_ram("ram", 0x2000_0000, 16, true).unwrap();
-        bus.write(0x2000_0000, AccessWidth::Word, 0x4433_2211, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            bus.read(
-                0x2000_0001,
-                AccessWidth::HalfWord,
-                AccessKind::Read,
-                SimTime::ZERO
-            )
-            .unwrap(),
-            0x3322
-        );
-    }
-
-    #[test]
-    fn fast_fetch_is_disabled_when_accesses_are_observable() {
-        let mut bus = AddressSpace::default();
-        bus.map_rom("rom", 0x1000, vec![0x11, 0x22, 0x33, 0x44])
-            .unwrap();
-
-        assert_eq!(
-            bus.fast_fetch32(0x1000, SimTime::ZERO)
-                .expect("unobserved memory fetch uses the fast path")
-                .unwrap(),
-            0x4433_2211
-        );
-
-        bus.set_access_recording(true);
-        assert!(bus.fast_fetch32(0x1000, SimTime::ZERO).is_none());
-        bus.set_access_recording(false);
-        bus.add_watchpoint(0x1000);
-        assert!(bus.fast_fetch32(0x1000, SimTime::ZERO).is_none());
-    }
-
-    #[test]
-    fn fast_fetch_falls_back_at_a_region_boundary() {
-        let mut bus = AddressSpace::default();
-        bus.map_rom("rom", 0x1000, vec![0x11, 0x22, 0x33, 0x44])
-            .unwrap();
-
-        assert!(bus.fast_fetch32(0x1002, SimTime::ZERO).is_none());
-        assert_eq!(
-            bus.read(
-                0x1002,
-                AccessWidth::HalfWord,
-                AccessKind::Execute,
-                SimTime::ZERO
-            )
-            .unwrap(),
-            0x4433
-        );
-    }
-
-    #[test]
-    fn fast_data_paths_preserve_width_endianness_and_observation() {
-        let mut little = AddressSpace::default();
-        little.map_ram("ram", 0x1000, 16, false).unwrap();
-        assert!(little.fast_write(0x1001, AccessWidth::Word, 0x8877_6655));
-        assert_eq!(
-            little.fast_read(0x1001, AccessWidth::Word),
-            Some(0x8877_6655)
-        );
-        assert_eq!(
-            little.fast_read(0x1002, AccessWidth::HalfWord),
-            Some(0x7766)
-        );
-        assert!(little.fast_read(0x100e, AccessWidth::Word).is_none());
-
-        little.set_access_recording(true);
-        assert!(little.fast_read(0x1001, AccessWidth::Word).is_none());
-        assert!(!little.fast_write(0x1001, AccessWidth::Word, 0));
-
-        let mut big = AddressSpace::new(Endianness::Big);
-        big.map_ram("ram", 0x2000, 8, false).unwrap();
-        assert!(big.fast_write(0x2000, AccessWidth::Word, 0x1122_3344));
-        assert_eq!(big.fast_read(0x2001, AccessWidth::HalfWord), Some(0x2233));
-    }
-
-    #[test]
-    fn rejects_overlap_and_cross_boundary_accesses() {
-        let mut bus = AddressSpace::default();
-        bus.map_ram("ram", 0x1000, 4, false).unwrap();
-        assert!(matches!(
-            bus.map_ram("overlap", 0x1003, 4, false),
-            Err(MapError::Overlap { .. })
-        ));
-        let fault = bus
-            .read(0x1002, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
-            .unwrap_err();
-        assert_eq!(fault.kind, BusFaultKind::Boundary);
-    }
-
-    #[test]
-    fn write_ignored_rom_acknowledges_without_mutating() {
-        let mut bus = AddressSpace::default();
-        bus.map_write_ignored_rom("rom", 0, vec![0x11, 0x22, 0x33, 0x44])
-            .unwrap();
-
-        bus.write(0, AccessWidth::Word, 0xaabb_ccdd, SimTime::ZERO)
-            .unwrap();
-
-        assert_eq!(
-            bus.read(0, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
-                .unwrap(),
-            0x4433_2211
-        );
-    }
-
-    #[test]
-    fn aliases_share_memory() {
-        let mut bus = AddressSpace::default();
-        let ram = bus.map_ram("ram", 0x1000, 8, false).unwrap();
-        bus.map_shared("alias", 0x2000, 8, Permissions::RW, ram, 0)
-            .unwrap();
-        bus.write(0x1000, AccessWidth::Word, 42, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            bus.read(0x2000, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
-                .unwrap(),
-            42
-        );
-    }
-
-    #[test]
-    fn loader_can_initialize_rom() {
-        let mut bus = AddressSpace::default();
-        bus.map_rom("flash", 0, vec![0; 8]).unwrap();
-        bus.load(2, &[0xaa, 0xbb]).unwrap();
-        assert_eq!(
-            bus.read(2, AccessWidth::HalfWord, AccessKind::Read, SimTime::ZERO)
-                .unwrap(),
-            0xbbaa
-        );
-        assert_eq!(
-            bus.write(2, AccessWidth::Byte, 0, SimTime::ZERO)
-                .unwrap_err()
-                .kind,
-            BusFaultKind::Permission
-        );
-    }
-
-    #[test]
-    fn watchpoints_report_completed_overlapping_data_accesses_only() {
-        let mut bus = AddressSpace::default();
-        bus.map_ram("ram", 0x1000, 16, true).unwrap();
-        bus.add_watchpoint(0x1002);
-
-        bus.read(
-            0x1000,
-            AccessWidth::Word,
-            AccessKind::Execute,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(bus.take_watchpoint_hit().is_none());
-
-        bus.write(
-            0x1000,
-            AccessWidth::Word,
-            0x4433_2211,
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        let hit = bus.take_watchpoint_hit().unwrap();
-        assert_eq!(hit.address, 0x1000);
-        assert_eq!(hit.kind, AccessKind::Write);
-        assert_eq!(hit.width, AccessWidth::Word);
-
-        bus.clear_watchpoints();
-        bus.read(
-            0x1002,
-            AccessWidth::Byte,
-            AccessKind::Read,
-            SimTime::from_ticks(2),
-        )
-        .unwrap();
-        assert!(bus.take_watchpoint_hit().is_none());
-    }
-
-    #[test]
-    fn write_watchpoints_ignore_reads_and_stop_on_overlapping_writes() {
-        let mut bus = AddressSpace::default();
-        bus.map_ram("ram", 0x1000, 16, true).unwrap();
-        bus.add_write_watchpoint(0x1002);
-        bus.read(0x1000, AccessWidth::Word, AccessKind::Read, SimTime::ZERO)
-            .unwrap();
-        assert!(bus.take_watchpoint_hit().is_none());
-        bus.write(
-            0x1000,
-            AccessWidth::Word,
-            0x4433_2211,
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        assert_eq!(bus.take_watchpoint_hit().unwrap().kind, AccessKind::Write);
-    }
-
-    #[test]
-    fn masked_write_watchpoints_require_the_value_predicate() {
-        let mut bus = AddressSpace::default();
-        bus.map_ram("ram", 0x1000, 16, true).unwrap();
-        bus.add_masked_write_watchpoint(0x1000, 0xc000_0000, 0xc000_0000);
-        bus.write(0x1000, AccessWidth::Word, 0x8000_1234, SimTime::ZERO)
-            .unwrap();
-        assert!(bus.take_watchpoint_hit().is_none());
-        bus.write(
-            0x1000,
-            AccessWidth::Word,
-            0xc000_1234,
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        assert_eq!(bus.take_watchpoint_hit().unwrap().value, 0xc000_1234);
-    }
-
-    #[test]
-    fn observer_streams_without_populating_the_in_memory_log() {
-        let records = Rc::new(RefCell::new(Vec::new()));
-        let observer: SharedBusAccessObserver =
-            Rc::new(RefCell::new(CollectingObserver(records.clone())));
-        let mut bus = AddressSpace::default();
-        bus.map_ram("ram", 0x1000, 16, true).unwrap();
-        bus.set_access_observer(Some(observer));
-
-        bus.write(
-            0x1000,
-            AccessWidth::Word,
-            0x4433_2211,
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        bus.read(
-            0x1000,
-            AccessWidth::Word,
-            AccessKind::Execute,
-            SimTime::from_ticks(2),
-        )
-        .unwrap();
-
-        assert!(bus.access_log().is_empty());
-        let records = records.borrow();
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[0].kind, AccessKind::Write);
-        assert_eq!(records[1].kind, AccessKind::Execute);
-    }
-
-    #[test]
-    fn added_observer_preserves_the_existing_stream() {
-        let first = Rc::new(RefCell::new(Vec::new()));
-        let second = Rc::new(RefCell::new(Vec::new()));
-        let mut bus = AddressSpace::default();
-        bus.map_ram("ram", 0x1000, 16, true).unwrap();
-        bus.set_access_observer(Some(Rc::new(RefCell::new(CollectingObserver(
-            first.clone(),
-        )))));
-        bus.add_access_observer(Rc::new(RefCell::new(CollectingObserver(second.clone()))));
-
-        bus.write(
-            0x1000,
-            AccessWidth::Word,
-            0x4433_2211,
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-
-        assert_eq!(*first.borrow(), *second.borrow());
-        assert_eq!(first.borrow().len(), 1);
-    }
-}
+mod bus_tests;

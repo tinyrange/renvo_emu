@@ -167,18 +167,37 @@ jq -e --slurpfile requirements "$requirements" '
         select(.event == "submitted" and
                .request.frame.protocol == "ieee802154" and
                .request.frame.origin == "emulated") |
-        .request.frame.bytes ] as $emulated_bytes |
-    $requirements[0].expected_beacon_response_index as $beacon_index |
-    ([ $emulated_bytes[] | length ] ==
-        $requirements[0].expected_emulated_frame_lengths) and
-    ([ $emulated_bytes[] | .[0:2] ] ==
-        $requirements[0].expected_emulated_frame_controls) and
-    ($emulated_bytes[0][3:8] ==
+        {start: .request.start, end: .request.end, bytes: .request.frame.bytes} ] as $emulated |
+    [ $emulated[] |
+        select(.bytes[0:2] == $requirements[0].expected_data_frame_control) ] as $data |
+    [ $data[] |
+        select((.bytes | length) == $requirements[0].expected_formation_data_shape.length and
+               .bytes[9:11] == $requirements[0].expected_formation_data_shape.nwk_control_le) ] as $formation |
+    [ $data[] |
+        . as $frame |
+        select(any($requirements[0].allowed_optional_data_shapes[];
+            (.length == ($frame.bytes | length)) and
+            (.nwk_control_le == $frame.bytes[9:11]))) ] as $optional |
+    [ $emulated[] |
+        select((.bytes | length) == $requirements[0].expected_beacon_response_length and
+               .bytes[0:2] == $requirements[0].expected_beacon_response_control and
+               .bytes[3:-2] == $requirements[0].expected_beacon_response_body) ] as $beacons |
+    (($emulated | length) >= $requirements[0].expected_minimum_emulated_frames) and
+    (($emulated | length) <= $requirements[0].expected_maximum_emulated_frames) and
+    (($emulated[0].bytes | length) == $requirements[0].expected_beacon_request_length) and
+    ($emulated[0].bytes[0:2] == $requirements[0].expected_beacon_request_control) and
+    ($emulated[0].bytes[3:8] ==
         $requirements[0].expected_beacon_request_body) and
-    all(range(1; $emulated_bytes | length);
-        $emulated_bytes[.][3:5] == $requirements[0].expected_pan_id_le) and
-    ($emulated_bytes[$beacon_index][3:-2] ==
-        $requirements[0].expected_beacon_response_body) and
+    all(range(1; $emulated | length);
+        . as $index |
+        ($emulated[$index].bytes[3:5] == $requirements[0].expected_pan_id_le) and
+        (($emulated[$index].bytes[0:2] == $requirements[0].expected_data_frame_control) or
+         ($emulated[$index].bytes[0:2] == $requirements[0].expected_beacon_response_control))) and
+    (($formation | length) == $requirements[0].expected_formation_data_shape.count) and
+    (($optional | length) <=
+        ([ $requirements[0].allowed_optional_data_shapes[].maximum_count ] | add)) and
+    (($data | length) == (($formation | length) + ($optional | length))) and
+    (($beacons | length) == 1) and
     any($events[];
         . as $host |
         ($host.event == "submitted" and
@@ -190,13 +209,11 @@ jq -e --slurpfile requirements "$requirements" '
              .id == $host.id and
              .receiver == 1 and
              .outcome.kind == "delivered") and
-         any($events[];
-            .event == "submitted" and
-            .request.frame.origin == "emulated" and
-            .request.frame.bytes == $emulated_bytes[$beacon_index] and
-            .request.start >= $host.request.end))) and
+         ($formation[0].start < $host.request.start) and
+         ($beacons[0].start >= $host.request.end) and
+         ($formation[1].start > $beacons[0].end))) and
     ([.coexistence_events[] | select(.event == "granted" and .protocol == "ieee802154")] | length)
-        == ($emulated_bytes | length)
+        == ($emulated | length)
 ' "$chip_root/radio-replay.json" >/dev/null
 
 python3 - "$chip_root/radio-replay.json" <<'PY'
@@ -303,8 +320,28 @@ jq -n \
             channel: 11,
             short_address: 0,
             injected_beacon_request: $requirements[0].expected_host_beacon_request,
-            expected_frame_lengths: $requirements[0].expected_emulated_frame_lengths,
-            expected_frame_controls: $requirements[0].expected_emulated_frame_controls,
+            expected_frame_contract: {
+                minimum_frames: $requirements[0].expected_minimum_emulated_frames,
+                maximum_frames: $requirements[0].expected_maximum_emulated_frames,
+                beacon_request_control: $requirements[0].expected_beacon_request_control,
+                beacon_request_length: $requirements[0].expected_beacon_request_length,
+                data_control: $requirements[0].expected_data_frame_control,
+                beacon_response_control: $requirements[0].expected_beacon_response_control,
+                beacon_response_length: $requirements[0].expected_beacon_response_length,
+                formation_data: $requirements[0].expected_formation_data_shape,
+                allowed_optional_data: $requirements[0].allowed_optional_data_shapes
+            },
+            observed_emulated_frame_shapes: [
+                $radio_replay[0].events[] |
+                select(.event == "submitted" and
+                       .request.frame.protocol == "ieee802154" and
+                       .request.frame.origin == "emulated") |
+                {
+                    length: (.request.frame.bytes | length),
+                    mac_control: .request.frame.bytes[0:2],
+                    nwk_control: .request.frame.bytes[9:11]
+                }
+            ],
             observed_emulated_frames: [
                 $radio_replay[0].events[] |
                 select(.event == "submitted" and

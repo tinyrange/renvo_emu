@@ -96,6 +96,7 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
     let access_output = DirectAccessOutput::new(
         arguments.bus_log.as_deref(),
         &arguments.bus_log_region,
+        arguments.interrupt_log.as_deref(),
         arguments.coverage.is_some(),
     )?;
     let observer = access_output.observer();
@@ -238,6 +239,7 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
     let access_output = DirectAccessOutput::new(
         arguments.bus_log.as_deref(),
         &arguments.bus_log_region,
+        arguments.interrupt_log.as_deref(),
         arguments.coverage.is_some(),
     )?;
     let control = DirectRunControl {
@@ -756,6 +758,52 @@ pub(crate) fn run_loaded_recorded(
         )
         .into()),
     }
+}
+
+pub(crate) fn configure_riscv_radio(
+    machine: &mut RiscVMachine,
+    input: Option<&Path>,
+    script: Option<&Path>,
+    repl: bool,
+) -> Result<(), Box<dyn Error>> {
+    for frame in read_radio_input(input)? {
+        let spectrum = remu_radio::Spectrum::new(frame.center_khz, frame.bandwidth_khz);
+        if frame.mpdus.is_empty() {
+            machine.inject_radio_frame_at(
+                SimTime::from_ticks(frame.at),
+                frame.protocol.into(),
+                spectrum,
+                frame.phy,
+                frame.bytes,
+                frame.power_dbm,
+            )?;
+        } else {
+            validate_direct_wifi_ampdu(&frame)?;
+            machine.inject_wifi_ampdu_at(
+                SimTime::from_ticks(frame.at),
+                spectrum,
+                frame.mpdus,
+                frame.power_dbm,
+            )?;
+        }
+    }
+    if let Some(peer) = read_radio_peer(script, repl)? {
+        machine.set_radio_peer(Box::new(peer))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn write_riscv_radio_replay(
+    machine: &RiscVMachine,
+    path: Option<&Path>,
+) -> Result<(), Box<dyn Error>> {
+    if let Some(path) = path {
+        let artifact = machine
+            .radio_replay_artifact()
+            .ok_or("ESP32-C6 radio replay artifact is unavailable")?;
+        write_radio_replay(path, &artifact)?;
+    }
+    Ok(())
 }
 
 fn write_radio_replay(path: &Path, artifact: &impl Serialize) -> Result<(), Box<dyn Error>> {

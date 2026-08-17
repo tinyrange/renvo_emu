@@ -8,7 +8,10 @@ socket or joins a physical network.
 
 ```sh
 python3 scripts/check-radio-sources.py
+python3 scripts/check-c6-rf-register-reference.py
+python3 scripts/check-c6-custom-driver-contract.py
 scripts/fetch-esp-rom-elfs.sh
+scripts/capture-c6-rf-oracle.sh
 scripts/qualify-esp-radio-rom.sh esp32c6
 scripts/qualify-esp-radio-rom.sh esp32s3
 scripts/qualify-esp-radio-wifi-softap-vendor.sh esp32c6
@@ -37,6 +40,72 @@ every research input. `inventory.json` records protocol applicability, public
 MMIO blocks, disputed address claims, and every radio interrupt source. The
 source checker fails closed for code or documentation whose license is absent,
 unknown, or outside the explicit permissive allowlist.
+
+## C6 RF register and error reference
+
+[`docs/esp32c6-rf-register-reference.md`](../../docs/esp32c6-rf-register-reference.md)
+is the readable index for the union of every ESP32-C6 RF register with explicit
+Renvo semantics and every non-UART address in the pinned public-API oracle bus
+trace. Its companion `c6-rf-register-reference.json` retains every observed
+read value, write value, changed post-value, access count, time bound and
+observational PC, as well as modeled masks and reset values where known.
+Unknown private fields remain explicitly unknown. This is an evidence-bounded
+emulator reference, not a silicon programming manual.
+
+`c6-rf-error-corpus.json` pins the seed, iteration count, minimal distinguishing
+mutation and expected rule for all seven causal Wi-Fi RF legality errors. The
+structure-aware test named in that corpus runs 2,048 deterministic mutations
+and asserts each individual result. Regenerate the register artifacts after a
+new pinned oracle capture with:
+
+```sh
+scripts/generate-c6-rf-register-reference.py \
+  --bus .remu/qualification/c6-rf-oracle/oracle-bus.json \
+  --requirements qualification/radio/c6-rf-oracle-requirements.json \
+  --json qualification/radio/c6-rf-register-reference.json \
+  --markdown docs/esp32c6-rf-register-reference.md
+scripts/check-c6-rf-register-reference.py
+```
+
+Project-owned native drivers additionally follow
+[`docs/custom-radio-driver-contract.md`](../../docs/custom-radio-driver-contract.md).
+The C6 gate compares every low-level MMIO call with the driver manifest and RF
+reference, rejects trace-only unknown dependencies and access broadening, and
+requires named HAL error results.
+
+For issue #356 RF/PHY recovery, the same bounded/streaming bus evidence now
+correlates RISC-V accesses with the causative PC without exposing PC to device
+models. Autonomous DMA/shared-memory activity deliberately has no PC. Direct
+memory writes record safe pre/post values. The C6 RF/PHY models emit the same
+evidence from a side-effect-free internal snapshot, so tracing never performs
+an extra read of a potentially read-sensitive register. The C6 calibration filter spans
+the PHY/MAC, baseband, frontend, MODEM_SYSCON, private PHY, MODEM_LPCON,
+analog-I2C, and PHY command-SRAM regions listed in issue #356.
+The same genuine-ROM gate streams native C6 radio interrupt-source transitions,
+requires assertion and deassertion evidence without stale PC attribution, and
+compares that stream byte-for-byte on the repeat-from-reset run.
+
+`capture-c6-rf-oracle.sh` is the separate issue #356 perturbation workflow. It
+builds a project-owned, public-API ESP-IDF oracle against the pinned 6.0.2
+container and runs it through the genuine C6 rev0 ROM. Flushed UART boundaries
+partition cold start, channels 1/6/11, 8/14/20 dBm requested maxima, warm
+stop/start, and deinitialize/reinitialize without hooks. Each stage emits a
+uniquely tagged raw probe request. `analyze-c6-rf-oracle.py` reduces the ordered
+trace to candidate contracts with immutable source provenance and confidence:
+the RFPLL frequency strobe/code on `0x600a00c0`, the 43-entry transmit-gain
+tuple ending at `0x600a08d4`, and the frontend force-off/release field on
+`0x600a0910`. PC values are retained only as observational evidence. The
+capture repeats from reset and requires byte-identical result, RF replay, bus,
+interrupt, and reduced-analysis artifacts while bounding the complete trace to
+64 MiB. This vendor-backed oracle is evidence for the independent HAL; it is
+not itself the issue #356 acceptance firmware.
+
+The genuine vendor Wi-Fi qualification workloads exercise a separate observed
+59-tuple power/calibration program at the same three gain registers. Renvo
+accepts that sequence only when all 59 tuples match in order, and preserves the
+last operational `0x4284` HT20 state across the vendor PHY's internal `0x5284`
+calibration strobes. These vendor observations do not broaden the custom
+driver's exact 43-tuple contract.
 
 The pinned ROM fetch installs the C6 rev0 and S3 rev0 Apache-2.0 ELF artifacts
 under `.remu/qualification/esp-rom-elfs/20260528`. Renvo executes their mapped
@@ -87,6 +156,10 @@ emulator state and terminates with the stable hard-error diagnostic defined by
 `legal-state-contract.json`. On C6, the same genuine image also enables the
 public IEEE 802.15.4 driver and transmits while Wi-Fi remains active and BLE is
 scanning, so all three silicon radio families cross the same ownership gate.
+Its pinned replay contains four distinct modem reset service boundaries. Wi-Fi
+RF state is invalidated synchronously at the causal MODEM_SYSCON edge, so the
+former delayed invalidation is not counted as a separate coexistence reset
+boundary.
 Firmware radio-reset assertions cancel pending native work, active ownership,
 and its exact in-flight medium transmission. Firmware clock/power gating also
 cancels active ownership and airtime. The append-only artifacts retain the
@@ -220,9 +293,13 @@ and RF event stream must replay byte-for-byte from reset.
 The Apache-2.0 ESP Zigbee 2.0.3 gate boots its coordinator application through
 the genuine C6 rev0 ROM, forms a native channel-11 network with PAN ID 63100,
 then receives an injected beacon request and emits the coordinator beacon. It
-pins the emitted frame shapes and complete beacon semantics, validates every
-hardware-generated FCS, native command and W1C interrupt cause, coexistence
-grant, ROM/application coverage and byte-identical execution-result/RF replay.
+pins the mandatory request, two formation-data frames, and complete beacon
+semantics. Clean component builds may additionally emit one observed 47-byte
+NWK command (`0x1209`) between the formation frames; that exact control/length
+shape is allowed while all other additions are rejected. The gate validates
+every hardware-generated FCS, native command and W1C interrupt cause,
+coexistence grant, ROM/application coverage and byte-identical
+execution-result/RF replay.
 The component lock, license and all
 three C6 library archives are independently hashed; the retired ZBOSS
 dependency is rejected by the qualification gate.

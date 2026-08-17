@@ -256,6 +256,8 @@ pub struct RiscVMachine {
     radio_c6_pending_ble_transmissions: Vec<radio::PendingNativeBleTransmission>,
     radio_c6_ble_link_sequences: BTreeMap<u32, radio::C6BleLinkSequence>,
     radio_c6_reset_generations: [u64; 4],
+    radio_c6_wifi_mac_reset_generation: u64,
+    radio_c6_interrupt_sources: [bool; 6],
     radio_coexistence_transmission: Option<(CoexistenceGrantId, TransmissionId)>,
     radio_event_cursor: usize,
     flash_storage: Option<SharedMemory>,
@@ -748,6 +750,14 @@ impl RiscVMachine {
         } else {
             profile.clone()
         };
+        let radio_c6_reset_generations = esp32c6_peripherals
+            .as_ref()
+            .map(|handles| handles.modem.reset_generations())
+            .unwrap_or([0; 4]);
+        let radio_c6_wifi_mac_reset_generation = esp32c6_peripherals
+            .as_ref()
+            .map(|handles| handles.wifi_mac.reset_generation())
+            .unwrap_or(0);
         Ok(Self {
             target,
             cpu: RiscVCpu::new(profile.clone())?,
@@ -807,7 +817,9 @@ impl RiscVMachine {
             radio_c6_ble_schedule_records: Vec::new(),
             radio_c6_pending_ble_transmissions: Vec::new(),
             radio_c6_ble_link_sequences: BTreeMap::new(),
-            radio_c6_reset_generations: [0; 4],
+            radio_c6_reset_generations,
+            radio_c6_wifi_mac_reset_generation,
+            radio_c6_interrupt_sources: [false; 6],
             radio_coexistence_transmission: None,
             radio_event_cursor: 0,
             flash_storage,

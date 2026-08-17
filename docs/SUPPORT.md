@@ -336,6 +336,18 @@ artifacts. Repeated `--bus-log-region NAME` arguments retain only accesses whose
 exact bus-region name matches, which keeps long vendor-firmware MMIO evidence
 compact without changing execution. Coverage uses the same event stream but is
 not affected by that filter and retains all unique executed addresses.
+Each RISC-V CPU access includes the causative instruction `pc`. Accesses made
+by autonomous peripherals, DMA helpers, debuggers, or host orchestration omit
+that field rather than inheriting a stale PC. Direct-memory writes additionally
+include safe `pre_value` and `post_value` fields. Device writes omit them unless
+the model opts into a side-effect-free internal snapshot; the tracer never
+issues a second, potentially side-effecting MMIO read to discover an old value.
+The proven C6 RF/PHY register banks provide that snapshot. These fields are
+observational and cannot affect bus or device behavior.
+`--interrupt-log PATH` independently streams source-level transitions as
+timestamped JSON. C6 radio sources use their native interrupt-matrix numbers;
+only level changes are emitted, and autonomous transitions omit `pc` instead
+of inheriting the preceding instruction.
 
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the

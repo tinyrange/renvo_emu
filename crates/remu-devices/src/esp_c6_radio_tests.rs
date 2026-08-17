@@ -2,6 +2,176 @@
 mod tests {
     use super::*;
 
+    fn write_rf(device: &mut EspC6PowerDetector, offset: u64, value: u32) {
+        device
+            .write(offset, AccessWidth::Word, value.into(), SimTime::ZERO)
+            .unwrap();
+    }
+
+    fn program_wifi_rf(
+        device: &mut EspC6PowerDetector,
+        channel: u8,
+        power_qdbm: i16,
+    ) {
+        let frequency_code =
+            C6_FREQUENCY_CHANNEL_BASE + u32::from(channel) * C6_FREQUENCY_CHANNEL_STRIDE;
+        write_rf(
+            device,
+            C6_FREQUENCY_CONTROL,
+            0x4284_0000 | C6_FREQUENCY_CHANNEL_START | frequency_code,
+        );
+        write_rf(
+            device,
+            C6_IQ_ESTIMATE_CONTROL,
+            C6_IQ_ESTIMATE_START,
+        );
+        for entry in 0..C6_TX_GAIN_ENTRY_COUNT {
+            write_rf(device, C6_TX_GAIN_FIRST, u32::from(entry));
+            write_rf(device, C6_TX_GAIN_SECOND, u32::from(entry));
+            let final_word = if entry == 0 {
+                C6_TX_GAIN_START_SENTINEL
+            } else if entry + 1 == C6_TX_GAIN_ENTRY_COUNT {
+                ((i32::from(power_qdbm) - 133) * 128) as u32
+            } else {
+                u32::from(entry)
+            };
+            write_rf(device, C6_TX_GAIN_FINAL, final_word);
+        }
+        write_rf(device, C6_FRONTEND_FORCE, 0);
+    }
+
+    #[test]
+    fn c6_wifi_rf_snapshot_tracks_channel_power_and_frontend_causally() {
+        for (channel, center_khz) in [
+            (1, 2_412_000),
+            (6, 2_437_000),
+            (11, 2_462_000),
+        ] {
+            for power_qdbm in [32, 56, 80] {
+                let mut device = EspC6PowerDetector::new("power-detector");
+                let handle = device.handle();
+                assert!(!handle.wifi_rf_snapshot().airtime_ready());
+
+                program_wifi_rf(&mut device, channel, power_qdbm);
+                let snapshot = handle.wifi_rf_snapshot();
+                assert_eq!(snapshot.channel, Some(channel));
+                assert_eq!(snapshot.bandwidth_khz, Some(20_000));
+                assert!(snapshot.pll_locked);
+                assert!(snapshot.calibration_valid);
+                assert_eq!(
+                    snapshot.calibrated_generation,
+                    Some(snapshot.calibration_generation)
+                );
+                assert_eq!(snapshot.center_khz(), Some(center_khz));
+                assert_eq!(snapshot.power_qdbm, Some(power_qdbm));
+                assert_eq!(snapshot.frontend_released, Some(true));
+                assert_eq!(snapshot.gain_entries, C6_TX_GAIN_ENTRY_COUNT);
+                assert!(snapshot.airtime_ready());
+
+                write_rf(&mut device, C6_FRONTEND_FORCE, C6_FRONTEND_FORCED_OFF);
+                assert!(!handle.wifi_rf_snapshot().airtime_ready());
+                write_rf(&mut device, C6_FRONTEND_FORCE, 0);
+                assert!(handle.wifi_rf_snapshot().airtime_ready());
+            }
+        }
+    }
+
+    #[test]
+    fn c6_wifi_rf_accepts_exact_vendor_power_and_calibration_program() {
+        let mut device = EspC6PowerDetector::new("power-detector");
+        let handle = device.handle();
+        write_rf(
+            &mut device,
+            C6_FREQUENCY_CONTROL,
+            C6_FREQUENCY_HT20_MODE
+                + C6_FREQUENCY_CHANNEL_BASE
+                + C6_FREQUENCY_CHANNEL_STRIDE,
+        );
+        for (second, final_word) in C6_VENDOR_GAIN_PROGRAM {
+            write_rf(&mut device, C6_TX_GAIN_FIRST, 0x4020_0000);
+            write_rf(&mut device, C6_TX_GAIN_SECOND, second);
+            write_rf(&mut device, C6_TX_GAIN_FINAL, final_word);
+        }
+        write_rf(&mut device, C6_FRONTEND_FORCE, 0);
+
+        let snapshot = handle.wifi_rf_snapshot();
+        assert_eq!(snapshot.channel, Some(1));
+        assert_eq!(snapshot.power_qdbm, Some(C6_VENDOR_TX_POWER_QDBM));
+        assert_eq!(snapshot.gain_entries, C6_TX_GAIN_ENTRY_COUNT);
+        assert!(snapshot.calibration_valid);
+        assert!(snapshot.airtime_ready());
+    }
+
+    #[test]
+    fn c6_wifi_rf_preserves_operational_state_across_vendor_calibration_mode() {
+        let mut device = EspC6PowerDetector::new("power-detector");
+        let handle = device.handle();
+        program_wifi_rf(&mut device, 1, 56);
+        let operational = handle.wifi_rf_snapshot();
+
+        // The pinned vendor PHY strobes 0x5284 mode while calibrating and then
+        // restores 0x4284 mode without another start edge. This is not an
+        // operational Wi-Fi channel/bandwidth selection.
+        write_rf(&mut device, C6_FREQUENCY_CONTROL, 0x5284_4600);
+        write_rf(&mut device, C6_FREQUENCY_CONTROL, 0x4284_0600);
+
+        assert_eq!(handle.wifi_rf_snapshot(), operational);
+    }
+
+    #[test]
+    fn c6_wifi_rf_rejects_partial_sequences_and_invalidates_on_reset() {
+        let mut device = EspC6PowerDetector::new("power-detector");
+        let handle = device.handle();
+        write_rf(
+            &mut device,
+            C6_FREQUENCY_CONTROL,
+            C6_FREQUENCY_CHANNEL_START | 0x123,
+        );
+        write_rf(&mut device, C6_TX_GAIN_FIRST, 0);
+        write_rf(&mut device, C6_TX_GAIN_FINAL, C6_TX_GAIN_START_SENTINEL);
+        write_rf(&mut device, C6_FRONTEND_FORCE, 0x100);
+        let invalid = handle.wifi_rf_snapshot();
+        assert_eq!(invalid.channel, None);
+        assert!(invalid.pll_locked);
+        assert!(!invalid.calibration_valid);
+        assert_eq!(invalid.power_qdbm, None);
+        assert_eq!(invalid.frontend_released, None);
+        assert!(!invalid.airtime_ready());
+
+        program_wifi_rf(&mut device, 6, 56);
+        let configured = handle.wifi_rf_snapshot();
+        write_rf(
+            &mut device,
+            C6_FREQUENCY_CONTROL,
+            C6_FREQUENCY_HT20_MODE
+                + C6_FREQUENCY_CHANNEL_BASE
+                + 11 * C6_FREQUENCY_CHANNEL_STRIDE,
+        );
+        let changed = handle.wifi_rf_snapshot();
+        assert_eq!(changed.channel, Some(11));
+        assert!(!changed.calibration_valid);
+        assert_eq!(changed.calibrated_generation, None);
+        assert_eq!(
+            changed.calibration_generation,
+            configured.calibration_generation + 1
+        );
+        device.reset(ResetKind::Software);
+        let reset = handle.wifi_rf_snapshot();
+        assert!(!reset.airtime_ready());
+        assert_eq!(reset.channel, None);
+        assert!(!reset.pll_locked);
+        assert!(!reset.calibration_valid);
+        assert_eq!(reset.power_qdbm, None);
+        assert_eq!(reset.frontend_released, None);
+        assert_eq!(reset.generation, configured.generation + 1);
+
+        program_wifi_rf(&mut device, 11, 80);
+        handle.invalidate_wifi_rf();
+        let invalidated = handle.wifi_rf_snapshot();
+        assert!(!invalidated.airtime_ready());
+        assert_eq!(invalidated.generation, reset.generation + 1);
+    }
+
     #[test]
     fn c6_ble_sleep_timer_advances_at_the_firmware_selected_rate() {
         let (mut modem, handle) = EspC6BleModem::new("ble-modem");
@@ -196,6 +366,74 @@ mod tests {
                 0
             );
         }
+    }
+
+    #[test]
+    fn wifi_crypto_table_selects_ccmp_receive_key_by_interface_and_transmitter() {
+        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
+        let handle = mac.handle();
+        let local = [0x02, 0, 0, 0, 0, 0xc6];
+        let peer = [0x02, 0x52, 0x45, 0x4d, 0x55, 2];
+        let key = [
+            0x3e, 0x29, 0x42, 0x5f, 0xcd, 0x3c, 0x44, 0xd0, 0x1b, 0x29, 0x87, 0x87,
+            0x47, 0x51, 0xb9, 0x98,
+        ];
+        mac.write(
+            C6_WIFI_MAC_INTERFACE_ADDRESS_LOW,
+            AccessWidth::Word,
+            u64::from(u32::from_le_bytes(local[..4].try_into().unwrap())),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_INTERFACE_ADDRESS_HIGH,
+            AccessWidth::Word,
+            u64::from(u16::from_le_bytes(local[4..].try_into().unwrap()))
+                | u64::from(C6_WIFI_MAC_INTERFACE_ADDRESS_VALID),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_TABLE,
+            AccessWidth::Word,
+            u64::from(u32::from_le_bytes(peer[..4].try_into().unwrap())),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_TABLE + 4,
+            AccessWidth::Word,
+            u64::from(u16::from_le_bytes(peer[4..].try_into().unwrap()))
+                | (3 << 18)
+                | (3 << 21),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        for (index, word) in key.chunks_exact(4).enumerate() {
+            mac.write(
+                C6_WIFI_MAC_CRYPTO_TABLE + 8 + index as u64 * 4,
+                AccessWidth::Word,
+                u64::from(u32::from_le_bytes(word.try_into().unwrap())),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        }
+        mac.write(
+            C6_WIFI_MAC_CRYPTO_VALID,
+            AccessWidth::Word,
+            1,
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+        let mut frame = vec![0x08, 0x42, 0, 0];
+        frame.extend_from_slice(&local);
+        frame.extend_from_slice(&peer);
+        frame.extend_from_slice(&peer);
+        frame.extend_from_slice(&[0, 0]);
+        frame.extend_from_slice(&[1, 0, 0, 0x20, 0, 0, 0, 0]);
+        frame.extend_from_slice(&[0; 16]);
+        assert_eq!(handle.select_ccmp_rx_key(&frame).unwrap(), key);
     }
 
     #[test]
@@ -833,548 +1071,5 @@ mod tests {
         );
     }
 
-    #[test]
-    fn wifi_mac_reset_command_sets_ready_status() {
-        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
-        mac.write(
-            C6_WIFI_MAC_RESET_CONTROL,
-            AccessWidth::Word,
-            C6_WIFI_MAC_RESET_START as u64,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_RESET_CONTROL, AccessWidth::Word, SimTime::ZERO,)
-                .unwrap()
-                & u64::from(C6_WIFI_MAC_RESET_READY),
-            u64::from(C6_WIFI_MAC_RESET_READY)
-        );
-    }
-
-    #[test]
-    fn wifi_mac_rx_descriptor_reload_command_self_clears() {
-        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
-        let configuration = 0x8803_0000_u32;
-        mac.write(
-            C6_WIFI_MAC_RX_CONTROL,
-            AccessWidth::Word,
-            u64::from(configuration | C6_WIFI_MAC_RX_DESCRIPTOR_RELOAD),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_RX_CONTROL, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            u64::from(configuration)
-        );
-    }
-
-    #[test]
-    fn wifi_mac_rx_match_uses_firmware_programmed_interface_address() {
-        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
-        let handle = mac.handle();
-        assert_eq!(handle.rx_match_mask(&[0xff; 6]), 1);
-
-        mac.write(
-            C6_WIFI_MAC_INTERFACE_ADDRESS_LOW + C6_WIFI_MAC_INTERFACE_ADDRESS_STRIDE,
-            AccessWidth::Word,
-            0x0002_4552,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        mac.write(
-            C6_WIFI_MAC_INTERFACE_ADDRESS_HIGH + C6_WIFI_MAC_INTERFACE_ADDRESS_STRIDE,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_INTERFACE_ADDRESS_VALID | 0x0100),
-            SimTime::ZERO,
-        )
-        .unwrap();
-
-        assert_eq!(
-            handle.rx_match_mask(&[0x52, 0x45, 0x02, 0x00, 0x00, 0x01]),
-            1 << 1
-        );
-        assert_eq!(
-            handle.rx_match_mask(&[0x52, 0x45, 0x02, 0x00, 0x00, 0x02]),
-            0
-        );
-        assert_eq!(handle.rx_match_mask(&[0xff; 6]), 1 << 1);
-    }
-
-    #[test]
-    fn wifi_mac_rx_block_ack_tracks_the_native_firmware_window() {
-        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
-        let handle = mac.handle();
-        let peer = [0x02, 1, 2, 3, 4, 5];
-        mac.write(
-            C6_WIFI_MAC_RX_BA_MAC_LOW_HIGH,
-            AccessWidth::Word,
-            u64::from(u32::from_le_bytes(peer[..4].try_into().unwrap())),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        mac.write(
-            C6_WIFI_MAC_RX_BA_MAC_HIGH_HIGH,
-            AccessWidth::Word,
-            u64::from(u16::from_le_bytes(peer[4..].try_into().unwrap())),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        mac.write(
-            C6_WIFI_MAC_RX_BA_SEQUENCE_HIGH,
-            AccessWidth::Word,
-            0x0ffe,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        mac.write(
-            C6_WIFI_MAC_RX_BA_CONTROL_HIGH,
-            AccessWidth::Word,
-            u64::from((3_u32 << 30) | (3 << 12) | 5),
-            SimTime::ZERO,
-        )
-        .unwrap();
-
-        assert!(handle.record_block_ack_mpdu(&peer, 3, 0x0fff));
-        assert!(handle.record_block_ack_mpdu(&peer, 3, 0x0000));
-        assert_eq!(handle.block_ack_bitmap(&peer, 3, 0x0fff), Some(3));
-        assert!(!handle.record_block_ack_mpdu(&peer, 2, 0));
-
-        mac.reset(ResetKind::PowerOn);
-        assert_eq!(handle.block_ack_bitmap(&peer, 3, 0x0fff), None);
-        mac.write(
-            C6_WIFI_MAC_RX_BA_CONTROL_HIGH,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_RX_BA_VALID | 5),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(handle.validate_block_ack_sessions().is_err());
-    }
-
-    #[test]
-    fn wifi_mac_tx_completion_drives_native_event_and_queue_state() {
-        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
-        let handle = mac.handle();
-        mac.write(
-            C6_WIFI_MAC_INTERRUPT_MASK,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_EVENT_TX_DONE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        mac.write(
-            C6_WIFI_MAC_TX_QUEUE_PROTECTION_HIGH,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_TX_QUEUE_RTS_ENABLED),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        mac.write(
-            C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_TX_QUEUE_ENABLE | 0x1234),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(
-            handle.take_tx_descriptor(),
-            Some(EspC6WifiTxDescriptor {
-                queue: 0,
-                address: 0x4080_1234,
-            })
-        );
-        assert!(handle.tx_rts_enabled(0));
-        assert!(!handle.tx_rts_enabled(1));
-        assert!(!handle.interrupt_pending());
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0
-        );
-        assert!(handle.tx_active(0));
-        assert!(handle.complete_tx(0, crate::EspWifiTxOutcome::AckTimeout));
-        assert!(handle.interrupt_pending());
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            mac.read(
-                C6_WIFI_MAC_TX_QUEUE_COMPLETION_HIGH,
-                AccessWidth::Word,
-                SimTime::ZERO,
-            )
-            .unwrap() as u32
-                & C6_WIFI_MAC_TX_QUEUE_COMPLETION_STATUS,
-            5 << 12
-        );
-        assert_eq!(
-            mac.read(
-                C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT_HIGH,
-                AccessWidth::Word,
-                SimTime::ZERO,
-            )
-            .unwrap() as u32
-                & C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT,
-            0
-        );
-        assert_eq!(
-            mac.read(
-                C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH,
-                AccessWidth::Word,
-                SimTime::ZERO,
-            )
-            .unwrap() as u32
-                & C6_WIFI_MAC_TX_QUEUE_ENABLE,
-            1 << 30
-        );
-        mac.write(
-            C6_WIFI_MAC_INTERRUPT_CLEAR,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_EVENT_TX_DONE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        mac.write(
-            C6_WIFI_MAC_TX_QUEUE_STATE_CLEAR,
-            AccessWidth::Word,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(!handle.interrupt_pending());
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_TX_QUEUE_STATE, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0
-        );
-    }
-
-    #[test]
-    fn wifi_mac_tx_completion_publishes_native_block_ack_record() {
-        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
-        let handle = mac.handle();
-        mac.write(
-            C6_WIFI_MAC_TX_QUEUE_CONTROL_HIGH,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_TX_QUEUE_ENABLE | 0x1234),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(handle.take_tx_descriptor().is_some());
-        assert!(handle.complete_tx_record(
-            0,
-            crate::EspWifiTxOutcome::Success,
-            2,
-            Some(crate::EspWifiTxBlockAck {
-                status: 3,
-                starting_sequence: 0xffe,
-                bitmap: 0x8000_0000_0000_0005,
-            }),
-        ));
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT_HIGH, AccessWidth::Word, SimTime::ZERO)
-                .unwrap() as u32
-                & C6_WIFI_MAC_TX_QUEUE_COMPLETION_COUNT,
-            2 << 16
-        );
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_TX_QUEUE_BA_STATUS_HIGH, AccessWidth::Word, SimTime::ZERO)
-                .unwrap() as u32
-                & 0x000f_0fff,
-            (3 << 16) | 0xffe
-        );
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_TX_QUEUE_BA_BITMAP_LOW_HIGH, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            5
-        );
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_TX_QUEUE_BA_BITMAP_HIGH_HIGH, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0x8000_0000
-        );
-    }
-
-    #[test]
-    fn wifi_rx_base_advances_native_ring_and_asserts_event() {
-        let mut mac = EspC6WifiMacRegisters::new("wifi-mac");
-        let handle = mac.handle();
-        mac.write(
-            C6_WIFI_MAC_INTERRUPT_MASK,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_EVENT_RX_DONE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        mac.write(
-            C6_WIFI_MAC_RX_BASE,
-            AccessWidth::Word,
-            0x4082_1000,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(
-            handle.rx_descriptor(),
-            Some(EspC6WifiRxDescriptor {
-                address: 0x4082_1000
-            })
-        );
-        handle.complete_rx_descriptor(0x4082_1000, 0x4082_100c);
-        assert_eq!(
-            handle.rx_descriptor(),
-            Some(EspC6WifiRxDescriptor {
-                address: 0x4082_100c
-            })
-        );
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_RX_NEXT, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0x4082_100c
-        );
-        assert_eq!(
-            mac.read(C6_WIFI_MAC_RX_LAST, AccessWidth::Word, SimTime::ZERO)
-                .unwrap(),
-            0x0002_1000
-        );
-        assert!(handle.interrupt_pending());
-        mac.write(
-            C6_WIFI_MAC_INTERRUPT_CLEAR,
-            AccessWidth::Word,
-            u64::from(C6_WIFI_MAC_EVENT_RX_DONE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(!handle.interrupt_pending());
-    }
-
-    #[test]
-    fn modem_reset_strobes_increment_domain_generations() {
-        let (mut syscon, mut lpcon, handle) = EspC6ModemControl::new_pair("syscon", "lpcon");
-        let initial = handle.reset_generations();
-        syscon
-            .write(
-                0x10,
-                AccessWidth::Word,
-                (1 << 10) | (1 << 16) | (1 << 24),
-                SimTime::ZERO,
-            )
-            .unwrap();
-        lpcon
-            .write(0x24, AccessWidth::Word, 1 << 1, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            handle.reset_generations(),
-            [
-                initial[0] + 1,
-                initial[1] + 1,
-                initial[2] + 1,
-                initial[3] + 1
-            ]
-        );
-        let after_rising_edges = handle.reset_generations();
-        syscon
-            .write(
-                0x10,
-                AccessWidth::Word,
-                (1 << 10) | (1 << 16) | (1 << 24),
-                SimTime::ZERO,
-            )
-            .unwrap();
-        lpcon
-            .write(0x24, AccessWidth::Word, 1 << 1, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            handle.reset_generations(),
-            [
-                after_rising_edges[0],
-                after_rising_edges[1],
-                after_rising_edges[2],
-                after_rising_edges[3] + 1,
-            ]
-        );
-    }
-
-    #[test]
-    fn ieee802154_command_completion_and_w1c_interrupt_work() {
-        let (mut device, handle) = EspIeee802154::new("ieee802154");
-        device
-            .write(0x60, AccessWidth::Word, 1, SimTime::ZERO)
-            .unwrap();
-        device
-            .write(0x00, AccessWidth::Word, 0x41, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(handle.take_command(), Some(EspIeee802154Command::TxStart));
-        assert!(!handle.interrupt_pending());
-        handle.complete_tx();
-        assert!(handle.interrupt_pending());
-        assert_eq!(
-            device.read(0x64, AccessWidth::Word, SimTime::ZERO).unwrap() & 1,
-            1
-        );
-        device
-            .write(0x64, AccessWidth::Word, 1, SimTime::ZERO)
-            .unwrap();
-        assert!(!handle.interrupt_pending());
-    }
-
-    #[test]
-    fn phy_tsf_latch_and_four_timer_interrupts_follow_vendor_hal_layout() {
-        let mut phy = EspC6PhyRegisters::new("phy");
-        let handle = phy.handle();
-        phy.write(
-            C6_PHY_TSF_LATCH_CONTROL,
-            AccessWidth::Word,
-            1,
-            SimTime::from_ticks(160),
-        )
-        .unwrap();
-        assert_eq!(
-            phy.read(
-                C6_PHY_TSF_LOW,
-                AccessWidth::Word,
-                SimTime::from_ticks(160)
-            )
-            .unwrap(),
-            10
-        );
-        assert_eq!(
-            phy.read(
-                C6_PHY_TSF_HIGH,
-                AccessWidth::Word,
-                SimTime::from_ticks(160)
-            )
-            .unwrap(),
-            0
-        );
-
-        phy.write(
-            C6_PHY_TSF_TIMER_TARGET_BASE,
-            AccessWidth::Word,
-            12,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        phy.write(
-            C6_PHY_POWER_INTERRUPT_CLEAR,
-            AccessWidth::Word,
-            0x80,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        phy.write(
-            C6_PHY_POWER_INTERRUPT_ENABLE,
-            AccessWidth::Word,
-            0x80,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        phy.write(
-            C6_PHY_TSF_TIMER_CONTROL_BASE,
-            AccessWidth::Word,
-            u64::from(C6_PHY_TSF_TIMER_ENABLE | C6_PHY_TSF_TIMER_WAKEUP_ENABLE | 3),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        handle.validate_tsf_timers().unwrap();
-        assert_eq!(handle.advance_to(SimTime::from_ticks(191)), 0);
-        assert_eq!(handle.advance_to(SimTime::from_ticks(192)), 1);
-        assert!(handle.interrupt_pending());
-        assert_eq!(
-            phy.read(
-                C6_PHY_POWER_INTERRUPT_RAW,
-                AccessWidth::Word,
-                SimTime::from_ticks(192)
-            )
-            .unwrap(),
-            0x80
-        );
-        assert_eq!(
-            phy.read(
-                C6_PHY_POWER_INTERRUPT_STATUS,
-                AccessWidth::Word,
-                SimTime::from_ticks(192)
-            )
-            .unwrap(),
-            0x80
-        );
-        phy.write(
-            C6_PHY_POWER_INTERRUPT_CLEAR,
-            AccessWidth::Word,
-            0x80,
-            SimTime::from_ticks(192),
-        )
-        .unwrap();
-        assert!(!handle.interrupt_pending());
-        assert_eq!(handle.advance_to(SimTime::from_ticks(208)), 0);
-    }
-
-    #[test]
-    fn phy_tsf_legality_rejects_orders_the_vendor_hal_never_emits() {
-        let mut phy = EspC6PhyRegisters::new("phy");
-        let handle = phy.handle();
-        phy.write(
-            C6_PHY_TSF_TIMER_CONTROL_BASE,
-            AccessWidth::Word,
-            u64::from(C6_PHY_TSF_TIMER_ENABLE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(
-            handle
-                .validate_tsf_timers()
-                .unwrap_err()
-                .contains("enabled before its firmware interrupt bit")
-        );
-        phy.write(
-            C6_PHY_TSF_TIMER_CONTROL_BASE,
-            AccessWidth::Word,
-            u64::from(C6_PHY_TSF_TIMER_WAKEUP_ENABLE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(
-            handle
-                .validate_tsf_timers()
-                .unwrap_err()
-                .contains("requests wakeup while disabled")
-        );
-    }
-
-    #[test]
-    fn ieee802154_timers_use_simulation_time() {
-        let (mut device, handle) = EspIeee802154::new("ieee802154");
-        device
-            .write(0x60, AccessWidth::Word, 1 << 8, SimTime::ZERO)
-            .unwrap();
-        device
-            .write(0xa8, AccessWidth::Word, 10, SimTime::ZERO)
-            .unwrap();
-        device
-            .write(0x00, AccessWidth::Word, 0x4c, SimTime::from_ticks(3))
-            .unwrap();
-        assert_eq!(
-            device
-                .read(0xac, AccessWidth::Word, SimTime::from_ticks(12))
-                .unwrap(),
-            9
-        );
-        let _ = device
-            .read(0xac, AccessWidth::Word, SimTime::from_ticks(13))
-            .unwrap();
-        assert!(handle.interrupt_pending());
-    }
-
-    #[test]
-    fn ieee802154_stop_retires_ack_receive_state() {
-        let (mut device, handle) = EspIeee802154::new("ieee802154");
-        handle.complete_tx_expect_ack(0x45);
-        assert_eq!(handle.awaiting_ack_sequence(), Some(0x45));
-        device
-            .write(0x00, AccessWidth::Word, 0x45, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(handle.awaiting_ack_sequence(), None);
-    }
+    include!("esp_c6_radio_tests_mac.rs");
 }

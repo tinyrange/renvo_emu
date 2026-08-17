@@ -1,0 +1,73 @@
+{
+  "schema": "remu.c6-rf-error-corpus.v1",
+  "scope": "software-emulator-only",
+  "generator": {
+    "test": "esp32c6_structured_rf_state_fuzz_reaches_every_causal_error_path",
+    "seed_hex": "0x356c6f7261636c65",
+    "iterations": 2048,
+    "selection": "iteration modulo eight selects one valid state or one minimal distinguishing mutation; xorshift64 selects channels 1/6/11 and supported 8/14/20 dBm powers"
+  },
+  "legality_order": [
+    "domain-ready",
+    "rf-pll-lock",
+    "rf-calibration",
+    "rf-channel",
+    "rf-power",
+    "rf-bandwidth",
+    "rf-frontend"
+  ],
+  "cases": [
+    {
+      "mutation_id": 0,
+      "name": "valid-reference",
+      "minimal_distinguishing_mutation": "none",
+      "expected": "accepted"
+    },
+    {
+      "mutation_id": 1,
+      "name": "clock-domain-disabled",
+      "minimal_distinguishing_mutation": "omit MODEM_SYSCON Wi-Fi APB/MAC clock enable",
+      "expected": "domain-ready"
+    },
+    {
+      "mutation_id": 2,
+      "name": "pll-strobe-missing",
+      "minimal_distinguishing_mutation": "enable the clock domain but omit RFPLL channel programming and strobe",
+      "expected": "rf-pll-lock"
+    },
+    {
+      "mutation_id": 3,
+      "name": "completed-invalid-channel",
+      "minimal_distinguishing_mutation": "replace a valid RFPLL channel code with 0x0123 while retaining the completed start strobe and full gain calibration",
+      "expected": "rf-channel"
+    },
+    {
+      "mutation_id": 4,
+      "name": "corrupt-gain-tuple",
+      "minimal_distinguishing_mutation": "append one malformed three-word TX gain tuple after a valid calibration",
+      "expected": "rf-calibration"
+    },
+    {
+      "mutation_id": 5,
+      "name": "unsupported-power-step",
+      "minimal_distinguishing_mutation": "replace the valid quarter-dBm ceiling with 34, which is not a whole-dBm step",
+      "expected": "rf-power"
+    },
+    {
+      "mutation_id": 6,
+      "name": "unsupported-bandwidth",
+      "minimal_distinguishing_mutation": "replace HT20 RFPLL mode bits with an otherwise completed unsupported mode while retaining valid channel and calibration",
+      "expected": "rf-bandwidth"
+    },
+    {
+      "mutation_id": 7,
+      "name": "frontend-forced-off",
+      "minimal_distinguishing_mutation": "write force-off value 0x0200 after otherwise valid RF programming",
+      "expected": "rf-frontend"
+    }
+  ],
+  "discovery": {
+    "previous_shadowed_path": "rf-channel was unreachable because pll_locked previously meant both strobe completion and successful channel decode",
+    "model_correction": "RFPLL strobe completion and channel validity are now independent state, so the ordered rf-channel diagnostic is causal"
+  }
+}

@@ -1,4 +1,343 @@
 #[test]
+fn esp32c6_wifi_airtime_uses_causal_rf_channel_and_power() {
+    for (channel, center_khz) in [(1, 2_412_000), (6, 2_437_000), (11, 2_462_000)] {
+        for (power_qdbm, power_dbm) in [(32, 8), (56, 14), (80, 20)] {
+            let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+            program_esp32c6_wifi_rf(&mut machine, channel, power_qdbm);
+            let (spectrum, observed_power) = machine.c6_wifi_rf_airtime().unwrap();
+            assert_eq!(spectrum, remu_radio::Spectrum::new(center_khz, 20_000));
+            assert_eq!(observed_power, power_dbm);
+        }
+    }
+}
+
+#[test]
+fn esp32c6_wifi_airtime_rejects_incomplete_stale_and_forced_rf_state() {
+    let mut missing = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    missing
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            missing.now,
+        )
+        .unwrap();
+    let MachineError::RadioLegality(error) = missing.c6_wifi_rf_airtime().unwrap_err() else {
+        panic!("missing RF state should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfPllLock);
+
+    let mut clocks_off = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    let MachineError::RadioLegality(error) = clocks_off.c6_wifi_rf_airtime().unwrap_err() else {
+        panic!("power-gated RF airtime should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DomainReady);
+
+    let mut incomplete = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut incomplete, 6, 56);
+    for (address, value) in [
+        (0x600a_08cc, 0),
+        (0x600a_08d0, 0),
+        (0x600a_08d4, 0xfe),
+    ] {
+        incomplete
+            .bus
+            .write(address, AccessWidth::Word, value, incomplete.now)
+            .unwrap();
+    }
+    let MachineError::RadioLegality(error) = incomplete.c6_wifi_rf_airtime().unwrap_err() else {
+        panic!("incomplete replacement gain table should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfCalibration);
+
+    let mut changed_channel = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut changed_channel, 1, 56);
+    changed_channel
+        .bus
+        .write(
+            0x600a_00c0,
+            AccessWidth::Word,
+            0x4284_4000 + 0x380 + 6 * 0x280,
+            changed_channel.now,
+        )
+        .unwrap();
+    let MachineError::RadioLegality(error) = changed_channel.c6_wifi_rf_airtime().unwrap_err()
+    else {
+        panic!("channel change without recalibration should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfCalibration);
+
+    let mut calibration_mode = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut calibration_mode, 6, 56);
+    calibration_mode
+        .bus
+        .write(
+            0x600a_00c0,
+            AccessWidth::Word,
+            0x5284_4000 + 0x380 + 6 * 0x280,
+            calibration_mode.now,
+        )
+        .unwrap();
+    assert!(calibration_mode.c6_wifi_rf_airtime().is_ok());
+
+    let mut unsupported_power = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut unsupported_power, 6, 34);
+    let MachineError::RadioLegality(error) =
+        unsupported_power.c6_wifi_rf_airtime().unwrap_err()
+    else {
+        panic!("unsupported fractional power should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfPower);
+
+    let mut forced_off = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut forced_off, 11, 80);
+    forced_off
+        .bus
+        .write(
+            0x600a_0910,
+            AccessWidth::Word,
+            0x200,
+            forced_off.now,
+        )
+        .unwrap();
+    let MachineError::RadioLegality(error) = forced_off.c6_wifi_rf_airtime().unwrap_err() else {
+        panic!("forced-off frontend should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfFrontend);
+
+    let mut stale = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut stale, 1, 32);
+    stale
+        .esp32c6_peripherals
+        .as_ref()
+        .unwrap()
+        .wifi_rf
+        .invalidate_wifi_rf();
+    let MachineError::RadioLegality(error) = stale.c6_wifi_rf_airtime().unwrap_err() else {
+        panic!("reset-invalidated RF state should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfPllLock);
+}
+
+#[test]
+fn esp32c6_native_mac_reset_preserves_rf_and_invalidates_pending_queues() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 6, 56);
+    machine
+        .bus
+        .write(
+            0x600a_4084,
+            AccessWidth::Word,
+            0x4080_1000,
+            machine.now,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x600a_4d6c,
+            AccessWidth::Word,
+            (3_u64 << 30) | 0x2000,
+            machine.now,
+        )
+        .unwrap();
+    let handles = machine.esp32c6_peripherals.as_ref().unwrap();
+    assert!(handles.wifi_mac.rx_descriptor().is_some());
+    assert!(handles.wifi_mac.tx_active(0));
+    let rf_generation = handles.wifi_rf.wifi_rf_snapshot().generation;
+
+    machine
+        .bus
+        .write(
+            0x600a_4ddc,
+            AccessWidth::Word,
+            1 << 1,
+            machine.now,
+        )
+        .unwrap();
+    let snapshot = machine
+        .esp32c6_peripherals
+        .as_ref()
+        .unwrap()
+        .wifi_rf
+        .wifi_rf_snapshot();
+    assert_eq!(snapshot.generation, rf_generation);
+    assert!(snapshot.airtime_ready());
+    machine.service_radio().unwrap();
+
+    let handles = machine.esp32c6_peripherals.as_ref().unwrap();
+    assert!(handles.wifi_mac.rx_descriptor().is_none());
+    assert!(!handles.wifi_mac.tx_active(0));
+    let snapshot = handles.wifi_rf.wifi_rf_snapshot();
+    assert_eq!(snapshot.generation, rf_generation);
+    assert!(snapshot.airtime_ready());
+    assert!(machine.c6_wifi_rf_airtime().is_ok());
+}
+
+#[test]
+fn esp32c6_rf_reprogramming_after_modem_reset_survives_delayed_radio_service() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 32);
+    let rf_generation = machine
+        .esp32c6_peripherals
+        .as_ref()
+        .unwrap()
+        .wifi_rf
+        .wifi_rf_snapshot()
+        .generation;
+
+    machine
+        .bus
+        .write(
+            0x600a_9810,
+            AccessWidth::Word,
+            1 << 10,
+            machine.now,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x600a_9810, AccessWidth::Word, 0, machine.now)
+        .unwrap();
+    let reset_snapshot = machine
+        .esp32c6_peripherals
+        .as_ref()
+        .unwrap()
+        .wifi_rf
+        .wifi_rf_snapshot();
+    assert_eq!(reset_snapshot.generation, rf_generation + 1);
+    assert!(!reset_snapshot.airtime_ready());
+
+    program_esp32c6_wifi_rf(&mut machine, 6, 56);
+    assert!(
+        machine
+            .esp32c6_peripherals
+            .as_ref()
+            .unwrap()
+            .wifi_rf
+            .wifi_rf_snapshot()
+            .airtime_ready()
+    );
+    machine.service_radio().unwrap();
+
+    let (spectrum, power_dbm) = machine.c6_wifi_rf_airtime().unwrap();
+    assert_eq!(spectrum, remu_radio::Spectrum::new(2_437_000, 20_000));
+    assert_eq!(power_dbm, 14);
+}
+
+#[test]
+fn esp32c6_wifi_receive_tuning_follows_guest_rf_state() {
+    let frame = vec![0x80; 16];
+    let duration = SimTime::from_ticks(frame.len() as u64 * 32);
+
+    let mut off_channel = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut off_channel, 6, 56);
+    off_channel
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            off_channel.now,
+        )
+        .unwrap();
+    off_channel
+        .bus
+        .write(0x600a_4084, AccessWidth::Word, 0x4080_1000, off_channel.now)
+        .unwrap();
+    off_channel.service_radio().unwrap();
+    off_channel
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_412_000, 20_000),
+            "wifi-ht20",
+            frame.clone(),
+            -30,
+        )
+        .unwrap();
+    off_channel
+        .radio_medium
+        .as_mut()
+        .unwrap()
+        .advance_to(duration)
+        .unwrap();
+    assert!(!off_channel.radio_medium.as_ref().unwrap().events().iter().any(
+        |event| matches!(event, remu_radio::MediumEvent::Reception { receiver, .. } if *receiver == remu_radio::NodeId(1))
+    ));
+
+    let mut on_channel = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut on_channel, 6, 56);
+    on_channel
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            on_channel.now,
+        )
+        .unwrap();
+    on_channel
+        .bus
+        .write(0x600a_4084, AccessWidth::Word, 0x4080_1000, on_channel.now)
+        .unwrap();
+    on_channel.service_radio().unwrap();
+    on_channel
+        .inject_radio_frame(
+            remu_radio::RadioProtocol::Wifi,
+            remu_radio::Spectrum::new(2_437_000, 20_000),
+            "wifi-ht20",
+            frame,
+            -30,
+        )
+        .unwrap();
+    on_channel
+        .radio_medium
+        .as_mut()
+        .unwrap()
+        .advance_to(duration)
+        .unwrap();
+    assert!(on_channel.radio_medium.as_ref().unwrap().events().iter().any(
+        |event| matches!(event, remu_radio::MediumEvent::Reception { receiver, outcome: remu_radio::DeliveryOutcome::Delivered, .. } if *receiver == remu_radio::NodeId(1))
+    ));
+
+    let mut disabled = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut disabled, 1, 56);
+    disabled
+        .bus
+        .write(0x600a_0910, AccessWidth::Word, 0x200, disabled.now)
+        .unwrap();
+    disabled
+        .bus
+        .write(
+            0x600a_9814,
+            AccessWidth::Word,
+            (1 << 9) | (1 << 10),
+            disabled.now,
+        )
+        .unwrap();
+    disabled
+        .bus
+        .write(0x600a_4084, AccessWidth::Word, 0x4080_1000, disabled.now)
+        .unwrap();
+    // Genuine firmware keeps an RX DMA descriptor armed while transiently
+    // forcing the frontend off. The descriptor is storage, not an airtime
+    // request, so servicing this idle state must only detune the receiver.
+    disabled.service_radio().unwrap();
+    assert!(disabled
+        .esp32c6_peripherals
+        .as_ref()
+        .unwrap()
+        .wifi_mac
+        .rx_descriptor()
+        .is_some());
+    let MachineError::RadioLegality(error) = disabled.c6_wifi_rf_airtime().unwrap_err() else {
+        panic!("actual airtime while the frontend is forced off should be a hard legality error");
+    };
+    assert_eq!(error.rule, remu_radio::RadioLegalityRule::RfFrontend);
+}
+
+#[test]
 fn esp32c6_illegal_wifi_crypto_slot_is_a_hard_firmware_state_error() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     machine
@@ -920,384 +1259,4 @@ fn esp32c6_ieee802154_cca_reports_busy_and_leaves_csma_retry_to_firmware() {
     );
 }
 
-#[test]
-fn esp32c6_wifi_and_ble_protocol_engines_follow_modem_clock_gates() {
-    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
-    assert!(matches!(
-        machine.wifi_engine(),
-        Err(MachineError::RadioNotReady("Wi-Fi"))
-    ));
-    machine
-        .bus
-        .write(
-            0x600a_9814,
-            AccessWidth::Word,
-            (1 << 9) | (1 << 10) | (1 << 17) | (1 << 18),
-            SimTime::ZERO,
-        )
-        .unwrap();
-    let mut wifi_frame = vec![0_u8; 24];
-    wifi_frame[4..10].fill(0xff);
-    machine
-        .wifi_engine()
-        .unwrap()
-        .start(remu_radio::WifiMode::Station)
-        .unwrap();
-    machine.wifi_engine().unwrap().queue_tx(wifi_frame).unwrap();
-    machine
-        .ble_controller()
-        .unwrap()
-        .process_h4(&[1, 3, 12, 0])
-        .unwrap();
-    assert_eq!(
-        machine.ble_controller().unwrap().take_h4_output(),
-        Some(vec![4, 0x0e, 4, 1, 3, 12, 0])
-    );
-    assert_eq!(machine.service_radio().unwrap(), 1);
-    assert!(
-        machine
-            .radio_replay_artifact()
-            .unwrap()
-            .events
-            .iter()
-            .any(|event| matches!(
-                event,
-                remu_radio::MediumEvent::Submitted { request, .. }
-                    if request.frame.protocol == remu_radio::RadioProtocol::Wifi
-            ))
-    );
-}
-
-#[test]
-fn esp32c6_coexistence_preempts_airtime_and_denies_lower_priority_work() {
-    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
-    machine
-        .bus
-        .write(
-            0x600a_9814,
-            AccessWidth::Word,
-            (1 << 9) | (1 << 10) | (1 << 17) | (1 << 18),
-            SimTime::ZERO,
-        )
-        .unwrap();
-    let mut wifi_frame = vec![0_u8; 24];
-    wifi_frame[4..10].fill(0xff);
-    machine
-        .wifi_engine()
-        .unwrap()
-        .start(remu_radio::WifiMode::Station)
-        .unwrap();
-    machine
-        .wifi_engine()
-        .unwrap()
-        .queue_tx(wifi_frame)
-        .unwrap();
-    machine
-        .ble_controller()
-        .unwrap()
-        .process_h4(&[1, 0x0a, 0x20, 1, 1])
-        .unwrap();
-
-    assert_eq!(machine.service_radio().unwrap(), 2);
-    let artifact = machine.radio_replay_artifact().unwrap();
-    let wifi_id = artifact.events.iter().find_map(|event| match event {
-        remu_radio::MediumEvent::Submitted { id, request }
-            if request.frame.protocol == remu_radio::RadioProtocol::Wifi =>
-        {
-            Some(*id)
-        }
-        _ => None,
-    });
-    assert!(artifact.events.iter().any(|event| matches!(
-        event,
-        remu_radio::MediumEvent::Truncated { id, at }
-            if Some(*id) == wifi_id && *at == SimTime::ZERO
-    )));
-    assert!(artifact.coexistence_events.iter().any(|event| matches!(
-        event,
-        remu_radio::CoexistenceEvent::Preempted {
-            protocol: remu_radio::RadioProtocol::Wifi,
-            by: remu_radio::RadioProtocol::BluetoothLe,
-            ..
-        }
-    )));
-
-    let submitted_before = artifact
-        .events
-        .iter()
-        .filter(|event| matches!(event, remu_radio::MediumEvent::Submitted { .. }))
-        .count();
-    machine
-        .wifi_engine()
-        .unwrap()
-        .queue_tx(vec![0_u8; 24])
-        .unwrap();
-    assert_eq!(machine.service_radio().unwrap(), 0);
-    let artifact = machine.radio_replay_artifact().unwrap();
-    assert_eq!(
-        artifact
-            .events
-            .iter()
-            .filter(|event| matches!(event, remu_radio::MediumEvent::Submitted { .. }))
-            .count(),
-        submitted_before
-    );
-    assert!(artifact.coexistence_events.iter().any(|event| matches!(
-        event,
-        remu_radio::CoexistenceEvent::Denied {
-            protocol: remu_radio::RadioProtocol::Wifi,
-            owner: remu_radio::RadioProtocol::BluetoothLe,
-            ..
-        }
-    )));
-}
-
-#[test]
-fn esp32c6_modem_reset_cancels_active_coexistence_ownership() {
-    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
-    machine
-        .bus
-        .write(
-            0x600a_9814,
-            AccessWidth::Word,
-            (1 << 9) | (1 << 10) | (1 << 17) | (1 << 18),
-            SimTime::ZERO,
-        )
-        .unwrap();
-    machine
-        .wifi_engine()
-        .unwrap()
-        .start(remu_radio::WifiMode::Station)
-        .unwrap();
-    machine
-        .wifi_engine()
-        .unwrap()
-        .queue_tx(vec![0_u8; 24])
-        .unwrap();
-    assert_eq!(machine.service_radio().unwrap(), 1);
-    machine
-        .bus
-        .write(0x600a_f024, AccessWidth::Word, 1 << 1, SimTime::ZERO)
-        .unwrap();
-
-    machine.service_radio().unwrap();
-
-    let arbiter = machine.radio_coexistence.as_ref().unwrap();
-    assert_eq!(arbiter.owner(), None);
-    assert!(matches!(
-        arbiter.events().last(),
-        Some(remu_radio::CoexistenceEvent::Reset { at }) if *at == SimTime::ZERO
-    ));
-    assert!(matches!(
-        machine.radio_replay_artifact().unwrap().events.last(),
-        Some(remu_radio::MediumEvent::Truncated { at, .. }) if *at == SimTime::ZERO
-    ));
-}
-
-#[test]
-fn esp32c6_radio_power_gate_truncates_active_airtime() {
-    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
-    machine
-        .bus
-        .write(
-            0x600a_9814,
-            AccessWidth::Word,
-            (1 << 9) | (1 << 10) | (1 << 17) | (1 << 18),
-            SimTime::ZERO,
-        )
-        .unwrap();
-    machine
-        .wifi_engine()
-        .unwrap()
-        .start(remu_radio::WifiMode::Station)
-        .unwrap();
-    machine
-        .wifi_engine()
-        .unwrap()
-        .queue_tx(vec![0_u8; 24])
-        .unwrap();
-    assert_eq!(machine.service_radio().unwrap(), 1);
-    machine
-        .bus
-        .write(0x600a_9814, AccessWidth::Word, 0, SimTime::ZERO)
-        .unwrap();
-
-    machine.service_radio().unwrap();
-
-    let arbiter = machine.radio_coexistence.as_ref().unwrap();
-    assert_eq!(arbiter.owner(), None);
-    assert!(matches!(
-        arbiter.events().last(),
-        Some(remu_radio::CoexistenceEvent::PowerDown {
-            protocol: remu_radio::RadioProtocol::Wifi,
-            at,
-            ..
-        }) if *at == SimTime::ZERO
-    ));
-    assert!(matches!(
-        machine.radio_replay_artifact().unwrap().events.last(),
-        Some(remu_radio::MediumEvent::Truncated { at, .. }) if *at == SimTime::ZERO
-    ));
-}
-
-#[test]
-fn esp32c6_ieee802154_stop_clock_gate_wake_and_rearm_replays_exactly() {
-    fn run() -> Vec<u8> {
-        let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
-        let rx_address = 0x4080_02c0_u32;
-        for (address, value) in [
-            (0x600a_9804, (1 << 23) | (1 << 24)),
-            (0x600a_3048, 3),
-            (0x600a_3004, 1 << 7),
-            (0x600a_30e0, u64::from(rx_address)),
-            (0x600a_3000, 0x42),
-        ] {
-            machine
-                .bus
-                .write(address, AccessWidth::Word, value, machine.now)
-                .unwrap();
-        }
-        assert_eq!(machine.service_radio().unwrap(), 1);
-
-        // The public raw-link sleep sequence stops the MAC before firmware
-        // gates its APB/MAC clocks.
-        machine
-            .bus
-            .write(0x600a_3000, AccessWidth::Word, 0x45, machine.now)
-            .unwrap();
-        assert_eq!(machine.service_radio().unwrap(), 1);
-        machine
-            .bus
-            .write(0x600a_9804, AccessWidth::Word, 0, machine.now)
-            .unwrap();
-        assert_eq!(machine.service_radio().unwrap(), 0);
-
-        let sleeping_frame = remu_radio::Ieee802154Mac::with_fcs(vec![0x01, 0, 0x31]);
-        machine
-            .inject_radio_frame(
-                remu_radio::RadioProtocol::Ieee802154,
-                remu_radio::Spectrum::new(2_405_000, 2_000),
-                "ieee802154-oqpsk-250k",
-                sleeping_frame.clone(),
-                -40,
-            )
-            .unwrap();
-        machine.now += remu_core::SimDuration::from_ticks(sleeping_frame.len() as u64 * 32);
-        assert_eq!(machine.service_radio().unwrap(), 0);
-        assert_eq!(
-            machine.debug_read_memory(u64::from(rx_address), 6).unwrap(),
-            [0xa5; 6]
-        );
-
-        machine
-            .bus
-            .write(
-                0x600a_9804,
-                AccessWidth::Word,
-                (1 << 23) | (1 << 24),
-                machine.now,
-            )
-            .unwrap();
-        assert_eq!(machine.service_radio().unwrap(), 0);
-        machine
-            .bus
-            .write(0x600a_3000, AccessWidth::Word, 0x42, machine.now)
-            .unwrap();
-        assert_eq!(machine.service_radio().unwrap(), 1);
-
-        let wake_frame = remu_radio::Ieee802154Mac::with_fcs(vec![0x01, 0, 0x32]);
-        machine
-            .inject_radio_frame(
-                remu_radio::RadioProtocol::Ieee802154,
-                remu_radio::Spectrum::new(2_405_000, 2_000),
-                "ieee802154-oqpsk-250k",
-                wake_frame.clone(),
-                -40,
-            )
-            .unwrap();
-        machine.now += remu_core::SimDuration::from_ticks(wake_frame.len() as u64 * 32);
-        assert_eq!(machine.service_radio().unwrap(), 1);
-        assert_eq!(
-            machine.debug_read_memory(u64::from(rx_address), 7).unwrap(),
-            [5, 0x01, 0, 0x32, (-80_i8) as u8, 63, 0xa5]
-        );
-        machine.radio_replay_artifact().unwrap().to_json().unwrap()
-    }
-
-    assert_eq!(run(), run());
-}
-
-#[test]
-fn esp32c6_ieee802154_clock_gate_during_receive_is_a_hard_machine_error() {
-    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
-    machine
-        .bus
-        .write(
-            0x600a_9804,
-            AccessWidth::Word,
-            (1 << 23) | (1 << 24),
-            SimTime::ZERO,
-        )
-        .unwrap();
-    machine
-        .bus
-        .write(0x600a_3048, AccessWidth::Word, 3, SimTime::ZERO)
-        .unwrap();
-    machine
-        .bus
-        .write(0x600a_3000, AccessWidth::Word, 0x42, SimTime::ZERO)
-        .unwrap();
-    assert_eq!(machine.service_radio().unwrap(), 1);
-    machine
-        .bus
-        .write(0x600a_9804, AccessWidth::Word, 0, SimTime::ZERO)
-        .unwrap();
-
-    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
-        panic!("expected a radio legality error");
-    };
-    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Ieee802154);
-    assert_eq!(error.rule, remu_radio::RadioLegalityRule::DomainReady);
-    assert!(error.detail.contains("Receive"));
-}
-
-#[test]
-fn esp32c6_power_gated_unmapped_grant_is_a_hard_machine_error() {
-    let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
-    machine
-        .bus
-        .write(
-            0x600a_9814,
-            AccessWidth::Word,
-            (1 << 9) | (1 << 10),
-            SimTime::ZERO,
-        )
-        .unwrap();
-    machine.service_radio().unwrap();
-    machine
-        .radio_coexistence
-        .as_mut()
-        .unwrap()
-        .request(remu_radio::CoexistenceRequest {
-            protocol: remu_radio::RadioProtocol::Wifi,
-            start: SimTime::ZERO,
-            duration: remu_core::SimDuration::from_ticks(100),
-            priority: 8,
-            preemptible: true,
-        })
-        .unwrap();
-    machine
-        .bus
-        .write(0x600a_9814, AccessWidth::Word, 0, SimTime::ZERO)
-        .unwrap();
-
-    let MachineError::RadioLegality(error) = machine.service_radio().unwrap_err() else {
-        panic!("expected a radio legality error");
-    };
-    assert_eq!(error.subsystem, remu_radio::RadioSubsystem::Coexistence);
-    assert_eq!(
-        error.rule,
-        remu_radio::RadioLegalityRule::CoexistenceOwnership
-    );
-    assert!(error.detail.contains("no matching RF transmission"));
-}
+include!("tests_radio_clocks.rs");

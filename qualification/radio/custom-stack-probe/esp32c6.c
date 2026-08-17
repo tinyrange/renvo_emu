@@ -22,6 +22,11 @@
 #define WIFI_TX_DONE (1u << 7)
 #define WIFI_RX_DONE (1u << 14)
 #define WIFI_QUEUE_ENABLE (3u << 30)
+#define WIFI_RF_FREQUENCY_CONTROL 0x600a00c0u
+#define WIFI_RF_GAIN_FIRST 0x600a08ccu
+#define WIFI_RF_GAIN_SECOND 0x600a08d0u
+#define WIFI_RF_GAIN_FINAL 0x600a08d4u
+#define WIFI_RF_FRONTEND_FORCE 0x600a0910u
 
 #define INTERRUPT_MATRIX_BASE 0x60010000u
 #define INTERRUPT_MATRIX_WIFI_ROUTE (INTERRUPT_MATRIX_BASE + 0x0000u)
@@ -119,6 +124,60 @@ volatile uint32_t remu_wifi_descriptor[3] __attribute__((aligned(4)));
 uint8_t remu_wifi_rx_buffer[512] __attribute__((aligned(4)));
 volatile uint32_t remu_wifi_rx_descriptor[3] __attribute__((aligned(4)));
 
+struct wifi_rf_gain {
+    uint32_t first;
+    uint32_t second;
+    uint32_t final;
+};
+
+/* Firmware-observed C6 14 dBm gain program, recovered by the bounded RF
+ * oracle. This project-owned probe consumes only the resulting MMIO contract. */
+static const struct wifi_rf_gain wifi_rf_gain_14dbm[43] = {
+    {0x40200000u, 0xe3c10080u, 0x000000feu},
+    {0x40200000u, 0xe3c30080u, 0x000000feu},
+    {0x40200000u, 0xe3c50080u, 0x000000feu},
+    {0x40200000u, 0xe3c70080u, 0x000000feu},
+    {0x40200000u, 0xe3c90080u, 0x000000feu},
+    {0x40200000u, 0xe3cb0080u, 0x000000feu},
+    {0x40200000u, 0xe3e10080u, 0x000000feu},
+    {0x40200000u, 0xe3e30080u, 0x000000feu},
+    {0x40200000u, 0xe3e50080u, 0x000000feu},
+    {0x40200000u, 0xe3e70080u, 0x000000feu},
+    {0x40200000u, 0xe3e90080u, 0x000000feu},
+    {0x40200000u, 0x90020301u, 0xfffff882u},
+    {0x40200000u, 0x90020301u, 0xfffff682u},
+    {0x40200000u, 0x90020301u, 0xfffffb81u},
+    {0x40200000u, 0x90020301u, 0xfffff981u},
+    {0x40200000u, 0x90020301u, 0xfffff781u},
+    {0x40200000u, 0x10020301u, 0xfffffa81u},
+    {0x40200000u, 0x10020301u, 0xfffff881u},
+    {0x40200000u, 0x10020301u, 0xfffff681u},
+    {0x40200000u, 0x90020301u, 0xfffffb80u},
+    {0x40200000u, 0x90020301u, 0xfffff980u},
+    {0x40200000u, 0x90020301u, 0xfffff780u},
+    {0x40200000u, 0x90020301u, 0xfffff580u},
+    {0x40200000u, 0x10060100u, 0xfffffb80u},
+    {0x40200000u, 0x10060100u, 0xfffff980u},
+    {0x40200000u, 0x10060100u, 0xfffff780u},
+    {0x40200000u, 0x10020301u, 0xfffff980u},
+    {0x40200000u, 0x10020301u, 0xfffff780u},
+    {0x40200000u, 0x10020301u, 0xfffff580u},
+    {0x40200000u, 0x10020301u, 0xfffff380u},
+    {0x40200000u, 0x10020301u, 0xfffff180u},
+    {0x40200000u, 0x10020301u, 0xffffef80u},
+    {0x40200000u, 0x10020301u, 0xffffed80u},
+    {0x40200000u, 0x10020301u, 0xffffeb80u},
+    {0x40200000u, 0x10020301u, 0xffffe980u},
+    {0x40200000u, 0x10020301u, 0xffffe780u},
+    {0x40200000u, 0x10020301u, 0xffffe580u},
+    {0x40200000u, 0x10020301u, 0xffffe380u},
+    {0x40200000u, 0x10020301u, 0xffffe180u},
+    {0x40200000u, 0x10020301u, 0xffffdf80u},
+    {0x40200000u, 0x10020301u, 0xffffdd80u},
+    {0x40200000u, 0x10020301u, 0xffffdb80u},
+    {0x40200000u, 0x10020301u, 0xffffd980u},
+};
+
 uint8_t remu_ble_tx_schedule[64] __attribute__((aligned(4)));
 uint8_t remu_ble_tx_state[128] __attribute__((aligned(4)));
 uint8_t remu_ble_tx_header[16] __attribute__((aligned(4)));
@@ -144,6 +203,19 @@ static uint32_t pointer20(const void *address)
 static void dma_publish(void)
 {
     __asm__ volatile("fence rw, rw" ::: "memory");
+}
+
+static void configure_wifi_rf(uint32_t channel)
+{
+    uint32_t frequency_code = 0x380u + channel * 0x280u;
+    WRITE32(WIFI_RF_FRONTEND_FORCE, 0x200u);
+    WRITE32(WIFI_RF_FREQUENCY_CONTROL, 0x42844000u | frequency_code);
+    for (uint32_t index = 0; index < 43u; ++index) {
+        WRITE32(WIFI_RF_GAIN_FIRST, wifi_rf_gain_14dbm[index].first);
+        WRITE32(WIFI_RF_GAIN_SECOND, wifi_rf_gain_14dbm[index].second);
+        WRITE32(WIFI_RF_GAIN_FINAL, wifi_rf_gain_14dbm[index].final);
+    }
+    WRITE32(WIFI_RF_FRONTEND_FORCE, 0u);
 }
 
 static int verify_wifi_rx(void)
@@ -512,6 +584,7 @@ int main(void)
             READ32(MODEM_SYSCON_WIFI_CLOCK_ENABLE) |
                 MODEM_WIFI_APB_CLOCK | MODEM_WIFI_MAC_CLOCK |
                 MODEM_BLE_APB_CLOCK | MODEM_BLE_BB_CLOCK);
+    configure_wifi_rf(1u);
     WRITE32(WIFI_INTERRUPT_MASK, WIFI_TX_DONE | WIFI_RX_DONE);
     remu_wifi_descriptor[0] = 0xc0000000u;
     remu_wifi_descriptor[1] = (uintptr_t)remu_wifi_frame;

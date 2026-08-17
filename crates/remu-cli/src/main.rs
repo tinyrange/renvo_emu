@@ -255,6 +255,18 @@ struct FirmwareBootArgs {
     /// Optional JSON record of completed memory and MMIO operations.
     #[arg(long)]
     bus_log: Option<PathBuf>,
+    /// Write the deterministic isolated RF-medium replay artifact as JSON.
+    #[arg(long)]
+    radio_replay: Option<PathBuf>,
+    /// Read deterministic timestamped RF input frames from a JSON artifact.
+    #[arg(long)]
+    radio_input: Option<PathBuf>,
+    /// Run an event-driven deterministic Starlark peer on emitted RF frames.
+    #[arg(long)]
+    radio_script: Option<PathBuf>,
+    /// Enable `repl()`/`breakpoint()` sessions inside the radio script.
+    #[arg(long, requires = "radio_script")]
+    radio_repl: bool,
 }
 
 #[derive(Debug, Args)]
@@ -300,6 +312,9 @@ struct RunArgs {
     /// Retain only accesses to this exact bus-region name in --bus-log; repeatable.
     #[arg(long, requires = "bus_log")]
     bus_log_region: Vec<String>,
+    /// Stream machine interrupt-source level transitions to this JSON file.
+    #[arg(long)]
+    interrupt_log: Option<PathBuf>,
     /// esptool application or merged flash binary for ESP32-C6/ESP32-S3.
     #[arg(long, requires = "elf", conflicts_with = "hex")]
     esp_app_image: Option<PathBuf>,

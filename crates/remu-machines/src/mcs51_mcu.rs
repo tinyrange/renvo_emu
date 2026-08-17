@@ -304,10 +304,13 @@ impl Mcs51McuMachine {
                 let pc = self.cpu.snapshot().pc as u16;
                 let record = BusAccessRecord {
                     at: self.now,
+                    pc: Some(u64::from(pc)),
                     kind: AccessKind::Execute,
                     address: u64::from(pc),
                     width: AccessWidth::Byte,
                     value: u64::from(self.cpu.code_byte(pc).unwrap_or(0xff)),
+                    pre_value: None,
+                    post_value: None,
                     region: "efm8bb52f32g.code".to_owned(),
                 };
                 if self.record_accesses {

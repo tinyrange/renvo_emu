@@ -1,6 +1,7 @@
 #[test]
 fn esp32c6_native_wifi_ack_timeout_is_delayed_and_publishes_vendor_status_five() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let mut frame = vec![0x08, 0x00, 0, 0];
@@ -69,6 +70,7 @@ fn esp32c6_native_wifi_ack_timeout_is_delayed_and_publishes_vendor_status_five()
 #[test]
 fn esp32c6_descriptor_rts_defers_payload_until_cts_then_completes_on_ack() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let receiver = [0x02, 6, 7, 8, 9, 10];
@@ -202,6 +204,7 @@ fn esp32c6_descriptor_rts_defers_payload_until_cts_then_completes_on_ack() {
 #[test]
 fn esp32c6_descriptor_rts_timeout_publishes_vendor_status_two() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptor = 0x4082_1000_u32;
     let buffer = 0x4082_1100_u32;
     let mut frame = vec![0x08, 0x00, 0, 0];
@@ -257,6 +260,7 @@ fn esp32c6_descriptor_rts_timeout_publishes_vendor_status_two() {
 #[test]
 fn esp32c6_descriptor_chain_emits_one_ampdu_and_publishes_partial_block_ack() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+    program_esp32c6_wifi_rf(&mut machine, 1, 56);
     let descriptors = [0x4082_1000_u32, 0x4082_1020];
     let buffers = [0x4082_1100_u32, 0x4082_1200];
     let receiver = [0x02, 6, 7, 8, 9, 10];
