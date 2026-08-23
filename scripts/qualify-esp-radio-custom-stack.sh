@@ -11,6 +11,7 @@ case "$chip" in
 esac
 
 requirements=qualification/radio/custom-stack-probe/requirements.json
+interrupt_contract=qualification/radio/interrupt-contract.json
 rom_requirements=qualification/radio/rom-requirements.json
 source_root=qualification/radio/custom-stack-probe
 radio_input=qualification/radio/wifi-ieee802154-custom.json
@@ -78,9 +79,15 @@ esac
     --max-instructions "$max_instructions" \
     --bus-log "$chip_root/bus.json" \
     --coverage "$chip_root/coverage.json" \
+    --interrupt-log "$chip_root/interrupts.json" \
     --radio-input "$radio_input" \
     --radio-replay "$chip_root/radio-replay.json" \
     --result "$chip_root/result.json"
+scripts/check-radio-interrupt-trace.py \
+    --contract "$interrupt_contract" \
+    --chip "$chip" \
+    --workflow custom-stack \
+    --trace "$chip_root/interrupts.json"
 
 jq -e '.reason == "Halted" and .exit_code == 0' "$chip_root/result.json" >/dev/null
 jq -e '
@@ -216,9 +223,11 @@ jq -e '
     --max-instructions "$max_instructions" \
     --radio-input "$radio_input" \
     --radio-replay "$chip_root/radio-replay-repeat.json" \
+    --interrupt-log "$chip_root/interrupts-repeat.json" \
     --replay "$chip_root/result.json" \
     --result "$chip_root/result-repeat.json"
 cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
+cmp "$chip_root/interrupts.json" "$chip_root/interrupts-repeat.json"
 jq -r --arg chip "$chip" '.chips[$chip].required_regions[]' "$requirements" |
 while IFS= read -r region
 do
@@ -358,13 +367,19 @@ fi
 
 elf_sha=$(sha256sum "$out/$artifact" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
+interrupt_sha=$(sha256sum "$chip_root/interrupts.json" | cut -d ' ' -f 1)
+interrupt_count=$(jq length "$chip_root/interrupts.json")
+interrupt_sources=$(jq -c '[.[].line] | unique' "$chip_root/interrupts.json")
 jq -n \
-    --arg schema remu.radio-custom-stack-qualification.v3 \
+    --arg schema remu.radio-custom-stack-qualification.v4 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
     --arg elf_sha256 "$elf_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
+    --arg interrupt_sha256 "$interrupt_sha" \
+    --argjson interrupt_count "$interrupt_count" \
+    --argjson interrupt_sources "$interrupt_sources" \
     --argjson descriptor_address "$descriptor_address" \
     --argjson frame_data_address "$frame_data_address" \
     --argjson rx_descriptor_address "$rx_descriptor_address" \
@@ -392,6 +407,8 @@ jq -n \
             native_rf_submission_required: true,
             native_ble_submission_required: true,
             native_ble_reception_required: true,
+	            native_interrupt_assertion_and_clear_required: true,
+	            interrupt_reset_replay_required: true,
 	            native_ieee802154_submission_required: ($chip == "esp32c6"),
 	            native_ieee802154_reception_required: ($chip == "esp32c6"),
 	            native_ieee802154_multipan_filter_required: ($chip == "esp32c6"),
@@ -402,7 +419,8 @@ jq -n \
 	            native_ieee802154_cca_tx_required: ($chip == "esp32c6"),
             deterministic_replay_required: true,
             required_regions: $requirements[0].chips[$chip].required_regions,
-            families_exercised: $requirements[0].chips[$chip].families_exercised
+            families_exercised: $requirements[0].chips[$chip].families_exercised,
+            qualified_interrupt_sources_used: $requirements[0].chips[$chip].qualified_interrupt_sources_used
         },
         observed: {
             stop: $result[0].reason,
@@ -432,6 +450,10 @@ jq -n \
             native_ble_rx_descriptor_address: $ble_rx_descriptor_address,
             native_ble_rx_payload_address: $ble_rx_payload_address,
             native_rf_reception: true,
+            interrupt_sha256: $interrupt_sha256,
+            interrupt_transition_count: $interrupt_count,
+            interrupt_sources: $interrupt_sources,
+	            deterministic_interrupt_transitions: true,
             deterministic_replay: true,
             radio_replay_sha256: $radio_replay_sha256
         }

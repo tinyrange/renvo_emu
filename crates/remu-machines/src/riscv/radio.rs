@@ -16,6 +16,14 @@ use remu_radio::{
 const EMULATED_NODE: NodeId = NodeId(1);
 const HOST_NODE: NodeId = NodeId(0);
 const C6_BLE_INTERFRAME_SPACE_TICKS: u64 = 2_400;
+const C6_RADIO_INTERRUPT_SOURCES: [(&str, u16); 6] = [
+    ("esp32c6.wifi-mac", 0),
+    ("esp32c6.wifi-power", 2),
+    ("esp32c6.bluetooth-mac", 4),
+    ("esp32c6.bluetooth-baseband", 5),
+    ("esp32c6.lp-timer", 7),
+    ("esp32c6.ieee802154", 12),
+];
 
 #[derive(Clone)]
 pub(super) struct PendingNativeBleReception {
@@ -914,16 +922,17 @@ impl RiscVMachine {
         legality.observe_interrupt(RadioSubsystem::Wifi, wifi_pending, self.now)?;
         legality.observe_interrupt(RadioSubsystem::BluetoothLe, ble_pending, self.now)?;
         legality.observe_interrupt(RadioSubsystem::Ieee802154, ieee802154_pending, self.now)?;
-        for (index, (source, line, asserted)) in [
-            ("esp32c6.wifi-mac", 0_u16, wifi_mac_pending),
-            ("esp32c6.wifi-power", 2, wifi_power_pending),
-            ("esp32c6.bluetooth-mac", 4, ble_pending),
-            ("esp32c6.bluetooth-baseband", 5, ble_baseband_pending),
-            ("esp32c6.lp-timer", 7, ble_modem_pending),
-            ("esp32c6.ieee802154", 12, ieee802154_pending),
-        ]
-        .into_iter()
-        .enumerate()
+        for (index, ((source, line), asserted)) in C6_RADIO_INTERRUPT_SOURCES
+            .into_iter()
+            .zip([
+                wifi_mac_pending,
+                wifi_power_pending,
+                ble_pending,
+                ble_baseband_pending,
+                ble_modem_pending,
+                ieee802154_pending,
+            ])
+            .enumerate()
         {
             if self.radio_c6_interrupt_sources[index] != asserted {
                 self.bus

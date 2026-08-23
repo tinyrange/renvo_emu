@@ -1,3 +1,55 @@
+struct RadioInterruptCollector {
+    records: std::rc::Rc<std::cell::RefCell<Vec<remu_bus::InterruptTransitionRecord>>>,
+}
+
+impl remu_bus::BusAccessObserver for RadioInterruptCollector {
+    fn observe(&mut self, _record: &remu_bus::BusAccessRecord) {}
+
+    fn observe_interrupt(&mut self, record: &remu_bus::InterruptTransitionRecord) {
+        self.records.borrow_mut().push(record.clone());
+    }
+}
+
+#[test]
+fn esp32s3_rwble_w1c_and_reset_emit_balanced_native_source_transitions() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    let records = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    machine.set_access_observer(Some(std::rc::Rc::new(std::cell::RefCell::new(
+        RadioInterruptCollector {
+            records: records.clone(),
+        },
+    ))));
+
+    machine.ble_exchange_memory.raise_interrupt(1 << 12);
+    machine.service_radio().unwrap();
+    machine.service_radio().unwrap();
+    machine
+        .bus
+        .write(0x6003_1018, AccessWidth::Word, 1 << 12, machine.now)
+        .unwrap();
+    machine.service_radio().unwrap();
+
+    machine.ble_exchange_memory.raise_interrupt(1 << 12);
+    machine.service_radio().unwrap();
+    machine.bus.reset_devices(remu_core::ResetKind::Software);
+    machine.service_radio().unwrap();
+
+    let observed = records
+        .borrow()
+        .iter()
+        .map(|record| (record.source.clone(), record.line, record.asserted))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        observed,
+        [
+            ("esp32s3.rwble".to_owned(), 8, true),
+            ("esp32s3.rwble".to_owned(), 8, false),
+            ("esp32s3.rwble".to_owned(), 8, true),
+            ("esp32s3.rwble".to_owned(), 8, false),
+        ]
+    );
+}
+
 #[test]
 fn esp32s3_illegal_wifi_crypto_slot_is_a_hard_firmware_state_error() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();

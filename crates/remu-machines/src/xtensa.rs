@@ -45,6 +45,7 @@ mod peripheral_dma;
 mod peripheral_handles;
 mod pms;
 mod radio;
+mod radio_constants;
 pub use error::XtensaMachineError;
 mod usb_host;
 use usb_host::{EspDwc2Host, FunctionalSha256, appcpu_systimer_level};
@@ -106,6 +107,7 @@ pub struct XtensaMachine {
     radio_ble: BleController,
     radio_legality: RadioLegalityValidator,
     radio_reset_generation: u64,
+    radio_interrupt_sources: [bool; 3],
     radio_coexistence_transmission: Option<(CoexistenceGrantId, TransmissionId)>,
     radio_event_cursor: usize,
     pending_native_wifi: Vec<crate::native_wifi::PendingNativeWifiTransmission>,
@@ -723,6 +725,7 @@ impl XtensaMachine {
             radio_ble: BleController::new(BdAddress([3, 0x53, 0, 0, 0, 0x02]), 0x3253_5eed),
             radio_legality: RadioLegalityValidator::new(RadioChip::Esp32S3),
             radio_reset_generation: 0,
+            radio_interrupt_sources: [false; 3],
             radio_coexistence_transmission: None,
             radio_event_cursor: 0,
             pending_native_wifi: Vec::new(),

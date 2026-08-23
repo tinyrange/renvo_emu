@@ -14,6 +14,7 @@ case "$chip" in
 esac
 
 requirements=qualification/radio/ble-vendor-requirements.json
+interrupt_contract=qualification/radio/interrupt-contract.json
 artifact_root=${REMU_RADIO_BLE_VENDOR_ROOT:-.remu/qualification/radio-ble-vendor}
 vendor_build_jobs=${REMU_VENDOR_BUILD_JOBS:-1}
 case "$vendor_build_jobs" in
@@ -116,7 +117,13 @@ run_vendor_ble_sleep()
 }
 
 run_vendor_ble "$chip_root/result.json" "$chip_root/radio-replay.json" "$radio_input" \
-    --coverage "$chip_root/coverage.json"
+    --coverage "$chip_root/coverage.json" \
+    --interrupt-log "$chip_root/interrupts.json"
+scripts/check-radio-interrupt-trace.py \
+    --contract "$interrupt_contract" \
+    --chip "$chip" \
+    --workflow ble \
+    --trace "$chip_root/interrupts.json"
 
 jq -e --argjson instructions "$minimum_instructions" \
     '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
@@ -245,8 +252,10 @@ jq -e --arg chip "$chip" --slurpfile requirements "$requirements" '
 ' "$chip_root/radio-replay.json" >/dev/null
 
 run_vendor_ble "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" "$radio_input" \
-    --replay "$chip_root/result.json"
+    --replay "$chip_root/result.json" \
+    --interrupt-log "$chip_root/interrupts-repeat.json"
 cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
+cmp "$chip_root/interrupts.json" "$chip_root/interrupts-repeat.json"
 
 supervision_input=$chip_root/radio-input-supervision.json
 jq --argjson prefix "$supervision_input_prefix" \
@@ -283,7 +292,13 @@ cmp "$chip_root/radio-replay-supervision.json" \
 
 run_vendor_ble_sleep "$chip_root/result-sleep.json" \
     "$chip_root/radio-replay-sleep.json" \
-    --coverage "$chip_root/coverage-sleep.json"
+    --coverage "$chip_root/coverage-sleep.json" \
+    --interrupt-log "$chip_root/interrupts-sleep.json"
+scripts/check-radio-interrupt-trace.py \
+    --contract "$interrupt_contract" \
+    --chip "$chip" \
+    --workflow ble-sleep \
+    --trace "$chip_root/interrupts-sleep.json"
 jq -e --argjson instructions "$sleep_minimum_instructions" \
     '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
     "$chip_root/result-sleep.json" >/dev/null
@@ -349,9 +364,12 @@ jq -e --arg chip "$chip" \
 
 run_vendor_ble_sleep "$chip_root/result-sleep-repeat.json" \
     "$chip_root/radio-replay-sleep-repeat.json" \
-    --replay "$chip_root/result-sleep.json"
+    --replay "$chip_root/result-sleep.json" \
+    --interrupt-log "$chip_root/interrupts-sleep-repeat.json"
 cmp "$chip_root/radio-replay-sleep.json" \
     "$chip_root/radio-replay-sleep-repeat.json"
+cmp "$chip_root/interrupts-sleep.json" \
+    "$chip_root/interrupts-sleep-repeat.json"
 
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
@@ -363,8 +381,14 @@ sleep_elf_sha=$(sha256sum "$sleep_elf" | cut -d ' ' -f 1)
 sleep_flash_sha=$(sha256sum "$sleep_flash" | cut -d ' ' -f 1)
 sleep_uart_sha=$(sha256sum "$chip_root/uart-sleep.log" | cut -d ' ' -f 1)
 sleep_radio_replay_sha=$(sha256sum "$chip_root/radio-replay-sleep.json" | cut -d ' ' -f 1)
+interrupt_sha=$(sha256sum "$chip_root/interrupts.json" | cut -d ' ' -f 1)
+sleep_interrupt_sha=$(sha256sum "$chip_root/interrupts-sleep.json" | cut -d ' ' -f 1)
+interrupt_count=$(jq length "$chip_root/interrupts.json")
+sleep_interrupt_count=$(jq length "$chip_root/interrupts-sleep.json")
+interrupt_sources=$(jq -c '[.[].line] | unique' "$chip_root/interrupts.json")
+sleep_interrupt_sources=$(jq -c '[.[].line] | unique' "$chip_root/interrupts-sleep.json")
 jq -n \
-    --arg schema remu.radio-ble-vendor-qualification.v10 \
+    --arg schema remu.radio-ble-vendor-qualification.v11 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -378,6 +402,12 @@ jq -n \
     --arg sleep_flash_sha256 "$sleep_flash_sha" \
     --arg sleep_uart_sha256 "$sleep_uart_sha" \
     --arg sleep_radio_replay_sha256 "$sleep_radio_replay_sha" \
+    --arg interrupt_sha256 "$interrupt_sha" \
+    --arg sleep_interrupt_sha256 "$sleep_interrupt_sha" \
+    --argjson interrupt_count "$interrupt_count" \
+    --argjson sleep_interrupt_count "$sleep_interrupt_count" \
+    --argjson interrupt_sources "$interrupt_sources" \
+    --argjson sleep_interrupt_sources "$sleep_interrupt_sources" \
     --argjson entry "$entry" \
     --argjson minimum_instructions "$minimum_instructions" \
     --argjson sleep_entry "$sleep_entry" \
@@ -428,6 +458,8 @@ jq -n \
             requires_vendor_supervision_disconnect: true,
             requires_native_ble_scan_restart: true,
             requires_received_power_metadata: true,
+            requires_native_interrupt_assertion_and_clear: true,
+            requires_interrupt_reset_replay: true,
             deterministic_replay_required: true,
             requires_ble_modem_sleep: true,
             requires_low_power_clock_wake: true,
@@ -441,6 +473,9 @@ jq -n \
             coverage_digest: $coverage[0].digest,
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
+            interrupt_sha256: $interrupt_sha256,
+            interrupt_transition_count: $interrupt_count,
+            interrupt_sources: $interrupt_sources,
             supervision_uart_sha256: $supervision_uart_sha256,
             supervision_radio_replay_sha256: $supervision_radio_replay_sha256,
             vendor_scan_payload: "02 01 06 02 09 52",
@@ -470,6 +505,9 @@ jq -n \
             sleep_firmware_flash_sha256: $sleep_flash_sha256,
             sleep_uart_sha256: $sleep_uart_sha256,
             sleep_radio_replay_sha256: $sleep_radio_replay_sha256,
+            sleep_interrupt_sha256: $sleep_interrupt_sha256,
+            sleep_interrupt_transition_count: $sleep_interrupt_count,
+            sleep_interrupt_sources: $sleep_interrupt_sources,
             sleep_native_tx: ([$sleep_replay[0].events[] |
                 select(.event == "submitted" and
                        .request.frame.protocol == "bluetooth-le" and

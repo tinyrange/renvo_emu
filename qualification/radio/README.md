@@ -85,6 +85,20 @@ The same genuine-ROM gate streams native C6 radio interrupt-source transitions,
 requires assertion and deassertion evidence without stale PC attribution, and
 compares that stream byte-for-byte on the repeat-from-reset run.
 
+Issue #353 extends that gate across every interrupt source with an observable
+native cause. The machine-readable
+[`interrupt-contract.json`](interrupt-contract.json) classifies all thirteen C6
+and twelve S3 radio inputs as qualified, modeled-but-unqualified, or unresolved;
+the human-readable register, W1C, routing, reset, observed-count, and custom
+driver boundary is in
+[`docs/esp-radio-interrupts.md`](../../docs/esp-radio-interrupts.md). Wi-Fi, BLE,
+BLE modem-sleep, C6 IEEE 802.15.4, and both vendor-independent custom stacks now
+stream their exact admitted sources, require balanced alternating
+assertion/clear pairs, and compare the whole stream byte-for-byte after reset.
+The custom stacks must also match their ordered qualified-source allowlists.
+Unknown NMI, coexistence, security, timer, and analog-I2C inputs remain
+explicitly unmapped rather than borrowing an ordinary source's behavior.
+
 `capture-c6-rf-oracle.sh` is the separate issue #356 perturbation workflow. It
 builds a project-owned, public-API ESP-IDF oracle against the pinned 6.0.2
 container and runs it through the genuine C6 rev0 ROM. Flushed UART boundaries
@@ -422,8 +436,9 @@ radio peripherals:
 - Longer active-traffic sleep/wake torture, including interrupted or overlapping
   low-power transitions, calibration re-entry, and coexistence handoff at the
   transition boundary.
-- Exhaustive unused-source interrupt/NMI/mask/reset cross-products when a pinned
-  firmware workflow supplies an observable expected result.
+- Additional interrupt/NMI cross-products only when pinned firmware supplies a
+  distinct raw/mask/acknowledgement contract; the current qualified and explicit
+  unresolved boundary is merge-gated by `interrupt-contract.json`.
 - Revision-specific S3 private RF pages once a matching primary source or
   authorized hardware trace resolves them.
 - Larger multi-node scenarios, fuzz/metamorphic legality tests, longer replay

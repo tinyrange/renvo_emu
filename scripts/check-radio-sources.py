@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent.parent
 LEDGER_PATH = ROOT / "qualification/radio/source-ledger.json"
 INVENTORY_PATH = ROOT / "qualification/radio/inventory.json"
+INTERRUPT_CONTRACT_PATH = ROOT / "qualification/radio/interrupt-contract.json"
 ROM_REQUIREMENTS_PATH = ROOT / "qualification/radio/rom-requirements.json"
 WIFI_SOFTAP_VENDOR_REQUIREMENTS_PATH = (
     ROOT / "qualification/radio/wifi-softap-vendor-requirements.json"
@@ -289,6 +290,7 @@ EXPECTED_CUSTOM_STACK_REQUIREMENTS = {
             "esp32c6.plic-machine",
         ],
         "families_exercised": ["wifi-mac", "ble-link-layer", "ieee802154-mac"],
+        "qualified_interrupt_sources_used": [0, 4, 5, 12],
     },
     "esp32s3": {
         "source": "esp32s3.c",
@@ -302,6 +304,7 @@ EXPECTED_CUSTOM_STACK_REQUIREMENTS = {
             "esp32s3.interrupt-matrix",
         ],
         "families_exercised": ["wifi-mac", "ble-link-layer"],
+        "qualified_interrupt_sources_used": [0, 8],
     },
 }
 EXPECTED_BLE_VENDOR_REQUIREMENTS = {
@@ -825,6 +828,118 @@ def validate_inventory(inventory: dict[str, object], validation: Validation) -> 
                 )
 
 
+def validate_interrupt_contract(
+    contract: dict[str, object],
+    inventory: dict[str, object],
+    ledger: dict[str, object],
+    validation: Validation,
+) -> None:
+    validation.require(
+        contract.get("schema") == "remu.radio-interrupt-contract.v1",
+        "radio interrupt contract schema is not remu.radio-interrupt-contract.v1",
+    )
+    validation.require(
+        contract.get("source_inventory") == "qualification/radio/inventory.json",
+        "radio interrupt contract does not bind the checked inventory",
+    )
+    validation.require(
+        contract.get("source_ledger") == "qualification/radio/source-ledger.json",
+        "radio interrupt contract does not bind the checked source ledger",
+    )
+    ledger_ids = {source.get("id") for source in ledger.get("sources", [])}
+    provenance = contract.get("provenance", [])
+    validation.require(
+        isinstance(provenance, list) and set(provenance).issubset(ledger_ids),
+        "radio interrupt contract has unknown provenance",
+    )
+
+    chips = contract.get("chips", {})
+    workflows = contract.get("workflows", {})
+    validation.require(
+        set(chips) == set(EXPECTED_INTERRUPTS),
+        "radio interrupt contract chip set must be C6 and S3",
+    )
+    validation.require(bool(workflows), "radio interrupt contract has no workflows")
+    qualified: dict[str, dict[int, dict[str, object]]] = {}
+    for chip, expected_sources in EXPECTED_INTERRUPTS.items():
+        sources = chips.get(chip, {}).get("sources", [])
+        inventory_sources = inventory["chips"][chip]["interrupts"]
+        validation.require(
+            [source.get("source") for source in sources] == expected_sources,
+            f"{chip} interrupt contract sources are incomplete or unordered",
+        )
+        validation.require(
+            [source.get("name") for source in sources]
+            == [source.get("name") for source in inventory_sources],
+            f"{chip} interrupt contract names differ from the source inventory",
+        )
+        qualified[chip] = {}
+        for source in sources:
+            label = f"{chip} interrupt source {source.get('source')}"
+            status = source.get("status")
+            validation.require(
+                status in {"qualified", "modeled-unqualified", "unresolved"},
+                f"{label} has invalid status {status!r}",
+            )
+            if status == "qualified":
+                qualified[chip][source["source"]] = source
+                for field in ("signal", "raw", "mask", "clear", "reset", "workflows"):
+                    validation.require(bool(source.get(field)), f"{label} lacks {field}")
+            else:
+                validation.require(bool(source.get("reason")), f"{label} lacks a reason")
+                validation.require(
+                    not source.get("workflows"),
+                    f"{label} is not qualified but names qualification workflows",
+                )
+
+    covered: dict[str, dict[int, set[str]]] = {
+        chip: {source: set() for source in sources} for chip, sources in qualified.items()
+    }
+    for workflow, workflow_contract in workflows.items():
+        script = workflow_contract.get("script", "")
+        validation.require(
+            isinstance(script, str) and (ROOT / script).is_file(),
+            f"interrupt workflow {workflow} script is missing",
+        )
+        expected = workflow_contract.get("expected", {})
+        validation.require(bool(expected), f"interrupt workflow {workflow} has no chip matrix")
+        for chip, entries in expected.items():
+            validation.require(chip in qualified, f"interrupt workflow {workflow} has unknown chip")
+            if chip not in qualified:
+                continue
+            sources = [entry.get("source") for entry in entries]
+            validation.require(
+                sources == sorted(set(sources)),
+                f"{chip} interrupt workflow {workflow} sources must be unique and ordered",
+            )
+            for entry in entries:
+                source = entry.get("source")
+                source_contract = qualified[chip].get(source)
+                validation.require(
+                    source_contract is not None,
+                    f"{chip} interrupt workflow {workflow} admits unqualified source {source}",
+                )
+                if source_contract is None:
+                    continue
+                validation.require(
+                    entry.get("signal") == source_contract.get("signal"),
+                    f"{chip} interrupt workflow {workflow} signal differs for source {source}",
+                )
+                validation.require(
+                    isinstance(entry.get("minimum_pairs"), int)
+                    and entry["minimum_pairs"] > 0,
+                    f"{chip} interrupt workflow {workflow} has no positive pair bound",
+                )
+                covered[chip][source].add(workflow)
+
+    for chip, sources in qualified.items():
+        for source, source_contract in sources.items():
+            validation.require(
+                set(source_contract["workflows"]) == covered[chip][source],
+                f"{chip} qualified interrupt source {source} workflow coverage is incomplete",
+            )
+
+
 def validate_rom_requirements(requirements: dict[str, object], validation: Validation) -> None:
     validation.require(
         requirements.get("schema") == "remu.radio-rom-requirements.v3",
@@ -1031,7 +1146,9 @@ def validate_coexistence_vendor_requirements(
 
 
 def validate_custom_stack_requirements(
-    requirements: dict[str, object], validation: Validation
+    requirements: dict[str, object],
+    interrupt_contract: dict[str, object],
+    validation: Validation,
 ) -> None:
     validation.require(
         requirements.get("schema") == "remu.radio-custom-stack-requirements.v1",
@@ -1046,6 +1163,28 @@ def validate_custom_stack_requirements(
         validation.require(
             chips.get(chip) == expected,
             f"{chip} custom-stack acceptance contract changed or is incomplete",
+        )
+        declared_sources = expected["qualified_interrupt_sources_used"]
+        qualified_sources = {
+            entry["source"]
+            for entry in interrupt_contract["chips"][chip]["sources"]
+            if entry["status"] == "qualified"
+        }
+        validation.require(
+            declared_sources == sorted(set(declared_sources)),
+            f"{chip} custom-stack interrupt sources must be unique and ordered",
+        )
+        validation.require(
+            set(declared_sources) <= qualified_sources,
+            f"{chip} custom-stack uses an interrupt source outside the qualified contract",
+        )
+        custom_stack_sources = [
+            entry["source"]
+            for entry in interrupt_contract["workflows"]["custom-stack"]["expected"][chip]
+        ]
+        validation.require(
+            declared_sources == custom_stack_sources,
+            f"{chip} custom-stack declared sources differ from runtime qualification",
         )
         source = ROOT / "qualification/radio/custom-stack-probe" / expected["source"]
         validation.require(source.is_file(), f"{chip} custom-stack source is missing")
@@ -1256,6 +1395,7 @@ def main() -> int:
     validation = Validation()
     ledger = load_json(LEDGER_PATH)
     inventory = load_json(INVENTORY_PATH)
+    interrupt_contract = load_json(INTERRUPT_CONTRACT_PATH)
     rom_requirements = load_json(ROM_REQUIREMENTS_PATH)
     wifi_softap_vendor_requirements = load_json(WIFI_SOFTAP_VENDOR_REQUIREMENTS_PATH)
     coexistence_vendor_requirements = load_json(COEXISTENCE_VENDOR_REQUIREMENTS_PATH)
@@ -1270,10 +1410,13 @@ def main() -> int:
     legal_state_contract = load_json(LEGAL_STATE_CONTRACT_PATH)
     validate_ledger(ledger, validation)
     validate_inventory(inventory, validation)
+    validate_interrupt_contract(interrupt_contract, inventory, ledger, validation)
     validate_rom_requirements(rom_requirements, validation)
     validate_wifi_softap_vendor_requirements(wifi_softap_vendor_requirements, validation)
     validate_coexistence_vendor_requirements(coexistence_vendor_requirements, validation)
-    validate_custom_stack_requirements(custom_stack_requirements, validation)
+    validate_custom_stack_requirements(
+        custom_stack_requirements, interrupt_contract, validation
+    )
     validate_ble_vendor_requirements(ble_vendor_requirements, validation)
     validate_ieee802154_vendor_requirements(ieee802154_vendor_requirements, validation)
     validate_openthread_vendor_requirements(openthread_vendor_requirements, validation)

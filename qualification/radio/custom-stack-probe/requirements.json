@@ -15,7 +15,8 @@
         "esp32c6.interrupt-matrix",
         "esp32c6.plic-machine"
       ],
-      "families_exercised": ["wifi-mac", "ble-link-layer", "ieee802154-mac"]
+      "families_exercised": ["wifi-mac", "ble-link-layer", "ieee802154-mac"],
+      "qualified_interrupt_sources_used": [0, 4, 5, 12]
     },
     "esp32s3": {
       "source": "esp32s3.c",
@@ -28,7 +29,8 @@
         "esp32s3.ble-exchange-memory-registers",
         "esp32s3.interrupt-matrix"
       ],
-      "families_exercised": ["wifi-mac", "ble-link-layer"]
+      "families_exercised": ["wifi-mac", "ble-link-layer"],
+      "qualified_interrupt_sources_used": [0, 8]
     }
   }
 }
