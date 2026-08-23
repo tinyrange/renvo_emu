@@ -52,7 +52,19 @@ connection control surface. They start connected for existing console fixtures;
 tests can call `set_usb_host_connected(false)` to exercise a disconnected,
 non-blocking console. A connected host asserts `INT_RAW` SOF bit 1 every 1,000
 abstract ticks, and `INT_CLR`/raw writes clear the latched status. This is a
-functional USB-frame model, not a claim of USB clock or PHY accuracy.
+functional USB-frame model, not a claim of USB clock or PHY accuracy. The C6
+model additionally exposes the documented CONF0/TEST raw-PHY controls, host
+line injection and transition timestamps. Its low-speed packet oracle checks
+NRZI, stuffing, PID, CRC16, EOP and firmware instruction cadence without
+claiming analog-pad or bus-arbitration fidelity. Main-watchdog system resets
+perform the functional flash/application handoff again while preserving the
+LP-AON stores, allowing the C6 USB recovery window to be qualified end to end.
+
+The ESP32-S3 DWC2 device link has a descriptor-driven deterministic host for
+CDC ACM, HID, CDC Ethernet, MIDI, Audio, WebUSB/vendor, MTP, ADB and MSC. The
+qualification firmware performs class-specific control and data transactions,
+including a 192-byte isochronous audio packet and MSC BOT INQUIRY/CSW; this is
+functional controller qualification rather than electrical USB timing.
 
 The ESP32-C6 machine maps every public non-radio register block in the ESP-IDF
 v6.0.2 inventory at its vendor address. GPIO/IO MUX; UART0/1 and LP UART; UHCI;
@@ -362,6 +374,11 @@ can be changed with `--esp-app-offset`. This mode requires `--boot-rom` with the
 matching real mask-ROM ELF. ESP32-C6/S3 native firmware boot and radio-capable
 direct execution have the same requirement; a CPU/compiler-only direct ELF
 harness remains exempt.
+
+In direct C6 runs, a main-watchdog system reset reloads the initialized ELF
+segments and entry point to model the second-stage application handoff. This
+lets reset/recovery firmware run across multiple boots without claiming ROM
+instruction-level fidelity.
 
 ESP32-C6 application RAM powers on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only the file-backed portion of writable load

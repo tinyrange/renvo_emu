@@ -1,0 +1,4 @@
+#pragma once
+
+#define SOC_USB_OTG_PERIPH_NUM 1
+#define SOC_USB_SERIAL_JTAG_SUPPORTED 1

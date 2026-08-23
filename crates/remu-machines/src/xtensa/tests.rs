@@ -824,6 +824,17 @@ fn esp32s3_syscon_routes_external_memory_rejections_through_source_60() {
 fn esp32s3_usb_wrap_controls_the_functional_dwc2_host_link() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     let usb_wrap = 0x6003_9000;
+    assert!(!machine.rtc_control.usb_otg_phy_selected());
+    machine
+        .bus
+        .write(
+            0x6000_8000 + 0x120,
+            AccessWidth::Word,
+            (1 << 20) | (1 << 19),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert!(machine.rtc_control.usb_otg_phy_selected());
     assert_eq!(
         machine
             .bus

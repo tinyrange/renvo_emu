@@ -1,5 +1,35 @@
 use super::*;
 
+const DWC2_EP0_XFER_SIZE_MASK: u32 = 0x7f;
+const DWC2_DATA_XFER_SIZE_MASK: u32 = 0x7ffff;
+const DWC2_EP0_IN_PKT_COUNT_MASK: u32 = 0x3 << 19;
+const DWC2_EP0_OUT_PKT_COUNT_MASK: u32 = 1 << 19;
+const DWC2_DATA_PKT_COUNT_MASK: u32 = 0x3ff << 19;
+
+pub(super) const fn dwc2_xfer_size_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_XFER_SIZE_MASK
+    } else {
+        DWC2_DATA_XFER_SIZE_MASK
+    }
+}
+
+pub(super) const fn dwc2_in_pkt_count_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_IN_PKT_COUNT_MASK
+    } else {
+        DWC2_DATA_PKT_COUNT_MASK
+    }
+}
+
+pub(super) const fn dwc2_out_pkt_count_mask(endpoint: u8) -> u32 {
+    if endpoint == 0 {
+        DWC2_EP0_OUT_PKT_COUNT_MASK
+    } else {
+        DWC2_DATA_PKT_COUNT_MASK
+    }
+}
+
 impl Device for EspUsbOtg {
     fn name(&self) -> &str {
         &self.name
@@ -156,9 +186,28 @@ impl Device for EspUsbOtg {
                 _ => unreachable!(),
             };
             state.registers[index] &= !(value as u32 & clear_mask);
+        } else if let Some(
+            fifo_register @ (EspUsbOtgRegister::GrxFsiz
+            | EspUsbOtgRegister::GnptxFsiz
+            | EspUsbOtgRegister::GdfifoCfg
+            | EspUsbOtgRegister::HptxFsiz
+            | EspUsbOtgRegister::DiepTxFifo(_)),
+        ) = register
+        {
+            let value = if fifo_register == EspUsbOtgRegister::GrxFsiz {
+                value as u32 & 0xffff
+            } else {
+                value as u32
+            };
+            state.configure_fifo(fifo_register, value)?;
         } else if let Some(EspUsbOtgRegister::DiepCtl(endpoint)) = register {
             let endpoint = usize::from(endpoint);
             let value = value as u32;
+            if value & DWC2_EPENA != 0 && state.transmit_fifo_words(endpoint as u8) == 0 {
+                return Err(DeviceError::new(format!(
+                    "ESP32-S3 DWC2 endpoint {endpoint} has no configured transmit FIFO"
+                )));
+            }
             let current = state.registers[index];
             // MPS, STALL, and TxFIFO number are ordinary configuration fields. Active,
             // endpoint type, and NAK status are core-owned; SNAK/CNAK/EPDIS/EPENA are command
@@ -179,7 +228,7 @@ impl Device for EspUsbOtg {
                 next |= DWC2_EPENA;
                 let size = usize::try_from(
                     state.register(EspUsbOtgRegister::DiepTsiz(endpoint as u8))
-                        & DWC2_XFER_SIZE_MASK,
+                        & dwc2_xfer_size_mask(endpoint as u8),
                 )
                 .expect("DWC2 transfer size fits usize");
                 state.in_transfer_size[endpoint] = size;
@@ -233,12 +282,21 @@ impl Device for EspUsbOtg {
             state.registers[index] = value as u32 & DWC2_DIEPEMP_MASK;
         } else if let Some(EspUsbOtgRegister::DiepTsiz(endpoint)) = register {
             let value = value as u32;
-            state.registers[index] = value & (DWC2_XFER_SIZE_MASK | DWC2_IN_PKT_COUNT_MASK);
+            let size_mask = dwc2_xfer_size_mask(endpoint);
+            state.registers[index] = value & (size_mask | dwc2_in_pkt_count_mask(endpoint));
             state.in_transfer_size[usize::from(endpoint)] =
-                usize::try_from(value & DWC2_XFER_SIZE_MASK).expect("DWC2 transfer size fits");
-        } else if let Some(EspUsbOtgRegister::DoepTsiz(_endpoint)) = register {
+                usize::try_from(value & size_mask).expect("DWC2 transfer size fits");
+        } else if let Some(EspUsbOtgRegister::DoepTsiz(endpoint)) = register {
+            if endpoint == 0 && value as u32 & DWC2_OUT_SETUP_COUNT_MASK != 0 {
+                state.setup_receive_enabled = true;
+            }
+            let setup_mask = if endpoint == 0 {
+                DWC2_OUT_SETUP_COUNT_MASK
+            } else {
+                0
+            };
             state.registers[index] = value as u32
-                & (DWC2_XFER_SIZE_MASK | DWC2_OUT_PKT_COUNT_MASK | DWC2_OUT_SETUP_COUNT_MASK);
+                & (dwc2_xfer_size_mask(endpoint) | dwc2_out_pkt_count_mask(endpoint) | setup_mask);
         } else {
             state.registers[index] = value as u32;
         }
@@ -247,5 +305,157 @@ impl Device for EspUsbOtg {
 
     fn reset(&mut self, _kind: ResetKind) {
         *self.state.lock().expect("ESP USB OTG state lock poisoned") = EspUsbOtgState::reset();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(device: &mut EspUsbOtg, register: EspUsbOtgRegister, value: u32) {
+        device
+            .write(
+                register.offset(),
+                AccessWidth::Word,
+                u64::from(value),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn shared_fifo_rejects_overlap_and_capacity_overflow() {
+        let (mut device, _) = EspUsbOtg::new("usb");
+        write(&mut device, EspUsbOtgRegister::GrxFsiz, 80);
+        write(&mut device, EspUsbOtgRegister::GnptxFsiz, (64 << 16) | 0x50);
+        write(
+            &mut device,
+            EspUsbOtgRegister::DiepTxFifo(1),
+            (32 << 16) | 0x90,
+        );
+
+        assert!(
+            device
+                .write(
+                    EspUsbOtgRegister::DiepTxFifo(2).offset(),
+                    AccessWidth::Word,
+                    u64::from((32_u32 << 16) | 0xa0),
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+        assert!(
+            device
+                .write(
+                    EspUsbOtgRegister::DiepTxFifo(2).offset(),
+                    AccessWidth::Word,
+                    u64::from((32_u32 << 16) | 0xf0),
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn host_fifo_does_not_configure_device_endpoint_one() {
+        let (mut device, _) = EspUsbOtg::new("usb");
+        write(&mut device, EspUsbOtgRegister::GrxFsiz, 64);
+        write(&mut device, EspUsbOtgRegister::GnptxFsiz, (64 << 16) | 0x40);
+        write(&mut device, EspUsbOtgRegister::HptxFsiz, (32 << 16) | 0x80);
+
+        assert!(
+            device
+                .write(
+                    EspUsbOtgRegister::DiepCtl(1).offset(),
+                    AccessWidth::Word,
+                    u64::from(DWC2_EPENA),
+                    SimTime::ZERO,
+                )
+                .is_err()
+        );
+        write(
+            &mut device,
+            EspUsbOtgRegister::DiepTxFifo(1),
+            (32 << 16) | 0xa0,
+        );
+        write(&mut device, EspUsbOtgRegister::DiepCtl(1), DWC2_EPENA);
+    }
+
+    #[test]
+    fn data_endpoints_keep_wide_transfer_size_and_packet_count_fields() {
+        let (mut device, _) = EspUsbOtg::new("usb");
+        let input = 192 | (3 << 19);
+        let output = 512 | (8 << 19);
+        write(&mut device, EspUsbOtgRegister::DiepTsiz(1), input);
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(2), output);
+
+        assert_eq!(
+            device
+                .read(
+                    EspUsbOtgRegister::DiepTsiz(1).offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(input)
+        );
+        assert_eq!(
+            device
+                .read(
+                    EspUsbOtgRegister::DoepTsiz(2).offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            u64::from(output)
+        );
+    }
+
+    #[test]
+    fn setup_completion_releases_endpoint_zero_receive_arm() {
+        let (mut device, handle) = EspUsbOtg::new("usb");
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(0), 64);
+        write(&mut device, EspUsbOtgRegister::DoepCtl(0), DWC2_EPENA);
+        handle.inject_setup([0x80, 6, 0, 1, 0, 0, 18, 0]);
+
+        device
+            .read(
+                EspUsbOtgRegister::GrxStsP.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        device
+            .read(
+                EspUsbOtgRegister::GrxStsP.offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(!handle.output_ready(0));
+    }
+
+    #[test]
+    fn slave_mode_setup_arm_survives_ep0_status_sizing() {
+        let (mut device, handle) = EspUsbOtg::new("usb");
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(0), 3 << 29);
+        assert!(handle.setup_ready());
+
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(0), 1 << 19);
+        assert!(handle.setup_ready());
+
+        handle.inject_bus_reset();
+        assert!(!handle.setup_ready());
+    }
+
+    #[test]
+    fn dma_mode_setup_also_requires_endpoint_enable() {
+        let (mut device, handle) = EspUsbOtg::new("usb");
+        write(&mut device, EspUsbOtgRegister::GahbCfg, 1 << 5);
+        write(&mut device, EspUsbOtgRegister::DoepTsiz(0), 3 << 29);
+        assert!(!handle.setup_ready());
+
+        write(&mut device, EspUsbOtgRegister::DoepCtl(0), DWC2_EPENA);
+        assert!(handle.setup_ready());
     }
 }

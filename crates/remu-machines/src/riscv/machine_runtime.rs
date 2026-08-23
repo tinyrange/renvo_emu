@@ -732,7 +732,11 @@ impl RiscVMachine {
                         .as_ref()
                         .map_or_else(Vec::new, Rp2040UsbHost::output)
                 },
-                EspUsbSerialJtagHandle::output,
+                |usb| {
+                    let mut bytes = usb.output();
+                    bytes.extend(usb.low_speed_output());
+                    bytes
+                },
             ),
             trace_digest: digest.finish(),
         })

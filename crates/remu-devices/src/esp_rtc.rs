@@ -4,6 +4,7 @@ const ESP_RTC_ULP_INT_BIT: u32 = 1 << 5;
 const ESP_RTC_ULP_TIMER_ENABLE: u32 = 1 << 31;
 const ESP_RTC_ULP_TIMER_PERIOD_MASK: u32 = 0x00ff_ffff;
 const ESP_RTC_INT_MASK: u32 = 0x001f_ffff;
+const ESP_RTC_USB_OTG_PHY_SELECT: u32 = (1 << 20) | (1 << 19);
 
 /// Native ESP32-S3 RTC control and shared SAR register identifiers.
 ///
@@ -227,6 +228,7 @@ impl Esp32S3RtcRegister {
             Self::UlpCpTimer => 0xa000_07ff,
             Self::UlpCpCtrl => 0xf03f_ffff,
             Self::UlpCpTimer1 => 0xffffff00,
+            Self::Reg => 0xf03f_c080,
             Self::Date => 0x0fff_ffff,
             Self::SarMeas1Ctrl2 | Self::SarMeas2Ctrl2 => u32::MAX,
             _ => u32::MAX,
@@ -253,6 +255,7 @@ impl Esp32S3RtcRegister {
             Self::UlpCpTimer => 0xe000_07ff,
             Self::UlpCpCtrl => 0xf07f_ffff,
             Self::UlpCpTimer1 => 0xffffff00,
+            Self::Reg => 0xf03f_c080,
             Self::Date => 0x0fff_ffff,
             Self::SarMeas1Ctrl2 | Self::SarMeas2Ctrl2 => 0xfffe_0000,
             _ => u32::MAX,
@@ -377,6 +380,12 @@ impl EspRtcControlHandle {
     /// Returns the number of deterministic ULP timer wakeups observed.
     pub fn ulp_wakeups(&self) -> u64 {
         self.state.borrow().ulp_wakeups
+    }
+
+    /// Reports whether both RTC mux stages route the internal USB PHY to OTG.
+    pub fn usb_otg_phy_selected(&self) -> bool {
+        self.state.borrow().register(Esp32S3RtcRegister::UsbConf) & ESP_RTC_USB_OTG_PHY_SELECT
+            == ESP_RTC_USB_OTG_PHY_SELECT
     }
 
     /// Reports whether RTC-domain writes to a pad are held at their prior value.
@@ -696,6 +705,66 @@ mod tests {
         assert_eq!(Esp32S3RtcRegister::IntEna.write_mask(), 0x001f_ffff);
         assert_eq!(Esp32S3RtcRegister::IntRaw.write_mask(), 0);
         assert_eq!(Esp32S3RtcRegister::UlpCpTimer1.read_mask(), 0xffffff00);
+    }
+
+    #[test]
+    fn usb_otg_phy_requires_both_rtc_mux_stages() {
+        let hub = SignalHub::new();
+        let (mut device, handle) = EspRtcControl::new_with_signals("rtc", hub).unwrap();
+        assert!(!handle.usb_otg_phy_selected());
+        for value in [1_u64 << 20, 1_u64 << 19] {
+            device
+                .write(
+                    Esp32S3RtcRegister::UsbConf.offset(),
+                    AccessWidth::Word,
+                    value,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            assert!(!handle.usb_otg_phy_selected());
+        }
+        device
+            .write(
+                Esp32S3RtcRegister::UsbConf.offset(),
+                AccessWidth::Word,
+                u64::from(ESP_RTC_USB_OTG_PHY_SELECT),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert!(handle.usb_otg_phy_selected());
+    }
+
+    #[test]
+    fn regulator_register_uses_vendor_reset_and_write_mask() {
+        let mut device = EspRtcControl::new("rtc");
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3RtcRegister::Reg.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xa000_0000
+        );
+        device
+            .write(
+                Esp32S3RtcRegister::Reg.offset(),
+                AccessWidth::Word,
+                u64::from(u32::MAX),
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(
+                    Esp32S3RtcRegister::Reg.offset(),
+                    AccessWidth::Word,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xf03f_c080
+        );
     }
 
     #[test]

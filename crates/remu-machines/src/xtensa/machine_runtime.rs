@@ -520,6 +520,7 @@ impl XtensaMachine {
                     self.now,
                     &self.usb_otg,
                     &self.usb_wrap,
+                    self.rtc_control.usb_otg_phy_selected(),
                 ));
             }
             if self.stop_on_usb_input_complete && self.usb_host.input_complete() {

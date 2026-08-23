@@ -21,7 +21,7 @@ out explicitly and is not counted as functional peripheral support.
 | GDMA and ETM | Descriptor-facing transfers and observable event/task routing | Concurrent bus arbitration and cycle timing |
 | Analog | SAR ADC conversion values and temperature-sensor input | Calibration drift, noise and analog settling |
 | Security | AES, SHA, RSA, ECC, HMAC, digital signature and one-way eFuse programming | Secure-boot policy, flash-encryption policy, protected key provisioning and physical fuse failures |
-| Startup interfaces | SPI0/SPI1 flash memory, coherent cache maintenance, USB Serial/JTAG, PCR startup and analog-I2C startup behavior | USB PHY timing |
+| Startup interfaces | SPI0/SPI1 flash memory, coherent cache maintenance, USB Serial/JTAG including CONF0/TEST raw-PHY lines and transition capture, PCR startup and analog-I2C startup behavior | USB electrical timing, analog PHY behavior and bus arbitration |
 | CPU-local interrupts | Machine/user PLIC contexts, machine/user CLINT software and timer interrupts, interrupt delegation | Cycle-accurate arbitration |
 | Low-power domain | RV32IMAC LP core, retained LP SRAM, PMU sleep/wake transitions, LP timer wakeups and LP-AON reset controls | Analog power-transition timing |
 | Memory protection | TOR, NA4 and NAPOT PMP permission enforcement, lock semantics and instruction/load/store access faults | Physical memory attributes beyond PMP |
@@ -57,4 +57,9 @@ SPI transfer behavior, PLIC/CLINT delivery, PMU/LP-timer state, cache sync,
 PMP configuration and bus-log coverage across every functional family. Rust
 unit and machine tests additionally cover data paths, interrupts, LP-core
 execution, cache coherency, staged resets, reserved accesses and the absence of
-radio mappings.
+radio mappings. The raw USB-PHY tests also cover C6 pull/line-state controls and
+an independent low-speed packet oracle for NRZI, bit stuffing, PID, CRC16, EOP
+and per-bit instruction cadence. The recovery fixture deliberately wedges after
+raw-PHY takeover and proves that an MWDT system reset retains the LP-AON marker,
+boots the application again, restores USB Serial/JTAG, and reaches the guarded
+recovery window.
