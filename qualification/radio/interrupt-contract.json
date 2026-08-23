@@ -1,0 +1,275 @@
+{
+  "schema": "remu.radio-interrupt-contract.v1",
+  "source_inventory": "qualification/radio/inventory.json",
+  "source_ledger": "qualification/radio/source-ledger.json",
+  "provenance": [
+    "esp-idf-c6-interrupts",
+    "esp-idf-s3-interrupts",
+    "esp-rom-elfs-20260528"
+  ],
+  "chips": {
+    "esp32c6": {
+      "sources": [
+        {
+          "source": 0,
+          "name": "wifi-mac",
+          "status": "qualified",
+          "signal": "esp32c6.wifi-mac",
+          "raw": "esp32c6.wifi-mac-registers+0x0c48",
+          "mask": "esp32c6.wifi-mac-registers+0x0c40",
+          "clear": "W1C esp32c6.wifi-mac-registers+0x0c4c",
+          "reset": "MAC reset clears raw, mask, queue ownership, and the routed level",
+          "workflows": ["custom-stack", "wifi"]
+        },
+        {
+          "source": 1,
+          "name": "wifi-mac-nmi",
+          "status": "unresolved",
+          "reason": "the public source name does not expose a distinct raw cause and pinned firmware has not asserted it"
+        },
+        {
+          "source": 2,
+          "name": "wifi-power",
+          "status": "qualified",
+          "signal": "esp32c6.wifi-power",
+          "raw": "esp32c6.phy-registers+0x0ac",
+          "mask": "esp32c6.phy-registers+0x0a8",
+          "status_register": "esp32c6.phy-registers+0x0b0",
+          "clear": "W1C esp32c6.phy-registers+0x0b4",
+          "reset": "PHY reset clears raw, enabled status, timer arms, and the routed level",
+          "workflows": ["wifi"]
+        },
+        {
+          "source": 3,
+          "name": "wifi-bb",
+          "status": "unresolved",
+          "reason": "no distinct baseband cause register has an observable pinned-firmware contract"
+        },
+        {
+          "source": 4,
+          "name": "bt-mac",
+          "status": "qualified",
+          "signal": "esp32c6.bluetooth-mac",
+          "raw": "combined enabled BLE baseband cause or controller HCI output",
+          "mask": "BLE baseband INTENA0/1 for baseband causes",
+          "clear": "baseband W1C or consumption of the controller HCI output",
+          "reset": "BLE reset clears raw causes, scheduled work, HCI output, and the routed level",
+          "workflows": ["ble", "ble-sleep", "custom-stack"]
+        },
+        {
+          "source": 5,
+          "name": "bt-bb",
+          "status": "qualified",
+          "signal": "esp32c6.bluetooth-baseband",
+          "raw": "esp32c6.ble-baseband-registers+0x30c/+0x31c",
+          "mask": "esp32c6.ble-baseband-registers+0x304/+0x314",
+          "clear": "W1C esp32c6.ble-baseband-registers+0x308/+0x318",
+          "reset": "BLE baseband reset clears raw, enable, scheduled completions, and the routed level",
+          "workflows": ["ble", "ble-sleep", "custom-stack"]
+        },
+        {
+          "source": 6,
+          "name": "bt-bb-nmi",
+          "status": "unresolved",
+          "reason": "the pinned controller uses the ordinary baseband line; no separate NMI cause has been observed"
+        },
+        {
+          "source": 7,
+          "name": "lp-timer",
+          "status": "qualified",
+          "signal": "esp32c6.lp-timer",
+          "raw": "esp32c6.ble-modem-registers+0x024",
+          "mask": "esp32c6.ble-modem-registers+0x010 bit 18",
+          "status_register": "esp32c6.ble-modem-registers+0x034",
+          "clear": "W1C esp32c6.ble-modem-registers+0x014 bit 18",
+          "reset": "BLE modem reset cancels compares and clears raw, status, and the routed level",
+          "workflows": ["ble-sleep"]
+        },
+        {
+          "source": 8,
+          "name": "coexistence",
+          "status": "unresolved",
+          "reason": "coexistence ownership is qualified, but no guest-visible interrupt cause/acknowledgement pair has been observed"
+        },
+        {
+          "source": 9,
+          "name": "ble-timer",
+          "status": "unresolved",
+          "reason": "the observed controller timer completes through BT_MAC/BT_BB; source 9 has no distinct observed cause"
+        },
+        {
+          "source": 10,
+          "name": "ble-security",
+          "status": "unresolved",
+          "reason": "native BLE CCM completion is observed, but pinned firmware has not exposed a distinct source-10 interrupt contract"
+        },
+        {
+          "source": 11,
+          "name": "i2c-master",
+          "status": "unresolved",
+          "reason": "RF calibration uses analog I2C synchronously and has not enabled or acknowledged this interrupt source"
+        },
+        {
+          "source": 12,
+          "name": "zigbee-mac",
+          "status": "qualified",
+          "signal": "esp32c6.ieee802154",
+          "raw": "esp32c6.ieee802154+0x064 bits 0..12",
+          "mask": "esp32c6.ieee802154+0x060 bits 0..12",
+          "clear": "W1C esp32c6.ieee802154+0x064",
+          "reset": "802.15.4 reset clears raw, mask, timers, DMA work, and the routed level",
+          "workflows": ["custom-stack", "ieee802154"]
+        }
+      ]
+    },
+    "esp32s3": {
+      "sources": [
+        {
+          "source": 0,
+          "name": "wifi-mac",
+          "status": "qualified",
+          "signal": "esp32s3.wifi-mac",
+          "raw": "esp32s3.wifi-mac-registers+0x0c3c",
+          "mask": "esp32s3.wifi-mac-registers+0x0c34",
+          "clear": "W1C esp32s3.wifi-mac-registers+0x0c40",
+          "reset": "MAC reset clears raw, mask, queue ownership, and both core-routed levels",
+          "workflows": ["custom-stack", "wifi"]
+        },
+        {
+          "source": 1,
+          "name": "wifi-mac-nmi",
+          "status": "unresolved",
+          "reason": "no distinct NMI raw cause is exposed by the pinned firmware path"
+        },
+        {
+          "source": 2,
+          "name": "wifi-power",
+          "status": "unresolved",
+          "reason": "the S3 power source has no recovered raw/mask/W1C contract in the admitted revision"
+        },
+        {
+          "source": 3,
+          "name": "wifi-bb",
+          "status": "unresolved",
+          "reason": "the revision-specific private baseband interrupt page remains unresolved"
+        },
+        {
+          "source": 4,
+          "name": "bt-mac",
+          "status": "modeled-unqualified",
+          "signal": "esp32s3.bluetooth-mac",
+          "reason": "the controller HCI-output level is modeled, but the pinned BLE workflows do not assert this matrix source"
+        },
+        {
+          "source": 5,
+          "name": "bt-bb",
+          "status": "unresolved",
+          "reason": "no distinct baseband source-5 cause is observed"
+        },
+        {
+          "source": 6,
+          "name": "bt-bb-nmi",
+          "status": "unresolved",
+          "reason": "no distinct baseband NMI cause is observed"
+        },
+        {
+          "source": 7,
+          "name": "rwbt",
+          "status": "unresolved",
+          "reason": "the pinned controller uses RWBLE and has not exposed an RWBT cause contract"
+        },
+        {
+          "source": 8,
+          "name": "rwble",
+          "status": "qualified",
+          "signal": "esp32s3.rwble",
+          "raw": "esp32s3.ble-exchange-memory-registers+0x010",
+          "mask": "firmware dispatch mask at esp32s3.ble-exchange-memory-registers+0x00c",
+          "clear": "W1C esp32s3.ble-exchange-memory-registers+0x018 and recovered ECO diagnostic acknowledgement",
+          "reset": "RWBLE reset clears raw causes, mappings, scheduled completions, and both core-routed levels",
+          "workflows": ["ble", "ble-sleep", "custom-stack"]
+        },
+        {
+          "source": 9,
+          "name": "rwbt-nmi",
+          "status": "unresolved",
+          "reason": "no RWBT NMI cause is observed"
+        },
+        {
+          "source": 10,
+          "name": "rwble-nmi",
+          "status": "unresolved",
+          "reason": "the pinned controller routes RWBLE through source 8; no distinct source-10 assertion is observed"
+        },
+        {
+          "source": 11,
+          "name": "i2c-master",
+          "status": "unresolved",
+          "reason": "RF calibration has not exposed an interrupt-driven analog-I2C completion on this source"
+        }
+      ]
+    }
+  },
+  "workflows": {
+    "custom-stack": {
+      "script": "scripts/qualify-esp-radio-custom-stack.sh",
+      "expected": {
+        "esp32c6": [
+          {"source": 0, "signal": "esp32c6.wifi-mac", "minimum_pairs": 1},
+          {"source": 4, "signal": "esp32c6.bluetooth-mac", "minimum_pairs": 1},
+          {"source": 5, "signal": "esp32c6.bluetooth-baseband", "minimum_pairs": 1},
+          {"source": 12, "signal": "esp32c6.ieee802154", "minimum_pairs": 1}
+        ],
+        "esp32s3": [
+          {"source": 0, "signal": "esp32s3.wifi-mac", "minimum_pairs": 1},
+          {"source": 8, "signal": "esp32s3.rwble", "minimum_pairs": 1}
+        ]
+      }
+    },
+    "wifi": {
+      "script": "scripts/qualify-esp-radio-rom.sh",
+      "expected": {
+        "esp32c6": [
+          {"source": 0, "signal": "esp32c6.wifi-mac", "minimum_pairs": 1},
+          {"source": 2, "signal": "esp32c6.wifi-power", "minimum_pairs": 1}
+        ],
+        "esp32s3": [
+          {"source": 0, "signal": "esp32s3.wifi-mac", "minimum_pairs": 1}
+        ]
+      }
+    },
+    "ble": {
+      "script": "scripts/qualify-esp-radio-ble-vendor.sh",
+      "expected": {
+        "esp32c6": [
+          {"source": 4, "signal": "esp32c6.bluetooth-mac", "minimum_pairs": 1},
+          {"source": 5, "signal": "esp32c6.bluetooth-baseband", "minimum_pairs": 1}
+        ],
+        "esp32s3": [
+          {"source": 8, "signal": "esp32s3.rwble", "minimum_pairs": 1}
+        ]
+      }
+    },
+    "ble-sleep": {
+      "script": "scripts/qualify-esp-radio-ble-vendor.sh",
+      "expected": {
+        "esp32c6": [
+          {"source": 4, "signal": "esp32c6.bluetooth-mac", "minimum_pairs": 1},
+          {"source": 5, "signal": "esp32c6.bluetooth-baseband", "minimum_pairs": 1},
+          {"source": 7, "signal": "esp32c6.lp-timer", "minimum_pairs": 1}
+        ],
+        "esp32s3": [
+          {"source": 8, "signal": "esp32s3.rwble", "minimum_pairs": 1}
+        ]
+      }
+    },
+    "ieee802154": {
+      "script": "scripts/qualify-esp-radio-ieee802154-vendor.sh",
+      "expected": {
+        "esp32c6": [
+          {"source": 12, "signal": "esp32c6.ieee802154", "minimum_pairs": 1}
+        ]
+      }
+    }
+  }
+}

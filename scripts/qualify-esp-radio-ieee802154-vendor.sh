@@ -12,6 +12,7 @@ then
 fi
 
 requirements=qualification/radio/ieee802154-vendor-requirements.json
+interrupt_contract=qualification/radio/interrupt-contract.json
 artifact_root=${REMU_RADIO_IEEE802154_VENDOR_ROOT:-.remu/qualification/radio-ieee802154-vendor}
 chip_root=$artifact_root/$chip
 rom_root=$chip_root/roms
@@ -82,7 +83,13 @@ run_vendor_ieee802154()
 run_vendor_ieee802154 "$chip_root/result.json" "$chip_root/radio-replay.json" \
     --coverage "$chip_root/coverage.json" \
     --bus-log "$chip_root/ieee802154-bus.json" \
-    --bus-log-region esp32c6.ieee802154
+    --bus-log-region esp32c6.ieee802154 \
+    --interrupt-log "$chip_root/interrupts.json"
+scripts/check-radio-interrupt-trace.py \
+    --contract "$interrupt_contract" \
+    --chip "$chip" \
+    --workflow ieee802154 \
+    --trace "$chip_root/interrupts.json"
 
 jq -e --argjson instructions "$minimum_instructions" \
     '.reason == "InstructionLimit" and .stats.instructions == $instructions' \
@@ -215,16 +222,21 @@ jq -e '
 ' "$chip_root/ieee802154-bus.json" >/dev/null
 
 run_vendor_ieee802154 "$chip_root/result-repeat.json" "$chip_root/radio-replay-repeat.json" \
-    --replay "$chip_root/result.json"
+    --replay "$chip_root/result.json" \
+    --interrupt-log "$chip_root/interrupts-repeat.json"
 cmp "$chip_root/radio-replay.json" "$chip_root/radio-replay-repeat.json"
+cmp "$chip_root/interrupts.json" "$chip_root/interrupts-repeat.json"
 
 elf_sha=$(sha256sum "$elf" | cut -d ' ' -f 1)
 flash_sha=$(sha256sum "$flash" | cut -d ' ' -f 1)
 uart_sha=$(sha256sum "$chip_root/uart.log" | cut -d ' ' -f 1)
 radio_replay_sha=$(sha256sum "$chip_root/radio-replay.json" | cut -d ' ' -f 1)
 bus_sha=$(sha256sum "$chip_root/ieee802154-bus.json" | cut -d ' ' -f 1)
+interrupt_sha=$(sha256sum "$chip_root/interrupts.json" | cut -d ' ' -f 1)
+interrupt_count=$(jq length "$chip_root/interrupts.json")
+interrupt_sources=$(jq -c '[.[].line] | unique' "$chip_root/interrupts.json")
 jq -n \
-    --arg schema remu.radio-ieee802154-vendor-qualification.v5 \
+    --arg schema remu.radio-ieee802154-vendor-qualification.v6 \
     --arg chip "$chip" \
     --arg rom_file "$rom_file" \
     --arg rom_sha256 "$actual_rom_sha" \
@@ -233,6 +245,9 @@ jq -n \
     --arg uart_sha256 "$uart_sha" \
     --arg radio_replay_sha256 "$radio_replay_sha" \
     --arg bus_sha256 "$bus_sha" \
+    --arg interrupt_sha256 "$interrupt_sha" \
+    --argjson interrupt_count "$interrupt_count" \
+    --argjson interrupt_sources "$interrupt_sources" \
     --argjson entry "$entry" \
     --argjson minimum_instructions "$minimum_instructions" \
     --slurpfile result "$chip_root/result.json" \
@@ -264,6 +279,8 @@ jq -n \
             requires_ack_success: true,
             requires_no_ack_timeout: true,
             requires_native_interrupt_w1c: true,
+            requires_native_interrupt_assertion_and_clear: true,
+            requires_interrupt_reset_replay: true,
             deterministic_replay_required: true,
             symbol_dispatch_allowed: false
         },
@@ -275,6 +292,9 @@ jq -n \
             uart_sha256: $uart_sha256,
             radio_replay_sha256: $radio_replay_sha256,
             ieee802154_bus_sha256: $bus_sha256,
+            interrupt_sha256: $interrupt_sha256,
+            interrupt_transition_count: $interrupt_count,
+            interrupt_sources: $interrupt_sources,
             tx_psdu_with_fcs: [1, 0, 42, 165, 95, 48],
             rx_psdu_with_fcs: [1, 0, 2, 170, 91, 37],
             rx_rssi_dbm: -80,

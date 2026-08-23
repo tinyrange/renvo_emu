@@ -1,33 +1,19 @@
+use super::radio_constants::{
+    BLE_ADVERTISING_ACCESS_ADDRESS, EMULATED_NODE, HOST_NODE, S3_BLE_1M_BYTE_TICKS,
+    S3_BLE_CLOCK_CYCLE_TICKS, S3_BLE_COARSE_MASK, S3_BLE_FINE_POSITION_TICKS,
+    S3_BLE_FINE_POSITIONS_PER_HALF_SLOT, S3_BLE_HALF_SLOT_TICKS, S3_BLE_INTERFRAME_SPACE_TICKS,
+    S3_RADIO_INTERRUPT_SOURCES, S3_RWBLE_END_INTERRUPT, S3_RWBLE_RX_INTERRUPT,
+    S3_RWBLE_SKIP_INTERRUPT, S3_RWBLE_SLEEP_WAKE_COMPLETE_INTERRUPT, S3_RWBLE_SLEEP_WAKE_INTERRUPT,
+    S3_RWBLE_TX_INTERRUPT,
+};
 use super::{XtensaMachine, XtensaMachineError};
 use remu_core::{AccessKind, AccessWidth, Bus, SimDuration};
 use remu_radio::{
     BleController, BleLinkDirection, CoexistenceDecision, CoexistenceGrantId, CoexistenceRequest,
-    DeliveryOutcome, FrameOrigin, MediumEvent, NodeId, RadioDmaDirection, RadioFrame,
-    RadioLegalityRule, RadioPeer, RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact,
-    Spectrum, TransmissionId, TxRequest, WifiEngine, ble_link_decrypt_pdu, ble_link_encrypt_pdu,
+    DeliveryOutcome, FrameOrigin, MediumEvent, RadioDmaDirection, RadioFrame, RadioLegalityRule,
+    RadioPeer, RadioProtocol, RadioSubsystem, Receiver, ReplayArtifact, Spectrum, TransmissionId,
+    TxRequest, WifiEngine, ble_link_decrypt_pdu, ble_link_encrypt_pdu,
 };
-const EMULATED_NODE: NodeId = NodeId(1);
-const HOST_NODE: NodeId = NodeId(0);
-// Native RWBLE interrupt causes, recovered from the revision-zero ROM ISR's
-// register dispatch. These are hardware status bits, not symbol hooks: bit 5
-// dispatches the programmed-slot END handler and bit 6 the SKIP handler. Bits
-// 1 and 2 dispatch TX and RX respectively; bit 18 updates the RX-buffer ring.
-const S3_RWBLE_SLEEP_WAKE_COMPLETE_INTERRUPT: u32 = 1;
-const S3_RWBLE_SLEEP_WAKE_INTERRUPT: u32 = 1 << 3;
-const S3_RWBLE_RX_INTERRUPT: u32 = 1 << 2;
-const S3_RWBLE_TX_INTERRUPT: u32 = 1 << 1;
-const S3_RWBLE_END_INTERRUPT: u32 = 1 << 5;
-const S3_RWBLE_SKIP_INTERRUPT: u32 = 1 << 6;
-const S3_BLE_INTERFRAME_SPACE_TICKS: u64 = 2_400;
-const S3_BLE_1M_BYTE_TICKS: u64 = 8 * 16;
-const S3_BLE_FINE_POSITION_TICKS: u64 = 8;
-const S3_BLE_FINE_POSITIONS_PER_HALF_SLOT: u64 = 625;
-const S3_BLE_HALF_SLOT_TICKS: u64 =
-    S3_BLE_FINE_POSITION_TICKS * S3_BLE_FINE_POSITIONS_PER_HALF_SLOT;
-const S3_BLE_COARSE_MASK: u64 = 0x0fff_ffff;
-const S3_BLE_CLOCK_CYCLE_TICKS: u64 = (S3_BLE_COARSE_MASK + 1) * S3_BLE_HALF_SLOT_TICKS;
-const BLE_ADVERTISING_ACCESS_ADDRESS: u32 = 0x8e89_bed6;
-
 impl XtensaMachine {
     /// Attaches a deterministic external peer to the ESP32-S3 isolated RF
     /// medium. The peer observes emitted frames only and cannot access machine
@@ -688,9 +674,22 @@ impl XtensaMachine {
             ble_pending || rwble_pending,
             self.now,
         )?;
-        self.update_matrix_source(0, wifi_pending)?;
-        self.update_matrix_source(4, ble_pending)?;
-        self.update_matrix_source(8, rwble_pending)?;
+        for (index, ((source_name, source), pending)) in S3_RADIO_INTERRUPT_SOURCES
+            .into_iter()
+            .zip([wifi_pending, ble_pending, rwble_pending])
+            .enumerate()
+        {
+            if self.radio_interrupt_sources[index] != pending {
+                self.bus.observe_interrupt_transition(
+                    self.now,
+                    source_name,
+                    source as u16,
+                    pending,
+                );
+                self.radio_interrupt_sources[index] = pending;
+            }
+            self.update_matrix_source(source, pending)?;
+        }
         Ok(events)
     }
 
