@@ -51,6 +51,11 @@ impl SignalHub {
         operation(&state.registry)
     }
 
+    /// Returns whether any signal changes are waiting to be consumed.
+    pub fn has_changes(&self) -> bool {
+        !self.inner.borrow().changes.is_empty()
+    }
+
     /// Removes all pending changes in chronological insertion order.
     pub fn drain_changes(&self) -> Vec<SignalChange> {
         let mut state = self.inner.borrow_mut();

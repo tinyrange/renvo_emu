@@ -33,7 +33,6 @@ const MODE_ENCRYPT_256: u32 = 2;
 const MODE_DECRYPT_128: u32 = 4;
 const MODE_DECRYPT_256: u32 = 6;
 const STATE_IDLE: u32 = 0;
-const STATE_DONE: u32 = 2;
 
 /// Deterministic functional subset of the ESP32-C6 AES peripheral.
 ///
@@ -121,7 +120,10 @@ impl EspAes {
             }
         }
         self.output.copy_from_slice(&block);
-        self.state = STATE_DONE;
+        // C6 non-DMA transforms self-complete back to IDLE. The DONE state
+        // is observed only by the separate DMA completion flow; IDF's
+        // aes_hal_transform_block() waits specifically for IDLE.
+        self.state = STATE_IDLE;
         Ok(())
     }
 
@@ -258,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn aes128_ecb_matches_nist_vector_and_reports_done() {
+    fn aes128_ecb_matches_nist_vector_and_returns_idle() {
         let mut device = EspAes::new("aes");
         write_bytes(
             &mut device,
@@ -276,7 +278,7 @@ mod tests {
         device
             .write(TRIGGER, AccessWidth::Word, 1, SimTime::ZERO)
             .unwrap();
-        assert_eq!(device.read(STATE, AccessWidth::Word, SimTime::ZERO), Ok(2));
+        assert_eq!(device.read(STATE, AccessWidth::Word, SimTime::ZERO), Ok(0));
         assert_eq!(
             read_bytes(&mut device),
             [

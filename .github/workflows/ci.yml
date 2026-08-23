@@ -40,7 +40,7 @@ jobs:
         run: cargo build --release -p remu-web --target wasm32-wasip2 --locked
 
       - name: Install Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: npm
@@ -65,6 +65,17 @@ jobs:
       - name: Check source layout
         run: ./scripts/check-source-layout.sh
 
+      - name: Check radio provenance and inventory
+        run: |
+          ./scripts/check-radio-sources.py
+          ./scripts/check-radio-power-transition-contract.py
+
+      - name: Check C6 RF register and error references
+        run: ./scripts/check-c6-rf-register-reference.py
+
+      - name: Check C6 custom radio driver contract
+        run: ./scripts/check-c6-custom-driver-contract.py
+
       - name: Check package manifests
         run: cargo package --workspace --locked --allow-dirty --no-verify --list >/dev/null
 
@@ -84,8 +95,11 @@ jobs:
       - name: Build pinned Espressif GCC image
         run: docker build --tag remu/xtensa-esp-gcc:local toolchains/xtensa-esp-gcc
 
-      - name: Run native peripheral qualification
+      - name: Run native peripheral and radio qualification
         run: ./scripts/qualify-esp32s3-peripherals.sh
+
+      - name: Run vendor-independent radio contract coverage
+        run: ./scripts/qualify-esp-radio-custom-stack.sh esp32s3
 
       - name: Run ESP-IDF and TinyUSB stack qualification
         run: ./scripts/qualify-esp32s3-usb-stacks.sh
@@ -95,11 +109,12 @@ jobs:
 
       - name: Upload qualification evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: esp32s3-peripheral-qualification
           path: |
             .remu/qualification/esp32s3-peripherals
+            .remu/qualification/radio-custom-stack/esp32s3
             .remu/qualification/esp32s3-usb-stacks
             .remu/qualification/board-models
           if-no-files-found: ignore
@@ -120,13 +135,190 @@ jobs:
       - name: Build pinned Espressif RISC-V GCC image
         run: docker build --tag remu/riscv32-esp-gcc:local toolchains/riscv32-esp-gcc
 
-      - name: Run native peripheral qualification
+      - name: Build pinned ESP32-C6 packaging image
+        run: docker build --file hardware/nanoc6/Dockerfile.esptool --tag remu/nanoc6-esptool:5.3.0 hardware/nanoc6
+
+      - name: Fetch pinned ESP32-C6 base image
+        run: ./scripts/fetch-micropython.sh
+
+      - name: Run native peripheral and radio qualification
         run: ./scripts/qualify-esp32c6-peripherals.sh
+
+      - name: Run vendor-independent radio contract coverage
+        run: ./scripts/qualify-esp-radio-custom-stack.sh esp32c6
+
+      - name: Run exact-image C6 RF station and WPA2 qualification
+        run: ./scripts/qualify-c6-rf-probe.sh
 
       - name: Upload qualification evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: esp32c6-peripheral-qualification
-          path: .remu/qualification/esp32c6-peripherals
+          path: |
+            .remu/qualification/esp32c6-peripherals
+            .remu/qualification/radio-custom-stack/esp32c6
+            .remu/qualification/c6-rf-probe
+          if-no-files-found: ignore
+
+  esp-radio-rom:
+    name: ${{ matrix.chip }} real mask-ROM qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        chip: [esp32c6, esp32s3]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Pull pinned ESP-IDF image
+        run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
+
+      - name: Require real ROM and vendor firmware execution
+        run: ./scripts/qualify-esp-radio-rom.sh ${{ matrix.chip }}
+
+      - name: Require genuine BLE controller TX, RX, and modem sleep/wake
+        run: ./scripts/qualify-esp-radio-ble-vendor.sh ${{ matrix.chip }}
+
+      - name: Require genuine IEEE 802.15.4 MAC TX, RX, and ED
+        if: matrix.chip == 'esp32c6'
+        run: ./scripts/qualify-esp-radio-ieee802154-vendor.sh esp32c6
+
+      - name: Upload real-ROM evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.chip }}-radio-rom-qualification
+          path: |
+            .remu/qualification/radio-rom/${{ matrix.chip }}
+            .remu/qualification/radio-ble-vendor/${{ matrix.chip }}
+            .remu/qualification/radio-ieee802154-vendor/${{ matrix.chip }}
+          if-no-files-found: ignore
+
+  esp32c6-openthread:
+    name: ESP32-C6 genuine OpenThread radio and FTD/CLI qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Pull pinned ESP-IDF image
+        run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
+
+      - name: Require genuine OpenThread native-radio workflows
+        run: ./scripts/qualify-esp-radio-openthread-vendor.sh esp32c6
+
+      - name: Require genuine OpenThread FTD, persistent keys, and CLI traffic
+        run: ./scripts/qualify-esp-radio-openthread-cli-vendor.sh esp32c6
+
+      - name: Upload OpenThread qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: esp32c6-openthread-radio-qualification
+          path: |
+            .remu/qualification/radio-openthread-vendor/esp32c6
+            .remu/qualification/radio-openthread-cli-vendor/esp32c6
+          if-no-files-found: ignore
+
+  esp32c6-zigbee:
+    name: ESP32-C6 genuine Zigbee native-radio qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Pull pinned ESP-IDF image
+        run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
+
+      - name: Require genuine Zigbee network formation and beacon exchange
+        run: ./scripts/qualify-esp-radio-zigbee-vendor.sh esp32c6
+
+      - name: Upload Zigbee qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: esp32c6-zigbee-radio-qualification
+          path: .remu/qualification/radio-zigbee-vendor/esp32c6
+          if-no-files-found: ignore
+
+  esp-radio-wifi-softap:
+    name: ${{ matrix.chip }} genuine SoftAP and ESP-NOW qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        chip: [esp32c6, esp32s3]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Pull pinned ESP-IDF image
+        run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
+
+      - name: Require genuine SoftAP association and ESP-NOW exchange
+        run: ./scripts/qualify-esp-radio-wifi-softap-vendor.sh ${{ matrix.chip }}
+
+      - name: Upload SoftAP and ESP-NOW qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.chip }}-radio-wifi-softap-qualification
+          path: .remu/qualification/radio-wifi-softap-vendor/${{ matrix.chip }}
+          if-no-files-found: ignore
+
+  esp-radio-coexistence:
+    name: ${{ matrix.chip }} genuine multi-radio coexistence qualification
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        chip: [esp32c6, esp32s3]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Pull pinned ESP-IDF image
+        run: docker pull espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67
+
+      - name: Require genuine simultaneous radio ownership
+        run: ./scripts/qualify-esp-radio-coexistence-vendor.sh ${{ matrix.chip }}
+
+      - name: Upload coexistence qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.chip }}-radio-coexistence-qualification
+          path: .remu/qualification/radio-coexistence-vendor/${{ matrix.chip }}
           if-no-files-found: ignore

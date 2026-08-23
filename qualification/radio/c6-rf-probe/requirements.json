@@ -1,0 +1,71 @@
+{
+  "schema": "remu.c6-rf-probe-requirements.v1",
+  "target": "esp32c6",
+  "toolchain": "toolchains/riscv32-esp-gcc-esp32c6.toml",
+  "base_flash": {
+    "path": ".remu/firmware/micropython-v1.28.0/M5STACK_NANOC6-20260406-v1.28.0.bin",
+    "sha256": "30c63e16024a762799fcb1c4693c7dd5847b5a81ad42733edc03b0dd28308faa",
+    "application_offset": 65536
+  },
+  "max_instructions": 100000,
+  "wpa2_max_instructions": 1000000,
+  "mmio_contract": {
+    "path": "qualification/radio/c6-rf-probe/mmio-contract.json",
+    "schema": "remu.custom-radio-driver-mmio.v1",
+    "checker": "scripts/check-c6-custom-driver-contract.py",
+    "dependency_count": 24,
+    "radio_dependency_count": 18
+  },
+  "wpa2_psk": {
+    "ssid": "REMU-C6-WPA2",
+    "passphrase": "renvo-c6-wpa2",
+    "pbkdf2_hmac_sha1_iterations": 4096,
+    "pmk_hex": "6711aed40e7692154acfdfa8b0fd6d67bd2eb8384c98dc924159c3eea58101d9",
+    "tk_hex": "3e29425fcd3c44d01b2987874751b998"
+  },
+  "required_checkpoints": [
+    "INIT",
+    "CH1-P08",
+    "CH6-P14",
+    "CH11-P20",
+    "WARM-P14",
+    "RESET_RADIO",
+    "RESET-P14",
+    "READY"
+  ],
+  "open_station_checkpoints": [
+    "OPEN_START",
+    "OPEN_SCAN",
+    "OPEN_AUTH",
+    "OPEN_ASSOC",
+    "OPEN_L2_TX",
+    "OPEN_L2_RX"
+  ],
+  "wpa2_station_checkpoints": [
+    "WPA2_START",
+    "WPA2_SCAN",
+    "WPA2_AUTH",
+    "WPA2_ASSOC",
+    "EAPOL_M2",
+    "EAPOL_M4",
+    "CCMP_INSTALLED",
+    "CCMP_TX",
+    "CCMP_RX"
+  ],
+  "required_airtime": [
+    {"ssid": "REMU-C6-RF-CH1-P08", "center_khz": 2412000, "power_dbm": 8},
+    {"ssid": "REMU-C6-RF-CH6-P14", "center_khz": 2437000, "power_dbm": 14},
+    {"ssid": "REMU-C6-RF-CH11-P20", "center_khz": 2462000, "power_dbm": 20},
+    {"ssid": "REMU-C6-RF-WARM-P14", "center_khz": 2437000, "power_dbm": 14},
+    {"ssid": "REMU-C6-RF-RESET-P14", "center_khz": 2462000, "power_dbm": 14}
+  ],
+  "commands": [
+    "INIT",
+    "CHANNEL <1..13>",
+    "POWER <8|14|20>",
+    "RX START",
+    "RX STOP",
+    "TX <tag>",
+    "RESET RADIO"
+  ]
+}

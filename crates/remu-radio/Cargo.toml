@@ -1,0 +1,21 @@
+[package]
+name = "remu-radio"
+description = "Deterministic, host-isolated RF medium and radio replay contracts for Renvo Emulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aes.workspace = true
+ccm.workspace = true
+hex.workspace = true
+remu-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

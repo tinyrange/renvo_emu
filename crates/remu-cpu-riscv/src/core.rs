@@ -16,55 +16,10 @@ use remu_core::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+mod decode;
 mod execution;
-const CSR_MSTATUS: u16 = 0x300;
-const CSR_USTATUS: u16 = 0x000;
-const CSR_UIE: u16 = 0x004;
-const CSR_UTVEC: u16 = 0x005;
-const CSR_USCRATCH: u16 = 0x040;
-const CSR_UEPC: u16 = 0x041;
-const CSR_UCAUSE: u16 = 0x042;
-const CSR_UTVAL: u16 = 0x043;
-const CSR_UIP: u16 = 0x044;
-const CSR_MISA: u16 = 0x301;
-const CSR_MEDELEG: u16 = 0x302;
-const CSR_MIDELEG: u16 = 0x303;
-const CSR_MIE: u16 = 0x304;
-const CSR_MTVEC: u16 = 0x305;
-const CSR_MCOUNTEREN: u16 = 0x306;
-const CSR_MSCRATCH: u16 = 0x340;
-const CSR_MEPC: u16 = 0x341;
-const CSR_MCAUSE: u16 = 0x342;
-const CSR_MTVAL: u16 = 0x343;
-const CSR_MIP: u16 = 0x344;
-const CSR_PMPCFG0: u16 = 0x3a0;
-const CSR_PMPCFG3: u16 = 0x3a3;
-const CSR_PMPADDR0: u16 = 0x3b0;
-const CSR_PMPADDR15: u16 = 0x3bf;
-const CSR_ESP_PCER_MACHINE: u16 = 0x7e0;
-const CSR_ESP_PCMR_MACHINE: u16 = 0x7e1;
-const CSR_ESP_PCCR_MACHINE: u16 = 0x7e2;
-const CSR_MCYCLE: u16 = 0xb00;
-const CSR_MINSTRET: u16 = 0xb02;
-const CSR_MCYCLEH: u16 = 0xb80;
-const CSR_MINSTRETH: u16 = 0xb82;
-const CSR_PMACFG0: u16 = 0xbc0;
-const CSR_PMACFG15: u16 = 0xbcf;
-const CSR_PMAADDR0: u16 = 0xbd0;
-const CSR_PMAADDR15: u16 = 0xbdf;
-const CSR_MEIEA: u16 = 0xbe0;
-const CSR_MEIPA: u16 = 0xbe1;
-const CSR_MEIFA: u16 = 0xbe2;
-const CSR_MEIPRA: u16 = 0xbe3;
-const CSR_MEINEXT: u16 = 0xbe4;
-const CSR_MEICONTEXT: u16 = 0xbe5;
-const CSR_QINGKE_INTSYSCR: u16 = 0x804;
-const MSTATUS_MIE: u32 = 1 << 3;
-const MSTATUS_MPIE: u32 = 1 << 7;
-const MSTATUS_MPP: u32 = 3 << 11;
-const USTATUS_UIE: u32 = 1;
-const USTATUS_UPIE: u32 = 1 << 4;
-const HAZARD3_IRQ_WINDOWS: usize = 32;
+use decode::*;
+include!("core/constants.rs");
 
 /// Interrupt and trap behaviour selected by a chip profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -336,7 +291,7 @@ pub struct RiscVCpu {
     waiting: bool,
     halted: bool,
     privilege: RiscVPrivilege,
-    asserted_interrupts: BTreeSet<u16>,
+    asserted_interrupts: u32,
     qingke_external_interrupts: BTreeSet<u16>,
     hazard3_external_interrupts: BTreeSet<u16>,
     hazard3_external_enabled: [u16; HAZARD3_IRQ_WINDOWS],
@@ -346,6 +301,7 @@ pub struct RiscVCpu {
     esp32c6_active_interrupts: Vec<u16>,
     reservation: Option<u32>,
     pending_memory_trap: Option<(u32, u32)>,
+    pmp_enabled: bool,
 }
 
 impl RiscVCpu {
@@ -362,7 +318,7 @@ impl RiscVCpu {
             waiting: false,
             halted: false,
             privilege: RiscVPrivilege::Machine,
-            asserted_interrupts: BTreeSet::new(),
+            asserted_interrupts: 0,
             qingke_external_interrupts: BTreeSet::new(),
             hazard3_external_interrupts: BTreeSet::new(),
             hazard3_external_enabled: [0; HAZARD3_IRQ_WINDOWS],
@@ -372,6 +328,7 @@ impl RiscVCpu {
             esp32c6_active_interrupts: Vec::new(),
             reservation: None,
             pending_memory_trap: None,
+            pmp_enabled: false,
         };
         cpu.initialize_csrs();
         Ok(cpu)
@@ -385,6 +342,13 @@ impl RiscVCpu {
     /// Current 32-bit program counter.
     pub const fn pc(&self) -> u32 {
         self.pc
+    }
+
+    /// Replaces the complete set of asserted local interrupt lines.
+    pub fn set_interrupt_mask(&mut self, asserted: u32) {
+        self.asserted_interrupts = asserted;
+        self.csrs[usize::from(CSR_MIP)] = asserted;
+        self.csrs[usize::from(CSR_UIP)] = asserted & self.csrs[usize::from(CSR_MIDELEG)];
     }
 
     /// Current architectural privilege level.
@@ -583,10 +547,10 @@ impl RiscVCpu {
     fn refresh_hazard3_machine_external(&mut self) {
         let machine_external = self.hazard3_next_external().is_some();
         if machine_external {
-            self.asserted_interrupts.insert(11);
+            self.asserted_interrupts |= 1 << 11;
             self.csrs[usize::from(CSR_MIP)] |= 1 << 11;
         } else {
-            self.asserted_interrupts.remove(&11);
+            self.asserted_interrupts &= !(1 << 11);
             self.csrs[usize::from(CSR_MIP)] &= !(1 << 11);
         }
     }
@@ -678,18 +642,25 @@ impl RiscVCpu {
         }
     }
 
+    #[inline(always)]
     fn check_register(&self, index: u8) -> Result<(), CpuFault> {
-        if index >= self.profile.registers {
-            return Err(CpuFault::new(
-                CpuFaultKind::IllegalInstruction,
-                self.pc.into(),
-                format!(
-                    "register x{index} is not available in {}",
-                    self.profile.name
-                ),
-            ));
+        if index < self.profile.registers {
+            return Ok(());
         }
-        Ok(())
+        self.invalid_register(index)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn invalid_register(&self, index: u8) -> Result<(), CpuFault> {
+        Err(CpuFault::new(
+            CpuFaultKind::IllegalInstruction,
+            self.pc.into(),
+            format!(
+                "register x{index} is not available in {}",
+                self.profile.name
+            ),
+        ))
     }
 
     fn write_register(&mut self, index: u8, value: u32) {
@@ -699,6 +670,7 @@ impl RiscVCpu {
         self.registers[0] = 0;
     }
 
+    #[inline(always)]
     fn read_register(&self, index: u8) -> Result<u32, CpuFault> {
         self.check_register(index)?;
         Ok(self.registers[usize::from(index)])
@@ -730,6 +702,9 @@ impl RiscVCpu {
         now: SimTime,
     ) -> Result<u32, CpuFault> {
         self.check_pmp_access(address, width, AccessKind::Read)?;
+        if let Some(value) = bus.fast_read(u64::from(address), width) {
+            return Ok(value as u32);
+        }
         bus.read(u64::from(address), width, AccessKind::Read, now)
             .map(|value| value as u32)
             .map_err(|fault| {
@@ -751,6 +726,9 @@ impl RiscVCpu {
     ) -> Result<(), CpuFault> {
         self.check_pmp_access(address, width, AccessKind::Write)?;
         self.reservation = None;
+        if bus.fast_write(u64::from(address), width, u64::from(value)) {
+            return Ok(());
+        }
         bus.write(u64::from(address), width, u64::from(value), now)
             .map_err(|fault| {
                 CpuFault::new(
@@ -797,15 +775,26 @@ impl RiscVCpu {
         }
     }
 
+    #[inline(always)]
     fn check_pmp_access(
         &mut self,
         address: u32,
         width: AccessWidth,
         kind: AccessKind,
     ) -> Result<(), CpuFault> {
-        if !self.profile.esp32c6_memory_protection_csrs {
+        if !self.profile.esp32c6_memory_protection_csrs || !self.pmp_enabled {
             return Ok(());
         }
+        self.check_enabled_pmp_access(address, width, kind)
+    }
+
+    #[inline(never)]
+    fn check_enabled_pmp_access(
+        &mut self,
+        address: u32,
+        width: AccessWidth,
+        kind: AccessKind,
+    ) -> Result<(), CpuFault> {
         let bytes = match width {
             AccessWidth::Byte => 1,
             AccessWidth::HalfWord => 2,
@@ -873,8 +862,16 @@ impl RiscVCpu {
             {
                 self.csrs[usize::from(address)]
             }
-            CSR_ESP_PCCR_MACHINE if self.profile.esp32c6_memory_protection_csrs => {
+            CSR_ESP_PCCR_MACHINE | CSR_ESP_PCCR_USER
+                if self.profile.esp32c6_memory_protection_csrs =>
+            {
                 self.cycle as u32
+            }
+            CSR_ESP_PCER_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCER_MACHINE)]
+            }
+            CSR_ESP_PCMR_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCMR_MACHINE)]
             }
             CSR_QINGKE_INTSYSCR if self.profile.interrupt_model == InterruptModel::QingKe => {
                 self.csrs[usize::from(address)]
@@ -949,6 +946,8 @@ impl RiscVCpu {
                     }
                 }
                 self.csrs[usize::from(address)] = merged;
+                self.pmp_enabled = (CSR_PMPCFG0..=CSR_PMPCFG3)
+                    .any(|csr| self.csrs[usize::from(csr)] & 0x1818_1818 != 0);
             }
             CSR_PMPADDR0..=CSR_PMPADDR15 if self.profile.esp32c6_memory_protection_csrs => {
                 let entry = usize::from(address - CSR_PMPADDR0);
@@ -966,8 +965,16 @@ impl RiscVCpu {
             {
                 self.csrs[usize::from(address)] = value;
             }
-            CSR_ESP_PCCR_MACHINE if self.profile.esp32c6_memory_protection_csrs => {
+            CSR_ESP_PCCR_MACHINE | CSR_ESP_PCCR_USER
+                if self.profile.esp32c6_memory_protection_csrs =>
+            {
                 self.cycle = (self.cycle & 0xffff_ffff_0000_0000) | u64::from(value);
+            }
+            CSR_ESP_PCER_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCER_MACHINE)] = value;
+            }
+            CSR_ESP_PCMR_USER if self.profile.esp32c6_memory_protection_csrs => {
+                self.csrs[usize::from(CSR_ESP_PCMR_MACHINE)] = value;
             }
             CSR_QINGKE_INTSYSCR if self.profile.interrupt_model == InterruptModel::QingKe => {
                 self.csrs[usize::from(address)] = value;
@@ -1024,15 +1031,14 @@ impl RiscVCpu {
         {
             return Some(*line);
         }
-        self.asserted_interrupts
-            .iter()
-            .copied()
+        (0..32_u16)
             .filter(|line| {
-                !(self.profile.esp32c6_memory_protection_csrs
-                    && self.esp32c6_active_interrupts.contains(line)
-                    || *line == 11
-                        && self.profile.interrupt_model == InterruptModel::Hazard3
-                        && self.hazard3_external_active)
+                self.asserted_interrupts & (1_u32 << line) != 0
+                    && !(self.profile.esp32c6_memory_protection_csrs
+                        && self.esp32c6_active_interrupts.contains(line)
+                        || *line == 11
+                            && self.profile.interrupt_model == InterruptModel::Hazard3
+                            && self.hazard3_external_active)
             })
             .find(|line| {
                 let bit = 1_u32 << line;
@@ -1141,7 +1147,7 @@ impl Cpu for RiscVCpu {
         self.waiting = false;
         self.halted = false;
         self.privilege = RiscVPrivilege::Machine;
-        self.asserted_interrupts.clear();
+        self.asserted_interrupts = 0;
         self.qingke_external_interrupts.clear();
         self.hazard3_external_interrupts.clear();
         self.hazard3_external_enabled = [0; HAZARD3_IRQ_WINDOWS];
@@ -1151,6 +1157,7 @@ impl Cpu for RiscVCpu {
         self.esp32c6_active_interrupts.clear();
         self.reservation = None;
         self.pending_memory_trap = None;
+        self.pmp_enabled = false;
         self.initialize_csrs();
         Ok(())
     }
@@ -1176,10 +1183,31 @@ impl Cpu for RiscVCpu {
 
         self.pending_memory_trap = None;
         let execution = (|| {
-            let low = self.fetch16(bus, self.pc, now)?;
+            let prefetched = bus
+                .fast_fetch32(u64::from(self.pc), now)
+                .transpose()
+                .map_err(|fault| {
+                    CpuFault::new(
+                        CpuFaultKind::Bus,
+                        self.pc.into(),
+                        format!("instruction fetch failed: {fault}"),
+                    )
+                })?;
+            if prefetched.is_some() {
+                self.check_pmp_access(self.pc, AccessWidth::HalfWord, AccessKind::Execute)?;
+            }
+            let low = if let Some(instruction) = prefetched {
+                instruction as u16
+            } else {
+                self.fetch16(bus, self.pc, now)?
+            };
             if low & 0x3 == 0x3 {
                 self.check_pmp_access(self.pc, AccessWidth::Word, AccessKind::Execute)?;
-                let high = self.fetch16(bus, self.pc.wrapping_add(2), now)?;
+                let high = if let Some(instruction) = prefetched {
+                    (instruction >> 16) as u16
+                } else {
+                    self.fetch16(bus, self.pc.wrapping_add(2), now)?
+                };
                 self.execute32(u32::from(low) | (u32::from(high) << 16), bus, now)
             } else if self.profile.extension_c {
                 self.execute16(low, bus, now)
@@ -1217,13 +1245,13 @@ impl Cpu for RiscVCpu {
             ));
         }
         if asserted {
-            self.asserted_interrupts.insert(line);
+            self.asserted_interrupts |= 1_u32 << line;
             self.csrs[usize::from(CSR_MIP)] |= 1_u32 << line;
             if self.csrs[usize::from(CSR_MIDELEG)] & (1_u32 << line) != 0 {
                 self.csrs[usize::from(CSR_UIP)] |= 1_u32 << line;
             }
         } else {
-            self.asserted_interrupts.remove(&line);
+            self.asserted_interrupts &= !(1_u32 << line);
             self.csrs[usize::from(CSR_MIP)] &= !(1_u32 << line);
             self.csrs[usize::from(CSR_UIP)] &= !(1_u32 << line);
         }
@@ -1288,198 +1316,6 @@ impl Cpu for RiscVCpu {
             halted: self.halted,
         }
     }
-}
-
-fn execute_m(funct3: u32, left: u32, right: u32) -> Option<u32> {
-    Some(match funct3 {
-        0 => left.wrapping_mul(right),
-        1 => (((left as i32 as i64) * (right as i32 as i64)) >> 32) as u32,
-        2 => (((left as i32 as i64) * i64::from(right)) >> 32) as u32,
-        3 => ((u64::from(left) * u64::from(right)) >> 32) as u32,
-        4 => {
-            if right == 0 {
-                u32::MAX
-            } else if left == 0x8000_0000 && right == u32::MAX {
-                left
-            } else {
-                ((left as i32) / (right as i32)) as u32
-            }
-        }
-        5 => {
-            if right == 0 {
-                u32::MAX
-            } else {
-                left / right
-            }
-        }
-        6 => {
-            if right == 0 {
-                left
-            } else if left == 0x8000_0000 && right == u32::MAX {
-                0
-            } else {
-                ((left as i32) % (right as i32)) as u32
-            }
-        }
-        7 => {
-            if right == 0 {
-                left
-            } else {
-                left % right
-            }
-        }
-        _ => return None,
-    })
-}
-
-fn execute_b_register(funct7: u32, funct3: u32, left: u32, right: u32) -> Option<u32> {
-    let shift = right & 0x1f;
-    Some(match (funct7, funct3) {
-        // Zba
-        (0x10, 2) => right.wrapping_add(left << 1),
-        (0x10, 4) => right.wrapping_add(left << 2),
-        (0x10, 6) => right.wrapping_add(left << 3),
-        // Zbb
-        (0x20, 4) => left ^ !right,
-        (0x20, 6) => left | !right,
-        (0x20, 7) => left & !right,
-        (0x30, 1) => left.rotate_left(shift),
-        (0x30, 5) => left.rotate_right(shift),
-        (0x05, 4) => (left as i32).min(right as i32) as u32,
-        (0x05, 5) => left.min(right),
-        (0x05, 6) => (left as i32).max(right as i32) as u32,
-        (0x05, 7) => left.max(right),
-        // Zbkb
-        (0x04, 4) => (left & 0xffff) | (right << 16),
-        (0x04, 7) => (left & 0xff) | ((right & 0xff) << 8),
-        // Zbs
-        (0x24, 1) => left & !(1 << shift),
-        (0x24, 5) => (left >> shift) & 1,
-        (0x34, 1) => left ^ (1 << shift),
-        (0x14, 1) => left | (1 << shift),
-        _ => return None,
-    })
-}
-
-fn execute_b_immediate(
-    instruction: u32,
-    funct3: u32,
-    left: u32,
-    shift_register: u8,
-) -> Option<u32> {
-    let immediate = instruction >> 20;
-    let funct7 = instruction >> 25;
-    let shift = u32::from(shift_register & 0x1f);
-    Some(match (funct3, immediate) {
-        (1, 0x600) => left.leading_zeros(),
-        (1, 0x601) => left.trailing_zeros(),
-        (1, 0x602) => left.count_ones(),
-        (1, 0x604) => i32::from(left as u8 as i8) as u32,
-        (1, 0x605) => i32::from(left as u16 as i16) as u32,
-        (5, 0x698) => left.swap_bytes(),
-        (5, 0x287) => {
-            let mut result = 0_u32;
-            for byte in 0..4 {
-                if left & (0xff << (byte * 8)) != 0 {
-                    result |= 0xff << (byte * 8);
-                }
-            }
-            result
-        }
-        _ => match (funct7, funct3) {
-            (0x30, 5) => left.rotate_right(shift),
-            (0x24, 1) => left & !(1 << shift),
-            (0x24, 5) => (left >> shift) & 1,
-            (0x34, 1) => left ^ (1 << shift),
-            (0x14, 1) => left | (1 << shift),
-            _ => return None,
-        },
-    })
-}
-
-const fn sign_extend(value: u32, bits: u32) -> i32 {
-    let shift = 32 - bits;
-    ((value << shift) as i32) >> shift
-}
-
-const fn decode_j_immediate(instruction: u32) -> i32 {
-    let encoded = ((instruction >> 31) << 20)
-        | (((instruction >> 12) & 0xff) << 12)
-        | (((instruction >> 20) & 1) << 11)
-        | (((instruction >> 21) & 0x3ff) << 1);
-    sign_extend(encoded, 21)
-}
-
-const fn decode_b_immediate(instruction: u32) -> i32 {
-    let encoded = ((instruction >> 31) << 12)
-        | (((instruction >> 7) & 1) << 11)
-        | (((instruction >> 25) & 0x3f) << 5)
-        | (((instruction >> 8) & 0xf) << 1);
-    sign_extend(encoded, 13)
-}
-
-const fn compact_register(encoded: u16) -> u8 {
-    8 + encoded as u8
-}
-
-fn decode_c_imm6(instruction: u16) -> i32 {
-    sign_extend(
-        u32::from((instruction >> 2) & 0x1f) | (u32::from(instruction >> 12) << 5),
-        6,
-    )
-}
-
-fn decode_c_addi4spn(instruction: u16) -> u32 {
-    (u32::from((instruction >> 6) & 1) << 2)
-        | (u32::from((instruction >> 5) & 1) << 3)
-        | (u32::from((instruction >> 11) & 0x3) << 4)
-        | (u32::from((instruction >> 7) & 0xf) << 6)
-}
-
-fn decode_c_lw_sw(instruction: u16) -> u32 {
-    (u32::from((instruction >> 6) & 1) << 2)
-        | (u32::from((instruction >> 10) & 0x7) << 3)
-        | (u32::from((instruction >> 5) & 1) << 6)
-}
-
-fn decode_c_lwsp(instruction: u16) -> u32 {
-    (u32::from((instruction >> 4) & 0x7) << 2)
-        | (u32::from((instruction >> 12) & 1) << 5)
-        | (u32::from((instruction >> 2) & 0x3) << 6)
-}
-
-fn decode_c_swsp(instruction: u16) -> u32 {
-    (u32::from((instruction >> 9) & 0xf) << 2) | (u32::from((instruction >> 7) & 0x3) << 6)
-}
-
-fn decode_c_addi16sp(instruction: u16) -> i32 {
-    let encoded = (u32::from((instruction >> 6) & 1) << 4)
-        | (u32::from((instruction >> 2) & 1) << 5)
-        | (u32::from((instruction >> 5) & 1) << 6)
-        | (u32::from((instruction >> 3) & 0x3) << 7)
-        | (u32::from((instruction >> 12) & 1) << 9);
-    sign_extend(encoded, 10)
-}
-
-fn decode_c_jump(instruction: u16) -> i32 {
-    let encoded = (u32::from((instruction >> 3) & 0x7) << 1)
-        | (u32::from((instruction >> 11) & 1) << 4)
-        | (u32::from((instruction >> 2) & 1) << 5)
-        | (u32::from((instruction >> 7) & 1) << 6)
-        | (u32::from((instruction >> 6) & 1) << 7)
-        | (u32::from((instruction >> 9) & 0x3) << 8)
-        | (u32::from((instruction >> 8) & 1) << 10)
-        | (u32::from((instruction >> 12) & 1) << 11);
-    sign_extend(encoded, 12)
-}
-
-fn decode_c_branch(instruction: u16) -> i32 {
-    let encoded = (u32::from((instruction >> 3) & 0x3) << 1)
-        | (u32::from((instruction >> 10) & 0x3) << 3)
-        | (u32::from((instruction >> 2) & 1) << 5)
-        | (u32::from((instruction >> 5) & 0x3) << 6)
-        | (u32::from((instruction >> 12) & 1) << 8);
-    sign_extend(encoded, 9)
 }
 
 #[cfg(test)]

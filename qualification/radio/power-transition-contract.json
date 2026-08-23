@@ -1,0 +1,79 @@
+{
+  "schema": "remu.radio-power-transition-contract.v1",
+  "issue": 352,
+  "execution_boundary": {
+    "mode": "software-emulator-only",
+    "physical_rf_allowed": false,
+    "hardware_test_allowed": false,
+    "host_networking_allowed": false,
+    "symbol_dispatch_allowed": false,
+    "deterministic_replay_required": true
+  },
+  "bounded_stress": {
+    "low_power_cycles_per_chip": 256,
+    "active_airtime_transitions_per_chip": 128,
+    "openthread_sleep_wake_cycles": 16,
+    "vendor_workflow_count": 7,
+    "requirements_own_instruction_limits": true
+  },
+  "chips": {
+    "esp32c6": {
+      "protocols": {
+        "wifi": {
+          "genuine_firmware_workflow": "scripts/qualify-esp-radio-rom.sh esp32c6",
+          "transition": "native individual-TWT compare, wake interrupt, and active traffic",
+          "active_traffic_required": true,
+          "calibration_restoration_required": true,
+          "interrupt_sources": [0, 2],
+          "fault_semantics": "MODEM power gating or reset cancels active airtime and coexistence ownership"
+        },
+        "bluetooth-le": {
+          "genuine_firmware_workflow": "scripts/qualify-esp-radio-ble-vendor.sh esp32c6",
+          "transition": "100 kHz future RTC compare, source-18 arm/cancel/expire/clear, and native TX",
+          "active_traffic_required": true,
+          "calibration_restoration_required": true,
+          "interrupt_sources": [4, 5, 7],
+          "fault_semantics": "reset cancels an armed compare and pending controller work without a post-reset wake"
+        },
+        "ieee802154": {
+          "genuine_firmware_workflow": "scripts/qualify-esp-radio-openthread-vendor.sh esp32c6",
+          "transition": "native raw-link STOP, clock gate, wake, receive rearm, and traffic",
+          "active_traffic_required": true,
+          "calibration_restoration_required": true,
+          "interrupt_sources": [12],
+          "fault_semantics": "STOP before clock gate is legal; gating an armed receiver is a hard domain-ready error"
+        }
+      },
+      "coexistence_workflow": "scripts/qualify-esp-radio-coexistence-vendor.sh esp32c6"
+    },
+    "esp32s3": {
+      "protocols": {
+        "wifi": {
+          "genuine_firmware_workflow": "scripts/qualify-esp-radio-rom.sh esp32s3",
+          "transition": "firmware-observed register-interface clock gate after autonomous MAC queue handoff",
+          "active_traffic_required": true,
+          "calibration_restoration_required": true,
+          "interrupt_sources": [0],
+          "fault_semantics": "interface clock gating preserves accepted autonomous airtime; shared reset cancels it"
+        },
+        "bluetooth-le": {
+          "genuine_firmware_workflow": "scripts/qualify-esp-radio-ble-vendor.sh esp32s3",
+          "transition": "1 MHz duration, RF-sleep acknowledgement, wake-start, deferred wake-end, and native TX",
+          "active_traffic_required": true,
+          "calibration_restoration_required": true,
+          "interrupt_sources": [8],
+          "fault_semantics": "shared reset cancels sleep state and pending wake edges; out-of-order wake commands hard-fail"
+        }
+      },
+      "coexistence_workflow": "scripts/qualify-esp-radio-coexistence-vendor.sh esp32s3"
+    }
+  },
+  "focused_tests": [
+    "esp32c6_active_wifi_power_and_reset_stress_has_exact_replay_accounting",
+    "esp32s3_active_wifi_clock_and_reset_stress_has_exact_replay_accounting",
+    "c6_ble_sleep_timer_stress_cancels_or_completes_each_wake_exactly_once",
+    "stress_replays_sleep_wake_and_reset_cancellation_without_stale_edges",
+    "esp32c6_ieee802154_stop_clock_gate_wake_and_rearm_replays_exactly",
+    "esp32c6_ieee802154_clock_gate_during_receive_is_a_hard_machine_error"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "remu.radio-custom-stack-requirements.v1",
+  "chips": {
+    "esp32c6": {
+      "source": "esp32c6.c",
+      "toolchain": "toolchains/riscv32-esp-gcc-esp32c6.toml",
+      "artifact": "esp32c6-custom-radio.elf",
+      "max_instructions": 100000,
+      "wifi_frame_data_offset": 8,
+      "required_regions": [
+        "esp32c6.wifi-mac-registers",
+        "esp32c6.ble-baseband-registers",
+        "esp32c6.ieee802154",
+        "esp32c6.modem-syscon",
+        "esp32c6.interrupt-matrix",
+        "esp32c6.plic-machine"
+      ],
+      "families_exercised": ["wifi-mac", "ble-link-layer", "ieee802154-mac"],
+      "qualified_interrupt_sources_used": [0, 4, 5, 12]
+    },
+    "esp32s3": {
+      "source": "esp32s3.c",
+      "toolchain": "toolchains/xtensa-esp-gcc-esp32s3.toml",
+      "artifact": "esp32s3-custom-radio.elf",
+      "max_instructions": 100000,
+      "wifi_frame_data_offset": 0,
+      "required_regions": [
+        "esp32s3.wifi-mac-registers",
+        "esp32s3.ble-exchange-memory-registers",
+        "esp32s3.interrupt-matrix"
+      ],
+      "families_exercised": ["wifi-mac", "ble-link-layer"],
+      "qualified_interrupt_sources_used": [0, 8]
+    }
+  }
+}

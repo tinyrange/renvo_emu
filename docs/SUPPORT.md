@@ -43,7 +43,9 @@ See `scripts/qualify-micropython.sh` and
 `qualification/acceptance-report.html`.
 
 This milestone does not yet cover the complete upstream MicroPython suite,
-PWM/ADC/serial buses, watchdog resets, or virtual ESP radio connectivity.
+PWM/ADC/serial buses, or watchdog resets. ESP radio qualification uses an
+isolated deterministic RF medium; it deliberately does not connect firmware to
+a host network or claim physical-air fidelity.
 
 The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
 connection control surface. They start connected for existing console fixtures;
@@ -73,9 +75,21 @@ and CLINT; and the AES, SHA, RSA, ECC, HMAC, digital-signature and eFuse blocks
 have deterministic functional slices. The RV32IMAC LP core executes from
 retained LP SRAM and participates in modeled sleep, wake and reset transitions.
 Remaining analog, trace, debug and monitor/APM blocks are strict target-specific
-register facades where no behavioral contract is claimed. Wi-Fi, Bluetooth LE and IEEE 802.15.4 remain
-deliberately excluded pending a shared radio architecture. See
+register facades where no behavioral contract is claimed. ESP32-C6 Wi-Fi,
+Bluetooth LE, and IEEE 802.15.4 now use a shared deterministic RF medium with
+native MMIO, DMA/shared-memory, and interrupt paths. The IEEE 802.15.4
+qualification independently executes freestanding firmware and genuine
+ESP-IDF public APIs, requiring exact TX, FCS-bearing RX with RSSI/LQI metadata,
+energy detection, interrupt clearing, and byte-identical replay. This is
+functional LLE coverage, not an analog PHY or host-network bridge. See
 `docs/ESP32C6_PERIPHERALS.md` for the fidelity matrix and omissions.
+
+ESP32-C6 and ESP32-S3 genuine BLE-controller qualification covers hopped
+connections, LL version/feature/data-length procedures, ACL/L2CAP ATT traffic,
+remote PHY request/response and instant-based bidirectional 1M-to-2M updates,
+the public PHY-complete callback, remote termination, scan restart, and exact
+deterministic replay. Impossible or overlapping PHY instants stop through the
+radio legality validator rather than being silently accepted.
 
 ## Implemented CPU surface
 
@@ -241,9 +255,18 @@ The final distillation gate adds four bounded capabilities:
 - `remu corpus reduce` minimizes source fragments, flags and numeric inputs,
   recompiling every predicate inside the pinned Docker toolchain. The checked
   three-family evidence is `qualification/reduction.json`.
-- `remu script` evaluates Starlark assertions over caller-selected JSON only;
-  scripting never owns a machine or kernel state. Its portfolio proof is
-  `qualification/starlark.json`.
+- `remu script` evaluates Starlark assertions over caller-selected JSON only.
+  Its portfolio proof is `qualification/starlark.json`.
+- ESP32-C6/S3 direct runs can opt into `--agent-script`. Its `main()` receives
+  an opaque live-machine capability for bounded run slices, debugger reads and
+  writes, stops, deterministic input, and paginated RF evidence. Scripts may
+  load workspace-confined `.star` workflow modules, and `--agent-artifact`
+  records their JSON-compatible decisions plus a compact run summary. The C6
+  real-ROM gate uses this surface to prove genuine HE20/iTWT timer re-arming
+  and repeated wake events over 60 million instructions. The separate
+  `--radio-script` callback remains machine-isolated. Neither surface offers
+  symbol hooks or substitutes Starlark behavior for an LLE peripheral; see
+  `docs/AGENT_STARLARK.md`.
 - `remu board` resolves loaded Starlark board definitions into immutable
   topology/actions, then hands that scenario to the Rust board runner. It does
   not expose live CPU, scheduler, or peripheral state to the Starlark VM. With
@@ -321,8 +344,25 @@ either supported or unsupported.
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and
 pretty-printed ordering remain compatible with existing qualification
-artifacts. Coverage uses the same event stream but retains only unique executed
-addresses.
+artifacts. Repeated `--bus-log-region NAME` arguments retain only accesses whose
+exact bus-region name matches, which keeps long vendor-firmware MMIO evidence
+compact without changing execution. Coverage uses the same event stream but is
+not affected by that filter and retains all unique executed addresses.
+Each RISC-V CPU access includes the causative instruction `pc`. Accesses made
+by autonomous peripherals, DMA helpers, debuggers, or host orchestration omit
+that field rather than inheriting a stale PC. Direct-memory writes additionally
+include safe `pre_value` and `post_value` fields. Device writes omit them unless
+the model opts into a side-effect-free internal snapshot; the tracer never
+issues a second, potentially side-effecting MMIO read to discover an old value.
+The proven C6 RF/PHY register banks provide that snapshot. These fields are
+observational and cannot affect bus or device behavior.
+`--interrupt-log PATH` independently streams source-level transitions as
+timestamped JSON. C6 and S3 radio sources use their native interrupt-matrix
+numbers; only level changes are emitted, and autonomous transitions omit `pc`
+instead of inheriting the preceding instruction. The exact qualified source,
+W1C, reset, and unresolved-private-source boundary is documented in
+[`esp-radio-interrupts.md`](esp-radio-interrupts.md) and enforced by
+`qualification/radio/interrupt-contract.json`.
 
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the
@@ -330,7 +370,10 @@ corresponding esptool application binary with `--esp-app-image` enables a
 separate boot-layout gate. It checks the chip and entry metadata, descriptor
 and text segment ordering, 64 KiB mapping congruence, and correspondence with
 the executable ELF. The default application partition offset is `0x10000` and
-can be changed with `--esp-app-offset`.
+can be changed with `--esp-app-offset`. This mode requires `--boot-rom` with the
+matching real mask-ROM ELF. ESP32-C6/S3 native firmware boot and radio-capable
+direct execution have the same requirement; a CPU/compiler-only direct ELF
+harness remains exempt.
 
 In direct C6 runs, a main-watchdog system reset reloads the initialized ELF
 segments and entry point to model the second-stage application handoff. This

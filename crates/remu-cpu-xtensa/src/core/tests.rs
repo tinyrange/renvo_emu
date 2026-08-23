@@ -86,6 +86,28 @@ fn software_interrupt_survives_external_line_poll_until_guest_clear() {
 }
 
 #[test]
+fn processor_id_exposes_s3_raw_core_identity_and_survives_state_reset() {
+    let mut bus = AddressSpace::default();
+    let mut cpu = XtensaCpu::new();
+
+    // rsr.prid a8
+    cpu.execute_wide(0x03eb_80, &mut bus, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(cpu.registers[8], 0x0000_cdcd);
+
+    cpu.set_processor_id(1);
+    cpu.set_direct_state(0x3fce_0000, 0x4000_0000);
+    cpu.execute_wide(0x03eb_80, &mut bus, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(cpu.registers[8], 0x0000_abab);
+
+    cpu.reset(ResetKind::Software, &mut bus).unwrap();
+    cpu.execute_wide(0x03eb_80, &mut bus, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(cpu.registers[8], 0x0000_abab);
+}
+
+#[test]
 fn s32c1i_returns_old_word_and_only_stores_on_compare() {
     let mut bus = AddressSpace::default();
     bus.map_ram("memory", 0, 0x100, true).unwrap();
@@ -319,6 +341,24 @@ fn ssa8b_prepares_a_byte_position_for_sll() {
 }
 
 #[test]
+fn ssa8l_and_src_align_an_unaligned_little_endian_word() {
+    let mut bus = AddressSpace::default();
+    let mut cpu = XtensaCpu::new();
+    cpu.registers[3] = 0x1001;
+    cpu.registers[6] = 0x3322_1100;
+    cpu.registers[7] = 0x7766_5544;
+
+    // ssa8l a3; src a6,a7,a6
+    cpu.execute_wide(0x0040_2300, &mut bus, SimTime::ZERO)
+        .unwrap();
+    cpu.execute_wide(0x0081_6760, &mut bus, SimTime::from_ticks(1))
+        .unwrap();
+
+    assert_eq!(cpu.sar, 8);
+    assert_eq!(cpu.registers[6], 0x4433_2211);
+}
+
+#[test]
 fn src_with_zero_encoded_sar_selects_the_high_word() {
     let mut bus = AddressSpace::default();
     let mut cpu = XtensaCpu::new();
@@ -343,12 +383,206 @@ fn branch_to_stale_loop_end_does_not_reenter_old_body() {
     cpu.loop_begin = 4;
     cpu.loop_end = 19;
     cpu.loop_count = 3;
+    cpu.loop_active = true;
     cpu.registers[12] = 0;
 
     cpu.step(&mut bus, SimTime::ZERO).unwrap();
 
     assert_eq!(cpu.pc, 19);
-    assert_eq!(cpu.loop_count, 0);
+    // An instruction outside the active body can coincide with a retained
+    // LEND after an exception. It must neither consume LCOUNT nor redirect
+    // execution back into that body.
+    assert_eq!(cpu.loop_count, 3);
+    assert!(cpu.loop_active);
+    bus.load(19, &[0x3d, 0xf0]).unwrap();
+    cpu.step(&mut bus, SimTime::from_ticks(1)).unwrap();
+    assert_eq!(cpu.pc, 21);
+    assert_eq!(cpu.loop_count, 3);
+}
+
+#[test]
+fn unconditional_zero_count_loop_wraps_instead_of_falling_through() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("memory", 0, 0x100, true).unwrap();
+    // loop a8,+1; nop.n. Xtensa represents a zero source count as 2^32
+    // iterations by loading LCOUNT with 0xffff_ffff.
+    bus.load(0, &[0x76, 0x88, 0x01, 0x3d, 0xf0]).unwrap();
+    let mut cpu = XtensaCpu::new();
+    cpu.registers[8] = 0;
+
+    cpu.step(&mut bus, SimTime::ZERO).unwrap();
+    assert!(cpu.loop_active);
+    assert_eq!(cpu.loop_count, u32::MAX);
+    assert_eq!(cpu.pc, 3);
+
+    cpu.step(&mut bus, SimTime::from_ticks(1)).unwrap();
+    assert!(cpu.loop_active);
+    assert_eq!(cpu.loop_count, u32::MAX - 1);
+    assert_eq!(cpu.pc, 3);
+}
+
+#[test]
+fn interrupt_and_rfe_preserve_an_active_zero_overhead_loop() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("memory", 0, 0x100, true).unwrap();
+    // loopnez a8,+1; nop.n
+    bus.load(0, &[0x76, 0x98, 0x01, 0x3d, 0xf0]).unwrap();
+    // rfe
+    bus.load(0x40, &[0x00, 0x30, 0x00]).unwrap();
+    let mut cpu = XtensaCpu::new();
+    cpu.registers[8] = 3;
+
+    cpu.step(&mut bus, SimTime::ZERO).unwrap();
+    assert_eq!(cpu.loop_count, 2);
+    assert_eq!(cpu.pc, 3);
+
+    cpu.special_registers[226] = 1;
+    cpu.special_registers[228] = 1;
+    cpu.special_registers[231] = 0xffff_fd00;
+    cpu.step(&mut bus, SimTime::from_ticks(1)).unwrap();
+    assert_eq!(cpu.pc, 0x40);
+    assert_eq!(cpu.loop_count, 2);
+
+    cpu.special_registers[228] = 0;
+    cpu.step(&mut bus, SimTime::from_ticks(2)).unwrap();
+    assert_eq!(cpu.pc, 3);
+    assert_eq!(cpu.loop_count, 2);
+
+    cpu.step(&mut bus, SimTime::from_ticks(3)).unwrap();
+    assert_eq!(cpu.pc, 3);
+    assert_eq!(cpu.loop_count, 1);
+}
+
+#[test]
+fn level_three_interrupt_uses_epc3_eps3_vector_and_rfi3() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("memory", 0, 0x400, true).unwrap();
+    // nop.n at the interrupted PC; rfi 3 at the level-three vector.
+    bus.load(0x20, &[0x3d, 0xf0]).unwrap();
+    bus.load(0x1c0, &[0x10, 0x33, 0x00]).unwrap();
+    let mut cpu = XtensaCpu::new();
+    cpu.set_direct_state(0x300, 0x20);
+    cpu.special_registers[228] = 1 << 23;
+    cpu.set_interrupt(23, true).unwrap();
+
+    cpu.step(&mut bus, SimTime::ZERO).unwrap();
+    assert_eq!(cpu.pc, 0x1c0);
+    assert_eq!(cpu.ps & 0xf, 3);
+    assert_eq!(cpu.special_registers[179], 0x20);
+    assert_eq!(cpu.special_registers[195], 0);
+
+    cpu.set_interrupt(23, false).unwrap();
+    cpu.step(&mut bus, SimTime::from_ticks(1)).unwrap();
+    assert_eq!(cpu.pc, 0x20);
+    assert_eq!(cpu.ps, 0);
+}
+
+#[test]
+fn highest_eligible_interrupt_level_preempts_lower_pending_level() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("memory", 0, 0x400, true).unwrap();
+    let mut cpu = XtensaCpu::new();
+    cpu.set_direct_state(0x300, 0x20);
+    cpu.special_registers[228] = (1 << 1) | (1 << 23);
+    cpu.set_interrupt(1, true).unwrap();
+    cpu.set_interrupt(23, true).unwrap();
+
+    cpu.step(&mut bus, SimTime::ZERO).unwrap();
+
+    assert_eq!(cpu.pc, 0x1c0);
+    assert_eq!(cpu.ps & 0xf, 3);
+    assert_eq!(cpu.special_registers[179], 0x20);
+    assert_eq!(cpu.special_registers[177], 0);
+}
+
+#[test]
+fn exception_mode_only_allows_interrupts_above_excm_level() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("memory", 0, 0x400, true).unwrap();
+    bus.load(0x20, &[0x3d, 0xf0]).unwrap();
+    let mut cpu = XtensaCpu::new();
+    cpu.set_direct_state(0x300, 0x20);
+    cpu.ps = XtensaCpu::EXCM;
+    cpu.special_registers[228] = (1 << 23) | (1 << 24);
+    cpu.set_interrupt(23, true).unwrap();
+
+    cpu.step(&mut bus, SimTime::ZERO).unwrap();
+    assert_eq!(cpu.pc, 0x22);
+
+    cpu.set_interrupt(24, true).unwrap();
+    cpu.step(&mut bus, SimTime::from_ticks(1)).unwrap();
+    assert_eq!(cpu.pc, 0x200);
+    assert_eq!(cpu.ps & 0xf, 4);
+}
+
+#[test]
+fn loop_special_registers_round_trip_architectural_state() {
+    let mut bus = AddressSpace::default();
+    let mut cpu = XtensaCpu::new();
+    cpu.registers[8] = 0x1234_5678;
+
+    // wsr.lbeg a8; rsr.lbeg a9
+    cpu.execute_wide(0x0013_0080, &mut bus, SimTime::ZERO)
+        .unwrap();
+    cpu.execute_wide(0x0003_0090, &mut bus, SimTime::from_ticks(1))
+        .unwrap();
+
+    assert_eq!(cpu.loop_begin, 0x1234_5678);
+    assert_eq!(cpu.registers[9], 0x1234_5678);
+}
+
+#[test]
+fn esp32s3_rom_strlen_handles_unaligned_nvs_key() {
+    const ROM_STRLEN: u32 = 0x4005_5698;
+    const ROM_LITERALS: u32 = 0x4003_4bf0;
+    const STRING: u32 = 0x3c09_fe83;
+    const RETURN: u32 = 0x4000_2000;
+
+    let mut bus = AddressSpace::default();
+    bus.map_ram("rom-strlen", u64::from(ROM_STRLEN), 0x100, true)
+        .unwrap();
+    bus.map_ram("rom-literals", u64::from(ROM_LITERALS), 0x100, false)
+        .unwrap();
+    bus.map_ram("flash-rodata", 0x3c09_fe00, 0x200, false)
+        .unwrap();
+    bus.map_ram("stack", 0x3fca_0000, 0x1000, false).unwrap();
+    bus.load(
+        u64::from(ROM_STRLEN),
+        &[
+            0x36, 0x21, 0x00, 0x32, 0xc2, 0xfc, 0x42, 0xa0, 0xff, 0x51, 0x53, 0x7d, 0x61, 0x54,
+            0x7d, 0x71, 0x54, 0x7d, 0x07, 0xe2, 0x06, 0x17, 0xe2, 0x0d, 0x06, 0x07, 0x00, 0x00,
+            0x82, 0x03, 0x04, 0x1b, 0x33, 0xac, 0x88, 0x17, 0x63, 0x11, 0x2b, 0x33, 0x88, 0x03,
+            0x67, 0x08, 0x2e, 0x77, 0x88, 0x07, 0x3b, 0x33, 0x20, 0x23, 0xc0, 0x1d, 0xf0, 0x00,
+            0x0c, 0x08, 0x76, 0x88, 0x0f, 0x88, 0x13, 0x4b, 0x33, 0x47, 0x08, 0x0a, 0x57, 0x08,
+            0x0c, 0x67, 0x08, 0x11, 0x77, 0x08, 0xff, 0x3b, 0x33, 0x20, 0x23, 0xc0, 0x1d, 0xf0,
+            0x1b, 0x33, 0x20, 0x23, 0xc0, 0x1d, 0xf0, 0x00, 0x2b, 0x33, 0x20, 0x23, 0xc0, 0x1d,
+            0xf0, 0x00,
+        ],
+    )
+    .unwrap();
+    bus.load(
+        u64::from(ROM_LITERALS),
+        &[
+            0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff,
+        ],
+    )
+    .unwrap();
+    bus.load(u64::from(STRING), b"misc\0std::bad_alloc\0")
+        .unwrap();
+
+    let mut cpu = XtensaCpu::new();
+    cpu.set_direct_state(0x3fca_0800, RETURN);
+    cpu.begin_functional_call(ROM_STRLEN, RETURN, &[STRING])
+        .unwrap();
+    for tick in 0..100 {
+        if cpu.pc() == RETURN {
+            break;
+        }
+        cpu.step(&mut bus, SimTime::from_ticks(tick)).unwrap();
+    }
+
+    assert_eq!(cpu.pc(), RETURN);
+    assert_eq!(cpu.register(XtensaRegister::A10), 4);
 }
 
 #[test]
@@ -500,6 +734,132 @@ fn threadptr_switch_restores_window_stack_saved_by_voluntary_yield() {
 }
 
 #[test]
+fn threadptr_read_in_medium_interrupt_does_not_replace_task_windows() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("stack", 0, 0x1000, false).unwrap();
+    let mut cpu = XtensaCpu::new();
+
+    cpu.thread_pointer = 1;
+    cpu.window_call(4, 0x100, 0x80);
+    cpu.registers[4] = 0x1111_1111;
+    // Save the ordinary task context with rur.threadptr a2.
+    cpu.execute_wide(0x00e3_2e70, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    // A level-three ISR has its own temporary logical windows. Reading the
+    // current task pointer there must not overwrite the task snapshot.
+    cpu.ps = 3;
+    cpu.window_stack.clear();
+    cpu.window_call(4, 0x300, 0x280);
+    cpu.window_call(4, 0x400, 0x380);
+    cpu.registers[4] = 0x3333_3333;
+    cpu.execute_wide(0x00e3_2e70, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    // Select another context, then restore task one through the solicited
+    // WUR path to prove the original one-frame snapshot survived the ISR.
+    cpu.ps = 0;
+    cpu.thread_pointer = 2;
+    cpu.window_stack.clear();
+    cpu.registers[1] = 0x800;
+    cpu.registers[3] = 1;
+    cpu.execute_wide(0x00f3_e730, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(cpu.window_stack.len(), 1);
+    assert_eq!(cpu.registers[4], 0x1111_1111);
+}
+
+#[test]
+fn rfi_selects_task_windows_after_interrupt_frame_restore() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("stack", 0, 0x1000, false).unwrap();
+    let mut cpu = XtensaCpu::new();
+
+    cpu.thread_pointer = 1;
+    cpu.window_call(4, 0x100, 0x80);
+    cpu.registers[4] = 0x1111_1111;
+    cpu.execute_wide(0x00e3_2e70, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    cpu.thread_pointer = 2;
+    cpu.window_stack.clear();
+    cpu.window_call(4, 0x200, 0x180);
+    cpu.window_call(4, 0x300, 0x280);
+    cpu.registers[4] = 0x2222_2222;
+    cpu.execute_wide(0x00e3_2e70, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    // Enter a level-three interrupt while task two is live.
+    cpu.special_registers[228] = 1 << 23;
+    cpu.set_interrupt(23, true).unwrap();
+    cpu.step(&mut bus, SimTime::ZERO).unwrap();
+    cpu.set_interrupt(23, false).unwrap();
+
+    // The interrupt restore assembly selects task one with a non-solicited
+    // frame. WUR must leave its working registers intact until RFI.
+    cpu.registers[1] = 0x800;
+    bus.write(0x800, AccessWidth::Word, 0xfeed_beef, SimTime::ZERO)
+        .unwrap();
+    cpu.registers[3] = 1;
+    cpu.execute_wide(0x00f3_e730, &mut bus, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(cpu.window_stack.len(), 2);
+
+    cpu.execute_wide(0x0000_3310, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(cpu.window_stack.len(), 1);
+    assert_eq!(cpu.registers[4], 0x1111_1111);
+}
+
+#[test]
+fn level_one_restore_recovers_task_windows_before_exception_return_helpers_unwind() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("stack", 0, 0x1000, false).unwrap();
+    let mut cpu = XtensaCpu::new();
+
+    cpu.thread_pointer = 1;
+    cpu.registers[1] = 0x900;
+    cpu.window_call(4, 0x100, 0x80);
+    cpu.execute_wide(0x00e3_2e70, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    cpu.special_registers[228] = 1;
+    cpu.set_interrupt(0, true).unwrap();
+    cpu.step(&mut bus, SimTime::ZERO).unwrap();
+    cpu.set_interrupt(0, false).unwrap();
+    assert!(cpu.level_one_exception_active);
+    assert!(cpu.window_stack.is_empty());
+
+    // FreeRTOS restores THREADPTR before its final helper calls unwind and
+    // execute RFE. Those helpers already need the destination task's physical
+    // windows, so the logical model must restore them at WUR rather than wait
+    // until RFE.
+    cpu.registers[1] = 0x800;
+    bus.write(0x800, AccessWidth::Word, 0xfeed_beef, SimTime::ZERO)
+        .unwrap();
+    cpu.registers[3] = 1;
+    cpu.execute_wide(0x00f3_e730, &mut bus, SimTime::ZERO)
+        .unwrap();
+
+    assert_eq!(cpu.window_stack.len(), 1);
+    cpu.window_return().unwrap();
+    assert_eq!(cpu.pc, 0x80);
+}
+
+#[test]
+fn excw_reports_no_external_debugger() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("memory", 0, 0x1000, true).unwrap();
+    let mut cpu = XtensaCpu::new();
+    cpu.registers[8] = 0x0010_200c;
+    cpu.execute_wide(0x0040_6880, &mut bus, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(cpu.register(XtensaRegister::A8), 0);
+}
+
+#[test]
 fn entry_materializes_caller_roots_in_the_reserved_spill_area() {
     let mut bus = AddressSpace::default();
     bus.map_ram("memory", 0, 0x1000, true).unwrap();
@@ -545,4 +905,44 @@ fn ccount_advances_with_functional_instruction_ticks() {
     cpu.step(&mut bus, SimTime::from_ticks(1)).unwrap();
 
     assert_eq!(cpu.special_registers[234], 2);
+}
+
+#[test]
+fn ccompare0_raises_timer_interrupt_and_reprogramming_clears_it() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("memory", 0, 0x1000, true).unwrap();
+    bus.load(0, &[0x3d, 0xf0, 0x3d, 0xf0]).unwrap();
+    let mut cpu = XtensaCpu::new();
+    cpu.set_direct_state(0x800, 0);
+    cpu.special_registers[228] = 1 << 6;
+    cpu.special_registers[231] = 0x400;
+    cpu.special_registers[240] = 2;
+
+    cpu.step(&mut bus, SimTime::ZERO).unwrap();
+    cpu.step(&mut bus, SimTime::from_ticks(1)).unwrap();
+
+    assert_eq!(cpu.pc, 0x740);
+    assert_ne!(cpu.special_registers[226] & (1 << 6), 0);
+    let snapshot = cpu.snapshot();
+    let register = |name: &str| {
+        snapshot
+            .registers
+            .iter()
+            .find(|register| register.name == name)
+            .expect("architectural special register is present")
+            .value
+    };
+    assert_eq!(register("epc1"), 2);
+    assert_eq!(register("interrupt"), 1 << 6);
+    assert_eq!(register("intenable"), 1 << 6);
+    assert_eq!(register("exccause"), 4);
+    assert_eq!(register("ccount"), 2);
+    assert_eq!(register("prid"), 0x0000_cdcd);
+
+    cpu.registers[8] = 100;
+    // wsr.ccompare0 a8
+    cpu.execute_wide(0x13f0_80, &mut bus, SimTime::from_ticks(2))
+        .unwrap();
+    assert_eq!(cpu.special_registers[240], 100);
+    assert_eq!(cpu.special_registers[226] & (1 << 6), 0);
 }

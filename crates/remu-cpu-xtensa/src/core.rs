@@ -11,7 +11,7 @@ use remu_core::{
     AccessKind, AccessWidth, Architecture, Bus, Cpu, CpuFault, CpuFaultKind, CpuSnapshot,
     RegisterValue, ResetKind, SimDuration, SimTime, StepOutcome, StepReason,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 mod execution;
@@ -98,6 +98,13 @@ struct WindowFrame {
     call_increment: usize,
 }
 
+#[derive(Clone)]
+struct InterruptContext {
+    registers: [u32; 16],
+    window_stack: Vec<WindowFrame>,
+    thread_pointer: u32,
+}
+
 #[derive(Clone, Default)]
 struct TaskContexts {
     window_stacks: BTreeMap<u32, Vec<WindowFrame>>,
@@ -109,9 +116,12 @@ struct TaskContexts {
 pub struct XtensaCpu {
     registers: [u32; 16],
     window_stack: Vec<WindowFrame>,
+    interrupt_contexts: [Option<InterruptContext>; 8],
+    level_one_exception_active: bool,
     task_contexts: Arc<Mutex<TaskContexts>>,
     floating_registers: [u32; 16],
     special_registers: [u32; 256],
+    processor_id: u32,
     thread_pointer: u32,
     pc: u32,
     ps: u32,
@@ -120,21 +130,43 @@ pub struct XtensaCpu {
     loop_begin: u32,
     loop_end: u32,
     loop_count: u32,
+    loop_active: bool,
+    branch_taken: bool,
     waiting: bool,
     halted: bool,
-    interrupts: BTreeSet<u16>,
+    interrupts: u32,
     software_interrupts: u32,
 }
 
 impl XtensaCpu {
+    const PROCESSOR_ID_CORE0: u32 = 0x0000_cdcd;
+    const PROCESSOR_ID_CORE1: u32 = 0x0000_abab;
+    const EXCM: u32 = 1 << 4;
+    const EXCM_LEVEL: u32 = 3;
+    // ESP32-S3 LX7 interrupt-level masks from the core configuration.  These
+    // are properties of the processor interrupt inputs, not peripheral
+    // routes: the interrupt matrix only selects which of these inputs a
+    // source asserts.
+    const INTERRUPT_LEVELS: [(u32, u32, u32); 6] = [
+        (7, 0x0000_4000, 0x2c0),
+        (5, 0x8401_0000, 0x240),
+        (4, 0x5300_0000, 0x200),
+        (3, 0x28c0_8800, 0x1c0),
+        (2, 0x0038_0000, 0x180),
+        (1, 0x0006_37ff, 0x340),
+    ];
+
     /// Creates an uninitialized direct-load CPU.
     pub fn new() -> Self {
         Self {
             registers: [0; 16],
             window_stack: Vec::new(),
+            interrupt_contexts: std::array::from_fn(|_| None),
+            level_one_exception_active: false,
             task_contexts: Arc::new(Mutex::new(TaskContexts::default())),
             floating_registers: [0; 16],
             special_registers: [0; 256],
+            processor_id: Self::PROCESSOR_ID_CORE0,
             thread_pointer: 0,
             pc: 0,
             ps: 0,
@@ -143,28 +175,43 @@ impl XtensaCpu {
             loop_begin: 0,
             loop_end: 0,
             loop_count: 0,
+            loop_active: false,
+            branch_taken: false,
             waiting: false,
             halted: false,
-            interrupts: BTreeSet::new(),
+            interrupts: 0,
             software_interrupts: 0,
         }
+        .with_processor_id_register()
+    }
+
+    fn with_processor_id_register(mut self) -> Self {
+        self.special_registers[235] = self.processor_id;
+        self
     }
 
     /// Establishes a direct-load stack and entry point.
     pub fn set_direct_state(&mut self, stack: u32, entry: u32) {
         self.registers = [0; 16];
         self.window_stack.clear();
+        self.interrupt_contexts = std::array::from_fn(|_| None);
+        self.level_one_exception_active = false;
         self.floating_registers = [0; 16];
         self.special_registers = [0; 256];
+        self.special_registers[235] = self.processor_id;
         self.thread_pointer = 0;
         self.registers[1] = stack;
         self.pc = entry;
         self.sar = 0;
         self.boolean_registers = 0;
+        self.loop_begin = 0;
+        self.loop_end = 0;
         self.loop_count = 0;
+        self.loop_active = false;
+        self.branch_taken = false;
         self.waiting = false;
         self.halted = false;
-        self.interrupts.clear();
+        self.interrupts = 0;
         self.software_interrupts = 0;
     }
 
@@ -189,7 +236,12 @@ impl XtensaCpu {
 
     /// Selects the ESP32-S3 processor identity exposed through `PRID`.
     pub fn set_processor_id(&mut self, core: u8) {
-        self.special_registers[235] = u32::from(core) << 13;
+        self.processor_id = match core {
+            0 => Self::PROCESSOR_ID_CORE0,
+            1 => Self::PROCESSOR_ID_CORE1,
+            _ => panic!("ESP32-S3 processor identity must be core zero or one"),
+        };
+        self.special_registers[235] = self.processor_id;
     }
 
     /// Reads one visible address register.
@@ -237,6 +289,19 @@ impl XtensaCpu {
     /// functional interrupt delivery.
     pub fn functional_interrupt_safe_point(&self) -> bool {
         self.waiting || self.window_stack.len() <= 2
+    }
+
+    fn pending_interrupt_level(&self, enabled_pending: u32) -> Option<(u32, u32)> {
+        let current_level = self.ps & 0xf;
+        let exception_mode = self.ps & Self::EXCM != 0;
+        Self::INTERRUPT_LEVELS
+            .into_iter()
+            .find(|(level, mask, _)| {
+                enabled_pending & mask != 0
+                    && *level > current_level
+                    && (!exception_mode || *level > Self::EXCM_LEVEL)
+            })
+            .map(|(level, _, vector_offset)| (level, vector_offset))
     }
 
     fn window_call(&mut self, call_increment: usize, target: u32, return_address: u32) {
@@ -290,6 +355,26 @@ impl XtensaCpu {
         }
     }
 
+    /// Starts a windowed guest callback from a functional peripheral service.
+    pub fn begin_functional_call(
+        &mut self,
+        target: u32,
+        return_address: u32,
+        arguments: &[u32],
+    ) -> Result<(), CpuFault> {
+        if arguments.len() > 6 {
+            return Err(self.fault(
+                CpuFaultKind::Unsupported,
+                "functional Xtensa callback exceeds six register arguments",
+            ));
+        }
+        self.window_call(8, target, return_address);
+        for (index, argument) in arguments.iter().copied().enumerate() {
+            self.registers[2 + index] = argument;
+        }
+        Ok(())
+    }
+
     fn fault(&self, kind: CpuFaultKind, message: impl Into<String>) -> CpuFault {
         CpuFault::new(kind, u64::from(self.pc), message)
     }
@@ -302,6 +387,11 @@ impl XtensaCpu {
         kind: AccessKind,
         now: SimTime,
     ) -> Result<u32, CpuFault> {
+        if kind == AccessKind::Read
+            && let Some(value) = bus.fast_read(u64::from(address), width)
+        {
+            return Ok(value as u32);
+        }
         bus.read(u64::from(address), width, kind, now)
             .map(|value| value as u32)
             .map_err(|error| self.fault(CpuFaultKind::Bus, error.to_string()))
@@ -315,6 +405,9 @@ impl XtensaCpu {
         value: u32,
         now: SimTime,
     ) -> Result<(), CpuFault> {
+        if bus.fast_write(u64::from(address), width, u64::from(value)) {
+            return Ok(());
+        }
         bus.write(u64::from(address), width, u64::from(value), now)
             .map_err(|error| self.fault(CpuFaultKind::Bus, error.to_string()))
     }
@@ -334,6 +427,8 @@ impl Cpu for XtensaCpu {
     fn reset(&mut self, _kind: ResetKind, _bus: &mut dyn Bus) -> Result<(), CpuFault> {
         self.registers = [0; 16];
         self.window_stack.clear();
+        self.interrupt_contexts = std::array::from_fn(|_| None);
+        self.level_one_exception_active = false;
         {
             let mut contexts = self
                 .task_contexts
@@ -344,6 +439,7 @@ impl Cpu for XtensaCpu {
         }
         self.floating_registers = [0; 16];
         self.special_registers = [0; 256];
+        self.special_registers[235] = self.processor_id;
         self.thread_pointer = 0;
         self.pc = 0;
         self.ps = 0;
@@ -352,9 +448,11 @@ impl Cpu for XtensaCpu {
         self.loop_begin = 0;
         self.loop_end = 0;
         self.loop_count = 0;
+        self.loop_active = false;
+        self.branch_taken = false;
         self.waiting = false;
         self.halted = false;
-        self.interrupts.clear();
+        self.interrupts = 0;
         self.software_interrupts = 0;
         Ok(())
     }
@@ -370,39 +468,71 @@ impl Cpu for XtensaCpu {
         // functional instruction tick is sufficient for deterministic delay
         // loops and entropy-mixing code without claiming silicon timing.
         self.special_registers[234] = self.special_registers[234].wrapping_add(1);
+        // CCOMPARE0 raises the ESP32-S3 architectural timer interrupt. The
+        // interrupt remains pending until firmware programs the next compare
+        // value, matching the Xtensa timer contract used by FreeRTOS.
+        if self.special_registers[234] == self.special_registers[240] {
+            self.software_interrupts |= 1 << 6;
+            self.special_registers[226] |= 1 << 6;
+        }
         let enabled_pending = self.special_registers[226] & self.special_registers[228];
-        if enabled_pending != 0 && self.ps & 0x1f == 0 {
+        if let Some((interrupt_level, vector_offset)) =
+            self.pending_interrupt_level(enabled_pending)
+        {
             self.waiting = false;
             if std::env::var_os("REMU_DEBUG_XTENSA_CONTEXT").is_some() {
                 eprintln!(
-                    "irq pc={:#010x} tp={:#010x} depth={} bits={enabled_pending:#010x}",
+                    "irq core={:#06x} level={interrupt_level} pc={:#010x} ps={:#010x} tp={:#010x} depth={} bits={enabled_pending:#010x} loop={:#010x}..{:#010x}/{} active={}",
+                    self.processor_id,
                     self.pc,
+                    self.ps,
                     self.thread_pointer,
-                    self.window_stack.len()
+                    self.window_stack.len(),
+                    self.loop_begin,
+                    self.loop_end,
+                    self.loop_count,
+                    self.loop_active,
                 );
             }
-            {
-                let mut contexts = self
-                    .task_contexts
-                    .lock()
-                    .expect("Xtensa task-context lock poisoned");
-                contexts
-                    .window_stacks
-                    .insert(self.thread_pointer, self.window_stack.clone());
-                contexts
-                    .registers
-                    .insert(self.thread_pointer, self.registers);
+            if interrupt_level == 1 {
+                {
+                    let mut contexts = self
+                        .task_contexts
+                        .lock()
+                        .expect("Xtensa task-context lock poisoned");
+                    contexts
+                        .window_stacks
+                        .insert(self.thread_pointer, self.window_stack.clone());
+                    contexts
+                        .registers
+                        .insert(self.thread_pointer, self.registers);
+                }
+                self.window_stack.clear();
+                self.level_one_exception_active = true;
+                self.special_registers[177] = self.pc;
+                self.special_registers[193] = self.ps;
+                self.special_registers[232] = 4;
+                // A level-one interrupt enters through the user-exception
+                // path: EXCM is asserted, while PS.INTLEVEL still describes
+                // the interrupted context. The vector raises INTLEVEL itself
+                // after saving that value into the task frame.
+                self.ps |= Self::EXCM;
+            } else {
+                // Medium/high interrupts have dedicated EPC/EPS banks and
+                // vectors.  They do not enter exception mode or disturb the
+                // level-one task-window snapshot; their assembly prologue
+                // saves the live registers through EXCSAVEn before calling a
+                // handler and returns with RFI n.
+                self.special_registers[176 + interrupt_level as usize] = self.pc;
+                self.special_registers[192 + interrupt_level as usize] = self.ps;
+                self.interrupt_contexts[interrupt_level as usize] = Some(InterruptContext {
+                    registers: self.registers,
+                    window_stack: self.window_stack.clone(),
+                    thread_pointer: self.thread_pointer,
+                });
+                self.ps = (self.ps & !0xf) | interrupt_level;
             }
-            self.window_stack.clear();
-            self.special_registers[177] = self.pc;
-            self.special_registers[193] = self.ps;
-            self.special_registers[232] = 4;
-            // A level-one interrupt enters through the user-exception path:
-            // EXCM is asserted, while PS.INTLEVEL still describes the
-            // interrupted context. The vector raises INTLEVEL itself after
-            // saving that value into the task frame.
-            self.ps |= 0x10;
-            self.pc = self.special_registers[231].wrapping_add(0x340);
+            self.pc = self.special_registers[231].wrapping_add(vector_offset);
             return Ok(StepOutcome {
                 elapsed: SimDuration::TICK,
                 reason: StepReason::Advanced,
@@ -414,15 +544,26 @@ impl Cpu for XtensaCpu {
                 reason: StepReason::WaitForInterrupt,
             });
         }
-        let first = self.read(bus, self.pc, AccessWidth::Byte, AccessKind::Execute, now)?;
-        let halfword = self.read(
-            bus,
-            self.pc,
-            AccessWidth::HalfWord,
-            AccessKind::Execute,
-            now,
-        )? as u16;
+        let prefetched = bus
+            .fast_fetch32(u64::from(self.pc), now)
+            .transpose()
+            .map_err(|error| self.fault(CpuFaultKind::Bus, error.to_string()))?;
+        let (first, halfword) = if let Some(instruction) = prefetched {
+            (instruction & 0xff, instruction as u16)
+        } else {
+            (
+                self.read(bus, self.pc, AccessWidth::Byte, AccessKind::Execute, now)?,
+                self.read(
+                    bus,
+                    self.pc,
+                    AccessWidth::HalfWord,
+                    AccessKind::Execute,
+                    now,
+                )? as u16,
+            )
+        };
         let instruction_pc = self.pc;
+        self.branch_taken = false;
         let narrow = matches!(first & 0xf, 0x8..=0xd);
         let sequential_pc = instruction_pc.wrapping_add(if narrow { 2 } else { 3 });
         let reason = if halfword == 0xf01d {
@@ -436,23 +577,36 @@ impl Cpu for XtensaCpu {
             self.execute_narrow(instruction, bus, now)?
         } else {
             let low = u32::from(halfword);
-            let high = self.read(
-                bus,
-                self.pc.wrapping_add(2),
-                AccessWidth::Byte,
-                AccessKind::Execute,
-                now,
-            )?;
+            let high = if let Some(instruction) = prefetched {
+                instruction >> 16 & 0xff
+            } else {
+                self.read(
+                    bus,
+                    self.pc.wrapping_add(2),
+                    AccessWidth::Byte,
+                    AccessKind::Execute,
+                    now,
+                )?
+            };
             self.execute_wide(low | (high << 16), bus, now)?
         };
-        if matches!(reason, StepReason::Advanced) && self.loop_count != 0 {
-            if self.pc == self.loop_end && self.pc == sequential_pc {
-                self.loop_count -= 1;
+        // LBEG/LEND/LCOUNT survive an interrupt.  The exception vector runs
+        // outside the interrupted loop range and may save/restore those
+        // special registers before RFE, so only advance or abandon a loop
+        // after an instruction that was actually in its body.  Treating the
+        // first vector instruction as a branch out of the body truncates ROM
+        // memcpy/memset loops whenever the FreeRTOS tick arrives.
+        let executed_in_loop =
+            self.loop_active && instruction_pc >= self.loop_begin && instruction_pc < self.loop_end;
+        if matches!(reason, StepReason::Advanced) && executed_in_loop {
+            if self.pc == self.loop_end && self.pc == sequential_pc && !self.branch_taken {
+                // LCOUNT is the architectural remaining-iterations-minus-one
+                // value loaded by LOOP.
                 if self.loop_count != 0 {
+                    self.loop_count = self.loop_count.wrapping_sub(1);
                     self.pc = self.loop_begin;
                 } else {
-                    self.loop_begin = 0;
-                    self.loop_end = 0;
+                    self.loop_active = false;
                 }
             } else if self.pc < self.loop_begin || self.pc >= self.loop_end {
                 // A taken control transfer escaped the hardware-loop body.
@@ -461,6 +615,7 @@ impl Cpu for XtensaCpu {
                 self.loop_begin = 0;
                 self.loop_end = 0;
                 self.loop_count = 0;
+                self.loop_active = false;
             }
         }
         Ok(StepOutcome {
@@ -476,17 +631,14 @@ impl Cpu for XtensaCpu {
                 "Xtensa interrupt line exceeds modeled range",
             ));
         }
+        let bit = 1_u32 << line;
         if asserted {
-            self.interrupts.insert(line);
+            self.interrupts |= bit;
             self.waiting = false;
         } else {
-            self.interrupts.remove(&line);
+            self.interrupts &= !bit;
         }
-        let mut pending = self.software_interrupts;
-        for interrupt in &self.interrupts {
-            pending |= 1_u32 << u32::from(*interrupt);
-        }
-        self.special_registers[226] = pending;
+        self.special_registers[226] = self.software_interrupts | self.interrupts;
         Ok(())
     }
 
@@ -521,6 +673,22 @@ impl Cpu for XtensaCpu {
             value: self.window_stack.len() as u64,
             bits: 32,
         });
+        for (name, index) in [
+            ("epc1", 177),
+            ("eps1", 193),
+            ("interrupt", 226),
+            ("intenable", 228),
+            ("exccause", 232),
+            ("ccount", 234),
+            ("prid", 235),
+            ("excvaddr", 238),
+        ] {
+            registers.push(RegisterValue {
+                name: name.to_owned(),
+                value: u64::from(self.special_registers[index]),
+                bits: 32,
+            });
+        }
         CpuSnapshot {
             architecture: Architecture::XtensaLx7,
             pc: u64::from(self.pc),

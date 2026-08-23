@@ -1,0 +1,67 @@
+{
+  "schema": "remu.radio-zigbee-vendor-requirements.v1",
+  "source_ledger_entries": [
+    "esp-rom-elfs-20260528",
+    "esp-idf-ieee802154-public-api",
+    "esp-zigbee-sdk-radio-api-2.0.3"
+  ],
+  "esp_idf_container": "espressif/idf@sha256:0d8c9773d48a327233f9c1d7c654ff0bcf133ae24503ea2e97a57cfe02b8cb67",
+  "firmware_project": "qualification/radio/vendor-zigbee-probe",
+  "firmware_elf": "remu_vendor_zigbee_probe.elf",
+  "chip": "esp32c6",
+  "rom_file": "esp32c6_rev0_rom.elf",
+  "rom_sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551",
+  "rom_start": "0x40000000",
+  "rom_end": "0x40050000",
+  "minimum_instructions": 20000000,
+  "radio_input": "qualification/radio/zigbee-frame-vendor-esp32c6.json",
+  "esp_zigbee": {
+    "version": "2.0.3",
+    "repository_revision": "d893459a9ed8ccb29721e292fc06b7a094c72d80",
+    "component_hash": "8e815d149f904b3429100d8735a2ed81dea38caff3e2b5e38e5751ffc0af6d89",
+    "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "library_sha256": {
+      "libesp-zigbee.release.a": "3ba9d10c749998bdb268b7bd7a8bd020ebf8fe13c84b8ef5c33297f85fc3efa8",
+      "libesp-zigbee-core.zczr.release.a": "2e44b071e4a0e5f495438555fe174d9afd99782d86d45530ad3a469b136748a5",
+      "libesp-zigbee-idf.native.release.a": "5f4269bc4c3533b3f5e7afb099fcebc6fafd3888d711bcfab8351657ed540e54"
+    }
+  },
+  "required_uart_substrings": [
+    "REMU_VENDOR_ZIGBEE_PLATFORM result=0",
+    "REMU_VENDOR_ZIGBEE_TASK created=1",
+    "REMU_VENDOR_ZIGBEE_INIT result=0",
+    "REMU_VENDOR_ZIGBEE_IDENTITY result=0 pan=63100",
+    "REMU_VENDOR_ZIGBEE_CONFIG result=0 channel=11 endpoint=10",
+    "REMU_VENDOR_ZIGBEE_INITIALIZE result=0",
+    "REMU_VENDOR_ZIGBEE_STACK_START result=0",
+    "REMU_VENDOR_ZIGBEE_START status=0 factory_new=1",
+    "REMU_VENDOR_ZIGBEE_FORMATION_START result=0",
+    "REMU_VENDOR_ZIGBEE_FORMATION_DONE status=0 pan=63100 channel=11 short=0",
+    "REMU_VENDOR_ZIGBEE_STEERING_START result=0"
+  ],
+  "expected_host_beacon_request": [3, 8, 85, 255, 255, 255, 255, 7, 222, 125],
+  "expected_minimum_emulated_frames": 4,
+  "expected_maximum_emulated_frames": 5,
+  "expected_beacon_request_control": [3, 8],
+  "expected_data_frame_control": [65, 136],
+  "expected_beacon_response_control": [0, 128],
+  "expected_beacon_request_length": 10,
+  "expected_beacon_response_length": 28,
+  "expected_formation_data_shape": {
+    "length": 56,
+    "nwk_control_le": [72, 18],
+    "count": 2
+  },
+  "allowed_optional_data_shapes": [
+    {
+      "length": 47,
+      "nwk_control_le": [9, 18],
+      "maximum_count": 1
+    }
+  ],
+  "expected_pan_id_le": [124, 246],
+  "expected_beacon_request_body": [255, 255, 255, 255, 7],
+  "expected_beacon_response_body": [124, 246, 0, 0, 255, 79, 0, 0, 0, 34, 132, 82, 69, 77, 85, 45, 90, 66, 1, 255, 255, 255, 0],
+  "required_commands": [66, 67, 68, 69, 77, 79],
+  "required_interrupt_causes": [1, 2, 64]
+}

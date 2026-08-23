@@ -1,15 +1,20 @@
 use remu_bus::{AddressSpace, DeviceError};
 use remu_core::SimTime;
 use remu_devices::{
-    Esp32c6I2c, EspAes, EspC6ControlBlock, EspC6Ecc, EspC6Efuse, EspC6Gdma, EspC6GdmaHandle,
-    EspC6Hmac, EspC6InterruptMatrix, EspC6InterruptMatrixHandle, EspC6InterruptPriority,
-    EspC6IoMux, EspC6LpAon, EspC6LpAonHandle, EspC6LpTimer, EspC6LpTimerHandle, EspC6Pmu,
-    EspC6PmuHandle, EspC6Twai, EspC6TwaiHandle, EspC6Uhci, EspDigitalSignature, EspEtm,
-    EspEtmHandle, EspI2s, EspI2sHandle, EspLedc, EspLedcHandle, EspLpI2c, EspLpI2cHandle,
-    EspLpUart, EspLpUartHandle, EspLpWatchdog, EspLpWatchdogHandle, EspMcpwm, EspParlio,
-    EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt, EspRmtHandle, EspRsa, EspSarAdc,
-    EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer, EspUsbSerialJtag,
-    EspUsbSerialJtagHandle, FunctionalUart, SignalHub, UartHandle, new_esp_sdio_slave,
+    Esp32c6I2c, EspAes, EspAnalogI2c, EspC6BleBaseband, EspC6BleBasebandHandle, EspC6BleControl,
+    EspC6BleControlHandle, EspC6BleModem, EspC6BleModemHandle, EspC6ControlBlock, EspC6Ecc,
+    EspC6Efuse, EspC6Gdma, EspC6GdmaHandle, EspC6Hmac, EspC6InterruptMatrix,
+    EspC6InterruptMatrixHandle, EspC6InterruptPriority, EspC6IoMux, EspC6LpAon, EspC6LpAonHandle,
+    EspC6LpClkRst, EspC6LpClkRstHandle, EspC6LpTimer, EspC6LpTimerHandle, EspC6ModemControl,
+    EspC6ModemHandle, EspC6PhyRegisters, EspC6PhyRegistersHandle, EspC6Pmu, EspC6PmuHandle,
+    EspC6PowerDetector, EspC6PowerDetectorHandle, EspC6Twai, EspC6TwaiHandle, EspC6Uhci,
+    EspC6WifiMacHandle, EspC6WifiMacRegisters, EspDigitalSignature, EspEtm, EspEtmHandle, EspI2s,
+    EspI2sHandle, EspIeee802154, EspIeee802154Handle, EspLedc, EspLedcHandle, EspLpI2c,
+    EspLpI2cHandle, EspLpUart, EspLpUartHandle, EspLpWatchdog, EspLpWatchdogHandle, EspMcpwm,
+    EspParlio, EspParlioHandle, EspPcnt, EspPcntHandle, EspRmt, EspRmtHandle, EspRsa, EspSarAdc,
+    EspSdioSlaveHandle, EspSha, EspSpi, EspSpiHandle, EspSystimer, EspSystimerHandle,
+    EspUsbSerialJtag, EspUsbSerialJtagHandle, FunctionalUart, SignalHub, UartHandle,
+    new_esp_sdio_slave,
 };
 use remu_signals::Logic;
 
@@ -17,6 +22,11 @@ use super::MachineError;
 
 /// Host-side handles for the functional ESP32-C6 peripheral graph.
 pub(super) struct Esp32c6PeripheralHandles {
+    pub(super) modem: EspC6ModemHandle,
+    pub(super) ble_modem: EspC6BleModemHandle,
+    pub(super) ble_baseband: EspC6BleBasebandHandle,
+    pub(super) ble_control: EspC6BleControlHandle,
+    pub(super) ieee802154: EspIeee802154Handle,
     pub(super) ledc: EspLedcHandle,
     pub(super) rmt: EspRmtHandle,
     pub(super) pcnt: EspPcntHandle,
@@ -30,10 +40,15 @@ pub(super) struct Esp32c6PeripheralHandles {
     pub(super) lp_i2c: EspLpI2cHandle,
     pub(super) lp_watchdog: EspLpWatchdogHandle,
     pub(super) pmu: EspC6PmuHandle,
+    pub(super) lp_clkrst: EspC6LpClkRstHandle,
     pub(super) lp_aon: EspC6LpAonHandle,
     pub(super) lp_timer: EspC6LpTimerHandle,
     pub(super) interrupt_matrix: EspC6InterruptMatrixHandle,
+    pub(super) systimer: EspSystimerHandle,
     pub(super) sdio: EspSdioSlaveHandle,
+    pub(super) wifi_mac: EspC6WifiMacHandle,
+    pub(super) phy: EspC6PhyRegistersHandle,
+    pub(super) wifi_rf: EspC6PowerDetectorHandle,
 }
 
 impl Esp32c6PeripheralHandles {
@@ -72,6 +87,128 @@ pub(super) fn map_esp32c6_peripherals(
     signals: &SignalHub,
     chip_uarts: &mut Vec<UartHandle>,
 ) -> Result<(Esp32c6PeripheralHandles, EspUsbSerialJtagHandle), MachineError> {
+    let power_detector = EspC6PowerDetector::new("esp32c6.power-detector");
+    let wifi_rf = power_detector.handle();
+    let (modem_syscon, modem_lpcon, modem) = EspC6ModemControl::new_pair_with_wifi_rf_reset(
+        "esp32c6.modem-syscon",
+        "esp32c6.modem-lpcon",
+        wifi_rf.clone(),
+    );
+    bus.map_device(
+        "esp32c6.modem-syscon",
+        0x600a_9800,
+        0x800,
+        Box::new(modem_syscon),
+    )?;
+    bus.map_device(
+        "esp32c6.modem-lpcon",
+        0x600a_f000,
+        0x800,
+        Box::new(modem_lpcon),
+    )?;
+    // PHY calibration accesses this radio front-end register page directly.
+    // Its analog effects are represented by the functional PHY, while the
+    // word state remains coherent for read/modify/write sequences.
+    let phy_device = EspC6PhyRegisters::new("esp32c6.phy-registers");
+    let phy = phy_device.handle();
+    bus.map_device(
+        "esp32c6.phy-registers",
+        0x600a_d000,
+        0x1000,
+        Box::new(phy_device),
+    )?;
+    let (ble_modem_device, ble_modem) = EspC6BleModem::new("esp32c6.ble-modem-registers");
+    bus.map_device(
+        "esp32c6.ble-modem-registers",
+        0x600a_e000,
+        0x1000,
+        Box::new(ble_modem_device),
+    )?;
+    bus.map_device(
+        "esp32c6.phy-baseband-registers",
+        0x600a_7000,
+        0x1000,
+        Box::new(EspC6ControlBlock::new(
+            "esp32c6.phy-baseband-registers",
+            0x1000,
+            None,
+            0,
+        )),
+    )?;
+    bus.map_device(
+        "esp32c6.phy-mac-registers",
+        0x600a_2000,
+        0x1000,
+        Box::new(EspC6ControlBlock::new(
+            "esp32c6.phy-mac-registers",
+            0x1000,
+            None,
+            0,
+        )),
+    )?;
+    let (ble_baseband_device, ble_baseband) =
+        EspC6BleBaseband::new("esp32c6.ble-baseband-registers");
+    bus.map_device(
+        "esp32c6.ble-baseband-registers",
+        0x600a_1000,
+        0x1000,
+        Box::new(ble_baseband_device),
+    )?;
+    bus.map_device(
+        "esp32c6.phy-front-end-registers",
+        0x600a_8000,
+        0x1000,
+        Box::new(EspC6ControlBlock::new(
+            "esp32c6.phy-front-end-registers",
+            0x1000,
+            None,
+            0,
+        )),
+    )?;
+    let (ble_control_device, ble_control) = EspC6BleControl::new("esp32c6.ble-control-registers");
+    bus.map_device(
+        "esp32c6.ble-control-registers",
+        0x600a_9000,
+        0x800,
+        Box::new(ble_control_device),
+    )?;
+    let wifi_mac_device = EspC6WifiMacRegisters::new("esp32c6.wifi-mac-registers");
+    let wifi_mac = wifi_mac_device.handle();
+    bus.map_device(
+        "esp32c6.wifi-mac-registers",
+        0x600a_4000,
+        0x3000,
+        Box::new(wifi_mac_device),
+    )?;
+    bus.map_device(
+        "esp32c6.i2c-ana-mst",
+        0x600a_f800,
+        0x100,
+        Box::new(EspAnalogI2c::new("esp32c6.i2c-ana-mst")),
+    )?;
+    // The closed PHY writes its generated analog-I2C command program into
+    // this dedicated word-addressed SRAM before starting RF calibration.
+    // Retain the words exactly: later PHY operations patch and read the same
+    // program, while the analog side effects remain owned by EspAnalogI2c.
+    bus.map_device(
+        "esp32c6.phy-i2c-command-memory",
+        0x600a_fc00,
+        0x400,
+        Box::new(EspC6ControlBlock::new(
+            "esp32c6.phy-i2c-command-memory",
+            0x400,
+            None,
+            0,
+        )),
+    )?;
+    let (ieee802154_device, ieee802154) = EspIeee802154::new("esp32c6.ieee802154");
+    bus.map_device(
+        "esp32c6.ieee802154",
+        0x600a_3000,
+        0x188,
+        Box::new(ieee802154_device),
+    )?;
+
     let (uart0, uart0_handle) = FunctionalUart::new_lenient("esp32c6.uart0", 0x00, 0x1c, 0);
     bus.map_device("esp32c6.uart0", 0x6000_0000, 0x1000, Box::new(uart0))?;
     chip_uarts.push(uart0_handle.clone());
@@ -132,7 +269,12 @@ pub(super) fn map_esp32c6_peripherals(
     chip_uarts.push(lp_uart_output.clone());
     let (lp_i2c, lp_i2c_handle) = EspLpI2c::new("esp32c6.lp-i2c");
     bus.map_device("esp32c6.lp-i2c", 0x600b_1800, 0x400, Box::new(lp_i2c))?;
-    let (lp_watchdog, lp_watchdog_handle) = EspLpWatchdog::new("esp32c6.lp-watchdog");
+    // The LP watchdog counts the nominal 136 kHz RTC slow clock while one
+    // machine tick represents one guest instruction at a 40 MHz reset clock.
+    // Use the conservative integer ratio; firmware raises the CPU frequency
+    // later, which only increases the number of instructions per WDT count.
+    let (lp_watchdog, lp_watchdog_handle) =
+        EspLpWatchdog::new_with_tick_scale("esp32c6.lp-watchdog", 40_000_000 / 136_000);
     bus.map_device(
         "esp32c6.lp-watchdog",
         0x600b_1c00,
@@ -141,6 +283,8 @@ pub(super) fn map_esp32c6_peripherals(
     )?;
     let (pmu, pmu_handle) = EspC6Pmu::new("esp32c6.pmu");
     bus.map_device("esp32c6.pmu", 0x600b_0000, 0x400, Box::new(pmu))?;
+    let (lp_clkrst, lp_clkrst_handle) = EspC6LpClkRst::new("esp32c6.lp-clkrst");
+    bus.map_device("esp32c6.lp-clkrst", 0x600b_0400, 0x400, Box::new(lp_clkrst))?;
     let (lp_aon, lp_aon_handle) = EspC6LpAon::new("esp32c6.lp-aon");
     bus.map_device("esp32c6.lp-aon", 0x600b_1000, 0x400, Box::new(lp_aon))?;
     let (lp_timer, lp_timer_handle) = EspC6LpTimer::new("esp32c6.lp-timer");
@@ -195,7 +339,7 @@ pub(super) fn map_esp32c6_peripherals(
         Box::new(EspC6Efuse::new("esp32c6.efuse")),
     )?;
 
-    let (systimer, _systimer_handle) = EspSystimer::new_esp32c6("esp32c6.systimer");
+    let (systimer, systimer_handle) = EspSystimer::new_esp32c6("esp32c6.systimer");
     bus.map_device("esp32c6.systimer", 0x6000_a000, 0x1000, Box::new(systimer))?;
 
     let (interrupt_matrix, interrupt_matrix_handle) =
@@ -243,7 +387,6 @@ pub(super) fn map_esp32c6_peripherals(
             Some(0x3fc),
             35_656_192,
         ),
-        ("esp32c6.pcr", 0x6009_6000, 0x1000, Some(0xffc), 35_656_192),
         ("esp32c6.tee", 0x6009_8000, 0x1000, Some(0x3fc), 35_656_192),
         (
             "esp32c6.hp-apm",
@@ -260,7 +403,6 @@ pub(super) fn map_esp32c6_peripherals(
             35_656_192,
         ),
         ("esp32c6.misc", 0x6009_f000, 0x1000, None, 0),
-        ("esp32c6.power-detector", 0x600a_0000, 0x1000, None, 0),
         (
             "esp32c6.trace",
             0x600c_0000,
@@ -277,8 +419,22 @@ pub(super) fn map_esp32c6_peripherals(
         )?;
     }
 
+    bus.map_device(
+        "esp32c6.power-detector",
+        0x600a_0000,
+        0x1000,
+        Box::new(power_detector),
+    )?;
+
+    // ESP-IDF consults these documented PCR reset fields during its direct
+    // application handoff. The XTAL path starts at 40 MHz and the unused
+    // high-speed MSPI divider still resets to its hardware value of three.
+    let pcr = EspC6ControlBlock::new("esp32c6.pcr", 0x1000, Some(0xffc), 35_656_192)
+        .with_reset_word(0x1c, 3 << 8)
+        .with_reset_word(0x110, (2 << 8) | (40 << 24));
+    bus.map_device("esp32c6.pcr", 0x6009_6000, 0x1000, Box::new(pcr))?;
+
     for (name, base) in [
-        ("esp32c6.lp-clkrst", 0x600b_0400),
         ("esp32c6.lp-io", 0x600b_2000),
         ("esp32c6.lp-i2c-analog", 0x600b_2400),
         ("esp32c6.lp-peripheral", 0x600b_2800),
@@ -305,6 +461,11 @@ pub(super) fn map_esp32c6_peripherals(
     )?;
 
     let peripherals = Esp32c6PeripheralHandles {
+        modem,
+        ble_modem,
+        ble_baseband,
+        ble_control,
+        ieee802154,
         ledc: ledc_handle,
         rmt: rmt_handle,
         pcnt: pcnt_handle,
@@ -318,10 +479,15 @@ pub(super) fn map_esp32c6_peripherals(
         lp_i2c: lp_i2c_handle,
         lp_watchdog: lp_watchdog_handle,
         pmu: pmu_handle,
+        lp_clkrst: lp_clkrst_handle,
         lp_aon: lp_aon_handle,
         lp_timer: lp_timer_handle,
         interrupt_matrix: interrupt_matrix_handle,
+        systimer: systimer_handle,
         sdio: sdio_handle,
+        wifi_mac,
+        phy,
+        wifi_rf,
     };
     peripherals.clear_host_queues();
     Ok((peripherals, usb_serial_jtag_handle))

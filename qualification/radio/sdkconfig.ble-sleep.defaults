@@ -1,0 +1,12 @@
+# Exercise controller-retained modem sleep without entering system light sleep.
+# ESP32-C6 uses the newer BLE-only controller option; ESP32-S3 inherits the
+# ESP32-C3 controller configuration and ignores the C6-only setting.
+CONFIG_BT_LE_SLEEP_ENABLE=y
+CONFIG_BT_CTRL_MODEM_SLEEP=y
+CONFIG_BT_CTRL_MODEM_SLEEP_MODE_1=y
+CONFIG_BT_CTRL_LPCLK_SEL_MAIN_XTAL=y
+
+# Keep the CPU and RTOS awake so this qualification isolates the radio clock
+# domain. System light-sleep retention is a separate, wider machine concern.
+# CONFIG_PM_ENABLE is not set
+# CONFIG_FREERTOS_USE_TICKLESS_IDLE is not set

@@ -5,7 +5,9 @@ use remu_image::{FirmwareArchitecture, FirmwareImage, IntelHexImage, ProgramWord
 use remu_machines::{
     ArmMachine, ArmMcuMachine, AvrMcuMachine, Mcs51McuMachine, Msp430McuMachine, Pic16McuMachine,
     PinStimulus, RiscVMachine, RunResult, TargetId, XtensaMachine, target_manifests,
+    verify_esp_radio_rom,
 };
+use remu_radio::{RadioProtocol, ReplayArtifact, Spectrum};
 use remu_signals::Logic;
 use serde::{Deserialize, Serialize};
 
@@ -90,6 +92,70 @@ impl WebRunOptions {
     }
 }
 
+/// Radio protocol accepted by the portable JavaScript/WASI API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WebRadioProtocol {
+    /// IEEE 802.11 Wi-Fi.
+    Wifi,
+    /// Bluetooth Low Energy.
+    BluetoothLe,
+    /// IEEE 802.15.4.
+    Ieee802154,
+}
+
+impl From<WebRadioProtocol> for RadioProtocol {
+    fn from(value: WebRadioProtocol) -> Self {
+        match value {
+            WebRadioProtocol::Wifi => Self::Wifi,
+            WebRadioProtocol::BluetoothLe => Self::BluetoothLe,
+            WebRadioProtocol::Ieee802154 => Self::Ieee802154,
+        }
+    }
+}
+
+/// One explicitly scheduled, host-isolated RF frame.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebRadioFrame {
+    /// Simulation timestamp at which transmission begins.
+    pub at: u64,
+    /// Protocol decoder selected for the frame.
+    pub protocol: WebRadioProtocol,
+    /// Center frequency in integer kHz.
+    pub center_khz: u32,
+    /// Occupied bandwidth in integer kHz.
+    pub bandwidth_khz: u32,
+    /// Stable PHY label such as `wifi-ht20`, `ble-1m`, or `ieee802154-oqpsk-250k`.
+    pub phy: String,
+    /// Complete protocol PDU/PSDU bytes.
+    #[serde(default)]
+    pub bytes: Vec<u8>,
+    /// Ordered Wi-Fi MPDUs carried by one native A-MPDU transmission.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mpdus: Vec<Vec<u8>>,
+    /// Host transmitter power in integer dBm.
+    pub power_dbm: i16,
+}
+
+/// Radio-aware execution options for the WASI component.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebRadioRunOptions {
+    /// Ordinary bounded execution and GPIO settings.
+    pub run: WebRunOptions,
+    /// Timestamped RF input frames; no host sockets are opened.
+    #[serde(default)]
+    pub radio_frames: Vec<WebRadioFrame>,
+}
+
+/// Stable JSON envelope returned by radio-aware execution.
+#[derive(Clone, Debug, Serialize)]
+pub struct WebRadioRunOutput {
+    /// Ordinary machine execution result.
+    pub run: RunResult,
+    /// Versioned packet/reception/coexistence replay evidence.
+    pub radio: ReplayArtifact,
+}
+
 /// Serializes the supported target manifests for the JavaScript API.
 pub fn list_targets_json() -> Result<String, String> {
     serde_json::to_string(target_manifests()).map_err(|error| error.to_string())
@@ -111,6 +177,111 @@ pub fn run_elf_json(
     let image = FirmwareImage::parse(firmware).map_err(|error| error.to_string())?;
     let result = run_elf_image(target, &image, options)?;
     serde_json::to_string(&result).map_err(|error| error.to_string())
+}
+
+/// Runs C6 or S3 ELF firmware with its required real mask ROM, timestamped RF
+/// input, and replay evidence.
+pub fn run_radio_elf_json(
+    target: &str,
+    firmware: &[u8],
+    boot_rom: &[u8],
+    options: &WebRadioRunOptions,
+) -> Result<String, String> {
+    let target = target.parse::<TargetId>()?;
+    verify_esp_radio_rom(target, boot_rom).map_err(|error| error.to_string())?;
+    let image = FirmwareImage::parse(firmware).map_err(|error| error.to_string())?;
+    let boot_rom = FirmwareImage::parse_addressed_sections(boot_rom)
+        .map_err(|error| format!("invalid {target} mask-ROM ELF: {error}"))?;
+    let output = match target {
+        TargetId::Esp32c6 if image.architecture == FirmwareArchitecture::RiscV32 => {
+            let mut machine = RiscVMachine::new(target).map_err(|error| error.to_string())?;
+            machine
+                .load_firmware(&image)
+                .map_err(|error| error.to_string())?;
+            machine
+                .load_boot_rom(&boot_rom)
+                .map_err(|error| error.to_string())?;
+            for frame in &options.radio_frames {
+                let result = if frame.mpdus.is_empty() {
+                    machine.inject_radio_frame_at(
+                        SimTime::from_ticks(frame.at),
+                        frame.protocol.into(),
+                        Spectrum::new(frame.center_khz, frame.bandwidth_khz),
+                        frame.phy.clone(),
+                        frame.bytes.clone(),
+                        frame.power_dbm,
+                    )
+                } else if frame.protocol == WebRadioProtocol::Wifi && frame.bytes.is_empty() {
+                    machine.inject_wifi_ampdu_at(
+                        SimTime::from_ticks(frame.at),
+                        Spectrum::new(frame.center_khz, frame.bandwidth_khz),
+                        frame.mpdus.clone(),
+                        frame.power_dbm,
+                    )
+                } else {
+                    return Err(
+                        "aggregate radio input requires Wi-Fi protocol and an empty bytes field"
+                            .to_owned(),
+                    );
+                };
+                result.map_err(|error| error.to_string())?;
+            }
+            let run = machine
+                .run_with_stimuli(options.run.limits(), &options.run.machine_stimuli(), None)
+                .map_err(|error| error.to_string())?;
+            let radio = machine
+                .radio_replay_artifact()
+                .ok_or_else(|| "ESP32-C6 radio subsystem is unavailable".to_owned())?;
+            WebRadioRunOutput { run, radio }
+        }
+        TargetId::Esp32s3 if image.architecture == FirmwareArchitecture::Xtensa => {
+            let mut machine = XtensaMachine::new(target).map_err(|error| error.to_string())?;
+            machine
+                .load_boot_rom(&boot_rom)
+                .map_err(|error| error.to_string())?;
+            machine
+                .load_firmware(&image)
+                .map_err(|error| error.to_string())?;
+            for frame in &options.radio_frames {
+                let result = if frame.mpdus.is_empty() {
+                    machine.inject_radio_frame_at(
+                        SimTime::from_ticks(frame.at),
+                        frame.protocol.into(),
+                        Spectrum::new(frame.center_khz, frame.bandwidth_khz),
+                        frame.phy.clone(),
+                        frame.bytes.clone(),
+                        frame.power_dbm,
+                    )
+                } else if frame.protocol == WebRadioProtocol::Wifi && frame.bytes.is_empty() {
+                    machine.inject_wifi_ampdu_at(
+                        SimTime::from_ticks(frame.at),
+                        Spectrum::new(frame.center_khz, frame.bandwidth_khz),
+                        frame.mpdus.clone(),
+                        frame.power_dbm,
+                    )
+                } else {
+                    return Err(
+                        "aggregate radio input requires Wi-Fi protocol and an empty bytes field"
+                            .to_owned(),
+                    );
+                };
+                result.map_err(|error| error.to_string())?;
+            }
+            let run = machine
+                .run_with_stimuli(options.run.limits(), &options.run.machine_stimuli(), None)
+                .map_err(|error| error.to_string())?;
+            let radio = machine.radio_replay_artifact();
+            WebRadioRunOutput { run, radio }
+        }
+        TargetId::Esp32c6 | TargetId::Esp32s3 => {
+            return Err(format!(
+                "firmware architecture {:?} does not match radio target {target}",
+                image.architecture
+            ));
+        }
+        _ => return Err(format!("target {target} has no supported radio subsystem")),
+    };
+    serde_json::to_string(&output).map_err(|error| error.to_string())
 }
 
 /// Runs Intel HEX for the targets whose native program format is not ELF.
@@ -262,5 +433,34 @@ mod tests {
         let result = run_elf_image(TargetId::Ch32v003, &image, &WebRunOptions::default()).unwrap();
         assert_eq!(result.target, TargetId::Ch32v003);
         assert_eq!(result.reason, remu_core::StopReason::Halted);
+    }
+
+    #[test]
+    fn portable_radio_input_accepts_ampdu_and_keeps_legacy_json_compatible() {
+        let aggregate: WebRadioFrame = serde_json::from_value(serde_json::json!({
+            "at": 10,
+            "protocol": "wifi",
+            "center_khz": 2412000,
+            "bandwidth_khz": 20000,
+            "phy": "wifi-ht20-ampdu",
+            "mpdus": [[136, 0, 1], [136, 0, 2]],
+            "power_dbm": -40
+        }))
+        .unwrap();
+        assert!(aggregate.bytes.is_empty());
+        assert_eq!(aggregate.mpdus.len(), 2);
+
+        let legacy: WebRadioFrame = serde_json::from_value(serde_json::json!({
+            "at": 10,
+            "protocol": "wifi",
+            "center_khz": 2412000,
+            "bandwidth_khz": 20000,
+            "phy": "wifi-ht20",
+            "bytes": [64, 0],
+            "power_dbm": -40
+        }))
+        .unwrap();
+        assert_eq!(legacy.bytes, [64, 0]);
+        assert!(legacy.mpdus.is_empty());
     }
 }

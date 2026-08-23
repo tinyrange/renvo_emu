@@ -14,6 +14,12 @@ gpio_input_workload="$repo_root/qualification/micropython-gpio-input.py"
 timer_workload="$repo_root/qualification/micropython-timer.py"
 persistence_write_workload="$repo_root/qualification/micropython-persistence-write.py"
 persistence_read_workload="$repo_root/qualification/micropython-persistence-read.py"
+rom_root=${REMU_ESP_ROM_DIR:-$repo_root/.remu/qualification/esp-rom-elfs/20260528}
+if [ ! -s "$rom_root/esp32c6_rev0_rom.elf" ] ||
+   [ ! -s "$rom_root/esp32s3_rev0_rom.elf" ]
+then
+    REMU_ESP_ROM_DIR=$rom_root "$repo_root/scripts/fetch-esp-rom-elfs.sh" >/dev/null
+fi
 
 mkdir -p "$artifact_root"
 run_root=$(mktemp -d "$artifact_root/run-XXXXXX")
@@ -181,9 +187,12 @@ run_profile_repeat()
             "$firmware_root/M5STACK_ATOMS3_LITE-20260406-v1.28.0.bin"
     fi
     case "$target" in
-        esp32c6|esp32s3)
-            set -- "$@" --flash-state "$profile_root/flash.bin"
-            ;;
+        esp32c6)
+            set -- "$@" --boot-rom "$rom_root/esp32c6_rev0_rom.elf" \
+                --flash-state "$profile_root/flash.bin" ;;
+        esp32s3)
+            set -- "$@" --boot-rom "$rom_root/esp32s3_rev0_rom.elf" \
+                --flash-state "$profile_root/flash.bin" ;;
     esac
     "$@"
 
@@ -242,6 +251,10 @@ run_system_phase()
             --esp-base-image \
             "$firmware_root/M5STACK_ATOMS3_LITE-20260406-v1.28.0.bin"
     fi
+    case "$target" in
+        esp32c6) set -- "$@" --boot-rom "$rom_root/esp32c6_rev0_rom.elf" ;;
+        esp32s3) set -- "$@" --boot-rom "$rom_root/esp32s3_rev0_rom.elf" ;;
+    esac
     case "$stimulus_set" in
         none) ;;
         gpio-input)

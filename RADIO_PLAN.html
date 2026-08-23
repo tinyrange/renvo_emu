@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Renvo Emulator — ESP Radio Support Plan</title>
+  <style>
+    :root {
+      --bg: #071019;
+      --panel: #0d1924;
+      --panel-2: #112230;
+      --line: #21394a;
+      --line-soft: #172c3a;
+      --text: #edf6f8;
+      --muted: #9bb0ba;
+      --faint: #6f8995;
+      --cyan: #57d5e8;
+      --green: #69dda8;
+      --amber: #f2c56b;
+      --purple: #b5a0ff;
+      --red: #ff887d;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 88% 2%, rgba(87, 213, 232, .11), transparent 30rem),
+        radial-gradient(circle at 8% 38%, rgba(181, 160, 255, .065), transparent 34rem),
+        var(--bg);
+      font: 15px/1.62 var(--sans);
+    }
+
+    a { color: var(--cyan); text-underline-offset: 3px; }
+    code, pre { font-family: var(--mono); }
+    code { color: #bff5e0; font-size: .91em; }
+    strong { color: #fff; }
+    p { margin: 0 0 14px; }
+    ul, ol { margin: 10px 0 16px; padding-left: 21px; }
+    li { margin: 6px 0; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 245px minmax(0, 1040px);
+      gap: 52px;
+      width: min(1380px, calc(100% - 48px));
+      margin: 0 auto;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      padding: 30px 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      margin-bottom: 28px;
+      color: var(--text);
+      font: 700 12px/1 var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(87, 213, 232, .48);
+      border-radius: 50%;
+      color: var(--cyan);
+      background: rgba(87, 213, 232, .07);
+      box-shadow: inset 0 0 0 7px rgba(87, 213, 232, .035);
+    }
+    nav { display: grid; gap: 2px; }
+    nav a {
+      padding: 7px 10px;
+      border-left: 1px solid var(--line);
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 12px;
+    }
+    nav a:hover, nav a:focus-visible, nav a.active {
+      color: var(--text);
+      border-left-color: var(--cyan);
+      background: linear-gradient(90deg, rgba(87, 213, 232, .08), transparent);
+      outline: none;
+    }
+    .sidebar-note {
+      margin-top: auto;
+      padding: 14px;
+      border: 1px solid var(--line-soft);
+      border-radius: 11px;
+      color: var(--faint);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .sidebar-note b { display: block; color: var(--muted); font-family: var(--mono); }
+
+    main { min-width: 0; padding: 70px 0 120px; }
+    .hero { padding-bottom: 58px; border-bottom: 1px solid var(--line); }
+    .eyebrow, .label, .section-index {
+      color: var(--cyan);
+      font: 700 11px/1.3 var(--mono);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .hero h1 {
+      max-width: 900px;
+      margin: 15px 0 22px;
+      font-size: clamp(49px, 7vw, 82px);
+      line-height: .98;
+      letter-spacing: -.055em;
+    }
+    .hero h1 span { color: var(--cyan); }
+    .lede {
+      max-width: 830px;
+      color: #bfd0d7;
+      font-size: clamp(18px, 2vw, 22px);
+      line-height: 1.48;
+    }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 29px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(13, 25, 36, .75);
+      font: 11px/1.2 var(--mono);
+    }
+    .pill::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 9px rgba(87, 213, 232, .7);
+    }
+
+    section { padding: 70px 0 8px; scroll-margin-top: 18px; }
+    .section-head {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr);
+      gap: 20px;
+      align-items: baseline;
+      margin-bottom: 28px;
+    }
+    .section-index { color: var(--faint); }
+    h2 { margin: 0; font-size: clamp(29px, 4vw, 42px); line-height: 1.1; letter-spacing: -.035em; }
+    h3 { margin: 0 0 10px; font-size: 18px; line-height: 1.35; letter-spacing: -.015em; }
+    h4 { margin: 20px 0 7px; color: #dce9ed; font-size: 14px; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(145deg, rgba(17, 34, 48, .94), rgba(10, 22, 32, .94));
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .18);
+    }
+    .pad { padding: 22px; }
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+    .accent { position: relative; overflow: hidden; }
+    .accent::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--cyan); }
+    .accent.green::before { background: var(--green); }
+    .accent.amber::before { background: var(--amber); }
+    .accent.purple::before { background: var(--purple); }
+    .chip {
+      display: inline-block;
+      margin-bottom: 11px;
+      color: var(--cyan);
+      font: 700 11px/1.2 var(--mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .green .chip { color: var(--green); }
+    .amber .chip { color: var(--amber); }
+    .purple .chip { color: var(--purple); }
+
+    .callout {
+      padding: 19px 21px;
+      border: 1px solid rgba(87, 213, 232, .27);
+      border-left: 3px solid var(--cyan);
+      border-radius: 12px;
+      background: rgba(87, 213, 232, .045);
+    }
+    .callout.amber { border-color: rgba(242, 197, 107, .25); border-left-color: var(--amber); background: rgba(242, 197, 107, .045); }
+    .callout.red { border-color: rgba(255, 136, 125, .25); border-left-color: var(--red); background: rgba(255, 136, 125, .045); }
+    .callout p:last-child { margin-bottom: 0; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 13px; }
+    table { width: 100%; border-collapse: collapse; background: rgba(13, 25, 36, .76); }
+    th, td { padding: 13px 15px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; }
+    th { color: var(--muted); background: rgba(18, 37, 51, .86); font: 700 11px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { color: #e2eef1; font-weight: 650; }
+    .yes { color: var(--green); font-weight: 700; }
+    .no { color: var(--faint); }
+    .discover { color: var(--amber); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr 40px 1fr 40px 1fr;
+      align-items: stretch;
+      margin: 18px 0;
+    }
+    .flow-node { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+    .flow-node b { display: block; margin-bottom: 6px; color: var(--cyan); font: 700 12px/1.4 var(--mono); }
+    .flow-arrow { display: grid; place-items: center; color: var(--faint); font-size: 21px; }
+
+    .timeline { display: grid; gap: 12px; }
+    .phase {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 20px;
+      padding: 19px 21px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(13, 25, 36, .76);
+    }
+    .phase-id { color: var(--cyan); font: 700 12px/1.4 var(--mono); }
+    .phase h3 { margin-bottom: 5px; }
+    .phase p { color: var(--muted); margin: 0; }
+
+    .gate {
+      display: grid;
+      grid-template-columns: 82px minmax(0, 1fr);
+      gap: 18px;
+      padding: 18px 0;
+      border-top: 1px solid var(--line-soft);
+    }
+    .gate:first-child { border-top: 0; padding-top: 0; }
+    .gate:last-child { padding-bottom: 0; }
+    .gate-num { color: var(--green); font: 700 12px/1.4 var(--mono); }
+    .gate h3 { margin-bottom: 4px; }
+    .gate p { color: var(--muted); margin: 0; }
+
+    .checks { list-style: none; padding: 0; }
+    .checks li { position: relative; padding-left: 25px; }
+    .checks li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 800; }
+    .stops { list-style: none; padding: 0; }
+    .stops li { position: relative; padding-left: 25px; }
+    .stops li::before { content: "×"; position: absolute; left: 0; color: var(--red); font-weight: 800; }
+    .source-list { list-style: none; padding: 0; }
+    .source-list li { margin: 11px 0; padding: 0 0 11px; border-bottom: 1px solid var(--line-soft); }
+    .source-list li:last-child { border: 0; }
+    .source-list span { display: block; color: var(--faint); font: 11px/1.5 var(--mono); }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 74px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font: 11px/1.4 var(--mono);
+    }
+    button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 10px;
+      color: var(--muted);
+      background: var(--panel);
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover { color: var(--text); border-color: var(--cyan); }
+
+    @media (max-width: 980px) {
+      .shell { display: block; width: min(100% - 34px, 900px); }
+      .sidebar { position: static; height: auto; padding-bottom: 0; }
+      .sidebar nav, .sidebar-note { display: none; }
+      main { padding-top: 45px; }
+      .grid.three { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 700px) {
+      .grid, .flow { grid-template-columns: 1fr; }
+      .flow-arrow { min-height: 34px; transform: rotate(90deg); }
+      .phase { grid-template-columns: 1fr; gap: 7px; }
+      .section-head { grid-template-columns: 42px 1fr; gap: 10px; }
+      .hero h1 { font-size: 44px; }
+    }
+    @media print {
+      :root { color-scheme: light; }
+      body { color: #14222a; background: #fff; }
+      .shell { display: block; width: 100%; }
+      .sidebar { display: none; }
+      main { padding: 0; }
+      .hero { padding-top: 0; }
+      .hero h1, h2, h3, strong { color: #071019; }
+      .lede, .muted, .phase p, .gate p { color: #425762; }
+      .card, .phase, .flow-node, table { box-shadow: none; background: #fff; break-inside: avoid; }
+      section { padding-top: 35px; }
+      a { color: #07657a; }
+      footer button { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">RF</span> Radio plan</div>
+      <nav aria-label="Plan sections">
+        <a href="#charter">Charter</a>
+        <a href="#scope">Chip scope</a>
+        <a href="#sources">Source policy</a>
+        <a href="#baseline">Current baseline</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#inventory">Peripheral inventory</a>
+        <a href="#protocols">Protocol contracts</a>
+        <a href="#determinism">RF &amp; coexistence</a>
+        <a href="#host">Host boundary</a>
+        <a href="#qualification">Qualification</a>
+        <a href="#phases">Delivery phases</a>
+        <a href="#future-work">Future work</a>
+        <a href="#acceptance">Acceptance gates</a>
+        <a href="#references">References</a>
+      </nav>
+      <div class="sidebar-note">
+        <b>Planning baseline</b>
+        Issue #338 · ESP-IDF v6.0.2<br>
+        Functional, deterministic radio fidelity<br>
+        Updated 2026-08-13
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <div class="eyebrow">Renvo Emulator · Engineering plan</div>
+        <h1>One deterministic <span>radio system</span> for C6 &amp; S3.</h1>
+        <p class="lede">
+          Reverse-engineer the firmware-visible radio boundary, implement every applicable
+          Wi-Fi, Bluetooth LE, IEEE 802.15.4, PHY, modem-power, security, and coexistence
+          peripheral, and qualify real ESP-IDF applications without granting the emulator
+          implicit network access.
+        </p>
+        <div class="hero-meta">
+          <span class="pill">ESP32-C6: Wi-Fi 6 + BLE + 802.15.4</span>
+          <span class="pill">ESP32-S3: Wi-Fi + BLE</span>
+          <span class="pill">Shared packet-level RF medium</span>
+          <span class="pill">Permissive sources only</span>
+        </div>
+      </header>
+
+      <section id="charter">
+        <div class="section-head"><span class="section-index">01</span><h2>Charter and meaning of “full”</h2></div>
+        <div class="callout">
+          <p><strong>Target outcome.</strong> Unmodified, pinned ESP-IDF examples initialize and use every radio family present on each chip, while a project-owned bare-metal stack can drive the same hardware boundary without linking any Espressif radio code. Transmit, receive, filtering, security, timers, DMA/shared-memory paths, interrupts, power/reset, coexistence, and failure modes produce deterministic, machine-readable evidence.</p>
+        </div>
+        <div class="grid" style="margin-top:16px">
+          <article class="card pad accent green">
+            <span class="chip">In scope</span>
+            <ul class="checks">
+              <li>Complete documented register contracts, including reset values, masks, access modes, reserved holes, and side effects.</li>
+              <li>Firmware-visible ROM calls, PHY initialization/calibration state, modem clocks, sleep, wake, and reset sequencing.</li>
+              <li>A vendor-independent MMIO, DMA, shared-memory and interrupt contract sufficient to implement a complete custom stack from scratch.</li>
+              <li>Packet-level Wi-Fi, BLE, and 802.15.4 behavior sufficient for controller/MAC workflows and protocol peers.</li>
+              <li>Deterministic RF arbitration, loss, collision, CCA, RSSI/LQI, noise, replay, capture, and coexistence.</li>
+              <li>Explicit host adapters for virtual peers, PCAP, browser/WASI, TAP or sockets; disabled unless requested.</li>
+              <li>Bounded event-driven Starlark peers and an optional callback-scoped REPL for agent-driven RF experiments; scripts receive immutable RF events and cannot inspect CPU state, memory, registers, symbols, files, or host networks.</li>
+              <li>A separate opt-in agent-driver Starlark session may load workspace-confined workflow modules, resume a live C6/S3 machine in bounded slices, inspect debugger state, inject deterministic stimuli, page through RF evidence, and capture a narrowly filtered native MMIO/DMA ring with explicit loss accounting before entering a scoped REPL or emitting a compact decision artifact. The checked-in radio-lab entrypoint makes this the standard discovery loop: interactive evidence becomes a bounded script assertion, then proven behavior becomes Rust LLE and regression coverage. It exposes no symbol hooks, runtime file access, host networks, or alternative peripheral implementations; peer callbacks retain the stricter RF-only capability.</li>
+            </ul>
+          </article>
+          <article class="card pad accent amber">
+            <span class="chip">Fidelity boundary</span>
+            <ul>
+              <li>No claim of analog RF waveform, antenna, multipath, oscillator, or silicon-cycle accuracy.</li>
+              <li>No uncontrolled access to the host network, Bluetooth controller, or wireless hardware.</li>
+              <li>No undocumented “always succeeds” fast paths in acceptance tests.</li>
+              <li>Protocol stacks remain guest firmware, whether supplied by ESP-IDF or implemented independently; Renvo models the hardware/controller boundary.</li>
+              <li>Unsupported silicon features fail explicitly and remain listed until implemented.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="scope">
+        <div class="section-head"><span class="section-index">02</span><h2>Chip and protocol scope</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Capability</th><th>ESP32-C6</th><th>ESP32-S3</th><th>Required functional proof</th></tr></thead>
+            <tbody>
+              <tr><td>Shared 2.4 GHz RF/PHY</td><td class="yes">Required</td><td class="yes">Required</td><td>Calibration, channel/power selection, RX metrics, sleep/wake, reset, shared-medium ownership.</td></tr>
+              <tr><td>Wi-Fi</td><td class="yes">802.11 b/g/n/ax (2.4 GHz)</td><td class="yes">802.11 b/g/n</td><td>Scan, STA, SoftAP, management/data paths, monitor mode, ESP-NOW, security and power save.</td></tr>
+              <tr><td>Bluetooth</td><td class="yes">Bluetooth 5 LE</td><td class="yes">Bluetooth 5 LE</td><td>HCI/controller startup, advertising, scanning, initiating, connection events, ACL, encryption, PHY changes and sleep.</td></tr>
+              <tr><td>IEEE 802.15.4</td><td class="yes">Channels 11–26</td><td class="no">Not present in silicon</td><td>C6 TX/RX, filtering, ACK, CCA/ED, CSMA-CA, security, promiscuous mode and Thread/Zigbee-facing examples.</td></tr>
+              <tr><td>Internal coexistence</td><td class="yes">Wi-Fi + BLE + 802.15.4</td><td class="yes">Wi-Fi + BLE</td><td>Priority requests, time slices, preemption, denial, interrupt state and repeatable simultaneous traffic.</td></tr>
+              <tr><td>External coexistence pins</td><td class="yes">Where exposed by ESP-IDF</td><td class="yes">Where exposed by ESP-IDF</td><td>Explicit GPIO handshake adapter and trace; never silently enabled.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted small" style="margin-top:12px">S3 does not gain Classic Bluetooth or IEEE 802.15.4 by emulation. “All” means every radio facility actually present on that SoC and visible to supported firmware.</p>
+      </section>
+
+      <section id="sources">
+        <div class="section-head"><span class="section-index">03</span><h2>Clean-room and source-license policy</h2></div>
+        <div class="callout red">
+          <p><strong>Hard stop:</strong> do not open, read, copy, summarize, or derive implementation details from GPL, LGPL, AGPL, SSPL, source-available, unknown-license, leaked, or unlawfully published source. A useful-looking repository is not an exception.</p>
+        </div>
+        <div class="grid three" style="margin-top:16px">
+          <article class="card pad accent green">
+            <span class="chip">Allowlist</span>
+            <h3>Primary sources</h3>
+            <ul>
+              <li>Espressif datasheets, TRMs, programming guides and errata.</li>
+              <li>ESP-IDF files whose exact revision has an explicit permissive SPDX identifier.</li>
+              <li>IEEE specifications available under terms suitable for factual interoperability work.</li>
+              <li>Original black-box probes and traces captured on hardware we are authorized to test.</li>
+            </ul>
+          </article>
+          <article class="card pad accent amber">
+            <span class="chip">Pre-read gate</span>
+            <h3>Verify before inspection</h3>
+            <ol>
+              <li>Record repository, tag/commit, path, URL and SHA-256.</li>
+              <li>Verify repository license and per-file SPDX header.</li>
+              <li>Allow only Apache-2.0, MIT, BSD-2/3-Clause or ISC by default.</li>
+              <li>Quarantine absent, conflicting or unfamiliar licenses for explicit review.</li>
+            </ol>
+          </article>
+          <article class="card pad accent purple">
+            <span class="chip">Implementation rule</span>
+            <h3>Facts, not transplantation</h3>
+            <ul>
+              <li>Write original Rust from behavioral facts, recovered ABIs and register contracts.</li>
+              <li>Disassemble and analyze only object code whose exact artifact is covered by an approved permissive license and immutable hash.</li>
+              <li>Use permissively licensed vendor binaries to recover calling conventions, state layouts, dispatch tables, register accesses and observable algorithms; do not transplant executable code.</li>
+              <li>Keep a checked source ledger beside qualification evidence.</li>
+            </ul>
+          </article>
+        </div>
+        <div class="callout amber" style="margin-top:16px">
+          <p>ESP-IDF v6.0.2 is Apache-2.0 at the repository root, but that does not waive per-file review or third-party exceptions. The research tooling must reject a candidate before exposing its contents when its license is missing or outside the allowlist.</p>
+        </div>
+        <div class="callout" style="margin-top:16px">
+          <p><strong>Approved object-form reference:</strong> Espressif's <a href="https://github.com/espressif/esp32-wifi-lib">esp32-wifi-lib</a> repository explicitly publishes its precompiled RF libraries as Apache-2.0 “Object” form. Pin the exact <a href="https://github.com/espressif/esp32-wifi-lib/tree/bb69e7e609c9a9a909ddd1ed175f36df2bd13801"><code>bb69e7e…</code></a> submodule revision used by ESP-IDF v6.0.2. Its archives may be disassembled to recover factual ABIs, dispatch tables, state layouts, algorithms and hardware accesses. Implementation remains original Rust and project-owned tests; no vendor machine code is copied into the emulator.</p>
+        </div>
+        <div class="callout" style="margin-top:16px">
+          <p><strong>Approved PHY reference:</strong> Espressif's <a href="https://github.com/espressif/esp-phy-lib">esp-phy-lib</a> repository is also Apache-2.0 object form. Pin the exact <a href="https://github.com/espressif/esp-phy-lib/tree/59c1234e929212aec0fdda75769b759951235536"><code>59c1234…</code></a> submodule revision used by ESP-IDF v6.0.2 and hash the C6 and S3 <code>libphy.a</code> archives independently. Disassembly is an offline source of register protocols and calibration algorithms only; runtime behavior remains register-driven LLE.</p>
+        </div>
+        <div class="callout" style="margin-top:16px">
+          <p><strong>Mask-ROM execution reference:</strong> Espressif's <a href="https://github.com/espressif/esp-rom-elfs">esp-rom-elfs</a> releases publish chip- and revision-specific ROM ELF object files under Apache-2.0. Pin release <a href="https://github.com/espressif/esp-rom-elfs/releases/tag/20260528"><code>20260528</code></a> and its vendor checksum. Renvo loads the ROM sections and executes their instructions. Symbols are permitted only as offline disassembly labels: the runtime image discards them, and no symbol name or address may select emulator behavior.</p>
+        </div>
+      </section>
+
+      <section id="baseline">
+        <div class="section-head"><span class="section-index">04</span><h2>Current emulator baseline and migration</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Area</th><th>Current state</th><th>Post-landing extension</th></tr></thead>
+            <tbody>
+              <tr><td>S3 SYSCON</td><td>Radio clocks and reset readiness now drive the Wi-Fi and BLE frontends while preserving external-memory protection.</td><td>Complete sleep, calibration and coexistence coupling and qualify their reset-order edge cases.</td></tr>
+              <tr><td>S3 radio pages</td><td>The pinned public and firmware-observed radio pages are mapped. The native BLE scheduler performs legacy TX, BLE 5 primary/AuxPtr/2M auxiliary TX, STOP and extended-scan RX through exchange memory. It also accepts CONNECT_IND, runs receive-first hopped connection events, writes genuine RX metadata, applies hardware SN/NESN and TX-ring ownership transitions, completes LL version/feature/data-length exchange, carries ACL/L2CAP ATT traffic, applies bidirectional PHY changes at the negotiated instant, implements the ROM-driven RWBLE ECB path plus bidirectional data-channel CCM, counters, retransmission, encrypted control traffic and deferred key teardown, and reports firmware-programmed supervision timeout through the genuine disconnect path. The firmware-observed <code>0x6004_2000</code> low-power page supplies the 1 MHz main-XTAL elapsed clock, RF-sleep acknowledgement, wake-start and delayed wake-end sequencing. Impossible command order terminates with a stable legality diagnostic.</td><td>Promote the remaining firmware-observed measurement and coexistence fields into explicit behavior, then qualify broader genuine-firmware power-transition stress.</td></tr>
+              <tr><td>S3 ROM services</td><td>Pinned rev0 ROM and genuine vendor Wi-Fi and BLE firmware execute through native MMIO/DMA/shared-memory paths. Public Wi-Fi scan and open-system station association traverse native probe, authentication and association TX/RX, reach the connected event with AID 1, and replay exactly. Native Wi-Fi TX completion is delayed through airtime, accepts a matching ACK addressed to the transmitter, and publishes the firmware-consumed status nibble and interrupt; ACK timeout is status 5 and retry resubmission remains in guest LMAC. Genuine BLE firmware advertises, connects to a scripted central, completes hopped LL version/feature/data-length exchange, exchanges an ACL/L2CAP ATT MTU request and response with MTU 247, negotiates 2M/2M PHY, stores the probe LTK, drives LL_ENC_REQ/LL_ENC_RSP and START_ENC through native RWBLE ECB and CCM state, reports public encryption success, authenticates encrypted empty and terminate PDUs, reports remote termination, restarts scanning and reports the next injected advertiser with exact replay. A separate 100 ms silent-peer workflow reports HCI supervision reason 0x08 through the public GAP callback and restarts scanning with exact replay. A modem-sleep build uses the real ROM, reaches the full public advertising sequence and emits native legacy and extended advertising across repeated sleep/wake cycles with byte-identical replay. The real-ROM gate pins firmware-observed TX-DC, packet-detector and FE IQ calibration completion while requiring accesses across PHY, FE, AGC, NRX and BB pages. Genuine SoftAP firmware emits beacons, accepts a virtual station, sends native authentication/association responses, and exchanges ESP-NOW frames through the firmware-programmed AP interface slot with exact replay. Genuine simultaneous SoftAP and NimBLE advertising/scanning traffic requires a matching coexistence grant for every native frame and replays exactly. Focused chip-level stress proves denial, higher-priority BLE preemption of Wi-Fi airtime by stable grant/transmission identity, and reset or clock/power cancellation of both ownership and the in-flight packet.</td><td>Extend the same LLE boundary through genuine-firmware power-transition stress without runtime symbol interception.</td></tr>
+              <tr><td>C6 ROM services</td><td>Pinned rev0 ROM and genuine vendor Wi-Fi, BLE and IEEE 802.15.4 firmware execute through native paths. Public Wi-Fi scan and open-system station association traverse native probe, authentication and association TX/RX, reach the connected event with AID 1, and replay exactly. A genuine 802.11ax station negotiates HE20 with an RF-only standards peer, exchanges an individual TWT Suggest/Accept action, programs the native TSF target, interrupt and individual-TWT controls, enters power save, and reports repeated public wake events while firmware re-arms the 32 ms interval. The 60-million-instruction real-ROM gate and its bounded Starlark MMIO evidence replay byte-for-byte without symbol dispatch. Native Wi-Fi TX completion publishes the HAL-consumed successful-MPDU count and status, drops its hardware-owned enabled bit while preserving queue-valid state, accepts a matching ACK addressed to the transmitter, and leaves retry resubmission in guest LMAC. Genuine BLE 5 firmware traverses native primary advertising, AuxPtr scheduling, 2M auxiliary TX, CONNECT_IND, hopped LL version/feature/data-length exchange, an ACL/L2CAP ATT MTU request and response with MTU 247, remote LL_PHY_REQ/LL_PHY_UPDATE_IND with instant-based 2M/2M completion and public callback, LL_ENC_REQ/LL_ENC_RSP and encrypted START_ENC through native ECB/CCM DMA, authenticated encrypted empty and terminate PDUs, the public encryption callback, remote termination and scan restart with exact replay. A separate silent-peer workflow validates the firmware-decoded native RX-success result, state-2 promotion, HCI supervision reason 0x08, public GAP disconnect and scan restart with exact replay. A modem-sleep build uses the real ROM and 100 kHz main-XTAL timer, completes the public advertising sequence and emits more than one hundred native BLE transmissions with byte-identical replay. The real-ROM gate pins firmware-written PHY command SRAM plus RFPLL charge-pump, frequency, power-detector and IQ calibration completion across four modeled regions. Genuine SoftAP firmware emits beacons, accepts a virtual station, sends native authentication/association responses, and exchanges ESP-NOW frames through the firmware-programmed AP interface slot. Genuine simultaneous SoftAP and NimBLE advertising/scanning traffic requires a matching coexistence grant for every native frame and replays exactly; the same image transmits through the public IEEE 802.15.4 driver while Wi-Fi is active and BLE scans, proving all three radio families share that gate. The IEEE 802.15.4 TX/RX/ED, multi-PAN filtering, matching ACK and no-ACK-timeout probe also passes with exact replay evidence. The genuine OpenThread port hands its public raw-link key and frame counter through the native transmit-security registers, preserves the MAC and auxiliary headers, and emits a pinned ENC-MIC-32 frame with exact result and RF replay. The same real-ROM image completes sixteen consecutive public raw-link sleep/wake cycles through native STOP and RX commands with exact result and RF replay. The full default FTD build initializes NVS-backed PSA key references over native SPI-memory erase/program/read, commits a CLI dataset, becomes leader, and exchanges authenticated Parent/Child MLE plus a protected unicast CLI ping with a bounded event-driven Starlark peer. The genuine public child table and CLI confirm attachment and echo reception; native AES, CCA/TX/RX, W1C interrupts, automatic ACK, hardware FCS and coexistence remain on the LLE path with byte-identical replay. Genuine ESP Zigbee 2.0.3 firmware forms a channel-11 coordinator network, receives an injected peer beacon request and emits the coordinator beacon through the native MAC with hardware-generated FCS, command/W1C interrupt and coexistence evidence. Focused chip-level stress proves denial, higher-priority BLE preemption of Wi-Fi airtime by stable grant/transmission identity, and reset or clock/power cancellation of both ownership and the in-flight packet.</td><td>Extend the remaining published negative paths.</td></tr>
+              <tr><td>C6 modem low power</td><td>The firmware-observed BLE modem page at <code>0x600a_e000</code> supplies the 100 kHz current counter, sync compare, RTC timer-0 compare, pending/status and source-18 enable/clear behavior. Its explicit legal state machine permits the genuine armed-cancellation path and rejects past compares or impossible ordering. The official <code>MODEM_LPCON</code> base at <code>0x600a_f000</code> and analog-I²C base at <code>0x600a_f800</code> remain modeled without overlap. C6 IEEE 802.15.4 executes sixteen genuine OpenThread STOP/wake/re-arm cycles, while focused clock-gate stress proves asleep RF isolation, successful wake reception and a hard legality error for gating during active RX. Genuine C6 Wi-Fi negotiates individual TWT, programs TSF timer 0, enters power save, and repeatedly wakes and re-arms its negotiated interval through native registers.</td><td>Extend firmware-derived negative and stress coverage for overlapping or interrupted low-power transitions.</td></tr>
+              <tr><td>C6 MODEM_SYSCON</td><td><code>0x600a_9800</code> models radio clocks, force-on state, security gates and reset strobes coupled to the radio frontends.</td><td>Complete remaining state-map and low-power transition coverage.</td></tr>
+              <tr><td>C6 802.15.4</td><td><code>0x600a_3000</code> has a functional MAC slice covering native TX/RX DMA, firmware-controlled receiver arming, hardware FCS generation/check, RSSI/LQI, filters, automatic ACK, timed carrier/ED CCA modes, timers, transmit AES-CCM*, W1C events and interrupt source 12. The DMA PHY length includes two firmware-reserved FCS bytes; transmit security replaces a firmware-reserved MIC without changing that length. Genuine ESP-IDF and focused freestanding probes cover TX/RX, negative/multi-PAN filtering, matching ACK and no-ACK timer handling, receive-side automatic ACK with frame-pending state, published transmit-security failures, distinct completion event bits and exact packet airtime. The genuine driver also observes CCA busy as public error 1, clears the native abort cause and owns the subsequent successful retry. The genuine OpenThread radio build covers raw TX/RX, source matching, energy scan, sixteen consecutive sleep/wake/re-arm cycles and the public-key/counter to native CCM* transmit-security handoff. Its exact protected frame and vendor register sequence are pinned. Focused clock-gate stress proves that RF received while asleep cannot reach DMA, wake/re-arm restores reception with exact replay, and gating while RX is active produces a hard firmware-state legality error. A separate full FTD/CLI build exercises default platform key references, persistent dataset storage, leader formation, authenticated child attachment and a protected unicast IPv6 echo exchange with an event-driven Starlark peer. Genuine ESP Zigbee 2.0.3 coordinator firmware forms a network and responds to an injected peer beacon request with pinned frame shape and beacon body, valid hardware FCS, command, W1C interrupt, coexistence and exact reset-replay evidence. Valid-FCS malformed secured receive frames are DMA-delivered unchanged, may receive a normal hardware automatic ACK and replay exactly; receive security parsing and authentication remain guest responsibilities and hostile over-air bytes are not radio-legality violations. In accordance with the public hardware API, receive decryption and CSMA-CA retries remain guest-stack responsibilities.</td><td>Maintain the pinned MAC contract and extend only when genuine firmware exposes another native state.</td></tr>
+              <tr><td>Interrupts</td><td>Every public C6/S3 radio input is classified in a merge-gated contract. Genuine Wi-Fi, BLE, BLE-sleep and C6 IEEE 802.15.4 execution qualifies C6 sources 0/2/4/5/7/12 and S3 sources 0/8 through native raw, mask, route, W1C and reset paths. Streams must alternate, balance, finish deasserted and replay byte-for-byte. S3 BT-MAC source 4 is modeled but unasserted; all other private/NMI inputs remain explicitly unresolved rather than aliased.</td><td>Promote another source only with a distinct genuine-firmware cause/mask/acknowledgement trace and deterministic reset replay.</td></tr>
+              <tr><td>Evidence</td><td>A versioned isolated RF event/replay artifact records emulated and injected packets, reception outcomes, coexistence decisions, and stable transmission-ID truncation caused by preemption, reset, or power gating across native and WASI surfaces.</td><td>Extend packet, arbitration and negative-path evidence to every remaining acceptance case.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <p><strong>Landing status.</strong> The current-state column and merge gates define the completed #338 support boundary. Items in the third column are evidence-led fidelity and stress extensions, not missing radio peripherals or blockers for this PR. Undocumented private state remains deliberately absent until a pinned primary source or genuine-firmware trace establishes its contract.</p>
+        </div>
+        <div class="callout">
+          <p><strong>Current Wi-Fi control-response tranche.</strong> C6 and S3 native TX now distinguish ACK, CTS and matching-TID compressed block ACK completion windows. Addressed RTS receives a hardware CTS. Descriptor-driven protection follows the recovered native queue bits: C6 uses bit 31 at <code>0x600a4d60-q*0x10</code>, while S3 uses bit 27 in <code>0x60033d08-q*8</code>. Hardware emits RTS, retains queue ownership through CTS, emits the deferred MPDU, then waits for its ACK or matching-TID block ACK; CTS timeout publishes recovered status 2. Impossible RTS requests for group, no-response or control MPDUs terminate with a stable legality diagnostic. The recovered eight-slot RX BA engines retain their chip-specific descending register layouts, peer/TID keys, 12-bit sequence origins and 64-bit bitmaps, including sequence wraparound; compressed BAR input generates the corresponding native BA. Active slot encodings outside the firmware-observed enable/mode state terminate with a stable <code>illegal radio state</code> diagnostic. The recovered native Wi-Fi crypto boundary retains all 32 forty-byte key-table slots, exposes firmware-programmed match/control/key bytes, zeroizes them on reset, and hard-rejects a valid slot outside the three control classes emitted by both pinned HALs. Native CCMP TX now selects an exact peer/interface/key-ID/cipher tuple, authenticates the firmware-formatted header, replaces payload and MIC reservation on the RF copy, and hard-errors on missing, ambiguous or malformed selection. Protected Frame plus CCMP ExtIV/key ID is the durable hardware crypto request. C6 descriptor upper bits remain guest-LMAC-private state, while licensed <code>ppAMPDU2Normal</code> disassembly and a live S3 descriptor trace establish that S3 bit 29 selects an eight-byte hardware A-MPDU record whose internal length must match the DMA wire length. Checked-in agent-driven Starlark workflows own the genuine C6/S3 experiments: they capture the exact final queue descriptor and encrypted ESP-NOW slot-24 tuple, page loss-accounted evidence, prove plaintext removal and emit compact artifacts without hooks. The C6 workflow also proves HE20 association, individual TWT negotiation, native timer/interrupt programming, repeated power-save wakeups and deterministic 60-million-instruction execution. Pinned <code>ppTxFragmentProc</code> disassembly establishes fragment construction and retry as guest-LMAC work; the shared native MAC qualifies each fragment through an independent ACK window. C6 and S3 TX now follow the recovered word-two descriptor linkage for two through 64 hardware-owned MPDUs, with EOF clear on intermediate nodes and set only on the terminal node. S3 additionally accepts the genuine bit-29 one-MPDU A-MPDU warm-up record after validating and removing its private eight-byte header. Both forms emit one explicit-boundary RF A-MPDU, and publish the exact compressed-BA origin, bitmap and successful-MPDU count registers; partial BA leaves retry/resort/resubmit to guest LMAC. RX validates the same peer/TID/sequence invariants, advances one native descriptor per MPDU and updates the register-backed receive scoreboard. These aggregate boundaries are available through replay, CLI, WASI and the live Starlark radio lab. The genuine C6 public-firmware gate now negotiates ADDBA, emits repeated two-MPDU descriptor-linked aggregates with exact 318-byte boundaries, accepts matching compressed BAs and completes all 64 bounded UDP packets. The S3 public stack negotiates ADDBA, emits 64 genuine one-MPDU hardware A-MPDU records, accepts a compressed BA for each, and completes the bounded UDP burst; a hook-free live descriptor probe records the exact record while direct native regressions retain the linked-chain boundary.</p>
+        </div>
+        <div class="callout">
+          <p><strong>Issue #356 C6 RF-oracle tranche (2026-08-17).</strong> A bounded two-run ESP-IDF v6.0.2 public-API oracle now pins channel 1/6/11 RFPLL strobes, complete 43-tuple 8/14/20 dBm gain programs, frontend force/release, warm reconfiguration and reset/reinitialization. The project-owned <code>qualification/radio/c6-rf-probe</code> consumes only that recovered MMIO contract and splits RF, PHY, MAC, DMA and WPA2 into a freestanding C driver with no Espressif radio/runtime linkage. Its current WPA2-capable application image SHA-256 is <code>94d38424f2c92ef884a97e387865907b3f1f12fadad64b84edb4e430e9d75b7b</code>; the exact merged flash artifact SHA-256 is <code>76245b24a35be66a02d907a55ab53292e2e10603f2d8603d8bc4ee4a92e9619b</code>. Renvo boots that flash artifact with the pinned genuine C6 ROM, repeats byte-identically, observes causal channel/power airtime, delivers an on-channel beacon and rejects the same beacon on the wrong channel. The image first performs directed scan, open-system authentication, association and bidirectional experimental-EtherType L2 <code>PING</code>/<code>PONG</code>. It then repeats scan/authentication/association against an isolated WPA2-PSK AP, validates and emits the four-way EAPOL transcript, installs its pairwise temporal key into the recovered C6 MAC key table, and proves authenticated encrypted CCMP <code>PING</code>/<code>PONG</code> in both directions. The declared PSK is independently re-derived with standard 4096-round PBKDF2-HMAC-SHA1 before every qualification run. Native CCMP RX now hard-fails absent, ambiguous or invalid key selection and authentication failure, while the replay retains ciphertext as medium evidence. This tranche is intentionally software-emulator-only: raw recovered RF programming is not offered as a physical hardware test without a shielded, instrumented and calibrated lab setup, and emulator results are not physical RF evidence.</p>
+          <p><strong>Issue #356 C6 RF register/error tranche (2026-08-17).</strong> The generated emulator-only reference inventories the union of 1,096 RF MMIO addresses: all 478 non-UART addresses and 6,872 per-register read/write value observations in the pinned oracle trace plus 674 registers with explicit Renvo command, mask, latch, timer, DMA, reset, crypto or legality semantics. The 422 trace-only semantic unknowns retain their exact values, access counts, time bounds and observational PCs without invented names. A checked-in deterministic corpus drives 2,048 structure-aware state mutations from seed <code>0x356c6f7261636c65</code> and reaches all seven causal Wi-Fi RF diagnostics: domain readiness, PLL completion, calibration, channel, power, bandwidth and frontend state. That work separated RFPLL strobe completion from channel decode validity, making the previously shadowed invalid-channel path independently testable. CI validates the generated inventory statistics and the complete error-rule set. No physical RF execution or physical-fidelity claim is part of this tranche.</p>
+          <p><strong>Custom-driver governance.</strong> Project-owned native radio drivers must now centralize peripheral addresses and declare a machine-readable dependency contract covering access direction, bounded range geometry, lifecycle, evidence tier, value constraints, side effects, provenance and deterministic failure behavior. The C6 independent driver declares 24 dependencies (18 radio), with seventeen trace-causal radio registers and one explicit ten-word emulator-contract crypto range. CI rejects raw or undeclared addresses, unused/overlapping declarations, read/write broadening, trace-only unknown dependencies, unsupported trace claims and anonymous negative HAL results. New registers therefore require evidence, reference semantics, a manifest diff, named negative coverage and exact-image qualification in the same change.</p>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <div class="section-head"><span class="section-index">05</span><h2>Proposed architecture</h2></div>
+        <div class="flow" aria-label="Radio architecture flow">
+          <div class="flow-node"><b>SoC frontends</b>C6/S3 MMIO, ROM ABI, DMA/shared RAM, interrupts, power and reset.</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node"><b>Protocol engines</b>Wi-Fi MAC, BLE controller and 802.15.4 MAC with explicit state machines.</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node"><b>RF medium</b>Channels, airtime, arbitration, collision, noise, peers, replay and capture.</div>
+        </div>
+        <div class="grid">
+          <article class="card pad">
+            <span class="label">Shared crate</span>
+            <h3><code>remu-radio</code></h3>
+            <p class="muted">Own protocol-neutral time, spectrum, frames, nodes, seeded channel effects, arbitration and artifacts. It must not depend on C6/S3 machine types or host networking.</p>
+            <ul>
+              <li><code>RadioMedium</code>, <code>RadioNodeId</code>, <code>RfRequest</code>, <code>RfGrant</code></li>
+              <li>frequency/channel, start/end tick, power, sensitivity and modulation metadata</li>
+              <li>stable event ordering by tick, priority, node and insertion sequence</li>
+              <li>snapshot/replay with configuration and seed hashes</li>
+            </ul>
+          </article>
+          <article class="card pad">
+            <span class="label">Device models</span>
+            <h3><code>remu-devices</code></h3>
+            <p class="muted">Own reusable protocol engines and exact register banks. Registers schedule architectural events rather than directly calling host adapters.</p>
+            <ul>
+              <li>Wi-Fi MAC/BB/RX/FE state</li>
+              <li>BLE link-layer controller, timer and security state</li>
+              <li>802.15.4 MAC, filters, CSMA-CA, timer, ACK and AES-CCM state</li>
+              <li>coexistence arbiter and modem clock/power controllers</li>
+            </ul>
+          </article>
+          <article class="card pad">
+            <span class="label">Machine coupling</span>
+            <h3><code>remu-machines</code></h3>
+            <p class="muted">Map chip-specific addresses, shared memories and interrupt sources; bind radio nodes to the machine scheduler; expose handles without leaking host I/O into devices.</p>
+          </article>
+          <article class="card pad">
+            <span class="label">User boundary</span>
+            <h3>CLI · Rust · JavaScript</h3>
+            <p class="muted">Configure isolated virtual media, inject peers/frames, choose a deterministic impairment profile, attach an explicit external adapter, and collect packets/arbitration events.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="inventory">
+        <div class="section-head"><span class="section-index">06</span><h2>Peripheral inventory and discovery ledger</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Block</th><th>C6 boundary</th><th>S3 boundary</th><th>Behavior to establish</th></tr></thead>
+            <tbody>
+              <tr><td>Modem clock/reset</td><td><code>MODEM_SYSCON 0x600a9800</code><br><code>MODEM_LPCON 0x600af000</code></td><td>SYSCON radio fields; RTC/analog-I²C helpers</td><td>Clock gates, force-on, power-state maps, memories, reset fanout, sleep retention and wake.</td></tr>
+              <tr><td>Analog-I²C / RF calibration</td><td><code>I2C_ANA_MST 0x600af800</code>; PHY command SRAM <code>0x600afc00..0x600affff</code></td><td>RTC-I²C and ROM PHY helpers</td><td>Register banks and firmware-written command memory used by startup, calibration completion, calibrated channel/power state and stable calibration data.</td></tr>
+              <tr><td>Wi-Fi MAC</td><td><code>0x600a4000..0x600a6fff</code>; continue resolving shared-memory ABI</td><td><code>0x60033000..0x60035fff</code> established by pinned rev0 ROM and vendor net80211 accesses; the WDEV page at <code>0x60035000</code> contains TSF/power state as well as the random-data register</td><td>Descriptor ownership, TX/RX queues, filters, TSF/beacons, ACK/retry, power save, interrupts and reset.</td></tr>
+              <tr><td>Wi-Fi BB / NRX / FE</td><td class="discover">Resolve from permissive headers, ROM ABI and probes</td><td><code>FE2 0x60005000</code>, <code>FE 0x60006000</code>, private <code>AGC 0x6001c000</code>, <code>NRX 0x6001cc00</code>, and <code>BB 0x6001d000</code>; pinned rev0 ROM execution is mandatory evidence for private pages</td><td>Initialization-visible state, channel/rate/modulation selection, CCA, RSSI, gain/calibration and interrupt causes.</td></tr>
+              <tr><td>BLE MAC/baseband</td><td class="discover">Controller/shared-memory boundary plus BLE timer/security</td><td><code>BT 0x60011000</code> appears in IDF header; RWBT/RWBLE interrupt paths require discovery</td><td>HCI transport, advertising/scanning, connections, scheduler, ACL, encryption, PHY and controller sleep.</td></tr>
+              <tr><td>IEEE 802.15.4 MAC</td><td><code>0x600a3000</code></td><td class="no">Not applicable</td><td>Command strobes, TX/RX RAM, filtering, ACK, CCA/ED, CSMA-CA, timers, security and Zigbee-MAC interrupt.</td></tr>
+              <tr><td>Modem security</td><td>MODEM_SYSCON-gated ECB/CCM/BAH paths</td><td>BLE/Wi-Fi controller-visible crypto paths</td><td>Deterministic frame protection, MIC verification, key-slot reset/zeroization and failure interrupts.</td></tr>
+              <tr><td>Coexistence</td><td>COEX interrupt source 8 and per-protocol request paths</td><td>ROM/SYSCON coexistence and radio interrupt sources</td><td>Priority, slices, preemption, denial, external coexistence GPIO and trace.</td></tr>
+              <tr><td>Radio interrupts</td><td>Sources 0–12: Wi-Fi MAC/NMI/power/BB, BT MAC/BB/NMI, LP timer, COEX, BLE timer/security, I²C master and Zigbee MAC</td><td>Sources 0–11: Wi-Fi MAC/NMI/power/BB, BT MAC/BB/NMI, RWBT/RWBLE/NMIs and I²C master</td><td>Exact level/edge/NMI routing, W1C behavior, masks, priorities, cross-core delivery and reset.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout amber" style="margin-top:16px">
+          <p><strong>Address-truth gate.</strong> Some S3 IDF register-base constants conflict with ranges treated as reserved by the public TRM. The implementation must not guess. Every private mapping requires the pinned silicon revision, TRM version, IDF tag, genuine vendor-firmware or mask-ROM access sequence, and an executable regression. Focused freestanding access tests may supplement that evidence; physical-hardware observations do not replace a revision-specific source.</p>
+        </div>
+      </section>
+
+      <section id="protocols">
+        <div class="section-head"><span class="section-index">07</span><h2>Protocol-level functional contracts</h2></div>
+        <div class="grid three">
+          <article class="card pad accent">
+            <span class="chip">Wi-Fi</span>
+            <h3>802.11 hardware boundary</h3>
+            <ul>
+              <li>Passive/active scan and channel dwell</li>
+              <li>STA authentication/association and SoftAP beacons</li>
+              <li>Management, control and data frame queues</li>
+              <li>ACK, retry, sequence, fragmentation and aggregation paths exercised by firmware</li>
+              <li>WPA2/WPA3/PMF-facing hardware crypto operations</li>
+              <li>802.11ax C6 HE20 association, individual TWT negotiation, TSF scheduling, power-save wakeups and interval re-arming now pass through genuine native firmware with exact replay</li>
+              <li>Promiscuous mode, ESP-NOW, RSSI and rate metadata</li>
+            </ul>
+          </article>
+          <article class="card pad accent purple">
+            <span class="chip">Bluetooth LE</span>
+            <h3>Controller and HCI boundary</h3>
+            <ul>
+              <li>Controller init/deinit and HCI reset</li>
+              <li>Legacy and extended advertising/scanning</li>
+              <li>Initiating, connection events and supervision timeout</li>
+              <li>1M, 2M and coded PHY where supported</li>
+              <li>Data-length extension, channel selection and adaptive hopping</li>
+              <li>ACL flow control, encryption and privacy-facing controller commands</li>
+              <li>Sleep clock, wake, radio arbitration and deterministic peer models</li>
+            </ul>
+          </article>
+          <article class="card pad accent green">
+            <span class="chip">IEEE 802.15.4</span>
+            <h3>C6 MAC boundary</h3>
+            <ul>
+              <li>Sleep, receive and transmit state machine</li>
+              <li>Address/PAN filtering and promiscuous mode</li>
+              <li>Automatic ACK and frame-pending behavior</li>
+              <li>Timed CCA/energy-detect primitives for guest-owned deterministic CSMA-CA backoff</li>
+              <li>FCS generation/check, RSSI and LQI</li>
+              <li>AES-CCM frame security and key/nonce paths</li>
+              <li>Thread/OpenThread and Zigbee-facing firmware examples</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="determinism">
+        <div class="section-head"><span class="section-index">08</span><h2>Deterministic RF and coexistence contract</h2></div>
+        <div class="grid">
+          <article class="card pad">
+            <span class="label">Medium model</span>
+            <h3>Packet airtime, not analog samples</h3>
+            <p>Each transmission reserves a channel interval with protocol, PHY/rate, bytes, TX power and sender position/profile. Receivers evaluate overlap, sensitivity, capture threshold and configured impairment at deterministic event boundaries.</p>
+            <ul>
+              <li>Default medium is ideal, isolated and seed-stable.</li>
+              <li>Collision is derived from overlapping airtime, channel width and capture rules.</li>
+              <li>Loss/noise profiles use a named algorithm version plus explicit seed.</li>
+              <li>CCA/ED/RSSI/LQI derive from the same event set seen by receivers.</li>
+            </ul>
+          </article>
+          <article class="card pad">
+            <span class="label">Coexistence</span>
+            <h3>One RF owner per chip</h3>
+            <p>Wi-Fi, BLE and 802.15.4 submit timestamped requests to a chip-local arbiter. The arbiter grants, delays, preempts or denies access using protocol state, programmed priority and repeatable time slices.</p>
+            <ul>
+              <li>Every decision emits request, contenders, winner and reason.</li>
+              <li>Dynamic BLE advertising priority and Wi-Fi state-dependent periods are explicit policy inputs.</li>
+              <li>Resets and power transitions cancel pending grants deterministically.</li>
+              <li>Cross-protocol tests compare event streams and digest across repeated runs.</li>
+            </ul>
+          </article>
+        </div>
+        <div class="callout" style="margin-top:16px">
+          <p><strong>Ordering:</strong> machine event → clock/power eligibility → coexistence decision → medium submission → receiver outcome → DMA/register update → interrupt assertion. Ties resolve by stable node ID and insertion sequence, never thread scheduling or wall-clock time.</p>
+        </div>
+      </section>
+
+      <section id="host">
+        <div class="section-head"><span class="section-index">09</span><h2>Host APIs, isolation and evidence</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Surface</th><th>Contract</th><th>Default</th></tr></thead>
+            <tbody>
+              <tr><td>Virtual peers</td><td>Scripted AP, BLE central/peripheral and 802.15.4 peer with timestamped responses and assertions.</td><td class="yes">Available, empty medium</td></tr>
+              <tr><td>Frame injection</td><td>Protocol-tagged bytes plus channel, tick, power/RSSI and optional corruption metadata.</td><td class="yes">Explicit input only</td></tr>
+              <tr><td>Capture</td><td>Versioned JSON event log plus PCAP/PCAPNG-compatible packet output where link types permit.</td><td class="yes">In-memory unless requested</td></tr>
+              <tr><td>External network</td><td>Separate adapter process or explicitly selected CLI adapter; clear capability and lifecycle boundary.</td><td class="no">Off</td></tr>
+              <tr><td>Browser/WASI</td><td>Pure byte/event API using the shared medium; no socket assumptions and no ambient browser networking.</td><td class="yes">Isolated virtual medium</td></tr>
+              <tr><td>Replay</td><td>Input artifact contains schema, algorithm version, seed, topology, injected events and expected digest.</td><td class="yes">Deterministic</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 style="margin-top:22px">Minimum radio result artifact</h3>
+        <div class="grid three">
+          <div class="card pad"><strong>Packets</strong><p class="muted">direction, protocol, channel, PHY/rate, timestamps, bytes/hash, FCS/MIC, RSSI/LQI and outcome</p></div>
+          <div class="card pad"><strong>Arbitration</strong><p class="muted">requester, competitors, priority, grant window, denial/preemption reason and policy version</p></div>
+          <div class="card pad"><strong>State</strong><p class="muted">power, clocks, reset generation, active mode, queue depths, interrupt transitions and error counters</p></div>
+        </div>
+      </section>
+
+      <section id="qualification">
+        <div class="section-head"><span class="section-index">10</span><h2>Reverse engineering and qualification ladder</h2></div>
+        <div class="timeline">
+          <article class="phase"><div class="phase-id">Probe A</div><div><h3>Static contract extraction</h3><p>Generate register inventories from license-approved headers: offsets, reset values, access modes, masks, aliases and reserved holes. Diff C6/S3, silicon revisions and the pinned IDF version.</p></div></article>
+          <article class="phase"><div class="phase-id">Probe B</div><div><h3>Original bare-metal register probes</h3><p>Compile small project-owned programs with pinned official toolchains. On authorized hardware, record reset reads, writable masks, strobe behavior, timing-independent state transitions and interrupt causes. Never copy vendor implementation code.</p></div></article>
+          <article class="phase"><div class="phase-id">Probe C</div><div><h3>ESP-IDF initialization checkpoints</h3><p>Run unmodified examples with project-owned logging hooks at public API/event boundaries. Establish the ROM calls, MMIO pages, shared-memory ranges, DMA ownership changes and interrupts required to reach “started”.</p></div></article>
+          <article class="phase"><div class="phase-id">Probe D</div><div><h3>Two-node protocol proofs</h3><p>Pair two emulated machines or one machine with a scripted peer. Prove successful TX/RX, filtering, retries/ACKs, malformed frames, timeout, collision, loss and reset for each radio family.</p></div></article>
+          <article class="phase"><div class="phase-id">Probe E</div><div><h3>Coexistence and replay</h3><p>Drive simultaneous protocol demand, verify programmed priority and denial/preemption, repeat across seeds and schedules, and compare canonical artifacts and trace digests.</p></div></article>
+          <article class="phase"><div class="phase-id">Probe F</div><div><h3>Vendor application suite</h3><p>Build pinned, SHA-verified ESP-IDF examples in network-disabled containers, run bounded acceptance endpoints, and publish firmware, toolchain, source-ledger and result hashes.</p></div></article>
+          <article class="phase"><div class="phase-id">Probe G</div><div><h3>Vendor-independent stack proof</h3><p>Build project-owned bare-metal C and Rust firmware without Espressif radio libraries. Initialize PHY/MAC state through MMIO and shared memory, exchange frames with scripted peers, service native interrupts, and prove that vendor symbols or API interception are not required.</p></div></article>
+        </div>
+        <h3 style="margin-top:26px">Required vendor-facing examples</h3>
+        <div class="grid">
+          <div class="card pad">
+            <strong>Both chips</strong>
+            <ul><li>Wi-Fi scan</li><li>Wi-Fi station against a virtual AP</li><li>SoftAP against a virtual station</li><li>ESP-NOW peer exchange</li><li>NimBLE peripheral and central</li><li>Wi-Fi + BLE coexistence traffic</li></ul>
+          </div>
+          <div class="card pad">
+            <strong>C6 additions</strong>
+            <ul><li>Wi-Fi 6 capability/power-save path</li><li>IEEE 802.15.4 transmit/receive example</li><li>OpenThread CLI ping/exchange over a virtual link</li><li>Wi-Fi + BLE + 802.15.4 arbitration stress</li><li>802.15.4 security, CCA failure and ACK timeout</li></ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="phases">
+        <div class="section-head"><span class="section-index">11</span><h2>Delivery order</h2></div>
+        <div class="timeline">
+          <article class="phase"><div class="phase-id">Phase 0</div><div><h3>Provenance, truth tables and failing probes</h3><p>Add the source-license gate and ledger; pin ESP-IDF/toolchains; resolve address conflicts; land generated inventories and negative/failing acceptance probes before behavior.</p></div></article>
+          <article class="phase"><div class="phase-id">Phase 1</div><div><h3>Shared RF medium and artifact schema</h3><p>Land protocol-neutral scheduler integration, node topology, ideal-channel TX/RX, collision/loss model, replay, JSON evidence and isolated host API.</p></div></article>
+          <article class="phase"><div class="phase-id">Phase 2</div><div><h3>Power, clocks, resets, PHY and coexistence skeleton</h3><p>Implement C6 MODEM_SYSCON/LPCON split, S3 SYSCON coupling, analog-I²C/ROM calibration state, all radio interrupt routes and arbiter request/grant plumbing.</p></div></article>
+          <article class="phase"><div class="phase-id">Phase 3</div><div><h3>C6 IEEE 802.15.4 vertical slice</h3><p>Use the most public register boundary to prove the architecture end to end: full register contract, frames, ACK/CCA/CSMA, security, interrupt, scripted peer and ESP-IDF example.</p></div></article>
+          <article class="phase"><div class="phase-id">Phase 4</div><div><h3>BLE controller on C6, then S3</h3><p>Implement common BLE controller state and HCI behavior, bind chip-specific timers/MMIO/shared memory, qualify advertising through encrypted connections and sleep/wake.</p></div></article>
+          <article class="phase"><div class="phase-id">Phase 5</div><div><h3>Wi-Fi on C6, then S3</h3><p>Implement common Wi-Fi MAC behavior, chip frontends and BB/NRX/FE initialization surface; qualify scan, STA, SoftAP, ESP-NOW, monitor, security and C6 Wi-Fi 6 paths.</p></div></article>
+          <article class="phase"><div class="phase-id">Phase 6</div><div><h3>Cross-protocol coexistence</h3><p>Replace skeleton policy with verified schemes, dynamic priority and external coexistence; qualify the vendor-supported pairwise matrices and use three-protocol C6 traffic as deterministic stress, without inventing a vendor support claim.</p></div></article>
+          <article class="phase"><div class="phase-id">Phase 7</div><div><h3>Comprehensive hardening</h3><p>Close every register/inventory gap; add reset/fuzz/metamorphic tests, multi-node stress, WASI coverage, performance budgets, dashboards and explicit remaining physical-fidelity limits.</p></div></article>
+        </div>
+      </section>
+
+      <section id="future-work">
+        <div class="section-head"><span class="section-index">12</span><h2>Post-landing future work</h2></div>
+        <div class="card pad">
+          <p><strong>These are non-blocking fidelity extensions, not missing peripherals.</strong> Each item requires a new pinned primary source or a reproducible genuine-firmware observation before implementation. The LLE, real-ROM, no-hook and hard-legality rules remain unchanged.</p>
+          <ul>
+            <li>Exercise additional chip-private BLE host/controller transport variants, adaptive channel-map updates and resolving/accept-list privacy workflows beyond the advertising, scanning, connected, encrypted, PHY-update and supervision paths in the landing gates.</li>
+            <li>Broaden active-traffic sleep/wake torture: interrupted and overlapping low-power transitions, longer modem-sleep runs, calibration re-entry and coexistence handoff at transition boundaries.</li>
+            <li>Expand the interrupt hardening matrix to unused published sources, level/NMI distinctions, masked-edge combinations, cross-core delivery and reset ordering when firmware provides an observable expected result.</li>
+            <li>Resolve disputed revision-specific ESP32-S3 RF pages only from a revision-matched primary source or authorized hardware trace; do not substitute guessed register storage.</li>
+            <li>Add larger multi-node RF scenarios, fuzz/metamorphic legality tests, longer replay corpora and performance dashboards without changing the deterministic isolated-medium contract.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="acceptance">
+        <div class="section-head"><span class="section-index">13</span><h2>Merge gates and definition of done</h2></div>
+        <div class="card pad">
+          <div class="gate"><div class="gate-num">GATE 01</div><div><h3>License provenance</h3><p>Every research input has URL, immutable revision, hash and approved license. Automated policy finds no prohibited or unknown source in the research ledger.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 02</div><div><h3>Register completeness</h3><p>Generated coverage accounts for every approved public register: reset, mask, access, reserved holes, aliases and side effects. No catch-all register file hides unknown behavior.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 03</div><div><h3>Vendor initialization</h3><p>Pinned unmodified ESP-IDF examples initialize each supported radio family without host shortcuts, unbounded loops or weakening existing startup behavior.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 04</div><div><h3>Behavior and failures</h3><p>TX/RX, interrupts, reset, timeout, filtering, collision, loss, malformed input, queue exhaustion and security failure are deterministic and tested for each applicable protocol.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 05</div><div><h3>Coexistence</h3><p>S3 passes the documented Wi-Fi/BLE scenarios. C6 matches the documented pairwise support matrix—including explicit unsupported cases—and handles three-way stress with observable, repeatable arbitration.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 06</div><div><h3>Isolation and replay</h3><p>No test or default run accesses a real network. Captured inputs reproduce byte-identical packet/arbitration artifacts and stable trace digests.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 07</div><div><h3>Regression and performance</h3><p>All existing non-radio, board, vendor-toolchain, native and WASI suites stay green. Radio-disabled runs remain behaviorally identical and within an agreed overhead budget.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 08</div><div><h3>Support claim</h3><p>Documentation and dashboards enumerate functional coverage and physical-fidelity limits. Issue #338 closes only when no applicable radio peripheral or acceptance item remains unaccounted for.</p></div></div>
+          <div class="gate"><div class="gate-num">GATE 09</div><div><h3>Real mask-ROM images</h3><p>ESP32-C6 rev0 and ESP32-S3 rev0 native boot and radio-capable execution require their respective pinned mask-ROM images from Espressif's Apache-2.0 <code>esp-rom-elfs</code> release. Qualification verifies both ROM digests, maps the real ROMs as immutable guest memory, executes the relevant ROM ranges, and forbids functional-ROM or symbol-based dispatch from replacing them. Direct CPU/compiler ELF harnesses that neither boot a native image nor exercise radio remain a lightweight exception. Focused freestanding firmware remains useful for testing low-level MMIO, DMA, shared-memory and interrupt contracts, but it is not required to duplicate every behavior exercised by vendor firmware.</p></div></div>
+        </div>
+      </section>
+
+      <section id="references">
+        <div class="section-head"><span class="section-index">14</span><h2>Approved starting references</h2></div>
+        <p class="muted">This is an initial ledger, not blanket approval for every file in a repository. Each source file still passes the pre-read gate.</p>
+        <ul class="source-list">
+          <li><a href="https://github.com/tinyrange/renvo_emu/issues/338">Renvo issue #338 — ESP32-C6 shared radio architecture</a><span>Project requirements · reviewed 2026-08-09</span></li>
+          <li><a href="https://github.com/espressif/esp-idf/blob/v6.0.2/LICENSE">ESP-IDF v6.0.2 license</a><span>Apache-2.0 · immutable tag selected for the first qualification tranche</span></li>
+          <li><a href="https://github.com/espressif/esp32-wifi-lib/tree/bb69e7e609c9a9a909ddd1ed175f36df2bd13801">esp32-wifi-lib at the ESP-IDF v6.0.2 submodule revision</a> and its <a href="https://github.com/espressif/esp32-wifi-lib/blob/bb69e7e609c9a9a909ddd1ed175f36df2bd13801/README.rst">object-form license statement</a><span>Apache-2.0 · approved for disassembly, ABI/state/algorithm recovery, vendor builds and behavioral qualification</span></li>
+          <li><a href="https://github.com/espressif/esp-phy-lib/tree/59c1234e929212aec0fdda75769b759951235536">esp-phy-lib at the ESP-IDF v6.0.2 submodule revision</a><span>Apache-2.0 object form · pinned C6/S3 PHY calibration and register-protocol reference</span></li>
+          <li><a href="https://github.com/espressif/esp-rom-elfs/releases/tag/20260528">esp-rom-elfs release 20260528</a><span>Apache-2.0 object form · pinned C6/S3 mask-ROM execution bytes; symbols restricted to offline reverse-engineering labels</span></li>
+          <li><a href="https://github.com/espressif/esp-idf/blob/v6.0.2/components/soc/esp32c6/register/soc/reg_base.h">ESP32-C6 public register bases</a><span>Apache-2.0 · includes IEEE802154 and analog-I²C bases</span></li>
+          <li><a href="https://github.com/espressif/esp-idf/blob/v6.0.2/components/soc/esp32c6/include/modem/reg_base.h">ESP32-C6 modem register bases</a><span>Apache-2.0 · MODEM_SYSCON and MODEM_LPCON</span></li>
+          <li><a href="https://github.com/espressif/esp-idf/blob/v6.0.2/components/soc/esp32s3/register/soc/reg_base.h">ESP32-S3 public register bases</a><span>Apache-2.0 · address claims require TRM/silicon reconciliation</span></li>
+          <li><a href="https://github.com/espressif/esp-idf/blob/v6.0.2/components/soc/esp32c6/include/soc/interrupts.h">ESP32-C6 interrupt sources</a> and <a href="https://github.com/espressif/esp-idf/blob/v6.0.2/components/soc/esp32s3/include/soc/interrupts.h">ESP32-S3 interrupt sources</a><span>Apache-2.0 · radio source inventory</span></li>
+          <li><a href="https://github.com/espressif/esp-idf/blob/v6.0.2/components/soc/esp32c6/register/soc/ieee802154_reg.h">ESP32-C6 IEEE 802.15.4 registers</a><span>Apache-2.0 · initial public MAC contract</span></li>
+          <li><a href="https://docs.espressif.com/projects/esp-idf/en/stable/esp32c6/api-guides/coexist.html">ESP32-C6 RF coexistence guide</a> and <a href="https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/coexist.html">ESP32-S3 RF coexistence guide</a><span>Espressif primary documentation · priority, time-slice and protocol-combination behavior</span></li>
+          <li><a href="https://docs.espressif.com/projects/esp-idf/en/stable/esp32c6/api-guides/wifi.html">ESP32-C6 Wi-Fi driver guide</a><span>Espressif primary documentation · application-visible modes and events</span></li>
+          <li><a href="https://www.espressif.com/sites/default/files/documentation/esp32-c6_datasheet_en.pdf">ESP32-C6 datasheet</a> and <a href="https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf">ESP32-S3 datasheet</a><span>Espressif primary documentation · silicon capability boundaries</span></li>
+          <li><a href="docs/ESP32C6_PERIPHERALS.md">Current C6 peripheral contract</a> and <a href="docs/SUPPORT.md">Renvo support contract</a><span>Local baseline · radio exclusions to retire as gates pass</span></li>
+        </ul>
+      </section>
+
+      <footer>
+        <span>RADIO_PLAN.html · issue #338 · ESP-IDF v6.0.2 baseline</span>
+        <button type="button" onclick="window.print()">Print / save PDF</button>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    const links = [...document.querySelectorAll("nav a")];
+    const sections = links.map((link) => document.querySelector(link.hash));
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        links.forEach((link) => link.classList.toggle("active", link.hash === `#${entry.target.id}`));
+      }
+    }, { rootMargin: "-18% 0px -72%", threshold: 0 });
+    sections.forEach((section) => observer.observe(section));
+  </script>
+</body>
+</html>

@@ -14,9 +14,11 @@ pub(super) struct Esp32S3PmsBus<'a> {
     core: u8,
     pc: u32,
     sp: u32,
+    protection_active: bool,
 }
 
 impl<'a> Esp32S3PmsBus<'a> {
+    #[cfg(test)]
     pub(super) const fn new(
         bus: &'a mut AddressSpace,
         pms: &'a Esp32S3PmsHandle,
@@ -27,6 +29,31 @@ impl<'a> Esp32S3PmsBus<'a> {
         pc: u32,
         sp: u32,
     ) -> Self {
+        Self::new_with_mode(
+            bus,
+            pms,
+            world_controller,
+            extmem,
+            assist_debug,
+            core,
+            pc,
+            sp,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) const fn new_with_mode(
+        bus: &'a mut AddressSpace,
+        pms: &'a Esp32S3PmsHandle,
+        world_controller: &'a Esp32S3WorldControllerHandle,
+        extmem: &'a Esp32S3ExtmemHandle,
+        assist_debug: &'a Esp32S3AssistDebugHandle,
+        core: u8,
+        pc: u32,
+        sp: u32,
+        protection_active: bool,
+    ) -> Self {
         Self {
             bus,
             pms,
@@ -36,11 +63,30 @@ impl<'a> Esp32S3PmsBus<'a> {
             core,
             pc,
             sp,
+            protection_active,
         }
     }
 }
 
 impl Bus for Esp32S3PmsBus<'_> {
+    fn fast_fetch32(&mut self, address: u64, at: SimTime) -> Option<Result<u32, BusFault>> {
+        if self.protection_active {
+            None
+        } else {
+            self.bus.fast_fetch32(address, at)
+        }
+    }
+
+    fn fast_read(&mut self, address: u64, width: AccessWidth) -> Option<u64> {
+        (!self.protection_active)
+            .then(|| self.bus.fast_read(address, width))
+            .flatten()
+    }
+
+    fn fast_write(&mut self, address: u64, width: AccessWidth, value: u64) -> bool {
+        !self.protection_active && self.bus.fast_write(address, width, value)
+    }
+
     fn read(
         &mut self,
         address: u64,
@@ -48,6 +94,9 @@ impl Bus for Esp32S3PmsBus<'_> {
         kind: AccessKind,
         at: SimTime,
     ) -> Result<u64, BusFault> {
+        if !self.protection_active {
+            return self.bus.read(address, width, kind, at);
+        }
         let checked = u32::try_from(address).is_ok_and(|address| {
             if kind == AccessKind::Execute {
                 self.world_controller.observe_execute(self.core, address);
@@ -74,6 +123,12 @@ impl Bus for Esp32S3PmsBus<'_> {
             }
             Ok(value)
         } else {
+            if std::env::var_os("REMU_DEBUG_PMS").is_some() {
+                eprintln!(
+                    "S3 PMS denied {kind:?} {width:?} read at {address:#010x}, PC={:#010x}",
+                    self.pc
+                );
+            }
             // The PMS fabric responds to denied internal/PIF reads with zero.
             Ok(0)
         }
@@ -86,6 +141,9 @@ impl Bus for Esp32S3PmsBus<'_> {
         value: u64,
         at: SimTime,
     ) -> Result<(), BusFault> {
+        if !self.protection_active {
+            return self.bus.write(address, width, value, at);
+        }
         let checked = u32::try_from(address).is_ok_and(|address| {
             let world = self
                 .world_controller
@@ -115,6 +173,12 @@ impl Bus for Esp32S3PmsBus<'_> {
             }
             Ok(())
         } else {
+            if std::env::var_os("REMU_DEBUG_PMS").is_some() {
+                eprintln!(
+                    "S3 PMS denied {width:?} write at {address:#010x}, value={value:#x}, PC={:#010x}",
+                    self.pc
+                );
+            }
             // Denied writes complete on the fabric without reaching the slave.
             Ok(())
         }

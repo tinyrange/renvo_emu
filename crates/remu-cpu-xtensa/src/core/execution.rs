@@ -15,6 +15,7 @@ impl XtensaCpu {
                 u32::from((instruction >> 12) & 0xf) | (u32::from((instruction >> 4) & 3) << 4);
             let branch_if_nonzero = instruction & 0x0040 != 0;
             let condition = (self.registers[register] != 0) == branch_if_nonzero;
+            self.branch_taken = condition;
             self.pc = if condition {
                 self.pc.wrapping_add(4).wrapping_add(encoded)
             } else {
@@ -106,7 +107,7 @@ impl XtensaCpu {
         // task's synthetic CALLINC reaches its first ENTRY.
         if instruction == 0x0000_3000 {
             self.pc = self.special_registers[177];
-            self.ps &= !0x10;
+            self.ps &= !Self::EXCM;
             let (registers, window_stack) = {
                 let contexts = self
                     .task_contexts
@@ -125,17 +126,62 @@ impl XtensaCpu {
                 self.registers = registers;
             }
             self.window_stack = window_stack;
+            self.level_one_exception_active = false;
             if std::env::var_os("REMU_DEBUG_XTENSA_CONTEXT").is_some() {
                 eprintln!(
-                    "rfe pc={:#010x} ps={:#010x} tp={:#010x} depth={} a2={:#010x} a6={:#010x}",
+                    "rfe pc={:#010x} ps={:#010x} tp={:#010x} depth={} a2={:#010x} a6={:#010x} loop={:#010x}..{:#010x}/{} active={}",
                     self.pc,
                     self.ps,
                     self.thread_pointer,
                     self.window_stack.len(),
                     self.registers[2],
                     self.registers[6],
+                    self.loop_begin,
+                    self.loop_end,
+                    self.loop_count,
+                    self.loop_active,
                 );
             }
+            return Ok(StepReason::Advanced);
+        }
+        // RFI n returns from a dedicated level-2..7 interrupt vector using
+        // that level's EPCn/EPSn bank. The exception prologue restores the
+        // physical register windows before RFI. Preserve the equivalent
+        // logical entry context here, or select the destination task snapshot
+        // when an ISR requested a scheduler switch by changing THREADPTR.
+        if instruction & 0x00ff_f0ff == 0x0000_3010 {
+            let level = usize::try_from((instruction >> 8) & 0xf).unwrap_or_default();
+            if !matches!(level, 2 | 3 | 4 | 5 | 7) {
+                return Err(self.fault(
+                    CpuFaultKind::IllegalInstruction,
+                    format!("Xtensa RFI level {level} is not implemented"),
+                ));
+            }
+            if let Some(interrupted) = self.interrupt_contexts[level].take() {
+                if self.thread_pointer == interrupted.thread_pointer {
+                    self.registers = interrupted.registers;
+                    self.window_stack = interrupted.window_stack;
+                } else {
+                    let (registers, window_stack) = {
+                        let contexts = self
+                            .task_contexts
+                            .lock()
+                            .expect("Xtensa task-context lock poisoned");
+                        (
+                            contexts.registers.get(&self.thread_pointer).copied(),
+                            contexts.window_stacks.get(&self.thread_pointer).cloned(),
+                        )
+                    };
+                    if let Some(registers) = registers {
+                        self.registers = registers;
+                    }
+                    if let Some(window_stack) = window_stack {
+                        self.window_stack = window_stack;
+                    }
+                }
+            }
+            self.pc = self.special_registers[176 + level];
+            self.ps = self.special_registers[192 + level];
             return Ok(StepReason::Advanced);
         }
         // WAITI atomically establishes an interrupt level and sleeps until an
@@ -159,14 +205,34 @@ impl XtensaCpu {
             let register = usize::from(((instruction >> 4) & 0xf) as u8);
             let special = usize::from(((instruction >> 8) & 0xff) as u8);
             let previous = match special {
+                0 => self.loop_begin,
+                1 => self.loop_end,
+                2 => self.loop_count,
                 3 => self.sar,
                 230 => self.ps,
                 _ => self.special_registers[special],
             };
             let value = self.registers[register];
             match special {
+                0 => {
+                    self.loop_begin = value;
+                    self.loop_active = self.loop_begin != self.loop_end;
+                }
+                1 => {
+                    self.loop_end = value;
+                    self.loop_active = self.loop_begin != self.loop_end;
+                }
+                2 => {
+                    self.loop_count = value;
+                    self.loop_active = self.loop_begin != self.loop_end;
+                }
                 3 => self.sar = value & 0x1f,
                 230 => self.ps = value,
+                240 => {
+                    self.special_registers[special] = value;
+                    self.software_interrupts &= !(1 << 6);
+                    self.special_registers[226] &= !(1 << 6);
+                }
                 _ => self.special_registers[special] = value,
             }
             self.registers[register] = previous;
@@ -179,11 +245,10 @@ impl XtensaCpu {
         if instruction & 0x00ff_ff0f == 0x00f3_e700 {
             let register = usize::from(((instruction >> 4) & 0xf) as u8);
             let next_thread_pointer = self.registers[register];
-            // Interrupt returns restore the logical window state at RFE after
-            // the guest context frame has selected THREADPTR. A solicited
-            // FreeRTOS yield has no RFE. Its dispatcher marks the compact
-            // solicited frame with a zero first word, so switch the host-side
-            // logical context only for that path.
+            // Interrupt returns select the logical task context at RFE/RFI,
+            // after assembly has finished consuming its exception-frame
+            // registers. A solicited yield has no exception return, and its
+            // compact frame is identified by a zero first word.
             let solicited_frame = self
                 .read(
                     bus,
@@ -193,7 +258,12 @@ impl XtensaCpu {
                     now,
                 )
                 .is_ok_and(|marker| marker == 0);
-            if next_thread_pointer != self.thread_pointer && solicited_frame {
+            let medium_interrupt_active = self.interrupt_contexts[2..].iter().any(Option::is_some);
+            let restore_before_return =
+                solicited_frame || (self.level_one_exception_active && !medium_interrupt_active);
+            if restore_before_return
+                && (next_thread_pointer != self.thread_pointer || self.level_one_exception_active)
+            {
                 let (restored_registers, restored_windows) = {
                     let contexts = self
                         .task_contexts
@@ -204,7 +274,13 @@ impl XtensaCpu {
                         contexts.window_stacks.get(&next_thread_pointer).cloned(),
                     )
                 };
-                if let Some(restored_registers) = restored_registers {
+                // A solicited yield has no RFE and therefore needs the whole
+                // destination context immediately. During a level-one
+                // exception restore, however, WUR runs while the handler's
+                // visible registers are still live. Only its physical window
+                // chain has been restored at this point; RFE publishes the
+                // destination task's visible registers below.
+                if solicited_frame && let Some(restored_registers) = restored_registers {
                     self.registers = restored_registers;
                 }
                 if let Some(restored_windows) = restored_windows {
@@ -218,7 +294,12 @@ impl XtensaCpu {
         if instruction & 0x00ff_0fff == 0x00e3_0e70 {
             let register = usize::from(((instruction >> 12) & 0xf) as u8);
             self.registers[register] = self.thread_pointer;
-            if self.ps & 0x10 == 0 {
+            // RUR.THREADPTR is also used inside medium/high interrupt
+            // prologues. Those handlers run with EXCM clear but a non-zero
+            // INTLEVEL; their temporary register windows do not belong to
+            // the interrupted FreeRTOS task and must never replace its saved
+            // logical context.
+            if self.ps & (Self::EXCM | 0xf) == 0 {
                 let mut contexts = self
                     .task_contexts
                     .lock()
@@ -261,6 +342,9 @@ impl XtensaCpu {
             let destination = usize::from(((instruction >> 4) & 0xf) as u8);
             let special = usize::from(((instruction >> 8) & 0xff) as u8);
             self.registers[destination] = match special {
+                0 => self.loop_begin,
+                1 => self.loop_end,
+                2 => self.loop_count,
                 3 => self.sar,
                 230 => self.ps,
                 _ => self.special_registers[special],
@@ -279,6 +363,18 @@ impl XtensaCpu {
             let special = usize::from(((instruction >> 8) & 0xff) as u8);
             let value = self.registers[source];
             match special {
+                0 => {
+                    self.loop_begin = value;
+                    self.loop_active = self.loop_begin != self.loop_end;
+                }
+                1 => {
+                    self.loop_end = value;
+                    self.loop_active = self.loop_begin != self.loop_end;
+                }
+                2 => {
+                    self.loop_count = value;
+                    self.loop_active = self.loop_begin != self.loop_end;
+                }
                 3 => self.sar = value & 0x1f,
                 230 => self.ps = value,
                 // Guest-written software interrupts coexist with externally
@@ -291,6 +387,11 @@ impl XtensaCpu {
                 227 => {
                     self.software_interrupts &= !value;
                     self.special_registers[226] &= !value;
+                }
+                240 => {
+                    self.special_registers[special] = value;
+                    self.software_interrupts &= !(1 << 6);
+                    self.special_registers[226] &= !(1 << 6);
                 }
                 _ => self.special_registers[special] = value,
             }
@@ -704,6 +805,13 @@ impl XtensaCpu {
             self.pc = next;
             return Ok(StepReason::Advanced);
         }
+        // SSA8L prepares SRC for a little-endian unaligned load. The low
+        // address bits select how many bits to discard from the first word.
+        if instruction & 0x00ff_f0ff == 0x0040_2000 {
+            self.sar = (self.registers[source] & 3) * 8;
+            self.pc = next;
+            return Ok(StepReason::Advanced);
+        }
         // Register-controlled shift setup and execution.
         if instruction & 0x00ff_f0ff == 0x0040_1000 {
             self.sar = (32 - (self.registers[source] & 0x1f)) & 0x1f;
@@ -835,6 +943,7 @@ impl XtensaCpu {
                 }
                 _ => unreachable!(),
             };
+            self.branch_taken = condition;
             self.pc = if condition {
                 self.pc
                     .wrapping_add(4)
@@ -864,6 +973,7 @@ impl XtensaCpu {
                 0xf => self.registers[register] >= UNSIGNED_VALUES[constant],
                 _ => unreachable!(),
             };
+            self.branch_taken = condition;
             self.pc = if condition {
                 self.pc
                     .wrapping_add(4)
@@ -885,6 +995,7 @@ impl XtensaCpu {
                 0xd => value >= 0,
                 _ => unreachable!(),
             };
+            self.branch_taken = condition;
             self.pc = if condition {
                 self.pc
                     .wrapping_add(4)
@@ -901,6 +1012,7 @@ impl XtensaCpu {
             let boolean_register = usize::from(((instruction >> 8) & 0xf) as u8);
             let branch_on_true = instruction & 0x0000_1000 != 0;
             let boolean = self.boolean_registers & (1 << boolean_register) != 0;
+            self.branch_taken = boolean == branch_on_true;
             self.pc = if boolean == branch_on_true {
                 self.pc
                     .wrapping_add(4)
@@ -924,9 +1036,11 @@ impl XtensaCpu {
             let skip = operation == 9 && count == 0 || operation == 0xa && (count as i32) <= 0;
             if skip {
                 self.loop_count = 0;
+                self.loop_active = false;
                 self.pc = self.loop_end;
             } else {
-                self.loop_count = count;
+                self.loop_count = count.wrapping_sub(1);
+                self.loop_active = true;
                 self.pc = next;
             }
             return Ok(StepReason::Advanced);
@@ -934,6 +1048,18 @@ impl XtensaCpu {
         // JX as.
         if instruction & 0x00ff_f0ff == 0x0000_00a0 {
             self.pc = self.registers[source];
+            return Ok(StepReason::Advanced);
+        }
+        // EXCW exchanges a core register with an implementation-defined
+        // external register. ESP32-S3 startup uses RER/EXCW to read DSRSET
+        // and determine whether a hardware debugger is attached. The
+        // functional CPU has no external debug module, so external reads are
+        // stable zero and the written external value has no side effect.
+        if instruction & 0x00ff_f00f == 0x0040_6000 {
+            let destination =
+                usize::try_from((instruction >> 4) & 0xf).expect("register fits usize");
+            self.registers[destination] = 0;
+            self.pc = next;
             return Ok(StepReason::Advanced);
         }
         // CALLX0/4/8/12 use the same source field as JX.
