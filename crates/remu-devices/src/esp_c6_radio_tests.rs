@@ -530,6 +530,98 @@ mod tests {
     }
 
     #[test]
+    fn c6_ble_sleep_timer_stress_cancels_or_completes_each_wake_exactly_once() {
+        fn run() -> Vec<(u32, &'static str)> {
+            let (mut modem, handle) = EspC6BleModem::new("ble-modem");
+            let mut evidence = Vec::new();
+
+            for cycle in 0..256_u32 {
+                let start_tick = u64::from(cycle) * 16 * C6_BLE_MODEM_TICKS_PER_SLEEP_TICK;
+                let start = SimTime::from_ticks(start_tick);
+                let compare = EspC6BleModemState::timer_value(start) + 8;
+                modem
+                    .write(
+                        C6_BLE_MODEM_RTC_COMPARE,
+                        AccessWidth::Word,
+                        compare.into(),
+                        start,
+                    )
+                    .unwrap();
+                modem
+                    .write(
+                        C6_BLE_MODEM_RTC_INTERRUPT_ENABLE,
+                        AccessWidth::Word,
+                        C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                        start,
+                    )
+                    .unwrap();
+
+                let overlap = modem
+                    .write(
+                        C6_BLE_MODEM_RTC_COMPARE,
+                        AccessWidth::Word,
+                        (compare + 1).into(),
+                        start,
+                    )
+                    .unwrap_err();
+                assert!(overlap.to_string().contains("illegal radio state"));
+
+                if cycle % 11 == 0 {
+                    modem.reset(ResetKind::Software);
+                    assert!(!handle.interrupt_pending(SimTime::from_ticks(
+                        start_tick + 12 * C6_BLE_MODEM_TICKS_PER_SLEEP_TICK,
+                    )));
+                    evidence.push((cycle, "reset"));
+                } else if cycle % 3 == 0 {
+                    modem
+                        .write(
+                            C6_BLE_MODEM_RTC_INTERRUPT_CLEAR,
+                            AccessWidth::Word,
+                            C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                            SimTime::from_ticks(
+                                start_tick + 4 * C6_BLE_MODEM_TICKS_PER_SLEEP_TICK,
+                            ),
+                        )
+                        .unwrap();
+                    assert!(!handle.interrupt_pending(SimTime::from_ticks(
+                        start_tick + 12 * C6_BLE_MODEM_TICKS_PER_SLEEP_TICK,
+                    )));
+                    evidence.push((cycle, "cancel"));
+                } else {
+                    let due = SimTime::from_ticks(
+                        start_tick + 8 * C6_BLE_MODEM_TICKS_PER_SLEEP_TICK,
+                    );
+                    assert!(!handle.interrupt_pending(SimTime::from_ticks(due.ticks() - 1)));
+                    assert!(handle.interrupt_pending(due));
+                    assert!(handle.interrupt_pending(due));
+                    modem
+                        .write(
+                            C6_BLE_MODEM_RTC_INTERRUPT_CLEAR,
+                            AccessWidth::Word,
+                            C6_BLE_MODEM_RTC_INTERRUPT_BIT.into(),
+                            due,
+                        )
+                        .unwrap();
+                    assert!(!handle.interrupt_pending(due));
+                    evidence.push((cycle, "wake"));
+                }
+            }
+
+            evidence
+        }
+
+        let first = run();
+        assert_eq!(first, run());
+        assert_eq!(first.len(), 256);
+        assert_eq!(
+            first.iter().filter(|(_, outcome)| *outcome == "reset").count(),
+            24
+        );
+        assert!(first.iter().any(|(_, outcome)| *outcome == "cancel"));
+        assert!(first.iter().any(|(_, outcome)| *outcome == "wake"));
+    }
+
+    #[test]
     fn ble_baseband_scheduler_timer_starts_on_reset_release_at_one_mhz() {
         let (mut device, handle) = EspC6BleBaseband::new("ble-baseband");
         device

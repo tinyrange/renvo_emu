@@ -379,3 +379,94 @@ fn esp32c6_power_gated_unmapped_grant_is_a_hard_machine_error() {
     );
     assert!(error.detail.contains("no matching RF transmission"));
 }
+
+#[test]
+fn esp32c6_active_wifi_power_and_reset_stress_has_exact_replay_accounting() {
+    fn run() -> remu_radio::ReplayArtifact {
+        let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
+        const RADIO_CLOCKS: u64 = (1 << 9) | (1 << 10) | (1 << 17) | (1 << 18);
+        machine
+            .bus
+            .write(0x600a_9814, AccessWidth::Word, RADIO_CLOCKS, machine.now)
+            .unwrap();
+        machine
+            .wifi_engine()
+            .unwrap()
+            .start(remu_radio::WifiMode::Station)
+            .unwrap();
+
+        for cycle in 0..128_u64 {
+            machine
+                .bus
+                .write(0x600a_9814, AccessWidth::Word, RADIO_CLOCKS, machine.now)
+                .unwrap();
+            let mut frame = vec![0_u8; 24];
+            frame[4..10].fill(0xff);
+            frame[23] = cycle as u8;
+            machine.wifi_engine().unwrap().queue_tx(frame).unwrap();
+            assert_eq!(machine.service_radio().unwrap(), 1);
+
+            if cycle % 2 == 0 {
+                machine
+                    .bus
+                    .write(0x600a_9814, AccessWidth::Word, 0, machine.now)
+                    .unwrap();
+            } else {
+                machine
+                    .bus
+                    .write(0x600a_f024, AccessWidth::Word, 1 << 1, machine.now)
+                    .unwrap();
+            }
+            assert_eq!(machine.service_radio().unwrap(), 0);
+            machine
+                .bus
+                .write(0x600a_f024, AccessWidth::Word, 0, machine.now)
+                .unwrap();
+            machine.now += remu_core::SimDuration::from_ticks(256);
+            assert_eq!(machine.service_radio().unwrap(), 0);
+        }
+
+        machine.radio_replay_artifact().unwrap()
+    }
+
+    let first = run();
+    assert_eq!(first, run());
+    let submitted = first
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            remu_radio::MediumEvent::Submitted { id, request }
+                if request.frame.protocol == remu_radio::RadioProtocol::Wifi =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let truncated = first
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            remu_radio::MediumEvent::Truncated { id, .. } => Some(*id),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(submitted.len(), 128);
+    assert_eq!(truncated, submitted);
+    assert_eq!(
+        first
+            .coexistence_events
+            .iter()
+            .filter(|event| matches!(event, remu_radio::CoexistenceEvent::PowerDown { .. }))
+            .count(),
+        64
+    );
+    assert_eq!(
+        first
+            .coexistence_events
+            .iter()
+            .filter(|event| matches!(event, remu_radio::CoexistenceEvent::Reset { .. }))
+            .count(),
+        64
+    );
+}

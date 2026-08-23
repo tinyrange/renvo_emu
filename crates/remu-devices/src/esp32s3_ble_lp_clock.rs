@@ -366,4 +366,97 @@ mod tests {
             .unwrap_err();
         assert!(wake_error.to_string().contains("illegal radio state"));
     }
+
+    #[test]
+    fn stress_replays_sleep_wake_and_reset_cancellation_without_stale_edges() {
+        fn run() -> Vec<(u64, bool)> {
+            let (mut clock, handle) = Esp32S3BleLpClock::new("ble-lp-clock");
+            let mut evidence = Vec::new();
+
+            for cycle in 0..256_u64 {
+                let start = SimTime::from_ticks(cycle * 512);
+                clock
+                    .write(SLEEP_DURATION, AccessWidth::Word, 20 + cycle % 5, start)
+                    .unwrap();
+                clock
+                    .write(
+                        POWER_CONTROL,
+                        AccessWidth::Word,
+                        u64::from(0x8000_0000_u32),
+                        start,
+                    )
+                    .unwrap();
+                clock
+                    .write(
+                        POWER_CONTROL,
+                        AccessWidth::Word,
+                        u64::from(0x8000_0000 | RF_SLEEP_COMMAND),
+                        start,
+                    )
+                    .unwrap();
+
+                if cycle % 11 == 0 {
+                    clock.reset(ResetKind::Software);
+                    assert!(!handle.take_wake_request());
+                    assert!(
+                        !handle.take_wake_completion_request(SimTime::from_ticks(
+                            start.ticks() + 256,
+                        ))
+                    );
+                    evidence.push((cycle, true));
+                    continue;
+                }
+
+                let wake = SimTime::from_ticks(start.ticks() + 160);
+                assert_eq!(
+                    clock.read(SLEEP_ELAPSED, AccessWidth::Word, wake).unwrap(),
+                    10
+                );
+                clock
+                    .write(
+                        POWER_CONTROL,
+                        AccessWidth::Word,
+                        u64::from(0x8000_0000 | RF_SLEEP_ACKNOWLEDGED | WAKE_REQUEST),
+                        wake,
+                    )
+                    .unwrap();
+                assert!(handle.take_wake_request());
+                assert!(!handle.take_wake_request());
+
+                let duplicate = clock
+                    .write(
+                        POWER_CONTROL,
+                        AccessWidth::Word,
+                        u64::from(0x8000_0000 | RF_SLEEP_ACKNOWLEDGED | WAKE_REQUEST),
+                        wake,
+                    )
+                    .unwrap_err();
+                assert!(duplicate.to_string().contains("illegal radio state"));
+
+                clock
+                    .write(
+                        POWER_CONTROL,
+                        AccessWidth::Word,
+                        u64::from(0x8000_0000 | RF_SLEEP_ACKNOWLEDGED | WAKE_COMPLETE_REQUEST),
+                        wake,
+                    )
+                    .unwrap();
+                let completion = SimTime::from_ticks(wake.ticks() + WAKE_COMPLETION_DELAY_TICKS);
+                assert!(
+                    !handle
+                        .take_wake_completion_request(SimTime::from_ticks(completion.ticks() - 1,))
+                );
+                assert!(handle.take_wake_completion_request(completion));
+                assert!(!handle.take_wake_completion_request(completion));
+                evidence.push((cycle, false));
+            }
+
+            evidence
+        }
+
+        let first = run();
+        assert_eq!(first, run());
+        assert_eq!(first.len(), 256);
+        assert_eq!(first.iter().filter(|(_, reset)| *reset).count(), 24);
+    }
 }

@@ -66,7 +66,9 @@ jobs:
         run: ./scripts/check-source-layout.sh
 
       - name: Check radio provenance and inventory
-        run: ./scripts/check-radio-sources.py
+        run: |
+          ./scripts/check-radio-sources.py
+          ./scripts/check-radio-power-transition-contract.py
 
       - name: Check C6 RF register and error references
         run: ./scripts/check-c6-rf-register-reference.py
