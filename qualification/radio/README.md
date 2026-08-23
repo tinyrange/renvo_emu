@@ -426,6 +426,32 @@ airtime. Genuine Wi-Fi/BLE simultaneous traffic
 is covered on both chips, and the C6 image also qualifies active three-radio
 Wi-Fi/BLE/IEEE 802.15.4 ownership.
 
+The software-only power-transition torture gate is defined by
+`power-transition-contract.json` and can be run end-to-end with
+`scripts/qualify-esp-radio-power-transitions.sh`. It composes seven bounded,
+pinned genuine-firmware workflows: Wi-Fi and BLE on C6/S3, coexistence on both
+chips, and C6 OpenThread. The resulting summary hashes every constituent
+qualification artifact. Physical RF, hardware fixtures, host networking, and
+symbol dispatch are forbidden by the contract.
+
+The focused layer repeats each C6 and S3 low-power sequencer 256 times and each
+active-airtime reset/gate boundary 128 times, then compares complete replay
+artifacts from two independent runs. It requires every accepted C6 test frame
+to have one cancellation record; on S3 it distinguishes shared-reset
+cancellation from the firmware-observed interface-clock behavior that preserves
+autonomous airtime. Reset clears armed C6 BLE compares and S3 deferred wake
+edges, so neither may produce a stale post-reset interrupt. Duplicate,
+overlapping, past-compare, and out-of-order transition requests remain hard
+legality failures.
+
+These distinctions are intentional: a clock controlling the firmware register
+interface is not automatically the RF power domain. C6 MODEM power loss cancels
+airtime; S3 firmware can gate its interface after handing work to the
+autonomous MAC. IEEE 802.15.4 must STOP before its clock gate and explicitly
+rearm receive after wake. The genuine Wi-Fi workflow supplies chip-level
+calibration evidence, while BLE and OpenThread supply the interrupt, traffic,
+and wake-reason evidence for those focused semantics.
+
 The following are explicit non-blocking future-work items rather than missing
 radio peripherals:
 
@@ -433,9 +459,6 @@ radio peripherals:
   channel-map updates, and resolving/accept-list privacy workflows beyond the
   genuine advertising, scanning, connected, encrypted, PHY-update, and
   supervision paths already qualified.
-- Longer active-traffic sleep/wake torture, including interrupted or overlapping
-  low-power transitions, calibration re-entry, and coexistence handoff at the
-  transition boundary.
 - Additional interrupt/NMI cross-products only when pinned firmware supplies a
   distinct raw/mask/acknowledgement contract; the current qualified and explicit
   unresolved boundary is merge-gated by `interrupt-contract.json`.

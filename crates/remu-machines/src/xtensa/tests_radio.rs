@@ -299,6 +299,98 @@ fn esp32s3_interface_clock_gate_preserves_unmapped_grant_for_later_completion() 
 }
 
 #[test]
+fn esp32s3_active_wifi_clock_and_reset_stress_has_exact_replay_accounting() {
+    fn run() -> remu_radio::ReplayArtifact {
+        let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+        let radio_clocks = machine.syscon.radio_clock_enable();
+        machine
+            .wifi_engine()
+            .unwrap()
+            .start(remu_radio::WifiMode::Station)
+            .unwrap();
+
+        for cycle in 0..128_u64 {
+            machine
+                .bus
+                .write(
+                    0x6002_6014,
+                    AccessWidth::Word,
+                    radio_clocks.into(),
+                    machine.now,
+                )
+                .unwrap();
+            let mut frame = vec![0_u8; 24];
+            frame[4..10].fill(0xff);
+            frame[23] = cycle as u8;
+            machine.wifi_engine().unwrap().queue_tx(frame).unwrap();
+            assert_eq!(machine.service_radio().unwrap(), 1);
+
+            if cycle % 2 == 0 {
+                machine
+                    .bus
+                    .write(0x6002_6014, AccessWidth::Word, 0, machine.now)
+                    .unwrap();
+                assert_eq!(machine.service_radio().unwrap(), 0);
+                assert!(machine.radio_coexistence.owner().is_some());
+            } else {
+                machine
+                    .bus
+                    .write(0x6002_6018, AccessWidth::Word, 1, machine.now)
+                    .unwrap();
+                assert_eq!(machine.service_radio().unwrap(), 0);
+                machine
+                    .bus
+                    .write(0x6002_6018, AccessWidth::Word, 0, machine.now)
+                    .unwrap();
+            }
+
+            machine.now += remu_core::SimDuration::from_ticks(256);
+            assert_eq!(machine.service_radio().unwrap(), 0);
+        }
+
+        machine.radio_replay_artifact()
+    }
+
+    let first = run();
+    assert_eq!(first, run());
+    let submitted = first
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            remu_radio::MediumEvent::Submitted { id, request }
+                if request.frame.protocol == remu_radio::RadioProtocol::Wifi =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let truncated = first
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            remu_radio::MediumEvent::Truncated { id, .. } => Some(*id),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(submitted.len(), 128);
+    assert_eq!(truncated.len(), 64);
+    assert!(truncated.is_subset(&submitted));
+    assert_eq!(
+        first
+            .coexistence_events
+            .iter()
+            .filter(|event| matches!(event, remu_radio::CoexistenceEvent::Reset { .. }))
+            .count(),
+        64
+    );
+    assert!(!first
+        .coexistence_events
+        .iter()
+        .any(|event| matches!(event, remu_radio::CoexistenceEvent::PowerDown { .. })));
+}
+
+#[test]
 fn esp32s3_illegal_native_wifi_dma_is_a_hard_machine_error() {
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine
