@@ -640,6 +640,26 @@ W1C, reset, and unresolved-private-source boundary is documented in
 [`esp-radio-interrupts.md`](esp-radio-interrupts.md) and enforced by
 `qualification/radio/interrupt-contract.json`.
 
+The ATSAMD21E18 slice also maps the native DAC at `0x42004800`. Its
+functional boundary follows the typed register map from Microchip
+DS40001882H §35: enable/reset, reference and event-control register state,
+interrupt enable/flag semantics, 10-bit right/left-adjusted `DATA`/`DATABUF`
+latches, buffered start/EMPTY/UNDERRUN behavior, IRQ 25, and deterministic
+host/VCD output-code observation. Analog settling, voltage/reference accuracy,
+clock synchronization, Event System/DMAC coupling, and the physical output
+buffer remain outside the model.
+
+The ATSAMD21E18 timer topology is mapped at the package's native addresses:
+RTC at `0x40001400`, TCC0–2 at `0x42002000`–`0x42002800`, TC3–5 at
+`0x42002c00`–`0x42003400`, and SERCOM0–3 at
+`0x42000800`–`0x42001400`. RTC MODE0 provides deterministic 32-bit
+count/compare/overflow behavior on IRQ 3. TCC0–2 provide 24-bit
+period/compare, buffered register storage, match/overflow W1C interrupts on
+IRQs 15–17, package-appropriate channel masks, and VCD-visible digital PWM
+levels. TC4/5 and SERCOM1–3 reuse their audited instance-generic functional
+models with the vendor IRQs. RTC calendar modes, TCC capture/fault/dead-time
+and exact clock/prescaler timing remain outside this support boundary.
+
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the
 corresponding esptool application binary with `--esp-app-image` enables a

@@ -25,16 +25,16 @@ sample_url = "https://github.com/Microchip-MPLAB-Harmony/csp_apps_sam_d21_da1"
 sample_revision = "9331e79cf2937d2b3166813c6d2886b2481162e3"
 toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
 compiler_flags = ["-mcpu=cortex-m0plus", "-mthumb"]
-peripherals = ["PM", "SYSCTRL", "GCLK", "NVMCTRL", "PORT", "EIC", "TC3", "SERCOM0", "WDT"]
+peripherals = ["PM", "SYSCTRL", "GCLK", "NVMCTRL", "PORT", "EIC", "RTC MODE0", "TC3-TC5", "TCC0-TCC2", "SERCOM0-SERCOM3 USART/SPI/I2C", "EVSYS", "USB device", "DMAC", "I2S", "ADC", "AC", "DAC", "WDT"]
 image_formats = ["ELF32 little-endian Arm executable"]
 memory_map = ["flash 0x00000000..0x0003ffff", "SRAM 0x20000000..0x20007fff", "documented MMIO windows for the selected peripheral slice"]
 reset_assumptions = "Power-on reset reads MSP and Thumb reset PC from vectors 0 and 1 at flash address zero; modeled startup-ready flags are documented functional approximations"
-vectors = ["reset exception 1", "EIC external IRQ 4", "SERCOM0 external IRQ 9", "TC3 external IRQ 18"]
+vectors = ["reset exception 1", "RTC external IRQ 3", "EIC external IRQ 4", "DMAC external IRQ 6", "SERCOM0-SERCOM3 external IRQs 9-12", "TCC0-TCC2 external IRQs 15-17", "TC3-TC5 external IRQs 18-20", "ADC external IRQ 23", "AC external IRQ 24", "DAC external IRQ 25", "I2S external IRQ 27"]
 selected_pins = ["PA03 external digital input/EIC stimulus", "PA07 GPIO output and Harmony LED oracle"]
-interrupt_routes = ["EIC EXTINT3 -> NVIC line 4", "TC3 MC0 -> NVIC line 18", "SERCOM0 -> NVIC line 9"]
-vcd_signals = ["board.atsamd21e18.porta", "board.atsamd21e18.tc3.irq", "board.atsamd21e18.sercom0", "board.atsamd21e18.interrupt.request"]
+interrupt_routes = ["RTC -> NVIC line 3", "EIC EXTINT3 -> NVIC line 4", "DMAC -> NVIC line 6", "SERCOM0-SERCOM3 -> NVIC lines 9-12", "TCC0-TCC2 -> NVIC lines 15-17", "TC3-TC5 -> NVIC lines 18-20", "ADC -> NVIC line 23", "AC -> NVIC line 24", "DAC -> NVIC line 25", "I2S -> NVIC line 27"]
+vcd_signals = ["board.atsamd21e18.porta", "board.atsamd21e18.tc3.irq", "board.atsamd21e18.sercom0", "board.atsamd21e18.tcc0.wo0", "board.atsamd21e18.tcc1.wo0", "board.atsamd21e18.tcc2.wo0", "board.atsamd21e18.ac", "board.atsamd21e18.dac.output_code", "board.atsamd21e18.interrupt.request"]
 fidelity_tier = "functional, deterministic, not cycle accurate"
-unsupported = ["analog peripherals", "USB", "DMA", "exact clock and synchronization timing"]
+unsupported = ["PTC host-library behavior", "RTC MODE1/calendar MODE2", "TCC capture/fault/dead-time/dithering", "analog electrical behavior", "USB packet protocol", "linked/peripheral-triggered DMA", "exact clock and synchronization timing", "SERCOM pin-level timing and complete slave behavior"]
 vendor_sample_license = "Microchip Software License Agreement v2.001; device-use restriction applies"
 
 [[target]]

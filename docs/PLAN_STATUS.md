@@ -59,7 +59,131 @@ functional, non-cycle-accurate scope. PHY edge timing, DMA scatter/gather,
 host-channel scheduling, and complete USB class/device compatibility remain
 explicit limitations and are tracked separately.
 
+## ATSAMD21 EVSYS expansion slice
+
+The ATSAMD21E18 expansion qualification now exercises the mapped Event System
+at its documented `0x42000400` base. The functional model exposes named CTRL,
+CHANNEL, USER, CHSTATUS, INTENCLR, INTENSET, and INTFLAG registers, all twelve
+channel selectors, user-to-channel muxing, synchronous software events,
+event-detected flags, interrupt-enable semantics, and write-one-to-clear flag
+behavior. The Docker-built Cortex-M0+ fixture configures a channel and user,
+injects a software event with the required synchronous/rising-edge setup, and
+checks the flag and readback before clearing it.
+
+Peripheral generator wiring, DMA/interrupt delivery into the rest of the
+machine, and cycle-accurate synchronization remain explicitly deferred.
+
+## ATSAMD21 USB device expansion slice
+
+The ATSAMD21E18 expansion qualification now maps the documented USB device
+block at `0x41005000`. The functional model exposes named common control,
+address, status, finite-state-machine, frame, interrupt, descriptor, and
+pad-calibration registers, plus the eight endpoint configuration/status/
+interrupt windows. Its register masks and access widths follow the official
+SAM D21 CMSIS definitions, including the split endpoint status/interrupt masks
+and write-one-to-clear common and endpoint flags. It implements deterministic
+enable/detach/address behavior, endpoint status aliases, interrupt enable and
+W1C flags, endpoint interrupt summaries, software bus reset, SOF, and
+control-endpoint SETUP stimuli through a host-facing handle. The Docker fixture
+checks the device control and endpoint register paths at native addresses.
+
+USB packet encoding/decoding, descriptor/DMA transfers through system RAM,
+physical DP/DM signaling, and NVIC routing for host stimuli remain explicitly
+deferred.
+
+## ATSAMD21 ADC functional slice
+
+The ATSAMD21E18 model now maps the ADC at `0x4200_4000` and routes its
+result-ready, overrun, and window-monitor interrupt sources to Cortex-M0+
+external line 23. The public `Samd21AdcRegister` enum names every native
+register in the data-sheet summary. Firmware can configure `CTRLA`, `REFCTRL`,
+`AVGCTRL`, `SAMPCTRL`, `CTRLB`, `WINCTRL`, `INPUTCTRL` positive-input scan,
+event and interrupt registers, thresholds, correction/calibration storage, and
+debug control.
+
+Writing `SWTRIG.START` performs one deterministic functional conversion using
+the sample supplied by `Samd21AdcHandle::inject_sample`; `RESULT` read-clear,
+raw-payload W1C/alias semantics, unread-result overrun, resolution/left-adjust
+selection, and window modes are covered by unit tests and the Docker smoke.
+The model enforces the vendor masks, including the reserved-bit gaps in
+`INPUTCTRL` and `EVCTRL`. This is a firmware-facing digital model, not an
+analog simulator: electrical voltages, reference impedance, averaging/scan
+timing, Event System and DMAC coupling, and exact conversion clocks remain
+deferred. The register map and interrupt assignment are sourced from the
+Microchip SAM D21/DA1 Family Data Sheet
+[DS40001882E](https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf),
+section 33, and the [SAM D21 CMSIS ADC definitions](https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/adc.h).
+
+## ATSAMD21 analog-comparator functional slice
+
+The ATSAMD21E18 model maps the AC comparator pair at `0x4200_4400` and routes
+its comparator/window interrupt sources to Cortex-M0+ external line 24. The
+public `Samd21AcRegister` enum names the native control, event, interrupt,
+status, window, comparator-control, and scaler registers from section 34.7 of
+the Microchip data sheet.
+
+`Samd21AcHandle::inject_input` supplies deterministic digitalized codes for the
+four AIN inputs in the SAM D21 first comparator pair. Guest writes can enable
+the AC, select positive/negative inputs, configure single-shot or continuous
+mode and edge/EOC interrupt selection, start a comparison, observe ready/state
+status, and clear raw-payload W1C flags. Comparator outputs are emitted as
+`board.atsamd21e18.ac.comp0` and `.comp1` signals for VCD. The bounded window
+state derives from the paired comparator outputs, and window-mode starts run
+both single-shot comparators. Vendor masks, `CTRLA.RUNSTDBY/LPMUX`, and SWAP’s
+input-swap-plus-invert behavior are covered by unit tests. Analog voltages,
+hysteresis/filter sampling, startup/propagation timing, Event System delivery,
+and package-level electrical routing remain deferred. The register map and IRQ
+assignment are sourced from Microchip SAM D21/DA1 Family Data Sheet
+[DS40001882E](https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf),
+section 34, and the [SAM D21 CMSIS AC definitions](https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/ac.h).
+
 ## Phase 5 closure
+
+## ATSAMD21 DMAC expansion slice
+
+The ATSAMD21 model now maps the documented DMAC block at `0x41004800` and
+uses named register and descriptor-field enums rather than numeric register
+identifiers. The register masks and access behavior follow the official SAM
+D21 definitions: the reserved `0x0e` slot is not fabricated as QOSCTRL,
+CTRL/PRICTRL0/CHCTRLB masks are bounded, direct writes can disable DMA and
+channels, and software-trigger/INTPEND/CHINTEN/CHINTFLAG payloads retain their
+documented write semantics. All twelve channel selectors, enable/reset and
+trigger/event configuration fields, software-trigger bitmap, base/write-back
+addresses, pending/busy/active summaries, interrupt enable/flag/status paths,
+and write-one-to-clear behavior are modeled. A valid software-triggered
+descriptor can transfer a bounded single block through the shared bus for byte,
+halfword, or word memory-to-memory traffic; source/destination incrementing and
+the descriptor write-back layout are deterministic. Invalid descriptors and
+bus faults latch fetch/transfer errors and interrupt flags.
+
+The Docker ATSAMD21 smoke now programs a native-address descriptor, verifies
+the copied bytes and completion state, and requires DMAC bus evidence. The
+official SAM D21 datasheet remains the register and descriptor reference:
+<https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf>.
+Linked descriptors, peripheral and Event System trigger routing, CRC
+calculation, exact arbitration/timing, and other analog/USB blocks remain
+outside this functional tranche.
+
+## ATSAMD21 I2S expansion slice
+
+The ATSAMD21 model now maps the documented I2S block at `0x42005000` with
+named identifiers for CTRLA, both clock-unit controls, interrupt enable/flag
+registers, SYNCBUSY, both serializer controls, and both data holding
+registers. Enabling a configured transmitter exposes deterministic TX-ready
+state and captures `(serializer, sample)` words for host assertions. A host can
+inject receive samples; firmware reads clear RX-ready and a second unread
+sample latches the corresponding RX overrun flag. Interrupt enable set/clear,
+W1C flags, reset behavior, vendor masks, and the ATSAMD21 I2S IRQ 27 route are
+covered by unit and Docker smoke evidence.
+
+The official SAM D21/DA1 datasheet and CMSIS headers are the register and
+format references:
+<https://ww1.microchip.com/downloads/en/DeviceDoc/SAM_D21_DA1_Family%20Data%20Sheet_DS40001882E.pdf>.
+<https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/component/i2s.h>
+<https://raw.githubusercontent.com/arduino/ArduinoCore-samd/master/bootloaders/mzero/Bootloader_D21/src/ASF/sam0/utils/cmsis/samd21/include/samd21e18a.h>
+Serial bit timing, external pin waveform generation, TDM/PDM framing and data
+formatting, DMAC request coupling, and exact clock synchronization remain
+outside this functional tranche.
 
 Phase 5 now meets its complete exit gate. `remu corpus reduce` detects the
 seeded discrepancy and minimizes source fragments, compiler flags, and inputs

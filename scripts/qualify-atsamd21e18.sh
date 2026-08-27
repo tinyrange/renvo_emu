@@ -45,13 +45,33 @@ run_once "$artifact_root/run-b"
 cmp "$artifact_root/run-a/result.json" "$artifact_root/run-b/result.json"
 cmp "$artifact_root/run-a/gpio.vcd" "$artifact_root/run-b/gpio.vcd"
 jq -e '.target == "atsamd21e18" and .reason == "Halted" and .exit_code == 0 and (.uart == [83,65,77,68,50,49,10])' "$artifact_root/run-a/result.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.evsys")] | length >= 10' \
+    "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.usb")] | length >= 12' \
+    "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.adc")] | length >= 8' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.ac")] | length >= 5' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.sercom1")] | length >= 4' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.sercom2")] | length >= 4' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.sercom3")] | length >= 4' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.tc4")] | length >= 4' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.tc5")] | length >= 4' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.tcc0")] | length >= 4' "$artifact_root/run-a/bus.json" >/dev/null
+jq -e '[.[] | select(.region == "atsamd21e18.rtc")] | length >= 4' "$artifact_root/run-a/bus.json" >/dev/null
 grep -q '^\$scope module atsamd21e18 \$end$' "$artifact_root/run-a/gpio.vcd"
+grep -q '^\$scope module ac \$end$' "$artifact_root/run-a/gpio.vcd"
+grep -q '^\$var wire 1 .* comp0 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module porta \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module tc3 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module sercom0 \$end$' "$artifact_root/run-a/gpio.vcd"
+grep -q '^\$scope module dac \$end$' "$artifact_root/run-a/gpio.vcd"
+grep -q '^\$scope module tcc0 \$end$' "$artifact_root/run-a/gpio.vcd"
+grep -q '^\$var wire 1 .* wo0 \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-a/gpio.vcd"
 grep -q '^0' "$artifact_root/run-a/gpio.vcd"
 grep -q '^1' "$artifact_root/run-a/gpio.vcd"
+jq -e '[.[] | select(.region == "atsamd21e18.dmac")] | length >= 9' \
+    "$artifact_root/run-a/bus.json" >/dev/null
 
 for optimization in O0 Os; do
     mkdir -p "$artifact_root/build-$optimization" "$artifact_root/run-$optimization"
