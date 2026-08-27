@@ -14,15 +14,14 @@ use remu_core::{
 };
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
-    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalPwm,
-    FunctionalI2c, FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, I2cEvent, I2cHandle,
-    PwmHandle, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Resets,
-    Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
-    Rp2350XipMaintenance, RpI2c, RpI2cEvent, RpI2cHandle, RpPio, RpPioHandle,
-    RpAdc, RpAdcHandle, RpAdcVariant, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout,
-    RpPioVersion, SignalHub, SpiHandle, TimerHandle, UartHandle,
+    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalI2c,
+    FunctionalPwm, FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, I2cEvent, I2cHandle,
+    PwmHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets, Rp2040Rtc, Rp2040Ssi,
+    Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040Watchdog,
+    Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle, Rp2350XipMaintenance, RpAdc,
+    RpAdcHandle, RpAdcVariant, RpI2c, RpI2cEvent, RpI2cHandle, RpPio, RpPioHandle, RpPioVersion,
+    RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, SpiHandle, TimerHandle,
+    UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -316,9 +315,7 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2040.io-qspi", vec![0; 64])),
             )?;
-            for (name, base) in [
-                ("rp2040.dma", 0x5000_0000),
-            ] {
+            for (name, base) in [("rp2040.dma", 0x5000_0000)] {
                 bus.map_device(
                     name,
                     base,
@@ -421,9 +418,7 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
             )?;
-            for (name, base) in [
-                ("rp2350.dma", 0x5000_0000),
-            ] {
+            for (name, base) in [("rp2350.dma", 0x5000_0000)] {
                 bus.map_device(
                     name,
                     base,
@@ -1270,7 +1265,9 @@ impl ArmMachine {
                 .events()
                 .into_iter()
                 .filter_map(|event| match event {
-                    RpI2cEvent::Write { address, value } => Some(I2cEvent::Write { address, value }),
+                    RpI2cEvent::Write { address, value } => {
+                        Some(I2cEvent::Write { address, value })
+                    }
                     RpI2cEvent::Read { address, value } => Some(I2cEvent::Read { address, value }),
                     RpI2cEvent::Start | RpI2cEvent::RepeatedStart | RpI2cEvent::Stop => None,
                 })

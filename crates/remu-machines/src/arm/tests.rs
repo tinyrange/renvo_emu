@@ -133,20 +133,90 @@ fn raspberry_pi_spi0_and_spi1_have_functional_loopback() {
     for (index, base) in [0x4003_c000_u64, 0x4004_0000].into_iter().enumerate() {
         let mut machine = ArmMachine::new(TargetId::Rp2040).unwrap();
         let value = 0x30 + index as u64;
-        machine.bus.write(base + Rp2040SpiRegister::SsiEnr.offset(), AccessWidth::Word, 1, SimTime::ZERO).unwrap();
-        machine.bus.write(base + Rp2040SpiRegister::Ser.offset(), AccessWidth::Word, 1, SimTime::ZERO).unwrap();
-        machine.bus.write(base + Rp2040SpiRegister::Data(0).offset(), AccessWidth::Word, value, SimTime::ZERO).unwrap();
+        machine
+            .bus
+            .write(
+                base + Rp2040SpiRegister::SsiEnr.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                base + Rp2040SpiRegister::Ser.offset(),
+                AccessWidth::Word,
+                1,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                base + Rp2040SpiRegister::Data(0).offset(),
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
+            .unwrap();
         assert_eq!(machine.spi_transmitted(index).unwrap(), [value as u8]);
-        assert_eq!(machine.bus.read(base + Rp2040SpiRegister::Data(0).offset(), AccessWidth::Word, AccessKind::Read, SimTime::ZERO).unwrap(), value);
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    base + Rp2040SpiRegister::Data(0).offset(),
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            value
+        );
     }
 
     for base in [0x4008_0000_u64, 0x4008_8000] {
         let mut machine = ArmMachine::new(TargetId::Rp2350).unwrap();
         let value = 0x30;
-        machine.bus.write(base + Rp2350SpiRegister::Cr0.offset(), AccessWidth::Word, 7, SimTime::ZERO).unwrap();
-        machine.bus.write(base + Rp2350SpiRegister::Cr1.offset(), AccessWidth::Word, 3, SimTime::ZERO).unwrap();
-        machine.bus.write(base + Rp2350SpiRegister::Dr.offset(), AccessWidth::Word, value, SimTime::ZERO).unwrap();
-        assert_eq!(machine.bus.read(base + Rp2350SpiRegister::Dr.offset(), AccessWidth::Word, AccessKind::Read, SimTime::ZERO).unwrap(), value);
+        machine
+            .bus
+            .write(
+                base + Rp2350SpiRegister::Cr0.offset(),
+                AccessWidth::Word,
+                7,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                base + Rp2350SpiRegister::Cr1.offset(),
+                AccessWidth::Word,
+                3,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(
+                base + Rp2350SpiRegister::Dr.offset(),
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    base + Rp2350SpiRegister::Dr.offset(),
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO
+                )
+                .unwrap(),
+            value
+        );
     }
 }
 
@@ -159,15 +229,52 @@ fn raspberry_pi_i2c0_and_i2c1_have_addressed_functional_transfers() {
         let mut machine = ArmMachine::new(target).unwrap();
         for (index, base) in bases.into_iter().enumerate() {
             assert!(machine.queue_i2c_read(index, 0x58, &[0x12 + index as u8]));
-            machine.bus.write(base + 0x04, AccessWidth::Word, 0x58, SimTime::ZERO).unwrap();
-            machine.bus.write(base + 0x6c, AccessWidth::Word, 1, SimTime::ZERO).unwrap();
-            machine.bus.write(base + 0x10, AccessWidth::Word, 0xa0, SimTime::ZERO).unwrap();
-            machine.bus.write(base + 0x10, AccessWidth::Word, (1 << 8) | (1 << 9), SimTime::ZERO).unwrap();
-            assert_eq!(machine.bus.read(base + 0x10, AccessWidth::Word, AccessKind::Read, SimTime::ZERO).unwrap(), 0x12 + index as u64);
-            assert_eq!(machine.i2c_events(index).unwrap(), [
-                I2cEvent::Write { address: 0x58, value: 0xa0 },
-                I2cEvent::Read { address: 0x58, value: 0x12 + index as u8 },
-            ]);
+            machine
+                .bus
+                .write(base + 0x04, AccessWidth::Word, 0x58, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base + 0x6c, AccessWidth::Word, 1, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(base + 0x10, AccessWidth::Word, 0xa0, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(
+                    base + 0x10,
+                    AccessWidth::Word,
+                    (1 << 8) | (1 << 9),
+                    SimTime::ZERO,
+                )
+                .unwrap();
+            assert_eq!(
+                machine
+                    .bus
+                    .read(
+                        base + 0x10,
+                        AccessWidth::Word,
+                        AccessKind::Read,
+                        SimTime::ZERO
+                    )
+                    .unwrap(),
+                0x12 + index as u64
+            );
+            assert_eq!(
+                machine.i2c_events(index).unwrap(),
+                [
+                    I2cEvent::Write {
+                        address: 0x58,
+                        value: 0xa0
+                    },
+                    I2cEvent::Read {
+                        address: 0x58,
+                        value: 0x12 + index as u8
+                    },
+                ]
+            );
         }
     }
 }

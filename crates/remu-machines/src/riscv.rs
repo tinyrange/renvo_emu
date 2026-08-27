@@ -17,12 +17,10 @@ use remu_devices::{
     EspGpio, EspSpiFlashCommand, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup, EspTimerGroupHandle,
     EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
-    Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle, Rp2350XipMaintenance, RpAdc,
-    RpAdcHandle, RpAdcVariant, RpPio,
-    RpI2cHandle, RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle,
-    UartHandle,
+    Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350BootRam, Rp2350Spi, Rp2350SpiHandle,
+    Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpI2cHandle, RpPio, RpPioHandle,
+    RpPioVersion, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
     WchGpio, WchPfic, WchPficHandle, WchTimer, WchTimerHandle, WchUsart,
 };
 use remu_image::{
@@ -51,14 +49,14 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod lp_uart;
-mod radio;
-mod pwm;
 mod pio;
+mod pwm;
+mod radio;
 mod rp2350_spi;
-mod rp_i2c;
 mod rp_bootrom;
-use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
+mod rp_i2c;
 use rp_i2c::map_rp2350_i2c;
+use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
 mod runtime;
 mod watchdog;
 
