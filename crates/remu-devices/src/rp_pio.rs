@@ -10,6 +10,16 @@ struct RpPioStateMachine {
     pin_control: u32,
     x: u32,
     y: u32,
+    input_shift: u32,
+    output_shift: u32,
+    input_shift_count: u8,
+    output_shift_count: u8,
+    clock_accumulator: u32,
+    delay_remaining: u8,
+    stalled: bool,
+    forced_instruction: Option<u16>,
+    irq_wait_set: bool,
+    pending_push: bool,
 }
 
 impl RpPioStateMachine {
@@ -23,6 +33,16 @@ impl RpPioStateMachine {
             pin_control: 0x1400_0000,
             x: 0,
             y: 0,
+            input_shift: 0,
+            output_shift: 0,
+            input_shift_count: 0,
+            output_shift_count: 32,
+            clock_accumulator: 0,
+            delay_remaining: 0,
+            stalled: false,
+            forced_instruction: None,
+            irq_wait_set: false,
+            pending_push: false,
         }
     }
 }
@@ -51,6 +71,13 @@ pub enum RpPioRegister {
     Txf(usize),
     /// State-machine receive FIFO.
     Rxf(usize),
+    /// RP2350 random-access RX FIFO storage word.
+    RxfPutGet {
+        /// State-machine index.
+        machine: usize,
+        /// Random-access storage entry.
+        entry: usize,
+    },
     /// Internal state-machine IRQ flags.
     Irq,
     /// Internal IRQ force strobe.
@@ -153,6 +180,13 @@ impl RpPioRegister {
                 };
                 Self::StateMachine { machine, register }
             }
+            0x128..=0x164 if version == RpPioVersion::Rp2350 => {
+                let index = usize::try_from((offset - 0x128) / 4).unwrap();
+                Self::RxfPutGet {
+                    machine: index / 4,
+                    entry: index % 4,
+                }
+            }
             0x128 if version == RpPioVersion::Rp2040 => Self::Intr,
             0x12c if version == RpPioVersion::Rp2040 => Self::Irq0Inte,
             0x130 if version == RpPioVersion::Rp2040 => Self::Irq0Intf,
@@ -189,6 +223,7 @@ impl RpPioRegister {
             Self::Flevel => 0x00c,
             Self::Txf(machine) => 0x010 + machine as u64 * 4,
             Self::Rxf(machine) => 0x020 + machine as u64 * 4,
+            Self::RxfPutGet { machine, entry } => 0x128 + machine as u64 * 0x10 + entry as u64 * 4,
             Self::Irq => 0x030,
             Self::IrqForce => 0x034,
             Self::InputSyncBypass => 0x038,
@@ -240,6 +275,7 @@ struct RpPioState {
     machines: [RpPioStateMachine; 4],
     tx_fifo: [VecDeque<u32>; 4],
     rx_fifo: [VecDeque<u32>; 4],
+    putget: [[u32; 4]; 4],
     irq: u8,
     irq0_inte: u16,
     irq0_intf: u16,
@@ -249,6 +285,7 @@ struct RpPioState {
     gpio_base: u32,
     output: u32,
     direction: u32,
+    input: u32,
 }
 
 impl RpPioState {
@@ -261,6 +298,7 @@ impl RpPioState {
             machines: [RpPioStateMachine::reset(); 4],
             tx_fifo: std::array::from_fn(|_| VecDeque::new()),
             rx_fifo: std::array::from_fn(|_| VecDeque::new()),
+            putget: [[0; 4]; 4],
             irq: 0,
             irq0_inte: 0,
             irq0_intf: 0,
@@ -270,6 +308,7 @@ impl RpPioState {
             gpio_base: 0,
             output: 0,
             direction: 0,
+            input: 0,
         }
     }
 }
@@ -285,9 +324,6 @@ pub struct RpPioHandle {
 
 impl RpPioHandle {
     /// Executes one instruction on each enabled state machine.
-    ///
-    /// PIO clock dividers and delay fields are deliberately interpreted as one
-    /// deterministic abstract tick in the baseline model.
     pub fn poll(&self, now: SimTime) -> Result<bool, SignalError> {
         let mut state = self.state.borrow_mut();
         let before = state.output;
@@ -295,9 +331,29 @@ impl RpPioHandle {
             if state.control & (1 << machine) == 0 {
                 continue;
             }
-            let address = usize::from(state.machines[machine].address);
-            let instruction = state.instructions[address];
-            execute_rp_pio_instruction(&mut state, machine, instruction, true);
+            let divider = pio_clock_divider(state.machines[machine].clock_divider);
+            let accumulator = state.machines[machine]
+                .clock_accumulator
+                .saturating_add(0x100);
+            if accumulator < divider {
+                state.machines[machine].clock_accumulator = accumulator;
+                continue;
+            }
+            state.machines[machine].clock_accumulator = accumulator - divider;
+            if state.machines[machine].delay_remaining != 0 {
+                state.machines[machine].delay_remaining -= 1;
+                continue;
+            }
+            let forced = state.machines[machine].forced_instruction;
+            let instruction = forced.unwrap_or_else(|| {
+                state.instructions[usize::from(state.machines[machine].address)]
+            });
+            let completed =
+                execute_rp_pio_instruction(&mut state, machine, instruction, forced.is_none());
+            state.machines[machine].stalled = !completed;
+            if completed && forced.is_some() {
+                state.machines[machine].forced_instruction = None;
+            }
         }
         if state.output != before {
             self.hub.set(
@@ -313,15 +369,37 @@ impl RpPioHandle {
     /// Injects one word into a state machine's RX FIFO.
     pub fn inject_rx(&self, machine: usize, value: u32) -> bool {
         let mut state = self.state.borrow_mut();
-        let Some(fifo) = state.rx_fifo.get_mut(machine) else {
+        if machine >= state.rx_fifo.len() || rx_capacity(&state, machine) == 0 {
             return false;
-        };
-        if fifo.len() >= 4 {
+        }
+        if state.rx_fifo[machine].len() >= rx_capacity(&state, machine) {
             state.debug |= 1 << (machine + 0);
             return false;
         }
-        fifo.push_back(value);
+        state.rx_fifo[machine].push_back(value);
         true
+    }
+
+    /// Updates the synchronized PIO input window used by WAIT, IN, MOV and JMP PIN.
+    pub fn set_inputs(&self, value: u32) {
+        self.state.borrow_mut().input = value;
+    }
+
+    /// Returns whether the state machine is requesting a transmit DMA word.
+    pub fn tx_dreq(&self, machine: usize) -> bool {
+        let state = self.state.borrow();
+        machine < 4
+            && tx_capacity(&state, machine) != 0
+            && state.tx_fifo[machine].len() < tx_capacity(&state, machine)
+    }
+
+    /// Returns whether the state machine has a receive word for DMA.
+    pub fn rx_dreq(&self, machine: usize) -> bool {
+        self.state
+            .borrow()
+            .rx_fifo
+            .get(machine)
+            .is_some_and(|fifo| !fifo.is_empty())
     }
 
     /// Returns the current TX and RX FIFO levels for a state machine.
@@ -331,6 +409,12 @@ impl RpPioHandle {
             state.tx_fifo.get(machine)?.len(),
             state.rx_fifo.get(machine)?.len(),
         ))
+    }
+
+    /// Returns the output value, output-enable mask, and RP2350 GPIO window base.
+    pub fn pad_state(&self) -> (u32, u32, u8) {
+        let state = self.state.borrow();
+        (state.output, state.direction, state.gpio_base as u8)
     }
 
     /// Returns the masked processor-facing IRQ0 status.
@@ -346,6 +430,33 @@ impl RpPioHandle {
         let raw = raw_interrupts(&state);
         (raw & state.irq1_inte) | state.irq1_intf
     }
+}
+
+fn tx_capacity(state: &RpPioState, machine: usize) -> usize {
+    let shift = state.machines[machine].shift_control;
+    if shift & (1 << 31) != 0 {
+        0
+    } else if shift & (1 << 30) != 0 {
+        8
+    } else {
+        4
+    }
+}
+
+fn rx_capacity(state: &RpPioState, machine: usize) -> usize {
+    let shift = state.machines[machine].shift_control;
+    if shift & (1 << 30) != 0 {
+        0
+    } else if shift & (1 << 31) != 0 {
+        8
+    } else {
+        4
+    }
+}
+
+fn pio_clock_divider(register: u32) -> u32 {
+    let fixed = register >> 8;
+    if fixed == 0 { 1 << 24 } else { fixed }
 }
 
 fn raw_interrupts(state: &RpPioState) -> u16 {
@@ -369,40 +480,279 @@ fn execute_rp_pio_instruction(
     machine: usize,
     instruction: u16,
     advance: bool,
-) {
+) -> bool {
     const JMP: u16 = 0x0000;
+    const WAIT: u16 = 0x2000;
+    const IN: u16 = 0x4000;
+    const OUT: u16 = 0x6000;
+    const PUSH_PULL: u16 = 0x8000;
+    const MOV: u16 = 0xa000;
+    const IRQ: u16 = 0xc000;
     const SET: u16 = 0xe000;
     let major = instruction & 0xe000;
     let argument = (instruction >> 5) & 7;
     let data = u32::from(instruction & 0x1f);
-    let sm = &mut state.machines[machine];
+    let mut sm = state.machines[machine];
     sm.instruction = instruction;
     let mut jumped = false;
-    match major {
-        JMP if argument == 0 => {
-            sm.address = u8::try_from(data).expect("five-bit PIO address fits u8");
-            jumped = true;
+    let mut completed = true;
+
+    let side_count = (sm.pin_control >> 29) & 7;
+    let delay_and_side = u32::from((instruction >> 8) & 0x1f);
+    let optional_side = sm.execution_control & (1 << 30) != 0;
+    let side_enabled = !optional_side || delay_and_side & 0x10 != 0;
+    let actual_side_count = side_count.saturating_sub(u32::from(optional_side));
+    let delay_bits = 5_u32.saturating_sub(side_count);
+    let delay_mask = if delay_bits == 0 {
+        0
+    } else {
+        (1_u32 << delay_bits) - 1
+    };
+    let delay = (delay_and_side & delay_mask) as u8;
+    if side_count != 0 && side_enabled {
+        let side_value = (delay_and_side >> delay_bits) & bit_mask(actual_side_count);
+        let side_base = (sm.pin_control >> 10) & 0x1f;
+        if sm.execution_control & (1 << 29) != 0 {
+            write_pin_range(
+                &mut state.direction,
+                side_base,
+                actual_side_count,
+                side_value,
+            );
+        } else {
+            write_pin_range(&mut state.output, side_base, actual_side_count, side_value);
         }
-        SET => {
-            let base = (sm.pin_control >> 5) & 0x1f;
-            let count = (sm.pin_control >> 26) & 7;
-            let mask = if count == 0 {
-                0
-            } else {
-                ((1_u32 << count) - 1).rotate_left(base)
-            };
-            let value = data.rotate_left(base) & mask;
-            match argument {
-                0 => state.output = (state.output & !mask) | value,
-                1 => sm.x = data,
-                2 => sm.y = data,
-                4 => state.direction = (state.direction & !mask) | value,
-                _ => {}
-            }
-        }
-        _ => {}
     }
-    if advance && !jumped {
+
+    if sm.pending_push {
+        if push_isr(state, machine, &mut sm) {
+            sm.pending_push = false;
+        } else {
+            state.machines[machine] = sm;
+            return false;
+        }
+    } else {
+        match major {
+            JMP => {
+                let condition = match argument {
+                    0 => true,
+                    1 => sm.x == 0,
+                    2 => {
+                        let condition = sm.x != 0;
+                        sm.x = sm.x.wrapping_sub(1);
+                        condition
+                    }
+                    3 => sm.y == 0,
+                    4 => {
+                        let condition = sm.y != 0;
+                        sm.y = sm.y.wrapping_sub(1);
+                        condition
+                    }
+                    5 => sm.x != sm.y,
+                    6 => {
+                        let pin = ((sm.execution_control >> 24) & 0x1f) as u8;
+                        state.input & (1_u32 << pin) != 0
+                    }
+                    7 => sm.output_shift_count >= pull_threshold(sm.shift_control),
+                    _ => unreachable!("three-bit PIO JMP condition"),
+                };
+                if condition {
+                    sm.address = data as u8;
+                    jumped = true;
+                }
+            }
+            WAIT => {
+                let polarity = argument & 4 != 0;
+                let source = argument & 3;
+                let index = data & 0xf;
+                let level = match source {
+                    0 => state.input & (1_u32 << (data & 0x1f)) != 0,
+                    1 => {
+                        let base = (sm.pin_control >> 15) & 0x1f;
+                        state.input & (1_u32 << ((base + data) & 0x1f)) != 0
+                    }
+                    2 => {
+                        let irq = if data & 0x10 != 0 {
+                            (index + machine as u32) & 7
+                        } else {
+                            index & 7
+                        };
+                        state.irq & (1 << irq) != 0
+                    }
+                    // PIO v1 adds JMPPIN as WAIT source 3. Treating it as the
+                    // configured JMP pin also gives deterministic behavior when
+                    // a v0 program accidentally emits the reserved encoding.
+                    3 => {
+                        let pin = (sm.execution_control >> 24) & 0x1f;
+                        state.input & (1_u32 << pin) != 0
+                    }
+                    _ => unreachable!(),
+                };
+                completed = level == polarity;
+            }
+            IN => {
+                let count = shift_count(data);
+                let source = match argument {
+                    0 => {
+                        let base = (sm.pin_control >> 15) & 0x1f;
+                        state.input.rotate_right(base) & bit_mask(count)
+                    }
+                    1 => sm.x & bit_mask(count),
+                    2 => sm.y & bit_mask(count),
+                    3 => 0,
+                    6 => sm.input_shift & bit_mask(count),
+                    7 => sm.output_shift & bit_mask(count),
+                    _ => 0,
+                };
+                shift_into_isr(&mut sm, source, count);
+                if sm.shift_control & (1 << 16) != 0
+                    && sm.input_shift_count >= push_threshold(sm.shift_control)
+                    && !push_isr(state, machine, &mut sm)
+                {
+                    sm.pending_push = true;
+                    completed = false;
+                }
+            }
+            OUT => {
+                if sm.shift_control & (1 << 17) != 0
+                    && sm.output_shift_count >= pull_threshold(sm.shift_control)
+                    && !pull_osr(state, machine, &mut sm, true)
+                {
+                    completed = false;
+                }
+                if completed {
+                    let count = shift_count(data);
+                    let value = shift_from_osr(&mut sm, count);
+                    match argument {
+                        0 => write_pin_range(
+                            &mut state.output,
+                            sm.pin_control & 0x1f,
+                            (sm.pin_control >> 20) & 0x3f,
+                            value,
+                        ),
+                        1 => sm.x = value,
+                        2 => sm.y = value,
+                        3 => {}
+                        4 => write_pin_range(
+                            &mut state.direction,
+                            sm.pin_control & 0x1f,
+                            (sm.pin_control >> 20) & 0x3f,
+                            value,
+                        ),
+                        5 => {
+                            sm.address = (value & 0x1f) as u8;
+                            jumped = true;
+                        }
+                        6 => sm.input_shift = value,
+                        7 => sm.forced_instruction = Some(value as u16),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            PUSH_PULL => {
+                let pull = argument & 4 != 0;
+                let conditional = argument & 2 != 0;
+                let block = argument & 1 != 0;
+                if pull {
+                    let needed =
+                        !conditional || sm.output_shift_count >= pull_threshold(sm.shift_control);
+                    if needed {
+                        completed = pull_osr(state, machine, &mut sm, block);
+                    }
+                } else {
+                    let needed =
+                        !conditional || sm.input_shift_count >= push_threshold(sm.shift_control);
+                    if needed {
+                        completed = push_isr(state, machine, &mut sm);
+                        if !completed && !block {
+                            completed = true;
+                        }
+                    }
+                }
+            }
+            MOV => {
+                let source = match data & 7 {
+                    0 => {
+                        let base = (sm.pin_control >> 15) & 0x1f;
+                        state.input.rotate_right(base)
+                    }
+                    1 => sm.x,
+                    2 => sm.y,
+                    3 => 0,
+                    5 => {
+                        let level = if sm.execution_control & (1 << 4) == 0 {
+                            state.tx_fifo[machine].len()
+                        } else {
+                            state.rx_fifo[machine].len()
+                        };
+                        u32::from(level < (sm.execution_control & 0xf) as usize)
+                    }
+                    6 => sm.input_shift,
+                    7 => sm.output_shift,
+                    _ => 0,
+                };
+                let value = match (data >> 3) & 3 {
+                    0 => source,
+                    1 => !source,
+                    2 => source.reverse_bits(),
+                    _ => source,
+                };
+                match argument {
+                    0 => write_pin_range(&mut state.output, 0, 32, value),
+                    1 => sm.x = value,
+                    2 => sm.y = value,
+                    4 => sm.forced_instruction = Some(value as u16),
+                    5 => {
+                        sm.address = (value & 0x1f) as u8;
+                        jumped = true;
+                    }
+                    6 => sm.input_shift = value,
+                    7 => sm.output_shift = value,
+                    _ => {}
+                }
+            }
+            IRQ => {
+                let irq = if data & 0x10 != 0 {
+                    ((data & 7) + machine as u32) & 7
+                } else {
+                    data & 7
+                };
+                let mask = 1_u8 << irq;
+                match argument & 3 {
+                    0 => state.irq |= mask,
+                    1 => state.irq &= !mask,
+                    2 => {
+                        if !sm.irq_wait_set {
+                            state.irq |= mask;
+                            sm.irq_wait_set = true;
+                        }
+                        if state.irq & mask != 0 {
+                            completed = false;
+                        } else {
+                            sm.irq_wait_set = false;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            SET => {
+                let base = (sm.pin_control >> 5) & 0x1f;
+                let count = (sm.pin_control >> 26) & 7;
+                match argument {
+                    0 => write_pin_range(&mut state.output, base, count, data),
+                    1 => sm.x = data,
+                    2 => sm.y = data,
+                    4 => write_pin_range(&mut state.direction, base, count, data),
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    if completed {
+        sm.delay_remaining = delay;
+    }
+    if completed && advance && !jumped {
         let wrap_top = u8::try_from((sm.execution_control >> 12) & 0x1f)
             .expect("five-bit PIO wrap address fits u8");
         let wrap_bottom = u8::try_from((sm.execution_control >> 7) & 0x1f)
@@ -413,6 +763,111 @@ fn execute_rp_pio_instruction(
             sm.address.wrapping_add(1) & 0x1f
         };
     }
+    state.machines[machine] = sm;
+    completed
+}
+
+fn bit_mask(count: u32) -> u32 {
+    match count {
+        0 => 0,
+        32.. => u32::MAX,
+        _ => (1_u32 << count) - 1,
+    }
+}
+
+fn shift_count(encoded: u32) -> u32 {
+    if encoded == 0 { 32 } else { encoded }
+}
+
+fn push_threshold(shift_control: u32) -> u8 {
+    let encoded = ((shift_control >> 20) & 0x1f) as u8;
+    if encoded == 0 { 32 } else { encoded }
+}
+
+fn pull_threshold(shift_control: u32) -> u8 {
+    let encoded = ((shift_control >> 25) & 0x1f) as u8;
+    if encoded == 0 { 32 } else { encoded }
+}
+
+fn write_pin_range(target: &mut u32, base: u32, count: u32, value: u32) {
+    let count = count.min(32);
+    let mask = bit_mask(count).rotate_left(base & 0x1f);
+    *target = (*target & !mask) | (value & bit_mask(count)).rotate_left(base & 0x1f) & mask;
+}
+
+fn shift_into_isr(sm: &mut RpPioStateMachine, value: u32, count: u32) {
+    let value = value & bit_mask(count);
+    if sm.shift_control & (1 << 18) != 0 {
+        sm.input_shift = if count == 32 {
+            value
+        } else {
+            (sm.input_shift >> count) | (value << (32 - count))
+        };
+    } else {
+        sm.input_shift = if count == 32 {
+            value
+        } else {
+            (sm.input_shift << count) | value
+        };
+    }
+    sm.input_shift_count = sm.input_shift_count.saturating_add(count as u8).min(32);
+}
+
+fn shift_from_osr(sm: &mut RpPioStateMachine, count: u32) -> u32 {
+    let value;
+    if sm.shift_control & (1 << 19) != 0 {
+        value = sm.output_shift & bit_mask(count);
+        sm.output_shift = if count == 32 {
+            0
+        } else {
+            sm.output_shift >> count
+        };
+    } else {
+        value = if count == 32 {
+            sm.output_shift
+        } else {
+            sm.output_shift >> (32 - count)
+        };
+        sm.output_shift = if count == 32 {
+            0
+        } else {
+            sm.output_shift << count
+        };
+    }
+    sm.output_shift_count = sm.output_shift_count.saturating_add(count as u8).min(32);
+    value
+}
+
+fn push_isr(state: &mut RpPioState, machine: usize, sm: &mut RpPioStateMachine) -> bool {
+    let capacity = rx_capacity(state, machine);
+    if capacity == 0 || state.rx_fifo[machine].len() >= capacity {
+        state.debug |= 1 << machine;
+        return false;
+    }
+    state.rx_fifo[machine].push_back(sm.input_shift);
+    sm.input_shift = 0;
+    sm.input_shift_count = 0;
+    true
+}
+
+fn pull_osr(
+    state: &mut RpPioState,
+    machine: usize,
+    sm: &mut RpPioStateMachine,
+    block: bool,
+) -> bool {
+    if let Some(value) = state.tx_fifo[machine].pop_front() {
+        sm.output_shift = value;
+        sm.output_shift_count = 0;
+        true
+    } else if block {
+        state.debug |= 1 << (24 + machine);
+        false
+    } else {
+        sm.output_shift = sm.x;
+        sm.output_shift_count = 0;
+        true
+    }
 }
 
 /// Functional RP PIO register and execution slice.
@@ -420,10 +875,10 @@ fn execute_rp_pio_instruction(
 /// The baseline covers instruction memory, state-machine configuration,
 /// direct execution, unconditional `JMP`, `SET` to pins/directions/X/Y,
 /// four-word host FIFOs, FIFO status/fault flags, and processor-facing IRQ0
-/// masks. RP2350-native IRQ0/IRQ1 and GPIOBASE register placement is preserved;
-/// `WAIT`, shift, side-set, DMA, exact divider timing, FIFO PUT/GET, and
-/// cross-PIO PIO-v1 execution extensions remain outside this deliberately
-/// small proof.
+/// masks. The execution engine covers all eight instruction families,
+/// wrap/delay/side-set behavior, 16.8 clock-divider pacing, shift registers,
+/// joined FIFOs, automatic and explicit push/pull stalls, and DREQ state.
+/// RP2350-native IRQ0/IRQ1 and GPIOBASE register placement is preserved.
 pub struct RpPio {
     name: String,
     state: Rc<RefCell<RpPioState>>,
@@ -517,13 +972,17 @@ impl Device for RpPio {
                     if state.tx_fifo[machine].is_empty() {
                         value |= 1 << (24 + machine);
                     }
-                    if state.tx_fifo[machine].len() >= 4 {
+                    if tx_capacity(&state, machine) == 0
+                        || state.tx_fifo[machine].len() >= tx_capacity(&state, machine)
+                    {
                         value |= 1 << (16 + machine);
                     }
                     if state.rx_fifo[machine].is_empty() {
                         value |= 1 << (8 + machine);
                     }
-                    if state.rx_fifo[machine].len() >= 4 {
+                    if rx_capacity(&state, machine) == 0
+                        || state.rx_fifo[machine].len() >= rx_capacity(&state, machine)
+                    {
                         value |= 1 << machine;
                     }
                 }
@@ -547,6 +1006,15 @@ impl Device for RpPio {
                     state.debug |= 1 << (8 + machine);
                     0
                 })
+            }
+            RpPioRegister::RxfPutGet { machine, entry } => {
+                let shift = state.machines[machine].shift_control;
+                if shift & (1 << 15) == 0 || shift & (1 << 14) != 0 {
+                    return Err(DeviceError::new(
+                        "RP2350 PIO PUTGET entry is not processor-readable",
+                    ));
+                }
+                state.putget[machine][entry]
             }
             RpPioRegister::Irq => u32::from(state.irq),
             RpPioRegister::IrqForce => 0,
@@ -579,7 +1047,9 @@ impl Device for RpPio {
                 let sm = state.machines[machine];
                 match register {
                     RpPioStateMachineRegister::ClockDiv => sm.clock_divider,
-                    RpPioStateMachineRegister::ExecCtrl => sm.execution_control,
+                    RpPioStateMachineRegister::ExecCtrl => {
+                        sm.execution_control | (u32::from(sm.stalled) << 31)
+                    }
                     RpPioStateMachineRegister::ShiftCtrl => sm.shift_control,
                     RpPioStateMachineRegister::Addr => u32::from(sm.address),
                     RpPioStateMachineRegister::Instr => u32::from(sm.instruction),
@@ -612,6 +1082,25 @@ impl Device for RpPio {
                 RpPioRegister::Ctrl => {
                     let enable = Self::update_register(state.control & 0xf, alias, value & 0xf);
                     state.control = enable;
+                    for machine in 0..4 {
+                        if value & (1 << (4 + machine)) != 0 {
+                            let sm = &mut state.machines[machine];
+                            sm.x = 0;
+                            sm.y = 0;
+                            sm.input_shift = 0;
+                            sm.output_shift = 0;
+                            sm.input_shift_count = 0;
+                            sm.output_shift_count = 32;
+                            sm.delay_remaining = 0;
+                            sm.stalled = false;
+                            sm.forced_instruction = None;
+                            sm.irq_wait_set = false;
+                            sm.pending_push = false;
+                        }
+                        if value & (1 << (8 + machine)) != 0 {
+                            state.machines[machine].clock_accumulator = 0;
+                        }
+                    }
                 }
                 RpPioRegister::Fstat | RpPioRegister::Flevel => {
                     return Err(DeviceError::new("RP PIO FIFO status is read-only"));
@@ -621,7 +1110,8 @@ impl Device for RpPio {
                     if alias != 0 {
                         return Err(DeviceError::new("RP PIO TX FIFO does not support aliases"));
                     }
-                    if state.tx_fifo[machine].len() < 4 {
+                    let capacity = tx_capacity(&state, machine);
+                    if capacity != 0 && state.tx_fifo[machine].len() < capacity {
                         state.tx_fifo[machine].push_back(value);
                     } else {
                         state.debug |= 1 << (16 + machine);
@@ -629,6 +1119,20 @@ impl Device for RpPio {
                 }
                 RpPioRegister::Rxf(_) => {
                     return Err(DeviceError::new("RP PIO RX FIFO is read-only"));
+                }
+                RpPioRegister::RxfPutGet { machine, entry } => {
+                    if alias != 0 {
+                        return Err(DeviceError::new(
+                            "RP2350 PIO PUTGET entries do not support aliases",
+                        ));
+                    }
+                    let shift = state.machines[machine].shift_control;
+                    if shift & (1 << 14) == 0 || shift & (1 << 15) != 0 {
+                        return Err(DeviceError::new(
+                            "RP2350 PIO PUTGET entry is not processor-writable",
+                        ));
+                    }
+                    state.putget[machine][entry] = value;
                 }
                 RpPioRegister::Irq => {
                     if alias != 0 {
@@ -711,9 +1215,10 @@ impl Device for RpPio {
                             RpPioVersion::Rp2350 => 0xffff_c01f,
                         };
                         let updated = Self::update_register(current, alias, value) & mask;
-                        if updated & 0xc000_0000 != current & 0xc000_0000 {
+                        if updated & 0xc000_c000 != current & 0xc000_c000 {
                             state.tx_fifo[machine].clear();
                             state.rx_fifo[machine].clear();
+                            state.putget[machine] = [0; 4];
                         }
                         state.machines[machine].shift_control = updated;
                     }
@@ -725,7 +1230,12 @@ impl Device for RpPio {
                     RpPioStateMachineRegister::Instr => {
                         let before = state.output;
                         let instruction = (value & u32::from(u16::MAX)) as u16;
-                        execute_rp_pio_instruction(&mut state, machine, instruction, false);
+                        let completed =
+                            execute_rp_pio_instruction(&mut state, machine, instruction, false);
+                        state.machines[machine].stalled = !completed;
+                        if !completed {
+                            state.machines[machine].forced_instruction = Some(instruction);
+                        }
                         publish = state.output != before;
                     }
                     RpPioStateMachineRegister::PinCtrl => {

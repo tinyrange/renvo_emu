@@ -216,6 +216,16 @@ impl RpIoBank {
 }
 
 impl RpIoBankHandle {
+    /// Returns the raw CTRL register for a bonded GPIO.
+    pub fn pin_control(&self, pin: u8) -> Option<u32> {
+        let state = self.state.borrow();
+        if usize::from(pin) < state.pins {
+            Some(state.controls[usize::from(pin)])
+        } else {
+            None
+        }
+    }
+
     /// Samples GPIO inputs, latches edge events, and returns PROC0 pending.
     pub fn poll(&self, _at: SimTime) -> Result<bool, DeviceError> {
         let mut state = self.state.borrow_mut();
@@ -289,11 +299,19 @@ impl RpIoBankState {
     }
 
     fn output_level(&self, pin: usize) -> bool {
-        self.gpio.output() & (1_u32 << pin) != 0
+        if pin < 32 {
+            self.gpio.output() & (1_u32 << pin) != 0
+        } else {
+            self.gpio.output_high() & (1_u32 << (pin - 32)) != 0
+        }
     }
 
     fn output_enable(&self, pin: usize) -> bool {
-        self.gpio.direction() & (1_u32 << pin) != 0
+        if pin < 32 {
+            self.gpio.direction() & (1_u32 << pin) != 0
+        } else {
+            self.gpio.direction_high() & (1_u32 << (pin - 32)) != 0
+        }
     }
 
     fn override_value(value: bool, mode: u32) -> bool {
@@ -315,9 +333,7 @@ impl RpIoBankState {
             }
             let shift = pin_in_group * 4;
             if pin >= self.pins {
-                // The machine currently exposes only the first 32 GPIO nets.
-                // Do not manufacture a LEVEL_LOW event for the register-only
-                // GPIO32..47 surface.
+                // Do not manufacture a LEVEL_LOW event for an unbonded pin.
                 events &= !(0xf_u32 << shift);
                 continue;
             }

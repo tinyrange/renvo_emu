@@ -6,22 +6,22 @@
     {
       "name": "riscv_cpu",
       "path": "qualification/riscv-cpu.json",
-      "sha256": "77e75dc55b1664745f278445b8c7a56a334fabf04a51f12f61286fb840945ecf"
+      "sha256": "3116e0dcee97218937bd1e5ddd957770ee9510fa5ad325fd49f93544fffb942f"
     },
     {
       "name": "arm_cpu",
       "path": "qualification/arm-cpu.json",
-      "sha256": "30456d071662c85054b5bfb1772946346a011934a5f32ea637bed8987ce39ad2"
+      "sha256": "5717d0824b43f2a36fd4a7e0ec6708c44d15c63fe0917c3dc814333d0de9e791"
     },
     {
       "name": "xtensa_cpu",
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "480d46c3dd29148b53386e4634aaa18d230c1fc0f1fe721d39c973d30b78291b"
+      "sha256": "ebab5ffff039df4f3d8bedbf48bab062f503a1c5dfcbdf6af9edd5c4e48953ee"
     },
     {
       "name": "reduction",
       "path": "qualification/reduction.json",
-      "sha256": "4c74a8be9da68bfa7b682863ef66423468b1a5ae5bada9ecf586c2f44997e0a2"
+      "sha256": "c5e6a57f0f9f6f6f7b4947c0b07f30a08dcc9acfe5db1ceb9a5a394f0c2210b4"
     }
   ],
   "value": true,

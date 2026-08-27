@@ -63,7 +63,7 @@
       "build": ".remu/qualification/vendor-samples/rp2040/build.json",
       "build_sha256": "208f96bae44dc988679e6da7ecca5fbdad0735370d0e5526aaf34fd32cbe853d",
       "run": ".remu/qualification/vendor-samples/rp2040/run.json",
-      "run_sha256": "58de7c37ffa952aca231e38be92c6a2ef6b307bad6b544fb43767633d9b3927a"
+      "run_sha256": "ea2174985c4ff8bbb720eabd5a0dcf0838dea037cfaf9643bce5e6759db23ab2"
     },
     {
       "target": "rp2350-arm",
@@ -73,7 +73,7 @@
       "build": ".remu/qualification/vendor-samples/rp2350-arm/build.json",
       "build_sha256": "df08bbbf048c19f9452f21657c4127363c3b61446af20dfbce9be6321fe37616",
       "run": ".remu/qualification/vendor-samples/rp2350-arm/run.json",
-      "run_sha256": "d5920c2a8d3860becc419a04e020ffffca0e9a59fcba294a573b9d9a6548f146"
+      "run_sha256": "0c8136b1b056ece780c92e66de3bb697088a67b536b56f8124e767ecf45d7ed0"
     },
     {
       "target": "rp2350-riscv",
@@ -83,7 +83,7 @@
       "build": ".remu/qualification/vendor-samples/rp2350-riscv/build.json",
       "build_sha256": "db9c8b25f0216d5984d3b357c2a325507895a83a81457aa2cd327c0e4ace6d8c",
       "run": ".remu/qualification/vendor-samples/rp2350-riscv/run.json",
-      "run_sha256": "95b177b6a59f8bcdb786722424f220f5920480652b4e962416ab3be90ea641e9"
+      "run_sha256": "852ab007bd9d3477036f34376606c10b2582b7a614949d8b23fb43a43abffcff"
     },
     {
       "target": "esp32s3",

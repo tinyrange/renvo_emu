@@ -15,15 +15,15 @@ and Raspberry Pi's generated Pico SDK register headers.
 | UART1 | yes | yes | yes | Audited PL011 registers, enable gating, IDs, and deterministic TX; UART0 retains its existing host RX path |
 | ADC | yes | yes | yes | Target channel masks, host samples, FIFO, round-robin, and FIFO interrupt status |
 | PWM | 8 slices | 12 slices | 12 slices | Target-specific globals, compare outputs, wrap/raw/forced/masked status |
-| DMA | 12 channels, 2 IRQs | 16 channels, 4 IRQs | 16 channels, 4 IRQs | Byte/halfword/word memory transfers, increments, aliases, completion/force/clear, trigger and abort |
-| PIO | PIO0/1 | PIO0/1/2 | PIO0/1/2 | Instruction memory, host FIFOs, status/debug/IRQ registers, deterministic `SET` and `JMP` execution |
+| DMA | 12 channels, 2 IRQs | 16 channels, 4 IRQs | 16 channels, 4 IRQs | Paced transfers, chaining, rings, byte swap, sniff, quiet completion, error state, target IRQs, and RP2350 channel security context |
+| PIO | PIO0/1 | PIO0/1/2 | PIO0/1/2 | All eight instruction families, shift engines, stalls, joined FIFOs, wrap/delay/side-set/dividers, DREQ, pin muxing, and RP2350 GPIOBASE/PUTGET |
 | SPI | DW SSI0/1 | PrimeCell SSP0/1 | PrimeCell SSP0/1 | Target-correct register layouts, FIFOs, interrupts, loopback, and queued host data |
 | I2C | DW I2C0/1 | DW I2C0/1 | DW I2C0/1 | Command/RX FIFOs, host transactions, masks, read-clear state, aliases, and narrow APB access |
-| IO bank | 30 connected GPIOs | GPIO0-31 connected | GPIO0-31 connected | Status/control overrides, edge/level state, W1C raw events, enable/force/status, CPU IRQ delivery |
-| USB device | yes | existing shared slice | existing shared slice | Controller/DPRAM host flow; RP2040 register masks, reset values, W1C state, aliases, and narrow I/O are audited |
+| IO bank and pads | 30 connected GPIOs | 48 connected GPIOs | 48 connected GPIOs | Muxed SIO/PIO drive, four-state nets, weak pulls, input/output-disable, overrides, edge/level state, W1C events, and CPU IRQ delivery |
+| USB device | yes | existing shared slice | existing shared slice | Controller/DPRAM host flow plus packet PID/CRC validation, toggles, SOF/reset/suspend/resume, control/bulk stages, NAK, and STALL |
 | Watchdog and RTC | yes | no shared claim | no shared claim | RP2040 countdown/reset boundary plus deterministic calendar/alarm and IRQ |
 | RP2040 power controls | yes | n/a | n/a | ROSC, PSM, and voltage/reset control slice |
-| RP2350 accelerators/control | n/a | yes | yes | HSTX, SHA-256, OTP, TRNG, ACCESSCTRL, TICKS, and POWMAN register/functional slices |
+| RP2350 accelerators/control | n/a | yes | yes | HSTX, SHA-256, OTP, TRNG, TICKS, POWMAN, and ACCESSCTRL policy enforced for core and DMA bus contexts |
 
 “Yes” means the model has focused contract tests and is mapped into that CPU
 mode. It does not mean the block is cycle accurate or feature complete.
@@ -63,24 +63,37 @@ silently accepting the wrong register.
 - PWM outputs are functional compare state rather than divider-accurate GPIO
   waveforms. ADC samples are host values rather than analog pad/temperature
   physics.
-- USB PHY signalling, packet timing, controller DMA, exhaustive endpoint edge
-  cases, and a complete class catalogue remain outside the present slice.
+- RP USB packets have deterministic PID, CRC5/CRC16, data-toggle, handshake,
+  frame, reset, and suspend behavior. Bit-cell NRZI/bit stuffing, analogue PHY
+  signalling, controller timing, isochronous edge cases, and a complete class
+  catalogue remain outside the present slice.
 
 ### DMA, PIO, and IO depth
 
-- DMA currently advances one transfer unit per machine service. Chaining,
-  TREQ/pacing timers, ring addressing, sniff, byte swap, quiet terminators,
-  security attribution, and bus arbitration are not modeled.
-- PIO still needs `WAIT`, `IN`, `OUT`, `PULL`, `PUSH`, side-set, clock dividers,
-  DMA requests, and the RP2350 cross-PIO controls.
-- RP2350 GPIO32-47 retain a register surface but are not connected to electrical
-  nets. Secure/non-secure IO routing, QSPI interrupt behavior, pad electrical
-  settings, and dormant wake remain open.
+- DMA implements documented transfer widths, pacing timers and connected PIO
+  DREQs, chaining, ring addressing, sniff modes, byte swap, quiet terminators,
+  error state, and per-channel RP2350 security attribution. Arbitration remains
+  deterministic at one transfer unit per active channel per machine service;
+  non-PIO peripheral DREQ wiring and bus-cycle contention remain open.
+- PIO implements `JMP`, `WAIT`, `IN`, `OUT`, `PUSH`/`PULL`, `MOV`, `IRQ`, and
+  `SET`, including stalls, auto push/pull, joined FIFO capacities, wrap,
+  side-set, delay, 16.8 dividers, DREQs, and pin muxing. RP2350 exposes GPIOBASE
+  and processor FIFO PUT/GET windows. PIO v1 state-machine PUT/GET and
+  cross-PIO opcode extensions, plus silicon-exact cycle timing, remain open.
+- All 48 RP2350 GPIOs have connected four-state nets. Pad pulls are weak and
+  yield to strong drives; input-enable, output-disable, IO-bank overrides, and
+  SIO/PIO muxing affect the functional signal path. Drive strength, slew rate,
+  and Schmitt settings are retained without analogue/timing effects. QSPI IRQs,
+  per-pin non-secure masks, and dormant wake remain open.
 
 ### Security, clocks, and power
 
-- RP2350 ACCESSCTRL and OTP preserve deterministic policy/register state, but
-  do not yet enforce TrustZone/security attribution on every bus master.
+- RP2350 ACCESSCTRL policies and locks are enforced on core and per-channel DMA
+  accesses, with explicit secure/non-secure and privileged/unprivileged bus
+  contexts. The CPU interpreters do not implement architectural Armv8-M
+  Secure/Non-secure transitions, SAU/IDAU/MPU execution, or every debug master;
+  tests select those contexts directly and default application execution to
+  non-secure privileged access.
 - POWMAN, TICKS, ROSC, PSM, watchdog, and RTC use deterministic abstract time.
   Oscillator settling, independent clock domains, dormant wake, brownout, and
   complete reset fan-out are not claimed.

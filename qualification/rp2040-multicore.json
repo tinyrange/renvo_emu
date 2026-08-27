@@ -13,7 +13,7 @@
     "build": ".remu/qualification/rp2040-multicore/build.json",
     "build_sha256": "d76e3f1654caac896e71afac83f5623d5587f1fa0b7b8ab6446d398c1c681c23",
     "run": ".remu/qualification/rp2040-multicore/run.json",
-    "run_sha256": "8f2931cb513e5bb20704936c04b273cc953299f86aca6cd30ed76f38b75cf410",
+    "run_sha256": "a88a7c3f44d952e59333a45a14036edfa58443d9af39080aa1c31e7822b6f74c",
     "observables": [
       "core-1 launch handshake",
       "FIFO push/pop",

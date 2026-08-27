@@ -14,7 +14,7 @@
       "build": ".remu/qualification/rp2040-sdk/uart/build.json",
       "build_sha256": "7e57ba83fd377fd068b1f8c0e6f2ee3ee653f69f5063134a157e13cc378c68e7",
       "run": ".remu/qualification/rp2040-sdk/uart/run.json",
-      "run_sha256": "aff2b82b6222fb2e631d79ebfa75038ddb669a1ffde0cb47d7ba01001d212b91",
+      "run_sha256": "3f6fc18dd4871789f0bd6361e64d7861b3b43ac3356110a6027e68b220acd6aa",
       "observables": [
         "RP2040 UART0 transmit",
         "GPIO function select",
@@ -28,7 +28,7 @@
       "build": ".remu/qualification/rp2040-sdk/pwm/build.json",
       "build_sha256": "7948cf85a7591cd5f1e9d8f86dc54271c01d5c7a24e53089b22dc216ffebcf4e",
       "run": ".remu/qualification/rp2040-sdk/pwm/run.json",
-      "run_sha256": "4400420641dcf45e0549e72b570850fb207cc3a4b457246c0fa612fb8ebfc8a7",
+      "run_sha256": "7aba8a26df666cd775b9dc230dc22f1207255c6ea69aa7c5d85daeb66fe6bb15",
       "observables": [
         "PWM GPIO function select",
         "slice wrap",

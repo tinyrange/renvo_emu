@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "rp_usb.rs"]
+mod rp_usb;
+pub use rp_usb::*;
+
 /// RP2350 boot RAM and its single-owner boot-lock registers.
 ///
 /// The interpreter currently runs one core at a time, so every boot-lock read can acquire the
@@ -509,6 +513,7 @@ pub struct Rp2040UsbController {
 
 struct Rp2040UsbState {
     registers: [u32; 64],
+    link: RpUsbLinkState,
 }
 
 /// Host-facing control of the RP2040 USB device controller.
@@ -643,6 +648,7 @@ impl Rp2040UsbHandle {
     /// Reports a host bus reset to device firmware.
     pub fn inject_bus_reset(&self) {
         let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
+        state.link.bus_reset();
         state.registers[Rp2040UsbRegister::SieStatus.index()] |=
             Rp2040UsbState::SIE_STATUS_BUS_RESET
                 | Rp2040UsbState::SIE_STATUS_CONNECTED
@@ -772,7 +778,10 @@ impl Rp2040UsbController {
     pub fn new_with_handle(name: impl Into<String>) -> (Self, Rp2040UsbHandle) {
         let mut registers = [0; 64];
         Rp2040UsbState::reset_registers(&mut registers);
-        let state = Arc::new(Mutex::new(Rp2040UsbState { registers }));
+        let state = Arc::new(Mutex::new(Rp2040UsbState {
+            registers,
+            link: RpUsbLinkState::reset(),
+        }));
         (
             Self {
                 name: name.into(),
@@ -873,6 +882,19 @@ impl Device for Rp2040UsbController {
         let value = match register {
             Rp2040UsbRegister::Intr => state.raw_interrupts(),
             Rp2040UsbRegister::Ints => state.masked_interrupts(),
+            Rp2040UsbRegister::SofRd => u32::from(state.link.frame),
+            Rp2040UsbRegister::SieStatus => {
+                let status =
+                    state.registers[register.index()] & !Rp2040UsbState::SIE_STATUS_LINE_STATE;
+                status | (state.link.line.status_bits() << 2)
+            }
+            Rp2040UsbRegister::UsbPhyDirect => {
+                let (dp, dm) = state.link.line.pins();
+                state.registers[register.index()]
+                    | (u32::from(dp) << 17)
+                    | (u32::from(dm) << 18)
+                    | (u32::from(dp != dm) << 16)
+            }
             _ => state.registers[register.index()],
         };
         Ok(Self::narrow_read(value, offset, width))
@@ -928,14 +950,17 @@ impl Device for Rp2040UsbController {
                 0,
                 0,
             )?,
-            Rp2040UsbRegister::SofWr => Self::update_masked(
-                &mut state.registers[register.index()],
-                alias,
-                value,
-                Rp2040UsbState::SOF_WR_MASK,
-                0,
-                0,
-            )?,
+            Rp2040UsbRegister::SofWr => {
+                Self::update_masked(
+                    &mut state.registers[register.index()],
+                    alias,
+                    value,
+                    Rp2040UsbState::SOF_WR_MASK,
+                    0,
+                    0,
+                )?;
+                state.link.frame = state.registers[register.index()] as u16;
+            }
             Rp2040UsbRegister::SofRd
             | Rp2040UsbRegister::BuffCpuShouldHandle
             | Rp2040UsbRegister::Intr
@@ -956,14 +981,19 @@ impl Device for Rp2040UsbController {
                 0,
                 0,
             )?,
-            Rp2040UsbRegister::EpAbort => Self::update_masked(
-                &mut state.registers[register.index()],
-                alias,
-                value,
-                u32::MAX,
-                0,
-                0,
-            )?,
+            Rp2040UsbRegister::EpAbort => {
+                Self::update_masked(
+                    &mut state.registers[register.index()],
+                    alias,
+                    value,
+                    u32::MAX,
+                    0,
+                    0,
+                )?;
+                let aborted = state.registers[register.index()];
+                state.registers[Rp2040UsbRegister::EpAbortDone.index()] |= aborted;
+                state.registers[register.index()] = 0;
+            }
             Rp2040UsbRegister::EpStallArm => Self::update_masked(
                 &mut state.registers[register.index()],
                 alias,
@@ -1037,6 +1067,7 @@ impl Device for Rp2040UsbController {
     fn reset(&mut self, _kind: ResetKind) {
         let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
         Rp2040UsbState::reset_registers(&mut state.registers);
+        state.link = RpUsbLinkState::reset();
     }
 }
 
@@ -1184,7 +1215,10 @@ impl RpSioGpio {
         hub: SignalHub,
         layout: RpSioLayout,
     ) -> Result<(Self, GpioHandle, RpSioHandle), SignalError> {
-        let (state, signals, handle) = vendor_gpio(pins, path, &hub)?;
+        let (state, signals, handle) = match layout {
+            RpSioLayout::Rp2040 => vendor_gpio(pins, path, &hub)?,
+            RpSioLayout::Rp2350 => vendor_gpio_wide(pins, path, &hub)?,
+        };
         let multicore = Rc::new(RefCell::new(RpSioMulticoreState::default()));
         Ok((
             Self {
@@ -1206,11 +1240,12 @@ impl RpSioGpio {
         ))
     }
 
-    fn resolved_input(&self) -> u32 {
+    fn resolved_input(&self, first_pin: u8, count: u8) -> u32 {
         let state = self.state.lock().expect("GPIO lock poisoned");
-        (0..self.pins).fold(0_u32, |value, pin| {
+        let end = first_pin.saturating_add(count).min(self.pins);
+        (first_pin..end).fold(0_u32, |value, pin| {
             if state.nets[usize::from(pin)].resolved() == Logic::One {
-                value | (1_u32 << pin)
+                value | (1_u32 << (pin - first_pin))
             } else {
                 value
             }
@@ -1273,12 +1308,18 @@ impl Device for RpSioGpio {
         let value = match (self.layout, offset) {
             (_, 0x004) => {
                 drop(state);
-                return Ok(u64::from(self.resolved_input()));
+                return Ok(u64::from(self.resolved_input(0, 32)));
+            }
+            (RpSioLayout::Rp2350, 0x008) => {
+                drop(state);
+                return Ok(u64::from(self.resolved_input(32, 16)));
             }
             (RpSioLayout::Rp2040, 0x010..=0x01c)
             | (RpSioLayout::Rp2350, 0x010 | 0x018 | 0x020 | 0x028) => state.output,
             (RpSioLayout::Rp2040, 0x020..=0x02c)
             | (RpSioLayout::Rp2350, 0x030 | 0x038 | 0x040 | 0x048) => state.direction,
+            (RpSioLayout::Rp2350, 0x014 | 0x01c | 0x024 | 0x02c) => state.output_high,
+            (RpSioLayout::Rp2350, 0x034 | 0x03c | 0x044 | 0x04c) => state.direction_high,
             _ => 0,
         };
         Ok(u64::from(value))
@@ -1402,6 +1443,14 @@ impl Device for RpSioGpio {
             (RpSioLayout::Rp2040, 0x02c) | (RpSioLayout::Rp2350, 0x048) => {
                 state.direction ^= value;
             }
+            (RpSioLayout::Rp2350, 0x014) => state.output_high = value & 0xffff,
+            (RpSioLayout::Rp2350, 0x01c) => state.output_high |= value & 0xffff,
+            (RpSioLayout::Rp2350, 0x024) => state.output_high &= !(value & 0xffff),
+            (RpSioLayout::Rp2350, 0x02c) => state.output_high ^= value & 0xffff,
+            (RpSioLayout::Rp2350, 0x034) => state.direction_high = value & 0xffff,
+            (RpSioLayout::Rp2350, 0x03c) => state.direction_high |= value & 0xffff,
+            (RpSioLayout::Rp2350, 0x044) => state.direction_high &= !(value & 0xffff),
+            (RpSioLayout::Rp2350, 0x04c) => state.direction_high ^= value & 0xffff,
             _ => return Ok(()),
         }
         drop(state);
@@ -1412,6 +1461,8 @@ impl Device for RpSioGpio {
         let mut gpio = self.state.lock().expect("GPIO lock poisoned");
         gpio.direction = 0;
         gpio.output = 0;
+        gpio.direction_high = 0;
+        gpio.output_high = 0;
         drop(gpio);
         *self.multicore.borrow_mut() = RpSioMulticoreState::default();
         self.spinlocks = u32::MAX;

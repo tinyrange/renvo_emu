@@ -636,7 +636,7 @@ fn rp2350_otp_exposes_read_aliases_and_monotonic_locks() {
 
 #[test]
 fn rp2350_accessctrl_tracks_masks_locks_and_configuration_reset() {
-    let mut access = Rp2350AccessCtrl::new("accessctrl");
+    let (mut access, handle) = Rp2350AccessCtrl::new_with_handle("accessctrl");
     assert_eq!(
         Rp2350AccessCtrlRegister::try_from(0x14).unwrap(),
         Rp2350AccessCtrlRegister::Peripheral(0)
@@ -673,6 +673,7 @@ fn rp2350_accessctrl_tracks_masks_locks_and_configuration_reset() {
         .write(0x3000, AccessWidth::Word, 1, SimTime::ZERO)
         .unwrap();
     assert_eq!(access.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 5);
+    handle.set_context(Rp2350AccessMaster::Debugger, true, true);
     access
         .write(8, AccessWidth::Word, 1, SimTime::ZERO)
         .unwrap();
@@ -683,6 +684,41 @@ fn rp2350_accessctrl_tracks_masks_locks_and_configuration_reset() {
         2
     );
     assert_eq!(access.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(), 5);
+}
+
+#[test]
+fn rp2350_accessctrl_enforces_master_security_and_privilege() {
+    let (mut access, handle) = Rp2350AccessCtrl::new_with_handle("accessctrl");
+    // UART0: core 0, Secure Privileged only.
+    access
+        .write(0xa0, AccessWidth::Word, 0x18, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.check_address(0x4007_0000).is_ok());
+    handle.set_context(Rp2350AccessMaster::Core0, false, true);
+    assert!(handle.check_address(0x4007_0000).is_err());
+    handle.set_context(Rp2350AccessMaster::Core1, true, true);
+    assert!(handle.check_address(0x4007_0000).is_err());
+
+    // Secure privileged firmware may delegate NSP, after which NSP may only
+    // grant/revoke the subordinate NSU bit.
+    handle.set_context(Rp2350AccessMaster::Debugger, true, true);
+    access
+        .write(0xa0, AccessWidth::Word, 0x1a, SimTime::ZERO)
+        .unwrap();
+    handle.set_context(Rp2350AccessMaster::Core0, false, true);
+    access
+        .write(0x20a0, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(access.permission(0xa0), Some(0x1b));
+    handle.set_context(Rp2350AccessMaster::Core0, false, false);
+    assert!(handle.check_address(0x4007_0000).is_ok());
+
+    handle.set_context(Rp2350AccessMaster::Debugger, true, true);
+    access
+        .write(0x0c, AccessWidth::Word, 1 << 12, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.gpio_is_nonsecure(12));
+    assert!(!handle.gpio_is_nonsecure(13));
 }
 
 #[test]
@@ -1060,7 +1096,13 @@ fn rp_pio_named_registers_model_fifo_levels_and_irq_masks() {
     assert_eq!(offset(RpPioRegister::Intr), 0x16c);
     assert_eq!(offset(RpPioRegister::Irq0Inte), 0x170);
     assert_eq!(offset(RpPioRegister::Irq1Ints), 0x184);
-    assert!(RpPioRegister::try_from_offset_for_version(0x12c, version).is_err());
+    assert_eq!(
+        RpPioRegister::try_from_offset_for_version(0x12c, version),
+        Ok(RpPioRegister::RxfPutGet {
+            machine: 0,
+            entry: 1
+        })
+    );
     assert_eq!(
         pio.read(0x044, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x1020_0404
@@ -1069,6 +1111,26 @@ fn rp_pio_named_registers_model_fifo_levels_and_irq_masks() {
         pio.read(0x004, AccessWidth::Word, SimTime::ZERO).unwrap(),
         0x0f00_0f00
     );
+
+    // FJOIN_RX_GET exposes the four random-access RX words as processor writes.
+    pio.write(0x0d0, AccessWidth::Word, 1 << 14, SimTime::ZERO)
+        .unwrap();
+    pio.write(0x128, AccessWidth::Word, 0xa5a5_5a5a, SimTime::ZERO)
+        .unwrap();
+    assert!(pio.read(0x128, AccessWidth::Word, SimTime::ZERO).is_err());
+    // FJOIN_RX_PUT reverses the processor direction and resets the storage.
+    pio.write(0x0d0, AccessWidth::Word, 1 << 15, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        pio.read(0x128, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+    assert!(
+        pio.write(0x128, AccessWidth::Word, 1, SimTime::ZERO)
+            .is_err()
+    );
+    pio.write(0x0d0, AccessWidth::Word, 0x000c_0000, SimTime::ZERO)
+        .unwrap();
 
     for value in 0..4 {
         pio.write(0x010, AccessWidth::Word, value, SimTime::ZERO)
@@ -1232,4 +1294,131 @@ fn rp_pio_named_registers_model_fifo_levels_and_irq_masks() {
             & (1 << 31),
         0
     );
+}
+
+#[test]
+fn rp_pio_pull_out_in_push_and_dreq_follow_fifo_state() {
+    let hub = SignalHub::new();
+    let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio.shift", hub).unwrap();
+    // OUT_COUNT=8, OUT_BASE=0, IN_BASE=0.
+    pio.write(0x0dc, AccessWidth::Word, 8 << 20, SimTime::ZERO)
+        .unwrap();
+    // PULL BLOCK; OUT PINS, 8; IN PINS, 8; PUSH BLOCK.
+    for (offset, instruction) in [
+        (0x048, 0x80a0),
+        (0x04c, 0x6008),
+        (0x050, 0x4008),
+        (0x054, 0x8020),
+    ] {
+        pio.write(offset, AccessWidth::Word, instruction, SimTime::ZERO)
+            .unwrap();
+    }
+    pio.write(0x0cc, AccessWidth::Word, 3 << 12, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.tx_dreq(0));
+    pio.write(0x010, AccessWidth::Word, 0xa5, SimTime::ZERO)
+        .unwrap();
+    assert!(handle.rx_dreq(0) == false);
+    handle.set_inputs(0x5a);
+    pio.write(0x000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+
+    assert!(!handle.poll(SimTime::from_ticks(1)).unwrap());
+    assert!(handle.poll(SimTime::from_ticks(2)).unwrap());
+    assert!(handle.poll(SimTime::from_ticks(3)).unwrap() == false);
+    assert!(!handle.rx_dreq(0));
+    assert!(!handle.poll(SimTime::from_ticks(4)).unwrap());
+    assert!(handle.rx_dreq(0));
+    assert_eq!(
+        pio.read(0x020, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x5a00_0000
+    );
+}
+
+#[test]
+fn rp_pio_wait_stalls_until_input_matches() {
+    let hub = SignalHub::new();
+    let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio.wait", hub).unwrap();
+    // WAIT 1 GPIO 3 followed by SET X, 7.
+    pio.write(0x048, AccessWidth::Word, 0x2083, SimTime::ZERO)
+        .unwrap();
+    pio.write(0x04c, AccessWidth::Word, 0xe027, SimTime::ZERO)
+        .unwrap();
+    pio.write(0x0cc, AccessWidth::Word, 1 << 12, SimTime::ZERO)
+        .unwrap();
+    pio.write(0x000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+
+    handle.poll(SimTime::from_ticks(1)).unwrap();
+    assert_eq!(
+        pio.read(0x0d4, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0
+    );
+    assert_ne!(
+        pio.read(0x0cc, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 31),
+        0
+    );
+    handle.set_inputs(1 << 3);
+    handle.poll(SimTime::from_ticks(2)).unwrap();
+    assert_eq!(
+        pio.read(0x0d4, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1
+    );
+    assert_eq!(
+        pio.read(0x0cc, AccessWidth::Word, SimTime::ZERO).unwrap() & (1 << 31),
+        0
+    );
+}
+
+#[test]
+fn rp_pio_clock_divider_and_side_set_gate_execution() {
+    let hub = SignalHub::new();
+    let (mut pio, handle) = RpPio::new("pio0", 32, "board.rp.pio.sideset", hub.clone()).unwrap();
+    // One mandatory side-set pin at GPIO5 and a 2.0 divider.
+    pio.write(
+        0x0dc,
+        AccessWidth::Word,
+        (1 << 29) | (5 << 10),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    pio.write(0x0c8, AccessWidth::Word, 2 << 16, SimTime::ZERO)
+        .unwrap();
+    pio.write(0x048, AccessWidth::Word, 0xf020, SimTime::ZERO)
+        .unwrap();
+    pio.write(0x0cc, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    pio.write(0x000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+
+    assert!(!handle.poll(SimTime::from_ticks(1)).unwrap());
+    assert!(handle.poll(SimTime::from_ticks(2)).unwrap());
+    let changes = hub.drain_changes();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].value.bit(5), Some(Logic::One));
+}
+
+#[test]
+fn rp2350_pad_controls_expose_pulls_input_enable_and_output_disable() {
+    let (mut pads, handle) = RpPadsBank::new("pads", 48, RpPadsVariant::Rp2350);
+    let gpio33 = 4 + 33 * 4;
+    assert_eq!(
+        pads.read(gpio33, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x116
+    );
+    assert!(!handle.input_enabled(33));
+    assert_eq!(handle.pull(33), Some(Logic::Zero));
+    pads.write(
+        gpio33,
+        AccessWidth::Word,
+        (1 << 7) | (1 << 6) | (1 << 3),
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert!(handle.input_enabled(33));
+    assert!(handle.output_disabled(33));
+    assert_eq!(handle.pull(33), Some(Logic::One));
+    pads.write(gpio33 + 0x3000, AccessWidth::Word, 1 << 7, SimTime::ZERO)
+        .unwrap();
+    assert!(!handle.output_disabled(33));
 }

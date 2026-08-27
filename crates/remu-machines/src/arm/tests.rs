@@ -8,6 +8,65 @@ fn both_raspberry_pi_arm_profiles_construct() {
 }
 
 #[test]
+fn rp2350_accessctrl_guard_enforces_core_security_context() {
+    let mut machine = ArmMachine::new(TargetId::Rp2350).unwrap();
+    machine.set_rp2350_security_context(0, true, true).unwrap();
+    machine
+        .bus
+        .write(0x4006_007c, AccessWidth::Word, 0x18, SimTime::ZERO)
+        .unwrap();
+    machine.set_rp2350_security_context(0, false, true).unwrap();
+    let denied = machine
+        .bus
+        .read(
+            0x400a_0000,
+            AccessWidth::Word,
+            AccessKind::Read,
+            SimTime::ZERO,
+        )
+        .unwrap_err();
+    assert!(denied.to_string().contains("ACCESSCTRL denied"));
+
+    machine.set_rp2350_security_context(0, true, true).unwrap();
+    machine
+        .bus
+        .write(0x4006_007c, AccessWidth::Word, 0x12, SimTime::ZERO)
+        .unwrap();
+    machine.set_rp2350_security_context(0, false, true).unwrap();
+    assert!(
+        machine
+            .bus
+            .read(
+                0x400a_0000,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .is_ok()
+    );
+}
+
+#[test]
+fn rp2350_pio_gpio_base_and_io_bank_mux_drive_gpio33() {
+    let mut machine = ArmMachine::new(TargetId::Rp2350).unwrap();
+    machine.set_rp2350_security_context(0, true, true).unwrap();
+    for (address, value) in [
+        (0x4002_810c, 6_u64),
+        (0x5020_0168, 0x10),
+        (0x5020_00dc, (1 << 26) | (17 << 5)),
+        (0x5020_00d8, 0xe081),
+        (0x5020_00d8, 0xe001),
+    ] {
+        machine
+            .bus
+            .write(address, AccessWidth::Word, value, SimTime::ZERO)
+            .unwrap();
+    }
+    machine.refresh_pio_dma_requests().unwrap();
+    assert_eq!(machine.chip_gpio.resolved(33).unwrap(), Logic::One);
+}
+
+#[test]
 fn rp2040_dma_copies_a_word_and_reports_completion() {
     let mut machine = ArmMachine::new(TargetId::Rp2040).unwrap();
     machine

@@ -47,9 +47,17 @@ impl ArmMachine {
             if let Some(reason) = control.limit_reason(self.now, &stats) {
                 break reason;
             }
-            stats.events = stats
-                .events
-                .saturating_add(self.dma.service(&mut self.bus, self.now)? as u64);
+            self.refresh_pio_dma_requests()?;
+            let accessctrl = self.accessctrl.clone();
+            stats.events = stats.events.saturating_add(self.dma.service_with_context(
+                &mut self.bus,
+                self.now,
+                move |_, secure, privileged| {
+                    if let Some(accessctrl) = &accessctrl {
+                        accessctrl.set_context(Rp2350AccessMaster::Dma, secure, privileged);
+                    }
+                },
+            )? as u64);
             let (dma_irq_base, dma_irq_count) = if self.target == TargetId::Rp2350 {
                 (10_u16, 4_usize)
             } else {
@@ -125,6 +133,7 @@ impl ArmMachine {
                     stats.events = stats.events.saturating_add(1);
                 }
             }
+            self.refresh_pio_dma_requests()?;
             let rtc_pending = self.rtc.as_ref().is_some_and(|rtc| rtc.pending(self.now));
             if rtc_pending && !rtc_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -184,6 +193,7 @@ impl ArmMachine {
                 self.cpu.set_vector_base(vector_base);
             }
             self.bus.clear_watchpoint_hit();
+            self.select_rp2350_access_context(0);
             match self.service_functional_bootrom() {
                 Ok(true) => {
                     stats.instructions = stats.instructions.saturating_add(1);
@@ -246,6 +256,7 @@ impl ArmMachine {
             }
             if self.cpu1_active {
                 self.sio.select_core(1);
+                self.select_rp2350_access_context(1);
                 if self.breakpoints.contains(&self.cpu1.snapshot().pc) {
                     self.sio.select_core(0);
                     break StopReason::Breakpoint;

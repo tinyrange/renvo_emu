@@ -16,12 +16,12 @@
       "id": "rp2350-arm",
       "result": ".remu/portfolio-smoke/rp2350-arm-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-bus.json",
-      "result_sha256": "602b9c5827d93bf9f74ec54a896ca666c1c143ac3b6eebba6330a304dac8fedd",
+      "result_sha256": "c3f95dd5e0079494e3fdbc408223dcd15f06c02f0c4aee8e0ac7b77ace39dd4b",
       "bus_log_sha256": "00d2274c37f89556005d4ae57837f5fbae2bbb44941834379bf6799798a4ac52",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
+        "trace_digest": "5382c253cfe667331d4813ccbaafb1aee8bf7b61be2e6f4edc206383170338c2",
         "stats": {
           "instructions": 11,
           "time": 11,
@@ -33,12 +33,12 @@
       "id": "rp2350-arm-uart",
       "result": ".remu/portfolio-smoke/rp2350-arm-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-uart-bus.json",
-      "result_sha256": "4e65ba4306a918de2b856064c6ada71422e96adba00cbb1d3d73537311c5fc49",
+      "result_sha256": "cb9071ac701bb9d8e43a547f83842386ad46dacda89f0d5feea1c1e7e53edb4b",
       "bus_log_sha256": "19aa183a846e8d5bb8cf9e341ad33cb7dccaed5a4f7f9f911052324f9d5abbbb",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
+        "trace_digest": "5382c253cfe667331d4813ccbaafb1aee8bf7b61be2e6f4edc206383170338c2",
         "stats": {
           "instructions": 65,
           "time": 65,
@@ -50,12 +50,12 @@
       "id": "rp2350-arm-uart1",
       "result": ".remu/portfolio-smoke/rp2350-arm-uart1-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-uart1-bus.json",
-      "result_sha256": "b4aff91a8c71ba206daab88cea226ce023f51e5833e466b6db5ce226fbb98c13",
+      "result_sha256": "5bbabbfa690f2204729c5bda91f659d0cf370049e6f07612f7a8a5f9cbb2ce76",
       "bus_log_sha256": "e08b9db5019f87670059f474533cf34661097fd21beeaaebb72ba11e8feb630a",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
+        "trace_digest": "5382c253cfe667331d4813ccbaafb1aee8bf7b61be2e6f4edc206383170338c2",
         "stats": {
           "instructions": 65,
           "time": 65,
@@ -67,12 +67,12 @@
       "id": "rp2350-arm-native-timer",
       "result": ".remu/portfolio-smoke/rp2350-arm-native-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-native-timer-bus.json",
-      "result_sha256": "308f43254c2702d98cc35ea9c9abc362f9f36fc7f0d43151e0b05b60fcc8f66a",
+      "result_sha256": "1ac43506a78ed855257f63c4a230d84cd7c5724eab6d4da16e999531105c37bc",
       "bus_log_sha256": "ccd2bc7a52774ff4800b485611fab0b65375f97373a6157a26ce8160e56190a4",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
+        "trace_digest": "5382c253cfe667331d4813ccbaafb1aee8bf7b61be2e6f4edc206383170338c2",
         "stats": {
           "instructions": 33,
           "time": 33,
@@ -84,12 +84,12 @@
       "id": "rp2350-arm-pio",
       "result": ".remu/portfolio-smoke/rp2350-arm-pio-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-pio-bus.json",
-      "result_sha256": "eb1ca2cf0483e26a96ce1fc5d8aff784bdcde10cb0594d5aedd6451dbb38e126",
+      "result_sha256": "da2317aba7cdf6899158b54f8a640e200beb298f718c46e46f0a2475ae2e9e55",
       "bus_log_sha256": "2578bf9405edecd2d3cd859cb96f0bc84b1bd78e3eb63f8635a3324649762963",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fe3be6c70f7ee9dbb89c3aa94fd410accd506d80069d961447b7b12982becc84",
+        "trace_digest": "920534dc550472091102dd329a50bd4f7f061cc34a1b174d5154434b4bd244ba",
         "stats": {
           "instructions": 127,
           "time": 127,
@@ -101,12 +101,12 @@
       "id": "rp2350-arm-spi",
       "result": ".remu/portfolio-smoke/rp2350-arm-spi-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-spi-bus.json",
-      "result_sha256": "e683e21402cf9220359c5578e79a820563800c0b7d3e58b9955311bbcf4d4c89",
+      "result_sha256": "af13b64bf816b5d000572e77149cea075b8d134123c1c0655e0d5dfb347b98ab",
       "bus_log_sha256": "5fcac0be3165a1280e53790d9a0f5d626627d0bcb6639affea0c660b14b1ded5",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
+        "trace_digest": "5382c253cfe667331d4813ccbaafb1aee8bf7b61be2e6f4edc206383170338c2",
         "stats": {
           "instructions": 48,
           "time": 48,
@@ -118,12 +118,12 @@
       "id": "rp2350-arm-i2c",
       "result": ".remu/portfolio-smoke/rp2350-arm-i2c-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-i2c-bus.json",
-      "result_sha256": "291cd815467b1b51af8722775f28d1e9a1edd867dace353506a41462ed78caaf",
+      "result_sha256": "0e22773872db08515aedafae9eac763181af12e03cd7f95f01435a79db4b3414",
       "bus_log_sha256": "c165799af14c315554e8a64ce8bbf72b24155889249c9435f124b4d529c37dc6",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "c4a2f92c1b9acf02413963a70c5b76dcb9a3a63144119cfb31e9ee86f4ce1612",
+        "trace_digest": "b29a51ccf50509efbeba89d072b8c62e1a3c1b0076e7497373f73440a885457a",
         "stats": {
           "instructions": 33,
           "time": 33,
@@ -135,12 +135,12 @@
       "id": "rp2350-arm-io",
       "result": ".remu/portfolio-smoke/rp2350-arm-io-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-io-bus.json",
-      "result_sha256": "b4100615031b22b1f7c7db2826f49c63bf5ac0aadb856e1e02381da0550a4a4a",
+      "result_sha256": "058f56a6704c0bbb1bbc144c2f3e47b0a4ff0cf51bbfd004990513aaa747233e",
       "bus_log_sha256": "c52b5b2623e914a9d990da1aa4a825bd0e0a077034b8e340019871241bebafaa",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "30bc370f06d7840b67959eca13806d718cc7420d65d4ebc41fba988345a10472",
+        "trace_digest": "6a0c49aba6c7f53cea8834f879dafd8675b87e03be05bf0630f75b6a2dcda0f5",
         "stats": {
           "instructions": 30,
           "time": 30,
@@ -152,12 +152,12 @@
       "id": "rp2350-riscv",
       "result": ".remu/portfolio-smoke/rp2350-riscv-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-bus.json",
-      "result_sha256": "215ac03ae660d416454b9343ee62e98d021151dc38d4652bf8ec9581366d6304",
+      "result_sha256": "5b861d1146ceb2e70fb0bbedac01a52cea8359d0cb9295eb43c423a59eea53eb",
       "bus_log_sha256": "938a65fddd818d1ea995c503377a898c176e6d06f1be6234d02b6238215557b8",
       "outcome": {
         "reason": "Halted",
         "exit_code": 12,
-        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
+        "trace_digest": "f37d750fa5a732909813b24a4ce83bfaf2531b16d20e501bfe638963b325771f",
         "stats": {
           "instructions": 10,
           "time": 10,
@@ -169,12 +169,12 @@
       "id": "rp2350-riscv-uart",
       "result": ".remu/portfolio-smoke/rp2350-riscv-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-uart-bus.json",
-      "result_sha256": "0a1b0b0ff4f4e12fa3d784eb95f86d7a6c736170b5a1d588c97f891a61b9c5ed",
+      "result_sha256": "6f6431d70ae337b63ebea3e80be95d2ebf16d824c21adfaeceb60fa660753c60",
       "bus_log_sha256": "414141419f66bbfe48e2063e0962b66221ea93d60b1fddef43f99087b91b948f",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
+        "trace_digest": "f37d750fa5a732909813b24a4ce83bfaf2531b16d20e501bfe638963b325771f",
         "stats": {
           "instructions": 71,
           "time": 71,
@@ -186,12 +186,12 @@
       "id": "rp2350-riscv-uart1",
       "result": ".remu/portfolio-smoke/rp2350-riscv-uart1-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-uart1-bus.json",
-      "result_sha256": "d9fb9e6747cea117969dd50bbd4662408919c5765ec9547044d874021d9b603d",
+      "result_sha256": "c1606ef53ca50e4cb360ff04a8548bf9770bd411d8454f5537bad50afe3baf76",
       "bus_log_sha256": "7b7e33aa08994ba54598c12ee2185bf57496c0fbb13a2fcbe826f27538159b4f",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
+        "trace_digest": "f37d750fa5a732909813b24a4ce83bfaf2531b16d20e501bfe638963b325771f",
         "stats": {
           "instructions": 71,
           "time": 71,
@@ -203,12 +203,12 @@
       "id": "rp2350-riscv-native-timer",
       "result": ".remu/portfolio-smoke/rp2350-riscv-native-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-native-timer-bus.json",
-      "result_sha256": "a85d13e5f675d8d0ba1e08937bf534fc2e0d13211e744d563e990727f414be81",
+      "result_sha256": "517c9eadcfd5dce63f055a9c003326cc6745a83ca265134020900cf83dd847d3",
       "bus_log_sha256": "db519647373a9d5a8cdb313dbd1bf791ba3dc041e113c3110eb5316253d1153a",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
+        "trace_digest": "f37d750fa5a732909813b24a4ce83bfaf2531b16d20e501bfe638963b325771f",
         "stats": {
           "instructions": 46,
           "time": 46,
@@ -220,12 +220,12 @@
       "id": "rp2350-riscv-pio",
       "result": ".remu/portfolio-smoke/rp2350-riscv-pio-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-pio-bus.json",
-      "result_sha256": "b1c1471089e62f5b290b30b69e1dc56785b6aa6f37e128de45321f6d9c189344",
+      "result_sha256": "0e7efbc96830879b11963e417939e348dada043ae3c8096cda835042cddeb3d0",
       "bus_log_sha256": "713989357ba940d3c300d0d6f0941fd327cea45b57ce5c4fbd16cfb392765a41",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "ff0d7ebf7bae84df89224d3d0e73737c585b8fd82d8eeeb3216d1f71ba9b2cc0",
+        "trace_digest": "fdcfc749f81e9750a422e4464786ca25f7a2353b67a083cfb3fab6adba09a5c3",
         "stats": {
           "instructions": 111,
           "time": 111,
@@ -237,12 +237,12 @@
       "id": "rp2350-riscv-spi",
       "result": ".remu/portfolio-smoke/rp2350-riscv-spi-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-spi-bus.json",
-      "result_sha256": "52851afb020e4d2dc8be01b1bc64c2d4c7341962978a56585e4c0d5ef015a0ca",
+      "result_sha256": "69f4a56a44f5be0920bdecd0e937a01169a93f66209254d0fd740ee26b5f6f35",
       "bus_log_sha256": "6f4a378874e419695bc684e6b3ed22bed7cd5e5c41f7f74a81ea9a85cb881eaa",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
+        "trace_digest": "f37d750fa5a732909813b24a4ce83bfaf2531b16d20e501bfe638963b325771f",
         "stats": {
           "instructions": 56,
           "time": 56,
@@ -254,12 +254,12 @@
       "id": "rp2350-riscv-i2c",
       "result": ".remu/portfolio-smoke/rp2350-riscv-i2c-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-i2c-bus.json",
-      "result_sha256": "00c340b280bb2a3150466b8ceb11f5f4e341d4b8fcaabb1e7530632e2fae8f95",
+      "result_sha256": "1748a5ee18b5e73028249d70e210f76052a38f92c71c46635108d1b1468708ad",
       "bus_log_sha256": "48ab56319be717d9a72b6ded94e6aa477f7905b0e68a1dfb9f3c01f517bafbe3",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "f618fdfee656ef038df4f7e88c06732565ebbfdb8b30ce5c01c65c57cc304021",
+        "trace_digest": "cdd6449b8a792d20d92853fb2b443f6eab6792784096d0bbd373d75d5c2ab833",
         "stats": {
           "instructions": 38,
           "time": 38,
@@ -271,12 +271,12 @@
       "id": "rp2350-riscv-io",
       "result": ".remu/portfolio-smoke/rp2350-riscv-io-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-io-bus.json",
-      "result_sha256": "fd06ed1c8122db280d959176ea3f04670df23bbb7e08e8478277dbdc402086f4",
+      "result_sha256": "ef87f94ad68de86ecff550d6c83743f064f3e23bb7aa55e45019d0aad72896e0",
       "bus_log_sha256": "4ff91a3d515dc2681095f35d406cfd456833c06b0d7b08a20ad40d9c43a220ac",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "c3d44f9e08132f495020e9ebb0e3ca61d720f280afab3194b0ce73ac8ef2aa84",
+        "trace_digest": "c2424567a0aa4050297cce940a1cf68eb9f558e2f34913e32eaed256da8bbf72",
         "stats": {
           "instructions": 43,
           "time": 43,

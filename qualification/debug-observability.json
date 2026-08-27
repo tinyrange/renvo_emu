@@ -1,7 +1,7 @@
 {
   "schema": "remu.debug-observability-qualification.v1",
   "generated_by": "scripts/qualify-debug-observability.sh",
-  "source_sha256": "69575b738389fef7be59456a36101c55410ae24930d3d75f1be6dd3cd9c4d732",
+  "source_sha256": "dedd8c3351676930f10490fe814b52ac1db93c927c7e912022c678cd62d923ff",
   "result": "pass",
   "families": [
     {
@@ -56,7 +56,7 @@
         "result": "pass",
         "byte_identical": true,
         "path": ".remu/qualification/debug-observability/arm/run.json",
-        "sha256": "bafbdc1dc3c4cf1c9874fc566fc20fb8ccd938627d28ed8c2dd2c824d35b90c0"
+        "sha256": "94ed38d00acbf32feab179f028c8e44ac96ff93c83f0122efb2965312424dea0"
       },
       "coverage": {
         "path": ".remu/qualification/debug-observability/arm/coverage.json",

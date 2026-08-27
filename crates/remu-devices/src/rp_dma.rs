@@ -6,9 +6,16 @@ const CTRL_EN: u32 = 1 << 0;
 const CTRL_DATA_SIZE_MASK: u32 = 0x3 << 2;
 const CTRL_INCR_READ: u32 = 1 << 4;
 const CTRL_INCR_WRITE: u32 = 1 << 5;
+const CTRL_RING_SIZE_MASK: u32 = 0xf << 6;
+const CTRL_RING_SEL: u32 = 1 << 10;
+const CTRL_CHAIN_TO_MASK: u32 = 0xf << 11;
+const CTRL_TREQ_SEL_MASK: u32 = 0x3f << 15;
 const CTRL_IRQ_QUIET: u32 = 1 << 21;
+const CTRL_BSWAP: u32 = 1 << 22;
+const CTRL_SNIFF_EN: u32 = 1 << 23;
 const CTRL_BUSY: u32 = 1 << 24;
 const CTRL_WRITE_ERROR: u32 = 1 << 29;
+const CTRL_READ_ERROR: u32 = 1 << 30;
 
 #[derive(Clone, Copy)]
 struct DmaChannel {
@@ -17,6 +24,9 @@ struct DmaChannel {
     transfer_count: u32,
     control: u32,
     write_error: bool,
+    read_error: bool,
+    read_ring_base: u32,
+    write_ring_base: u32,
 }
 
 impl Default for DmaChannel {
@@ -27,6 +37,9 @@ impl Default for DmaChannel {
             transfer_count: 0,
             control: 0,
             write_error: false,
+            read_error: false,
+            read_ring_base: 0,
+            write_ring_base: 0,
         }
     }
 }
@@ -37,6 +50,14 @@ struct RpDmaState {
     interrupt_enable: [u32; 4],
     force_interrupt: [u32; 4],
     variant: RpDmaVariant,
+    timers: [u32; 4],
+    timer_accumulators: [u32; 4],
+    dreq: [Option<bool>; 64],
+    sniff_control: u32,
+    sniff_data: u32,
+    security_channels: [u8; 16],
+    security_interrupts: [u8; 4],
+    security_misc: u16,
 }
 
 /// Target-specific RP DMA layout.
@@ -76,6 +97,35 @@ impl RpDmaVariant {
             Self::Rp2350 => 0x464,
         }
     }
+
+    const fn timer_base(self) -> u64 {
+        match self {
+            Self::Rp2040 => 0x420,
+            Self::Rp2350 => 0x440,
+        }
+    }
+
+    const fn sniff_control(self) -> u64 {
+        match self {
+            Self::Rp2040 => 0x434,
+            Self::Rp2350 => 0x454,
+        }
+    }
+
+    const fn sniff_data(self) -> u64 {
+        self.sniff_control() + 4
+    }
+
+    const fn fifo_levels(self) -> u64 {
+        match self {
+            Self::Rp2040 => 0x440,
+            Self::Rp2350 => 0x460,
+        }
+    }
+
+    const fn channel_count_register(self) -> u64 {
+        self.channel_abort() + 4
+    }
 }
 
 /// Host-facing handle for deterministic RP DMA progress and interrupt state.
@@ -85,22 +135,76 @@ pub struct RpDmaHandle {
 }
 
 impl RpDmaHandle {
-    /// Copies one transfer unit for each enabled channel.
-    pub fn service(&self, bus: &mut dyn Bus, at: SimTime) -> Result<usize, DeviceError> {
-        let mut completed = 0;
-        let channel_count = self
+    /// Sets one external DREQ input. Unconnected request lines remain
+    /// permissive for compatibility; connected lines are strictly paced.
+    pub fn set_dreq(&self, request: u8, asserted: bool) {
+        if let Some(line) = self
             .state
             .lock()
             .expect("RP DMA lock poisoned")
-            .channels
-            .len();
+            .dreq
+            .get_mut(usize::from(request))
+        {
+            *line = Some(asserted);
+        }
+    }
+
+    /// Copies at most one paced transfer unit for each enabled channel.
+    pub fn service(&self, bus: &mut dyn Bus, at: SimTime) -> Result<usize, DeviceError> {
+        self.service_with_context(bus, at, |_, _, _| {})
+    }
+
+    /// Services DMA while selecting each RP2350 channel's security context.
+    pub fn service_with_context(
+        &self,
+        bus: &mut dyn Bus,
+        at: SimTime,
+        mut select_context: impl FnMut(usize, bool, bool),
+    ) -> Result<usize, DeviceError> {
+        let mut completed = 0;
+        let (channel_count, timer_ready) = {
+            let mut state = self.state.lock().expect("RP DMA lock poisoned");
+            let mut ready = [false; 4];
+            for timer in 0..4 {
+                let numerator = state.timers[timer] >> 16;
+                let denominator = state.timers[timer] & 0xffff;
+                if numerator != 0 && denominator != 0 {
+                    let accumulator = state.timer_accumulators[timer].saturating_add(numerator);
+                    if accumulator >= denominator {
+                        ready[timer] = true;
+                        state.timer_accumulators[timer] = accumulator - denominator;
+                    } else {
+                        state.timer_accumulators[timer] = accumulator;
+                    }
+                }
+            }
+            (state.channels.len(), ready)
+        };
         for index in 0..channel_count {
-            let Some((read_addr, write_addr, width, increment_read, increment_write)) = ({
+            let Some((
+                read_addr,
+                write_addr,
+                width,
+                increment_read,
+                increment_write,
+                byte_swap,
+                secure,
+                privileged,
+            )) = ({
                 let state = self.state.lock().expect("RP DMA lock poisoned");
                 let channel = state.channels[index];
                 if channel.control & CTRL_EN == 0 || channel.transfer_count == 0 {
                     None
                 } else {
+                    let request = ((channel.control & CTRL_TREQ_SEL_MASK) >> 15) as usize;
+                    let paced = match request {
+                        0x3f => true,
+                        0x3b..=0x3e => timer_ready[request - 0x3b],
+                        _ => state.dreq[request].unwrap_or(true),
+                    };
+                    if !paced {
+                        continue;
+                    }
                     let width = match (channel.control & CTRL_DATA_SIZE_MASK) >> 2 {
                         0 => AccessWidth::Byte,
                         1 => AccessWidth::HalfWord,
@@ -112,16 +216,39 @@ impl RpDmaHandle {
                         width,
                         channel.control & CTRL_INCR_READ != 0,
                         channel.control & CTRL_INCR_WRITE != 0,
+                        channel.control & CTRL_BSWAP != 0,
+                        state.variant != RpDmaVariant::Rp2350
+                            || state.security_channels[index] & 2 != 0,
+                        state.variant != RpDmaVariant::Rp2350
+                            || state.security_channels[index] & 1 != 0,
                     ))
                 }
-            }) else {
+            })
+            else {
                 continue;
             };
-            let value = bus
-                .read(read_addr, width, AccessKind::Read, at)
-                .map_err(|error| {
-                    DeviceError::new(format!("RP DMA channel {index} read: {error}"))
-                })?;
+            select_context(index, secure, privileged);
+            let value = match bus.read(read_addr, width, AccessKind::Read, at) {
+                Ok(value) => value,
+                Err(error) => {
+                    let mut state = self.state.lock().expect("RP DMA lock poisoned");
+                    state.channels[index].read_error = true;
+                    state.channels[index].control &= !CTRL_EN;
+                    return Err(DeviceError::new(format!(
+                        "RP DMA channel {index} read: {error}"
+                    )));
+                }
+            };
+            let value = if byte_swap {
+                match width {
+                    AccessWidth::Byte => value,
+                    AccessWidth::HalfWord => u64::from((value as u16).swap_bytes()),
+                    AccessWidth::Word => u64::from((value as u32).swap_bytes()),
+                    AccessWidth::DoubleWord => value.swap_bytes(),
+                }
+            } else {
+                value
+            };
             if let Err(error) = bus.write(write_addr, width, value, at) {
                 let mut state = self.state.lock().expect("RP DMA lock poisoned");
                 state.channels[index].write_error = true;
@@ -132,18 +259,49 @@ impl RpDmaHandle {
             }
             let step = width.bytes() as u32;
             let mut state = self.state.lock().expect("RP DMA lock poisoned");
-            let channel = &mut state.channels[index];
-            channel.transfer_count = channel.transfer_count.saturating_sub(1);
-            if increment_read {
-                channel.read_addr = channel.read_addr.wrapping_add(step);
+            if state.sniff_control & 1 != 0
+                && ((state.sniff_control >> 1) & 0xf) as usize == index
+                && state.channels[index].control & CTRL_SNIFF_EN != 0
+            {
+                update_sniffer(&mut state, value as u32, width);
             }
-            if increment_write {
-                channel.write_addr = channel.write_addr.wrapping_add(step);
-            }
-            if channel.transfer_count == 0 {
-                channel.control &= !CTRL_EN;
-                if channel.control & CTRL_IRQ_QUIET == 0 {
+            let (finished, quiet, chain) = {
+                let channel = &mut state.channels[index];
+                channel.transfer_count -= 1;
+                if increment_read {
+                    channel.read_addr = ring_increment(
+                        channel.read_addr,
+                        channel.read_ring_base,
+                        step,
+                        channel.control,
+                        false,
+                    );
+                }
+                if increment_write {
+                    channel.write_addr = ring_increment(
+                        channel.write_addr,
+                        channel.write_ring_base,
+                        step,
+                        channel.control,
+                        true,
+                    );
+                }
+                let finished = channel.transfer_count == 0;
+                if finished {
+                    channel.control &= !CTRL_EN;
+                }
+                (
+                    finished,
+                    channel.control & CTRL_IRQ_QUIET != 0,
+                    ((channel.control & CTRL_CHAIN_TO_MASK) >> 11) as usize,
+                )
+            };
+            if finished {
+                if !quiet {
                     state.raw_interrupt |= 1 << index;
+                }
+                if chain != index && chain < state.channels.len() {
+                    state.channels[chain].control |= CTRL_EN;
                 }
             }
             completed += 1;
@@ -171,6 +329,65 @@ impl RpDmaHandle {
     }
 }
 
+fn ring_increment(address: u32, base: u32, step: u32, control: u32, write: bool) -> u32 {
+    let ring_size = (control & CTRL_RING_SIZE_MASK) >> 6;
+    let selected = control & CTRL_RING_SEL != 0;
+    if ring_size == 0 || selected != write {
+        return address.wrapping_add(step);
+    }
+    let mask = (1_u32 << ring_size) - 1;
+    (base & !mask) | address.wrapping_add(step) & mask
+}
+
+fn update_sniffer(state: &mut RpDmaState, value: u32, width: AccessWidth) {
+    let bytes = value.to_le_bytes();
+    let bytes = &bytes[..usize::from(width.bytes().min(4))];
+    let calculation = (state.sniff_control >> 5) & 0xf;
+    match calculation {
+        0 | 1 => {
+            let reflected = calculation == 1;
+            for byte in bytes {
+                let mut input = if reflected {
+                    byte.reverse_bits()
+                } else {
+                    *byte
+                };
+                for _ in 0..8 {
+                    let carry = (state.sniff_data >> 31) as u8 ^ (input >> 7);
+                    state.sniff_data <<= 1;
+                    if carry != 0 {
+                        state.sniff_data ^= 0x04c1_1db7;
+                    }
+                    input <<= 1;
+                }
+            }
+        }
+        2 | 3 => {
+            let reflected = calculation == 3;
+            let mut crc = state.sniff_data as u16;
+            for byte in bytes {
+                let mut input = if reflected {
+                    byte.reverse_bits()
+                } else {
+                    *byte
+                };
+                for _ in 0..8 {
+                    let carry = (crc >> 15) as u8 ^ (input >> 7);
+                    crc <<= 1;
+                    if carry != 0 {
+                        crc ^= 0x1021;
+                    }
+                    input <<= 1;
+                }
+            }
+            state.sniff_data = u32::from(crc);
+        }
+        0xe => state.sniff_data ^= value.count_ones() & 1,
+        0xf => state.sniff_data = state.sniff_data.wrapping_add(value),
+        _ => {}
+    }
+}
+
 /// Functional RP2040/RP2350 DMA controller with one-unit-per-step transfers.
 pub struct RpDma {
     name: String,
@@ -191,6 +408,14 @@ impl RpDma {
             interrupt_enable: [0; 4],
             force_interrupt: [0; 4],
             variant,
+            timers: [0; 4],
+            timer_accumulators: [0; 4],
+            dreq: [None; 64],
+            sniff_control: 0,
+            sniff_data: 0,
+            security_channels: [3; 16],
+            security_interrupts: [3; 4],
+            security_misc: 0x03ff,
         }));
         (
             Self {
@@ -222,7 +447,20 @@ impl RpDma {
         if channel.write_error {
             control |= CTRL_WRITE_ERROR;
         }
+        if channel.read_error {
+            control |= CTRL_READ_ERROR;
+        }
         control
+    }
+
+    fn channel_register(channel: &DmaChannel, register: u64) -> u32 {
+        match register {
+            0x00 | 0x14 | 0x28 | 0x3c => channel.read_addr,
+            0x04 | 0x18 | 0x2c | 0x34 => channel.write_addr,
+            0x08 | 0x1c | 0x24 | 0x38 => channel.transfer_count,
+            0x0c | 0x10 | 0x20 | 0x30 => Self::channel_control(channel),
+            _ => 0,
+        }
     }
 
     fn interrupt_register(variant: RpDmaVariant, offset: u64) -> Option<(usize, u64)> {
@@ -246,13 +484,7 @@ impl Device for RpDma {
         let state = self.state.lock().expect("RP DMA lock poisoned");
         if let Some((index, register)) = Self::channel_index(offset, state.channels.len()) {
             let channel = &state.channels[index];
-            let value = match register {
-                0x00 => channel.read_addr,
-                0x04 => channel.write_addr,
-                0x08 => channel.transfer_count,
-                0x0c => Self::channel_control(channel),
-                _ => 0,
-            };
+            let value = Self::channel_register(channel, register);
             return Ok(u64::from(value));
         }
         let value = if offset == 0x400 {
@@ -268,10 +500,36 @@ impl Device for RpDma {
                 }
                 _ => unreachable!("validated RP DMA interrupt register"),
             }
-        } else if offset == state.variant.multi_channel_trigger()
+        } else if (state.variant.timer_base()..state.variant.timer_base() + 0x10).contains(&offset)
+        {
+            state.timers[((offset - state.variant.timer_base()) / 4) as usize]
+        } else if offset == state.variant.sniff_control() {
+            state.sniff_control
+        } else if offset == state.variant.sniff_data() {
+            let mut value = state.sniff_data;
+            if state.sniff_control & (1 << 9) != 0 {
+                value = value.swap_bytes();
+            }
+            if state.sniff_control & (1 << 10) != 0 {
+                value = value.reverse_bits();
+            }
+            if state.sniff_control & (1 << 11) != 0 {
+                value = !value;
+            }
+            value
+        } else if offset == state.variant.fifo_levels()
+            || offset == state.variant.multi_channel_trigger()
             || offset == state.variant.channel_abort()
         {
             0
+        } else if offset == state.variant.channel_count_register() {
+            state.channels.len() as u32
+        } else if state.variant == RpDmaVariant::Rp2350 && (0x480..0x4c0).contains(&offset) {
+            u32::from(state.security_channels[((offset - 0x480) / 4) as usize])
+        } else if state.variant == RpDmaVariant::Rp2350 && (0x4c0..0x4d0).contains(&offset) {
+            u32::from(state.security_interrupts[((offset - 0x4c0) / 4) as usize])
+        } else if state.variant == RpDmaVariant::Rp2350 && offset == 0x4d0 {
+            u32::from(state.security_misc)
         } else {
             return Err(DeviceError::new(format!(
                 "{} read outside modeled registers at offset {offset:#x}",
@@ -297,20 +555,49 @@ impl Device for RpDma {
         let mut state = self.state.lock().expect("RP DMA lock poisoned");
         let channel_mask = (1_u32 << state.channels.len()) - 1;
         if let Some((index, register)) = Self::channel_index(offset, state.channels.len()) {
-            let channel = &mut state.channels[index];
-            match register {
-                0x00 => Rp2040Resets::update(&mut channel.read_addr, alias, value)?,
-                0x04 => Rp2040Resets::update(&mut channel.write_addr, alias, value)?,
-                0x08 => Rp2040Resets::update(&mut channel.transfer_count, alias, value)?,
-                0x0c => {
-                    Rp2040Resets::update(&mut channel.control, alias, value & !CTRL_BUSY)?;
-                    channel.write_error = false;
+            let trigger_value = {
+                let channel = &mut state.channels[index];
+                match register {
+                    0x00 | 0x14 | 0x28 | 0x3c => {
+                        Rp2040Resets::update(&mut channel.read_addr, alias, value)?;
+                        channel.read_ring_base = channel.read_addr;
+                    }
+                    0x04 | 0x18 | 0x2c | 0x34 => {
+                        Rp2040Resets::update(&mut channel.write_addr, alias, value)?;
+                        channel.write_ring_base = channel.write_addr;
+                    }
+                    0x08 | 0x1c | 0x24 | 0x38 => {
+                        Rp2040Resets::update(&mut channel.transfer_count, alias, value)?;
+                    }
+                    0x0c | 0x10 | 0x20 | 0x30 => {
+                        Rp2040Resets::update(&mut channel.control, alias, value & !CTRL_BUSY)?;
+                        channel.write_error = false;
+                        channel.read_error = false;
+                    }
+                    _ => {
+                        return Err(DeviceError::new(format!(
+                            "{} write outside modeled channel registers at offset {offset:#x}",
+                            self.name
+                        )));
+                    }
                 }
-                _ => {
-                    return Err(DeviceError::new(format!(
-                        "{} write outside modeled channel registers at offset {offset:#x}",
-                        self.name
-                    )));
+                match register {
+                    0x0c => channel.control & CTRL_EN,
+                    0x1c => channel.transfer_count,
+                    0x2c => channel.write_addr,
+                    0x3c => channel.read_addr,
+                    _ => 0,
+                }
+            };
+            if state.variant == RpDmaVariant::Rp2350 {
+                state.security_channels[index] |= 1 << 2;
+            }
+            let trigger = matches!(register, 0x0c | 0x1c | 0x2c | 0x3c);
+            if trigger {
+                if trigger_value != 0 {
+                    state.channels[index].control |= CTRL_EN;
+                } else if state.channels[index].control & CTRL_IRQ_QUIET != 0 {
+                    state.raw_interrupt |= 1 << index;
                 }
             }
             return Ok(());
@@ -345,6 +632,25 @@ impl Device for RpDma {
                     channel.control &= !CTRL_EN;
                 }
             }
+        } else if (state.variant.timer_base()..state.variant.timer_base() + 0x10).contains(&offset)
+        {
+            let timer = ((offset - state.variant.timer_base()) / 4) as usize;
+            Rp2040Resets::update(&mut state.timers[timer], alias, value)?;
+            state.timer_accumulators[timer] = 0;
+        } else if offset == state.variant.sniff_control() {
+            Rp2040Resets::update(&mut state.sniff_control, alias, value & 0x0fff)?;
+        } else if offset == state.variant.sniff_data() {
+            Rp2040Resets::update(&mut state.sniff_data, alias, value)?;
+        } else if state.variant == RpDmaVariant::Rp2350 && (0x480..0x4c0).contains(&offset) {
+            let channel = ((offset - 0x480) / 4) as usize;
+            if state.security_channels[channel] & (1 << 2) == 0 {
+                state.security_channels[channel] = (value & 7) as u8;
+            }
+        } else if state.variant == RpDmaVariant::Rp2350 && (0x4c0..0x4d0).contains(&offset) {
+            let interrupt = ((offset - 0x4c0) / 4) as usize;
+            state.security_interrupts[interrupt] = (value & 3) as u8;
+        } else if state.variant == RpDmaVariant::Rp2350 && offset == 0x4d0 {
+            state.security_misc = (value & 0x03ff) as u16;
         } else {
             return Err(DeviceError::new(format!(
                 "{} write outside modeled registers at offset {offset:#x}",
@@ -360,6 +666,14 @@ impl Device for RpDma {
         state.raw_interrupt = 0;
         state.interrupt_enable = [0; 4];
         state.force_interrupt = [0; 4];
+        state.timers = [0; 4];
+        state.timer_accumulators = [0; 4];
+        state.dreq = [None; 64];
+        state.sniff_control = 0;
+        state.sniff_data = 0;
+        state.security_channels = [3; 16];
+        state.security_interrupts = [3; 4];
+        state.security_misc = 0x03ff;
     }
 }
 
@@ -457,10 +771,206 @@ mod tests {
     fn rp2040_rejects_rp2350_only_irq_banks() {
         let mut dma = RpDma::new("dma").0;
         assert!(
-            dma.read(0x424, AccessWidth::Word, SimTime::ZERO)
+            dma.read(0x4c0, AccessWidth::Word, SimTime::ZERO)
                 .unwrap_err()
                 .to_string()
                 .contains("outside modeled registers")
         );
+    }
+
+    #[test]
+    fn pacing_ring_byte_swap_and_chaining_are_functional() {
+        let mut bus = AddressSpace::new(Endianness::Little);
+        bus.map_ram("ram", 0x2000_0000, 0x100, true).unwrap();
+        let (dma, handle) = RpDma::new("dma");
+        bus.map_device("dma", 0x5000_0000, 0x1000, Box::new(dma))
+            .unwrap();
+        for (offset, value) in [(0, 0x1122_u64), (2, 0x3344), (4, 0x5566), (6, 0x7788)] {
+            bus.write(
+                0x2000_0000 + offset,
+                AccessWidth::HalfWord,
+                value,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        }
+        // Channel 1 is armed by channel 0's CHAIN_TO on completion.
+        for (offset, value) in [
+            (0x40, 0x2000_0000),
+            (0x44, 0x2000_0020),
+            (0x48, 1),
+            (0x50, u64::from((2_u32 << 2) | (0x3f << 15))),
+        ] {
+            bus.write(
+                0x5000_0000 + offset,
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        }
+        for (offset, value) in [
+            (0x00, 0x2000_0000),
+            (0x04, 0x2000_0010),
+            (0x08, 4),
+            (
+                0x0c,
+                u64::from(
+                    CTRL_EN
+                        | (1 << 2)
+                        | CTRL_INCR_READ
+                        | CTRL_INCR_WRITE
+                        | (2 << 6)
+                        | CTRL_RING_SEL
+                        | (1 << 11)
+                        | (0x3f << 15)
+                        | CTRL_BSWAP,
+                ),
+            ),
+        ] {
+            bus.write(
+                0x5000_0000 + offset,
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        }
+        for tick in 0..4 {
+            handle.service(&mut bus, SimTime::from_ticks(tick)).unwrap();
+        }
+        assert_eq!(
+            bus.read(
+                0x2000_0010,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x8877_6655
+        );
+        assert_eq!(
+            bus.read(
+                0x2000_0020,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x3344_1122
+        );
+    }
+
+    #[test]
+    fn timer_dreq_and_sum_sniffer_pace_and_observe_data() {
+        let mut bus = AddressSpace::new(Endianness::Little);
+        bus.map_ram("ram", 0x2000_0000, 0x100, true).unwrap();
+        let (dma, handle) = RpDma::new("dma");
+        bus.map_device("dma", 0x5000_0000, 0x1000, Box::new(dma))
+            .unwrap();
+        bus.write(0x2000_0000, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+            .unwrap();
+        bus.write(0x5000_0420, AccessWidth::Word, (1 << 16) | 2, SimTime::ZERO)
+            .unwrap();
+        bus.write(
+            0x5000_0434,
+            AccessWidth::Word,
+            1 | (0xf << 5),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        for (offset, value) in [
+            (0x00, 0x2000_0000),
+            (0x04, 0x2000_0004),
+            (0x08, 1),
+            (
+                0x0c,
+                u64::from(CTRL_EN | (2 << 2) | (0x3b << 15) | CTRL_SNIFF_EN),
+            ),
+        ] {
+            bus.write(
+                0x5000_0000 + offset,
+                AccessWidth::Word,
+                value,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        }
+        assert_eq!(handle.service(&mut bus, SimTime::from_ticks(1)).unwrap(), 0);
+        assert_eq!(handle.service(&mut bus, SimTime::from_ticks(2)).unwrap(), 1);
+        assert_eq!(
+            bus.read(
+                0x5000_0438,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+            0x1234_5678
+        );
+    }
+
+    #[test]
+    fn quiet_terminator_and_rp2350_security_lock_are_visible() {
+        let mut dma = RpDma::new_for_variant("dma", RpDmaVariant::Rp2350).0;
+        dma.write(0x480, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        dma.write(
+            0x10,
+            AccessWidth::Word,
+            u64::from(CTRL_IRQ_QUIET),
+            SimTime::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            dma.read(0x480, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            4
+        );
+        dma.write(0x480, AccessWidth::Word, 3, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            dma.read(0x480, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            4
+        );
+        dma.write(0x1c, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            dma.read(0x400, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            1
+        );
+        assert_eq!(
+            dma.read(0x468, AccessWidth::Word, SimTime::ZERO).unwrap(),
+            16
+        );
+    }
+
+    #[test]
+    fn rp2350_channel_security_selects_each_dma_bus_context() {
+        let mut bus = AddressSpace::new(Endianness::Little);
+        bus.map_ram("ram", 0x2000_0000, 0x100, true).unwrap();
+        bus.write(0x2000_0000, AccessWidth::Word, 0xfeed_beef, SimTime::ZERO)
+            .unwrap();
+        let (mut dma, handle) = RpDma::new_for_variant("dma", RpDmaVariant::Rp2350);
+        dma.write(0x480, AccessWidth::Word, 0, SimTime::ZERO)
+            .unwrap();
+        for (offset, value) in [
+            (0x00, 0x2000_0000),
+            (0x04, 0x2000_0004),
+            (0x08, 1),
+            (0x0c, u64::from(CTRL_EN | (2 << 2) | (0x3f << 15))),
+        ] {
+            dma.write(offset, AccessWidth::Word, value, SimTime::ZERO)
+                .unwrap();
+        }
+        let mut selected = Vec::new();
+        assert_eq!(
+            handle
+                .service_with_context(&mut bus, SimTime::ZERO, |channel, secure, privileged| {
+                    selected.push((channel, secure, privileged));
+                })
+                .unwrap(),
+            1
+        );
+        assert_eq!(selected, [(0, false, false)]);
     }
 }

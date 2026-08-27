@@ -699,7 +699,7 @@ fn esp32s3_gpio_bank_one_exposes_and_drives_pin_38() {
 fn rp2350_sio_uses_interleaved_low_and_high_gpio_registers() {
     let hub = SignalHub::new();
     let (mut sio, handle) =
-        RpSioGpio::new_rp2350("sio", 4, "board.rp2350.gpio", hub.clone()).unwrap();
+        RpSioGpio::new_rp2350("sio", 48, "board.rp2350.gpio", hub.clone()).unwrap();
     sio.write(0x038, AccessWidth::Word, 1, SimTime::ZERO)
         .unwrap();
     sio.write(0x018, AccessWidth::Word, 1, SimTime::from_ticks(1))
@@ -720,6 +720,60 @@ fn rp2350_sio_uses_interleaved_low_and_high_gpio_registers() {
     assert_eq!(
         hub.drain_changes().last().unwrap().value.bit(0),
         Some(Logic::Zero)
+    );
+
+    sio.write(0x03c, AccessWidth::Word, 1 << 6, SimTime::from_ticks(3))
+        .unwrap();
+    sio.write(0x01c, AccessWidth::Word, 1 << 6, SimTime::from_ticks(4))
+        .unwrap();
+    assert_eq!(handle.direction_high(), 1 << 6);
+    assert_eq!(handle.output_high(), 1 << 6);
+    assert_eq!(handle.resolved(38).unwrap(), Logic::One);
+    assert_eq!(
+        sio.read(0x034, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 6
+    );
+    assert_eq!(
+        sio.read(0x014, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        1 << 6
+    );
+}
+
+#[test]
+fn rp2350_io_bank_connects_gpio32_through_gpio47() {
+    let hub = SignalHub::new();
+    let (mut sio, gpio) = RpSioGpio::new_rp2350("sio", 48, "board.rp2350.io.high", hub).unwrap();
+    let (mut io_bank, handle) = RpIoBank::new("io-bank0", gpio.clone(), 48);
+
+    sio.write(0x03c, AccessWidth::Word, 1 << 15, SimTime::ZERO)
+        .unwrap();
+    sio.write(0x01c, AccessWidth::Word, 1 << 15, SimTime::ZERO)
+        .unwrap();
+    assert_ne!(
+        io_bank
+            .read(
+                RpIoBankRegister::GpioStatus(47).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & ((1 << 9) | (1 << 13) | (1 << 17)),
+        0
+    );
+
+    gpio.set_input(40, Logic::One, SimTime::from_ticks(1))
+        .unwrap();
+    handle.poll(SimTime::from_ticks(1)).unwrap();
+    assert_ne!(
+        io_bank
+            .read(
+                RpIoBankRegister::RawInterrupt(5).offset(),
+                AccessWidth::Word,
+                SimTime::ZERO,
+            )
+            .unwrap()
+            & (1 << 3),
+        0
     );
 }
 
@@ -872,7 +926,7 @@ fn rp2350_io_bank_matches_narrow_access_and_register_reset_contract() {
     let (sio, gpio) = RpSioGpio::new_rp2350("sio", 4, "board.rp2350.io.contract", hub).unwrap();
     let (mut io_bank, _) = RpIoBank::new("io-bank0", gpio, 48);
 
-    // GPIO32..47 have registers but no electrical nets in the current machine.
+    // Unbonded pins retain a register surface without manufactured levels.
     assert_eq!(
         io_bank
             .read(

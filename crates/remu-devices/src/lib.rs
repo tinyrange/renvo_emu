@@ -33,6 +33,8 @@ mod rp;
 pub use rp::*;
 mod rp_io;
 pub use rp_io::*;
+mod rp_pads;
+pub use rp_pads::*;
 mod rp_i2c;
 pub use rp_i2c::*;
 mod esp_usb_otg_register;

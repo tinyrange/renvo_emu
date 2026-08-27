@@ -445,6 +445,127 @@ fn rp2040_usb_register_masks_reset_values_and_narrow_io_match_the_datasheet() {
 }
 
 #[test]
+fn rp2040_usb_packet_codec_rejects_pid_and_crc_corruption() {
+    for packet in [
+        RpUsbPacket::Token {
+            pid: RpUsbPid::Setup,
+            address: 37,
+            endpoint: 4,
+        },
+        RpUsbPacket::Sof(0x5a5),
+        RpUsbPacket::Data {
+            pid: RpUsbPid::Data1,
+            payload: vec![0x00, 0xff, 0x55, 0xaa],
+        },
+        RpUsbPacket::Handshake(RpUsbPid::Ack),
+    ] {
+        let encoded = packet.encode().unwrap();
+        assert_eq!(RpUsbPacket::decode(&encoded).unwrap(), packet);
+    }
+
+    let mut bad_pid = RpUsbPacket::Handshake(RpUsbPid::Ack).encode().unwrap();
+    bad_pid[0] ^= 0x10;
+    assert_eq!(
+        RpUsbPacket::decode(&bad_pid),
+        Err(RpUsbPacketError::PidComplement)
+    );
+    let mut bad_crc = RpUsbPacket::Data {
+        pid: RpUsbPid::Data0,
+        payload: vec![1, 2, 3],
+    }
+    .encode()
+    .unwrap();
+    *bad_crc.last_mut().unwrap() ^= 1;
+    assert_eq!(RpUsbPacket::decode(&bad_crc), Err(RpUsbPacketError::Crc16));
+}
+
+#[test]
+fn rp2040_usb_link_tracks_lines_frames_toggles_and_endpoint_outcomes() {
+    let (mut usb, handle) = Rp2040UsbController::new_with_handle("usb");
+    assert_eq!(handle.line_state(), RpUsbLineState::Se0);
+    handle.inject_bus_reset();
+    assert_eq!(handle.line_state(), RpUsbLineState::J);
+    handle.inject_sof();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::SofRd.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        1
+    );
+
+    handle
+        .transact(0, false, true, &[0; 8], RpUsbPid::Ack)
+        .unwrap();
+    assert_eq!(handle.data_toggle(0, false), Some(true));
+    assert_eq!(handle.data_toggle(0, true), Some(true));
+    handle
+        .transact(2, true, false, b"abc", RpUsbPid::Ack)
+        .unwrap();
+    assert_eq!(handle.data_toggle(2, true), Some(true));
+    assert_eq!(handle.packet_trace().len(), 7);
+
+    handle
+        .transact(3, false, false, b"busy", RpUsbPid::Nak)
+        .unwrap();
+    assert_ne!(
+        usb.read(
+            Rp2040UsbRegister::SieStatus.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap()
+            & (1 << 28),
+        0
+    );
+    assert_eq!(handle.data_toggle(3, false), Some(false));
+
+    handle.inject_suspend();
+    assert!(handle.interrupt_pending() == false);
+    handle.inject_resume();
+    assert_eq!(handle.line_state(), RpUsbLineState::K);
+    assert_ne!(
+        usb.read(
+            Rp2040UsbRegister::UsbPhyDirect.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap()
+            & (1 << 18),
+        0
+    );
+
+    usb.write(
+        Rp2040UsbRegister::EpAbort.offset(),
+        AccessWidth::Word,
+        1 << 5,
+        SimTime::ZERO,
+    )
+    .unwrap();
+    assert_eq!(
+        usb.read(
+            Rp2040UsbRegister::EpAbort.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap(),
+        0
+    );
+    assert_ne!(
+        usb.read(
+            Rp2040UsbRegister::EpAbortDone.offset(),
+            AccessWidth::Word,
+            SimTime::ZERO
+        )
+        .unwrap()
+            & (1 << 5),
+        0
+    );
+}
+
+#[test]
 fn rp_sio_spinlocks_claim_on_read_and_release_on_write() {
     let hub = SignalHub::new();
     let (mut sio, _) = RpSioGpio::new("sio", 4, "board.rp.gpio", hub).unwrap();

@@ -5,7 +5,8 @@ use crate::{
 };
 use md5::{Digest, Md5};
 use remu_bus::{
-    AddressSpace, Endianness, MapError, Permissions, SharedBusAccessObserver, SharedMemory,
+    AddressSpace, Endianness, MapError, Permissions, SharedAccessGuard, SharedBusAccessObserver,
+    SharedMemory,
 };
 use remu_core::{
     AccessKind, AccessWidth, Bus, Cpu, CpuFault, CpuSnapshot, ResetKind, RunLimits, RunStats,
@@ -18,10 +19,11 @@ use remu_devices::{
     EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
     FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
     Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
-    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp,
-    Rp2350Powman, Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng,
-    Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle,
-    RpDmaVariant, RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350AccessCtrlHandle,
+    Rp2350AccessMaster, Rp2350BootRam, Rp2350Otp, Rp2350Powman, Rp2350Sha256, Rp2350Spi,
+    Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
+    RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2cHandle, RpIoBankHandle,
+    RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
     RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
     WchPficHandle, WchTimer, WchTimerHandle, WchUsart, new_rp2350_hstx,
 };
@@ -216,6 +218,9 @@ pub struct RiscVMachine {
     sio: Option<RpSioHandle>,
     io_bank: Option<RpIoBankHandle>,
     dma: Option<RpDmaHandle>,
+    accessctrl: Option<Rp2350AccessCtrlHandle>,
+    pads: Option<RpPadsHandle>,
+    security_contexts: [(bool, bool); 2],
     bus: AddressSpace,
     signals: SignalHub,
     gpio: GpioHandle,
@@ -351,6 +356,8 @@ impl RiscVMachine {
         let mut sio = None;
         let mut io_bank = None;
         let mut dma = None;
+        let mut accessctrl = None;
+        let mut pads = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
             // Functional core-1 return point: the physical ROM parks a hart
@@ -445,12 +452,15 @@ impl RiscVMachine {
                 0x4000,
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
             )?;
-            bus.map_device(
-                "rp2350.accessctrl",
-                0x4006_0000,
-                0x4000,
-                Box::new(Rp2350AccessCtrl::new("rp2350.accessctrl")),
-            )?;
+            let (device, handle) = Rp2350AccessCtrl::new_with_handle("rp2350.accessctrl");
+            bus.map_device("rp2350.accessctrl", 0x4006_0000, 0x4000, Box::new(device))?;
+            let guard_handle = handle.clone();
+            let guard: SharedAccessGuard =
+                std::rc::Rc::new(std::cell::RefCell::new(move |address, _width, _kind| {
+                    guard_handle.check_address(address)
+                }));
+            bus.set_access_guard(Some(guard));
+            accessctrl = Some(handle);
             bus.map_device(
                 "rp2350.xosc",
                 0x4004_8000,
@@ -488,14 +498,18 @@ impl RiscVMachine {
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2350.io-qspi", io_qspi_reset)),
             )?;
-            let mut bank_pad_reset = vec![0x56; 0x1000 / 4];
-            bank_pad_reset[0] = 0;
+            let (pad_device, pad_handle) = RpPadsBank::new(
+                "rp2350.pads-bank0",
+                manifest.gpio_count,
+                RpPadsVariant::Rp2350,
+            );
             bus.map_device(
                 "rp2350.pads-bank0",
                 0x4003_8000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2350.pads-bank0", bank_pad_reset)),
+                Box::new(pad_device),
             )?;
+            pads = Some(pad_handle);
             let mut qspi_pad_reset = vec![0x56; 0x1000 / 4];
             qspi_pad_reset[0] = 0;
             bus.map_device(
@@ -740,7 +754,7 @@ impl RiscVMachine {
             TargetId::Rp2350 => {
                 let (device, handle, multicore) = RpSioGpio::new_rp2350_with_multicore(
                     "rp2350.sio",
-                    32,
+                    manifest.gpio_count,
                     "board.rp2350.chip_gpio",
                     signals.clone(),
                 )?;
@@ -808,6 +822,9 @@ impl RiscVMachine {
             sio,
             io_bank,
             dma,
+            accessctrl,
+            pads,
+            security_contexts: [(false, true); 2],
             bus,
             signals,
             gpio,

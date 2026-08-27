@@ -1,6 +1,6 @@
 {
   "schema": "remu.stop-conditions.v1",
-  "source_sha256": "28875f9a584ee2b3a56b212a1058cfee5992843eb65f668c3f61e6cf176b1dcd",
+  "source_sha256": "22241d15569f722ffa825a026bbbc15d47ca6e333bce882a848c9fc120e3e19c",
   "cpu_families": [
     "riscv",
     "arm",
@@ -61,7 +61,7 @@
     {
       "id": "arm-fault",
       "artifact": ".remu/stop-conditions/arm-fault.json",
-      "sha256": "08d48f8a2e9024204e8fcd1f7b653dad19f788618a927e00f2a4377a7e327159",
+      "sha256": "ac4528b59ae243396fa296ab75210aa4e61f86640c1c374f0cbe005abe559bc8",
       "target": "rp2040",
       "reason": {
         "Fault": "Unsupported CPU fault at PC 0x10000010: exception instruction 0xde00 is not modeled"
@@ -71,7 +71,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "4e954c4484863ec57894ef350dcd51221d84cddccaa51a16854fb3ade5606d9c",
+      "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
       "result": "pass"
     },
     {
@@ -109,7 +109,7 @@
     {
       "id": "arm-instruction-limit",
       "artifact": ".remu/stop-conditions/arm-instruction-limit.json",
-      "sha256": "fbfb364f444a2e906257aae7b5123d61372795ef31b418678664253e2f3f75c5",
+      "sha256": "ac059d30811a8d16be75f4ad8f116840c6bcbf0a7792253577f28a3db8fb5770",
       "target": "rp2040",
       "reason": "InstructionLimit",
       "stats": {
@@ -117,7 +117,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "4e954c4484863ec57894ef350dcd51221d84cddccaa51a16854fb3ade5606d9c",
+      "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
       "result": "pass"
     },
     {
@@ -151,7 +151,7 @@
     {
       "id": "arm-signal",
       "artifact": ".remu/stop-conditions/arm-signal.json",
-      "sha256": "4c597e477f42c3d6b6733365343fe6ca163bbea707cf875a28c3b0b676965075",
+      "sha256": "0f73f196d57b18e0032be976e96d0a5bccd5ccdf39561f8df8d9e71aa48ad15c",
       "target": "rp2040",
       "reason": {
         "Signal": "board.rp2040.chip_gpio.pin25"
@@ -161,7 +161,7 @@
         "time": 8,
         "events": 0
       },
-      "trace_digest": "5af3d865b9bd1ae97855c904324d132fc7ae099fcf8ba1721aed23b74ec67486",
+      "trace_digest": "989e18a23ce378cfe44f72b5b321fc7c527adacdcc86cdb07dd72828e41af252",
       "result": "pass"
     },
     {
@@ -199,7 +199,7 @@
     {
       "id": "arm-time-limit",
       "artifact": ".remu/stop-conditions/arm-time-limit.json",
-      "sha256": "91cc810cc7a61352561e01a70d62f0fbc96bb6909f0ed72a096c100ed35b2b1a",
+      "sha256": "a730e2f8e1583179bb95510594aa9822e0b7995121b7f48287f65a00abd86028",
       "target": "rp2040",
       "reason": "TimeLimit",
       "stats": {
@@ -207,7 +207,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "4e954c4484863ec57894ef350dcd51221d84cddccaa51a16854fb3ade5606d9c",
+      "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
       "result": "pass"
     },
     {
@@ -241,7 +241,7 @@
     {
       "id": "arm-watchpoint",
       "artifact": ".remu/stop-conditions/arm-watchpoint.json",
-      "sha256": "c2f6dbac862d6f474d71be82a888a4d80c6558b8b8a5c1e95754d5907c3cca86",
+      "sha256": "ff5e6d1b5d76ced8ebaa037d29e0e38ad37ee87ded5f70f67fc3df61b5f4ef8b",
       "target": "rp2040",
       "reason": {
         "Watchpoint": {
@@ -254,7 +254,7 @@
         "time": 11,
         "events": 0
       },
-      "trace_digest": "5af3d865b9bd1ae97855c904324d132fc7ae099fcf8ba1721aed23b74ec67486",
+      "trace_digest": "989e18a23ce378cfe44f72b5b321fc7c527adacdcc86cdb07dd72828e41af252",
       "result": "pass"
     },
     {

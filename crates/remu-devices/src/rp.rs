@@ -1065,6 +1065,16 @@ impl Rp2040IoBank {
 }
 
 impl Rp2040IoBankHandle {
+    /// Returns the raw CTRL register for a bonded GPIO.
+    pub fn pin_control(&self, pin: u8) -> Option<u32> {
+        self.state
+            .lock()
+            .expect("RP IO_BANK lock poisoned")
+            .control
+            .get(usize::from(pin))
+            .copied()
+    }
+
     /// Returns whether PROC0's masked or forced interrupt output is asserted.
     pub fn proc0_pending(&self) -> bool {
         let state = self.state.lock().expect("RP IO_BANK lock poisoned");

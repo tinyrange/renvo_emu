@@ -5,8 +5,8 @@ use crate::{
     TEST_UART, TargetId, resolve_signal_stop, run_control::RunControl, target_manifest,
 };
 use remu_bus::{
-    AddressSpace, BusAccessRecord, Endianness, MapError, Permissions, SharedBusAccessObserver,
-    SharedMemory,
+    AddressSpace, BusAccessRecord, Endianness, MapError, Permissions, SharedAccessGuard,
+    SharedBusAccessObserver, SharedMemory,
 };
 use remu_core::{
     AccessKind, AccessWidth, Bus, Cpu, CpuFault, RunLimits, RunStats, SimTime, StepReason,
@@ -19,12 +19,13 @@ use remu_devices::{
     PwmHandle, Rp2040Clocks, Rp2040IoBank, Rp2040IoBankHandle, Rp2040Pll, Rp2040Psm,
     Rp2040RegisterBank, Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040RtcHandle, Rp2040Ssi,
     Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
-    Rp2040Watchdog, Rp2040WatchdogHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp,
-    Rp2350Powman, Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng,
-    Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle,
-    RpDmaVariant, RpI2c, RpI2cEvent, RpI2cHandle, RpIoBank, RpIoBankHandle, RpPio, RpPioHandle,
-    RpPioVersion, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, SpiHandle,
-    TimerHandle, UartHandle, new_rp2350_hstx,
+    Rp2040Watchdog, Rp2040WatchdogHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350AccessCtrlHandle,
+    Rp2350AccessMaster, Rp2350BootRam, Rp2350Otp, Rp2350Powman, Rp2350Sha256, Rp2350Spi,
+    Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
+    RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2c, RpI2cEvent, RpI2cHandle,
+    RpIoBank, RpIoBankHandle, RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle,
+    RpPioVersion, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, RpUsbPid, SignalHub,
+    SpiHandle, TimerHandle, UartHandle, new_rp2350_hstx,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
@@ -36,6 +37,7 @@ mod error;
 pub use error::ArmMachineError;
 mod usb_host;
 pub(crate) use usb_host::Rp2040UsbHost;
+mod rp_pio_runtime;
 
 /// Runnable direct-ELF Arm vertical slice for RP2040 and RP2350.
 pub struct ArmMachine {
@@ -78,6 +80,9 @@ pub struct ArmMachine {
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
     trng: Option<Rp2350TrngHandle>,
+    accessctrl: Option<Rp2350AccessCtrlHandle>,
+    pads: Option<RpPadsHandle>,
+    security_contexts: [(bool, bool); 2],
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
@@ -146,10 +151,12 @@ impl ArmMachine {
         let mut rtc = None;
         let mut pio = Vec::new();
         let chip_adc;
-        let mut usb = None;
-        let mut usb_dpram = None;
-        let mut usb_host = None;
+        let usb;
+        let usb_dpram;
+        let usb_host;
         let mut trng = None;
+        let mut accessctrl = None;
+        let pads;
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
@@ -251,7 +258,7 @@ impl ArmMachine {
         let (sio_device, chip_gpio, sio) = if target == TargetId::Rp2350 {
             RpSioGpio::new_rp2350_with_multicore(
                 format!("{target}.sio"),
-                manifest.gpio_count.min(32),
+                manifest.gpio_count,
                 &format!("board.{target}.chip_gpio"),
                 signals.clone(),
             )?
@@ -328,14 +335,18 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Xosc::new("rp2040.xosc")),
             )?;
-            let mut pad_reset = vec![0x56; 64];
-            pad_reset[0] = 0;
+            let (pad_device, pad_handle) = RpPadsBank::new(
+                "rp2040.pads-bank0",
+                manifest.gpio_count,
+                RpPadsVariant::Rp2040,
+            );
             bus.map_device(
                 "rp2040.pads-bank0",
                 0x4001_c000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2040.pads-bank0", pad_reset)),
+                Box::new(pad_device),
             )?;
+            pads = Some(pad_handle);
             bus.map_device(
                 "rp2040.io-qspi",
                 0x4001_8000,
@@ -431,12 +442,15 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
             )?;
-            bus.map_device(
-                "rp2350.accessctrl",
-                0x4006_0000,
-                0x4000,
-                Box::new(Rp2350AccessCtrl::new("rp2350.accessctrl")),
-            )?;
+            let (device, handle) = Rp2350AccessCtrl::new_with_handle("rp2350.accessctrl");
+            bus.map_device("rp2350.accessctrl", 0x4006_0000, 0x4000, Box::new(device))?;
+            let guard_handle = handle.clone();
+            let guard: SharedAccessGuard =
+                std::rc::Rc::new(std::cell::RefCell::new(move |address, _width, _kind| {
+                    guard_handle.check_address(address)
+                }));
+            bus.set_access_guard(Some(guard));
+            accessctrl = Some(handle);
             for (name, base) in [("rp2350.spi0", 0x4008_0000), ("rp2350.spi1", 0x4008_8000)] {
                 let (device, handle) = Rp2350Spi::new(name);
                 bus.map_device(name, base, 0x4000, Box::new(device))?;
@@ -495,14 +509,18 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2350.io-qspi", io_qspi_reset)),
             )?;
-            let mut bank_pad_reset = vec![0x56; 0x1000 / 4];
-            bank_pad_reset[0] = 0;
+            let (pad_device, pad_handle) = RpPadsBank::new(
+                "rp2350.pads-bank0",
+                manifest.gpio_count,
+                RpPadsVariant::Rp2350,
+            );
             bus.map_device(
                 "rp2350.pads-bank0",
                 0x4003_8000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2350.pads-bank0", bank_pad_reset)),
+                Box::new(pad_device),
             )?;
+            pads = Some(pad_handle);
             bus.map_device(
                 "rp2350.pads-qspi",
                 0x4004_0000,
@@ -726,6 +744,9 @@ impl ArmMachine {
             usb_dpram,
             usb_host,
             trng,
+            accessctrl,
+            pads,
+            security_contexts: [(false, true); 2],
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
@@ -1315,6 +1336,53 @@ impl ArmMachine {
             }
         }
         Ok(())
+    }
+
+    /// Selects the deterministic RP2350 security/privilege context for one core.
+    pub fn set_rp2350_security_context(
+        &mut self,
+        core: usize,
+        secure: bool,
+        privileged: bool,
+    ) -> Result<(), ArmMachineError> {
+        let Some(context) = self.security_contexts.get_mut(core) else {
+            return Err(ArmMachineError::Configuration(format!(
+                "RP2350 core index {core} is outside 0..2"
+            )));
+        };
+        if self.target != TargetId::Rp2350 {
+            return Err(ArmMachineError::Configuration(
+                "security context is available only on RP2350".to_owned(),
+            ));
+        }
+        *context = (secure, privileged);
+        if let Some(accessctrl) = &self.accessctrl {
+            accessctrl.set_context(
+                if core == 0 {
+                    Rp2350AccessMaster::Core0
+                } else {
+                    Rp2350AccessMaster::Core1
+                },
+                secure,
+                privileged,
+            );
+        }
+        Ok(())
+    }
+
+    fn select_rp2350_access_context(&self, core: usize) {
+        if let Some(accessctrl) = &self.accessctrl {
+            let (secure, privileged) = self.security_contexts[core];
+            accessctrl.set_context(
+                if core == 0 {
+                    Rp2350AccessMaster::Core0
+                } else {
+                    Rp2350AccessMaster::Core1
+                },
+                secure,
+                privileged,
+            );
+        }
     }
 
     /// Sets a deterministic sample for one RP ADC channel.

@@ -174,10 +174,24 @@ impl RiscVMachine {
             if let Some(reason) = control.limit_reason(self.now, &stats) {
                 break reason;
             }
+            self.refresh_pio_dma_requests()?;
             if let Some(dma) = &self.dma {
-                stats.events = stats
-                    .events
-                    .saturating_add(dma.service(&mut self.bus, self.now)? as u64);
+                let accessctrl = self.accessctrl.clone();
+                stats.events = stats.events.saturating_add(
+                    dma.service_with_context(
+                        &mut self.bus,
+                        self.now,
+                        move |_, secure, privileged| {
+                            if let Some(accessctrl) = &accessctrl {
+                                accessctrl.set_context(
+                                    Rp2350AccessMaster::Dma,
+                                    secure,
+                                    privileged,
+                                );
+                            }
+                        },
+                    )? as u64,
+                );
             }
             if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu.pc())) {
                 break StopReason::Breakpoint;
@@ -246,6 +260,7 @@ impl RiscVMachine {
                         stats.events = stats.events.saturating_add(1);
                     }
                 }
+                self.refresh_pio_dma_requests()?;
                 for line in 0..self.chip_timers.len() * 4 {
                     self.cpu.set_hazard3_external_interrupt(
                         u16::try_from(line).expect("RP timer IRQ line fits u16"),
@@ -501,6 +516,7 @@ impl RiscVMachine {
             if watchpoints_active {
                 self.bus.clear_watchpoint_hit();
             }
+            self.select_rp2350_access_context(0);
             let service_possible = self.target != TargetId::Esp32c6
                 || Self::esp32c6_functional_service_address(self.cpu.pc());
             if service_possible {
@@ -610,6 +626,7 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(1);
                 }
+                self.select_rp2350_access_context(1);
                 if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu1.pc())) {
                     if let Some(sio) = &self.sio {
                         sio.select_core(0);
