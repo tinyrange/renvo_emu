@@ -39,7 +39,7 @@ jobs:
         run: rustup show active-toolchain
 
       - name: Build pinned public toolchain image
-        run: scripts/bootstrap-toolchains.sh
+        run: docker build --pull=false --tag remu/cross-gcc:local toolchains/cross-gcc
 
       - name: Build release interpreter
         run: cargo build --release -p remu-cli --locked
