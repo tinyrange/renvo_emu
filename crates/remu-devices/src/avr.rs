@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 
 const IO_BASE: u16 = 0x20;
 const PINB: u16 = 0x23;
-const DDRB: u16 = 0x24;
 const PORTB: u16 = 0x25;
 const PINC: u16 = 0x26;
 const PIND: u16 = 0x29;
@@ -53,6 +52,9 @@ const OCR2A: u16 = 0xb3;
 const SPCR0: u16 = 0x4c;
 const SPSR0: u16 = 0x4d;
 const SPDR0: u16 = 0x4e;
+const SPCR1: u16 = 0xac;
+const SPSR1: u16 = 0xad;
+const SPDR1: u16 = 0xae;
 
 const SPCR_SPIE: u8 = 1 << 7;
 const SPCR_SPE: u8 = 1 << 6;
@@ -61,12 +63,20 @@ const SPSR_WCOL: u8 = 1 << 6;
 const SPSR_SPI2X: u8 = 1;
 // AVR CPU lines are two below the datasheet vector number (line 0 is INT0).
 const SPI0_INTERRUPT_LINE: u16 = 16;
+const SPI1_INTERRUPT_LINE: u16 = 38;
 const TWBR: u16 = 0xb8;
 const TWSR: u16 = 0xb9;
 const TWAR: u16 = 0xba;
 const TWDR: u16 = 0xbb;
 const TWCR: u16 = 0xbc;
 const TWAMR: u16 = 0xbd;
+const TWBR1: u16 = 0xd8;
+const TWSR1: u16 = 0xd9;
+const TWAR1: u16 = 0xda;
+const TWDR1: u16 = 0xdb;
+const TWCR1: u16 = 0xdc;
+const TWAMR1: u16 = 0xdd;
+const TWI1_INTERRUPT_LINE: u16 = 39;
 
 const TWI_STATUS_RESET: u8 = 0xf8;
 const TWI_STATUS_MASK: u8 = 0xf8;
@@ -103,7 +113,7 @@ struct AdcConversion {
     duration: u64,
     mux: u8,
 }
-const UDR1: u16 = 0xc7;
+const UDR1: u16 = 0xce;
 const UCSR1A: u16 = 0xc8;
 const UCSR1B: u16 = 0xc9;
 const UDRE1: u8 = 1 << 5;
@@ -156,123 +166,13 @@ fn comparator_index() -> usize {
     usize::from(AtmegaComparatorRegister::Acsr.io_offset())
 }
 
-/// Named ATmega328PB Timer/Counter3 and Timer/Counter4 register identifiers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[repr(u16)]
-pub enum AtmegaTimerRegister {
-    /// Timer/Counter3 interrupt flags (TIFR3).
-    Tifr3 = 0x38,
-    /// Timer/Counter4 interrupt flags (TIFR4).
-    Tifr4 = 0x39,
-    /// Timer/Counter3 interrupt mask (TIMSK3).
-    Timsk3 = 0x71,
-    /// Timer/Counter4 interrupt mask (TIMSK4).
-    Timsk4 = 0x72,
-    /// Timer/Counter3 control register B (TCCR3B).
-    Tccr3b = 0x91,
-    /// Timer/Counter3 counter low byte (TCNT3L).
-    Tcnt3l = 0x94,
-    /// Timer/Counter3 counter high byte (TCNT3H).
-    Tcnt3h = 0x95,
-    /// Timer/Counter3 output compare A low byte (OCR3AL).
-    Ocr3al = 0x98,
-    /// Timer/Counter3 output compare A high byte (OCR3AH).
-    Ocr3ah = 0x99,
-    /// Timer/Counter4 control register B (TCCR4B).
-    Tccr4b = 0xa1,
-    /// Timer/Counter4 counter low byte (TCNT4L).
-    Tcnt4l = 0xa4,
-    /// Timer/Counter4 counter high byte (TCNT4H).
-    Tcnt4h = 0xa5,
-    /// Timer/Counter4 output compare A low byte (OCR4AL).
-    Ocr4al = 0xa8,
-    /// Timer/Counter4 output compare A high byte (OCR4AH).
-    Ocr4ah = 0xa9,
-}
-
-impl AtmegaTimerRegister {
-    /// Stable list of modeled Timer3/Timer4 register IDs.
-    pub const ALL: [Self; 14] = [
-        Self::Tifr3,
-        Self::Tifr4,
-        Self::Timsk3,
-        Self::Timsk4,
-        Self::Tccr3b,
-        Self::Tcnt3l,
-        Self::Tcnt3h,
-        Self::Ocr3al,
-        Self::Ocr3ah,
-        Self::Tccr4b,
-        Self::Tcnt4l,
-        Self::Tcnt4h,
-        Self::Ocr4al,
-        Self::Ocr4ah,
-    ];
-
-    /// Returns the native data-space address.
-    pub const fn offset(self) -> u16 {
-        self as u16
-    }
-
-    /// Returns the I/O-device offset used by `AtmegaIo`.
-    pub const fn io_offset(self) -> u16 {
-        self.offset() - IO_BASE
-    }
-
-    /// Returns the register-array index used by `AtmegaIo`.
-    pub const fn index(self) -> usize {
-        self.io_offset() as usize
-    }
-
-    /// Returns the vendor register name.
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Tifr3 => "tifr3",
-            Self::Tifr4 => "tifr4",
-            Self::Timsk3 => "timsk3",
-            Self::Timsk4 => "timsk4",
-            Self::Tccr3b => "tccr3b",
-            Self::Tcnt3l => "tcnt3l",
-            Self::Tcnt3h => "tcnt3h",
-            Self::Ocr3al => "ocr3al",
-            Self::Ocr3ah => "ocr3ah",
-            Self::Tccr4b => "tccr4b",
-            Self::Tcnt4l => "tcnt4l",
-            Self::Tcnt4h => "tcnt4h",
-            Self::Ocr4al => "ocr4al",
-            Self::Ocr4ah => "ocr4ah",
-        }
-    }
-
-    /// Resolves a native data-space address to a named Timer3/Timer4 register.
-    pub const fn from_data_address(address: u16) -> Option<Self> {
-        match address {
-            0x38 => Some(Self::Tifr3),
-            0x39 => Some(Self::Tifr4),
-            0x71 => Some(Self::Timsk3),
-            0x72 => Some(Self::Timsk4),
-            0x91 => Some(Self::Tccr3b),
-            0x94 => Some(Self::Tcnt3l),
-            0x95 => Some(Self::Tcnt3h),
-            0x98 => Some(Self::Ocr3al),
-            0x99 => Some(Self::Ocr3ah),
-            0xa1 => Some(Self::Tccr4b),
-            0xa4 => Some(Self::Tcnt4l),
-            0xa5 => Some(Self::Tcnt4h),
-            0xa8 => Some(Self::Ocr4al),
-            0xa9 => Some(Self::Ocr4ah),
-            _ => None,
-        }
-    }
-}
-
-const SMCR_WRITABLE_MASK: u8 = 0x0f;
-const CLKPR_CHANGE_ENABLE: u8 = 1 << 7;
-const CLKPR_DIVIDER_MASK: u8 = 0x0f;
-const PRR1_WRITABLE_MASK: u8 = 0x3d;
-const PRR0_PRTIM0: u8 = 1 << 5;
-const PRR0_PRTIM1: u8 = 1 << 3;
-const PRR0_PRUSART0: u8 = 1 << 1;
+#[path = "avr_registers.rs"]
+mod registers;
+pub use registers::AtmegaTimerRegister;
+use registers::{
+    CLKPR_CHANGE_ENABLE, CLKPR_DIVIDER_MASK, PRR0_PRTIM0, PRR0_PRTIM1, PRR0_PRUSART0,
+    PRR1_WRITABLE_MASK, SMCR_WRITABLE_MASK,
+};
 
 struct AtmegaState {
     registers: [u8; 224],
@@ -307,9 +207,15 @@ struct AtmegaState {
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
     spi_status_read: bool,
+    spi1_tx: Vec<u8>,
+    spi1_rx: Vec<u8>,
+    spi1_status_read: bool,
     twi_tx: Vec<u8>,
     twi_rx: VecDeque<u8>,
     twi_started: bool,
+    twi1_tx: Vec<u8>,
+    twi1_rx: VecDeque<u8>,
+    twi1_started: bool,
     adc_inputs: [u16; 8],
     adc_conversion: Option<AdcConversion>,
     adc_first_conversion: bool,
@@ -340,410 +246,7 @@ struct AtmegaState {
 #[derive(Clone)]
 pub struct AtmegaIoHandle(Arc<Mutex<AtmegaState>>);
 
-impl AtmegaIoHandle {
-    /// Captured USART0 bytes.
-    pub fn uart_bytes(&self) -> Vec<u8> {
-        self.0
-            .lock()
-            .expect("ATmega I/O lock poisoned")
-            .uart
-            .clone()
-    }
-
-    /// Captured USART1 bytes.
-    pub fn uart1_bytes(&self) -> Vec<u8> {
-        self.0
-            .lock()
-            .expect("ATmega I/O lock poisoned")
-            .uart1
-            .clone()
-    }
-
-    /// Sets the functional analog-comparator input levels.
-    pub fn set_comparator_inputs(&self, positive: bool, negative: bool, at: SimTime) {
-        let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
-        state.comparator_positive = positive;
-        state.comparator_negative = negative;
-        state.update_comparator(at);
-    }
-
-    /// Returns the deterministic CPU/peripheral tick divisor selected by CLKPR.
-    pub fn clock_divider(&self) -> u64 {
-        let state = self.0.lock().expect("ATmega I/O lock poisoned");
-        1_u64 << u32::from(state.registers[usize::from(CLKPR - IO_BASE)] & CLKPR_DIVIDER_MASK)
-    }
-
-    /// Whether the next SLEEP instruction is permitted to enter sleep.
-    pub fn sleep_enabled(&self) -> bool {
-        self.0.lock().expect("ATmega I/O lock poisoned").registers[usize::from(SMCR - IO_BASE)] & 1
-            != 0
-    }
-
-    /// Current documented sleep-mode selection (`SM[2:0]`).
-    pub fn sleep_mode(&self) -> u8 {
-        (self.0.lock().expect("ATmega I/O lock poisoned").registers[usize::from(SMCR - IO_BASE)]
-            >> 1)
-            & 0x07
-    }
-
-    /// Advances timers, edge detection and watchdog; returns asserted AVR interrupt lines.
-    pub fn poll(&self, now: SimTime) -> Vec<u16> {
-        let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
-        let mut lines = Vec::new();
-        if let Some(conversion) = state.adc_conversion
-            && now.ticks().saturating_sub(conversion.started) >= conversion.duration
-        {
-            let sample = adc_sample(&state, conversion.mux);
-            let adcl = usize::from(ADCL - IO_BASE);
-            let adch = usize::from(ADCH - IO_BASE);
-            if !state.adc_result_locked {
-                if state.registers[usize::from(ADMUX - IO_BASE)] & ADLAR != 0 {
-                    state.registers[adch] = (sample >> 2) as u8;
-                    state.registers[adcl] = ((sample & 3) << 6) as u8;
-                } else {
-                    state.registers[adcl] = sample as u8;
-                    state.registers[adch] = (sample >> 8) as u8;
-                }
-            }
-            let control = usize::from(ADCSRA - IO_BASE);
-            state.registers[control] = (state.registers[control] & !ADSC) | ADIF;
-            state.adc_conversion = None;
-            state.adc_first_conversion = false;
-            set_bit_signal(&state, state.adc_irq_signal, true, now);
-        }
-        if state
-            .clock_prescaler_armed_at
-            .is_some_and(|armed| now.ticks().saturating_sub(armed) > 4)
-        {
-            state.clock_prescaler_armed_at = None;
-            state.registers[usize::from(CLKPR - IO_BASE)] &= CLKPR_DIVIDER_MASK;
-        }
-        let prr0 = state.registers[usize::from(PRR0 - IO_BASE)];
-        let tccr = state.registers[usize::from(TCCR0B - IO_BASE)];
-        if prr0 & PRR0_PRTIM0 == 0 && tccr & 7 != 0 {
-            let compare = state.registers[usize::from(OCR0A - IO_BASE)];
-            let period = u64::from(if compare == 0 { u8::MAX } else { compare }) + 1;
-            if now.ticks().saturating_sub(state.timer_started) >= period {
-                state.timer_started = now.ticks();
-                state.timer_pending = true;
-                state.registers[usize::from(TIFR0 - IO_BASE)] |= 1;
-                state.registers[usize::from(TCNT0 - IO_BASE)] = 0;
-                set_bit_signal(&state, state.timer0_irq_signal, true, now);
-            }
-        }
-        if state.timer_pending && state.registers[usize::from(TIMSK0 - IO_BASE)] & 1 != 0 {
-            lines.push(15);
-        }
-        let tccr1 = state.registers[usize::from(TCCR1B - IO_BASE)];
-        if prr0 & PRR0_PRTIM1 == 0 && tccr1 & 7 != 0 {
-            let compare = u16::from(state.registers[usize::from(OCR1AL - IO_BASE)])
-                | (u16::from(state.registers[usize::from(OCR1AH - IO_BASE)]) << 8);
-            let period = u64::from(if compare == 0 { u16::MAX } else { compare }) + 1;
-            if now.ticks().saturating_sub(state.timer1_started) >= period {
-                state.timer1_started = now.ticks();
-                state.timer1_pending = true;
-                state.registers[usize::from(TIFR1 - IO_BASE)] |= 1 << 1;
-                state.registers[usize::from(TCNT1L - IO_BASE)] = 0;
-                state.registers[usize::from(TCNT1H - IO_BASE)] = 0;
-                set_bit_signal(&state, state.timer1_irq_signal, true, now);
-            }
-        }
-        if state.timer1_pending && state.registers[usize::from(TIMSK1 - IO_BASE)] & (1 << 1) != 0 {
-            // TIMER1_COMPA is vector 11, represented by CPU interrupt line 10.
-            lines.push(10);
-        }
-        let tccr2 = state.registers[usize::from(TCCR2B - IO_BASE)];
-        if tccr2 & 7 != 0 {
-            let ctc = state.registers[usize::from(TCCR2A - IO_BASE)] & 3 == 2;
-            let compare = state.registers[usize::from(OCR2A - IO_BASE)];
-            let period = if ctc && compare != 0 {
-                u64::from(compare) + 1
-            } else {
-                256
-            };
-            if now.ticks().saturating_sub(state.timer2_started) >= period {
-                state.timer2_started = now.ticks();
-                state.timer2_pending = true;
-                let flag = if ctc { 1 << 1 } else { 1 };
-                state.registers[usize::from(TIFR2 - IO_BASE)] |= flag;
-                state.registers[usize::from(TCNT2 - IO_BASE)] = 0;
-                set_bit_signal(&state, state.timer2_irq_signal, true, now);
-            }
-        }
-        let timer2_flags = state.registers[usize::from(TIFR2 - IO_BASE)];
-        let timer2_mask = state.registers[usize::from(TIMSK2 - IO_BASE)];
-        if timer2_flags & timer2_mask & (1 << 1) != 0 {
-            lines.push(6);
-        }
-        if timer2_flags & timer2_mask & (1 << 2) != 0 {
-            lines.push(7);
-        }
-        if timer2_flags & timer2_mask & 1 != 0 {
-            lines.push(8);
-        }
-        let tccr3 = state.registers[AtmegaTimerRegister::Tccr3b.index()];
-        if tccr3 & 7 != 0 {
-            let elapsed = state
-                .timer3_base
-                .saturating_add(now.ticks().saturating_sub(state.timer3_started));
-            let compare = u16::from(state.registers[AtmegaTimerRegister::Ocr3al.index()])
-                | (u16::from(state.registers[AtmegaTimerRegister::Ocr3ah.index()]) << 8);
-            let compare_period = u64::from(compare).saturating_add(1);
-            if elapsed / compare_period > state.timer3_elapsed / compare_period {
-                state.timer3_compare_pending = true;
-                state.registers[AtmegaTimerRegister::Tifr3.index()] |= 1 << 1;
-                set_bit_signal(&state, state.timer3_compare_irq_signal, true, now);
-            }
-            if elapsed / 0x1_0000 > state.timer3_elapsed / 0x1_0000 {
-                state.timer3_overflow_pending = true;
-                state.registers[AtmegaTimerRegister::Tifr3.index()] |= 1;
-                set_bit_signal(&state, state.timer3_overflow_irq_signal, true, now);
-            }
-            state.timer3_elapsed = elapsed;
-            let counter = elapsed as u16;
-            state.registers[AtmegaTimerRegister::Tcnt3l.index()] = counter as u8;
-            state.registers[AtmegaTimerRegister::Tcnt3h.index()] = (counter >> 8) as u8;
-        }
-        if state.timer3_compare_pending
-            && state.registers[AtmegaTimerRegister::Timsk3.index()] & (1 << 1) != 0
-        {
-            // TIMER3_COMPA is vector 33, represented by CPU interrupt line 32.
-            lines.push(32);
-        }
-        if state.timer3_overflow_pending
-            && state.registers[AtmegaTimerRegister::Timsk3.index()] & 1 != 0
-        {
-            // TIMER3_OVF is vector 35, represented by CPU interrupt line 34.
-            lines.push(34);
-        }
-        let tccr4 = state.registers[AtmegaTimerRegister::Tccr4b.index()];
-        if tccr4 & 7 != 0 {
-            let elapsed = state
-                .timer4_base
-                .saturating_add(now.ticks().saturating_sub(state.timer4_started));
-            let compare = u16::from(state.registers[AtmegaTimerRegister::Ocr4al.index()])
-                | (u16::from(state.registers[AtmegaTimerRegister::Ocr4ah.index()]) << 8);
-            let compare_period = u64::from(compare).saturating_add(1);
-            if elapsed / compare_period > state.timer4_elapsed / compare_period {
-                state.timer4_compare_pending = true;
-                state.registers[AtmegaTimerRegister::Tifr4.index()] |= 1 << 1;
-                set_bit_signal(&state, state.timer4_compare_irq_signal, true, now);
-            }
-            if elapsed / 0x1_0000 > state.timer4_elapsed / 0x1_0000 {
-                state.timer4_overflow_pending = true;
-                state.registers[AtmegaTimerRegister::Tifr4.index()] |= 1;
-                set_bit_signal(&state, state.timer4_overflow_irq_signal, true, now);
-            }
-            state.timer4_elapsed = elapsed;
-            let counter = elapsed as u16;
-            state.registers[AtmegaTimerRegister::Tcnt4l.index()] = counter as u8;
-            state.registers[AtmegaTimerRegister::Tcnt4h.index()] = (counter >> 8) as u8;
-        }
-        if state.timer4_compare_pending
-            && state.registers[AtmegaTimerRegister::Timsk4.index()] & (1 << 1) != 0
-        {
-            // TIMER4_COMPA is vector 42, represented by CPU interrupt line 41.
-            lines.push(41);
-        }
-        if state.timer4_overflow_pending
-            && state.registers[AtmegaTimerRegister::Timsk4.index()] & 1 != 0
-        {
-            // TIMER4_OVF is vector 44, represented by CPU interrupt line 43.
-            lines.push(43);
-        }
-        if prr0 & PRR0_PRUSART0 == 0
-            && state.registers[usize::from(UCSR0B - IO_BASE)] & (1 << 5) != 0
-        {
-            lines.push(18);
-        }
-        if state.registers[usize::from(SPCR0 - IO_BASE)] & SPCR_SPIE != 0
-            && state.registers[usize::from(SPSR0 - IO_BASE)] & SPSR_SPIF != 0
-        {
-            lines.push(SPI0_INTERRUPT_LINE);
-        }
-        let twcr = state.registers[usize::from(TWCR - IO_BASE)];
-        if twcr & TWINT != 0 && twcr & TWIE != 0 {
-            lines.push(24);
-        }
-        state.update_comparator(now);
-        if state.registers[comparator_index()] & ACSR_ACI != 0
-            && state.registers[comparator_index()] & ACSR_ACIE != 0
-        {
-            // ANALOG_COMP is vector 23, represented by AVR line 22.
-            lines.push(22);
-        }
-        let pinb = resolved(&state.ports[0]);
-        let changed = pinb ^ state.previous_pinb;
-        state.previous_pinb = pinb;
-        if changed & state.registers[usize::from(PCMSK0 - IO_BASE)] != 0
-            && state.registers[usize::from(PCICR - IO_BASE)] & 1 != 0
-        {
-            state.registers[usize::from(PCIFR - IO_BASE)] |= 1;
-            set_bit_signal(&state, state.pcint0_irq_signal, true, now);
-            lines.push(2);
-        }
-        let pinc = resolved(&state.ports[1]);
-        let changed = pinc ^ state.previous_pinc;
-        state.previous_pinc = pinc;
-        if changed & state.registers[usize::from(PCMSK1 - IO_BASE)] != 0
-            && state.registers[usize::from(PCICR - IO_BASE)] & (1 << 1) != 0
-        {
-            state.registers[usize::from(PCIFR - IO_BASE)] |= 1 << 1;
-            set_bit_signal(&state, state.pcint1_irq_signal, true, now);
-            lines.push(3);
-        }
-        let pind = resolved(&state.ports[2]);
-        let changed = pind ^ state.previous_pind;
-        if changed & state.registers[usize::from(PCMSK2 - IO_BASE)] != 0
-            && state.registers[usize::from(PCICR - IO_BASE)] & (1 << 2) != 0
-        {
-            state.registers[usize::from(PCIFR - IO_BASE)] |= 1 << 2;
-            set_bit_signal(&state, state.pcint2_irq_signal, true, now);
-            lines.push(4);
-        }
-        let old_int0 = state.previous_pind & (1 << 2) != 0;
-        let new_int0 = pind & (1 << 2) != 0;
-        let old_int1 = state.previous_pind & (1 << 3) != 0;
-        let new_int1 = pind & (1 << 3) != 0;
-        state.previous_pind = pind;
-        let sense = state.registers[usize::from(EICRA - IO_BASE)] & 3;
-        let int0_event = match sense {
-            0 => !new_int0,
-            1 => old_int0 != new_int0,
-            2 => old_int0 && !new_int0,
-            _ => !old_int0 && new_int0,
-        };
-        if int0_event && state.registers[usize::from(EIMSK - IO_BASE)] & 1 != 0 {
-            state.registers[usize::from(EIFR - IO_BASE)] |= 1;
-            set_bit_signal(&state, state.int0_irq_signal, true, now);
-            lines.push(0);
-        }
-        let sense = (state.registers[usize::from(EICRA - IO_BASE)] >> 4) & 3;
-        let int1_event = match sense {
-            0 => !new_int1,
-            1 => old_int1 != new_int1,
-            2 => old_int1 && !new_int1,
-            _ => !old_int1 && new_int1,
-        };
-        if int1_event && state.registers[usize::from(EIMSK - IO_BASE)] & (1 << 1) != 0 {
-            state.registers[usize::from(EIFR - IO_BASE)] |= 1 << 1;
-            set_bit_signal(&state, state.int1_irq_signal, true, now);
-            lines.push(1);
-        }
-        if state.registers[usize::from(WDTCSR - IO_BASE)] & (1 << 3) != 0
-            && now.ticks().saturating_sub(state.watchdog_started) >= 2048
-        {
-            state.watchdog_reset = true;
-            set_bit_signal(&state, state.watchdog_reset_signal, true, now);
-        }
-        if state.registers[usize::from(ADCSRA - IO_BASE)] & (ADIF | ADIE) == (ADIF | ADIE) {
-            // CPU line 20 is vector number 22 (program address 0x002a).
-            lines.push(ADC_INTERRUPT_LINE);
-            set_bit_signal(&state, state.adc_irq_signal, true, now);
-        }
-        lines
-    }
-
-    /// Consumes a watchdog reset request.
-    pub fn take_watchdog_reset(&self) -> bool {
-        std::mem::take(
-            &mut self
-                .0
-                .lock()
-                .expect("ATmega I/O lock poisoned")
-                .watchdog_reset,
-        )
-    }
-
-    /// Supplies the next byte returned by a functional SPI0 master transfer.
-    pub fn inject_spi_rx(&self, value: u8) {
-        self.0
-            .lock()
-            .expect("ATmega I/O lock poisoned")
-            .spi_rx
-            .push(value);
-    }
-
-    /// Captured bytes written to the SPI0 data register.
-    pub fn spi_bytes(&self) -> Vec<u8> {
-        self.0
-            .lock()
-            .expect("ATmega I/O lock poisoned")
-            .spi_tx
-            .clone()
-    }
-
-    /// Queues one byte that the TWI controller should receive from its host.
-    pub fn queue_twi_rx(&self, byte: u8) {
-        self.0
-            .lock()
-            .expect("ATmega I/O lock poisoned")
-            .twi_rx
-            .push_back(byte);
-    }
-
-    /// Returns bytes transferred by the functional TWI0 controller.
-    pub fn take_twi_tx(&self) -> Vec<u8> {
-        let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
-        std::mem::take(&mut state.twi_tx)
-    }
-
-    /// Sets the deterministic 10-bit analog sample for one ADC channel.
-    pub fn set_adc_input(&self, channel: u8, value: u16) {
-        if let Some(sample) = self
-            .0
-            .lock()
-            .expect("ATmega I/O lock poisoned")
-            .adc_inputs
-            .get_mut(usize::from(channel))
-        {
-            *sample = value & 0x03ff;
-        }
-    }
-
-    /// Applies the native ADC side effect of entering the conversion-complete
-    /// interrupt vector: hardware clears ADIF during vectoring.
-    pub fn acknowledge_adc_interrupt(&self, at: SimTime) {
-        let mut state = self.0.lock().expect("ATmega I/O lock poisoned");
-        state.registers[usize::from(ADCSRA - IO_BASE)] &= !ADIF;
-        set_bit_signal(&state, state.adc_irq_signal, false, at);
-    }
-
-    /// Returns the most recently completed ADC result in right-adjusted form.
-    pub fn adc_value(&self) -> u16 {
-        let state = self.0.lock().expect("ATmega I/O lock poisoned");
-        let low = state.registers[usize::from(ADCL - IO_BASE)];
-        let high = state.registers[usize::from(ADCH - IO_BASE)];
-        if state.registers[usize::from(ADMUX - IO_BASE)] & ADLAR != 0 {
-            (u16::from(high) << 2) | u16::from(low >> 6)
-        } else {
-            u16::from(low) | (u16::from(high) << 8)
-        }
-    }
-}
-
-fn adc_sample(state: &AtmegaState, mux: u8) -> u16 {
-    match mux & 0x0f {
-        channel @ 0..=7 => state.adc_inputs[usize::from(channel)],
-        // Temperature sensor, bandgap, and GND are not electrical models in
-        // this functional slice. Keep them deterministic and do not alias
-        // them to an external ADC channel.
-        8 | 14 | 15 => 0,
-        _ => 0,
-    }
-}
-
-fn adc_prescaler(control: u8) -> u64 {
-    match control & ADPS_MASK {
-        0 | 1 => 2,
-        2 => 4,
-        3 => 8,
-        4 => 16,
-        5 => 32,
-        6 => 64,
-        _ => 128,
-    }
-}
+include!("avr_handle.rs");
 
 fn set_bit_signal(state: &AtmegaState, signal: SignalId, value: bool, at: SimTime) {
     state
@@ -804,6 +307,9 @@ fn reset_registers(registers: &mut [u8; 224]) {
     registers[usize::from(TWSR - IO_BASE)] = TWI_STATUS_RESET;
     registers[usize::from(TWAR - IO_BASE)] = 0x02;
     registers[usize::from(TWDR - IO_BASE)] = 0x01;
+    registers[usize::from(TWSR1 - IO_BASE)] = TWI_STATUS_RESET;
+    registers[usize::from(TWAR1 - IO_BASE)] = 0x02;
+    registers[usize::from(TWDR1 - IO_BASE)] = 0x01;
     registers[usize::from(UCSR1A - IO_BASE)] = UDRE1;
 }
 
@@ -942,9 +448,15 @@ impl AtmegaIo {
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
             spi_status_read: false,
+            spi1_tx: Vec::new(),
+            spi1_rx: Vec::new(),
+            spi1_status_read: false,
             twi_tx: Vec::new(),
             twi_rx: VecDeque::new(),
             twi_started: false,
+            twi1_tx: Vec::new(),
+            twi1_rx: VecDeque::new(),
+            twi1_started: false,
             adc_inputs: [0; 8],
             adc_conversion: None,
             adc_first_conversion: true,
@@ -1054,6 +566,20 @@ impl Device for AtmegaIo {
                 }
                 value
             }
+            SPSR1 => {
+                let value = state.registers[usize::from(SPSR1 - IO_BASE)]
+                    & (SPSR_SPIF | SPSR_WCOL | SPSR_SPI2X);
+                state.spi1_status_read = value & (SPSR_SPIF | SPSR_WCOL) != 0;
+                value
+            }
+            SPDR1 => {
+                let value = state.registers[usize::from(SPDR1 - IO_BASE)];
+                if state.spi1_status_read {
+                    state.registers[usize::from(SPSR1 - IO_BASE)] &= !(SPSR_SPIF | SPSR_WCOL);
+                    state.spi1_status_read = false;
+                }
+                value
+            }
             UCSR1A => state.registers[usize::from(address - IO_BASE)],
             SMCR => state.registers[usize::from(SMCR - IO_BASE)] & SMCR_WRITABLE_MASK,
             CLKPR => {
@@ -1068,6 +594,11 @@ impl Device for AtmegaIo {
             TWAR => state.registers[usize::from(TWAR - IO_BASE)] & TWI_ADDRESS_MASK,
             TWDR => state.registers[usize::from(TWDR - IO_BASE)],
             TWAMR => state.registers[usize::from(TWAMR - IO_BASE)] & TWI_ADDRESS_MASK_MASK,
+            TWCR1 => state.registers[usize::from(TWCR1 - IO_BASE)] & TWCR_READ_MASK,
+            TWSR1 => state.registers[usize::from(TWSR1 - IO_BASE)],
+            TWAR1 => state.registers[usize::from(TWAR1 - IO_BASE)] & TWI_ADDRESS_MASK,
+            TWDR1 => state.registers[usize::from(TWDR1 - IO_BASE)],
+            TWAMR1 => state.registers[usize::from(TWAMR1 - IO_BASE)] & TWI_ADDRESS_MASK_MASK,
             _ => state.registers[usize::from(address - IO_BASE)],
         };
         Ok(u64::from(value))
@@ -1370,6 +901,27 @@ impl Device for AtmegaIo {
                 state.registers[usize::from(SPSR0 - IO_BASE)] =
                     (status & (SPSR_SPIF | SPSR_WCOL)) | (value & SPSR_SPI2X);
             }
+            SPDR1 => {
+                if state.registers[usize::from(SPCR1 - IO_BASE)] & SPCR_SPE != 0
+                    && state.registers[usize::from(SPSR1 - IO_BASE)] & SPSR_SPIF == 0
+                {
+                    let received = if state.spi1_rx.is_empty() {
+                        value
+                    } else {
+                        state.spi1_rx.remove(0)
+                    };
+                    state.spi1_tx.push(value);
+                    state.registers[usize::from(SPDR1 - IO_BASE)] = received;
+                    state.registers[usize::from(SPSR1 - IO_BASE)] |= SPSR_SPIF;
+                } else if state.registers[usize::from(SPCR1 - IO_BASE)] & SPCR_SPE != 0 {
+                    state.registers[usize::from(SPSR1 - IO_BASE)] |= SPSR_WCOL;
+                }
+            }
+            SPSR1 => {
+                let status = state.registers[usize::from(SPSR1 - IO_BASE)];
+                state.registers[usize::from(SPSR1 - IO_BASE)] =
+                    (status & (SPSR_SPIF | SPSR_WCOL)) | (value & SPSR_SPI2X);
+            }
             UDR1 => {
                 let status = state.registers[usize::from(UCSR1A - IO_BASE)];
                 let control = state.registers[usize::from(UCSR1B - IO_BASE)];
@@ -1467,6 +1019,64 @@ impl Device for AtmegaIo {
             TWBR | TWAR => {
                 state.registers[usize::from(address - IO_BASE)] = value;
             }
+            TWCR1 => {
+                let index = usize::from(TWCR1 - IO_BASE);
+                let mut twcr =
+                    (state.registers[index] & (TWINT | TWWC)) | (value & TWCR_CONFIG_MASK);
+                let command = value & TWINT != 0;
+                if command {
+                    twcr &= !TWINT;
+                }
+                if value & TWEN == 0 {
+                    state.twi1_started = false;
+                }
+                if command && value & TWEN != 0 {
+                    let status = if value & TWSTA != 0 {
+                        state.twi1_started = true;
+                        0x08
+                    } else if value & TWSTO != 0 {
+                        state.twi1_started = false;
+                        TWI_STATUS_RESET
+                    } else if let Some(byte) = state.twi1_rx.pop_front() {
+                        state.registers[usize::from(TWDR1 - IO_BASE)] = byte;
+                        if value & TWEA != 0 { 0x50 } else { 0x58 }
+                    } else if state.twi1_started {
+                        let byte = state.registers[usize::from(TWDR1 - IO_BASE)];
+                        state.twi1_tx.push(byte);
+                        0x28
+                    } else {
+                        TWI_STATUS_RESET
+                    };
+                    state.registers[usize::from(TWSR1 - IO_BASE)] =
+                        (state.registers[usize::from(TWSR1 - IO_BASE)] & TWI_PRESCALER_MASK)
+                            | (status & TWI_STATUS_MASK);
+                    if value & TWSTO == 0 {
+                        twcr |= TWINT;
+                    }
+                    twcr &= !(TWSTA | TWSTO);
+                }
+                state.registers[index] = twcr & TWCR_READ_MASK;
+            }
+            TWSR1 => {
+                let index = usize::from(TWSR1 - IO_BASE);
+                state.registers[index] =
+                    (state.registers[index] & TWI_STATUS_MASK) | (value & TWI_PRESCALER_MASK);
+            }
+            TWDR1 => {
+                let twcr_index = usize::from(TWCR1 - IO_BASE);
+                if state.registers[twcr_index] & TWINT != 0 {
+                    state.registers[usize::from(TWDR1 - IO_BASE)] = value;
+                    state.registers[twcr_index] &= !TWWC;
+                } else {
+                    state.registers[twcr_index] |= TWWC;
+                }
+            }
+            TWAMR1 => {
+                state.registers[usize::from(TWAMR1 - IO_BASE)] = value & TWI_ADDRESS_MASK_MASK;
+            }
+            TWBR1 | TWAR1 => {
+                state.registers[usize::from(address - IO_BASE)] = value;
+            }
             _ => state.registers[usize::from(address - IO_BASE)] = value,
         }
         Ok(())
@@ -1494,9 +1104,15 @@ impl Device for AtmegaIo {
         state.spi_tx.clear();
         state.spi_rx.clear();
         state.spi_status_read = false;
+        state.spi1_tx.clear();
+        state.spi1_rx.clear();
+        state.spi1_status_read = false;
         state.twi_tx.clear();
         state.twi_rx.clear();
         state.twi_started = false;
+        state.twi1_tx.clear();
+        state.twi1_rx.clear();
+        state.twi1_started = false;
         state.adc_inputs = [0; 8];
         state.adc_conversion = None;
         state.adc_first_conversion = true;
@@ -1548,1033 +1164,5 @@ impl Device for AtmegaIo {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn comparator_register_ids_are_named_and_native() {
-        assert_eq!(AtmegaComparatorRegister::ALL.len(), 1);
-        assert_eq!(AtmegaComparatorRegister::Acsr.offset(), 0x50);
-        assert_eq!(AtmegaComparatorRegister::Acsr.io_offset(), 0x30);
-        assert_eq!(AtmegaComparatorRegister::Acsr.name(), "acsr");
-        assert_eq!(
-            AtmegaComparatorRegister::from_data_address(0x50),
-            Some(AtmegaComparatorRegister::Acsr)
-        );
-        assert_eq!(AtmegaComparatorRegister::from_data_address(0x51), None);
-    }
-
-    #[test]
-    fn timer_register_ids_are_named_and_native() {
-        assert_eq!(AtmegaTimerRegister::ALL.len(), 14);
-        assert_eq!(AtmegaTimerRegister::Tccr3b.offset(), 0x91);
-        assert_eq!(AtmegaTimerRegister::Tccr3b.io_offset(), 0x71);
-        assert_eq!(AtmegaTimerRegister::Tccr3b.name(), "tccr3b");
-        assert_eq!(
-            AtmegaTimerRegister::from_data_address(0xa9),
-            Some(AtmegaTimerRegister::Ocr4ah)
-        );
-        assert_eq!(AtmegaTimerRegister::from_data_address(0x93), None);
-    }
-
-    #[test]
-    fn pb_ports_uart_timer_and_persistent_eeprom_are_functional() {
-        let hub = SignalHub::new();
-        let (mut io, handle, ports) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        io.write(
-            u64::from(DDRB - IO_BASE),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(PORTB - IO_BASE),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(ports[0].output(), 1);
-        io.write(
-            u64::from(UDR0 - IO_BASE),
-            AccessWidth::Byte,
-            b'A'.into(),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(handle.uart_bytes(), b"A");
-        io.write(
-            u64::from(OCR0A - IO_BASE),
-            AccessWidth::Byte,
-            3,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TIMSK0 - IO_BASE),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TCCR0B - IO_BASE),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15]);
-        io.write(
-            u64::from(AtmegaTimerRegister::Ocr3al.io_offset()),
-            AccessWidth::Byte,
-            3,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Timsk3.io_offset()),
-            AccessWidth::Byte,
-            1 << 1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Tccr3b.io_offset()),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![15, 32]);
-        io.write(
-            u64::from(AtmegaTimerRegister::Tifr3.io_offset()),
-            AccessWidth::Byte,
-            1 << 1,
-            SimTime::from_ticks(4),
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Ocr4al.io_offset()),
-            AccessWidth::Byte,
-            2,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Timsk4.io_offset()),
-            AccessWidth::Byte,
-            1 << 1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Tccr4b.io_offset()),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(handle.poll(SimTime::from_ticks(4)).contains(&41));
-    }
-
-    #[test]
-    fn pin_change_groups_and_int1_report_distinct_interrupt_lines() {
-        let hub = SignalHub::new();
-        let (mut io, handle, ports) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        io.write(
-            u64::from(PCICR - IO_BASE),
-            AccessWidth::Byte,
-            (1 << 1) | (1 << 2),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(PCMSK1 - IO_BASE),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(PCMSK2 - IO_BASE),
-            AccessWidth::Byte,
-            1 << 4,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(EICRA - IO_BASE),
-            AccessWidth::Byte,
-            3 << 4,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(EIMSK - IO_BASE),
-            AccessWidth::Byte,
-            1 << 1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        ports[1].set_input(0, Logic::Zero, SimTime::ZERO).unwrap();
-        ports[2].set_input(3, Logic::Zero, SimTime::ZERO).unwrap();
-        ports[2].set_input(4, Logic::Zero, SimTime::ZERO).unwrap();
-        assert!(handle.poll(SimTime::ZERO).is_empty());
-        ports[1]
-            .set_input(0, Logic::One, SimTime::from_ticks(1))
-            .unwrap();
-        ports[2]
-            .set_input(3, Logic::One, SimTime::from_ticks(1))
-            .unwrap();
-        ports[2]
-            .set_input(4, Logic::One, SimTime::from_ticks(1))
-            .unwrap();
-        let lines = handle.poll(SimTime::from_ticks(1));
-        assert!(lines.contains(&1));
-        assert!(lines.contains(&3));
-        assert!(lines.contains(&4));
-        io.write(
-            u64::from(PCIFR - IO_BASE),
-            AccessWidth::Byte,
-            (1 << 1) | (1 << 2),
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        io.write(
-            u64::from(EIFR - IO_BASE),
-            AccessWidth::Byte,
-            1 << 1,
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        assert_eq!(
-            io.read(
-                u64::from(PCIFR - IO_BASE),
-                AccessWidth::Byte,
-                SimTime::from_ticks(1),
-            )
-            .unwrap(),
-            0
-        );
-        assert_eq!(
-            io.read(
-                u64::from(EIFR - IO_BASE),
-                AccessWidth::Byte,
-                SimTime::from_ticks(1),
-            )
-            .unwrap(),
-            0
-        );
-    }
-
-    #[test]
-    fn timer2_ctc_sets_and_clears_its_compare_interrupt() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub.clone()).unwrap();
-        let timer2_irq = hub
-            .with_registry(|registry| registry.find("board.atmega328pb.timer2.irq"))
-            .expect("Timer2 IRQ signal is declared");
-        io.write(
-            u64::from(OCR2A - IO_BASE),
-            AccessWidth::Byte,
-            3,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TCCR2A - IO_BASE),
-            AccessWidth::Byte,
-            2,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TIMSK2 - IO_BASE),
-            AccessWidth::Byte,
-            1 << 1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TCCR2B - IO_BASE),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-
-        assert!(handle.poll(SimTime::from_ticks(3)).is_empty());
-        assert_eq!(
-            handle.poll(SimTime::from_ticks(4)),
-            vec![6],
-            "TIMER2_COMPA is AVR vector 8 / emulator interrupt line 6"
-        );
-        assert!(
-            hub.drain_changes().iter().any(
-                |change| change.signal == timer2_irq && change.value.bit(0) == Some(Logic::One)
-            )
-        );
-        assert_eq!(
-            io.read(
-                u64::from(TIFR2 - IO_BASE),
-                AccessWidth::Byte,
-                SimTime::from_ticks(4)
-            )
-            .unwrap(),
-            1 << 1
-        );
-
-        io.write(
-            u64::from(TIFR2 - IO_BASE),
-            AccessWidth::Byte,
-            1 << 1,
-            SimTime::from_ticks(4),
-        )
-        .unwrap();
-        assert!(handle.poll(SimTime::from_ticks(4)).is_empty());
-        assert!(
-            hub.drain_changes()
-                .iter()
-                .any(|change| change.signal == timer2_irq
-                    && change.value.bit(0) == Some(Logic::Zero))
-        );
-    }
-
-    #[test]
-    fn spi0_master_transfer_returns_injected_byte_and_interrupts() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        handle.inject_spi_rx(0x3c);
-        io.write(
-            u64::from(SPCR0 - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(SPCR_SPIE | SPCR_SPE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(SPDR0 - IO_BASE),
-            AccessWidth::Byte,
-            0xa5,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(handle.spi_bytes(), [0xa5]);
-        assert_eq!(
-            handle.poll(SimTime::from_ticks(1)),
-            vec![SPI0_INTERRUPT_LINE]
-        );
-        assert_eq!(
-            io.read(u64::from(SPDR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
-                .unwrap(),
-            0x3c
-        );
-        assert_eq!(
-            io.read(u64::from(SPSR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
-                .unwrap()
-                & u64::from(SPSR_SPIF),
-            u64::from(SPSR_SPIF)
-        );
-        assert_eq!(
-            io.read(u64::from(SPDR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
-                .unwrap(),
-            0x3c
-        );
-        assert_eq!(
-            io.read(u64::from(SPSR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
-                .unwrap()
-                & u64::from(SPSR_SPIF),
-            0
-        );
-        assert!(handle.poll(SimTime::from_ticks(1)).is_empty());
-    }
-
-    #[test]
-    fn spi0_write_collision_requires_an_unacknowledged_transfer() {
-        let hub = SignalHub::new();
-        let (mut io, _, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        io.write(
-            u64::from(SPDR0 - IO_BASE),
-            AccessWidth::Byte,
-            0x11,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(
-            io.read(u64::from(SPSR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
-                .unwrap()
-                & u64::from(SPSR_WCOL),
-            0
-        );
-
-        io.write(
-            u64::from(SPCR0 - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(SPCR_SPE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(SPDR0 - IO_BASE),
-            AccessWidth::Byte,
-            0x22,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(SPDR0 - IO_BASE),
-            AccessWidth::Byte,
-            0x33,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        let status = io
-            .read(u64::from(SPSR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            status & u64::from(SPSR_SPIF | SPSR_WCOL),
-            u64::from(SPSR_SPIF | SPSR_WCOL)
-        );
-        assert_eq!(
-            io.read(u64::from(SPDR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
-                .unwrap(),
-            0x22
-        );
-    }
-
-    #[test]
-    fn twi0_start_transmit_and_receive_have_deterministic_status() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        let twcr = u64::from(TWCR - IO_BASE);
-        io.write(
-            u64::from(TWBR - IO_BASE),
-            AccessWidth::Byte,
-            12,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TWAR - IO_BASE),
-            AccessWidth::Byte,
-            0x22,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TWAMR - IO_BASE),
-            AccessWidth::Byte,
-            0,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(twcr, AccessWidth::Byte, 0xA5 | 0x20, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            io.read(u64::from(TWSR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
-                .unwrap(),
-            0x08
-        );
-        io.write(
-            u64::from(TWDR - IO_BASE),
-            AccessWidth::Byte,
-            0x55,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(twcr, AccessWidth::Byte, 0x85, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(handle.take_twi_tx(), vec![0x55]);
-        handle.queue_twi_rx(0xa5);
-        io.write(twcr, AccessWidth::Byte, 0xc5, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            io.read(u64::from(TWDR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
-                .unwrap(),
-            0xa5
-        );
-        assert_eq!(
-            io.read(u64::from(TWSR - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
-                .unwrap(),
-            0x50
-        );
-        assert!(handle.poll(SimTime::ZERO).contains(&24));
-    }
-
-    #[test]
-    fn twi0_reset_values_and_reserved_bits_match_datasheet() {
-        let hub = SignalHub::new();
-        let (mut io, _, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        let read = |io: &mut AtmegaIo, register: u16| {
-            io.read(
-                u64::from(register - IO_BASE),
-                AccessWidth::Byte,
-                SimTime::ZERO,
-            )
-            .unwrap() as u8
-        };
-        assert_eq!(read(&mut io, TWSR), TWI_STATUS_RESET);
-        assert_eq!(read(&mut io, TWAR), 0x02);
-        assert_eq!(read(&mut io, TWDR), 0x01);
-        assert_eq!(read(&mut io, TWAMR), 0);
-        assert_eq!(read(&mut io, TWCR), 0);
-
-        io.write(
-            u64::from(TWSR - IO_BASE),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(read(&mut io, TWSR), 0xfb);
-        io.write(
-            u64::from(TWAMR - IO_BASE),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(read(&mut io, TWAMR), 0xfe);
-        io.write(
-            u64::from(TWCR - IO_BASE),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(read(&mut io, TWCR) & 0x02, 0);
-        assert_eq!(read(&mut io, TWCR) & TWWC, 0);
-    }
-
-    #[test]
-    fn twi0_data_collision_sets_twwc_until_interrupt_is_set() {
-        let hub = SignalHub::new();
-        let (mut io, _, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        let twdr = u64::from(TWDR - IO_BASE);
-        let twcr = u64::from(TWCR - IO_BASE);
-        io.write(twdr, AccessWidth::Byte, 0x55, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            io.read(twdr, AccessWidth::Byte, SimTime::ZERO).unwrap(),
-            0x01
-        );
-        assert_ne!(
-            io.read(twcr, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8 & TWWC,
-            0
-        );
-
-        io.write(
-            twcr,
-            AccessWidth::Byte,
-            u64::from(TWINT | TWSTA | TWEN),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(twdr, AccessWidth::Byte, 0x55, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            io.read(twdr, AccessWidth::Byte, SimTime::ZERO).unwrap(),
-            0x55
-        );
-        assert_eq!(
-            io.read(twcr, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8 & TWWC,
-            0
-        );
-    }
-
-    #[test]
-    fn twi0_stop_clears_twsto_without_requesting_interrupt() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        let twcr = u64::from(TWCR - IO_BASE);
-        io.write(
-            twcr,
-            AccessWidth::Byte,
-            u64::from(TWINT | TWSTA | TWEN | TWIE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            twcr,
-            AccessWidth::Byte,
-            u64::from(TWINT | TWSTO | TWEN | TWIE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        let twcr_value = io.read(twcr, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8;
-        assert_eq!(twcr_value & (TWSTO | TWINT), 0);
-        assert!(!handle.poll(SimTime::ZERO).contains(&24));
-        assert_eq!(
-            io.read(u64::from(TWSR - IO_BASE), AccessWidth::Byte, SimTime::ZERO,)
-                .unwrap(),
-            u64::from(TWI_STATUS_RESET)
-        );
-    }
-
-    #[test]
-    fn adc_conversion_latches_right_and_left_adjusted_results() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        handle.set_adc_input(3, 0x02aa);
-        io.write(
-            u64::from(ADMUX - IO_BASE),
-            AccessWidth::Byte,
-            3,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(ADCSRA - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(ADEN | ADIE),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(ADCSRA - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(ADEN | ADIE | ADSC),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(handle.adc_value(), 0);
-        assert_eq!(
-            io.read(
-                u64::from(ADCSRA - IO_BASE),
-                AccessWidth::Byte,
-                SimTime::ZERO
-            )
-            .unwrap() as u8
-                & ADSC,
-            ADSC
-        );
-        assert!(handle.poll(SimTime::from_ticks(49)).is_empty());
-        assert_eq!(
-            handle.poll(SimTime::from_ticks(50)),
-            vec![ADC_INTERRUPT_LINE]
-        );
-        assert_eq!(handle.adc_value(), 0x02aa);
-        assert_ne!(
-            io.read(
-                u64::from(ADCSRA - IO_BASE),
-                AccessWidth::Byte,
-                SimTime::ZERO
-            )
-            .unwrap() as u8
-                & ADIF,
-            0
-        );
-        io.write(
-            u64::from(ADCSRA - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(ADEN | ADIE | ADIF),
-            SimTime::from_ticks(50),
-        )
-        .unwrap();
-        assert!(handle.poll(SimTime::from_ticks(51)).is_empty());
-        assert_eq!(
-            io.read(
-                u64::from(ADCSRA - IO_BASE),
-                AccessWidth::Byte,
-                SimTime::from_ticks(51)
-            )
-            .unwrap() as u8
-                & ADIF,
-            0
-        );
-        io.write(
-            u64::from(ADMUX - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(ADLAR | 3),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(ADCSRA - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(ADEN | ADIE | ADIF | ADSC),
-            SimTime::from_ticks(51),
-        )
-        .unwrap();
-        assert!(handle.poll(SimTime::from_ticks(76)).is_empty());
-        assert_eq!(
-            handle.poll(SimTime::from_ticks(77)),
-            vec![ADC_INTERRUPT_LINE]
-        );
-        assert_eq!(
-            io.read(u64::from(ADCH - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
-                .unwrap(),
-            0xaa
-        );
-        assert_eq!(
-            io.read(u64::from(ADCL - IO_BASE), AccessWidth::Byte, SimTime::ZERO)
-                .unwrap(),
-            0x80
-        );
-    }
-
-    #[test]
-    fn adc_does_not_alias_reserved_mux_values_and_preserves_external_inputs_on_reset() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        handle.set_adc_input(0, 0x03ff);
-        io.write(
-            u64::from(ADMUX - IO_BASE),
-            AccessWidth::Byte,
-            8,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(ADCSRA - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(ADEN | ADSC),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(handle.poll(SimTime::from_ticks(50)).is_empty());
-        assert_eq!(handle.adc_value(), 0);
-        io.reset(ResetKind::External);
-        handle.set_adc_input(0, 0x03ff);
-        io.write(
-            u64::from(ADMUX - IO_BASE),
-            AccessWidth::Byte,
-            0,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(ADCSRA - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(ADEN | ADSC),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(handle.poll(SimTime::from_ticks(50)).is_empty());
-        assert_eq!(handle.adc_value(), 0x03ff);
-    }
-
-    #[test]
-    fn second_usart_captures_transmit_data_and_reports_ready() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        io.write(
-            u64::from(UCSR1B - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(TXEN1),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(UDR1 - IO_BASE),
-            AccessWidth::Byte,
-            b'Z'.into(),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(handle.uart1_bytes(), b"Z");
-        assert_eq!(
-            io.read(
-                u64::from(UCSR1A - IO_BASE),
-                AccessWidth::Byte,
-                SimTime::ZERO,
-            )
-            .unwrap() as u8
-                & (UDRE1 | TXC1),
-            UDRE1 | TXC1
-        );
-    }
-
-    #[test]
-    fn analog_comparator_reports_output_and_selected_edges() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        let acsr = u64::from(AtmegaComparatorRegister::Acsr.io_offset());
-
-        // Rising-output interrupt mode, with the comparator interrupt enabled.
-        io.write(
-            acsr,
-            AccessWidth::Byte,
-            u64::from(ACSR_ACIE | 3),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        handle.set_comparator_inputs(false, true, SimTime::ZERO);
-        assert_eq!(
-            io.read(acsr, AccessWidth::Byte, SimTime::ZERO).unwrap() as u8 & ACSR_ACO,
-            0
-        );
-
-        handle.set_comparator_inputs(true, false, SimTime::from_ticks(1));
-        let status = io
-            .read(acsr, AccessWidth::Byte, SimTime::from_ticks(1))
-            .unwrap() as u8;
-        assert_ne!(status & ACSR_ACO, 0);
-        assert_ne!(status & ACSR_ACI, 0);
-        assert_eq!(handle.poll(SimTime::from_ticks(1)), vec![22]);
-
-        // ACI is write-one-to-clear and the falling edge is ignored in rising mode.
-        io.write(
-            acsr,
-            AccessWidth::Byte,
-            u64::from(ACSR_ACI | ACSR_ACIE | 3),
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        assert_eq!(
-            io.read(acsr, AccessWidth::Byte, SimTime::from_ticks(1))
-                .unwrap() as u8
-                & ACSR_ACI,
-            0
-        );
-        handle.set_comparator_inputs(false, true, SimTime::from_ticks(2));
-        assert_eq!(handle.poll(SimTime::from_ticks(2)), Vec::<u16>::new());
-
-        // Switching to falling-edge mode makes the next low transition observable.
-        io.write(
-            acsr,
-            AccessWidth::Byte,
-            u64::from(ACSR_ACIE | 2),
-            SimTime::from_ticks(2),
-        )
-        .unwrap();
-        handle.set_comparator_inputs(true, false, SimTime::from_ticks(3));
-        handle.set_comparator_inputs(false, true, SimTime::from_ticks(4));
-        assert_eq!(handle.poll(SimTime::from_ticks(4)), vec![22]);
-    }
-
-    #[test]
-    fn timer3_counter_preload_advances_from_written_value() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.timer3", hub).unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Ocr3al.io_offset()),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Ocr3ah.io_offset()),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Tcnt3l.io_offset()),
-            AccessWidth::Byte,
-            0xfe,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Tcnt3h.io_offset()),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Timsk3.io_offset()),
-            AccessWidth::Byte,
-            1 << 1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(AtmegaTimerRegister::Tccr3b.io_offset()),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(handle.poll(SimTime::from_ticks(1)), Vec::<u16>::new());
-        assert_eq!(
-            io.read(
-                u64::from(AtmegaTimerRegister::Tcnt3l.io_offset()),
-                AccessWidth::Byte,
-                SimTime::from_ticks(1),
-            )
-            .unwrap(),
-            0xff
-        );
-        assert_eq!(
-            io.read(
-                u64::from(AtmegaTimerRegister::Tcnt3h.io_offset()),
-                AccessWidth::Byte,
-                SimTime::from_ticks(1),
-            )
-            .unwrap(),
-            0xff
-        );
-        assert_eq!(handle.poll(SimTime::from_ticks(2)), vec![32]);
-    }
-
-    #[test]
-    fn power_registers_apply_masks_and_clkpr_authorization_window() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-
-        assert_eq!(handle.clock_divider(), 1);
-        assert!(!handle.sleep_enabled());
-        assert_eq!(handle.sleep_mode(), 0);
-
-        io.write(
-            u64::from(SMCR - IO_BASE),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(handle.sleep_enabled());
-        assert_eq!(handle.sleep_mode(), 7);
-        assert_eq!(
-            io.read(u64::from(SMCR - IO_BASE), AccessWidth::Byte, SimTime::ZERO),
-            Ok(0x0f)
-        );
-
-        // CLKPR writes without CLKPCE are ignored.
-        io.write(
-            u64::from(CLKPR - IO_BASE),
-            AccessWidth::Byte,
-            0x0f,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert_eq!(handle.clock_divider(), 1);
-        io.write(
-            u64::from(CLKPR - IO_BASE),
-            AccessWidth::Byte,
-            CLKPR_CHANGE_ENABLE.into(),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(CLKPR - IO_BASE),
-            AccessWidth::Byte,
-            2,
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        assert_eq!(handle.clock_divider(), 4);
-
-        // A second write after the four-tick authorization window is ignored.
-        io.write(
-            u64::from(CLKPR - IO_BASE),
-            AccessWidth::Byte,
-            CLKPR_CHANGE_ENABLE.into(),
-            SimTime::from_ticks(2),
-        )
-        .unwrap();
-        io.write(
-            u64::from(CLKPR - IO_BASE),
-            AccessWidth::Byte,
-            4,
-            SimTime::from_ticks(7),
-        )
-        .unwrap();
-        assert_eq!(handle.clock_divider(), 4);
-
-        io.write(
-            u64::from(PRR0 - IO_BASE),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::from_ticks(8),
-        )
-        .unwrap();
-        io.write(
-            u64::from(PRR1 - IO_BASE),
-            AccessWidth::Byte,
-            0xff,
-            SimTime::from_ticks(8),
-        )
-        .unwrap();
-        assert_eq!(
-            io.read(u64::from(PRR0 - IO_BASE), AccessWidth::Byte, SimTime::ZERO),
-            Ok(0xff)
-        );
-        assert_eq!(
-            io.read(u64::from(PRR1 - IO_BASE), AccessWidth::Byte, SimTime::ZERO),
-            Ok(u64::from(PRR1_WRITABLE_MASK))
-        );
-    }
-
-    #[test]
-    fn power_reduction_gates_timer_and_uart_facades() {
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        io.write(
-            u64::from(OCR0A - IO_BASE),
-            AccessWidth::Byte,
-            3,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TIMSK0 - IO_BASE),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(TCCR0B - IO_BASE),
-            AccessWidth::Byte,
-            1,
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(PRR0 - IO_BASE),
-            AccessWidth::Byte,
-            PRR0_PRTIM0.into(),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(handle.poll(SimTime::from_ticks(4)).is_empty());
-        io.write(
-            u64::from(PRR0 - IO_BASE),
-            AccessWidth::Byte,
-            0,
-            SimTime::from_ticks(4),
-        )
-        .unwrap();
-        assert_eq!(handle.poll(SimTime::from_ticks(8)), vec![15]);
-
-        let hub = SignalHub::new();
-        let (mut io, handle, _) = AtmegaIo::new("atmega328pb.io", hub).unwrap();
-        io.write(
-            u64::from(PRR0 - IO_BASE),
-            AccessWidth::Byte,
-            PRR0_PRUSART0.into(),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        io.write(
-            u64::from(UDR0 - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(b'X'),
-            SimTime::ZERO,
-        )
-        .unwrap();
-        assert!(handle.uart_bytes().is_empty());
-        io.write(
-            u64::from(PRR0 - IO_BASE),
-            AccessWidth::Byte,
-            0,
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        io.write(
-            u64::from(UDR0 - IO_BASE),
-            AccessWidth::Byte,
-            u64::from(b'Y'),
-            SimTime::from_ticks(1),
-        )
-        .unwrap();
-        assert_eq!(handle.uart_bytes(), b"Y");
-    }
-}
+#[path = "avr_tests.rs"]
+mod tests;

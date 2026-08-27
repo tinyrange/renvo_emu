@@ -689,7 +689,10 @@ const MANIFESTS: &[TargetManifest] = &[
         baseline: &[
             "PORT/interrupt GPIO",
             "Timer0/1/2/3/4",
-            "USART0",
+            "USART0/1 transmit",
+            "SPI0/1",
+            "TWI0/1",
+            "ADC",
             "EEPROM",
             "analog comparator",
             "SMCR/CLKPR sleep and clock control",
@@ -704,6 +707,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "comparator timing is functional rather than clock-accurate",
             "Timer3/4 PWM and input-capture waveform fidelity are deferred",
             "peripheral clock domains, exact low-power wake behavior, and oscillator timing are deferred",
+            "PTC analog acquisition and SPM/boot-lock/fuse persistence are explicitly unsupported",
         ],
     },
     TargetManifest {

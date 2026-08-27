@@ -16,11 +16,12 @@ pin-change, external-interrupt, watchdog, ADC, and analog-comparator signals.
 Implemented functionally: SMCR sleep selection, CLKPR's four-tick change
 authorization, PRR0/PRR1 gates, PORT B/C/D, INT0 and
 pin-change groups, Timer0/1/2, Timer3/4 compare A and overflow, USART0/1 transmit,
-SPI0, TWI0, ADC, EEPROM, watchdog reset, reset/vectors and AVR Harvard
+SPI0/1, TWI0/1, ADC, EEPROM, watchdog reset, reset/vectors and AVR Harvard
 program/data separation. The comparator exposes deterministic boolean AIN0/AIN1
 host inputs, ACO state and selectable edge interrupts. Analog voltage/noise,
-touch, Timer3/4 PWM and capture waveforms, second SPI/TWI controllers, and
-cycle-accurate prescalers/serial timing remain outside this functional slice. Exact oscillator timing,
+touch/PTC analog acquisition, Timer3/4 PWM and capture waveforms, SPM/boot-lock/fuse
+persistence, and cycle-accurate prescalers/serial timing remain outside this
+functional slice. Exact oscillator timing,
 low-power wake sources, and independent asynchronous peripheral clock domains
 remain deferred.
 

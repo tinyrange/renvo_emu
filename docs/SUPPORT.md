@@ -15,11 +15,14 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
-ATmega328PB SPI0 is modeled through the native `SPCR0`/`SPSR0`/`SPDR0`
-registers. Master writes are captured, host-injected MISO bytes are returned,
-`SPIF`/write-collision status is deterministic, and `SPIE` routes the
-completion to the AVR interrupt line. SPI1, double-speed timing, and package
-pin/SS arbitration remain outside this slice.
+ATmega328PB SPI0 and SPI1 are modeled through their native
+`SPCRn`/`SPSRn`/`SPDRn` registers (`0x4c..0x4e` and `0xac..0xae`). Master writes
+are captured independently, host-injected MISO bytes are returned,
+`SPIF`/write-collision status is deterministic, and `SPIE` routes completion to
+CPU lines 16 and 38. Double-speed timing and package pin/SS arbitration remain
+outside this slice. Addresses and vector routing follow Microchip's
+[ATmega328PB data sheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/40001906C.pdf)
+and [interrupt table](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-F3266720-5DBF-4EA7-876C-81574D15CD24.html).
 
 All targets also expose a stable compiler-test block:
 
@@ -474,15 +477,35 @@ prebuilds `core` for the otherwise undistributed exact RV32E register-ABI target
 installing the upstream RV32IMAC, Armv6-M, and Armv8-M libraries. Every actual
 Rust case build remains network-isolated and read-only.
 
-The ATmega328PB functional slice includes the native TWI0 register contract
-(`TWBR`, `TWSR`, `TWAR`, `TWDR`, `TWCR`, and `TWAMR`) with deterministic START,
-transmit, receive, status, and interrupt behavior. Register reset values,
+The ATmega328PB functional slice includes both native TWI register banks
+(`TWBRn`, `TWSRn`, `TWARn`, `TWDRn`, `TWCRn`, and `TWAMRn`) at
+`0xb8..0xbd` and `0xd8..0xdd`, with independent deterministic START, transmit,
+receive, status, and interrupt behavior. Register reset values,
 write-one-to-clear control semantics, reserved-bit handling, and the TWWC data
 collision flag follow Microchip's [TWI control-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-1E9DD1D3-4D52-4B17-979C-13B5AA4AC1A1.html),
 [status-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-AE5E72CE-344A-4C37-8F5B-9948EB814739.html),
 and [data-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-6EAB15A1-6D6A-4723-A787-E8275BE8A49E.html)
-descriptions. It exposes host byte queues for tests, but does not claim
-electrical I²C arbitration, clock stretching, or TWI1 coverage.
+descriptions. It exposes independent host byte queues for tests, but does not
+claim electrical I²C arbitration, clock stretching, multi-master timing, or pin
+multiplexing.
+
+## ATmega328PB explicit fidelity boundaries
+
+The PTC is not a conventional software-owned register peripheral: Microchip's
+QTouch library owns its acquisition sequencing and depends on analog charge
+transfer, calibration, sensor geometry, and timing. Renvo therefore leaves PTC
+EOC/window-comparator behavior explicitly unsupported instead of fabricating
+register storage that could make a custom driver appear valid. Firmware can
+still exercise GPIO and ADC-based touch algorithms using deterministic digital
+inputs and ADC samples.
+
+Self-programming is likewise bounded deliberately. Normal flash execution,
+boot-vector placement, EEPROM, and reset behavior are modeled, but `SPM` page
+erase/write, boot-lock enforcement, signature-row reads, and fuse programming
+are not yet persistent silicon operations. Custom bootloader or programming
+drivers must treat those operations as unsupported until page-buffer, NRWW/RWW,
+lock-bit, and fuse semantics have dedicated tests. These boundaries keep driver
+tests fail-closed rather than silently accepting writes with no hardware effect.
 
 `scripts/qualify-rust-abi.sh` compiles one freestanding ABI/behavior program at
 `-O0`, `-O2`, and `-Os`. Its 18 deterministic proof runs cover CH32V003,
@@ -645,7 +668,7 @@ Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
 
 The ATmega328PB model includes both native USART0 and USART1 transmit data
-registers (`UDR0` at `0xc6` and `UDR1` at `0xc7`), with native USART1
+registers (`UDR0` at `0xc6` and `UDR1` at `0xce`), with native USART1
 enable/ready/complete status and separate trace signals. Receive, baud-rate
 timing, and modem-control fidelity remain outside this functional CI slice.
 
