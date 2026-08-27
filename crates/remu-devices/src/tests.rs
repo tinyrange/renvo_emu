@@ -1943,6 +1943,7 @@ fn i2c_executes_addressed_writes_and_queued_reads() {
     let (mut i2c, handle) = FunctionalI2c::new("i2c");
     handle.queue_read(0x58, &[0x12]);
     i2c.write(0x04, AccessWidth::Word, 0x58, SimTime::ZERO).unwrap();
+    i2c.write(0x6c, AccessWidth::Word, 1, SimTime::ZERO).unwrap();
     i2c.write(0x10, AccessWidth::Word, 0xa0, SimTime::ZERO).unwrap();
     i2c.write(0x10, AccessWidth::Word, 1 << 8, SimTime::ZERO).unwrap();
     assert_eq!(i2c.read(0x10, AccessWidth::Word, SimTime::ZERO).unwrap(), 0x12);
@@ -1957,6 +1958,7 @@ fn i2c_reports_fifo_and_stop_interrupt_state() {
     let (mut i2c, _handle) = FunctionalI2c::new("i2c");
     i2c.write(0x30, AccessWidth::Word, (1 << 4) | (1 << 9), SimTime::ZERO).unwrap();
     i2c.write(0x04, AccessWidth::Word, 0x20, SimTime::ZERO).unwrap();
+    i2c.write(0x6c, AccessWidth::Word, 1, SimTime::ZERO).unwrap();
     i2c.write(0x10, AccessWidth::Word, (1 << 9) | 0x5a, SimTime::ZERO).unwrap();
     assert_eq!(i2c.read(0x2c, AccessWidth::Word, SimTime::ZERO).unwrap(), (1 << 4) | (1 << 9));
     assert_eq!(i2c.read(0x70, AccessWidth::Word, SimTime::ZERO).unwrap(), 0x06);
