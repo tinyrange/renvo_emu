@@ -141,16 +141,16 @@ sample_url = "https://github.com/avrdudes/avr-libc"
 sample_revision = "3b40a25de8948396d0055565b791d80fbd02cab7 (stdiodemo UART), with Microchip.ATmega_DFP.3.6.299 device support"
 toolchain = "Microchip AVR GNU Toolchain with ATmega DFP 3.6.299"
 compiler_flags = ["-mmcu=atmega328pb"]
-peripherals = ["CLKPR", "PRR", "PORTB", "PORTC", "PORTD", "EXTINT", "PCINT", "TIMER0", "TIMER1", "USART0", "EEPROM", "WDT"]
+peripherals = ["CLKPR", "PRR", "PORTB", "PORTC", "PORTD", "EXTINT", "PCINT", "TIMER0", "TIMER1", "TIMER2", "TIMER3", "TIMER4", "USART0", "USART1", "EEPROM", "WDT", "SPI0", "SPI1", "TWI0", "TWI1", "ADC", "ANALOG_COMP"]
 image_formats = ["ELF32 little-endian AVR executable with Harvard program/data spaces"]
 memory_map = ["program flash word PC 0x0000..0x3fff (32 KiB bytes)", "register/I/O/data space 0x0000..0x08ff", "SRAM 0x0100..0x08ff", "EEPROM 0x000..0x3ff via controller"]
 reset_assumptions = "Power-on reset begins at program word zero with the ATmega328PB stack initialized by the pinned CRT"
-vectors = ["reset vector 0", "INT0 CPU line 0", "PCINT0 CPU line 2", "TIMER1_COMPA CPU line 10", "TIMER0_OVF CPU line 15", "USART0 CPU line 18"]
+vectors = ["reset vector 0", "INT0 CPU line 0", "INT1 CPU line 1", "PCINT0 CPU line 2", "PCINT1 CPU line 3", "PCINT2 CPU line 4", "TIMER2_COMPA CPU line 6", "TIMER1_COMPA CPU line 10", "TIMER0_OVF CPU line 15", "SPI0 CPU line 16", "USART0 CPU line 18", "ADC CPU line 20", "ANALOG_COMP CPU line 22", "TWI0 CPU line 24", "TIMER3_COMPA CPU line 32", "TIMER3_OVF CPU line 34", "SPI1 CPU line 38", "TWI1 CPU line 39", "TIMER4_COMPA CPU line 41", "TIMER4_OVF CPU line 43"]
 selected_pins = ["PB1 external input/PCINT1", "PB0 GPIO output", "USART0 logical TX"]
-interrupt_routes = ["PB1 change -> PCINT0 group -> vector 3", "Timer0 overflow -> vector 16", "USART0 data-register-empty -> vector 19"]
-vcd_signals = ["board.atmega328pb.portb", "board.atmega328pb.timer0.overflow_irq", "board.atmega328pb.usart0", "board.atmega328pb.interrupt.pcint0"]
+interrupt_routes = ["PB1 change -> PCINT0 group -> vector 3", "Timer0 overflow -> vector 16", "Timer3 compare-A/overflow -> vectors 33/35", "Timer4 compare-A/overflow -> vectors 42/44", "USART0 data-register-empty -> vector 19", "AIN0/AIN1 comparator edge -> vector 23"]
+vcd_signals = ["board.atmega328pb.portb", "board.atmega328pb.timer0.overflow_irq", "board.atmega328pb.timer3.compare_a_irq", "board.atmega328pb.timer3.overflow_irq", "board.atmega328pb.timer4.compare_a_irq", "board.atmega328pb.timer4.overflow_irq", "board.atmega328pb.usart0", "board.atmega328pb.interrupt.pcint0", "board.atmega328pb.analog_comparator.output"]
 fidelity_tier = "functional enhanced AVR8 and selected peripherals, deterministic timing"
-unsupported = ["analog comparator and ADC", "touch", "SPI", "TWI", "cycle-accurate prescalers and serial timing"]
+unsupported = ["analog voltage/noise and bandgap coupling", "PTC analog acquisition", "SPM page programming and boot-lock/fuse persistence", "Timer3/4 PWM and input-capture waveform fidelity", "cycle-accurate prescalers and serial timing"]
 vendor_sample_license = "selected avr-libc stdiodemo uart.c: Beer-Ware License Revision 42; surrounding project files retain their individual notices"
 
 [[target]]

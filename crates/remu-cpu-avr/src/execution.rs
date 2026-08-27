@@ -108,8 +108,11 @@ impl AvrCpu {
                 return Ok(StepReason::Advanced);
             }
             0x9588 => {
-                self.waiting = true;
-                return Ok(StepReason::WaitForInterrupt);
+                if self.sleep_enabled {
+                    self.waiting = true;
+                    return Ok(StepReason::WaitForInterrupt);
+                }
+                return Ok(StepReason::Advanced);
             }
             0x9598 => {
                 self.halted = true;

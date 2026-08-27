@@ -15,6 +15,15 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
+ATmega328PB SPI0 and SPI1 are modeled through their native
+`SPCRn`/`SPSRn`/`SPDRn` registers (`0x4c..0x4e` and `0xac..0xae`). Master writes
+are captured independently, host-injected MISO bytes are returned,
+`SPIF`/write-collision status is deterministic, and `SPIE` routes completion to
+CPU lines 16 and 38. Double-speed timing and package pin/SS arbitration remain
+outside this slice. Addresses and vector routing follow Microchip's
+[ATmega328PB data sheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/40001906C.pdf)
+and [interrupt table](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-F3266720-5DBF-4EA7-876C-81574D15CD24.html).
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
@@ -304,6 +313,19 @@ defines these register contracts. Bit-cell NRZI/bit stuffing, analogue PHY
 signalling, exact packet timing, isochronous edge cases, and a complete
 class/protocol catalogue remain outside this functional slice.
 
+## ATmega328PB external-interrupt slice
+
+The ATmega328PB model covers all three pin-change interrupt groups through
+`PCICR`, `PCIFR`, `PCMSK0..2`, and the package Port B/C/D inputs. It also models
+INT1 edge/level sensing through `EICRA`, `EIMSK`, and `EIFR`, with distinct AVR
+interrupt lines and VCD request signals. Flags remain latched until the
+documented write-one-to-clear operation.
+
+This is a deterministic digital-input model; asynchronous electrical timing,
+sleep wake-up latency, and peripheral alternate-function pin muxing are not
+claimed. Register behavior follows the
+[ATmega328PB datasheet](https://ww1.microchip.com/downloads/en/devicedoc/40001906a.pdf).
+
 ## Implemented CPU surface
 
 The RISC-V interpreter covers RV32I/E integer execution, common compressed
@@ -455,6 +477,36 @@ prebuilds `core` for the otherwise undistributed exact RV32E register-ABI target
 installing the upstream RV32IMAC, Armv6-M, and Armv8-M libraries. Every actual
 Rust case build remains network-isolated and read-only.
 
+The ATmega328PB functional slice includes both native TWI register banks
+(`TWBRn`, `TWSRn`, `TWARn`, `TWDRn`, `TWCRn`, and `TWAMRn`) at
+`0xb8..0xbd` and `0xd8..0xdd`, with independent deterministic START, transmit,
+receive, status, and interrupt behavior. Register reset values,
+write-one-to-clear control semantics, reserved-bit handling, and the TWWC data
+collision flag follow Microchip's [TWI control-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-1E9DD1D3-4D52-4B17-979C-13B5AA4AC1A1.html),
+[status-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-AE5E72CE-344A-4C37-8F5B-9948EB814739.html),
+and [data-register](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-6EAB15A1-6D6A-4723-A787-E8275BE8A49E.html)
+descriptions. It exposes independent host byte queues for tests, but does not
+claim electrical I²C arbitration, clock stretching, multi-master timing, or pin
+multiplexing.
+
+## ATmega328PB explicit fidelity boundaries
+
+The PTC is not a conventional software-owned register peripheral: Microchip's
+QTouch library owns its acquisition sequencing and depends on analog charge
+transfer, calibration, sensor geometry, and timing. Renvo therefore leaves PTC
+EOC/window-comparator behavior explicitly unsupported instead of fabricating
+register storage that could make a custom driver appear valid. Firmware can
+still exercise GPIO and ADC-based touch algorithms using deterministic digital
+inputs and ADC samples.
+
+Self-programming is likewise bounded deliberately. Normal flash execution,
+boot-vector placement, EEPROM, and reset behavior are modeled, but `SPM` page
+erase/write, boot-lock enforcement, signature-row reads, and fuse programming
+are not yet persistent silicon operations. Custom bootloader or programming
+drivers must treat those operations as unsupported until page-buffer, NRWW/RWW,
+lock-bit, and fuse semantics have dedicated tests. These boundaries keep driver
+tests fail-closed rather than silently accepting writes with no hardware effect.
+
 `scripts/qualify-rust-abi.sh` compiles one freestanding ABI/behavior program at
 `-O0`, `-O2`, and `-Os`. Its 18 deterministic proof runs cover CH32V003,
 CH32V006, ESP32-C6, RP2040, RP2350 Arm, and RP2350 Hazard3. The program exercises
@@ -581,6 +633,23 @@ by an executable 512-byte stack-reserve assertion. It passes the distinct
 upstream 1,200-byte profile-generation workload for behavioral coverage.
 See [COREMARK.md](COREMARK.md) for scores and methodology.
 
+## ATmega328PB Timer/Counter2 slice
+
+The ATmega328PB model now exposes the Timer/Counter2 control, counter,
+compare-A, interrupt-mask, and interrupt-flag registers. A deterministic
+abstract-tick model supports normal overflow and CTC compare-A progression,
+sets the corresponding `TIFR2` flag, resets `TCNT2`, and delivers the
+enabled `TIMER2_COMPA` or `TIMER2_OVF` request on the AVR interrupt lines.
+`TIFR2` uses the device's write-one-to-clear behavior, so firmware can
+acknowledge a request through the native register interface.
+
+This is a functional baseline rather than a clock-accurate timer: the
+prescaler selection, asynchronous Timer2 clock, compare-B waveform output,
+PWM modes, and Timer2 sleep behavior are not modeled yet. Register accesses
+remain deterministic and are suitable for compiler and firmware regression
+cases. The register placement and vector mapping follow the official
+[ATmega328PB data sheet](https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip%20AVR%20microcontroller%20ATmega328PB%20Data%20Sheet%2040001906B.pdf).
+
 ## Research sources
 
 Machine facts and register choices are based on the vendor sources linked from
@@ -597,6 +666,11 @@ the target manifests and `PLAN.html`, principally:
 
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
+
+The ATmega328PB model includes both native USART0 and USART1 transmit data
+registers (`UDR0` at `0xc6` and `UDR1` at `0xce`), with native USART1
+enable/ready/complete status and separate trace signals. Receive, baud-rate
+timing, and modem-control fidelity remain outside this functional CI slice.
 
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
@@ -696,6 +770,16 @@ network-disabled Docker toolchains. The gate compares stop reason, exit code,
 UART/USB output, trace digest, and byte-identical VCD for all 14 target modes.
 PIC16 and EFM8 use their direct Intel HEX boundary because their toolchains do
 not emit a runnable ELF; every other mode compares native boot with ELF.
+
+The ATmega328PB slice includes a deterministic 10-bit ADC path at the native
+`ADCSRA`/`ADMUX`/`ADCL`/`ADCH` registers. Tests can inject per-channel samples,
+select right- or left-adjusted results, and observe the conversion-complete
+flag/interrupt (vector 22 at program address `0x002a`). The functional timing
+uses the documented 13/25-conversion-cycle shape and ADPS prescaler without
+claiming clock-level fidelity. Auto-trigger sources, reference-voltage and
+analog electrical behavior, and the temperature/bandgap ADC multiplexer inputs
+remain deferred. The register behavior is based on the [Microchip ATmega328PB
+ADC reference](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-AD160391-6A79-47DE-A064-2E438B4A9AA3.html).
 
 The human-readable portfolio view is
 [`qualification/dashboard.html`](../qualification/dashboard.html), with the

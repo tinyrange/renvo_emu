@@ -15,6 +15,8 @@ use remu_trace::TraceSink;
 use std::collections::BTreeSet;
 use thiserror::Error;
 
+const ADC_INTERRUPT_LINE: u16 = 20;
+
 /// ATmega machine construction, loading, and execution error.
 #[derive(Debug, Error)]
 pub enum AvrMachineError {
@@ -211,9 +213,26 @@ impl AvrMcuMachine {
         self.gpio[port].set_input(local_pin, value, self.now)?;
         Ok(())
     }
+    /// Supplies the next byte returned by the ATmega328PB SPI0 master.
+    pub fn inject_spi_rx(&self, value: u8) {
+        self.io.inject_spi_rx(value);
+    }
+
+    /// Drives the functional ATmega328PB analog-comparator inputs.
+    ///
+    /// This is a deterministic boolean abstraction of AIN0/AIN1. It does not
+    /// model analog voltages, noise, propagation delay, or the bandgap input.
+    pub fn set_comparator_inputs(&self, positive: bool, negative: bool) {
+        self.io.set_comparator_inputs(positive, negative, self.now);
+    }
     /// Current PORTB output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio[0].output()
+    }
+
+    /// Drives one deterministic 10-bit ADC channel sample.
+    pub fn set_adc_input(&self, channel: u8, value: u16) {
+        self.io.set_adc_input(channel, value);
     }
 
     /// Reads guest-visible AVR data-space bytes.
@@ -289,20 +308,35 @@ impl AvrMcuMachine {
                 self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
                 stats.events = stats.events.saturating_add(1);
             }
-            for line in self.io.poll(self.now) {
+            let interrupt_lines = self.io.poll(self.now);
+            for line in interrupt_lines.iter().copied() {
                 self.cpu.set_interrupt(line, true)?;
             }
+            // ADC completion is a level derived from ADIF/ADIE. Clear the
+            // core's pending input when firmware clears ADIF before vectoring.
+            self.cpu.set_interrupt(
+                ADC_INTERRUPT_LINE,
+                interrupt_lines.contains(&ADC_INTERRUPT_LINE),
+            )?;
+            self.cpu.set_sleep_enabled(self.io.sleep_enabled());
             self.bus.clear_watchpoint_hit();
             let outcome = match self.cpu.step(&mut self.bus, self.now) {
                 Ok(outcome) => outcome,
                 Err(error) => break StopReason::Fault(error.to_string()),
             };
             stats.instructions = stats.instructions.saturating_add(1);
+            let elapsed = outcome
+                .elapsed
+                .checked_mul(self.io.clock_divider())
+                .map_err(|_| AvrMachineError::TimeOverflow)?;
             self.now = self
                 .now
-                .checked_add(outcome.elapsed)
+                .checked_add(elapsed)
                 .map_err(|_| AvrMachineError::TimeOverflow)?;
             stats.time = self.now;
+            if self.cpu.last_interrupt_line() == Some(ADC_INTERRUPT_LINE) {
+                self.io.acknowledge_adc_interrupt(self.now);
+            }
             if let Some(path) =
                 control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
             {
@@ -330,7 +364,11 @@ impl AvrMcuMachine {
             cpu: self.cpu.snapshot(),
             secondary_cpu: None,
             exit_code: Some(self.cpu.register(AvrRegister::R24) as u32),
-            uart: self.io.uart_bytes(),
+            uart: {
+                let mut bytes = self.io.uart_bytes();
+                bytes.extend(self.io.uart1_bytes());
+                bytes
+            },
             usb: Vec::new(),
             trace_digest: control.digest.finish(),
         })
@@ -340,6 +378,7 @@ impl AvrMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remu_devices::AtmegaComparatorRegister;
     use remu_image::FirmwareSegment;
 
     #[test]
@@ -378,5 +417,147 @@ mod tests {
         assert_eq!(result.reason, StopReason::Halted);
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(machine.gpio_output(), 1);
+    }
+
+    #[test]
+    fn atmega_maps_native_spi0_registers() {
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.inject_spi_rx(0x5a);
+        machine.debug_write_memory(0x4c, &[1 << 6]).unwrap();
+        machine.debug_write_memory(0x4e, &[0xa6]).unwrap();
+        assert_eq!(machine.debug_read_memory(0x4e, 1).unwrap(), [0x5a]);
+    }
+
+    #[test]
+    fn atmega_exposes_scripted_adc_samples_through_native_registers() {
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.set_adc_input(2, 0x0155);
+        machine
+            .bus
+            .write(0x7c, AccessWidth::Byte, 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x7a, AccessWidth::Byte, 0x88, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x7a, AccessWidth::Byte, 0xc8, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine.io.poll(SimTime::from_ticks(50)),
+            vec![ADC_INTERRUPT_LINE]
+        );
+        assert_eq!(
+            machine
+                .bus
+                .read(0x78, AccessWidth::Byte, AccessKind::Read, SimTime::ZERO)
+                .unwrap(),
+            0x55
+        );
+    }
+
+    #[test]
+    fn atmega_comparator_host_input_updates_acsr() {
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        // ACSR: ACIE plus rising-output edge mode.
+        machine
+            .debug_write_memory(u64::from(AtmegaComparatorRegister::Acsr.offset()), &[0x0b])
+            .unwrap();
+        machine.set_comparator_inputs(true, false);
+        let status = machine
+            .debug_read_memory(u64::from(AtmegaComparatorRegister::Acsr.offset()), 1)
+            .unwrap()[0];
+        assert_ne!(status & 0x20, 0, "ACO should reflect AIN0 > AIN1");
+        assert_ne!(status & 0x10, 0, "rising output should latch ACI");
+    }
+
+    #[test]
+    fn atmega_sleep_enable_and_clock_prescaler_are_machine_visible() {
+        let words = [0x9588_u16, 0x9598]; // sleep; break
+        let code = words
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        let image = FirmwareImage {
+            architecture: FirmwareArchitecture::Avr8,
+            entry: 0,
+            segments: vec![FirmwareSegment {
+                address: 0,
+                load_address: None,
+                initialized_size: code.len(),
+                data: code,
+                executable: true,
+                writable: false,
+                alignment: 2,
+            }],
+            symbols: Vec::new(),
+        };
+
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.load_firmware(&image).unwrap();
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(4),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::Halted);
+        assert!(!result.cpu.waiting);
+        assert_eq!(result.stats.instructions, 2);
+
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.load_firmware(&image).unwrap();
+        machine.debug_write_memory(0x53, &[1]).unwrap(); // SMCR.SE
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(3),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::InstructionLimit);
+        assert!(result.cpu.waiting);
+        assert_eq!(result.stats.instructions, 3);
+
+        let words = [0x0000_u16, 0x9598]; // nop; break
+        let code = words
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        let image = FirmwareImage {
+            architecture: FirmwareArchitecture::Avr8,
+            entry: 0,
+            segments: vec![FirmwareSegment {
+                address: 0,
+                load_address: None,
+                initialized_size: code.len(),
+                data: code,
+                executable: true,
+                writable: false,
+                alignment: 2,
+            }],
+            symbols: Vec::new(),
+        };
+        let mut machine = AvrMcuMachine::new(TargetId::Atmega328pb).unwrap();
+        machine.load_firmware(&image).unwrap();
+        machine.debug_write_memory(0x61, &[0x80]).unwrap(); // CLKPR: CLKPCE
+        machine.debug_write_memory(0x61, &[2]).unwrap(); // divide by four
+        let result = machine
+            .run(
+                RunLimits {
+                    instructions: Some(4),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.reason, StopReason::Halted);
+        assert_eq!(result.stats.time, SimTime::from_ticks(8));
     }
 }

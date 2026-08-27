@@ -8,6 +8,8 @@ _Static_assert(sizeof(long) == 4, "AVR native long must be 32 bit");
 _Static_assert(sizeof(void *) == 2, "ATmega data pointers must be 16 bit");
 
 static volatile uint8_t timer_interrupts;
+static volatile uint8_t timer3_interrupts;
+static volatile uint8_t timer4_interrupts;
 static volatile uint8_t pin_interrupts;
 static volatile uint16_t dividend = 1000u;
 static volatile uint8_t switch_input = 3u;
@@ -84,6 +86,20 @@ ISR(PCINT0_vect)
     ++pin_interrupts;
 }
 
+ISR(TIMER3_COMPA_vect)
+{
+    TCCR3B = 0;
+    TIFR3 = _BV(OCF3A);
+    ++timer3_interrupts;
+}
+
+ISR(TIMER4_COMPA_vect)
+{
+    TCCR4B = 0;
+    TIFR4 = _BV(OCF4A);
+    ++timer4_interrupts;
+}
+
 __attribute__((noreturn, noinline)) static void finish(uint8_t code)
 {
     __asm__ volatile("mov r24,%0\n\tbreak" : : "r"(code) : "r24");
@@ -112,9 +128,16 @@ int main(void)
     OCR0A = 15;
     TIMSK0 = _BV(TOIE0);
     TCCR0B = _BV(CS00);
+    OCR3A = 7;
+    TIMSK3 = _BV(OCIE3A);
+    TCCR3B = _BV(CS30);
+    OCR4A = 5;
+    TIMSK4 = _BV(OCIE4A);
+    TCCR4B = _BV(CS40);
     sei();
 
-    while (timer_interrupts == 0u || pin_interrupts == 0u) {
+    while (timer_interrupts == 0u || timer3_interrupts == 0u ||
+           timer4_interrupts == 0u || pin_interrupts == 0u) {
         __asm__ volatile("sleep");
     }
     cli();

@@ -186,7 +186,9 @@ pub struct AvrCpu {
     pc: u16,
     program: Vec<u16>,
     interrupts: BTreeSet<u16>,
+    last_interrupt_line: Option<u16>,
     waiting: bool,
+    sleep_enabled: bool,
     halted: bool,
 }
 
@@ -206,9 +208,18 @@ impl AvrCpu {
             pc: 0,
             program: Vec::new(),
             interrupts: BTreeSet::new(),
+            last_interrupt_line: None,
             waiting: false,
+            // Preserve the standalone core's historical SLEEP behavior. A
+            // machine model overrides this from the device's SMCR register.
+            sleep_enabled: true,
             halted: false,
         }
+    }
+
+    /// Controls whether the next SLEEP instruction enters the waiting state.
+    pub fn set_sleep_enabled(&mut self, enabled: bool) {
+        self.sleep_enabled = enabled;
     }
 
     /// Loads byte-oriented flash contents into the word-addressed program store.
@@ -231,6 +242,15 @@ impl AvrCpu {
             AvrRegister::Pc => u64::from(self.pc),
             _ => u64::from(self.registers[register.gdb_number()]),
         }
+    }
+
+    /// Returns the interrupt line consumed by the most recent CPU step.
+    ///
+    /// A machine model can use this acknowledgement point to apply
+    /// architecture-specific peripheral side effects, such as clearing an
+    /// interrupt flag that hardware clears while vectoring.
+    pub fn last_interrupt_line(&self) -> Option<u16> {
+        self.last_interrupt_line
     }
 
     fn fault(&self, kind: CpuFaultKind, message: impl Into<String>) -> CpuFault {
@@ -321,12 +341,15 @@ impl Cpu for AvrCpu {
         self.sp = 0x08ff;
         self.pc = 0;
         self.interrupts.clear();
+        self.last_interrupt_line = None;
         self.waiting = false;
+        self.sleep_enabled = true;
         self.halted = false;
         Ok(())
     }
 
     fn step(&mut self, bus: &mut dyn Bus, now: SimTime) -> Result<StepOutcome, CpuFault> {
+        self.last_interrupt_line = None;
         if self.halted {
             return Ok(StepOutcome {
                 elapsed: SimDuration::TICK,
@@ -338,6 +361,7 @@ impl Cpu for AvrCpu {
                 self.push_pc(bus, self.pc, now)?;
                 self.sreg &= !SREG_I;
                 self.pc = line.saturating_add(1).saturating_mul(2);
+                self.last_interrupt_line = Some(line);
                 self.waiting = false;
                 return Ok(StepOutcome::advanced(SimDuration::from_ticks(4)));
             }
@@ -358,8 +382,11 @@ impl Cpu for AvrCpu {
     }
 
     fn set_interrupt(&mut self, line: u16, asserted: bool) -> Result<(), CpuFault> {
-        if line >= 32 {
-            return Err(self.fault(CpuFaultKind::Unsupported, "AVR interrupt line exceeds 31"));
+        if line >= 128 {
+            return Err(self.fault(
+                CpuFaultKind::Unsupported,
+                "AVR interrupt vector exceeds the supported table",
+            ));
         }
         if asserted {
             self.interrupts.insert(line);
@@ -398,5 +425,13 @@ mod tests {
             assert_eq!(register.gdb_number(), number);
             assert!(!register.name().is_empty());
         }
+    }
+
+    #[test]
+    fn extended_atmega_vector_table_accepts_timer3_and_timer4_lines() {
+        let mut cpu = AvrCpu::new();
+        assert!(cpu.set_interrupt(32, true).is_ok());
+        assert!(cpu.set_interrupt(43, true).is_ok());
+        assert!(cpu.set_interrupt(128, true).is_err());
     }
 }
