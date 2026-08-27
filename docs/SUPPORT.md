@@ -10,8 +10,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
-| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25; UART0/1; TIMER→NVIC; SPI0/1; I²C0/1; PIO0/1; ROSC/PSM/VREG controls |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO; IO_BANK0 status, overrides, and interrupts; UART0/1; TIMER; SPI0/1; I²C0/1; and native PIO0/1/2 in both CPU modes |
+| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1; USB; watchdog/RTC; and ROSC/PSM/VREG controls |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER0/1; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1/2; USB; and deterministic accelerator/control slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
@@ -161,7 +161,8 @@ registers. Register
 offsets and reset values are audited against the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
 and Raspberry Pi's generated [`ssi.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2040/hardware_regs/include/hardware/regs/ssi.h).
 The `rp2040-spi` Docker fixture compiles and runs the same checks against both
-native controller instances.
+native controller instances. Masked controller status is delivered to the
+documented NVIC IRQs 18 and 19.
 
 The RP2350 I²C slice exposes the documented DW_apb_i2c register/FIFO command
 path, including reset values, disabled-only configuration writes, sixteen-entry
@@ -198,6 +199,15 @@ to the documented CPU interrupt lines. Transfers advance one unit per machine
 service. TREQ pacing, chaining, ring addressing, sniff, security attribution,
 quiet terminators, and bus-cycle arbitration remain outside this functional
 slice.
+
+RP2040 IO_BANK0 covers masked per-pin STATUS/CTRL fields, input/output/enable
+override reporting, packed raw edge events, W1C event acknowledgement, and both
+processor enable/force/status windows. External pin transitions update this
+state deterministically, and PROC0 masked/forced status is delivered through
+the documented NVIC IRQ 13. Function-selection control is retained for
+firmware visibility; pad electrical properties, mux coupling to individual
+peripheral pins, QSPI interrupts, level-event generation, and dormant wake are
+not modeled.
 
 RP2350's IO_BANK0 model covers the SDK-facing per-pin STATUS and CTRL
 registers, input/output/enable overrides, packed raw edge/level events, and

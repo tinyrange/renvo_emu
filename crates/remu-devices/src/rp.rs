@@ -953,6 +953,8 @@ pub struct Rp2040RegisterBank {
     registers: Vec<u32>,
 }
 
+const RP2040_GPIO_CTRL_BITS: u32 = 0x3003_331f;
+
 /// RP2040/RP2350 IO_BANK0 interrupt and GPIO-function register slice.
 ///
 /// The SIO block remains the owner of GPIO output latches. This device models
@@ -988,7 +990,7 @@ impl Rp2040IoBank {
     pub fn new(name: impl Into<String>, gpio: GpioHandle) -> (Self, Rp2040IoBankHandle) {
         let pins = gpio.pin_count().min(32);
         let state = Arc::new(Mutex::new(Rp2040IoBankState {
-            control: vec![0; pins],
+            control: vec![0x1f; pins],
             last_input: 0,
             raw_interrupt: [0; 4],
             proc0_enable: [0; 4],
@@ -1025,6 +1027,34 @@ impl Rp2040IoBank {
         })
     }
 
+    fn override_value(value: bool, mode: u32) -> bool {
+        match mode & 3 {
+            0 => value,
+            1 => !value,
+            2 => false,
+            3 => true,
+            _ => unreachable!(),
+        }
+    }
+
+    fn gpio_status(&self, pin: usize, state: &Rp2040IoBankState) -> u32 {
+        let mask = 1_u32 << pin;
+        let input = self.input_value() & mask != 0;
+        let output = self.gpio.output() & mask != 0;
+        let output_enable = self.gpio.direction() & mask != 0;
+        let (bank, event_mask) = Self::event_bank(pin);
+        let irq = state.raw_interrupt[bank] & (event_mask * 0xf) != 0;
+        let control = state.control[pin];
+        u32::from(Self::override_value(irq, control >> 28)) << 26
+            | u32::from(irq) << 24
+            | u32::from(Self::override_value(input, control >> 16)) << 19
+            | u32::from(input) << 17
+            | u32::from(Self::override_value(output_enable, control >> 12)) << 15
+            | u32::from(output_enable) << 13
+            | u32::from(Self::override_value(output, control >> 8)) << 9
+            | u32::from(output) << 8
+    }
+
     fn interrupt_bank(offset: u64, base: u64) -> Option<(usize, u64)> {
         if (base..base + 0x10).contains(&offset) {
             Some((usize::try_from((offset - base) / 4).ok()?, 0))
@@ -1035,6 +1065,15 @@ impl Rp2040IoBank {
 }
 
 impl Rp2040IoBankHandle {
+    /// Returns whether PROC0's masked or forced interrupt output is asserted.
+    pub fn proc0_pending(&self) -> bool {
+        let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+        (0..state.raw_interrupt.len()).any(|bank| {
+            state.raw_interrupt[bank] & state.proc0_enable[bank] != 0
+                || state.proc0_force[bank] != 0
+        })
+    }
+
     /// Records the current resolved value after an external pin stimulus.
     pub fn record_input(&self, pin: u8) -> Result<(), DeviceError> {
         let value = self.gpio.resolved(pin)?;
@@ -1081,10 +1120,11 @@ impl Device for Rp2040IoBank {
                     self.name
                 )));
             }
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
             return Ok(if offset % 8 == 4 {
-                u64::from(self.state.lock().expect("RP IO_BANK lock poisoned").control[pin])
+                u64::from(state.control[pin])
             } else {
-                u64::from(self.input_value() >> pin & 1)
+                u64::from(self.gpio_status(pin, &state))
             });
         }
         let values = if let Some((index, _)) = Self::interrupt_bank(offset, 0xf0) {
@@ -1136,7 +1176,8 @@ impl Device for Rp2040IoBank {
                     self.name
                 )));
             }
-            self.state.lock().expect("RP IO_BANK lock poisoned").control[pin] = value;
+            self.state.lock().expect("RP IO_BANK lock poisoned").control[pin] =
+                value & RP2040_GPIO_CTRL_BITS;
             return Ok(());
         }
         let mut state = self.state.lock().expect("RP IO_BANK lock poisoned");
@@ -1163,7 +1204,7 @@ impl Device for Rp2040IoBank {
 
     fn reset(&mut self, _kind: ResetKind) {
         let mut state = self.state.lock().expect("RP IO_BANK lock poisoned");
-        state.control.fill(0);
+        state.control.fill(0x1f);
         state.last_input = 0;
         state.raw_interrupt = [0; 4];
         state.proc0_enable = [0; 4];

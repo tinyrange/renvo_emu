@@ -8,7 +8,7 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "e2b92c9d4af21d335aaf0c2a815918f5cd241c71c833244d6de42441a4b7e1b0"
+    "sha256": "e4b43ab663f6afb31738ac2f352838abad737d4366ff945262014b3218bed314"
   },
   "proofs": [
     {
@@ -16,7 +16,7 @@
       "result": ".remu/portfolio-smoke/ch32v006-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v006-bus.json",
       "result_sha256": "caed8df76ddac3049a13cb7b252faa51ce48269fa099faca15fc0643c7e4a967",
-      "bus_log_sha256": "40741bd365656796fcc699489b0cc0af952503c92432e4dffaef1bf27f5222fc",
+      "bus_log_sha256": "57bc5393f8db0b635ac2000793d5dd0567a71e38cca3d5eede24c147a30ba8aa",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
@@ -33,7 +33,7 @@
       "result": ".remu/portfolio-smoke/ch32v006-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v006-uart-bus.json",
       "result_sha256": "ea458205d4497185725353c2fd69f10f46e659d00664d4d1a78f5e719f402052",
-      "bus_log_sha256": "6bb0239073d7755868ccaa1d25744fc435715af09640c4a3d7ca77d732d1f778",
+      "bus_log_sha256": "d2864adac7bf69926ca76d1e86aae4ee6c067e08c97ae523ec6c53714b84f74b",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
@@ -50,7 +50,7 @@
       "result": ".remu/portfolio-smoke/ch32v006-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v006-timer-bus.json",
       "result_sha256": "1471d7dbe1a81a1b0944c3348522454218362a366ca5df8539eac6439f7d655b",
-      "bus_log_sha256": "06595400a9d01145f902960e117f36c10337ca6a5011878ba0a62d8d84ef9fb9",
+      "bus_log_sha256": "675c44479c22dfdbfd58b6ef8fa89848d66438da4e7efaae6908f3c3180afa78",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,

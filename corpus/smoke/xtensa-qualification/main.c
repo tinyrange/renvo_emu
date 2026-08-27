@@ -79,6 +79,9 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     int float_ok = floating_point_probe();
     uint32_t mapped = irom_probe(0x13579bdfu);
 
+    // Direct ELF qualification deliberately poisons unmaterialized BSS so
+    // firmware cannot accidentally depend on startup code that was skipped.
+    exception_count = 0u;
     trigger_level_one_exception();
 
     if (abi != 0x7f5aafe3u) {

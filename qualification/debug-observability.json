@@ -1,7 +1,7 @@
 {
   "schema": "remu.debug-observability-qualification.v1",
   "generated_by": "scripts/qualify-debug-observability.sh",
-  "source_sha256": "6a7e1523f34acd10fecbaff78abc283a94eed0df594090a3671db7d1054018d7",
+  "source_sha256": "69575b738389fef7be59456a36101c55410ae24930d3d75f1be6dd3cd9c4d732",
   "result": "pass",
   "families": [
     {
@@ -56,7 +56,7 @@
         "result": "pass",
         "byte_identical": true,
         "path": ".remu/qualification/debug-observability/arm/run.json",
-        "sha256": "55c75d891c5b494fb386a4dfcb1390326181f0cdb61e923c8e650444837d0132"
+        "sha256": "bafbdc1dc3c4cf1c9874fc566fc20fb8ccd938627d28ed8c2dd2c824d35b90c0"
       },
       "coverage": {
         "path": ".remu/qualification/debug-observability/arm/coverage.json",
@@ -96,7 +96,7 @@
         "result": "pass",
         "byte_identical": true,
         "path": ".remu/qualification/debug-observability/xtensa/run.json",
-        "sha256": "2fd41cc034d938079561cf549969317fb140752c131bd294d24cfc835825ecfe"
+        "sha256": "94c88269ffdc252e0864c232081c022b14e2a7e22f6cfde2c3fd96acee51ff01"
       },
       "coverage": {
         "path": ".remu/qualification/debug-observability/xtensa/coverage.json",
@@ -110,7 +110,7 @@
         "session": ".remu/qualification/debug-observability/xtensa/gdb-session.json",
         "session_sha256": "02f1693e43e41feac3fdd692bcc572124d0abd803036306a76aff1c0eeac4fe8",
         "transcript": ".remu/qualification/debug-observability/xtensa/gdb-transcript.json",
-        "transcript_sha256": "b5ba24602621b24aa72f12cf34b53f53dc84c4b6e0998929a096d0ad3eb07b62",
+        "transcript_sha256": "1c08a9dfaaa143772dec86501e68bfe662f6e66c51ba725ef4a268586d9297d4",
         "report": {
           "architecture": "Xtensa",
           "packets": 11,

@@ -34,6 +34,10 @@ mode. It does not mean the block is cycle accurate or feature complete.
   and RP2350 Hazard3 firmware. It covers CPU/exception paths plus GPIO, timers,
   UART, SPI, I2C, PIO, IO-bank, and RP2040 USB behavior with JSON, bus-log, and
   VCD assertions where applicable.
+- The generated register-coverage gate requires both UART instances, both SPI
+  and I2C instances, IO_BANK0, PIO0, SIO, and native timer evidence on each
+  target; RP2040 additionally requires its USB controller proof. RP2350 proofs
+  are bound independently in both Cortex-M33 and Hazard3 modes.
 - `scripts/qualify-rp2040-sdk.sh` fetches byte-exact upstream Pico examples at
   commit `c81c855ffdedc825975a40ba357723a71358ddf0`, verifies their hashes, and
   proves native UART and PWM register behavior.

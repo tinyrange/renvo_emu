@@ -1,5 +1,8 @@
 use super::*;
 
+const RP2040_IO_BANK0_IRQ: u16 = 13;
+const RP2040_SPI0_IRQ: u16 = 18;
+
 impl ArmMachine {
     /// Runs until a limit, exit, breakpoint, or fault.
     pub fn run(
@@ -29,6 +32,7 @@ impl ArmMachine {
         };
         let mut timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
+        let mut rp2040_io_bank_was_pending = false;
         let mut rp2350_io_bank_was_pending = false;
         let mut trng_was_pending = false;
         let mut rtc_was_pending = false;
@@ -83,6 +87,17 @@ impl ArmMachine {
                 (chip_timer_pending & !chip_timer_was_pending).count_ones(),
             ));
             chip_timer_was_pending = chip_timer_pending;
+            if let Some(io_bank) = &self.rp2040_io_bank {
+                let pending = io_bank.proc0_pending();
+                if pending && !rp2040_io_bank_was_pending {
+                    stats.events = stats.events.saturating_add(1);
+                }
+                rp2040_io_bank_was_pending = pending;
+                self.cpu.set_interrupt(
+                    RP2040_IO_BANK0_IRQ,
+                    pending && self.ppb.interrupt_enabled(RP2040_IO_BANK0_IRQ),
+                )?;
+            }
             if let Some(io_bank) = &self.rp2350_io_bank {
                 let pending = io_bank.poll(self.now)?;
                 if pending && !rp2350_io_bank_was_pending {
@@ -143,8 +158,8 @@ impl ArmMachine {
             }
             if self.target == TargetId::Rp2040 {
                 for (index, spi) in self.chip_spis.iter().enumerate() {
-                    let line =
-                        10_u16 + u16::try_from(index).expect("RP2040 SPI index fits IRQ line");
+                    let line = RP2040_SPI0_IRQ
+                        + u16::try_from(index).expect("RP2040 SPI index fits IRQ line");
                     self.cpu.set_interrupt(
                         line,
                         spi.interrupt_pending() && self.ppb.interrupt_enabled(line),

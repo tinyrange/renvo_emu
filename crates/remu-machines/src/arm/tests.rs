@@ -446,11 +446,57 @@ fn raspberry_pi_i2c0_and_i2c1_have_addressed_functional_transfers() {
 #[test]
 fn rp2040_io_bank_reports_and_clears_external_rising_edges() {
     let mut machine = ArmMachine::new(TargetId::Rp2040).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x4001_4004,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x1f
+    );
+    machine
+        .bus
+        .write(
+            0x4001_4004,
+            AccessWidth::Word,
+            u64::from(u32::MAX),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x4001_4004,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x3003_331f
+    );
     machine
         .bus
         .write(0x4001_4100, AccessWidth::Word, 1 << 3, SimTime::ZERO)
         .unwrap();
     machine.set_pin(0, Logic::One).unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x4001_4000,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap()
+            & ((1 << 19) | (1 << 17)),
+        (1 << 19) | (1 << 17)
+    );
     assert_eq!(
         machine
             .bus
@@ -491,4 +537,86 @@ fn rp2040_io_bank_reports_and_clears_external_rising_edges() {
             .unwrap(),
         0
     );
+}
+
+fn install_rp2040_interrupt_probe(machine: &mut ArmMachine, line: u16) {
+    let vector_offset = usize::from(16 + line) * 4;
+    let mut image = vec![0_u8; vector_offset + 4];
+    image[vector_offset..vector_offset + 4]
+        .copy_from_slice(&(machine.flash_base + 0x100 | 1).to_le_bytes());
+    machine
+        .bus
+        .load(u64::from(machine.flash_base), &image)
+        .unwrap();
+    machine
+        .bus
+        .load(
+            u64::from(machine.flash_base + 0x20),
+            &[0x00, 0xbf, 0x00, 0xbf],
+        )
+        .unwrap();
+    machine
+        .bus
+        .load(
+            u64::from(machine.flash_base + 0x100),
+            &[0x2a, 0x20, 0x70, 0x47],
+        )
+        .unwrap();
+    machine.cpu.set_vector_base(machine.flash_base);
+    machine
+        .cpu
+        .set_direct_state(machine.default_stack, machine.flash_base + 0x20 | 1)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0xe000_e100 + u64::from(line / 32) * 4,
+            AccessWidth::Word,
+            1_u64 << (line % 32),
+            SimTime::ZERO,
+        )
+        .unwrap();
+}
+
+#[test]
+fn rp2040_io_bank_routes_proc0_events_to_irq_13() {
+    let mut machine = ArmMachine::new(TargetId::Rp2040).unwrap();
+    install_rp2040_interrupt_probe(&mut machine, 13);
+    machine
+        .bus
+        .write(0x4001_4100, AccessWidth::Word, 1 << 3, SimTime::ZERO)
+        .unwrap();
+    machine.set_pin(0, Logic::One).unwrap();
+
+    machine
+        .run(
+            RunLimits {
+                instructions: Some(2),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(machine.cpu.register(ArmRegister::R0).unwrap(), 42);
+}
+
+#[test]
+fn rp2040_spi0_routes_masked_status_to_irq_18() {
+    let mut machine = ArmMachine::new(TargetId::Rp2040).unwrap();
+    install_rp2040_interrupt_probe(&mut machine, 18);
+    machine
+        .bus
+        .write(0x4003_c02c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+
+    machine
+        .run(
+            RunLimits {
+                instructions: Some(2),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(machine.cpu.register(ArmRegister::R0).unwrap(), 42);
 }

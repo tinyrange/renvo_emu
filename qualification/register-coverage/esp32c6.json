@@ -8,22 +8,22 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "e2b92c9d4af21d335aaf0c2a815918f5cd241c71c833244d6de42441a4b7e1b0"
+    "sha256": "e4b43ab663f6afb31738ac2f352838abad737d4366ff945262014b3218bed314"
   },
   "proofs": [
     {
       "id": "esp32c6",
       "result": ".remu/portfolio-smoke/esp32c6-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32c6-bus.json",
-      "result_sha256": "8b5520556136966e026d4e33e4354edc66178025283a2dd71375c2ef07637cd2",
-      "bus_log_sha256": "02445220648ec3f972c060c34110ef1a39d42071d4ed695826d5b5e1469fe862",
+      "result_sha256": "8f59c1051c877c1b36c21580b6ac25584ecbc72dfe9bf5adc776029658c950a3",
+      "bus_log_sha256": "9d9b3c79db83a5100f6a68a79fe7c33b427eadf79fb7686537a6241dad30400b",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "cfe2b0394818d6dc9884894858625d53c909d90df7c370108e7d9be5c0a42931",
+        "trace_digest": "41d135deab33d9888471c3ad0f4179d7fb57d12915dd9fe591da1136afb1070e",
         "stats": {
-          "instructions": 11,
-          "time": 11,
+          "instructions": 17,
+          "time": 17,
           "events": 0
         }
       }
@@ -32,12 +32,12 @@
       "id": "esp32c6-uart",
       "result": ".remu/portfolio-smoke/esp32c6-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32c6-uart-bus.json",
-      "result_sha256": "db66b0a08ebb33a60c58fd0a8a41214f6da21d2c4d46d8e55d324fb7d3a9c9ad",
-      "bus_log_sha256": "643d34d4c31ec4c4fbf9fb1cd03bf2bd75721b1c1c3aff74c1e6bf85218aeea2",
+      "result_sha256": "7e146468f072091af86d2b7e7945674b0e2afa0b6a316c0404fb03cc979bee0c",
+      "bus_log_sha256": "5d27f78f8e6a6804cc32d6a1fd663f8c3efde3eaa2c59736f61c86762a22cdc7",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "3a2877f1270717d3dc893f6f78009bf3d564f921ed42c208dcc3d2d6ab05316f",
+        "trace_digest": "83e0c273f38a5d19c32463893663b728e839fa1e2082ee652bc9f6280c08d713",
         "stats": {
           "instructions": 24,
           "time": 24,
@@ -48,12 +48,12 @@
   ],
   "required_covered_regions": [
     "esp32c6.gpio",
-    "esp32c6.interrupt-controller-cpu0",
+    "esp32c6.plic-machine",
     "esp32c6.interrupt-priority",
     "esp32c6.systimer",
     "esp32c6.uart0"
   ],
-  "covered_register_count": 9,
+  "covered_register_count": 7,
   "covered_registers": [
     {
       "region": "esp32c6.gpio",
@@ -78,28 +78,6 @@
       "access_count": 1
     },
     {
-      "region": "esp32c6.interrupt-controller-cpu0",
-      "address": 536875032,
-      "operations": [
-        "Read"
-      ],
-      "widths": [
-        "Word"
-      ],
-      "access_count": 35
-    },
-    {
-      "region": "esp32c6.interrupt-controller-cpu0",
-      "address": 536875152,
-      "operations": [
-        "Read"
-      ],
-      "widths": [
-        "Word"
-      ],
-      "access_count": 35
-    },
-    {
       "region": "esp32c6.interrupt-priority",
       "address": 1611419792,
       "operations": [
@@ -108,40 +86,40 @@
       "widths": [
         "Word"
       ],
-      "access_count": 35
+      "access_count": 32
     },
     {
-      "region": "esp32c6.systimer",
-      "address": 1610653800,
-      "operations": [
-        "Write"
-      ],
-      "widths": [
-        "Word"
-      ],
-      "access_count": 35
-    },
-    {
-      "region": "esp32c6.systimer",
-      "address": 1610653804,
+      "region": "esp32c6.plic-machine",
+      "address": 536875024,
       "operations": [
         "Read"
       ],
       "widths": [
         "Word"
       ],
-      "access_count": 35
+      "access_count": 128
     },
     {
-      "region": "esp32c6.systimer",
-      "address": 1610653808,
+      "region": "esp32c6.plic-machine",
+      "address": 536875152,
       "operations": [
-        "Write"
+        "Read"
       ],
       "widths": [
         "Word"
       ],
-      "access_count": 35
+      "access_count": 128
+    },
+    {
+      "region": "esp32c6.systimer",
+      "address": 1610653948,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
     },
     {
       "region": "esp32c6.uart0",

@@ -92,6 +92,10 @@ build_case rp2040-uart toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio
     -O2 -DUART_BASE=0x40034000u start.S uart.c
 run_case rp2040-uart rp2040 "$artifact_root/rp2040-uart/smoke.elf"
 
+build_case rp2040-uart1 toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp2040 \
+    -O2 -DUART_BASE=0x40038000u start.S uart.c
+run_case rp2040-uart1 rp2040 "$artifact_root/rp2040-uart1/smoke.elf"
+
 build_case rp2040-spi toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp2040-spi rp2040 \
     -O2 start.S main.c
 run_case rp2040-spi rp2040 "$artifact_root/rp2040-spi/smoke.elf"
@@ -99,6 +103,10 @@ run_case rp2040-spi rp2040 "$artifact_root/rp2040-spi/smoke.elf"
 build_case rp2350-arm-uart toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-sio rp2350 \
     -O2 -DUART_BASE=0x40070000u start.S uart.c
 run_case rp2350-arm-uart rp2350 "$artifact_root/rp2350-arm-uart/smoke.elf"
+
+build_case rp2350-arm-uart1 toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-sio rp2350 \
+    -O2 -DUART_BASE=0x40078000u start.S uart.c
+run_case rp2350-arm-uart1 rp2350 "$artifact_root/rp2350-arm-uart1/smoke.elf"
 
 build_case rp2350-arm-spi toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp2350-spi rp2350 \
     -O2 start.S main.c
@@ -124,6 +132,10 @@ run_case rp2350-arm-native-timer rp2350 "$artifact_root/rp2350-arm-native-timer/
 build_case rp2350-arm-io toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-sio rp2350 \
     -O2 start.S io.c
 run_case rp2350-arm-io rp2350 "$artifact_root/rp2350-arm-io/smoke.elf"
+
+build_case rp2040-io toolchains/arm-gcc-cortex-m0plus.toml corpus/smoke/rp-sio rp2040 \
+    -O2 start.S rp2040_io.c
+run_case rp2040-io rp2040 "$artifact_root/rp2040-io/smoke.elf"
 
 build_case rp2350-arm-i2c toolchains/arm-gcc-cortex-m33.toml corpus/smoke/rp-i2c-arm rp2350 \
     -O2 start.S main.c
@@ -161,6 +173,10 @@ run_case hazard3-extensions rp2350 "$artifact_root/hazard3/smoke.elf"
 build_case rp2350-riscv-uart toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
     -O2 start.S uart.c
 run_case rp2350-riscv-uart rp2350 "$artifact_root/rp2350-riscv-uart/smoke.elf"
+
+build_case rp2350-riscv-uart1 toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp-riscv rp2350 \
+    -O2 -DUART_BASE=0x40078000u start.S uart.c
+run_case rp2350-riscv-uart1 rp2350 "$artifact_root/rp2350-riscv-uart1/smoke.elf"
 
 build_case rp2350-riscv-spi toolchains/riscv-gcc-rv32imac.toml corpus/smoke/rp2350-spi-riscv rp2350 \
     -O2 start.S main.c
@@ -247,11 +263,14 @@ jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v006-timer-ru
 jq -e '.uart | implode == "REMU-WCH\n"' "$artifact_root/ch32v003-uart-run.json" >/dev/null
 jq -e '.uart | implode == "REMU-WCH\n"' "$artifact_root/ch32v006-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2040-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2040-uart1-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 0' "$artifact_root/rp2040-spi-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events >= 1' "$artifact_root/rp2040-usb-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-arm-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-arm-uart1-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 0' "$artifact_root/rp2350-arm-spi-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-riscv-uart-run.json" >/dev/null
+jq -e '.exit_code == 0 and (.uart | implode == "REMU-RP\n")' "$artifact_root/rp2350-riscv-uart1-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 0' "$artifact_root/rp2350-riscv-spi-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-ESP\n")' "$artifact_root/esp32c6-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-ESP\n")' "$artifact_root/esp32s3-uart-run.json" >/dev/null
@@ -261,6 +280,7 @@ jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2040-native-tim
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-arm-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/rp2350-riscv-native-timer-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2350-arm-io-run.json" >/dev/null
+jq -e '.exit_code == 0' "$artifact_root/rp2040-io-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2350-riscv-io-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2350-arm-i2c-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/rp2350-riscv-i2c-run.json" >/dev/null

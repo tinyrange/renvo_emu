@@ -1,6 +1,6 @@
 {
   "schema": "remu.stop-conditions.v1",
-  "source_sha256": "1123778044a82e427691cb22db39c27abbb17a9f27ad34e8274aa818d39246e8",
+  "source_sha256": "28875f9a584ee2b3a56b212a1058cfee5992843eb65f668c3f61e6cf176b1dcd",
   "cpu_families": [
     "riscv",
     "arm",
@@ -19,7 +19,7 @@
     {
       "id": "arm-breakpoint",
       "artifact": ".remu/stop-conditions/arm-breakpoint.json",
-      "sha256": "23f8190635e405c2c664f24eca2da9c34f1dad90038deb424376040a5b9486a3",
+      "sha256": "740335a912562ee135db6328a1bb4800fa1a3fc6228642ec036b35bf9a889e96",
       "target": "rp2040",
       "reason": "Breakpoint",
       "stats": {
@@ -27,7 +27,7 @@
         "time": 0,
         "events": 0
       },
-      "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
+      "trace_digest": "4e954c4484863ec57894ef350dcd51221d84cddccaa51a16854fb3ade5606d9c",
       "result": "pass"
     },
     {
@@ -47,7 +47,7 @@
     {
       "id": "xtensa-breakpoint",
       "artifact": ".remu/stop-conditions/xtensa-breakpoint.json",
-      "sha256": "8311634de797b58acc25b93c841bcfaa25e7ad3f5cf7cf08dd6acef1df119036",
+      "sha256": "d6c3e170d1a4cd25ff1472b0be3b4efd7b003e61915ee38b09760bfcb2625a25",
       "target": "esp32s3",
       "reason": "Breakpoint",
       "stats": {
@@ -61,7 +61,7 @@
     {
       "id": "arm-fault",
       "artifact": ".remu/stop-conditions/arm-fault.json",
-      "sha256": "9727def167bbd45aefad80eb41de6784ea6b46d928124e6f036a19852354842f",
+      "sha256": "08d48f8a2e9024204e8fcd1f7b653dad19f788618a927e00f2a4377a7e327159",
       "target": "rp2040",
       "reason": {
         "Fault": "Unsupported CPU fault at PC 0x10000010: exception instruction 0xde00 is not modeled"
@@ -71,7 +71,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
+      "trace_digest": "4e954c4484863ec57894ef350dcd51221d84cddccaa51a16854fb3ade5606d9c",
       "result": "pass"
     },
     {
@@ -93,7 +93,7 @@
     {
       "id": "xtensa-fault",
       "artifact": ".remu/stop-conditions/xtensa-fault.json",
-      "sha256": "bba867066a7f68e9928612555672238c0de5b2be684c3e5257a5bfa5d7faf7e6",
+      "sha256": "41d59deac7784db25beb5e6dc32a0d26aca18b6f4a86763707814790c339248b",
       "target": "esp32s3",
       "reason": {
         "Fault": "CPU0: IllegalInstruction CPU fault at PC 0x40370003: Xtensa instruction 0xffffff is not implemented"
@@ -109,7 +109,7 @@
     {
       "id": "arm-instruction-limit",
       "artifact": ".remu/stop-conditions/arm-instruction-limit.json",
-      "sha256": "37b4a54be5d13f2f5b577792cd0daf1de1b5002da08b5cbcdd25bf01ea0e7db5",
+      "sha256": "fbfb364f444a2e906257aae7b5123d61372795ef31b418678664253e2f3f75c5",
       "target": "rp2040",
       "reason": "InstructionLimit",
       "stats": {
@@ -117,7 +117,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
+      "trace_digest": "4e954c4484863ec57894ef350dcd51221d84cddccaa51a16854fb3ade5606d9c",
       "result": "pass"
     },
     {
@@ -137,7 +137,7 @@
     {
       "id": "xtensa-instruction-limit",
       "artifact": ".remu/stop-conditions/xtensa-instruction-limit.json",
-      "sha256": "e96a3c3ab6fa64a8ef986c4446135cc30ce2782e36e5312b70fc10409aaa5625",
+      "sha256": "bf338e1974a9d37f24fbbaac52b79a3bdfadb43c9e656ade0b4f442f91a648c4",
       "target": "esp32s3",
       "reason": "InstructionLimit",
       "stats": {
@@ -151,7 +151,7 @@
     {
       "id": "arm-signal",
       "artifact": ".remu/stop-conditions/arm-signal.json",
-      "sha256": "65d0f95c5a12199314d79f43d78b4e9a5b03bb995a3ee6d5dd0d6da2fb9db016",
+      "sha256": "4c597e477f42c3d6b6733365343fe6ca163bbea707cf875a28c3b0b676965075",
       "target": "rp2040",
       "reason": {
         "Signal": "board.rp2040.chip_gpio.pin25"
@@ -161,7 +161,7 @@
         "time": 8,
         "events": 0
       },
-      "trace_digest": "683fdc62f0ef19dc6353e2b81e4097d698a9d67a48b7ab886154e712c9093f8a",
+      "trace_digest": "5af3d865b9bd1ae97855c904324d132fc7ae099fcf8ba1721aed23b74ec67486",
       "result": "pass"
     },
     {
@@ -183,7 +183,7 @@
     {
       "id": "xtensa-signal",
       "artifact": ".remu/stop-conditions/xtensa-signal.json",
-      "sha256": "f5727ffe91e40e7cc580648962dbb4b33c771183d63a48e3e2a9a305b0ea9b31",
+      "sha256": "0d80948b27dd996f831e69ba636c98f63f9fcb918fb42adcabba0605bf6a421b",
       "target": "esp32s3",
       "reason": {
         "Signal": "board.esp32s3.chip_gpio.pin2"
@@ -199,7 +199,7 @@
     {
       "id": "arm-time-limit",
       "artifact": ".remu/stop-conditions/arm-time-limit.json",
-      "sha256": "265cd27238482ce72276184bad300751296a4c5115af6f1f34fa5c8c65a252e8",
+      "sha256": "91cc810cc7a61352561e01a70d62f0fbc96bb6909f0ed72a096c100ed35b2b1a",
       "target": "rp2040",
       "reason": "TimeLimit",
       "stats": {
@@ -207,7 +207,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
+      "trace_digest": "4e954c4484863ec57894ef350dcd51221d84cddccaa51a16854fb3ade5606d9c",
       "result": "pass"
     },
     {
@@ -227,7 +227,7 @@
     {
       "id": "xtensa-time-limit",
       "artifact": ".remu/stop-conditions/xtensa-time-limit.json",
-      "sha256": "79114fa3d21db88e92e67c273254a952778fc39799ebac8b93608354aced2632",
+      "sha256": "67300a5d5c4976298908bab871395a1fe03277c4e1873d048125cc6abb3ec9e0",
       "target": "esp32s3",
       "reason": "TimeLimit",
       "stats": {
@@ -241,7 +241,7 @@
     {
       "id": "arm-watchpoint",
       "artifact": ".remu/stop-conditions/arm-watchpoint.json",
-      "sha256": "818e4a59313c4b4fa925de1057f6f42b11147ca2ee1c55b8d9a86dfb9631f9bf",
+      "sha256": "c2f6dbac862d6f474d71be82a888a4d80c6558b8b8a5c1e95754d5907c3cca86",
       "target": "rp2040",
       "reason": {
         "Watchpoint": {
@@ -254,7 +254,7 @@
         "time": 11,
         "events": 0
       },
-      "trace_digest": "683fdc62f0ef19dc6353e2b81e4097d698a9d67a48b7ab886154e712c9093f8a",
+      "trace_digest": "5af3d865b9bd1ae97855c904324d132fc7ae099fcf8ba1721aed23b74ec67486",
       "result": "pass"
     },
     {
@@ -279,7 +279,7 @@
     {
       "id": "xtensa-watchpoint",
       "artifact": ".remu/stop-conditions/xtensa-watchpoint.json",
-      "sha256": "faeb2d0d813c771684304d1d313568f01ab284c418292c3818fdb2a53749ae32",
+      "sha256": "5f79e8c90e80f2ab3d01b33f4e2985885e0f34dc13ea69146d57803e9d5938a3",
       "target": "esp32s3",
       "reason": {
         "Watchpoint": {

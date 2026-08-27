@@ -9,19 +9,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "e2b92c9d4af21d335aaf0c2a815918f5cd241c71c833244d6de42441a4b7e1b0"
+    "sha256": "e4b43ab663f6afb31738ac2f352838abad737d4366ff945262014b3218bed314"
   },
   "proofs": [
     {
       "id": "rp2350-arm",
       "result": ".remu/portfolio-smoke/rp2350-arm-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-bus.json",
-      "result_sha256": "1320d631f1a64c42142f334214bb3edd6b9fd739c0bca801f00fb30bb85f4d6b",
+      "result_sha256": "602b9c5827d93bf9f74ec54a896ca666c1c143ac3b6eebba6330a304dac8fedd",
       "bus_log_sha256": "00d2274c37f89556005d4ae57837f5fbae2bbb44941834379bf6799798a4ac52",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
         "stats": {
           "instructions": 11,
           "time": 11,
@@ -33,15 +33,32 @@
       "id": "rp2350-arm-uart",
       "result": ".remu/portfolio-smoke/rp2350-arm-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-uart-bus.json",
-      "result_sha256": "78d898158aba314770e2987b0f40bae79e12f162e74708831f80ab23fe298cca",
-      "bus_log_sha256": "bdb245fe3749ae0ae5c4ea77bb575b73fd88dcefc3b5768899bf52cc7ace95c3",
+      "result_sha256": "4e65ba4306a918de2b856064c6ada71422e96adba00cbb1d3d73537311c5fc49",
+      "bus_log_sha256": "19aa183a846e8d5bb8cf9e341ad33cb7dccaed5a4f7f9f911052324f9d5abbbb",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
         "stats": {
-          "instructions": 63,
-          "time": 63,
+          "instructions": 65,
+          "time": 65,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-arm-uart1",
+      "result": ".remu/portfolio-smoke/rp2350-arm-uart1-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-arm-uart1-bus.json",
+      "result_sha256": "b4aff91a8c71ba206daab88cea226ce023f51e5833e466b6db5ce226fbb98c13",
+      "bus_log_sha256": "e08b9db5019f87670059f474533cf34661097fd21beeaaebb72ba11e8feb630a",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
+        "stats": {
+          "instructions": 65,
+          "time": 65,
           "events": 0
         }
       }
@@ -50,12 +67,12 @@
       "id": "rp2350-arm-native-timer",
       "result": ".remu/portfolio-smoke/rp2350-arm-native-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-native-timer-bus.json",
-      "result_sha256": "d250819b6e38f2f03322de0870118637f008281398cda12a2f4d557dc56793a0",
-      "bus_log_sha256": "e5c0d8cde9a41fb0af6f72ddef90417bda4f00d4c78038c7a760a035cf95216e",
+      "result_sha256": "308f43254c2702d98cc35ea9c9abc362f9f36fc7f0d43151e0b05b60fcc8f66a",
+      "bus_log_sha256": "ccd2bc7a52774ff4800b485611fab0b65375f97373a6157a26ce8160e56190a4",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
         "stats": {
           "instructions": 33,
           "time": 33,
@@ -67,12 +84,12 @@
       "id": "rp2350-arm-pio",
       "result": ".remu/portfolio-smoke/rp2350-arm-pio-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-arm-pio-bus.json",
-      "result_sha256": "5e718436867c392d94be889628bad4790b7cd3ea21ed16e87888e657b3a6c4ba",
-      "bus_log_sha256": "e4200b15d4b55de7228cf83fdcdeebb144f377c4c75ddb16cc8d27ee4a0b0d31",
+      "result_sha256": "eb1ca2cf0483e26a96ce1fc5d8aff784bdcde10cb0594d5aedd6451dbb38e126",
+      "bus_log_sha256": "2578bf9405edecd2d3cd859cb96f0bc84b1bd78e3eb63f8635a3324649762963",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "5acde27cdce6062e47f98c1bfcc320537da9268901a0bc80f34fd96df6c47df5",
+        "trace_digest": "fe3be6c70f7ee9dbb89c3aa94fd410accd506d80069d961447b7b12982becc84",
         "stats": {
           "instructions": 127,
           "time": 127,
@@ -81,15 +98,66 @@
       }
     },
     {
+      "id": "rp2350-arm-spi",
+      "result": ".remu/portfolio-smoke/rp2350-arm-spi-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-arm-spi-bus.json",
+      "result_sha256": "e683e21402cf9220359c5578e79a820563800c0b7d3e58b9955311bbcf4d4c89",
+      "bus_log_sha256": "5fcac0be3165a1280e53790d9a0f5d626627d0bcb6639affea0c660b14b1ded5",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "f523cda677cd2ba3eae1f6f0e96188ee4b2e343f374b6e13aadf3f3b0fd773f7",
+        "stats": {
+          "instructions": 48,
+          "time": 48,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-arm-i2c",
+      "result": ".remu/portfolio-smoke/rp2350-arm-i2c-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-arm-i2c-bus.json",
+      "result_sha256": "291cd815467b1b51af8722775f28d1e9a1edd867dace353506a41462ed78caaf",
+      "bus_log_sha256": "c165799af14c315554e8a64ce8bbf72b24155889249c9435f124b4d529c37dc6",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "c4a2f92c1b9acf02413963a70c5b76dcb9a3a63144119cfb31e9ee86f4ce1612",
+        "stats": {
+          "instructions": 33,
+          "time": 33,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-arm-io",
+      "result": ".remu/portfolio-smoke/rp2350-arm-io-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-arm-io-bus.json",
+      "result_sha256": "b4100615031b22b1f7c7db2826f49c63bf5ac0aadb856e1e02381da0550a4a4a",
+      "bus_log_sha256": "c52b5b2623e914a9d990da1aa4a825bd0e0a077034b8e340019871241bebafaa",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "30bc370f06d7840b67959eca13806d718cc7420d65d4ebc41fba988345a10472",
+        "stats": {
+          "instructions": 30,
+          "time": 30,
+          "events": 0
+        }
+      }
+    },
+    {
       "id": "rp2350-riscv",
       "result": ".remu/portfolio-smoke/rp2350-riscv-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-bus.json",
-      "result_sha256": "46bae4a67ffe114f8dc04c986480321c3e74fbbf671fd7e55b8696bce65d33bb",
-      "bus_log_sha256": "2e43c9e94c14d02d871e3632297e3aeba2a135314cece80c54622a1f63217a2e",
+      "result_sha256": "215ac03ae660d416454b9343ee62e98d021151dc38d4652bf8ec9581366d6304",
+      "bus_log_sha256": "938a65fddd818d1ea995c503377a898c176e6d06f1be6234d02b6238215557b8",
       "outcome": {
         "reason": "Halted",
         "exit_code": 12,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
         "stats": {
           "instructions": 10,
           "time": 10,
@@ -101,15 +169,32 @@
       "id": "rp2350-riscv-uart",
       "result": ".remu/portfolio-smoke/rp2350-riscv-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-uart-bus.json",
-      "result_sha256": "ef0ccba123fb27e68a25b319f8a7967f89e13c0e71b99434a81703f2776213c2",
-      "bus_log_sha256": "51064328974f528689936b25f1401836c174f5bd46efb94d049292d3823e13fe",
+      "result_sha256": "0a1b0b0ff4f4e12fa3d784eb95f86d7a6c736170b5a1d588c97f891a61b9c5ed",
+      "bus_log_sha256": "414141419f66bbfe48e2063e0962b66221ea93d60b1fddef43f99087b91b948f",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
         "stats": {
-          "instructions": 68,
-          "time": 68,
+          "instructions": 71,
+          "time": 71,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-riscv-uart1",
+      "result": ".remu/portfolio-smoke/rp2350-riscv-uart1-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-riscv-uart1-bus.json",
+      "result_sha256": "d9fb9e6747cea117969dd50bbd4662408919c5765ec9547044d874021d9b603d",
+      "bus_log_sha256": "7b7e33aa08994ba54598c12ee2185bf57496c0fbb13a2fcbe826f27538159b4f",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
+        "stats": {
+          "instructions": 71,
+          "time": 71,
           "events": 0
         }
       }
@@ -118,12 +203,12 @@
       "id": "rp2350-riscv-native-timer",
       "result": ".remu/portfolio-smoke/rp2350-riscv-native-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-native-timer-bus.json",
-      "result_sha256": "b9ae0b15ab1f97f8cc588415aba513a68481166c5295175fcdf10e351becd79e",
-      "bus_log_sha256": "ef741aea1dd852fe2e103a63a5c5fc2c27fec95f0d3db07c75b581914f8b5041",
+      "result_sha256": "a85d13e5f675d8d0ba1e08937bf534fc2e0d13211e744d563e990727f414be81",
+      "bus_log_sha256": "db519647373a9d5a8cdb313dbd1bf791ba3dc041e113c3110eb5316253d1153a",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
         "stats": {
           "instructions": 46,
           "time": 46,
@@ -135,28 +220,253 @@
       "id": "rp2350-riscv-pio",
       "result": ".remu/portfolio-smoke/rp2350-riscv-pio-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2350-riscv-pio-bus.json",
-      "result_sha256": "2f4acfe3db98031725d1a0b2b397fa647647254d6aecb3bfcc2bb590b7381475",
-      "bus_log_sha256": "2350ce2175144de0a2cdb20261d1d0117efa147d6bfc9d82c75ac6d24d62f74b",
+      "result_sha256": "b1c1471089e62f5b290b30b69e1dc56785b6aa6f37e128de45321f6d9c189344",
+      "bus_log_sha256": "713989357ba940d3c300d0d6f0941fd327cea45b57ce5c4fbd16cfb392765a41",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "f08fdc36f6105061e8af276213176886fcb74b2f868cb66df82ba898bb719cb4",
+        "trace_digest": "ff0d7ebf7bae84df89224d3d0e73737c585b8fd82d8eeeb3216d1f71ba9b2cc0",
         "stats": {
           "instructions": 111,
           "time": 111,
           "events": 87
         }
       }
+    },
+    {
+      "id": "rp2350-riscv-spi",
+      "result": ".remu/portfolio-smoke/rp2350-riscv-spi-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-riscv-spi-bus.json",
+      "result_sha256": "52851afb020e4d2dc8be01b1bc64c2d4c7341962978a56585e4c0d5ef015a0ca",
+      "bus_log_sha256": "6f4a378874e419695bc684e6b3ed22bed7cd5e5c41f7f74a81ea9a85cb881eaa",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
+        "stats": {
+          "instructions": 56,
+          "time": 56,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-riscv-i2c",
+      "result": ".remu/portfolio-smoke/rp2350-riscv-i2c-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-riscv-i2c-bus.json",
+      "result_sha256": "00c340b280bb2a3150466b8ceb11f5f4e341d4b8fcaabb1e7530632e2fae8f95",
+      "bus_log_sha256": "48ab56319be717d9a72b6ded94e6aa477f7905b0e68a1dfb9f3c01f517bafbe3",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "f618fdfee656ef038df4f7e88c06732565ebbfdb8b30ce5c01c65c57cc304021",
+        "stats": {
+          "instructions": 38,
+          "time": 38,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2350-riscv-io",
+      "result": ".remu/portfolio-smoke/rp2350-riscv-io-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2350-riscv-io-bus.json",
+      "result_sha256": "fd06ed1c8122db280d959176ea3f04670df23bbb7e08e8478277dbdc402086f4",
+      "bus_log_sha256": "4ff91a3d515dc2681095f35d406cfd456833c06b0d7b08a20ad40d9c43a220ac",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "c3d44f9e08132f495020e9ebb0e3ca61d720f280afab3194b0ce73ac8ef2aa84",
+        "stats": {
+          "instructions": 43,
+          "time": 43,
+          "events": 0
+        }
+      }
     }
   ],
   "required_covered_regions": [
+    "rp2350.i2c0",
+    "rp2350.i2c1",
+    "rp2350.io-bank0",
     "rp2350.pio0",
     "rp2350.sio",
+    "rp2350.spi0",
+    "rp2350.spi1",
     "rp2350.timer0",
-    "rp2350.uart0"
+    "rp2350.uart0",
+    "rp2350.uart1"
   ],
-  "covered_register_count": 13,
+  "covered_register_count": 46,
   "covered_registers": [
+    {
+      "region": "rp2350.i2c0",
+      "address": 1074331652,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.i2c0",
+      "address": 1074331664,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 6
+    },
+    {
+      "region": "rp2350.i2c0",
+      "address": 1074331696,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.i2c0",
+      "address": 1074331756,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.i2c0",
+      "address": 1074331760,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.i2c1",
+      "address": 1074364420,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.i2c1",
+      "address": 1074364432,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.i2c1",
+      "address": 1074364464,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.i2c1",
+      "address": 1074364524,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073905664,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073905668,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073906224,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073906320,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073906344,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.io-bank0",
+      "address": 1073906368,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
     {
       "region": "rp2350.pio0",
       "address": 1344274432,
@@ -225,6 +535,17 @@
     },
     {
       "region": "rp2350.sio",
+      "address": 3489660952,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.sio",
       "address": 3489660964,
       "operations": [
         "Write"
@@ -233,6 +554,151 @@
         "Word"
       ],
       "access_count": 1
+    },
+    {
+      "region": "rp2350.sio",
+      "address": 3489660984,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266112,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266116,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266120,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266124,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266132,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi0",
+      "address": 1074266140,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298880,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298884,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298888,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298892,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 4
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298900,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.spi1",
+      "address": 1074298908,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     },
     {
       "region": "rp2350.timer0",
@@ -299,6 +765,50 @@
         "Word"
       ],
       "access_count": 16
+    },
+    {
+      "region": "rp2350.uart0",
+      "address": 1074200624,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2350.uart1",
+      "address": 1074233344,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 16
+    },
+    {
+      "region": "rp2350.uart1",
+      "address": 1074233368,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 16
+    },
+    {
+      "region": "rp2350.uart1",
+      "address": 1074233392,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     }
   ],
   "additional_evidence": [
@@ -309,7 +819,7 @@
     "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
     "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
     "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
-    "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
+    "PIO0/1/2 expose the shared functional FIFO, status/debug/IRQ, JMP and SET subset; WAIT, IN, OUT, PULL, PUSH, side-set, divider timing and RP2350 cross-PIO controls are absent.",
     "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
   ]
 }

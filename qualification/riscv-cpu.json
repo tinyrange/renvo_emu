@@ -1,6 +1,6 @@
 {
   "schema": "remu.riscv-cpu.v1",
-  "source_sha256": "b2d6aca4bee38e5ae42df6129b54bc4345255c04c3283b4e299f9319b436bfed",
+  "source_sha256": "8692d4711080c9da51b3369bc201a878e796f1aa2517cb898b48568d0cac45e1",
   "primary_sources": [
     "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
     "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
@@ -122,11 +122,11 @@
       "cpu": "esp-rv32imac-hp",
       "feature": "user-traps-and-pmp-visibility",
       "build_artifact": ".remu/portfolio-smoke/esp32c6-privilege-build.json",
-      "build_provenance_sha256": "88d0b4ec9fac4b1227c382feea9d7b94ad3ed846e235d3267e28e33af24aef78",
+      "build_provenance_sha256": "3f2345e7ffb850ace2b0a7e2bd25789e788465f77f4cbb056f4994807bc93ed3",
       "elf": ".remu/portfolio-smoke/esp32c6-privilege/smoke.elf",
       "elf_sha256": "1937ae2fbc3964056eb6f10814d32c718ff43c18cfd10275f305cc9dd015e5c0",
       "result_artifact": ".remu/portfolio-smoke/esp32c6-privilege-run.json",
-      "result_sha256": "93b94669629bb12d7ec37ad26a5a23362b996cdb9f046467b52c817721d3479c",
+      "result_sha256": "1a2afded13bf35b9b14b26897aa033d5c2b843174d3031a2490dc79b0c4ae3ed",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -147,7 +147,7 @@
       "elf": ".remu/portfolio-smoke/hazard3/smoke.elf",
       "elf_sha256": "0dd19dc8ca2cce47d7941a1b06f0124a6df022d203ca2b6568ab5b954ac9fcfe",
       "result_artifact": ".remu/portfolio-smoke/hazard3-extensions-run.json",
-      "result_sha256": "d81b5c0629f80335ff62f5bf5bd681c26b559c6b4774c1d625e585127d520ded",
+      "result_sha256": "b6d95b5ecd150e95d385a057ef043b988ee27715416dc98ce39a42f534e66956",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -155,7 +155,7 @@
         "time": 58,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "e47e7f24fad8282c29601ed1d3e27fa7b3c502d60d32b3c197c90c183c99ba54",
       "result": "pass"
     }
   ],

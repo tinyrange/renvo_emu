@@ -8,39 +8,39 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "bf835f4aaca18af998e12eaac0442eb252e05c77594cb434b429d51fea82170c"
+      "sha256": "77e75dc55b1664745f278445b8c7a56a334fabf04a51f12f61286fb840945ecf"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "24a5f93c9c10339cd2e477fa097b361073ec35aec7018f9b5e3bc74069e4666d"
+      "sha256": "30456d071662c85054b5bfb1772946346a011934a5f32ea637bed8987ce39ad2"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "0ed44527683f4bea773fc81ca3e615915bb3a8c4702572e3605e44c68b3c52cb"
+      "sha256": "480d46c3dd29148b53386e4634aaa18d230c1fc0f1fe721d39c973d30b78291b"
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "2471d4fe188df7c4a7d4bd491524210a805d5623c13ee3d165a282d0923eb0cb"
+      "sha256": "4c74a8be9da68bfa7b682863ef66423468b1a5ae5bada9ecf586c2f44997e0a2"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "71d833107cdeac8cc546ebd71124d9ead68f45649026678f9f02113f0bf289fd"
+      "sha256": "0d69453aab8af34268674da8c185bf92d22682df1dfaa16d84ddc23575cd19fb"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "3b890b1f89b26d27cb19a0faf322c509c879c00ac7ae6768e99de4203c411728"
+      "sha256": "7f4d746a670baa71fbd780b15ff09c439f39b10a42c5c6bea6c50ad59570928a"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "86c04438fee03bf2d3ab42c5fa057625d861d40b3dc084d7023cf1ace726cd79"
+      "sha256": "25d4f865ef5ebdf48eb15b6cafb7cd9f74c254d34bbe0997b539968360b8d03c"
     },
     {
       "path": "qualification/rust-abi.json",
-      "sha256": "1d28fc6dfe3bdc71623390c1bda1e6f61ae6a5c5d2e52f529fa8915ccf27262c"
+      "sha256": "2b35b01fd7478ed740431f45c390f8ec9f0c88e5d312c06f2c181645837057d8"
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "4c74cb10294012a135f9d5b1285143ec26f50eee6326f1c3b959e3fba9536803"
+      "sha256": "b56869e76f116d23de9fada593e7dd9bea1474ca7b1f07879cf2aa89d3884f0a"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -119,7 +119,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "c01af6edc14edfc8adecc9a5eb920cc662dd4c91a2a2801ec60de18929528f11",
+        "manifest_sha256": "11d1cb6a94846f18e0e344cdb0bc10d76e8752a679c77a9fb62f25cdcec6a2d0",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -192,7 +192,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "e1dc133bb85810e225be46da6e29839b4d53a4d6b247eb1bd6747aed9a07f1ed",
+        "manifest_sha256": "f6861a50a816febbd8ae099cd7debddddc9ca08f3b933888532ac3b66ca80d81",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
@@ -246,12 +246,12 @@
       "id": "rp2040",
       "known_gaps": [
         "the initial Thumb interpreter covers the compiler baseline, not the complete ISA",
-        "NVIC priority/preemption, USB device fidelity, and exact XIP timing are deferred",
+        "NVIC priority/preemption, USB PHY/protocol completeness, and exact XIP timing are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.",
         "UART0 is a transmit-focused PL011 slice without physical baud timing.",
         "TIMER alarm routing is functional and deterministic, not clock accurate.",
-        "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
+        "PIO0 covers instruction memory, host FIFOs, status/debug/IRQ registers, direct execution, unconditional JMP and SET; WAIT, IN, OUT, PULL, PUSH, side-set, shift, delay and divider timing are absent."
       ],
       "name": "Raspberry Pi RP2040",
       "passing_corpus": [
@@ -261,14 +261,21 @@
         "Unmodified Pico SDK blink_simple"
       ],
       "register_coverage": {
-        "covered_register_count": 13,
+        "covered_register_count": 52,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "dbdb0f016873eb5edf9c59218d0539649da7ae971d024802d32d4339ca210df0",
+        "manifest_sha256": "be515e01fd0dc4f8c5d9ce95de158b3360c18c23d12e2b35c32feff96f82e688",
         "required_covered_regions": [
+          "rp2040.i2c0",
+          "rp2040.i2c1",
+          "rp2040.io-bank0",
           "rp2040.pio0",
           "rp2040.sio",
+          "rp2040.spi0",
+          "rp2040.spi1",
           "rp2040.timer",
-          "rp2040.uart0"
+          "rp2040.uart0",
+          "rp2040.uart1",
+          "rp2040.usbctrl"
         ],
         "status": "passing"
       },
@@ -321,11 +328,13 @@
       "id": "rp2350",
       "known_gaps": [
         "Cortex-M33 and Hazard3 direct-ELF modes implement compiler-facing ISA subsets",
+        "RP2350 IO_BANK0 provides functional STATUS/CTRL overrides and PROC0/PROC1 interrupt registers for the active first 32 GPIOs; pad electrical muxing, secure routing, and GPIO32-47 connections are deferred",
         "TrustZone, HSTX, USB, NVIC priority/preemption, and exact QMI timing are deferred",
+        "SPI0/SPI1 use deterministic PrimeCell FIFO transfers without serial-clock, DMA, or exact slave timing",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
-        "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
+        "PIO0/1/2 expose the shared functional FIFO, status/debug/IRQ, JMP and SET subset; WAIT, IN, OUT, PULL, PUSH, side-set, divider timing and RP2350 cross-PIO controls are absent.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
       ],
       "name": "Raspberry Pi RP2350A",
@@ -336,14 +345,20 @@
         "Unmodified Pico SDK blink_simple on both CPU modes"
       ],
       "register_coverage": {
-        "covered_register_count": 13,
+        "covered_register_count": 46,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "f0c2d1c4a923b05e54834ac0412143f0d6ba5f7b17926be0446f3b4d4f3ca85e",
+        "manifest_sha256": "b82d78644bbdc4019cf9382e7b1162f254e661f1e9bc0a1609805b8f7fb5f85c",
         "required_covered_regions": [
+          "rp2350.i2c0",
+          "rp2350.i2c1",
+          "rp2350.io-bank0",
           "rp2350.pio0",
           "rp2350.sio",
+          "rp2350.spi0",
+          "rp2350.spi1",
           "rp2350.timer0",
-          "rp2350.uart0"
+          "rp2350.uart0",
+          "rp2350.uart1"
         ],
         "status": "passing"
       },
@@ -419,9 +434,9 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 62,
+        "covered_register_count": 64,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "02cd1135db66af2620d1b81cc112434c4c4ab81bf63f7f9b26f28511c6b58d18",
+        "manifest_sha256": "c7ca4687784b49137f881b0040712ed52e3486176e37de83c99a0cc9f442e043",
         "required_covered_regions": [
           "esp32s3.aes",
           "esp32s3.assist-debug",
@@ -530,12 +545,12 @@
         "Unmodified ESP-IDF hello_world"
       ],
       "register_coverage": {
-        "covered_register_count": 9,
+        "covered_register_count": 7,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "a13d2f210ebdcba4f1f0d28d4a7cef3b29bb439a51b082feef065a09f7d33b1a",
+        "manifest_sha256": "4e7f2abd7bc747fc61dbf6e3f1570cd178ceb44b1b58f2ea6abbff6043ecb2b8",
         "required_covered_regions": [
           "esp32c6.gpio",
-          "esp32c6.interrupt-controller-cpu0",
+          "esp32c6.plic-machine",
           "esp32c6.interrupt-priority",
           "esp32c6.systimer",
           "esp32c6.uart0"
