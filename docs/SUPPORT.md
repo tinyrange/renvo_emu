@@ -10,8 +10,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 |---|---|---|---|
 | CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
 | CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
-| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO GPIO25 waveform; native UART0 transcript; native TIMER→NVIC; PIO0 `SET PINS` waveform |
-| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO GPIO, UART0, TIMER interrupt, and PIO0 waveform proofs in both CPU modes |
+| RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1; USB; watchdog/RTC; and ROSC/PSM/VREG controls |
+| RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER0/1; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1/2; USB; and deterministic accelerator/control slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 
@@ -25,6 +25,88 @@ All targets also expose a stable compiler-test block:
 This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
+
+### RP2350 TRNG subset
+
+Both RP2350 CPU modes map the official TRNG block at `0x400f0000`. Firmware
+can configure the source and sample counter, enable generation, poll status,
+consume all six result words, clear status, and receive external interrupt 39.
+Generation is immediate and reproducible for deterministic CI and replay. It
+is not a security entropy source and does not claim the analogue TRNG's
+statistical properties or variable completion latency.
+
+### RP2350 SHA-256 subset
+
+Both RP2350 CPU modes map the SHA-256 accelerator at `0x400f8000`. The
+functional model accepts byte, halfword, and word input writes, implements CSR
+start/status and byte swapping, and exposes all eight read-only digest words.
+Complete 512-bit blocks are processed immediately; DMA handshakes, timing, and
+security-domain policy are outside this functional slice.
+
+### RP2350 HSTX subset
+
+Both RP2350 CPU modes map HSTX control at `0x400c0000` and its FIFO at
+`0x50600000`. The model covers the control CSR, eight lane selectors and
+inverters, command-expander configuration, FIFO status/overflow, atomic
+aliases, deterministic word consumption, and VCD-visible positive/negative
+lane values. Clock-divider latency, DMA pacing, TMDS encoding, and physical
+GPIO muxing are not modeled.
+
+### RP2350 OTP subset
+
+Both RP2350 CPU modes map OTP at `0x40120000`. The model exposes page locks,
+SBPI status/control, the user data gate, interrupt windows, and ECC/raw/guarded
+read aliases over a deterministic read-only image. Lock bits are monotonic
+until reset. Fuse programming, security-domain filtering, and ECC fault
+injection are deliberately not simulated.
+
+### RP2350 ACCESSCTRL subset
+
+Both RP2350 CPU modes map ACCESSCTRL at `0x40060000`. It models documented
+peripheral reset permissions, GPIO non-secure masks, `FORCE_CORE_NS`, atomic
+aliases, configuration reset, and write-once locks. Shared-bus guards enforce
+the selected secure/non-secure and privileged/unprivileged context before both
+normal and fast-path accesses. Core 0, core 1, and each DMA channel select their
+own master context; DMA channel `SECCFG` therefore affects the transfer itself,
+not only register state. Application execution defaults to non-secure
+privileged access, while tests and embedding APIs may select other contexts.
+
+This is deterministic bus-policy enforcement, not a complete Armv8-M security
+architecture. The Arm interpreter does not execute Secure/Non-secure state
+transitions or SAU/IDAU/MPU attribution, debug-master coverage is incomplete,
+and the GPIO non-secure masks are retained but not yet enforced per pin.
+
+### RP2350 TICKS subset
+
+The block at `0x40108000` models the six documented generators for PROC0,
+PROC1, TIMER0, TIMER1, WATCHDOG, and RISC-V. Each has enable/running state, a
+nine-bit cycles-per-tick divider, a simulation-time-derived countdown, and RP
+atomic aliases. Clock-source frequency changes and interrupt generation are
+outside this slice.
+
+### RP2350 POWMAN subset
+
+POWMAN at `0x40100000` models reset/configuration state, power-sequencer
+requests, GPIO wake descriptors, watchdog reset selection, scratch and boot
+words, interrupt state, and its 64-bit always-on timer/alarm. Scratch and boot
+words survive modeled watchdog reset. Analog regulator behavior and exact
+low-power clock timing are not claimed.
+
+### RP2040 power and oscillator subset
+
+The RP2040 map includes deterministic functional models for the official
+`PSM_BASE` (`0x40010000`), `ROSC_BASE` (`0x40060000`), and
+`VREG_AND_CHIP_RESET_BASE` (`0x40064000`) blocks. PSM force-on/force-off,
+watchdog selection, and `DONE` masks expose power-state transitions. ROSC
+implements protected enable/range and drive-strength writes, dormant/wake,
+divider and phase controls, stable/enabled status, deterministic `RANDOMBIT`,
+and the short `COUNT` delay against abstract simulation ticks. VREG/BOD fields,
+immediate functional regulation status, and the write-one-clear restart flag
+are available at their documented offsets.
+
+This is a software-visible model: it does not claim analogue voltage curves,
+process/voltage/temperature frequency drift, exact oscillator startup delay,
+or automatic reset and clock gating of every dependent block.
 
 ## Official MicroPython milestone
 
@@ -43,9 +125,110 @@ See `scripts/qualify-micropython.sh` and
 `qualification/acceptance-report.html`.
 
 This milestone does not yet cover the complete upstream MicroPython suite,
-PWM/ADC/serial buses, or watchdog resets. ESP radio qualification uses an
+complete PWM/serial-bus behavior or watchdog resets. ESP radio qualification uses an
 isolated deterministic RF medium; it deliberately does not connect firmware to
 a host network or claim physical-air fidelity.
+
+RP2040 and RP2350 PWM blocks are mapped at their native addresses and use named
+register IDs. The functional model covers per-slice CSR/DIV/CTR/CC/TOP
+registers, channel-enable aliases, compare outputs, self-clearing phase
+advance/retard commands, wrap interrupt status, write-one-to-clear raw status,
+and both RP2350 interrupt banks. It uses the
+RP2040 eight-slice global layout (`EN` at `0xa0`) and RP2350's twelve-slice
+layout (`EN` at `0xf0`, with the second IRQ bank through `0x10c`). Abstract time
+advances enabled counters deterministically; exact divider and phase-correct
+edge timing, GPIO pin muxing, DMA pacing, and interrupt controller delivery
+remain outside this functional slice. The register layout is checked against
+the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
+and [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf).
+
+RP2350 SPI0 and SPI1 are mapped at their documented `0x4008_0000` and
+`0x4008_8000` bases. The functional PrimeCell SSP slice covers the eight-word
+transmit/receive FIFOs, DSS/loopback/enable controls, status flags, masked and
+raw FIFO interrupts, interrupt clears, peripheral IDs, and deterministic host
+input/output. It also follows the RP2350 APB access contract for byte/halfword
+lane reads, replicated narrow writes, and the XOR/SET/CLEAR aliases on ordinary
+writable registers; CPSDVSR writes are normalised to the documented even
+`2..254` range. It intentionally does not model serial-clock waveforms, DMA
+handshakes, receive-timeout scheduling, or exact slave-mode timing.
+
+## RP2040 SPI closure
+
+RP2040 SPI0 and SPI1 are mapped at `0x4003_c000` and `0x4004_0000` using the
+native Synopsys DW_apb_ssi contract rather than the RP2350 PrimeCell layout.
+The typed register model covers `CTRLR0/1`, `SSIENR`, `SER`, baud and FIFO
+threshold/level registers, all 36 `DR` windows, status, raw/masked interrupts,
+read-clear interrupt registers, DMA controls, identification/version values,
+and RP atomic aliases. Functional transfers require SSI and a slave-select
+bit, complete in one abstract operation, and either consume queued host input
+or loop back the transmitted frame. Serial-clock waveforms, DMA handshakes,
+pin muxing, and exact serial timing remain outside this slice. The model uses
+the documented sixteen-entry FIFOs and latches transmit-overflow,
+receive-overflow, and receive-underflow status with the native clear-on-read
+registers. Register
+offsets and reset values are audited against the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
+and Raspberry Pi's generated [`ssi.h`](https://raw.githubusercontent.com/raspberrypi/pico-sdk/master/src/rp2040/hardware_regs/include/hardware/regs/ssi.h).
+The `rp2040-spi` Docker fixture compiles and runs the same checks against both
+native controller instances. Masked controller status is delivered to the
+documented NVIC IRQs 18 and 19.
+
+The RP2350 I²C slice exposes the documented DW_apb_i2c register/FIFO command
+path, including reset values, disabled-only configuration writes, sixteen-entry
+TX/RX FIFO status, read-clear interrupt registers, component identification,
+RP2350 atomic XOR/set/clear write aliases, RP2350 narrow-write replication,
+deterministic host-provided read bytes, and VCD byte/strobe signals. The
+`IC_INTR_MASK` bits follow the silicon contract: zero masks a source and one
+unmasks it. It is a functional host model; electrical SDA/SCL resolution,
+arbitration, slave mode, DMA handshakes, and exact bus timing remain outside
+the current support contract.
+
+The RP2040 I²C0/I²C1 slice uses the same native DW_apb_i2c register contract at
+`0x4004_4000` and `0x4004_8000`. It has the official reset values and access
+masks, disabled-only configuration, sixteen-entry command/receive FIFOs,
+read-clear interrupt sources, APB byte/halfword lanes, RP atomic aliases, and
+deterministic host-provided read bytes. `scripts/docker-smoke.sh` runs a
+native-address Cortex-M0+ firmware proof on both controllers. As with RP2350,
+pin-level SDA/SCL behavior, arbitration, slave mode, DMA handshakes, interrupt
+controller delivery, and exact bus timing are intentionally not claimed.
+
+The RP2040 watchdog model covers `CTRL`, `LOAD`, `REASON`, all eight scratch
+registers, `TICK`, atomic aliases, divider/countdown behavior, forced and timed
+reset reasons, and scratch persistence. The Arm scheduler stops at the modeled
+reset boundary with an explicit watchdog-reset reason. Debug pause inputs,
+`RESETS.WDSEL` fan-out, and a complete CPU reboot sequence remain outside the
+functional slice.
+
+The shared RP DMA model uses the target's native layout: RP2040 exposes twelve
+channels and two interrupt banks, while RP2350 exposes sixteen channels and
+four interrupt banks in both Cortex-M33 and Hazard3 modes. It covers aligned
+byte/halfword/word copies, address increments, completion status, interrupt
+enable/force/clear, atomic aliases, multi-channel trigger, abort, chaining,
+read/write ring addressing, byte swap, quiet completion, sniff accumulation,
+and documented pacing timers. PIO TX/RX DREQs are connected to FIFO state.
+RP2350 channel security configuration selects the ACCESSCTRL bus context used
+by each transfer. Transfers advance one unit per active channel per machine
+service; exact arbitration, bus contention, and non-PIO peripheral DREQ wiring
+remain outside this functional slice.
+
+RP2040 IO_BANK0 covers masked per-pin STATUS/CTRL fields, input/output/enable
+override reporting, packed raw edge/level events, W1C event acknowledgement,
+and both processor enable/force/status windows. External pin transitions update
+this state deterministically, and PROC0 masked/forced status is delivered
+through the documented NVIC IRQ 13. SIO and PIO mux selection drives the shared
+four-state GPIO nets, with INOVER/OUTOVER/OEOVER applied on the functional path.
+PADS_BANK0 pull-up/pull-down, input-enable, and output-disable settings also
+affect those nets. QSPI interrupts and dormant wake are not modeled; drive
+strength, slew, and Schmitt settings are retained without analogue effects.
+
+RP2350's IO_BANK0 model covers the SDK-facing per-pin STATUS and CTRL
+registers, input/output/enable overrides, packed raw edge/level events, and
+PROC0/PROC1 enable, force, and status registers. Both Cortex-M33 and Hazard3
+modes route PROC0 pending state to IO IRQ line 21. It honors the RP2350 atomic
+register aliases and replicated byte/halfword writes. GPIO0-47 have connected
+four-state nets; the native high SIO registers, PIO GPIOBASE windows, SIO/PIO
+mux selection, overrides, and pad pulls/input/output gates affect their signal
+path. Per-pin secure/non-secure mask enforcement, QSPI IRQ routing, dormant
+wake, and analogue drive/slew/Schmitt behavior are not yet modeled.
 
 The ESP32-C6 and ESP32-S3 USB Serial/JTAG models expose a deterministic host
 connection control surface. They start connected for existing console fixtures;
@@ -90,6 +273,36 @@ remote PHY request/response and instant-based bidirectional 1M-to-2M updates,
 the public PHY-complete callback, remote termination, scan restart, and exact
 deterministic replay. Impossible or overlapping PHY instants stop through the
 radio legality validator rather than being silently accepted.
+
+## RP2040 RTC slice
+
+The RP2040 model includes a functional calendar and alarm block at the native
+`0x4005_c000` address. It supports the documented named register map, setup and
+load sequencing, the one-second divider, leap-day and month/year rollover,
+ordered `RTC_0`/`RTC_1` reads, raw/enable/force/status alarm state, and delivery
+of the masked alarm as the machine's RTC interrupt line. The implementation
+uses abstract simulation time, so it is deterministic and useful for firmware
+tests but is not a clock-frequency or low-power-domain model.
+
+Coverage includes calendar carry across leap days, read latching, alarm clear
+and force behavior, and machine-level interrupt polling. Dormant-mode wake,
+clock-source switching, power/reset-domain details, and silicon-specific
+electrical behavior remain outside this functional slice. The register
+semantics are based on the [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf).
+
+The RP2040 USB controller models deterministic VBUS detection, device connect,
+bus reset, setup reception, buffer completion, raw/masked interrupt mapping,
+and the RP2040 write-clear semantics for `SIE_STATUS`, `BUFF_STATUS`,
+`EP_ABORT_DONE`, and `EP_STATUS_STALL_NAK`. The register slice applies the
+official control/status masks, reset values, self-clearing SIE commands,
+read-only status preservation, atomic aliases, and replicated narrow I/O
+writes. The packet link validates PID complements, token/SOF CRC5 and data
+CRC16, records control and bulk transactions, maintains endpoint data toggles,
+and exposes ACK/NAK/STALL, frame, reset, suspend/resume, and line state. The
+[official RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
+defines these register contracts. Bit-cell NRZI/bit stuffing, analogue PHY
+signalling, exact packet timing, isochronous edge cases, and a complete
+class/protocol catalogue remain outside this functional slice.
 
 ## Implemented CPU surface
 
@@ -145,10 +358,11 @@ with synthetic direct state.
 
 One completed instruction or architectural action advances one abstract tick.
 Timers, PIO and external pin stimuli use that deterministic timeline. The
-model is not tied to target clock frequency. Baseline PIO executes one
-instruction per abstract tick and intentionally ignores divider and delay
-timing. VCD uses one nanosecond per abstract tick as a display convention, not
-a hardware timing claim.
+model is not tied to target clock frequency. PIO uses a deterministic 16.8
+divider accumulator and instruction delay fields to decide when a state
+machine advances, but this remains abstract scheduling rather than a claim of
+silicon clock-edge accuracy. VCD uses one nanosecond per abstract tick as a
+display convention, not a hardware timing claim.
 
 The ESP32-S3 eFuse slice retains the native staging, read-data, error, timing,
 command, status, and interrupt registers. `Esp32S3EfuseRegister` names every
@@ -183,6 +397,26 @@ overlaps the named byte, and records the access address and kind in JSON.
 Signal stops use stable hierarchical paths and preserve the triggering change
 in VCD/digest output. `scripts/qualify-stop-conditions.sh` checks every stop
 class on RISC-V, Arm, and Xtensa.
+
+### RP PIO functional baseline
+
+RP2040 PIO0/PIO1 and RP2350 PIO0/PIO1/PIO2 are mapped at their native bases
+(`0x50200000`, `0x50300000`, and `0x50400000` where present). The shared
+functional model uses named `RpPioRegister` and `RpPioStateMachineRegister`
+identifiers and covers instruction memory, four state machines, all eight
+instruction families (`JMP`, `WAIT`, `IN`, `OUT`, `PUSH`/`PULL`, `MOV`, `IRQ`,
+and `SET`), shift counters, automatic push/pull, FIFO and instruction stalls,
+joined FIFO capacities, wrap, side-set, delay fields, and deterministic 16.8
+divider pacing. `FSTAT`/`FLEVEL`/`FDEBUG`, internal IRQ flags, versioned
+`DBG_CFGINFO`, processor IRQ masks, and TX/RX DREQ state are functional. PIO
+outputs reach shared GPIO nets only through the IO-bank function mux and pad
+output-enable path; input sampling follows the corresponding overrides and pad
+input-enable setting. RP2350 additionally implements IRQ1 placement, GPIOBASE
+for GPIO32-47, and the processor FIFO PUT/GET windows. PIO v1 state-machine
+PUT/GET and cross-PIO opcode extensions, plus exact silicon cycle timing,
+remain known gaps. The register layout is checked against the
+official [RP2040 PIO definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2040/hardware_regs/include/hardware/regs/pio.h)
+and [RP2350 PIO definitions](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2350/hardware_regs/include/hardware/regs/pio.h).
 
 The ESP32-S3 AES accelerator is mapped at `0x6003_a000` using the native
 `hwcrypto_reg.h` offsets. The functional slice supports AES-128 and AES-256
@@ -297,6 +531,36 @@ source hashes, build/run hashes and licence treatment. WCH source is fetched on
 demand and not redistributed because its file notice restricts its use;
 Pico's sample is BSD-3-Clause and the ESP-IDF sample is CC0-1.0.
 
+## RP2040 Pico SDK regression slice
+
+`scripts/qualify-rp2040-sdk.sh` adds two byte-exact upstream Pico Examples
+cases beyond the baseline blink sample:
+
+- `uart/hello_uart/hello_uart.c` exercises UART0 transmit, SDK newline
+  conversion, and GPIO0/GPIO1 function selection;
+- `pwm/hello_pwm/hello_pwm.c` exercises PWM GPIO function selection, slice-0
+  wrap and channel compare registers, and the enable mask.
+
+Both cases are compiled in the pinned Docker Cortex-M0+ toolchain and run as
+bounded RP2040 ELFs. The adapter supplies only the freestanding headers,
+startup, and native register calls required by the unchanged examples. Bus
+logs and UART output are checked against the native addresses and recorded in
+`qualification/rp2040-sdk.json`. This is a narrow SDK evidence slice; it does
+not imply complete UART receive, PWM timing, or general Pico SDK compatibility.
+
+## RP2040 Pico SDK multicore regression slice
+
+`scripts/qualify-rp2040-multicore.sh` adds the upstream
+`multicore/hello_multicore/multicore.c` example. Its narrow adapter performs
+the documented six-word core-1 launch handshake, drains ROM acknowledgements,
+and routes FIFO push/pop traffic through the native SIO registers. The run
+asserts that both cores exchange `FLAG_VALUE`, both completion messages reach
+UART0, the expected character streams are present despite deterministic
+per-core UART interleaving, and the primary core terminates. Evidence is in
+`qualification/rp2040-multicore.json`; this remains a functional FIFO/launch
+proof rather than a claim of complete multicore, spinlock, or memory-ordering
+fidelity.
+
 `corpus/edge_cases` adds 1,000 UB-free C behavioral cases with independently
 generated expected values. `scripts/edge-corpus.sh` compiles them in five
 Docker-only ELF layouts and runs seven CPU/target combinations. The checked
@@ -340,6 +604,18 @@ bus logs, verifies the portfolio, and regenerates all six manifests. The
 manifests list observed register addresses and access kinds, proof hashes, and
 known functional deviations; an unlisted address is not implicitly claimed as
 either supported or unsupported.
+
+The RP2040 and RP2350 ADC blocks are mapped at `0x4004c000` and `0x400a0000`.
+They implement the named native register map, deterministic channel selection,
+host-provided 12-bit samples, temperature-sensor enable, ready/result,
+round-robin selection, an eight-entry FIFO, divider, FIFO-level interrupt
+status, and the optional per-sample conversion-error flag in `FIFO[15]`.
+The five-channel package model covers RP2040 and RP2350 QFN-60; the device
+crate also exposes a nine-channel RP2350 QFN-80 variant. Analog noise,
+conversion latency, calibration trim, DMA pacing, and package pin coupling are
+intentionally outside this functional CI slice. The register contract is based
+on the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
+and [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf).
 
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and

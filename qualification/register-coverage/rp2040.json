@@ -8,19 +8,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "e2b92c9d4af21d335aaf0c2a815918f5cd241c71c833244d6de42441a4b7e1b0"
+    "sha256": "e4b43ab663f6afb31738ac2f352838abad737d4366ff945262014b3218bed314"
   },
   "proofs": [
     {
       "id": "rp2040",
       "result": ".remu/portfolio-smoke/rp2040-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2040-bus.json",
-      "result_sha256": "55c75d891c5b494fb386a4dfcb1390326181f0cdb61e923c8e650444837d0132",
+      "result_sha256": "94ed38d00acbf32feab179f028c8e44ac96ff93c83f0122efb2965312424dea0",
       "bus_log_sha256": "bee40fe62032ac3922e950d18b4e0d5e4893545dc5e93cd6c2e6d34a49085e20",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "683fdc62f0ef19dc6353e2b81e4097d698a9d67a48b7ab886154e712c9093f8a",
+        "trace_digest": "989e18a23ce378cfe44f72b5b321fc7c527adacdcc86cdb07dd72828e41af252",
         "stats": {
           "instructions": 11,
           "time": 11,
@@ -32,15 +32,32 @@
       "id": "rp2040-uart",
       "result": ".remu/portfolio-smoke/rp2040-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2040-uart-bus.json",
-      "result_sha256": "2db620ed721eb5ca1e2b94df5657cfe8770841417ee6e72125ad13797e6c09bd",
-      "bus_log_sha256": "444e30bdf60d42a7cb3676543cea16d3ef987a72affbc9207d5467a121bf8fbe",
+      "result_sha256": "29ce89545266b01584ebbe832ef2144336798ae10e13e325125e40676ceeda3a",
+      "bus_log_sha256": "2e3107d06c44a978f3d0df21ae24963919b1808cecb518bd8f97979fdbb21fcf",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
+        "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
         "stats": {
-          "instructions": 76,
-          "time": 76,
+          "instructions": 80,
+          "time": 80,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2040-uart1",
+      "result": ".remu/portfolio-smoke/rp2040-uart1-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-uart1-bus.json",
+      "result_sha256": "29ce89545266b01584ebbe832ef2144336798ae10e13e325125e40676ceeda3a",
+      "bus_log_sha256": "fb1cdd5641a16818a901f0f3992c77a291b7a675282aa015ca52488c39622e24",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
+        "stats": {
+          "instructions": 80,
+          "time": 80,
           "events": 0
         }
       }
@@ -49,12 +66,12 @@
       "id": "rp2040-native-timer",
       "result": ".remu/portfolio-smoke/rp2040-native-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2040-native-timer-bus.json",
-      "result_sha256": "13ae34fe579fd4ddc4b74437bc2e83a7dcb987c8cca85d8465c18052625ffe25",
-      "bus_log_sha256": "ef6b01b794093e945ac0d6487ed6b886e4d1be2b6c42bebc2ccfee799e628f0d",
+      "result_sha256": "2aefa05be45c3862f73cebdd28b09d1db9332fb3f028fa88f9f2cea1141a87cd",
+      "bus_log_sha256": "8af017cda8a2be9b94f3be4ff69637e52f4673845496a83472369b4ea89254b6",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
+        "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
         "stats": {
           "instructions": 33,
           "time": 33,
@@ -66,28 +83,260 @@
       "id": "rp2040-pio",
       "result": ".remu/portfolio-smoke/rp2040-pio-run.json",
       "bus_log": ".remu/portfolio-smoke/rp2040-pio-bus.json",
-      "result_sha256": "1019fd94ab37e2b4153528f2358becb5435a54bdd910559822021b533fa61e96",
-      "bus_log_sha256": "3441bd7397249e61e76f72770e2f6fa426153023aa1e19d93829ab2bb3b1941a",
+      "result_sha256": "1746cee6d741b670cb22f0897c224560645a8eda7079e9e3bad750000f9303d7",
+      "bus_log_sha256": "9d858850435fb3c9808e1ed5ad99a8645768b46ecc5b818e54f77400adbc238e",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "17b51adb44f021f0a936aa206234410bf0c4204ce7716aa743f9f379bbc9b5b4",
+        "trace_digest": "03a43291949384dcb3295b2310f103207b2e375dbfcf2049358fef32f932d1f6",
         "stats": {
           "instructions": 127,
           "time": 127,
           "events": 105
         }
       }
+    },
+    {
+      "id": "rp2040-spi",
+      "result": ".remu/portfolio-smoke/rp2040-spi-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-spi-bus.json",
+      "result_sha256": "f7242dda716e97ba47e2773442f3939e4117f0872ed2118686febe5f3238398d",
+      "bus_log_sha256": "36d573fb98fd7a66eb70daeef56f466510a3e378f1662e56394dfd6a00e5e2ac",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
+        "stats": {
+          "instructions": 73,
+          "time": 73,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2040-arm-i2c",
+      "result": ".remu/portfolio-smoke/rp2040-arm-i2c-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-arm-i2c-bus.json",
+      "result_sha256": "8b6a1f984d929d8b3e0db454a37beff7b4a90f6b84e149191b174e767b8abc13",
+      "bus_log_sha256": "cf00ae39bf2b7fff737c85e8864fd1d6d9612d0cf5c100ab99d8f559732547a8",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
+        "stats": {
+          "instructions": 41,
+          "time": 41,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "rp2040-io",
+      "result": ".remu/portfolio-smoke/rp2040-io-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-io-bus.json",
+      "result_sha256": "eddacf07fcf9757c0e6544199f5ab9694afc2fb7686bcac9ebb6c331e432fc7a",
+      "bus_log_sha256": "b0aab3fca610625fd62d2de41624ef0d19705627a1c931a1f2df53a2124076ab",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "329c258766ff2324f573c310032a399b6f618c36ea989994973213e976a4ca57",
+        "stats": {
+          "instructions": 39,
+          "time": 39,
+          "events": 1
+        }
+      }
+    },
+    {
+      "id": "rp2040-usb",
+      "result": ".remu/portfolio-smoke/rp2040-usb-run.json",
+      "bus_log": ".remu/portfolio-smoke/rp2040-usb-bus.json",
+      "result_sha256": "e24b96cc53a2850739bc4567e2ac1ea31fbbaabbfc8d6f2d43f14ade5f50c2ba",
+      "bus_log_sha256": "e72561a633d28dd237a71408231945300c4580bcec862100bae781eb72c8060c",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
+        "stats": {
+          "instructions": 33,
+          "time": 33,
+          "events": 1
+        }
+      }
     }
   ],
   "required_covered_regions": [
+    "rp2040.i2c0",
+    "rp2040.i2c1",
+    "rp2040.io-bank0",
     "rp2040.pio0",
     "rp2040.sio",
+    "rp2040.spi0",
+    "rp2040.spi1",
     "rp2040.timer",
-    "rp2040.uart0"
+    "rp2040.uart0",
+    "rp2040.uart1",
+    "rp2040.usbctrl"
   ],
-  "covered_register_count": 13,
+  "covered_register_count": 52,
   "covered_registers": [
+    {
+      "region": "rp2040.i2c0",
+      "address": 1074020356,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.i2c0",
+      "address": 1074020368,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 3
+    },
+    {
+      "region": "rp2040.i2c0",
+      "address": 1074020400,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.i2c0",
+      "address": 1074020460,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.i2c0",
+      "address": 1074020464,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.i2c1",
+      "address": 1074036740,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.i2c1",
+      "address": 1074036752,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2040.i2c1",
+      "address": 1074036784,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.i2c1",
+      "address": 1074036844,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.io-bank0",
+      "address": 1073823744,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.io-bank0",
+      "address": 1073823748,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2040.io-bank0",
+      "address": 1073824000,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.io-bank0",
+      "address": 1073824016,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2040.io-bank0",
+      "address": 1073824032,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
     {
       "region": "rp2040.pio0",
       "address": 1344274432,
@@ -152,7 +401,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 1
+      "access_count": 2
     },
     {
       "region": "rp2040.sio",
@@ -163,7 +412,185 @@
       "widths": [
         "Word"
       ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2040.spi0",
+      "address": 1073987584,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
       "access_count": 1
+    },
+    {
+      "region": "rp2040.spi0",
+      "address": 1073987592,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi0",
+      "address": 1073987600,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi0",
+      "address": 1073987620,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi0",
+      "address": 1073987624,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2040.spi0",
+      "address": 1073987628,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi0",
+      "address": 1073987632,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi0",
+      "address": 1073987680,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2040.spi1",
+      "address": 1074003968,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi1",
+      "address": 1074003976,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi1",
+      "address": 1074003984,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi1",
+      "address": 1074004004,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi1",
+      "address": 1074004008,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "rp2040.spi1",
+      "address": 1074004012,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi1",
+      "address": 1074004016,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.spi1",
+      "address": 1074004064,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     },
     {
       "region": "rp2040.timer",
@@ -230,6 +657,105 @@
         "Word"
       ],
       "access_count": 8
+    },
+    {
+      "region": "rp2040.uart0",
+      "address": 1073954864,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.uart1",
+      "address": 1073971200,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 8
+    },
+    {
+      "region": "rp2040.uart1",
+      "address": 1073971224,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 8
+    },
+    {
+      "region": "rp2040.uart1",
+      "address": 1073971248,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291456,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291468,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291472,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291508,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "rp2040.usbctrl",
+      "address": 1343291532,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
     }
   ],
   "additional_evidence": [
@@ -241,6 +767,6 @@
     "SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.",
     "UART0 is a transmit-focused PL011 slice without physical baud timing.",
     "TIMER alarm routing is functional and deterministic, not clock accurate.",
-    "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
+    "PIO0 covers instruction memory, host FIFOs, status/debug/IRQ registers, direct execution, unconditional JMP and SET; WAIT, IN, OUT, PULL, PUSH, side-set, shift, delay and divider timing are absent."
   ]
 }

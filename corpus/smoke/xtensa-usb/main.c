@@ -1,6 +1,7 @@
 #define REG32(address) (*(volatile unsigned int *)(address))
 
 #define USB_BASE 0x60080000u
+#define RTC_USB_CONF 0x60008120u
 #define GAHBCFG 0x08u
 #define GINTSTS 0x14u
 #define GINTMSK 0x18u
@@ -10,6 +11,7 @@
 #define DAINTMSK 0x81cu
 #define RX_FIFO 0x1000u
 #define DOEPINT0 0xb08u
+#define DOEPTSIZ0 0xb10u
 #define RESET_EVENTS ((1u << 12) | (1u << 13))
 
 static int wait_for(unsigned int mask)
@@ -24,6 +26,8 @@ static int wait_for(unsigned int mask)
 
 __attribute__((noreturn, section(".text.start"))) void _start(void)
 {
+    /* Route the internal PHY through both RTC mux stages before DWC2 setup. */
+    REG32(RTC_USB_CONF) = (1u << 20) | (1u << 19);
     REG32(USB_BASE + GAHBCFG) = 1u;
     REG32(USB_BASE + GINTMSK) = RESET_EVENTS | (1u << 4) | (1u << 18) | (1u << 19);
     REG32(USB_BASE + DIEPMSK) = 1u;
@@ -33,6 +37,7 @@ __attribute__((noreturn, section(".text.start"))) void _start(void)
     int result = wait_for(RESET_EVENTS);
     if (result == 0) {
         REG32(USB_BASE + GINTSTS) = RESET_EVENTS;
+        REG32(USB_BASE + DOEPTSIZ0) = 64u | (1u << 19) | (3u << 29);
         result = wait_for(1u << 4);
     }
     if (result == 0) {

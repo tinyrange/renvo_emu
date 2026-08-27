@@ -52,6 +52,19 @@ impl GpioHandle {
         self.state.lock().expect("GPIO lock poisoned").output
     }
 
+    /// Current direction mask for pins 32..63.
+    pub fn direction_high(&self) -> u32 {
+        self.state
+            .lock()
+            .expect("GPIO lock poisoned")
+            .direction_high
+    }
+
+    /// Current output latch for pins 32..63.
+    pub fn output_high(&self) -> u32 {
+        self.state.lock().expect("GPIO lock poisoned").output_high
+    }
+
     /// Returns the currently resolved digital value for one pin.
     pub fn resolved(&self, pin: u8) -> Result<Logic, DeviceError> {
         self.state
@@ -77,6 +90,46 @@ impl GpioHandle {
             .get_mut(index)
             .ok_or_else(|| DeviceError::new(format!("GPIO pin {pin} is out of range")))?;
         let update = net.drive(DriverId(u32::from(driver)), value);
+        drop(state);
+        self.hub
+            .set(
+                self.signals[index],
+                SignalValue::repeat(update.value, 1)
+                    .expect("one-bit signal construction cannot fail"),
+                at,
+            )
+            .map_err(|error| DeviceError::new(error.to_string()))
+    }
+
+    /// Drives one named on-chip source onto a pad, or releases it with `Z`.
+    ///
+    /// Driver zero is the SIO latch; machines use distinct nonzero IDs for
+    /// muxed peripherals so contention remains visible as four-state logic.
+    pub fn drive_source(
+        &self,
+        pin: u8,
+        driver: u16,
+        value: Logic,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        self.drive_peripheral(pin, driver, value, at)
+    }
+
+    /// Drives a weak pad pull which yields to external and peripheral drivers.
+    pub fn drive_weak_source(
+        &self,
+        pin: u8,
+        driver: u16,
+        value: Logic,
+        at: SimTime,
+    ) -> Result<(), DeviceError> {
+        let index = usize::from(pin);
+        let mut state = self.state.lock().expect("GPIO lock poisoned");
+        let net = state
+            .nets
+            .get_mut(index)
+            .ok_or_else(|| DeviceError::new(format!("GPIO pin {pin} is out of range")))?;
+        let update = net.drive_weak(DriverId(u32::from(driver)), value);
         drop(state);
         self.hub
             .set(

@@ -288,6 +288,7 @@ pub struct NetUpdate {
 #[derive(Clone, Debug, Default)]
 pub struct DigitalNet {
     drivers: BTreeMap<DriverId, Logic>,
+    weak_drivers: BTreeMap<DriverId, Logic>,
     resolved: Logic,
 }
 
@@ -306,7 +307,7 @@ impl DigitalNet {
     pub fn drive(&mut self, driver: DriverId, value: Logic) -> NetUpdate {
         let previous = self.resolved;
         self.drivers.insert(driver, value);
-        let (resolved, contention) = resolve(self.drivers.values().copied());
+        let (resolved, contention) = self.resolve_drivers();
         self.resolved = resolved;
         NetUpdate {
             previous,
@@ -319,12 +320,47 @@ impl DigitalNet {
     pub fn disconnect(&mut self, driver: DriverId) -> NetUpdate {
         let previous = self.resolved;
         self.drivers.remove(&driver);
-        let (resolved, contention) = resolve(self.drivers.values().copied());
+        let (resolved, contention) = self.resolve_drivers();
         self.resolved = resolved;
         NetUpdate {
             previous,
             value: resolved,
             contention,
+        }
+    }
+
+    /// Drives a weak pull source which yields to any active strong source.
+    pub fn drive_weak(&mut self, driver: DriverId, value: Logic) -> NetUpdate {
+        let previous = self.resolved;
+        self.weak_drivers.insert(driver, value);
+        let (resolved, contention) = self.resolve_drivers();
+        self.resolved = resolved;
+        NetUpdate {
+            previous,
+            value: resolved,
+            contention,
+        }
+    }
+
+    /// Removes one weak pull source.
+    pub fn disconnect_weak(&mut self, driver: DriverId) -> NetUpdate {
+        let previous = self.resolved;
+        self.weak_drivers.remove(&driver);
+        let (resolved, contention) = self.resolve_drivers();
+        self.resolved = resolved;
+        NetUpdate {
+            previous,
+            value: resolved,
+            contention,
+        }
+    }
+
+    fn resolve_drivers(&self) -> (Logic, bool) {
+        let strong = resolve(self.drivers.values().copied());
+        if strong.0 == Logic::Z {
+            resolve(self.weak_drivers.values().copied())
+        } else {
+            strong
         }
     }
 }
@@ -385,6 +421,15 @@ mod tests {
         assert_eq!(update.value, Logic::X);
         assert!(update.contention);
         assert_eq!(net.disconnect(DriverId(2)).value, Logic::Zero);
+    }
+
+    #[test]
+    fn weak_pull_yields_to_strong_drive() {
+        let mut net = DigitalNet::new();
+        assert_eq!(net.drive_weak(DriverId(10), Logic::One).value, Logic::One);
+        assert_eq!(net.drive(DriverId(1), Logic::Zero).value, Logic::Zero);
+        assert_eq!(net.disconnect(DriverId(1)).value, Logic::One);
+        assert_eq!(net.disconnect_weak(DriverId(10)).value, Logic::Z);
     }
 
     #[test]

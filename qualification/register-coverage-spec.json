@@ -41,12 +41,29 @@
     },
     "rp2040": {
       "cpu_profiles": ["Cortex-M0+"],
-      "proofs": ["rp2040", "rp2040-uart", "rp2040-native-timer", "rp2040-pio"],
+      "proofs": [
+        "rp2040",
+        "rp2040-uart",
+        "rp2040-uart1",
+        "rp2040-native-timer",
+        "rp2040-pio",
+        "rp2040-spi",
+        "rp2040-arm-i2c",
+        "rp2040-io",
+        "rp2040-usb"
+      ],
       "required_covered_regions": [
+        "rp2040.i2c0",
+        "rp2040.i2c1",
+        "rp2040.io-bank0",
         "rp2040.pio0",
         "rp2040.sio",
+        "rp2040.spi0",
+        "rp2040.spi1",
         "rp2040.timer",
-        "rp2040.uart0"
+        "rp2040.uart0",
+        "rp2040.uart1",
+        "rp2040.usbctrl"
       ],
       "additional_evidence": ["scripts/qualify-micropython.sh", "scripts/qualify-coremark.sh"],
       "known_deviations": [
@@ -54,7 +71,7 @@
         "SIO covers the GPIO and synchronization paths exercised by the baseline rather than the complete block.",
         "UART0 is a transmit-focused PL011 slice without physical baud timing.",
         "TIMER alarm routing is functional and deterministic, not clock accurate.",
-        "PIO0 covers instruction memory, configuration, direct execution, unconditional JMP and SET; FIFO, IRQ, WAIT, shift, side-set, delay timing and divider timing are absent."
+        "PIO0 covers instruction memory, host FIFOs, status/debug/IRQ registers, direct execution, unconditional JMP and SET; WAIT, IN, OUT, PULL, PUSH, side-set, shift, delay and divider timing are absent."
       ]
     },
     "rp2350": {
@@ -62,25 +79,39 @@
       "proofs": [
         "rp2350-arm",
         "rp2350-arm-uart",
+        "rp2350-arm-uart1",
         "rp2350-arm-native-timer",
         "rp2350-arm-pio",
+        "rp2350-arm-spi",
+        "rp2350-arm-i2c",
+        "rp2350-arm-io",
         "rp2350-riscv",
         "rp2350-riscv-uart",
+        "rp2350-riscv-uart1",
         "rp2350-riscv-native-timer",
-        "rp2350-riscv-pio"
+        "rp2350-riscv-pio",
+        "rp2350-riscv-spi",
+        "rp2350-riscv-i2c",
+        "rp2350-riscv-io"
       ],
       "required_covered_regions": [
+        "rp2350.i2c0",
+        "rp2350.i2c1",
+        "rp2350.io-bank0",
         "rp2350.pio0",
         "rp2350.sio",
+        "rp2350.spi0",
+        "rp2350.spi1",
         "rp2350.timer0",
-        "rp2350.uart0"
+        "rp2350.uart0",
+        "rp2350.uart1"
       ],
       "additional_evidence": ["scripts/qualify-micropython.sh", "scripts/qualify-coremark.sh"],
       "known_deviations": [
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "The manifest combines coverage from both supported CPU modes and identifies each contributing proof.",
         "UART0 and TIMER0 are functional slices without physical baud or clock accuracy.",
-        "PIO0 has the RP2040 baseline subset and does not implement PIO v1 extensions.",
+        "PIO0/1/2 expose the shared functional FIFO, status/debug/IRQ, JMP and SET subset; WAIT, IN, OUT, PULL, PUSH, side-set, divider timing and RP2350 cross-PIO controls are absent.",
         "SIO, NVIC and Hazard3 external-interrupt behavior cover baseline firmware paths rather than every silicon feature."
       ]
     },
@@ -160,7 +191,7 @@
       "proofs": ["esp32c6", "esp32c6-uart"],
       "required_covered_regions": [
         "esp32c6.gpio",
-        "esp32c6.interrupt-controller-cpu0",
+        "esp32c6.plic-machine",
         "esp32c6.interrupt-priority",
         "esp32c6.systimer",
         "esp32c6.uart0"

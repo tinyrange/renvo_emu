@@ -358,22 +358,234 @@ impl Device for Rp2040Pll {
     }
 }
 
+/// RP2040 WATCHDOG register identifiers.
+///
+/// Keeping the offsets named prevents the device model and its tests from
+/// silently drifting when a register is added or moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+pub enum Rp2040WatchdogRegister {
+    /// Watchdog control and remaining time.
+    Ctrl = 0x00,
+    /// Reload value for the watchdog counter.
+    Load = 0x04,
+    /// Reset reason bits.
+    Reason = 0x08,
+    /// Persistent scratch register zero.
+    Scratch0 = 0x0c,
+    /// Persistent scratch register one.
+    Scratch1 = 0x10,
+    /// Persistent scratch register two.
+    Scratch2 = 0x14,
+    /// Persistent scratch register three.
+    Scratch3 = 0x18,
+    /// Persistent scratch register four.
+    Scratch4 = 0x1c,
+    /// Persistent scratch register five.
+    Scratch5 = 0x20,
+    /// Persistent scratch register six.
+    Scratch6 = 0x24,
+    /// Persistent scratch register seven.
+    Scratch7 = 0x28,
+    /// Watchdog tick-generator configuration and status.
+    Tick = 0x2c,
+}
+
+impl TryFrom<u64> for Rp2040WatchdogRegister {
+    type Error = ();
+
+    fn try_from(offset: u64) -> Result<Self, Self::Error> {
+        match offset {
+            0x00 => Ok(Self::Ctrl),
+            0x04 => Ok(Self::Load),
+            0x08 => Ok(Self::Reason),
+            0x0c => Ok(Self::Scratch0),
+            0x10 => Ok(Self::Scratch1),
+            0x14 => Ok(Self::Scratch2),
+            0x18 => Ok(Self::Scratch3),
+            0x1c => Ok(Self::Scratch4),
+            0x20 => Ok(Self::Scratch5),
+            0x24 => Ok(Self::Scratch6),
+            0x28 => Ok(Self::Scratch7),
+            0x2c => Ok(Self::Tick),
+            _ => Err(()),
+        }
+    }
+}
+
+const WATCHDOG_CTRL_TIME_MASK: u32 = 0x00ff_ffff;
+const WATCHDOG_CTRL_PAUSE_MASK: u32 = 0x0700_0000;
+const WATCHDOG_CTRL_ENABLE: u32 = 1 << 30;
+const WATCHDOG_CTRL_TRIGGER: u32 = 1 << 31;
+const WATCHDOG_TICK_CYCLES_MASK: u32 = 0x0000_01ff;
+const WATCHDOG_TICK_ENABLE: u32 = 1 << 9;
+const WATCHDOG_TICK_RUNNING: u32 = 1 << 10;
+const WATCHDOG_TICK_COUNT_MASK: u32 = 0x000f_f800;
+const WATCHDOG_REASON_TIMER: u32 = 1;
+const WATCHDOG_REASON_FORCE: u32 = 1 << 1;
+
+#[derive(Clone)]
+struct Rp2040WatchdogState {
+    ctrl: u32,
+    load: u32,
+    reason: u32,
+    scratch: [u32; 8],
+    tick: u32,
+    tick_countdown: u64,
+    remaining_counter: u64,
+    last_time: SimTime,
+    reset_pending: bool,
+}
+
+impl Rp2040WatchdogState {
+    fn reset_state() -> Self {
+        let tick = WATCHDOG_TICK_ENABLE;
+        Self {
+            ctrl: 0x0700_0000,
+            load: 0,
+            reason: 0,
+            scratch: [0; 8],
+            tick,
+            tick_countdown: Self::divider(tick),
+            remaining_counter: 0,
+            last_time: SimTime::ZERO,
+            reset_pending: false,
+        }
+    }
+
+    fn divider(tick: u32) -> u64 {
+        // CYCLES is encoded as the number of extra clk_tick cycles.  A zero
+        // setting therefore still produces one tick per abstract simulation
+        // tick, which keeps the default reset state live and deterministic.
+        u64::from(tick & WATCHDOG_TICK_CYCLES_MASK) + 1
+    }
+
+    fn advance(&mut self, now: SimTime) {
+        let elapsed = now.ticks().saturating_sub(self.last_time.ticks());
+        self.last_time = now;
+        if elapsed == 0 || self.tick & WATCHDOG_TICK_ENABLE == 0 {
+            return;
+        }
+
+        let divider = Self::divider(self.tick);
+        let tick_countdown = self.tick_countdown.max(1);
+        let generated = if elapsed < tick_countdown {
+            self.tick_countdown = tick_countdown - elapsed;
+            0
+        } else {
+            let after_first = elapsed - tick_countdown;
+            let generated = 1 + after_first / divider;
+            self.tick_countdown = divider - after_first % divider;
+            generated
+        };
+        if self.ctrl & WATCHDOG_CTRL_ENABLE == 0 || self.remaining_counter == 0 {
+            return;
+        }
+
+        // RP2040-E1: the hardware counter is decremented twice per generated
+        // watchdog tick, so LOAD=2 represents one abstract watchdog tick.
+        let decrement = generated.saturating_mul(2);
+        self.remaining_counter = self.remaining_counter.saturating_sub(decrement);
+        if self.remaining_counter == 0 {
+            self.reason |= WATCHDOG_REASON_TIMER;
+            self.reset_pending = true;
+        }
+    }
+
+    fn ctrl_value(&self) -> u32 {
+        let time = self
+            .remaining_counter
+            .div_ceil(2)
+            .min(u64::from(WATCHDOG_CTRL_TIME_MASK));
+        (self.ctrl & (WATCHDOG_CTRL_PAUSE_MASK | WATCHDOG_CTRL_ENABLE))
+            | u32::try_from(time).expect("watchdog time is masked to 24 bits")
+    }
+
+    fn tick_value(&self) -> u32 {
+        let running = self.tick & WATCHDOG_TICK_ENABLE != 0;
+        let count =
+            u32::try_from(self.tick_countdown.min(0x1ff)).expect("watchdog tick count fits");
+        (self.tick & (WATCHDOG_TICK_CYCLES_MASK | WATCHDOG_TICK_ENABLE))
+            | if running { WATCHDOG_TICK_RUNNING } else { 0 }
+            | ((count << 11) & WATCHDOG_TICK_COUNT_MASK)
+    }
+
+    fn apply_alias(register: &mut u32, alias: u64, value: u32) -> Result<(), DeviceError> {
+        Rp2040Clocks::update(register, alias, value)
+    }
+
+    fn load_counter(&mut self) {
+        self.remaining_counter = u64::from(self.load);
+        self.reset_pending = false;
+    }
+
+    fn reset(&mut self, kind: ResetKind) {
+        let scratch = match kind {
+            ResetKind::Software | ResetKind::Watchdog => self.scratch,
+            ResetKind::PowerOn | ResetKind::External => [0; 8],
+        };
+        let reason = (kind == ResetKind::Watchdog)
+            .then_some(self.reason)
+            .unwrap_or(0);
+        *self = Self::reset_state();
+        self.scratch = scratch;
+        self.reason = reason;
+    }
+}
+
+/// Shareable RP2040 watchdog reset/tick view used by the machine scheduler.
+#[derive(Clone)]
+pub struct Rp2040WatchdogHandle {
+    state: Arc<Mutex<Rp2040WatchdogState>>,
+}
+
+impl Rp2040WatchdogHandle {
+    /// Advances the watchdog and consumes one pending reset request.
+    pub fn take_reset(&self, now: SimTime) -> bool {
+        let mut state = self.state.lock().expect("RP2040 watchdog lock poisoned");
+        state.advance(now);
+        std::mem::take(&mut state.reset_pending)
+    }
+
+    /// Returns the reset reason bits latched by the previous trigger.
+    pub fn reason(&self, now: SimTime) -> u32 {
+        let mut state = self.state.lock().expect("RP2040 watchdog lock poisoned");
+        state.advance(now);
+        state.reason
+    }
+}
+
 /// Functional RP2040 watchdog and microsecond-tick divider.
 pub struct Rp2040Watchdog {
     name: String,
-    registers: [u32; 12],
+    state: Arc<Mutex<Rp2040WatchdogState>>,
 }
 
 impl Rp2040Watchdog {
-    /// Creates the watchdog reset state.
+    /// Creates the watchdog reset state without exposing a scheduler handle.
     pub fn new(name: impl Into<String>) -> Self {
-        let mut registers = [0; 12];
-        registers[0] = 0x0700_0000;
-        registers[0x2c / 4] = 0x200;
-        Self {
-            name: name.into(),
-            registers,
-        }
+        let (device, _) = Self::new_with_handle(name);
+        device
+    }
+
+    /// Creates the watchdog and a handle that reports functional reset requests.
+    pub fn new_with_handle(name: impl Into<String>) -> (Self, Rp2040WatchdogHandle) {
+        let state = Arc::new(Mutex::new(Rp2040WatchdogState::reset_state()));
+        (
+            Self {
+                name: name.into(),
+                state: state.clone(),
+            },
+            Rp2040WatchdogHandle { state },
+        )
+    }
+
+    fn register(offset: u64) -> Result<Rp2040WatchdogRegister, DeviceError> {
+        Rp2040WatchdogRegister::try_from(offset).map_err(|()| {
+            DeviceError::new(format!(
+                "unmodeled RP2040 WATCHDOG register at offset {offset:#x}"
+            ))
+        })
     }
 }
 
@@ -382,22 +594,34 @@ impl Device for Rp2040Watchdog {
         &self.name
     }
 
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+    fn read(&mut self, offset: u64, width: AccessWidth, at: SimTime) -> Result<u64, DeviceError> {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new(
                 "RP2040 WATCHDOG requires aligned word access",
             ));
         }
         let register_offset = offset & 0x0fff;
-        let index = usize::try_from(register_offset / 4).expect("small watchdog offset fits");
-        let mut value = *self.registers.get(index).ok_or_else(|| {
-            DeviceError::new(format!(
-                "unmodeled RP2040 WATCHDOG read at offset {register_offset:#x}"
-            ))
-        })?;
-        if register_offset == 0x2c && value & 0x200 != 0 {
-            value |= 0x400;
-        }
+        let register = Self::register(register_offset)?;
+        let mut state = self.state.lock().expect("RP2040 watchdog lock poisoned");
+        state.advance(at);
+        let value = match register {
+            Rp2040WatchdogRegister::Ctrl => state.ctrl_value(),
+            Rp2040WatchdogRegister::Load => state.load,
+            Rp2040WatchdogRegister::Reason => state.reason,
+            Rp2040WatchdogRegister::Scratch0
+            | Rp2040WatchdogRegister::Scratch1
+            | Rp2040WatchdogRegister::Scratch2
+            | Rp2040WatchdogRegister::Scratch3
+            | Rp2040WatchdogRegister::Scratch4
+            | Rp2040WatchdogRegister::Scratch5
+            | Rp2040WatchdogRegister::Scratch6
+            | Rp2040WatchdogRegister::Scratch7 => {
+                let index = usize::try_from((register_offset - 0x0c) / 4)
+                    .expect("watchdog scratch index fits");
+                state.scratch[index]
+            }
+            Rp2040WatchdogRegister::Tick => state.tick_value(),
+        };
         Ok(u64::from(value))
     }
 
@@ -406,7 +630,7 @@ impl Device for Rp2040Watchdog {
         offset: u64,
         width: AccessWidth,
         value: u64,
-        _at: SimTime,
+        at: SimTime,
     ) -> Result<(), DeviceError> {
         if width != AccessWidth::Word || offset & 3 != 0 {
             return Err(DeviceError::new(
@@ -415,21 +639,68 @@ impl Device for Rp2040Watchdog {
         }
         let alias = (offset >> 12) & 3;
         let register_offset = offset & 0x0fff;
-        if register_offset == 0x08 {
-            return Err(DeviceError::new("RP2040 WATCHDOG REASON is read-only"));
-        }
-        let index = usize::try_from(register_offset / 4).expect("small watchdog offset fits");
-        let register = self.registers.get_mut(index).ok_or_else(|| {
-            DeviceError::new(format!(
-                "unmodeled RP2040 WATCHDOG write at offset {register_offset:#x}"
-            ))
-        })?;
+        let register = Self::register(register_offset)?;
+        let mut state = self.state.lock().expect("RP2040 watchdog lock poisoned");
+        state.advance(at);
         let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked watchdog value fits");
-        Rp2040Clocks::update(register, alias, value)
+        match register {
+            Rp2040WatchdogRegister::Ctrl => {
+                let mut config = state.ctrl & (WATCHDOG_CTRL_PAUSE_MASK | WATCHDOG_CTRL_ENABLE);
+                Rp2040WatchdogState::apply_alias(
+                    &mut config,
+                    alias,
+                    value & (WATCHDOG_CTRL_PAUSE_MASK | WATCHDOG_CTRL_ENABLE),
+                )?;
+                state.ctrl = config;
+                if value & WATCHDOG_CTRL_TRIGGER != 0 {
+                    state.reason |= WATCHDOG_REASON_FORCE;
+                    state.reset_pending = true;
+                }
+            }
+            Rp2040WatchdogRegister::Load => {
+                let mut load = state.load;
+                Rp2040WatchdogState::apply_alias(
+                    &mut load,
+                    alias,
+                    value & WATCHDOG_CTRL_TIME_MASK,
+                )?;
+                state.load = load & WATCHDOG_CTRL_TIME_MASK;
+                state.load_counter();
+            }
+            Rp2040WatchdogRegister::Reason => {
+                return Err(DeviceError::new("RP2040 WATCHDOG REASON is read-only"));
+            }
+            Rp2040WatchdogRegister::Scratch0
+            | Rp2040WatchdogRegister::Scratch1
+            | Rp2040WatchdogRegister::Scratch2
+            | Rp2040WatchdogRegister::Scratch3
+            | Rp2040WatchdogRegister::Scratch4
+            | Rp2040WatchdogRegister::Scratch5
+            | Rp2040WatchdogRegister::Scratch6
+            | Rp2040WatchdogRegister::Scratch7 => {
+                let index = usize::try_from((register_offset - 0x0c) / 4)
+                    .expect("watchdog scratch index fits");
+                Rp2040WatchdogState::apply_alias(&mut state.scratch[index], alias, value)?;
+            }
+            Rp2040WatchdogRegister::Tick => {
+                let mut tick = state.tick;
+                Rp2040WatchdogState::apply_alias(
+                    &mut tick,
+                    alias,
+                    value & (WATCHDOG_TICK_CYCLES_MASK | WATCHDOG_TICK_ENABLE),
+                )?;
+                state.tick = tick & (WATCHDOG_TICK_CYCLES_MASK | WATCHDOG_TICK_ENABLE);
+                state.tick_countdown = Rp2040WatchdogState::divider(state.tick);
+            }
+        }
+        Ok(())
     }
 
-    fn reset(&mut self, _kind: ResetKind) {
-        *self = Self::new(self.name.clone());
+    fn reset(&mut self, kind: ResetKind) {
+        self.state
+            .lock()
+            .expect("RP2040 watchdog lock poisoned")
+            .reset(kind);
     }
 }
 
@@ -672,336 +943,6 @@ impl Device for Rp2040Timer {
     }
 }
 
-#[derive(Clone, Copy)]
-struct RpPioStateMachine {
-    clock_divider: u32,
-    execution_control: u32,
-    shift_control: u32,
-    address: u8,
-    instruction: u16,
-    pin_control: u32,
-    x: u32,
-    y: u32,
-}
-
-impl RpPioStateMachine {
-    const fn reset() -> Self {
-        Self {
-            clock_divider: 0x0001_0000,
-            execution_control: 0x0001_f000,
-            shift_control: 0x000c_0000,
-            address: 0,
-            instruction: 0,
-            pin_control: 0x1400_0000,
-            x: 0,
-            y: 0,
-        }
-    }
-}
-
-struct RpPioState {
-    control: u32,
-    debug: u32,
-    instructions: [u16; 32],
-    machines: [RpPioStateMachine; 4],
-    output: u32,
-    direction: u32,
-}
-
-impl RpPioState {
-    const fn reset() -> Self {
-        Self {
-            control: 0,
-            debug: 0,
-            instructions: [0; 32],
-            machines: [RpPioStateMachine::reset(); 4],
-            output: 0,
-            direction: 0,
-        }
-    }
-}
-
-/// Scheduler-facing handle for a functional Raspberry Pi PIO block.
-#[derive(Clone)]
-pub struct RpPioHandle {
-    state: Rc<RefCell<RpPioState>>,
-    hub: SignalHub,
-    output_signal: SignalId,
-    pins: u16,
-}
-
-impl RpPioHandle {
-    /// Executes one instruction on each enabled state machine.
-    ///
-    /// PIO clock dividers and delay fields are deliberately interpreted as one
-    /// deterministic abstract tick in the baseline model.
-    pub fn poll(&self, now: SimTime) -> Result<bool, SignalError> {
-        let mut state = self.state.borrow_mut();
-        let before = state.output;
-        for machine in 0..state.machines.len() {
-            if state.control & (1 << machine) == 0 {
-                continue;
-            }
-            let address = usize::from(state.machines[machine].address);
-            let instruction = state.instructions[address];
-            execute_rp_pio_instruction(&mut state, machine, instruction, true);
-        }
-        if state.output != before {
-            self.hub.set(
-                self.output_signal,
-                SignalValue::from_u64(u64::from(state.output), self.pins)?,
-                now,
-            )?;
-            return Ok(true);
-        }
-        Ok(false)
-    }
-}
-
-fn execute_rp_pio_instruction(
-    state: &mut RpPioState,
-    machine: usize,
-    instruction: u16,
-    advance: bool,
-) {
-    const JMP: u16 = 0x0000;
-    const SET: u16 = 0xe000;
-    let major = instruction & 0xe000;
-    let argument = (instruction >> 5) & 7;
-    let data = u32::from(instruction & 0x1f);
-    let sm = &mut state.machines[machine];
-    sm.instruction = instruction;
-    let mut jumped = false;
-    match major {
-        JMP if argument == 0 => {
-            sm.address = u8::try_from(data).expect("five-bit PIO address fits u8");
-            jumped = true;
-        }
-        SET => {
-            let base = (sm.pin_control >> 5) & 0x1f;
-            let count = (sm.pin_control >> 26) & 7;
-            let mask = if count == 0 {
-                0
-            } else {
-                ((1_u32 << count) - 1).rotate_left(base)
-            };
-            let value = data.rotate_left(base) & mask;
-            match argument {
-                0 => state.output = (state.output & !mask) | value,
-                1 => sm.x = data,
-                2 => sm.y = data,
-                4 => state.direction = (state.direction & !mask) | value,
-                _ => {}
-            }
-        }
-        _ => {}
-    }
-    if advance && !jumped {
-        let wrap_top = u8::try_from((sm.execution_control >> 12) & 0x1f)
-            .expect("five-bit PIO wrap address fits u8");
-        let wrap_bottom = u8::try_from((sm.execution_control >> 7) & 0x1f)
-            .expect("five-bit PIO wrap address fits u8");
-        sm.address = if sm.address == wrap_top {
-            wrap_bottom
-        } else {
-            sm.address.wrapping_add(1) & 0x1f
-        };
-    }
-}
-
-/// Functional RP2040-compatible PIO0 register and execution slice.
-///
-/// The baseline covers instruction memory, state-machine configuration,
-/// direct execution, unconditional `JMP`, and `SET` to pins, directions, X,
-/// and Y. FIFO, IRQ, `WAIT`, shift, side-set, and PIO v1 extensions remain
-/// outside this deliberately small proof.
-pub struct RpPio {
-    name: String,
-    state: Rc<RefCell<RpPioState>>,
-    hub: SignalHub,
-    output_signal: SignalId,
-    pins: u16,
-}
-
-impl RpPio {
-    /// Creates a reset PIO block and scheduler handle.
-    pub fn new(
-        name: impl Into<String>,
-        pins: u16,
-        signal_path: &str,
-        hub: SignalHub,
-    ) -> Result<(Self, RpPioHandle), SignalError> {
-        let output_signal = hub.declare(
-            signal_path,
-            SignalValue::from_u64(0, pins)?,
-            Some("Functional PIO output register".to_owned()),
-        )?;
-        let state = Rc::new(RefCell::new(RpPioState::reset()));
-        Ok((
-            Self {
-                name: name.into(),
-                state: state.clone(),
-                hub: hub.clone(),
-                output_signal,
-                pins,
-            },
-            RpPioHandle {
-                state,
-                hub,
-                output_signal,
-                pins,
-            },
-        ))
-    }
-
-    fn update_register(current: u32, alias: u64, value: u32) -> u32 {
-        match alias {
-            0 => value,
-            1 => current ^ value,
-            2 => current | value,
-            3 => current & !value,
-            _ => unreachable!("two-bit RP atomic alias"),
-        }
-    }
-
-    fn state_machine_register(offset: u64) -> Option<(usize, u64)> {
-        if !(0x0c8..0x128).contains(&offset) {
-            return None;
-        }
-        let relative = offset - 0x0c8;
-        let machine = usize::try_from(relative / 0x18).expect("PIO state machine index fits");
-        (machine < 4).then_some((machine, relative % 0x18))
-    }
-
-    fn publish_output(&self, at: SimTime) -> Result<(), DeviceError> {
-        let output = self.state.borrow().output;
-        self.hub
-            .set(
-                self.output_signal,
-                SignalValue::from_u64(u64::from(output), self.pins)
-                    .map_err(|error| DeviceError::new(error.to_string()))?,
-                at,
-            )
-            .map_err(|error| DeviceError::new(error.to_string()))
-    }
-}
-
-impl Device for RpPio {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || offset % 4 != 0 {
-            return Err(DeviceError::new("RP PIO requires aligned word access"));
-        }
-        let register = offset & 0x0fff;
-        let state = self.state.borrow();
-        let value = if let Some((machine, sm_offset)) = Self::state_machine_register(register) {
-            let sm = state.machines[machine];
-            match sm_offset {
-                0x00 => sm.clock_divider,
-                0x04 => sm.execution_control,
-                0x08 => sm.shift_control,
-                0x0c => u32::from(sm.address),
-                0x10 => u32::from(sm.instruction),
-                0x14 => sm.pin_control,
-                _ => unreachable!("PIO state machine register stride"),
-            }
-        } else {
-            match register {
-                0x000 => state.control,
-                0x004 => 0x0f00_0f00,
-                0x008 => state.debug,
-                0x044 => (32 << 16) | (4 << 8) | 4,
-                0x048..=0x0c4 => {
-                    let index = usize::try_from((register - 0x048) / 4)
-                        .expect("PIO instruction index fits");
-                    u32::from(state.instructions[index])
-                }
-                _ => 0,
-            }
-        };
-        Ok(u64::from(value))
-    }
-
-    fn write(
-        &mut self,
-        offset: u64,
-        width: AccessWidth,
-        value: u64,
-        at: SimTime,
-    ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || offset % 4 != 0 {
-            return Err(DeviceError::new("RP PIO requires aligned word access"));
-        }
-        let register = offset & 0x0fff;
-        let alias = (offset >> 12) & 3;
-        let value =
-            u32::try_from(value & u64::from(u32::MAX)).expect("masked PIO register value fits u32");
-        let mut publish = false;
-        {
-            let mut state = self.state.borrow_mut();
-            if let Some((machine, sm_offset)) = Self::state_machine_register(register) {
-                match sm_offset {
-                    0x00 => {
-                        let current = state.machines[machine].clock_divider;
-                        state.machines[machine].clock_divider =
-                            Self::update_register(current, alias, value);
-                    }
-                    0x04 => {
-                        let current = state.machines[machine].execution_control;
-                        state.machines[machine].execution_control =
-                            Self::update_register(current, alias, value);
-                    }
-                    0x08 => {
-                        let current = state.machines[machine].shift_control;
-                        state.machines[machine].shift_control =
-                            Self::update_register(current, alias, value);
-                    }
-                    0x0c => {}
-                    0x10 => {
-                        let before = state.output;
-                        let instruction = u16::try_from(value & u32::from(u16::MAX))
-                            .expect("masked PIO instruction fits u16");
-                        execute_rp_pio_instruction(&mut state, machine, instruction, false);
-                        publish = state.output != before;
-                    }
-                    0x14 => {
-                        let current = state.machines[machine].pin_control;
-                        state.machines[machine].pin_control =
-                            Self::update_register(current, alias, value);
-                    }
-                    _ => unreachable!("PIO state machine register stride"),
-                }
-            } else {
-                match register {
-                    0x000 => {
-                        state.control = Self::update_register(state.control, alias, value) & 0xf;
-                    }
-                    0x008 => state.debug &= !value,
-                    0x048..=0x0c4 => {
-                        let index = usize::try_from((register - 0x048) / 4)
-                            .expect("PIO instruction index fits");
-                        state.instructions[index] = u16::try_from(value & u32::from(u16::MAX))
-                            .expect("masked PIO instruction fits u16");
-                    }
-                    _ => {}
-                }
-            }
-        }
-        if publish {
-            self.publish_output(at)?;
-        }
-        Ok(())
-    }
-
-    fn reset(&mut self, _kind: ResetKind) {
-        *self.state.borrow_mut() = RpPioState::reset();
-        let _ = self.publish_output(SimTime::ZERO);
-    }
-}
-
 /// Storage-backed RP2040 APB register slice with atomic XOR, SET, and CLEAR aliases.
 ///
 /// This is used for configuration-only blocks whose values affect observability but do not yet
@@ -1010,6 +951,277 @@ pub struct Rp2040RegisterBank {
     name: String,
     reset_values: Vec<u32>,
     registers: Vec<u32>,
+}
+
+const RP2040_GPIO_CTRL_BITS: u32 = 0x3003_331f;
+
+/// RP2040/RP2350 IO_BANK0 interrupt and GPIO-function register slice.
+///
+/// The SIO block remains the owner of GPIO output latches. This device models
+/// the APB-side per-pin status/control registers and the processor interrupt
+/// enable/force/status windows. The machine-facing handle records external
+/// input transitions so edge events become visible to firmware deterministically.
+pub struct Rp2040IoBank {
+    name: String,
+    pins: usize,
+    gpio: GpioHandle,
+    state: Arc<Mutex<Rp2040IoBankState>>,
+}
+
+/// Host-facing input-transition handle for an RP IO_BANK block.
+#[derive(Clone)]
+pub struct Rp2040IoBankHandle {
+    gpio: GpioHandle,
+    state: Arc<Mutex<Rp2040IoBankState>>,
+}
+
+struct Rp2040IoBankState {
+    control: Vec<u32>,
+    last_input: u32,
+    raw_interrupt: [u32; 4],
+    proc0_enable: [u32; 4],
+    proc0_force: [u32; 4],
+    proc1_enable: [u32; 4],
+    proc1_force: [u32; 4],
+}
+
+impl Rp2040IoBank {
+    /// Creates an IO_BANK0 block sharing the SIO GPIO input net.
+    pub fn new(name: impl Into<String>, gpio: GpioHandle) -> (Self, Rp2040IoBankHandle) {
+        let pins = gpio.pin_count().min(32);
+        let state = Arc::new(Mutex::new(Rp2040IoBankState {
+            control: vec![0x1f; pins],
+            last_input: 0,
+            raw_interrupt: [0; 4],
+            proc0_enable: [0; 4],
+            proc0_force: [0; 4],
+            proc1_enable: [0; 4],
+            proc1_force: [0; 4],
+        }));
+        let handle = Rp2040IoBankHandle {
+            gpio: gpio.clone(),
+            state: state.clone(),
+        };
+        (
+            Self {
+                name: name.into(),
+                pins,
+                gpio,
+                state,
+            },
+            handle,
+        )
+    }
+
+    fn event_bank(pin: usize) -> (usize, u32) {
+        (pin / 8, 1_u32 << ((pin % 8) * 4))
+    }
+
+    fn input_value(&self) -> u32 {
+        (0..self.pins).fold(0, |value, pin| {
+            if self.gpio.resolved(pin as u8).ok() == Some(Logic::One) {
+                value | (1_u32 << pin)
+            } else {
+                value
+            }
+        })
+    }
+
+    fn override_value(value: bool, mode: u32) -> bool {
+        match mode & 3 {
+            0 => value,
+            1 => !value,
+            2 => false,
+            3 => true,
+            _ => unreachable!(),
+        }
+    }
+
+    fn gpio_status(&self, pin: usize, state: &Rp2040IoBankState) -> u32 {
+        let mask = 1_u32 << pin;
+        let input = self.input_value() & mask != 0;
+        let output = self.gpio.output() & mask != 0;
+        let output_enable = self.gpio.direction() & mask != 0;
+        let (bank, event_mask) = Self::event_bank(pin);
+        let irq = state.raw_interrupt[bank] & (event_mask * 0xf) != 0;
+        let control = state.control[pin];
+        u32::from(Self::override_value(irq, control >> 28)) << 26
+            | u32::from(irq) << 24
+            | u32::from(Self::override_value(input, control >> 16)) << 19
+            | u32::from(input) << 17
+            | u32::from(Self::override_value(output_enable, control >> 12)) << 15
+            | u32::from(output_enable) << 13
+            | u32::from(Self::override_value(output, control >> 8)) << 9
+            | u32::from(output) << 8
+    }
+
+    fn interrupt_bank(offset: u64, base: u64) -> Option<(usize, u64)> {
+        if (base..base + 0x10).contains(&offset) {
+            Some((usize::try_from((offset - base) / 4).ok()?, 0))
+        } else {
+            None
+        }
+    }
+}
+
+impl Rp2040IoBankHandle {
+    /// Returns the raw CTRL register for a bonded GPIO.
+    pub fn pin_control(&self, pin: u8) -> Option<u32> {
+        self.state
+            .lock()
+            .expect("RP IO_BANK lock poisoned")
+            .control
+            .get(usize::from(pin))
+            .copied()
+    }
+
+    /// Returns whether PROC0's masked or forced interrupt output is asserted.
+    pub fn proc0_pending(&self) -> bool {
+        let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+        (0..state.raw_interrupt.len()).any(|bank| {
+            state.raw_interrupt[bank] & state.proc0_enable[bank] != 0
+                || state.proc0_force[bank] != 0
+        })
+    }
+
+    /// Records the current resolved value after an external pin stimulus.
+    pub fn record_input(&self, pin: u8) -> Result<(), DeviceError> {
+        let value = self.gpio.resolved(pin)?;
+        let mut state = self.state.lock().expect("RP IO_BANK lock poisoned");
+        let index = usize::from(pin);
+        if index >= state.control.len() {
+            return Err(DeviceError::new(format!("GPIO pin {pin} is out of range")));
+        }
+        let mask = 1_u32 << index;
+        let was_high = state.last_input & mask != 0;
+        let is_high = value == Logic::One;
+        if was_high != is_high {
+            let (bank, event_mask) = Rp2040IoBank::event_bank(index);
+            let edge_mask = if is_high {
+                event_mask << 3
+            } else {
+                event_mask << 2
+            };
+            state.raw_interrupt[bank] |= edge_mask;
+        }
+        if is_high {
+            state.last_input |= mask;
+        } else {
+            state.last_input &= !mask;
+        }
+        Ok(())
+    }
+}
+
+impl Device for Rp2040IoBank {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
+        if width != AccessWidth::Word || offset & 3 != 0 {
+            return Err(DeviceError::new("RP IO_BANK requires aligned word access"));
+        }
+        if offset < 0xf0 {
+            let pin = usize::try_from(offset / 8).expect("GPIO index fits usize");
+            if pin >= self.pins {
+                return Err(DeviceError::new(format!(
+                    "{} read outside GPIO pins at offset {offset:#x}",
+                    self.name
+                )));
+            }
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            return Ok(if offset % 8 == 4 {
+                u64::from(state.control[pin])
+            } else {
+                u64::from(self.gpio_status(pin, &state))
+            });
+        }
+        let values = if let Some((index, _)) = Self::interrupt_bank(offset, 0xf0) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.raw_interrupt[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x100) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.proc0_enable[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x110) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.proc0_force[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x120) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            (state.raw_interrupt[index] & state.proc0_enable[index]) | state.proc0_force[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x130) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.proc1_enable[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x140) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            state.proc1_force[index]
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x150) {
+            let state = self.state.lock().expect("RP IO_BANK lock poisoned");
+            (state.raw_interrupt[index] & state.proc1_enable[index]) | state.proc1_force[index]
+        } else {
+            return Err(DeviceError::new(format!(
+                "{} read outside modeled registers at offset {offset:#x}",
+                self.name
+            )));
+        };
+        Ok(u64::from(values))
+    }
+
+    fn write(
+        &mut self,
+        offset: u64,
+        width: AccessWidth,
+        value: u64,
+        _at: SimTime,
+    ) -> Result<(), DeviceError> {
+        if width != AccessWidth::Word || offset & 3 != 0 {
+            return Err(DeviceError::new("RP IO_BANK requires aligned word access"));
+        }
+        let value = u32::try_from(value & u64::from(u32::MAX)).expect("masked value fits");
+        if offset < 0xf0 {
+            let pin = usize::try_from(offset / 8).expect("GPIO index fits usize");
+            if pin >= self.pins || offset % 8 != 4 {
+                return Err(DeviceError::new(format!(
+                    "{} write outside GPIO control registers at offset {offset:#x}",
+                    self.name
+                )));
+            }
+            self.state.lock().expect("RP IO_BANK lock poisoned").control[pin] =
+                value & RP2040_GPIO_CTRL_BITS;
+            return Ok(());
+        }
+        let mut state = self.state.lock().expect("RP IO_BANK lock poisoned");
+        if let Some((index, _)) = Self::interrupt_bank(offset, 0xf0) {
+            state.raw_interrupt[index] &= !value;
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x100) {
+            state.proc0_enable[index] = value;
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x110) {
+            state.proc0_force[index] = value;
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x130) {
+            state.proc1_enable[index] = value;
+        } else if let Some((index, _)) = Self::interrupt_bank(offset, 0x140) {
+            state.proc1_force[index] = value;
+        } else if offset >= 0x120 && offset < 0x160 {
+            return Err(DeviceError::new("RP IO_BANK interrupt status is read-only"));
+        } else {
+            return Err(DeviceError::new(format!(
+                "{} write outside modeled registers at offset {offset:#x}",
+                self.name
+            )));
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        let mut state = self.state.lock().expect("RP IO_BANK lock poisoned");
+        state.control.fill(0x1f);
+        state.last_input = 0;
+        state.raw_interrupt = [0; 4];
+        state.proc0_enable = [0; 4];
+        state.proc0_force = [0; 4];
+        state.proc1_enable = [0; 4];
+        state.proc1_force = [0; 4];
+    }
 }
 
 impl Rp2040RegisterBank {

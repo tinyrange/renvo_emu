@@ -18,6 +18,7 @@ mod native_wifi;
 mod pic16_mcu;
 mod radio_rom;
 mod riscv;
+mod run_control;
 mod target;
 mod uart;
 mod xtensa;

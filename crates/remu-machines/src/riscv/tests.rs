@@ -154,6 +154,49 @@ fn esp32c6_boot_validator_rejects_the_merged_descriptor_and_text_reproducer() {
 }
 
 #[test]
+fn rp2350_hazard3_adc_mapping_uses_the_correct_native_offsets() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    assert!(machine.set_adc_sample(1, 0x321));
+    machine
+        .bus
+        .write(
+            0x400a_0000,
+            AccessWidth::Word,
+            u64::from(1_u32 | (1 << 2) | (1 << 12)),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(machine.adc_result(), Some(0x321));
+}
+
+#[test]
+fn rp2350_hazard3_uart1_uses_the_audited_pl011_contract() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    let uart1 = 0x4007_8000;
+    machine
+        .bus
+        .write(uart1 + 0x30, AccessWidth::Word, 0x301, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(uart1, AccessWidth::Word, b'Z'.into(), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.chip_uarts[1].bytes(), [b'Z']);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                uart1 + 0xfe0,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x11
+    );
+}
+
+#[test]
 fn esp32c6_direct_elf_materializes_the_zero_fill_tail() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let initialized = [0x13, 0, 0, 0];
@@ -769,6 +812,84 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
             .unwrap();
         assert_eq!(result.reason, StopReason::Halted, "{target}");
         assert_eq!(result.cpu.registers[3].value, 12, "{target}");
+    }
+}
+
+#[test]
+fn rp2350_hazard3_pwm_uses_rp2350_globals_and_irq_banks() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    let base = 0x400a_8000;
+    machine
+        .bus
+        .write(base + 0x0c, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x10, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0xf0, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.pwm_outputs(0), Some([true, false]));
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0xf0,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        1
+    );
+    machine
+        .bus
+        .write(base + 0xf8, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0xfc, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.pwm_pending_interrupts(0), 1);
+    machine
+        .bus
+        .write(base + 0x104, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x108, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.pwm_pending_interrupts(1), 1);
+}
+
+#[test]
+fn rp2350_hazard3_maps_all_secondary_pio_blocks() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    assert_eq!(machine.pio.len(), 3);
+    for (index, base) in [(1, 0x5030_0000_u64), (2, 0x5040_0000_u64)] {
+        machine
+            .bus
+            .write(
+                base + 0x048,
+                AccessWidth::Word,
+                0xe000 | index,
+                SimTime::ZERO,
+            )
+            .unwrap();
+        machine
+            .bus
+            .write(base + 0x0dc, AccessWidth::Word, 1 << 26, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(base, AccessWidth::Word, 1, SimTime::ZERO)
+            .unwrap();
     }
 }
 

@@ -121,29 +121,21 @@ impl RiscVMachine {
             return Err(MachineError::MissingRunLimit);
         }
 
-        let mut digest = TraceDigest::new();
-        self.signals.with_registry(|registry| {
-            digest.begin(registry);
-            if let Some(sink) = trace.as_deref_mut() {
-                sink.begin(registry)
-            } else {
-                Ok(())
-            }
-        })?;
+        let mut control = RunControl::new(limits, stimuli);
+        control.begin_trace(&self.signals, &mut trace)?;
 
         let mut stats = RunStats {
             instructions: 0,
             time: self.now,
             events: 0,
         };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
         self.cpu
             .set_interrupt(TIMER_INTERRUPT, self.timer.pending())?;
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
+        let mut io_bank_was_pending = false;
+        let mut trng_was_pending = false;
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
         let mut esp_timer_was_pending = [[false; 2]; 2];
@@ -160,15 +152,9 @@ impl RiscVMachine {
             if let Some(sio) = &self.sio {
                 sio.select_core(0);
             }
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
-                self.set_pin(stimulus.pin, stimulus.value)?;
-                stats.events = stats.events.saturating_add(1);
-                next_stimulus += 1;
-            }
+            control.apply_stimuli(self.now, &mut stats, |stimulus| {
+                self.set_pin(stimulus.pin, stimulus.value)
+            })?;
             if let Some(code) = self.exit.code() {
                 let _ = code;
                 break StopReason::Halted;
@@ -185,14 +171,27 @@ impl RiscVMachine {
             {
                 break StopReason::HostInputComplete;
             }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
+            if let Some(reason) = control.limit_reason(self.now, &stats) {
+                break reason;
             }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
+            self.refresh_pio_dma_requests()?;
+            if let Some(dma) = &self.dma {
+                let accessctrl = self.accessctrl.clone();
+                stats.events = stats.events.saturating_add(
+                    dma.service_with_context(
+                        &mut self.bus,
+                        self.now,
+                        move |_, secure, privileged| {
+                            if let Some(accessctrl) = &accessctrl {
+                                accessctrl.set_context(
+                                    Rp2350AccessMaster::Dma,
+                                    secure,
+                                    privileged,
+                                );
+                            }
+                        },
+                    )? as u64,
+                );
             }
             if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu.pc())) {
                 break StopReason::Breakpoint;
@@ -228,6 +227,23 @@ impl RiscVMachine {
                     .set_qingke_external_interrupt(TIM2_INTERRUPT, deliver)?;
             }
             if self.target == TargetId::Rp2350 {
+                rp_io::poll(self, &mut stats, &mut io_bank_was_pending)?;
+                if let Some(dma) = &self.dma {
+                    for interrupt in 0..4 {
+                        self.cpu.set_hazard3_external_interrupt(
+                            10 + u16::try_from(interrupt).expect("RP2350 DMA IRQ index fits u16"),
+                            dma.interrupt_pending(interrupt),
+                        )?;
+                    }
+                }
+                if let Some(trng) = &self.trng {
+                    let pending = trng.interrupt_pending();
+                    if pending && !trng_was_pending {
+                        stats.events = stats.events.saturating_add(1);
+                    }
+                    trng_was_pending = pending;
+                    self.cpu.set_hazard3_external_interrupt(39, pending)?;
+                }
                 let chip_timer_pending =
                     self.chip_timers
                         .iter()
@@ -244,11 +260,17 @@ impl RiscVMachine {
                         stats.events = stats.events.saturating_add(1);
                     }
                 }
+                self.refresh_pio_dma_requests()?;
                 for line in 0..self.chip_timers.len() * 4 {
                     self.cpu.set_hazard3_external_interrupt(
                         u16::try_from(line).expect("RP timer IRQ line fits u16"),
                         chip_timer_pending & (1 << line) != 0,
                     )?;
+                }
+                set_rp2350_spi_interrupts(&mut self.cpu, &self.spi)?;
+                for (index, handle) in self.i2c.iter().enumerate() {
+                    let line = 36_u16 + u16::try_from(index).expect("RP2350 I²C index fits u16");
+                    self.cpu.set_hazard3_external_interrupt(line, handle.pending())?;
                 }
                 if let Some(usb) = &self.usb {
                     if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
@@ -494,6 +516,7 @@ impl RiscVMachine {
             if watchpoints_active {
                 self.bus.clear_watchpoint_hit();
             }
+            self.select_rp2350_access_context(0);
             let service_possible = self.target != TargetId::Esp32c6
                 || Self::esp32c6_functional_service_address(self.cpu.pc());
             if service_possible {
@@ -561,16 +584,9 @@ impl RiscVMachine {
             }
 
             if self.signals.has_changes() {
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
+            if let Some(path) =
+                control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+            {
                     break StopReason::Signal(path);
                 }
             }
@@ -610,6 +626,7 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(1);
                 }
+                self.select_rp2350_access_context(1);
                 if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu1.pc())) {
                     if let Some(sio) = &self.sio {
                         sio.select_core(0);
@@ -694,16 +711,9 @@ impl RiscVMachine {
                 if let Some(sio) = &self.sio {
                     sio.select_core(0);
                 }
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
+                if let Some(path) =
+                    control.record_signals(&self.signals, &self.signal_stops, &mut trace)?
+                {
                     break StopReason::Signal(path);
                 }
             }
@@ -738,7 +748,7 @@ impl RiscVMachine {
                     bytes
                 },
             ),
-            trace_digest: digest.finish(),
+            trace_digest: control.digest.finish(),
         })
     }
 }

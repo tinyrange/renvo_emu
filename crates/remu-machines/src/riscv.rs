@@ -1,11 +1,12 @@
 use crate::arm::Rp2040UsbHost;
 use crate::{
-    MemoryKind, PinStimulus, SignalEdge, SignalStop, TargetId, matching_signal_stop,
-    resolve_signal_stop, target_manifest,
+    MemoryKind, PinStimulus, SignalEdge, SignalStop, TargetId, resolve_signal_stop,
+    run_control::RunControl, target_manifest,
 };
 use md5::{Digest, Md5};
 use remu_bus::{
-    AddressSpace, Endianness, MapError, Permissions, SharedBusAccessObserver, SharedMemory,
+    AddressSpace, Endianness, MapError, Permissions, SharedAccessGuard, SharedBusAccessObserver,
+    SharedMemory,
 };
 use remu_core::{
     AccessKind, AccessWidth, Bus, Cpu, CpuFault, CpuSnapshot, ResetKind, RunLimits, RunStats,
@@ -16,11 +17,15 @@ use remu_devices::{
     EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic, EspC6PlicHandle,
     EspGpio, EspSpiFlashCommand, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup, EspTimerGroupHandle,
     EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalTimer, FunctionalUart, GpioHandle, RegisterBank, Rp2040Clocks, Rp2040Pll,
-    Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart,
+    FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
+    Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
+    Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350AccessCtrlHandle,
+    Rp2350AccessMaster, Rp2350BootRam, Rp2350Otp, Rp2350Powman, Rp2350Sha256, Rp2350Spi,
+    Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
+    RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2cHandle, RpIoBankHandle,
+    RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -31,12 +36,13 @@ use remu_radio::{
     RadioLegalityValidator, RadioMedium, TransmissionId, WifiEngine,
 };
 use remu_signals::{Logic, SignalError};
-use remu_trace::{TraceDigest, TraceError, TraceSink};
+use remu_trace::{TraceError, TraceSink};
 use serde::Serialize;
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
+mod adc;
 mod bootrom_support;
 mod esp32c6_peripherals;
 use esp32c6_peripherals::{Esp32c6PeripheralHandles, map_esp32c6_peripherals};
@@ -47,8 +53,15 @@ mod heap;
 use heap::EspFunctionalHeap;
 mod image;
 mod lp_uart;
+mod pio;
+mod pwm;
 mod radio;
+mod rp2350_spi;
 mod rp_bootrom;
+mod rp_i2c;
+use rp_i2c::map_rp2350_i2c;
+mod rp_io;
+use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
 mod runtime;
 mod watchdog;
 
@@ -203,12 +216,19 @@ pub struct RiscVMachine {
     cpu1_active: bool,
     boot_rom_loaded: bool,
     sio: Option<RpSioHandle>,
+    io_bank: Option<RpIoBankHandle>,
+    dma: Option<RpDmaHandle>,
+    accessctrl: Option<Rp2350AccessCtrlHandle>,
+    pads: Option<RpPadsHandle>,
+    security_contexts: [(bool, bool); 2],
     bus: AddressSpace,
     signals: SignalHub,
     gpio: GpioHandle,
     chip_gpio: Vec<GpioHandle>,
     pub(crate) uart: UartHandle,
     pub(crate) chip_uarts: Vec<UartHandle>,
+    pub(crate) chip_adc: Option<RpAdcHandle>,
+    pub(crate) chip_pwm: Option<PwmHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -264,12 +284,15 @@ pub struct RiscVMachine {
     radio_event_cursor: usize,
     flash_storage: Option<SharedMemory>,
     chip_timers: Vec<Rp2040TimerHandle>,
+    i2c: Vec<RpI2cHandle>,
+    spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
     wch_timer: Option<WchTimerHandle>,
     wch_pfic: Option<WchPficHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
+    trng: Option<Rp2350TrngHandle>,
     esp_usb_serial_jtag: Option<EspUsbSerialJtagHandle>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
@@ -297,12 +320,14 @@ impl RiscVMachine {
             }
         };
         let manifest = target_manifest(target);
-        let mut bus = AddressSpace::new(Endianness::Little);
-        let mut chip_timers = Vec::new();
+        let (mut bus, signals) = (AddressSpace::new(Endianness::Little), SignalHub::new());
+        let (mut chip_timers, mut i2c) = (Vec::new(), Vec::new());
+        let mut spi = Vec::new();
         let mut pio = Vec::new();
         let mut usb = None;
         let mut usb_dpram = None;
         let mut usb_host = None;
+        let mut trng = None;
         let mut esp_usb_serial_jtag = None;
         let mut esp_timer_groups = Vec::new();
         let mut esp_c6_plic = None;
@@ -326,7 +351,13 @@ impl RiscVMachine {
             (target == TargetId::Esp32c6).then(|| RadioLegalityValidator::new(RadioChip::Esp32C6));
         let mut wch_timer = None;
         let mut wch_pfic = None;
+        let mut chip_adc = None;
+        let mut chip_pwm = None;
         let mut sio = None;
+        let mut io_bank = None;
+        let mut dma = None;
+        let mut accessctrl = None;
+        let mut pads = None;
         if target == TargetId::Rp2350 {
             let mut rom = vec![0; 32 * 1024];
             // Functional core-1 return point: the physical ROM parks a hart
@@ -421,6 +452,15 @@ impl RiscVMachine {
                 0x4000,
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
             )?;
+            let (device, handle) = Rp2350AccessCtrl::new_with_handle("rp2350.accessctrl");
+            bus.map_device("rp2350.accessctrl", 0x4006_0000, 0x4000, Box::new(device))?;
+            let guard_handle = handle.clone();
+            let guard: SharedAccessGuard =
+                std::rc::Rc::new(std::cell::RefCell::new(move |address, _width, _kind| {
+                    guard_handle.check_address(address)
+                }));
+            bus.set_access_guard(Some(guard));
+            accessctrl = Some(handle);
             bus.map_device(
                 "rp2350.xosc",
                 0x4004_8000,
@@ -448,15 +488,6 @@ impl RiscVMachine {
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2350.resets", reset_values)),
             )?;
-            bus.map_device(
-                "rp2350.io-bank0",
-                0x4002_8000,
-                0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2350.io-bank0",
-                    vec![0; 0x1000 / 4],
-                )),
-            )?;
             let mut io_qspi_reset = vec![0; 0x1000 / 4];
             for offset in (0..=0x28).step_by(8) {
                 io_qspi_reset[offset / 4] = 1 << 9;
@@ -467,14 +498,18 @@ impl RiscVMachine {
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2350.io-qspi", io_qspi_reset)),
             )?;
-            let mut bank_pad_reset = vec![0x56; 0x1000 / 4];
-            bank_pad_reset[0] = 0;
+            let (pad_device, pad_handle) = RpPadsBank::new(
+                "rp2350.pads-bank0",
+                manifest.gpio_count,
+                RpPadsVariant::Rp2350,
+            );
             bus.map_device(
                 "rp2350.pads-bank0",
                 0x4003_8000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2350.pads-bank0", bank_pad_reset)),
+                Box::new(pad_device),
             )?;
+            pads = Some(pad_handle);
             let mut qspi_pad_reset = vec![0x56; 0x1000 / 4];
             qspi_pad_reset[0] = 0;
             bus.map_device(
@@ -502,36 +537,40 @@ impl RiscVMachine {
                 "rp2350.ticks",
                 0x4010_8000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2350.ticks", vec![0; 0x1000 / 4])),
+                Box::new(Rp2350Ticks::new("rp2350.ticks")),
             )?;
             bus.map_device(
                 "rp2350.powman",
                 0x4010_0000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2350.powman",
-                    vec![0; 0x1000 / 4],
-                )),
+                Box::new(Rp2350Powman::new("rp2350.powman")),
             )?;
-            for (name, base) in [
-                ("rp2350.uart1", 0x4007_8000),
-                ("rp2350.spi0", 0x4008_0000),
-                ("rp2350.spi1", 0x4008_8000),
-                ("rp2350.i2c0", 0x4009_0000),
-                ("rp2350.i2c1", 0x4009_8000),
-                ("rp2350.adc", 0x400a_0000),
-                ("rp2350.pwm", 0x400a_8000),
-                ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio1", 0x5030_0000),
-                ("rp2350.pio2", 0x5040_0000),
-            ] {
-                bus.map_device(
-                    name,
-                    base,
-                    0x4000,
-                    Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
-                )?;
-            }
+            let (device, handle) = Rp2350Trng::new("rp2350.trng");
+            bus.map_device("rp2350.trng", 0x400f_0000, 0x4000, Box::new(device))?;
+            trng = Some(handle);
+            bus.map_device(
+                "rp2350.sha256",
+                0x400f_8000,
+                0x4000,
+                Box::new(Rp2350Sha256::new("rp2350.sha256")),
+            )?;
+            bus.map_device(
+                "rp2350.otp",
+                0x4012_0000,
+                0x2_0000,
+                Box::new(Rp2350Otp::new("rp2350.otp")),
+            )?;
+            let (device, handle) = RpDma::new_for_variant("rp2350.dma", RpDmaVariant::Rp2350);
+            bus.map_device("rp2350.dma", 0x5000_0000, 0x4000, Box::new(device))?;
+            dma = Some(handle);
+            map_rp2350_spi(&mut bus, &mut spi)?;
+            map_rp2350_i2c(&mut bus, &signals, &mut i2c)?;
+            let (adc, adc_handle) = RpAdc::new_for_variant("rp2350.adc", RpAdcVariant::FiveChannel);
+            bus.map_device("rp2350.adc", 0x400a_0000, 0x1000, Box::new(adc))?;
+            chip_adc = Some(adc_handle);
+            let (pwm, pwm_handle) = FunctionalPwm::new("rp2350.pwm", 12);
+            bus.map_device("rp2350.pwm", 0x400a_8000, 0x4000, Box::new(pwm))?;
+            chip_pwm = Some(pwm_handle);
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
                 ("rp2350.timer1", 0x400b_8000),
@@ -562,7 +601,6 @@ impl RiscVMachine {
             usb_host = Some(Rp2040UsbHost::new());
         }
 
-        let signals = SignalHub::new();
         let facade_pins = manifest.gpio_count.min(32);
         let (gpio_device, gpio) = FunctionalGpio::new(
             format!("{target}.compiler-gpio"),
@@ -716,25 +754,40 @@ impl RiscVMachine {
             TargetId::Rp2350 => {
                 let (device, handle, multicore) = RpSioGpio::new_rp2350_with_multicore(
                     "rp2350.sio",
-                    32,
+                    manifest.gpio_count,
                     "board.rp2350.chip_gpio",
                     signals.clone(),
                 )?;
                 bus.map_device("rp2350.sio", 0xd000_0000, 0x200, Box::new(device))?;
                 chip_gpio.push(handle);
                 sio = Some(multicore);
+                io_bank = Some(rp_io::map(&mut bus, chip_gpio[0].clone())?);
                 let (uart0, handle) =
                     FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
                 bus.map_device("rp2350.uart0", 0x4007_0000, 0x1000, Box::new(uart0))?;
                 chip_uarts.push(handle);
-                let (pio0, handle) = RpPio::new(
+                let (uart1, handle) = RpPl011Uart::new("rp2350.uart1");
+                bus.map_device("rp2350.uart1", 0x4007_8000, 0x4000, Box::new(uart1))?;
+                chip_uarts.push(handle);
+                let (pio0, handle) = RpPio::new_with_version(
                     "rp2350.pio0",
                     u16::from(manifest.gpio_count.min(32)),
                     "board.rp2350.pio0.gpio",
                     signals.clone(),
+                    RpPioVersion::Rp2350,
                 )?;
                 bus.map_device("rp2350.pio0", 0x5020_0000, 0x4000, Box::new(pio0))?;
                 pio.push(handle);
+                let (hstx_ctrl, hstx_fifo, _hstx_handle) =
+                    new_rp2350_hstx("rp2350.hstx", "board.rp2350.hstx", signals.clone())?;
+                bus.map_device("rp2350.hstx.ctrl", 0x400c_0000, 0x4000, Box::new(hstx_ctrl))?;
+                bus.map_device("rp2350.hstx.fifo", 0x5060_0000, 0x1000, Box::new(hstx_fifo))?;
+                pio::map_secondary_rp2350_pios(
+                    &mut bus,
+                    &mut pio,
+                    &signals,
+                    u16::from(manifest.gpio_count.min(32)),
+                )?;
             }
             TargetId::Rp2040
             | TargetId::Esp32s3
@@ -767,12 +820,19 @@ impl RiscVMachine {
             cpu1_active: false,
             boot_rom_loaded: false,
             sio,
+            io_bank,
+            dma,
+            accessctrl,
+            pads,
+            security_contexts: [(false, true); 2],
             bus,
             signals,
             gpio,
             chip_gpio,
             uart,
             chip_uarts,
+            chip_adc,
+            chip_pwm,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -828,12 +888,15 @@ impl RiscVMachine {
             radio_event_cursor: 0,
             flash_storage,
             chip_timers,
+            i2c,
+            spi,
             pio,
             wch_timer,
             wch_pfic,
             usb,
             usb_dpram,
             usb_host,
+            trng,
             esp_usb_serial_jtag,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
@@ -842,6 +905,5 @@ impl RiscVMachine {
     }
 }
 include!("riscv/machine_runtime.rs");
-
 #[cfg(test)]
 mod tests;

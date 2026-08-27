@@ -188,6 +188,12 @@ The checked qualification suite covers more than workspace unit tests:
 - exact-RV32E, RV32IMAC, Armv6-M, and Armv8-M Rust ABI workloads;
 - selected unmodified WCH EVT, Pico SDK, and ESP-IDF source samples pinned to
   immutable upstream commits;
+- a pinned RP2040 Pico SDK UART/PWM regression slice with native register
+  evidence in `qualification/rp2040-sdk.json`;
+- a pinned RP2040 Pico SDK multicore FIFO/launch regression with shared-UART
+  evidence in `qualification/rp2040-multicore.json`;
+- an explicit RP2040/RP2350 implementation and gap matrix in
+  `docs/RASPBERRY_PI_STATUS.md`;
 - native-image versus direct-execution equivalence for all 14 target modes;
 - architectural stop conditions, GDB, coverage, replay, bus logs, VCD, and
   register-coverage generation;
@@ -206,6 +212,12 @@ Useful entry points are:
 ```sh
 # Initial six-target compiler, peripheral, and provenance gate
 scripts/docker-smoke.sh
+
+# Pinned upstream RP2040 SDK UART/PWM regression slice
+scripts/qualify-rp2040-sdk.sh
+
+# Pinned upstream RP2040 SDK multicore FIFO regression slice
+scripts/qualify-rp2040-multicore.sh
 
 # All 13 MCUs, including native-image equivalence
 scripts/qualify-expansion.sh
@@ -320,6 +332,12 @@ front-end concerns:
 
 - `remu-core`, `remu-bus`, `remu-signals`, and `remu-trace` provide abstract
   time, events, address spaces, resolved nets, and deterministic artifacts.
+  `remu-core::Scheduler` owns monotonic time and typed due-event dispatch over
+  the stable event queue; target/device migration is intentionally incremental.
+- `remu-machines::RunControl` owns stable stimulus ordering, shared
+  instruction/time limits, and signal trace/digest streaming for the RISC-V,
+  Arm, and ATmega run paths; target-specific CPU, interrupt, boot, and device
+  work remains in each machine implementation.
 - `remu-cpu-*` crates implement RISC-V, Arm, Xtensa, AVR, MSP430, PIC16, and
   MCS-51 execution.
 - `remu-devices` provides reusable chip and board components.

@@ -322,6 +322,10 @@ pub trait BusAccessObserver {
 /// Shareable observer handle used by machines with more than one access space.
 pub type SharedBusAccessObserver = Rc<RefCell<dyn BusAccessObserver>>;
 
+/// Shareable pre-access policy used by security-attributed machines.
+pub type SharedAccessGuard =
+    Rc<RefCell<dyn FnMut(u64, AccessWidth, AccessKind) -> Result<(), String>>>;
+
 struct FanoutBusAccessObserver {
     observers: Vec<SharedBusAccessObserver>,
 }
@@ -354,6 +358,7 @@ pub struct AddressSpace {
     masked_write_watchpoints: BTreeMap<u64, (u64, u64)>,
     watchpoint_hit: Option<BusAccessRecord>,
     last_device_access: Option<u64>,
+    access_guard: Option<SharedAccessGuard>,
 }
 
 impl fmt::Debug for AddressSpace {
@@ -395,6 +400,7 @@ impl AddressSpace {
             masked_write_watchpoints: BTreeMap::new(),
             watchpoint_hit: None,
             last_device_access: None,
+            access_guard: None,
         }
     }
 
@@ -416,6 +422,26 @@ impl AddressSpace {
     /// Installs or removes a streaming completed-access observer.
     pub fn set_access_observer(&mut self, observer: Option<SharedBusAccessObserver>) {
         self.access_observer = observer;
+    }
+
+    /// Installs or removes a policy checked before every mapped access.
+    pub fn set_access_guard(&mut self, guard: Option<SharedAccessGuard>) {
+        self.access_guard = guard;
+        self.region_cache = [None; 3];
+    }
+
+    fn check_access_guard(
+        &self,
+        address: u64,
+        width: AccessWidth,
+        kind: AccessKind,
+    ) -> Result<(), BusFault> {
+        if let Some(guard) = &self.access_guard {
+            guard.borrow_mut()(address, width, kind).map_err(|message| {
+                BusFault::new(BusFaultKind::Permission, kind, address, width, message)
+            })?;
+        }
+        Ok(())
     }
 
     /// Sets observation-only PC context for subsequently completed accesses.
@@ -551,6 +577,7 @@ impl AddressSpace {
             || !self.watchpoints.is_empty()
             || !self.write_watchpoints.is_empty()
             || !self.masked_write_watchpoints.is_empty()
+            || self.access_guard.is_some()
     }
 
     /// Maps zero-filled RAM and returns its shareable backing.
@@ -1013,6 +1040,7 @@ impl Bus for AddressSpace {
         kind: AccessKind,
         at: SimTime,
     ) -> Result<u64, BusFault> {
+        self.check_access_guard(address, width, kind)?;
         let endianness = self.endianness;
         let monitored = self.monitors_accesses();
         let observation_pc = self.observation_pc;
@@ -1082,6 +1110,7 @@ impl Bus for AddressSpace {
         value: u64,
         at: SimTime,
     ) -> Result<(), BusFault> {
+        self.check_access_guard(address, width, AccessKind::Write)?;
         let endianness = self.endianness;
         let monitored = self.monitors_accesses();
         let observation_pc = self.observation_pc;

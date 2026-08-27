@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "rp_usb.rs"]
+mod rp_usb;
+pub use rp_usb::*;
+
 /// RP2350 boot RAM and its single-owner boot-lock registers.
 ///
 /// The interpreter currently runs one core at a time, so every boot-lock read can acquire the
@@ -409,6 +413,99 @@ impl Device for ArmPrivatePeripheralBus {
 ///
 /// Endpoint-buffer ownership and host transactions can be layered on this state; this initial
 /// model keeps register writes deterministic and presents an attached VBUS source.
+///
+/// The values are offsets within the USB controller's 4 KiB register window. The controller
+/// also accepts the RP2040 atomic aliases at `offset + 0x1000`, `+0x2000`, and `+0x3000`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum Rp2040UsbRegister {
+    /// Main controller mode and enable.
+    MainCtrl = 0x40,
+    /// Host SOF frame number write register.
+    SofWr = 0x44,
+    /// Last observed SOF frame number.
+    SofRd = 0x48,
+    /// Serial interface engine control.
+    SieCtrl = 0x4c,
+    /// Serial interface engine status and write-clear events.
+    SieStatus = 0x50,
+    /// Host interrupt endpoint control.
+    IntEpCtrl = 0x54,
+    /// Endpoint buffer completion status and write-clear events.
+    BuffStatus = 0x58,
+    /// Double-buffer CPU ownership indication.
+    BuffCpuShouldHandle = 0x5c,
+    /// Endpoint abort control.
+    EpAbort = 0x60,
+    /// Endpoint abort completion status.
+    EpAbortDone = 0x64,
+    /// Endpoint zero stall arm control.
+    EpStallArm = 0x68,
+    /// Host NAK polling intervals.
+    NakPoll = 0x6c,
+    /// Endpoint stall/NAK status.
+    EpStatusStallNak = 0x70,
+    /// USB controller-to-PHY muxing.
+    UsbMuxing = 0x74,
+    /// VBUS and over-current power controls.
+    UsbPwr = 0x78,
+    /// Direct USB PHY controls.
+    UsbPhyDirect = 0x7c,
+    /// Direct USB PHY override enables.
+    UsbPhyDirectOverride = 0x80,
+    /// USB PHY trim values.
+    UsbPhyTrim = 0x84,
+    /// Raw interrupt status.
+    Intr = 0x8c,
+    /// Interrupt enable.
+    Inte = 0x90,
+    /// Interrupt force.
+    Intf = 0x94,
+    /// Masked and forced interrupt status.
+    Ints = 0x98,
+}
+
+impl Rp2040UsbRegister {
+    /// Converts a controller-relative register offset into a typed register ID.
+    pub const fn from_offset(offset: u64) -> Option<Self> {
+        Some(match offset {
+            0x40 => Self::MainCtrl,
+            0x44 => Self::SofWr,
+            0x48 => Self::SofRd,
+            0x4c => Self::SieCtrl,
+            0x50 => Self::SieStatus,
+            0x54 => Self::IntEpCtrl,
+            0x58 => Self::BuffStatus,
+            0x5c => Self::BuffCpuShouldHandle,
+            0x60 => Self::EpAbort,
+            0x64 => Self::EpAbortDone,
+            0x68 => Self::EpStallArm,
+            0x6c => Self::NakPoll,
+            0x70 => Self::EpStatusStallNak,
+            0x74 => Self::UsbMuxing,
+            0x78 => Self::UsbPwr,
+            0x7c => Self::UsbPhyDirect,
+            0x80 => Self::UsbPhyDirectOverride,
+            0x84 => Self::UsbPhyTrim,
+            0x8c => Self::Intr,
+            0x90 => Self::Inte,
+            0x94 => Self::Intf,
+            0x98 => Self::Ints,
+            _ => return None,
+        })
+    }
+
+    /// Returns the controller-relative byte offset for this register.
+    pub const fn offset(self) -> u64 {
+        self as u64
+    }
+
+    const fn index(self) -> usize {
+        self.offset() as usize / 4
+    }
+}
+
+/// Functional RP2040 USB controller register slice.
 pub struct Rp2040UsbController {
     name: String,
     state: Arc<Mutex<Rp2040UsbState>>,
@@ -416,6 +513,7 @@ pub struct Rp2040UsbController {
 
 struct Rp2040UsbState {
     registers: [u32; 64],
+    link: RpUsbLinkState,
 }
 
 /// Host-facing control of the RP2040 USB device controller.
@@ -425,26 +523,116 @@ pub struct Rp2040UsbHandle {
 }
 
 impl Rp2040UsbState {
+    const VBUS_DETECTED: u32 = 1;
+    const SIE_STATUS_DATA_SEQ_ERROR: u32 = 1 << 31;
+    const SIE_STATUS_ACK_REC: u32 = 1 << 30;
+    const SIE_STATUS_STALL_REC: u32 = 1 << 29;
+    const SIE_STATUS_NAK_REC: u32 = 1 << 28;
+    const SIE_STATUS_RX_TIMEOUT: u32 = 1 << 27;
+    const SIE_STATUS_RX_OVERFLOW: u32 = 1 << 26;
+    const SIE_STATUS_BIT_STUFF_ERROR: u32 = 1 << 25;
+    const SIE_STATUS_CRC_ERROR: u32 = 1 << 24;
+    const SIE_STATUS_BUS_RESET: u32 = 1 << 19;
+    const SIE_STATUS_TRANS_COMPLETE: u32 = 1 << 18;
+    const SIE_STATUS_SETUP_REC: u32 = 1 << 17;
+    const SIE_STATUS_CONNECTED: u32 = 1 << 16;
+    const SIE_STATUS_RESUME: u32 = 1 << 11;
+    const SIE_STATUS_SPEED: u32 = 0b11 << 8;
+    const SIE_STATUS_SUSPENDED: u32 = 1 << 4;
+    const SIE_STATUS_LINE_STATE: u32 = 0b11 << 2;
+    const SIE_STATUS_READ_ONLY: u32 = (1 << 10) | Self::SIE_STATUS_LINE_STATE | Self::VBUS_DETECTED;
+    const SIE_STATUS_VALID: u32 = Self::SIE_STATUS_DATA_SEQ_ERROR
+        | Self::SIE_STATUS_ACK_REC
+        | Self::SIE_STATUS_STALL_REC
+        | Self::SIE_STATUS_NAK_REC
+        | Self::SIE_STATUS_RX_TIMEOUT
+        | Self::SIE_STATUS_RX_OVERFLOW
+        | Self::SIE_STATUS_BIT_STUFF_ERROR
+        | Self::SIE_STATUS_CRC_ERROR
+        | Self::SIE_STATUS_BUS_RESET
+        | Self::SIE_STATUS_TRANS_COMPLETE
+        | Self::SIE_STATUS_SETUP_REC
+        | Self::SIE_STATUS_CONNECTED
+        | Self::SIE_STATUS_RESUME
+        | Self::SIE_STATUS_SPEED
+        | Self::SIE_STATUS_SUSPENDED
+        | Self::SIE_STATUS_READ_ONLY;
+
+    const MAIN_CTRL_MASK: u32 = (1 << 31) | 0x3;
+    const SOF_WR_MASK: u32 = 0x7ff;
+    const SIE_CTRL_MASK: u32 = 0xff07_bf5f;
+    const SIE_CTRL_SELF_CLEAR: u32 = (1 << 13) | (1 << 12) | (1 << 4) | 1;
+    const INT_EP_CTRL_MASK: u32 = 0xfffe;
+    const NAK_POLL_MASK: u32 = 0x03ff_03ff;
+    const USB_MUXING_MASK: u32 = 0xf;
+    const USB_PWR_MASK: u32 = 0x3f;
+    const USB_PHY_DIRECT_MASK: u32 = 0xff77;
+    const USB_PHY_DIRECT_READ_ONLY: u32 = 0x007f_0000;
+    const USB_PHY_DIRECT_OVERRIDE_MASK: u32 = 0x9fff;
+    const USB_PHY_TRIM_MASK: u32 = 0x1f1f;
+    const INTERRUPT_MASK: u32 = 0x000f_ffff;
+
+    fn reset_registers(registers: &mut [u32; 64]) {
+        registers.fill(0);
+        registers[Rp2040UsbRegister::SieStatus.index()] = Self::VBUS_DETECTED;
+        registers[Rp2040UsbRegister::NakPoll.index()] = 0x0010_0010;
+        registers[Rp2040UsbRegister::UsbPhyTrim.index()] = Self::USB_PHY_TRIM_MASK;
+    }
+
     fn raw_interrupts(&self) -> u32 {
-        let sie_status = self.registers[0x50 / 4];
+        let sie_status = self.registers[Rp2040UsbRegister::SieStatus.index()];
         let mut interrupts = 0;
-        if self.registers[0x58 / 4] != 0 {
+        if self.registers[Rp2040UsbRegister::BuffStatus.index()] != 0 {
             interrupts |= 1 << 4;
         }
-        if sie_status & (1 << 19) != 0 {
+        if sie_status & Self::SIE_STATUS_DATA_SEQ_ERROR != 0 {
+            interrupts |= 1 << 5;
+        }
+        if sie_status & Self::SIE_STATUS_RX_TIMEOUT != 0 {
+            interrupts |= 1 << 6;
+        }
+        if sie_status & Self::SIE_STATUS_RX_OVERFLOW != 0 {
+            interrupts |= 1 << 7;
+        }
+        if sie_status & Self::SIE_STATUS_BIT_STUFF_ERROR != 0 {
+            interrupts |= 1 << 8;
+        }
+        if sie_status & Self::SIE_STATUS_CRC_ERROR != 0 {
+            interrupts |= 1 << 9;
+        }
+        if sie_status & Self::SIE_STATUS_STALL_REC != 0 {
+            interrupts |= 1 << 10;
+        }
+        if sie_status & Self::SIE_STATUS_BUS_RESET != 0 {
             interrupts |= 1 << 12;
         }
-        if sie_status & (1 << 0) != 0 {
+        if sie_status & Self::VBUS_DETECTED != 0 {
             interrupts |= 1 << 11;
         }
-        if sie_status & (1 << 17) != 0 {
+        if sie_status & Self::SIE_STATUS_CONNECTED != 0 {
+            interrupts |= 1 << 13;
+        }
+        if sie_status & Self::SIE_STATUS_SUSPENDED != 0 {
+            interrupts |= 1 << 14;
+        }
+        if sie_status & Self::SIE_STATUS_RESUME != 0 {
+            interrupts |= 1 << 15;
+        }
+        if sie_status & Self::SIE_STATUS_SETUP_REC != 0 {
             interrupts |= 1 << 16;
+        }
+        if sie_status & Self::SIE_STATUS_TRANS_COMPLETE != 0 {
+            interrupts |= 1 << 3;
+        }
+        if sie_status & Self::SIE_STATUS_SPEED != 0 {
+            interrupts |= 1;
         }
         interrupts
     }
 
     fn masked_interrupts(&self) -> u32 {
-        (self.raw_interrupts() & self.registers[0x90 / 4]) | self.registers[0x94 / 4]
+        (self.raw_interrupts() & self.registers[Rp2040UsbRegister::Inte.index()])
+            | self.registers[Rp2040UsbRegister::Intf.index()]
     }
 }
 
@@ -452,15 +640,19 @@ impl Rp2040UsbHandle {
     /// Returns true after firmware enables the controller and device pull-up.
     pub fn device_connected(&self) -> bool {
         let state = self.state.lock().expect("RP2040 USB lock poisoned");
-        state.registers[0x40 / 4] & 1 != 0
-            && state.registers[0x4c / 4] & (1 << 16) != 0
-            && state.registers[0x74 / 4] & 1 != 0
+        state.registers[Rp2040UsbRegister::MainCtrl.index()] & 1 != 0
+            && state.registers[Rp2040UsbRegister::SieCtrl.index()] & (1 << 16) != 0
+            && state.registers[Rp2040UsbRegister::UsbMuxing.index()] & 1 != 0
     }
 
     /// Reports a host bus reset to device firmware.
     pub fn inject_bus_reset(&self) {
         let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
-        state.registers[0x50 / 4] |= (1 << 19) | (1 << 16) | 1;
+        state.link.bus_reset();
+        state.registers[Rp2040UsbRegister::SieStatus.index()] |=
+            Rp2040UsbState::SIE_STATUS_BUS_RESET
+                | Rp2040UsbState::SIE_STATUS_CONNECTED
+                | Rp2040UsbState::VBUS_DETECTED;
     }
 
     /// Reports a SETUP packet already placed in USB DPRAM.
@@ -468,7 +660,7 @@ impl Rp2040UsbHandle {
         self.state
             .lock()
             .expect("RP2040 USB lock poisoned")
-            .registers[0x50 / 4] |= 1 << 17;
+            .registers[Rp2040UsbRegister::SieStatus.index()] |= 1 << 17;
     }
 
     /// Reports completion of one endpoint buffer.
@@ -477,7 +669,7 @@ impl Rp2040UsbHandle {
         self.state
             .lock()
             .expect("RP2040 USB lock poisoned")
-            .registers[0x58 / 4] |= 1 << bit;
+            .registers[Rp2040UsbRegister::BuffStatus.index()] |= 1 << bit;
     }
 
     /// Returns whether the controller currently asserts its interrupt output.
@@ -513,75 +705,9 @@ impl Rp2040Ssi {
     }
 }
 
-/// Functional RP2040 real-time clock register window.
-pub struct Rp2040Rtc {
-    name: String,
-    registers: [u32; 16],
-}
-
-impl Rp2040Rtc {
-    /// Creates a stopped RTC.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            registers: [0; 16],
-        }
-    }
-}
-
-impl Device for Rp2040Rtc {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || !width.is_aligned(offset) {
-            return Err(DeviceError::new(
-                "RP2040 RTC requires aligned word accesses",
-            ));
-        }
-        let register_offset = offset & 0x0fff;
-        self.registers
-            .get(usize::try_from(register_offset / 4).expect("RTC offset fits usize"))
-            .copied()
-            .map(u64::from)
-            .ok_or_else(|| DeviceError::new("RP2040 RTC read outside register window"))
-    }
-
-    fn write(
-        &mut self,
-        offset: u64,
-        width: AccessWidth,
-        value: u64,
-        _at: SimTime,
-    ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || !width.is_aligned(offset) {
-            return Err(DeviceError::new(
-                "RP2040 RTC requires aligned word accesses",
-            ));
-        }
-        let alias = (offset >> 12) & 3;
-        let register_offset = offset & 0x0fff;
-        let register = self
-            .registers
-            .get_mut(usize::try_from(register_offset / 4).expect("RTC offset fits usize"))
-            .ok_or_else(|| DeviceError::new("RP2040 RTC write outside register window"))?;
-        Rp2040Resets::update(register, alias, value as u32)?;
-        if register_offset == 0x0c {
-            // CTRL.ENABLE becomes CTRL.RTC_ACTIVE immediately in the functional time model.
-            if *register & 1 != 0 {
-                *register |= 2;
-            } else {
-                *register &= !2;
-            }
-        }
-        Ok(())
-    }
-
-    fn reset(&mut self, _kind: ResetKind) {
-        self.registers.fill(0);
-    }
-}
+#[path = "rp2040_rtc.rs"]
+mod rp2040_rtc;
+pub use rp2040_rtc::*;
 
 impl Device for Rp2040Ssi {
     fn name(&self) -> &str {
@@ -651,8 +777,11 @@ impl Rp2040UsbController {
     /// Creates a USB controller and its functional-host handle.
     pub fn new_with_handle(name: impl Into<String>) -> (Self, Rp2040UsbHandle) {
         let mut registers = [0; 64];
-        registers[0x50 / 4] = 1;
-        let state = Arc::new(Mutex::new(Rp2040UsbState { registers }));
+        Rp2040UsbState::reset_registers(&mut registers);
+        let state = Arc::new(Mutex::new(Rp2040UsbState {
+            registers,
+            link: RpUsbLinkState::reset(),
+        }));
         (
             Self {
                 name: name.into(),
@@ -672,6 +801,63 @@ impl Rp2040UsbController {
         }
         Ok(())
     }
+
+    fn replicated_write(width: AccessWidth, value: u64) -> Result<u32, DeviceError> {
+        match width {
+            AccessWidth::Byte => {
+                let byte = u32::try_from(value & 0xff).expect("byte write fits");
+                Ok(byte.wrapping_mul(0x0101_0101))
+            }
+            AccessWidth::HalfWord => {
+                let half = u32::try_from(value & 0xffff).expect("halfword write fits");
+                Ok(half | (half << 16))
+            }
+            AccessWidth::Word => u32::try_from(value & u64::from(u32::MAX)).map_err(|_| {
+                DeviceError::new("RP2040 USB word write does not fit in the register bus")
+            }),
+            AccessWidth::DoubleWord => Err(DeviceError::new(
+                "RP2040 USB controller does not support doubleword access",
+            )),
+        }
+    }
+
+    fn narrow_read(value: u32, offset: u64, width: AccessWidth) -> u64 {
+        let shift = (offset & 3) * 8;
+        (u64::from(value) >> shift) & width.value_mask()
+    }
+
+    fn update_masked(
+        register: &mut u32,
+        alias: u64,
+        value: u32,
+        mask: u32,
+        read_only: u32,
+        self_clear: u32,
+    ) -> Result<(), DeviceError> {
+        let preserved = *register & read_only;
+        Self::update(register, alias, value)?;
+        *register = (*register & mask & !read_only) | preserved;
+        *register &= !self_clear;
+        Ok(())
+    }
+
+    fn update_write_clear(
+        register: &mut u32,
+        alias: u64,
+        value: u32,
+        valid: u32,
+        read_only: u32,
+    ) -> Result<(), DeviceError> {
+        let preserved = *register & read_only;
+        let value = value & valid & !read_only;
+        if alias == 0 || alias == 3 {
+            *register &= !value;
+        } else {
+            Self::update(register, alias, value)?;
+        }
+        *register = (*register & valid & !read_only) | preserved;
+        Ok(())
+    }
 }
 
 impl Device for Rp2040UsbController {
@@ -680,24 +866,38 @@ impl Device for Rp2040UsbController {
     }
 
     fn read(&mut self, offset: u64, width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
+        if width == AccessWidth::DoubleWord {
             return Err(DeviceError::new(
-                "RP2040 USB controller requires aligned word access",
+                "RP2040 USB controller does not support doubleword access",
             ));
         }
         let register_offset = offset & 0x0fff;
-        let index = usize::try_from(register_offset / 4).expect("small USB offset fits");
-        let state = self.state.lock().expect("RP2040 USB lock poisoned");
-        let value = match register_offset {
-            0x8c => Some(state.raw_interrupts()),
-            0x98 => Some(state.masked_interrupts()),
-            _ => state.registers.get(index).copied(),
-        };
-        value.map(u64::from).ok_or_else(|| {
+        let register_offset = register_offset & !3;
+        let register = Rp2040UsbRegister::from_offset(register_offset).ok_or_else(|| {
             DeviceError::new(format!(
                 "unmodeled RP2040 USB read at offset {register_offset:#x}"
             ))
-        })
+        })?;
+        let state = self.state.lock().expect("RP2040 USB lock poisoned");
+        let value = match register {
+            Rp2040UsbRegister::Intr => state.raw_interrupts(),
+            Rp2040UsbRegister::Ints => state.masked_interrupts(),
+            Rp2040UsbRegister::SofRd => u32::from(state.link.frame),
+            Rp2040UsbRegister::SieStatus => {
+                let status =
+                    state.registers[register.index()] & !Rp2040UsbState::SIE_STATUS_LINE_STATE;
+                status | (state.link.line.status_bits() << 2)
+            }
+            Rp2040UsbRegister::UsbPhyDirect => {
+                let (dp, dm) = state.link.line.pins();
+                state.registers[register.index()]
+                    | (u32::from(dp) << 17)
+                    | (u32::from(dm) << 18)
+                    | (u32::from(dp != dm) << 16)
+            }
+            _ => state.registers[register.index()],
+        };
+        Ok(Self::narrow_read(value, offset, width))
     }
 
     fn write(
@@ -707,32 +907,167 @@ impl Device for Rp2040UsbController {
         value: u64,
         _at: SimTime,
     ) -> Result<(), DeviceError> {
-        if width != AccessWidth::Word || offset & 3 != 0 {
+        if width == AccessWidth::DoubleWord {
             return Err(DeviceError::new(
-                "RP2040 USB controller requires aligned word access",
+                "RP2040 USB controller does not support doubleword access",
             ));
         }
         let alias = (offset >> 12) & 3;
         let register_offset = offset & 0x0fff;
-        let index = usize::try_from(register_offset / 4).expect("small USB offset fits");
-        let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
-        let register = state.registers.get_mut(index).ok_or_else(|| {
+        let register_offset = register_offset & !3;
+        let register = Rp2040UsbRegister::from_offset(register_offset).ok_or_else(|| {
             DeviceError::new(format!(
                 "unmodeled RP2040 USB write at offset {register_offset:#x}"
             ))
         })?;
-        let value =
-            u32::try_from(value & u64::from(u32::MAX)).expect("masked USB register value fits");
-        Self::update(register, alias, value)?;
+        let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
+        let value = Self::replicated_write(width, value)?;
+        match register {
+            // SIE_STATUS and BUFF_STATUS are write-clear event registers in the
+            // RP2040 USB block. The atomic clear alias is equivalent to a base
+            // write for these registers; status bits are never assigned raw.
+            Rp2040UsbRegister::SieStatus => Self::update_write_clear(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::SIE_STATUS_VALID,
+                Rp2040UsbState::SIE_STATUS_READ_ONLY,
+            )?,
+            Rp2040UsbRegister::BuffStatus
+            | Rp2040UsbRegister::EpAbortDone
+            | Rp2040UsbRegister::EpStatusStallNak => Self::update_write_clear(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                u32::MAX,
+                0,
+            )?,
+            Rp2040UsbRegister::MainCtrl => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::MAIN_CTRL_MASK,
+                0,
+                0,
+            )?,
+            Rp2040UsbRegister::SofWr => {
+                Self::update_masked(
+                    &mut state.registers[register.index()],
+                    alias,
+                    value,
+                    Rp2040UsbState::SOF_WR_MASK,
+                    0,
+                    0,
+                )?;
+                state.link.frame = state.registers[register.index()] as u16;
+            }
+            Rp2040UsbRegister::SofRd
+            | Rp2040UsbRegister::BuffCpuShouldHandle
+            | Rp2040UsbRegister::Intr
+            | Rp2040UsbRegister::Ints => {}
+            Rp2040UsbRegister::SieCtrl => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::SIE_CTRL_MASK,
+                0,
+                Rp2040UsbState::SIE_CTRL_SELF_CLEAR,
+            )?,
+            Rp2040UsbRegister::IntEpCtrl => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::INT_EP_CTRL_MASK,
+                0,
+                0,
+            )?,
+            Rp2040UsbRegister::EpAbort => {
+                Self::update_masked(
+                    &mut state.registers[register.index()],
+                    alias,
+                    value,
+                    u32::MAX,
+                    0,
+                    0,
+                )?;
+                let aborted = state.registers[register.index()];
+                state.registers[Rp2040UsbRegister::EpAbortDone.index()] |= aborted;
+                state.registers[register.index()] = 0;
+            }
+            Rp2040UsbRegister::EpStallArm => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                0x3,
+                0,
+                0,
+            )?,
+            Rp2040UsbRegister::NakPoll => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::NAK_POLL_MASK,
+                0,
+                0,
+            )?,
+            Rp2040UsbRegister::UsbMuxing => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::USB_MUXING_MASK,
+                0,
+                0,
+            )?,
+            Rp2040UsbRegister::UsbPwr => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::USB_PWR_MASK,
+                0,
+                0,
+            )?,
+            Rp2040UsbRegister::UsbPhyDirect => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::USB_PHY_DIRECT_MASK,
+                Rp2040UsbState::USB_PHY_DIRECT_READ_ONLY,
+                0,
+            )?,
+            Rp2040UsbRegister::UsbPhyDirectOverride => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::USB_PHY_DIRECT_OVERRIDE_MASK,
+                0,
+                0,
+            )?,
+            Rp2040UsbRegister::UsbPhyTrim => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::USB_PHY_TRIM_MASK,
+                0,
+                0,
+            )?,
+            Rp2040UsbRegister::Inte | Rp2040UsbRegister::Intf => Self::update_masked(
+                &mut state.registers[register.index()],
+                alias,
+                value,
+                Rp2040UsbState::INTERRUPT_MASK,
+                0,
+                0,
+            )?,
+        }
         // VBUS_DETECTED is driven by the functional host and remains asserted.
-        state.registers[0x50 / 4] |= 1;
+        state.registers[Rp2040UsbRegister::SieStatus.index()] |= Rp2040UsbState::VBUS_DETECTED;
         Ok(())
     }
 
     fn reset(&mut self, _kind: ResetKind) {
         let mut state = self.state.lock().expect("RP2040 USB lock poisoned");
-        state.registers.fill(0);
-        state.registers[0x50 / 4] = 1;
+        Rp2040UsbState::reset_registers(&mut state.registers);
+        state.link = RpUsbLinkState::reset();
     }
 }
 
@@ -880,7 +1215,10 @@ impl RpSioGpio {
         hub: SignalHub,
         layout: RpSioLayout,
     ) -> Result<(Self, GpioHandle, RpSioHandle), SignalError> {
-        let (state, signals, handle) = vendor_gpio(pins, path, &hub)?;
+        let (state, signals, handle) = match layout {
+            RpSioLayout::Rp2040 => vendor_gpio(pins, path, &hub)?,
+            RpSioLayout::Rp2350 => vendor_gpio_wide(pins, path, &hub)?,
+        };
         let multicore = Rc::new(RefCell::new(RpSioMulticoreState::default()));
         Ok((
             Self {
@@ -902,11 +1240,12 @@ impl RpSioGpio {
         ))
     }
 
-    fn resolved_input(&self) -> u32 {
+    fn resolved_input(&self, first_pin: u8, count: u8) -> u32 {
         let state = self.state.lock().expect("GPIO lock poisoned");
-        (0..self.pins).fold(0_u32, |value, pin| {
+        let end = first_pin.saturating_add(count).min(self.pins);
+        (first_pin..end).fold(0_u32, |value, pin| {
             if state.nets[usize::from(pin)].resolved() == Logic::One {
-                value | (1_u32 << pin)
+                value | (1_u32 << (pin - first_pin))
             } else {
                 value
             }
@@ -969,12 +1308,18 @@ impl Device for RpSioGpio {
         let value = match (self.layout, offset) {
             (_, 0x004) => {
                 drop(state);
-                return Ok(u64::from(self.resolved_input()));
+                return Ok(u64::from(self.resolved_input(0, 32)));
+            }
+            (RpSioLayout::Rp2350, 0x008) => {
+                drop(state);
+                return Ok(u64::from(self.resolved_input(32, 16)));
             }
             (RpSioLayout::Rp2040, 0x010..=0x01c)
             | (RpSioLayout::Rp2350, 0x010 | 0x018 | 0x020 | 0x028) => state.output,
             (RpSioLayout::Rp2040, 0x020..=0x02c)
             | (RpSioLayout::Rp2350, 0x030 | 0x038 | 0x040 | 0x048) => state.direction,
+            (RpSioLayout::Rp2350, 0x014 | 0x01c | 0x024 | 0x02c) => state.output_high,
+            (RpSioLayout::Rp2350, 0x034 | 0x03c | 0x044 | 0x04c) => state.direction_high,
             _ => 0,
         };
         Ok(u64::from(value))
@@ -1098,6 +1443,14 @@ impl Device for RpSioGpio {
             (RpSioLayout::Rp2040, 0x02c) | (RpSioLayout::Rp2350, 0x048) => {
                 state.direction ^= value;
             }
+            (RpSioLayout::Rp2350, 0x014) => state.output_high = value & 0xffff,
+            (RpSioLayout::Rp2350, 0x01c) => state.output_high |= value & 0xffff,
+            (RpSioLayout::Rp2350, 0x024) => state.output_high &= !(value & 0xffff),
+            (RpSioLayout::Rp2350, 0x02c) => state.output_high ^= value & 0xffff,
+            (RpSioLayout::Rp2350, 0x034) => state.direction_high = value & 0xffff,
+            (RpSioLayout::Rp2350, 0x03c) => state.direction_high |= value & 0xffff,
+            (RpSioLayout::Rp2350, 0x044) => state.direction_high &= !(value & 0xffff),
+            (RpSioLayout::Rp2350, 0x04c) => state.direction_high ^= value & 0xffff,
             _ => return Ok(()),
         }
         drop(state);
@@ -1108,6 +1461,8 @@ impl Device for RpSioGpio {
         let mut gpio = self.state.lock().expect("GPIO lock poisoned");
         gpio.direction = 0;
         gpio.output = 0;
+        gpio.direction_high = 0;
+        gpio.output_high = 0;
         drop(gpio);
         *self.multicore.borrow_mut() = RpSioMulticoreState::default();
         self.spinlocks = u32::MAX;

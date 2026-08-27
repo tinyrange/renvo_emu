@@ -74,6 +74,28 @@ fn maps_and_accesses_little_endian_memory() {
 }
 
 #[test]
+fn access_guard_blocks_fast_and_regular_paths() {
+    let mut bus = AddressSpace::default();
+    bus.map_ram("ram", 0x2000_0000, 16, true).unwrap();
+    let guard: SharedAccessGuard = Rc::new(RefCell::new(|address, _width, _kind| {
+        if address == 0x2000_0004 {
+            Err("test security policy".to_owned())
+        } else {
+            Ok(())
+        }
+    }));
+    bus.set_access_guard(Some(guard));
+    assert_eq!(bus.fast_read(0x2000_0000, AccessWidth::Word), None);
+    let fault = bus
+        .write(0x2000_0004, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap_err();
+    assert_eq!(fault.kind, BusFaultKind::Permission);
+    assert!(fault.message.contains("test security policy"));
+    bus.write(0x2000_0000, AccessWidth::Word, 2, SimTime::ZERO)
+        .unwrap();
+}
+
+#[test]
 fn fast_fetch_is_disabled_when_accesses_are_observable() {
     let mut bus = AddressSpace::default();
     bus.map_rom("rom", 0x1000, vec![0x11, 0x22, 0x33, 0x44])

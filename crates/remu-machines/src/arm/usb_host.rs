@@ -25,6 +25,7 @@ struct UsbControlTransfer {
 
 pub(crate) struct Rp2040UsbHost {
     reset_sent: bool,
+    next_sof_at: u64,
     next_setup_at: u64,
     requests: VecDeque<UsbControlRequest>,
     active: Option<UsbControlTransfer>,
@@ -64,6 +65,7 @@ impl Rp2040UsbHost {
         ]);
         Self {
             reset_sent: false,
+            next_sof_at: 0,
             next_setup_at: 0,
             requests,
             active: None,
@@ -151,6 +153,8 @@ impl Rp2040UsbHost {
         {
             let length = usize::from(buffer & USB_BUF_LEN);
             if let Some(bytes) = dpram.read_range(0x100, length) {
+                usb.transact(0, true, false, &bytes, RpUsbPid::Ack)
+                    .expect("functional USB IN transaction is valid");
                 transfer.response.extend(bytes);
             }
             dpram.write_u32(0x80, control & !u32::from(USB_BUF_AVAIL | USB_BUF_FULL));
@@ -166,6 +170,8 @@ impl Rp2040UsbHost {
             let control = dpram.read_u32(0x84).unwrap_or(0);
             let buffer = control as u16;
             if buffer & USB_BUF_AVAIL != 0 && buffer & USB_BUF_FULL == 0 {
+                usb.transact(0, false, false, &[], RpUsbPid::Ack)
+                    .expect("functional USB status transaction is valid");
                 let completed =
                     (control & !u32::from(USB_BUF_AVAIL | USB_BUF_LEN)) | u32::from(USB_BUF_FULL);
                 dpram.write_u32(0x84, completed);
@@ -186,6 +192,8 @@ impl Rp2040UsbHost {
         let control = dpram.read_u32(0x80).unwrap_or(0);
         let buffer = control as u16;
         if buffer & (USB_BUF_AVAIL | USB_BUF_FULL) == (USB_BUF_AVAIL | USB_BUF_FULL) {
+            usb.transact(0, true, false, &[], RpUsbPid::Ack)
+                .expect("functional USB status transaction is valid");
             dpram.write_u32(0x80, control & !u32::from(USB_BUF_AVAIL | USB_BUF_FULL));
             usb.complete_buffer(0, true);
             self.finish_control(now);
@@ -219,6 +227,8 @@ impl Rp2040UsbHost {
             }
             let length = usize::from(half & USB_BUF_LEN);
             if let Some(bytes) = dpram.read_range(buffer_offset + buffer_index * 64, length) {
+                usb.transact(endpoint, true, false, &bytes, RpUsbPid::Ack)
+                    .expect("functional USB bulk IN transaction is valid");
                 self.output.extend(bytes);
                 if self.output.ends_with(b"\x04\x04>")
                     || self.output.ends_with(b"raw REPL; CTRL-B to exit\r\n>")
@@ -277,6 +287,8 @@ impl Rp2040UsbHost {
             length = end + 1;
         }
         let bytes = self.input.drain(..length).collect::<Vec<_>>();
+        usb.transact(endpoint, false, false, &bytes, RpUsbPid::Ack)
+            .expect("functional USB bulk OUT transaction is valid");
         if bytes.contains(&0x04) {
             self.sending_raw_chunk = false;
         }
@@ -300,10 +312,16 @@ impl Rp2040UsbHost {
             if usb.device_connected() {
                 usb.inject_bus_reset();
                 self.reset_sent = true;
+                self.next_sof_at = now.ticks().saturating_add(1_000);
                 self.next_setup_at = now.ticks().saturating_add(1024);
                 return 1;
             }
             return 0;
+        }
+
+        if now.ticks() >= self.next_sof_at {
+            usb.inject_sof();
+            self.next_sof_at = self.next_sof_at.saturating_add(1_000);
         }
 
         if let Some(transfer) = &self.active {
@@ -318,6 +336,8 @@ impl Rp2040UsbHost {
             && !usb.interrupt_pending()
             && let Some(request) = self.requests.pop_front()
         {
+            usb.transact(0, false, true, &request.setup, RpUsbPid::Ack)
+                .expect("functional USB SETUP transaction is valid");
             dpram.write_range(0, &request.setup);
             usb.inject_setup();
             self.active = Some(UsbControlTransfer {

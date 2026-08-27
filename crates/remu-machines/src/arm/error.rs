@@ -46,6 +46,9 @@ pub enum ArmMachineError {
     /// Virtual time overflowed.
     #[error("simulation time overflow")]
     TimeOverflow,
+    /// Machine configuration request is not valid for this target.
+    #[error("invalid Arm machine configuration: {0}")]
+    Configuration(String),
     /// UF2 parsing or flash reconstruction failed.
     #[error(transparent)]
     Uf2(#[from] Uf2Error),

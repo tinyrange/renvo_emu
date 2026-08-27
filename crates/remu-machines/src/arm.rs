@@ -2,11 +2,11 @@ use crate::HOST_SCRIPT_COMPLETE_MARKER;
 use crate::riscv::{TEST_DEVICE_SIZE, TEST_EXIT_SIZE};
 use crate::{
     MemoryKind, PinStimulus, RunResult, SignalEdge, SignalStop, TEST_EXIT, TEST_GPIO, TEST_TIMER,
-    TEST_UART, TargetId, matching_signal_stop, resolve_signal_stop, target_manifest,
+    TEST_UART, TargetId, resolve_signal_stop, run_control::RunControl, target_manifest,
 };
 use remu_bus::{
-    AddressSpace, BusAccessRecord, Endianness, MapError, Permissions, SharedBusAccessObserver,
-    SharedMemory,
+    AddressSpace, BusAccessRecord, Endianness, MapError, Permissions, SharedAccessGuard,
+    SharedBusAccessObserver, SharedMemory,
 };
 use remu_core::{
     AccessKind, AccessWidth, Bus, Cpu, CpuFault, RunLimits, RunStats, SimTime, StepReason,
@@ -14,15 +14,22 @@ use remu_core::{
 };
 use remu_cpu_arm::{ArmCpu, ArmProfile, ArmRegister};
 use remu_devices::{
-    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Resets,
-    Rp2040Rtc, Rp2040Ssi, Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle,
-    Rp2040Watchdog, Rp2040Xosc, Rp2350BootRam, Rp2350XipMaintenance, RpPio, RpPioHandle, RpSioGpio,
-    RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle,
+    ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalI2c,
+    FunctionalPwm, FunctionalSpi, FunctionalTimer, FunctionalUart, GpioHandle, I2cEvent, I2cHandle,
+    PwmHandle, Rp2040Clocks, Rp2040IoBank, Rp2040IoBankHandle, Rp2040Pll, Rp2040Psm,
+    Rp2040RegisterBank, Rp2040Resets, Rp2040Rosc, Rp2040Rtc, Rp2040RtcHandle, Rp2040Ssi,
+    Rp2040Timer, Rp2040TimerHandle, Rp2040UsbController, Rp2040UsbHandle, Rp2040VregAndChipReset,
+    Rp2040Watchdog, Rp2040WatchdogHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350AccessCtrlHandle,
+    Rp2350AccessMaster, Rp2350BootRam, Rp2350Otp, Rp2350Powman, Rp2350Sha256, Rp2350Spi,
+    Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
+    RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2c, RpI2cEvent, RpI2cHandle,
+    RpIoBank, RpIoBankHandle, RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle,
+    RpPioVersion, RpPl011Uart, RpSioGpio, RpSioHandle, RpTimerLayout, RpUsbPid, SignalHub,
+    SpiHandle, TimerHandle, UartHandle, new_rp2350_hstx,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image};
 use remu_signals::{Logic, SignalError};
-use remu_trace::{TraceDigest, TraceError, TraceSink};
+use remu_trace::{TraceError, TraceSink};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
@@ -30,6 +37,7 @@ mod error;
 pub use error::ArmMachineError;
 mod usb_host;
 pub(crate) use usb_host::Rp2040UsbHost;
+mod rp_pio_runtime;
 
 /// Runnable direct-ELF Arm vertical slice for RP2040 and RP2350.
 pub struct ArmMachine {
@@ -42,8 +50,14 @@ pub struct ArmMachine {
     gpio: GpioHandle,
     chip_gpio: GpioHandle,
     sio: RpSioHandle,
+    dma: RpDmaHandle,
     pub(crate) uart: UartHandle,
     pub(crate) chip_uart: UartHandle,
+    pub(crate) chip_uart1: UartHandle,
+    pub(crate) chip_adc: RpAdcHandle,
+    pub(crate) chip_pwm: PwmHandle,
+    pub(crate) chip_spis: Vec<SpiHandle>,
+    pub(crate) chip_i2cs: Vec<I2cHandle>,
     timer: TimerHandle,
     exit: ExitHandle,
     now: SimTime,
@@ -54,11 +68,21 @@ pub struct ArmMachine {
     bootrom_services: BTreeMap<u32, u32>,
     native_bootrom: bool,
     ppb: ArmPpbHandle,
+    rp2040_io_bank: Option<Rp2040IoBankHandle>,
+    rp2350_io_bank: Option<RpIoBankHandle>,
     chip_timers: Vec<Rp2040TimerHandle>,
+    watchdog: Option<Rp2040WatchdogHandle>,
+    i2c: Vec<RpI2cHandle>,
+    spi: Vec<Rp2350SpiHandle>,
+    rtc: Option<Rp2040RtcHandle>,
     pio: Vec<RpPioHandle>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
+    trng: Option<Rp2350TrngHandle>,
+    accessctrl: Option<Rp2350AccessCtrlHandle>,
+    pads: Option<RpPadsHandle>,
+    security_contexts: [(bool, bool); 2],
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
@@ -118,10 +142,21 @@ impl ArmMachine {
         let mut flash = None;
         let mut flash_storage = None;
         let mut chip_timers = Vec::new();
+        let mut watchdog = None;
+        let mut i2c = Vec::new();
+        let mut spi = Vec::new();
+        let chip_pwm;
+        let mut chip_spis = Vec::new();
+        let mut chip_i2cs = Vec::new();
+        let mut rtc = None;
         let mut pio = Vec::new();
-        let mut usb = None;
-        let mut usb_dpram = None;
-        let mut usb_host = None;
+        let chip_adc;
+        let usb;
+        let usb_dpram;
+        let usb_host;
+        let mut trng = None;
+        let mut accessctrl = None;
+        let pads;
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
@@ -223,7 +258,7 @@ impl ArmMachine {
         let (sio_device, chip_gpio, sio) = if target == TargetId::Rp2350 {
             RpSioGpio::new_rp2350_with_multicore(
                 format!("{target}.sio"),
-                manifest.gpio_count.min(32),
+                manifest.gpio_count,
                 &format!("board.{target}.chip_gpio"),
                 signals.clone(),
             )?
@@ -241,6 +276,29 @@ impl ArmMachine {
             0x200,
             Box::new(sio_device),
         )?;
+        let dma_variant = if target == TargetId::Rp2350 {
+            RpDmaVariant::Rp2350
+        } else {
+            RpDmaVariant::Rp2040
+        };
+        let (dma_device, dma) = RpDma::new_for_variant(format!("{target}.dma"), dma_variant);
+        bus.map_device(
+            format!("{target}.dma"),
+            0x5000_0000,
+            0x4000,
+            Box::new(dma_device),
+        )?;
+        let mut rp2040_io_bank = None;
+        let mut rp2350_io_bank = None;
+        if target == TargetId::Rp2040 {
+            let (device, handle) = Rp2040IoBank::new("rp2040.io-bank0", chip_gpio.clone());
+            bus.map_device("rp2040.io-bank0", 0x4001_4000, 0x4000, Box::new(device))?;
+            rp2040_io_bank = Some(handle);
+        } else {
+            let (device, handle) = RpIoBank::new("rp2350.io-bank0", chip_gpio.clone(), 48);
+            bus.map_device("rp2350.io-bank0", 0x4002_8000, 0x4000, Box::new(device))?;
+            rp2350_io_bank = Some(handle);
+        }
         if target == TargetId::Rp2040 {
             let mut sysinfo_reset = vec![0; 8];
             // Production RP2040 B2: revision 2, RP2 part 2, Raspberry Pi
@@ -265,13 +323,11 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Resets::new("rp2040.resets")),
             )?;
-            let mut psm_reset = vec![0; 4];
-            psm_reset[3] = 0x0001_ffff;
             bus.map_device(
                 "rp2040.psm",
                 0x4001_0000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2040.psm", psm_reset)),
+                Box::new(Rp2040Psm::new("rp2040.psm")),
             )?;
             bus.map_device(
                 "rp2040.xosc",
@@ -279,44 +335,24 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Xosc::new("rp2040.xosc")),
             )?;
-            bus.map_device(
-                "rp2040.io-bank0",
-                0x4001_4000,
-                0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2040.io-bank0", vec![0; 256])),
-            )?;
-            let mut pad_reset = vec![0x56; 64];
-            pad_reset[0] = 0;
+            let (pad_device, pad_handle) = RpPadsBank::new(
+                "rp2040.pads-bank0",
+                manifest.gpio_count,
+                RpPadsVariant::Rp2040,
+            );
             bus.map_device(
                 "rp2040.pads-bank0",
                 0x4001_c000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2040.pads-bank0", pad_reset)),
+                Box::new(pad_device),
             )?;
+            pads = Some(pad_handle);
             bus.map_device(
                 "rp2040.io-qspi",
                 0x4001_8000,
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2040.io-qspi", vec![0; 64])),
             )?;
-            for (name, base) in [
-                ("rp2040.uart1", 0x4003_8000),
-                ("rp2040.spi0", 0x4003_c000),
-                ("rp2040.spi1", 0x4004_0000),
-                ("rp2040.i2c0", 0x4004_4000),
-                ("rp2040.i2c1", 0x4004_8000),
-                ("rp2040.adc", 0x4004_c000),
-                ("rp2040.pwm", 0x4005_0000),
-                ("rp2040.dma", 0x5000_0000),
-                ("rp2040.pio1", 0x5030_0000),
-            ] {
-                bus.map_device(
-                    name,
-                    base,
-                    0x4000,
-                    Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
-                )?;
-            }
             let mut qspi_pad_reset = vec![0x56; 8];
             qspi_pad_reset[0] = 0;
             bus.map_device(
@@ -337,35 +373,29 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Pll::new("rp2040.pll-usb")),
             )?;
+            let (watchdog_device, watchdog_handle) =
+                Rp2040Watchdog::new_with_handle("rp2040.watchdog");
             bus.map_device(
                 "rp2040.watchdog",
                 0x4005_8000,
                 0x4000,
-                Box::new(Rp2040Watchdog::new("rp2040.watchdog")),
+                Box::new(watchdog_device),
             )?;
-            bus.map_device(
-                "rp2040.rtc",
-                0x4005_c000,
-                0x4000,
-                Box::new(Rp2040Rtc::new("rp2040.rtc")),
-            )?;
-            let mut rosc_reset = vec![0; 16];
-            rosc_reset[0x18 / 4] = 0x8000_1000;
-            rosc_reset[0x1c / 4] = 1;
+            watchdog = Some(watchdog_handle);
+            let (rtc_device, rtc_handle) = Rp2040Rtc::new_with_handle("rp2040.rtc");
+            bus.map_device("rp2040.rtc", 0x4005_c000, 0x4000, Box::new(rtc_device))?;
+            rtc = Some(rtc_handle);
             bus.map_device(
                 "rp2040.rosc",
                 0x4006_0000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2040.rosc", rosc_reset)),
+                Box::new(Rp2040Rosc::new("rp2040.rosc")),
             )?;
             bus.map_device(
                 "rp2040.vreg-and-chip-reset",
                 0x4006_4000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2040.vreg-and-chip-reset",
-                    vec![0; 8],
-                )),
+                Box::new(Rp2040VregAndChipReset::new("rp2040.vreg-and-chip-reset")),
             )?;
             let (timer_device, timer_handle) =
                 Rp2040Timer::new("rp2040.timer", RpTimerLayout::Rp2040);
@@ -412,24 +442,29 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040Clocks::new("rp2350.clocks")),
             )?;
-            for (name, base) in [
-                ("rp2350.uart1", 0x4007_8000),
-                ("rp2350.spi0", 0x4008_0000),
-                ("rp2350.spi1", 0x4008_8000),
-                ("rp2350.i2c0", 0x4009_0000),
-                ("rp2350.i2c1", 0x4009_8000),
-                ("rp2350.adc", 0x400a_0000),
-                ("rp2350.pwm", 0x400a_8000),
-                ("rp2350.dma", 0x5000_0000),
-                ("rp2350.pio1", 0x5030_0000),
-                ("rp2350.pio2", 0x5040_0000),
-            ] {
-                bus.map_device(
-                    name,
-                    base,
-                    0x4000,
-                    Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
-                )?;
+            let (device, handle) = Rp2350AccessCtrl::new_with_handle("rp2350.accessctrl");
+            bus.map_device("rp2350.accessctrl", 0x4006_0000, 0x4000, Box::new(device))?;
+            let guard_handle = handle.clone();
+            let guard: SharedAccessGuard =
+                std::rc::Rc::new(std::cell::RefCell::new(move |address, _width, _kind| {
+                    guard_handle.check_address(address)
+                }));
+            bus.set_access_guard(Some(guard));
+            accessctrl = Some(handle);
+            for (name, base) in [("rp2350.spi0", 0x4008_0000), ("rp2350.spi1", 0x4008_8000)] {
+                let (device, handle) = Rp2350Spi::new(name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                spi.push(handle);
+            }
+            for (index, (name, base)) in
+                [("rp2350.i2c0", 0x4009_0000), ("rp2350.i2c1", 0x4009_8000)]
+                    .into_iter()
+                    .enumerate()
+            {
+                let (device, handle) =
+                    RpI2c::new(name, &format!("board.rp2350.i2c{index}"), signals.clone())?;
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                i2c.push(handle);
             }
             bus.map_device(
                 "rp2350.xosc",
@@ -463,15 +498,6 @@ impl ArmMachine {
             // aliases; the electrical slew/drive details do not affect functional execution.
             let mut qspi_pad_reset = vec![0x56; 0x1000 / 4];
             qspi_pad_reset[0] = 0;
-            bus.map_device(
-                "rp2350.io-bank0",
-                0x4002_8000,
-                0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2350.io-bank0",
-                    vec![0; 0x1000 / 4],
-                )),
-            )?;
             let mut io_qspi_reset = vec![0; 0x1000 / 4];
             for offset in (0..=0x28).step_by(8) {
                 // The functional flash path begins with each QSPI output deasserted high.
@@ -483,14 +509,18 @@ impl ArmMachine {
                 0x4000,
                 Box::new(Rp2040RegisterBank::new("rp2350.io-qspi", io_qspi_reset)),
             )?;
-            let mut bank_pad_reset = vec![0x56; 0x1000 / 4];
-            bank_pad_reset[0] = 0;
+            let (pad_device, pad_handle) = RpPadsBank::new(
+                "rp2350.pads-bank0",
+                manifest.gpio_count,
+                RpPadsVariant::Rp2350,
+            );
             bus.map_device(
                 "rp2350.pads-bank0",
                 0x4003_8000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2350.pads-bank0", bank_pad_reset)),
+                Box::new(pad_device),
             )?;
+            pads = Some(pad_handle);
             bus.map_device(
                 "rp2350.pads-qspi",
                 0x4004_0000,
@@ -524,17 +554,33 @@ impl ArmMachine {
                 "rp2350.ticks",
                 0x4010_8000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new("rp2350.ticks", vec![0; 0x1000 / 4])),
+                Box::new(Rp2350Ticks::new("rp2350.ticks")),
             )?;
             bus.map_device(
                 "rp2350.powman",
                 0x4010_0000,
                 0x4000,
-                Box::new(Rp2040RegisterBank::new(
-                    "rp2350.powman",
-                    vec![0; 0x1000 / 4],
-                )),
+                Box::new(Rp2350Powman::new("rp2350.powman")),
             )?;
+            let (device, handle) = Rp2350Trng::new("rp2350.trng");
+            bus.map_device("rp2350.trng", 0x400f_0000, 0x4000, Box::new(device))?;
+            trng = Some(handle);
+            bus.map_device(
+                "rp2350.sha256",
+                0x400f_8000,
+                0x4000,
+                Box::new(Rp2350Sha256::new("rp2350.sha256")),
+            )?;
+            bus.map_device(
+                "rp2350.otp",
+                0x4012_0000,
+                0x2_0000,
+                Box::new(Rp2350Otp::new("rp2350.otp")),
+            )?;
+            let (hstx_ctrl, hstx_fifo, _hstx_handle) =
+                new_rp2350_hstx("rp2350.hstx", "board.rp2350.hstx", signals.clone())?;
+            bus.map_device("rp2350.hstx.ctrl", 0x400c_0000, 0x4000, Box::new(hstx_ctrl))?;
+            bus.map_device("rp2350.hstx.fifo", 0x5060_0000, 0x1000, Box::new(hstx_fifo))?;
             for (name, base) in [
                 ("rp2350.timer0", 0x400b_0000),
                 ("rp2350.timer1", 0x400b_8000),
@@ -571,11 +617,59 @@ impl ArmMachine {
             0x1000,
             Box::new(uart_device),
         )?;
-        let (pio0, handle) = RpPio::new(
+        if target == TargetId::Rp2040 {
+            for (index, base) in [0x4004_4000, 0x4004_8000].into_iter().enumerate() {
+                let name = format!("{target}.i2c{index}");
+                let (device, handle) = FunctionalI2c::new(&name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                chip_i2cs.push(handle);
+            }
+        }
+        let uart1_base = match target {
+            TargetId::Rp2040 => 0x4003_8000,
+            TargetId::Rp2350 => 0x4007_8000,
+            _ => unreachable!(),
+        };
+        let (uart1_device, chip_uart1) = RpPl011Uart::new(format!("{target}.uart1"));
+        bus.map_device(
+            format!("{target}.uart1"),
+            uart1_base,
+            0x1000,
+            Box::new(uart1_device),
+        )?;
+        let pwm_base = match target {
+            TargetId::Rp2040 => 0x4005_0000,
+            TargetId::Rp2350 => 0x400a_8000,
+            _ => unreachable!(),
+        };
+        let slice_count = if target == TargetId::Rp2350 { 12 } else { 8 };
+        let (pwm_device, pwm_handle) = FunctionalPwm::new(format!("{target}.pwm"), slice_count);
+        bus.map_device(
+            format!("{target}.pwm"),
+            pwm_base,
+            0x1000,
+            Box::new(pwm_device),
+        )?;
+        chip_pwm = pwm_handle;
+        if target == TargetId::Rp2040 {
+            for (index, base) in [0x4003_c000, 0x4004_0000].into_iter().enumerate() {
+                let name = format!("{target}.spi{index}");
+                let (device, handle) = FunctionalSpi::new(&name);
+                bus.map_device(name, base, 0x4000, Box::new(device))?;
+                chip_spis.push(handle);
+            }
+        }
+        let pio_version = if target == TargetId::Rp2350 {
+            RpPioVersion::Rp2350
+        } else {
+            RpPioVersion::Rp2040
+        };
+        let (pio0, handle) = RpPio::new_with_version(
             format!("{target}.pio0"),
             u16::from(manifest.gpio_count.min(32)),
             &format!("board.{target}.pio0.gpio"),
             signals.clone(),
+            pio_version,
         )?;
         bus.map_device(
             format!("{target}.pio0"),
@@ -584,6 +678,32 @@ impl ArmMachine {
             Box::new(pio0),
         )?;
         pio.push(handle);
+        let (adc_name, adc_base) = match target {
+            TargetId::Rp2040 => ("rp2040.adc", 0x4004_c000),
+            TargetId::Rp2350 => ("rp2350.adc", 0x400a_0000),
+            _ => unreachable!(),
+        };
+        let variant = match target {
+            TargetId::Rp2040 | TargetId::Rp2350 => RpAdcVariant::FiveChannel,
+            _ => unreachable!(),
+        };
+        let (adc, adc_handle) = RpAdc::new_for_variant(adc_name, variant);
+        bus.map_device(adc_name, adc_base, 0x1000, Box::new(adc))?;
+        chip_adc = adc_handle;
+        let pio_count = if target == TargetId::Rp2350 { 3 } else { 2 };
+        for index in 1..pio_count {
+            let name = format!("{target}.pio{index}");
+            let base = 0x5020_0000 + (index as u64 * 0x0010_0000);
+            let (device, handle) = RpPio::new_with_version(
+                &name,
+                u16::from(manifest.gpio_count.min(32)),
+                &format!("board.{target}.pio{index}.gpio"),
+                signals.clone(),
+                pio_version,
+            )?;
+            bus.map_device(name, base, 0x4000, Box::new(device))?;
+            pio.push(handle);
+        }
         Ok(Self {
             target,
             cpu: ArmCpu::new(profile),
@@ -594,8 +714,16 @@ impl ArmMachine {
             gpio,
             chip_gpio,
             sio,
+            dma,
+            rp2040_io_bank,
+            rp2350_io_bank,
             uart,
             chip_uart,
+            chip_uart1,
+            chip_adc,
+            chip_pwm,
+            chip_spis,
+            chip_i2cs,
             timer,
             exit,
             now: SimTime::ZERO,
@@ -607,10 +735,18 @@ impl ArmMachine {
             native_bootrom: false,
             ppb,
             chip_timers,
+            watchdog,
+            i2c,
+            spi,
+            rtc,
             pio,
             usb,
             usb_dpram,
             usb_host,
+            trng,
+            accessctrl,
+            pads,
+            security_contexts: [(false, true); 2],
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
@@ -1142,6 +1278,47 @@ impl ArmMachine {
         Ok(())
     }
 
+    /// Returns the current A/B output state for one RP PWM slice.
+    pub fn pwm_outputs(&self, slice: usize) -> Option<[bool; 2]> {
+        self.chip_pwm.outputs(slice)
+    }
+
+    /// Returns bytes transmitted by one of the target's functional SPI controllers.
+    pub fn spi_transmitted(&self, index: usize) -> Option<Vec<u8>> {
+        self.chip_spis.get(index).map(SpiHandle::transmitted)
+    }
+
+    /// Queues deterministic response bytes for one target I²C controller.
+    pub fn queue_i2c_read(&self, index: usize, address: u16, bytes: &[u8]) -> bool {
+        if let Some(handle) = self.chip_i2cs.get(index) {
+            handle.queue_read(address, bytes);
+            return true;
+        }
+        self.i2c.get(index).is_some_and(|handle| {
+            handle.queue_read(address, bytes.iter().copied());
+            true
+        })
+    }
+
+    /// Returns byte-level events observed on one target I²C controller.
+    pub fn i2c_events(&self, index: usize) -> Option<Vec<I2cEvent>> {
+        if let Some(handle) = self.chip_i2cs.get(index) {
+            return Some(handle.events());
+        }
+        self.i2c.get(index).map(|handle| {
+            handle
+                .events()
+                .into_iter()
+                .filter_map(|event| match event {
+                    RpI2cEvent::Write { address, value } => {
+                        Some(I2cEvent::Write { address, value })
+                    }
+                    RpI2cEvent::Read { address, value } => Some(I2cEvent::Read { address, value }),
+                    RpI2cEvent::Start | RpI2cEvent::RepeatedStart | RpI2cEvent::Stop => None,
+                })
+                .collect()
+        })
+    }
     /// Removes configured user breakpoints and data watchpoints.
     pub fn clear_debug_stops(&mut self) {
         self.breakpoints.clear();
@@ -1154,8 +1331,68 @@ impl ArmMachine {
         self.gpio.set_input(pin, value, self.now)?;
         if usize::from(pin) < self.chip_gpio.pin_count() {
             self.chip_gpio.set_input(pin, value, self.now)?;
+            if let Some(io_bank) = &self.rp2040_io_bank {
+                io_bank.record_input(pin)?;
+            }
         }
         Ok(())
+    }
+
+    /// Selects the deterministic RP2350 security/privilege context for one core.
+    pub fn set_rp2350_security_context(
+        &mut self,
+        core: usize,
+        secure: bool,
+        privileged: bool,
+    ) -> Result<(), ArmMachineError> {
+        let Some(context) = self.security_contexts.get_mut(core) else {
+            return Err(ArmMachineError::Configuration(format!(
+                "RP2350 core index {core} is outside 0..2"
+            )));
+        };
+        if self.target != TargetId::Rp2350 {
+            return Err(ArmMachineError::Configuration(
+                "security context is available only on RP2350".to_owned(),
+            ));
+        }
+        *context = (secure, privileged);
+        if let Some(accessctrl) = &self.accessctrl {
+            accessctrl.set_context(
+                if core == 0 {
+                    Rp2350AccessMaster::Core0
+                } else {
+                    Rp2350AccessMaster::Core1
+                },
+                secure,
+                privileged,
+            );
+        }
+        Ok(())
+    }
+
+    fn select_rp2350_access_context(&self, core: usize) {
+        if let Some(accessctrl) = &self.accessctrl {
+            let (secure, privileged) = self.security_contexts[core];
+            accessctrl.set_context(
+                if core == 0 {
+                    Rp2350AccessMaster::Core0
+                } else {
+                    Rp2350AccessMaster::Core1
+                },
+                secure,
+                privileged,
+            );
+        }
+    }
+
+    /// Sets a deterministic sample for one RP ADC channel.
+    pub fn set_adc_sample(&self, channel: usize, value: u16) -> bool {
+        self.chip_adc.set_sample(channel, value)
+    }
+
+    /// Returns the most recent RP ADC conversion result.
+    pub fn adc_result(&self) -> u16 {
+        self.chip_adc.result()
     }
 
     /// Queues bytes for delivery through the enumerated USB bulk-OUT endpoint.
@@ -1169,305 +1406,9 @@ impl ArmMachine {
     pub fn stop_on_usb_input_complete(&mut self, enabled: bool) {
         self.stop_on_usb_input_complete = enabled;
     }
-
-    /// Runs until a limit, exit, breakpoint, or fault.
-    pub fn run(
-        &mut self,
-        limits: RunLimits,
-        trace: Option<&mut dyn TraceSink>,
-    ) -> Result<RunResult, ArmMachineError> {
-        self.run_with_stimuli(limits, &[], trace)
-    }
-
-    /// Runs with timestamped external GPIO stimulus.
-    pub fn run_with_stimuli(
-        &mut self,
-        limits: RunLimits,
-        stimuli: &[PinStimulus],
-        mut trace: Option<&mut dyn TraceSink>,
-    ) -> Result<RunResult, ArmMachineError> {
-        if limits.instructions.is_none() && limits.deadline.is_none() {
-            return Err(ArmMachineError::MissingRunLimit);
-        }
-        let mut digest = TraceDigest::new();
-        self.signals.with_registry(|registry| {
-            digest.begin(registry);
-            trace
-                .as_deref_mut()
-                .map_or(Ok(()), |sink| sink.begin(registry))
-        })?;
-        let mut stats = RunStats {
-            instructions: 0,
-            time: self.now,
-            events: 0,
-        };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
-        let mut timer_was_pending = false;
-        let mut chip_timer_was_pending = 0_u16;
-        let reason = loop {
-            self.sio.select_core(0);
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
-                self.set_pin(stimulus.pin, stimulus.value)?;
-                stats.events = stats.events.saturating_add(1);
-                next_stimulus += 1;
-            }
-            if self.exit.code().is_some() {
-                break StopReason::Halted;
-            }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
-            }
-            if self.breakpoints.contains(&self.cpu.snapshot().pc) {
-                break StopReason::Breakpoint;
-            }
-            let timer_pending = self.timer.poll(self.now);
-            if timer_pending && !timer_was_pending {
-                stats.events = stats.events.saturating_add(1);
-            }
-            timer_was_pending = timer_pending;
-            let chip_timer_pending =
-                self.chip_timers
-                    .iter()
-                    .enumerate()
-                    .fold(0_u16, |pending, (timer, handle)| {
-                        pending | (u16::from(handle.pending(self.now)) << (timer * 4))
-                    });
-            stats.events = stats.events.saturating_add(u64::from(
-                (chip_timer_pending & !chip_timer_was_pending).count_ones(),
-            ));
-            chip_timer_was_pending = chip_timer_pending;
-            for pio in &self.pio {
-                if pio.poll(self.now)? {
-                    stats.events = stats.events.saturating_add(1);
-                }
-            }
-            self.cpu
-                .set_interrupt(0, timer_pending || chip_timer_pending & 1 != 0)?;
-            for line in 1..self.chip_timers.len() * 4 {
-                self.cpu.set_interrupt(
-                    u16::try_from(line).expect("RP timer IRQ line fits u16"),
-                    chip_timer_pending & (1 << line) != 0,
-                )?;
-            }
-            if let Some(usb) = &self.usb {
-                if let (Some(host), Some(dpram)) = (&mut self.usb_host, &self.usb_dpram) {
-                    stats.events = stats.events.saturating_add(host.poll(self.now, usb, dpram));
-                    if self.stop_on_usb_input_complete && host.input_complete() {
-                        break StopReason::HostInputComplete;
-                    }
-                }
-                let usb_irq: u8 = if self.target == TargetId::Rp2040 {
-                    5
-                } else {
-                    14
-                };
-                self.cpu.set_interrupt(
-                    u16::from(usb_irq),
-                    usb.interrupt_pending() && self.ppb.interrupt_enabled(u16::from(usb_irq)),
-                )?;
-            }
-            if self.ppb.take_systick_pending(self.now) {
-                self.cpu.set_systick_interrupt(true);
-            }
-            for line in self.ppb.take_pending_interrupts() {
-                self.cpu.set_interrupt(line, true)?;
-            }
-            let vector_base = self.ppb.vector_base();
-            if vector_base != 0 {
-                self.cpu.set_vector_base(vector_base);
-            }
-            self.bus.clear_watchpoint_hit();
-            match self.service_functional_bootrom() {
-                Ok(true) => {
-                    stats.instructions = stats.instructions.saturating_add(1);
-                    self.now = self
-                        .now
-                        .checked_add(remu_core::SimDuration::TICK)
-                        .map_err(|_| ArmMachineError::TimeOverflow)?;
-                    stats.time = self.now;
-                    if let Some(hit) = self.bus.take_watchpoint_hit() {
-                        break StopReason::Watchpoint {
-                            address: hit.address,
-                            access: hit.kind,
-                        };
-                    }
-                    continue;
-                }
-                Ok(false) => {}
-                Err(message) => break StopReason::Fault(message),
-            }
-            let outcome = match self.cpu.step(&mut self.bus, self.now) {
-                Ok(outcome) => outcome,
-                Err(error) => break StopReason::Fault(error.to_string()),
-            };
-            stats.instructions = stats.instructions.saturating_add(1);
-            self.now = self
-                .now
-                .checked_add(outcome.elapsed)
-                .map_err(|_| ArmMachineError::TimeOverflow)?;
-            stats.time = self.now;
-            let mut signal_stop = None;
-            for change in self.signals.drain_changes() {
-                signal_stop =
-                    signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                digest.change(&change);
-                if let Some(sink) = trace.as_deref_mut() {
-                    sink.change(&change)?;
-                }
-            }
-            if let Some(path) = signal_stop {
-                break StopReason::Signal(path);
-            }
-            if let Some(hit) = self.bus.take_watchpoint_hit() {
-                break StopReason::Watchpoint {
-                    address: hit.address,
-                    access: hit.kind,
-                };
-            }
-            match outcome.reason {
-                StepReason::Advanced | StepReason::WaitForInterrupt => {}
-                StepReason::Halted => break StopReason::Halted,
-                StepReason::Breakpoint => break StopReason::Breakpoint,
-            }
-
-            if let Some(launch) = self.sio.take_core1_launch() {
-                self.cpu1.set_vector_base(launch.vector_table);
-                if let Err(error) = self
-                    .cpu1
-                    .set_direct_state(launch.stack_pointer, launch.entry)
-                {
-                    break StopReason::Fault(format!("core 1 launch: {error}"));
-                }
-                if let Err(error) = self.cpu1.set_link_register(0x81) {
-                    break StopReason::Fault(format!("core 1 launch: {error}"));
-                }
-                self.cpu1_active = true;
-                stats.events = stats.events.saturating_add(1);
-            }
-            if self.cpu1_active {
-                self.sio.select_core(1);
-                if self.breakpoints.contains(&self.cpu1.snapshot().pc) {
-                    self.sio.select_core(0);
-                    break StopReason::Breakpoint;
-                }
-                self.bus.clear_watchpoint_hit();
-                // ROM services are shared between both processors. Temporarily
-                // place core 1 in the primary slot so the same architectural
-                // service implementation can complete its host call.
-                std::mem::swap(&mut self.cpu, &mut self.cpu1);
-                let core1_rom = self.service_functional_bootrom();
-                std::mem::swap(&mut self.cpu, &mut self.cpu1);
-                match core1_rom {
-                    Ok(true) => {
-                        stats.instructions = stats.instructions.saturating_add(1);
-                        self.now = self
-                            .now
-                            .checked_add(remu_core::SimDuration::TICK)
-                            .map_err(|_| ArmMachineError::TimeOverflow)?;
-                        stats.time = self.now;
-                        if let Some(hit) = self.bus.take_watchpoint_hit() {
-                            self.sio.select_core(0);
-                            break StopReason::Watchpoint {
-                                address: hit.address,
-                                access: hit.kind,
-                            };
-                        }
-                    }
-                    Ok(false) => {
-                        let core1_outcome = match self.cpu1.step(&mut self.bus, self.now) {
-                            Ok(outcome) => outcome,
-                            Err(error) => {
-                                self.sio.select_core(0);
-                                break StopReason::Fault(format!("core 1: {error}"));
-                            }
-                        };
-                        stats.instructions = stats.instructions.saturating_add(1);
-                        self.now = self
-                            .now
-                            .checked_add(core1_outcome.elapsed)
-                            .map_err(|_| ArmMachineError::TimeOverflow)?;
-                        stats.time = self.now;
-                        if let Some(hit) = self.bus.take_watchpoint_hit() {
-                            self.sio.select_core(0);
-                            break StopReason::Watchpoint {
-                                address: hit.address,
-                                access: hit.kind,
-                            };
-                        }
-                        match core1_outcome.reason {
-                            StepReason::Advanced | StepReason::WaitForInterrupt => {}
-                            StepReason::Halted => {
-                                self.cpu1_active = false;
-                            }
-                            StepReason::Breakpoint => {
-                                self.sio.select_core(0);
-                                break StopReason::Breakpoint;
-                            }
-                        }
-                    }
-                    Err(message) => {
-                        self.sio.select_core(0);
-                        break StopReason::Fault(format!("core 1 ROM: {message}"));
-                    }
-                }
-                self.sio.select_core(0);
-                let mut signal_stop = None;
-                for change in self.signals.drain_changes() {
-                    signal_stop =
-                        signal_stop.or_else(|| matching_signal_stop(&change, &self.signal_stops));
-                    digest.change(&change);
-                    if let Some(sink) = trace.as_deref_mut() {
-                        sink.change(&change)?;
-                    }
-                }
-                if let Some(path) = signal_stop {
-                    break StopReason::Signal(path);
-                }
-            }
-        };
-        if let Some(sink) = trace {
-            sink.finish()?;
-        }
-        Ok(RunResult {
-            target: self.target,
-            reason,
-            stats,
-            cpu: self.cpu.snapshot(),
-            secondary_cpu: self.cpu1_active.then(|| self.cpu1.snapshot()),
-            exit_code: self.exit.code(),
-            uart: {
-                let mut bytes = self.uart.bytes();
-                bytes.extend(self.chip_uart.bytes());
-                bytes
-            },
-            usb: self
-                .usb_host
-                .as_ref()
-                .map_or_else(Vec::new, Rp2040UsbHost::output),
-            trace_digest: digest.finish(),
-        })
-    }
 }
+
+mod machine_run;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_raspberry_pi_arm_profiles_construct() {
-        ArmMachine::new(TargetId::Rp2040).unwrap();
-        ArmMachine::new(TargetId::Rp2350).unwrap();
-    }
-}
+mod tests;

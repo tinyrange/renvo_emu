@@ -5,7 +5,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates=20260601~24.04.1 \
-        curl=8.5.0-2ubuntu10.12 \
+        curl=8.5.0-2ubuntu10.13 \
     && rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.title="Renvo Emulator official firmware fetcher"

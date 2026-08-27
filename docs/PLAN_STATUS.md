@@ -29,7 +29,7 @@ Status meanings:
 |---|---|---|
 | Compiler-produced ELF on every CPU profile | Proven | `scripts/edge-corpus.sh` runs seven target/CPU combinations |
 | Memory maps, reset, traps and interrupt entry | Proven | The three CPU-family qualification artifacts prove the required direct maps and functional entry paths; fidelity beyond the baseline remains explicit in `remu targets --json` |
-| Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Proven | Docker smoke covers native-address GPIO/UART and explicit WCH/RP timer interrupt paths; official MicroPython callbacks cover the ESP timer-group routes |
+| Per-chip flash/RAM/MMIO, timer, GPIO, UART and IRQ routing | Proven | Docker smoke covers native-address GPIO/UART, RP2040/RP2350 DW I²C, and explicit WCH/RP timer interrupt paths; official MicroPython callbacks cover the ESP timer-group routes |
 | Scheduled pin input and resolved digital nets | Proven | Signal/device unit tests and MicroPython external-input qualification |
 | Stable hierarchical VCD | Proven | Trace unit tests, Docker smoke VCDs and official-firmware qualification |
 | Exit, fault, breakpoint, signal edge, virtual-time and instruction stops | Proven | CLI controls and `qualification/stop-conditions.json` prove all non-exit stops independently on RISC-V, Arm and Xtensa; normal portfolio smoke proves exit |
@@ -192,6 +192,38 @@ programs native TIMER alarm, interrupt-enable, and status registers. Each
 profile enters `WFI`, takes its NVIC or Hazard3-routed interrupt, clears the
 alarm, and exits with code 0 after exactly one recorded event.
 
+## RP2350 SPI closure
+
+RP2350 Arm and Hazard3 firmware now exercise both documented PrimeCell SSP instances at
+`0x4008_0000` and `0x4008_8000`. The model preserves the eight-word FIFO
+status contract, 4--16-bit data-size selection, enable and loopback controls,
+raw/masked FIFO interrupts, interrupt clears, and PrimeCell identification
+registers. APB byte/halfword lane reads, replicated narrow writes, and the
+RP2350 XOR/SET/CLEAR aliases are covered for writable control registers, with
+CPSDVSR constrained to its documented even `2..254` range. Transfers complete
+in one abstract operation and are observable through deterministic host
+input/output handles; serial clock waveforms, DMA, receive-timeout scheduling,
+and exact slave timing remain explicit deviations. The `rp2350-arm-spi` and
+`rp2350-riscv-spi` Docker fixtures cover both instances and contribute
+`rp2350.spi0` and `rp2350.spi1` to register-coverage evidence.
+
+## RP2040 SPI closure
+
+RP2040 Arm firmware and device tests now use the native Synopsys DW_apb_ssi
+layout at `0x4003_c000` and `0x4004_0000`, including typed `CTRLR0/1`,
+`SSIENR`, `SER`, FIFO level/threshold, status, data-window, interrupt,
+read-clear, DMA, ID/version, and atomic-alias registers. Transfers are
+deterministic and functional: an enabled selected controller consumes queued
+host input or loops back the transmitted frame, while the host handle records
+traffic and interrupt state. Serial-clock, DMA, pin-mux and exact serial timing
+remain explicit deviations. The model uses the documented sixteen-entry FIFOs
+and latches transmit-overflow, receive-overflow, and receive-underflow status
+through the native clear-on-read registers. The native offsets and reset values are sourced
+from the RP2040 datasheet and Raspberry Pi's generated `ssi.h`. The
+`rp2040-spi` Docker fixture programs both native instances and checks FIFO
+levels, status, masked receive interrupts, and loopback from compiled Arm
+firmware.
+
 ## Earlier UART closure
 
 Docker-built firmware now writes the chip UART0/FIFO addresses on RP2040,
@@ -199,6 +231,18 @@ RP2350 Arm, RP2350 Hazard3, ESP32-S3, and ESP32-C6. Together with the existing
 WCH USART proof, all seven target/CPU combinations produce an exact checked
 transcript through native-address MMIO. RP firmware also polls the PL011 flag
 register rather than relying on the compiler UART facade.
+
+The RP2040 and RP2350 UART1 mappings now use a named PL011 register slice
+instead of the permissive byte facade. `DR`, `RSR/ECR`, `FR`, baud divisors,
+`LCR_H`, `CR`, FIFO levels, interrupt masks/status/clear, and `DMACR` retain
+their documented offsets, reset values, read-only fields, and write masks.
+`DR` transmits immediately only when `UARTEN` and `TXE` are set; the model does
+not claim receive data, baud timing, FIFO occupancy, modem signals, DMA, or a
+generated UART interrupt source yet. Reserved FIFO watermark encodings are
+rejected instead of being accepted as undocumented levels. The contract is
+based on the official
+[RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf),
+whose PL011 block is shared by the RP2350 UART instances.
 
 ## Earlier WCH closure
 
@@ -212,3 +256,15 @@ and CH32V006. `scripts/docker-smoke.sh` checks the exit code and single event.
 The preceding USART1 closure remains covered by the same gate: native
 `STATR`, `DATAR`, `BRR`, `CTLR1/2/3`, and `GPR` accesses produce the exact
 `REMU-WCH\n` transcript on both WCH targets.
+
+The RP2040 USB controller now has a focused protocol-status proof. Its raw
+and masked interrupt views include bus reset, connection, setup, buffer,
+transaction-complete, and serial-error sources; `SIE_STATUS`, `BUFF_STATUS`,
+`EP_ABORT_DONE`, and `EP_STATUS_STALL_NAK` implement the documented write-clear
+behavior while preserving read-only VBUS and line-state fields. The control
+registers apply the official masks and reset values, self-clear SIE command
+bits, honor atomic aliases, and replicate byte/halfword writes as RP2040 I/O
+does. A native-address Arm fixture connects the device, observes the
+host-supplied reset, clears it, and verifies VBUS remains asserted. This is
+still a deterministic functional slice rather than PHY, packet-timing, DMA,
+or complete class-protocol emulation.

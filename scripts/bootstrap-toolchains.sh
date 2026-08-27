@@ -20,7 +20,8 @@ build()
     context=$2
     shift 2
     docker build --pull=false --tag "$tag" "$@" "$context"
-    docker image inspect --format '{{.Id}}  {{join .RepoTags ","}}' "$tag"
+    image_id=$(docker image inspect --format '{{.Id}}' "$tag")
+    printf '%s  %s\n' "$image_id" "$tag"
 }
 
 build remu/cross-gcc:local toolchains/cross-gcc

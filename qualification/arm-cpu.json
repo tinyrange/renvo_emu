@@ -1,6 +1,6 @@
 {
   "schema": "remu.arm-cpu.v1",
-  "source_sha256": "7f8a3bdc5f61a29d779ceb3e4ea10d80f2243d3b7ea0510f483a62d4a8c06fb0",
+  "source_sha256": "0481ae48ddfdcbb33486de4e4a2224e07eb80b28582d219c9abd98b14cc5babc",
   "primary_sources": [
     "https://developer.arm.com/documentation/100235/0003/",
     "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf",
@@ -28,11 +28,11 @@
   },
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/arm-cpu-unit-tests.txt",
-    "sha256": "0e69a3bf6d2d1fcf9472e3521603fc4ad08a83787c47c773ba28b42d90afcf29"
+    "sha256": "71f582e54d44364c45160b4fd4029a85ccf3a374c136b2a4a74d1426d651975d"
   },
   "cross_profile_computation": {
     "artifact": "qualification/rust-abi.json",
-    "sha256": "18357b6d6c287cc5509addf3d6e79c1966075b396b74e8fe212afa2ce3157a67",
+    "sha256": "2b35b01fd7478ed740431f45c390f8ec9f0c88e5d312c06f2c181645837057d8",
     "assertion": "the same Rust ABI computation passes Cortex-M33 and Hazard3 at O0/O2/Os"
   },
   "proofs": [
@@ -46,7 +46,7 @@
       "elf": ".remu/portfolio-smoke/rp2040-arm-exceptions/smoke.elf",
       "elf_sha256": "37a753381b5344c6056b6541134a7c2f637ec11b3cf6347a36424795b35bd17d",
       "result_artifact": ".remu/portfolio-smoke/rp2040-arm-exceptions-run.json",
-      "result_sha256": "44f38dd304f23dc3ef5b32188fb2e903b787b391a80c03237d4192a93f976606",
+      "result_sha256": "66a31bebdd26b3af9c54bcd48eddac3d3239ad93a87df55613bb919e8308cdd9",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -54,7 +54,7 @@
         "time": 41,
         "events": 0
       },
-      "trace_digest": "39ed5be348fa2a001b29f07f5cb57706fe3f03bf4771e18e77df6ab333ad001c",
+      "trace_digest": "844d262c40ee4087f70a52420e6f8693daab10a90b2198004aea24a5a4dd263e",
       "result": "pass"
     },
     {
@@ -67,7 +67,7 @@
       "elf": ".remu/portfolio-smoke/rp2350-arm-exceptions/smoke.elf",
       "elf_sha256": "cf7d4b83bd42df01f3d6d0e96d4e8f597c5f91f0a057b07d199831fc41aa35ab",
       "result_artifact": ".remu/portfolio-smoke/rp2350-arm-exceptions-run.json",
-      "result_sha256": "46139d6c760ef26936164b0501e4eb15dc02ff50a318e812d2999d43bc87c8d1",
+      "result_sha256": "e751a4c35bf37c05e5481d6d87f380eb328ba5f527448ed8761c6fee9c6a82a4",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -75,7 +75,7 @@
         "time": 41,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "5382c253cfe667331d4813ccbaafb1aee8bf7b61be2e6f4edc206383170338c2",
       "result": "pass"
     },
     {
@@ -88,7 +88,7 @@
       "elf": ".remu/portfolio-smoke/rp2350-arm-hardfloat/smoke.elf",
       "elf_sha256": "8af49d5bea9b410905b17a283778c43222245911b0df8ee32b6ac634f32a93f5",
       "result_artifact": ".remu/portfolio-smoke/rp2350-arm-hardfloat-run.json",
-      "result_sha256": "ece4bcb2e45f76937c315503d4a44be51fe946649759b581c40a063633f62395",
+      "result_sha256": "5ae4bf08c5b51c79ecc5593c85687f3eb6462855eaebb92d819f7d74157c26ca",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -96,7 +96,7 @@
         "time": 31,
         "events": 0
       },
-      "trace_digest": "fd672771ee36316ed45d5470ec5369e9f6b1cceaac7b8f16850d2966f57d3868",
+      "trace_digest": "5382c253cfe667331d4813ccbaafb1aee8bf7b61be2e6f4edc206383170338c2",
       "result": "pass"
     }
   ],

@@ -8,19 +8,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "e2b92c9d4af21d335aaf0c2a815918f5cd241c71c833244d6de42441a4b7e1b0"
+    "sha256": "e4b43ab663f6afb31738ac2f352838abad737d4366ff945262014b3218bed314"
   },
   "proofs": [
     {
       "id": "esp32s3",
       "result": ".remu/portfolio-smoke/esp32s3-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-bus.json",
-      "result_sha256": "16468c702352c8eeed0f172b4d3db30a0e51e96305c06ef09d22484dafca7586",
-      "bus_log_sha256": "7f4af2e245f705c25ea35bbeee3f6da59cd84f89c8cff30b2bd2a5c950f8eca2",
+      "result_sha256": "94c88269ffdc252e0864c232081c022b14e2a7e22f6cfde2c3fd96acee51ff01",
+      "bus_log_sha256": "e6ea741d332a86bd75ff509a3fab50783aeccfc83df06f235dac3ad19328d86b",
       "outcome": {
         "reason": "Halted",
         "exit_code": 12,
-        "trace_digest": "cf872020c2198b8dc7c592c33869197219214953dad039234766a980b653a4d8",
+        "trace_digest": "94ca6cfceaa99c18efcbc280b54c1b4b7824a4805f61426b1ce61ad77e2fd2ef",
         "stats": {
           "instructions": 18,
           "time": 18,
@@ -32,12 +32,12 @@
       "id": "esp32s3-uart",
       "result": ".remu/portfolio-smoke/esp32s3-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-uart-bus.json",
-      "result_sha256": "f5547a22b78f02ec5b68d2dc0c62f40814ac29ae9c414aa4b10abbf537483338",
+      "result_sha256": "481e16ac480f7b8dff35f0f799dd239f385da13b297c09d9ca9be8563028746d",
       "bus_log_sha256": "45b6299c8279d615705efa2a6156b24948a99e4b4323cbe7be77e1f3f5df831b",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "3ca497c22c93a225244a272465c80983e699c7d9842e0450748191a1212b80c6",
+        "trace_digest": "1ef313d28749932bd2b059f0e59456a24a8c0e9e4d352c49e89eb24722e85957",
         "stats": {
           "instructions": 32,
           "time": 32,
@@ -49,15 +49,15 @@
       "id": "esp32s3-usb",
       "result": ".remu/portfolio-smoke/esp32s3-usb-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-usb-bus.json",
-      "result_sha256": "4d93be0b4da8c39dce715b979650867315612ab36f85ab161bfeef3852f83451",
-      "bus_log_sha256": "935bbd1285254001bf07b6c1e74984d9e6c7c96407b5046a13774a92504c0b20",
+      "result_sha256": "53b72d6d81443fea2a00834f447dbf0dc035ed09bfded3c648acf4a35e0b894b",
+      "bus_log_sha256": "ae828e9d9ffe97e9e5de7e64f5b3d56621e791add3efe61a006c3f782469b7ad",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "5e40374583e5a196739610e3f08d96e9e80ac8a3015b06e77479fb8df5f2b614",
+        "trace_digest": "1ef313d28749932bd2b059f0e59456a24a8c0e9e4d352c49e89eb24722e85957",
         "stats": {
-          "instructions": 1086,
-          "time": 1086,
+          "instructions": 1089,
+          "time": 1089,
           "events": 5
         }
       }
@@ -66,12 +66,12 @@
       "id": "esp32s3-peripherals",
       "result": ".remu/portfolio-smoke/esp32s3-peripherals-run.json",
       "bus_log": ".remu/portfolio-smoke/esp32s3-peripherals-bus.json",
-      "result_sha256": "0b8e18e5786fc3cc1610f95a0abf83f4552d9bb87a0eccca31d647b7f11908c0",
-      "bus_log_sha256": "f1603c7d64797bedfeea133e6f0845a4fa04ac36d53066298a68307aef333e7a",
+      "result_sha256": "6cc2477ce2c6b23668a96791b8ee8a3cfb54caa38bffee1fcdfe783b6142c97c",
+      "bus_log_sha256": "a16b7f554640c436ed7afbe09080d18fafbfb6afa12071378cfb7abe4c7551e2",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "54129d4762dc9bd3c8b75886f42847ac0a84d5004508c5c037e18b2f79bdb841",
+        "trace_digest": "1ef313d28749932bd2b059f0e59456a24a8c0e9e4d352c49e89eb24722e85957",
         "stats": {
           "instructions": 380,
           "time": 380,
@@ -126,7 +126,7 @@
     "esp32s3.world-controller",
     "esp32s3.xts-aes"
   ],
-  "covered_register_count": 62,
+  "covered_register_count": 64,
   "covered_registers": [
     {
       "region": "esp32s3.aes",
@@ -386,6 +386,17 @@
       "address": 1610860592,
       "operations": [
         "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.rtc-control",
+      "address": 1610645792,
+      "operations": [
+        "Write"
       ],
       "widths": [
         "Word"
@@ -666,7 +677,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 203
+      "access_count": 202
     },
     {
       "region": "esp32s3.usb-otg",
@@ -726,6 +737,17 @@
     {
       "region": "esp32s3.usb-otg",
       "address": 1611139848,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "esp32s3.usb-otg",
+      "address": 1611139856,
       "operations": [
         "Write"
       ],

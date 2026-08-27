@@ -3,7 +3,7 @@
   "generated_by": "scripts/qualify-vendor-samples.sh",
   "source_sha256": "d989a3b2d9da63820b32ea90829a858194c216640bf9ffc16413bc6606bfdd6f",
   "result": "pass",
-  "adapter_sha256": "070eae3b63a3e5b1fbb6456d2b55a01835f918c6ae0cb10fefc1df6d46cae034",
+  "adapter_sha256": "b6a0944c1be76fe53981c93014d7ce32ec0ba08129acf1f95f90e7245ee75fb5",
   "sources": [
     {
       "corpus": "wch-evt",
@@ -61,9 +61,9 @@
       "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/rp2040/build.json",
-      "build_sha256": "735429eda8446e0ebae8c40218ee40cd352c19fe06499c27ea6dd9946aad4a3d",
+      "build_sha256": "208f96bae44dc988679e6da7ecca5fbdad0735370d0e5526aaf34fd32cbe853d",
       "run": ".remu/qualification/vendor-samples/rp2040/run.json",
-      "run_sha256": "4752cacbc1233143fe17167f002cb064b23a29d53c669b083f4a520ed656380f"
+      "run_sha256": "ea2174985c4ff8bbb720eabd5a0dcf0838dea037cfaf9643bce5e6759db23ab2"
     },
     {
       "target": "rp2350-arm",
@@ -71,9 +71,9 @@
       "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/rp2350-arm/build.json",
-      "build_sha256": "e2eee423c44e7bdf9bc998b5e5913575fe051c072f8e34c6f1d377f18c61d5e5",
+      "build_sha256": "df08bbbf048c19f9452f21657c4127363c3b61446af20dfbce9be6321fe37616",
       "run": ".remu/qualification/vendor-samples/rp2350-arm/run.json",
-      "run_sha256": "260d102f35d5a56e00ca36fabe63cc76ac273122cf2feabc2b853045858315c8"
+      "run_sha256": "0c8136b1b056ece780c92e66de3bb697088a67b536b56f8124e767ecf45d7ed0"
     },
     {
       "target": "rp2350-riscv",
@@ -81,9 +81,9 @@
       "sample_sha256": "2f99a43b29b7bac62c2f15bc08468916f8c8af854eaf37e99d0af5cf03f50c1a",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/rp2350-riscv/build.json",
-      "build_sha256": "5710e04b806e71ddd3456a6aa2d27fb593261bf50c302e21103737a79755fb8a",
+      "build_sha256": "db9c8b25f0216d5984d3b357c2a325507895a83a81457aa2cd327c0e4ace6d8c",
       "run": ".remu/qualification/vendor-samples/rp2350-riscv/run.json",
-      "run_sha256": "9dd2debe53b52f44e6f8b62713258061138d72e7ccf2a240608413453e92c91b"
+      "run_sha256": "852ab007bd9d3477036f34376606c10b2582b7a614949d8b23fb43a43abffcff"
     },
     {
       "target": "esp32s3",
@@ -91,9 +91,9 @@
       "sample_sha256": "b2d1c8573307e010d276d2d0df537f1fe752416f8422e267aa8b1661c1744595",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/esp32s3/build.json",
-      "build_sha256": "d27417b2b4502a5795445d467bdc4d61e61b647d8339f6cc162bfdda48af39f1",
+      "build_sha256": "38690d009c9a7dcd094dfde86155957600154ed36b1742e5374508c982f67bfe",
       "run": ".remu/qualification/vendor-samples/esp32s3/run.json",
-      "run_sha256": "d6a128a1dbc2fca259f6a2d5c8e4fa7eeb7e659984ee13fcfee456e54817c503"
+      "run_sha256": "d4c7c308e2c1b5897653565667cd2452bdda3bca70a3976e0bca35c35fad8f1d"
     },
     {
       "target": "esp32c6",
@@ -101,7 +101,7 @@
       "sample_sha256": "b2d1c8573307e010d276d2d0df537f1fe752416f8422e267aa8b1661c1744595",
       "result": "pass",
       "build": ".remu/qualification/vendor-samples/esp32c6/build.json",
-      "build_sha256": "9fc8e98d33dafe032e763501af83162b31110dddaec9509ada88c2fb32e5cafb",
+      "build_sha256": "e4f9102b0e6d73c2bab92ed716fef6bad2e1e68f5f19ba1b84664744451fc9eb",
       "run": ".remu/qualification/vendor-samples/esp32c6/run.json",
       "run_sha256": "ed5b48aa89d01b1a3224ec58e26a6bde8a1769e9e8e11204130c2902ea648ef7"
     }

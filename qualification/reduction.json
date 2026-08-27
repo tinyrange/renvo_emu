@@ -1,6 +1,6 @@
 {
   "schema": "remu.reduction-qualification.v1",
-  "source_sha256": "9ecb4339304884a3e30d39fdffc361614ab67fbe96c4120ad49e67463d6f04ef",
+  "source_sha256": "4bfb68cb9dd05b90669d2108070af1a8fe2502eb7e49627c318bf8a14cb1d9c6",
   "axes": [
     "source",
     "compiler_flags",
@@ -54,7 +54,7 @@
       "family": "arm",
       "target": "rp2040",
       "artifact": ".remu/qualification/reduction/arm.json",
-      "artifact_sha256": "2fb02081a7520d522fd8e6fb5190c8ffb7f14e2e70d22ab0bc04aa7060ac19de",
+      "artifact_sha256": "0c5b1b27508a81a58a4546fa215e71374b1c1170d0f898d1e1d7df7251537d88",
       "seeded_expected": 0,
       "original": {
         "source": [
@@ -96,7 +96,7 @@
       "family": "xtensa",
       "target": "esp32s3",
       "artifact": ".remu/qualification/reduction/xtensa.json",
-      "artifact_sha256": "abc30fc4c0f560cb95749042041d46255ac797ce57e650c892f5c0a36df9a247",
+      "artifact_sha256": "39b865a33c3675733ab9374d0e55070d12db4c7f6cd021606b8192413d15abae",
       "seeded_expected": 0,
       "original": {
         "source": [
