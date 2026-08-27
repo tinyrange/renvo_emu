@@ -3,7 +3,9 @@
 The pinned Arm GNU 13.2.Rel1 and Clang/LLD 18 lanes select Cortex-M0+ Thumb code and the exact
 SAMD21E18A device identity. The compiler smoke covers startup, Arm EABI calls,
 native widths, arithmetic, GPIO input/output, EIC routing, TC3 interrupt entry,
-SERCOM0 UART output, and the SAM D21 USB device control/endpoint register
+TC4/TC5 register and interrupt setup, TCC0 PWM, RTC MODE0 compare, all four
+E18-package SERCOM instances,
+and the SAM D21 USB device control/endpoint register
 surface. The USB slice follows the vendor CMSIS register masks, including
 FSMSTATUS, descriptor and pad-calibration fields, endpoint status aliases and
 write-one-to-clear interrupt flags. The smoke also configures the 12-channel
@@ -14,8 +16,9 @@ vector table at flash address zero,
 uses the 256 KiB flash and 32 KiB SRAM maps, and emits `SAMD21\n`.
 
 The functional peripheral surface is PM, SYSCTRL, GCLK and NVMCTRL startup
-state, PORT A, EIC, TC3, SERCOM0 USART, SPI host, I²C host, EVSYS, USB, I2S,
-ADC, AC, DAC, and watchdog, plus the DMAC common/channel registers. The DMAC model follows the
+state, PORT A, EIC, RTC MODE0, TC3–5, TCC0–2, SERCOM0–3 USART, SPI host, I²C
+host, EVSYS, USB, I2S, ADC, AC, DAC, and watchdog, plus the DMAC common/channel
+registers. The DMAC model follows the
 vendor masks and direct/W1C access semantics, including the reserved gap
 between DBGCTRL and SWTRIGCTRL. It executes one valid
 software-triggered descriptor for memory-to-memory byte/halfword/word
@@ -23,7 +26,9 @@ transfers, records write-back state, and latches completion/fetch-error flags.
 The I2S two-clock/two-serializer control, interrupt, and sample-holding
 registers capture transmitted sample words and latch ready/overrun flags for
 host-injected receive words. The model uses documented register masks and
-routes the shared I2S interrupt to Cortex-M0+ IRQ 27. SERCOM
+routes the shared I2S interrupt to Cortex-M0+ IRQ 27. SERCOM0–3 use their
+native `0x42000800` through `0x42001400` windows and IRQs 9–12; TC3–5 use
+`0x42002c00` through `0x42003400` and IRQs 18–20. SERCOM
 transfers use deterministic register-level loopback/injected responses; pin
 electrical timing and complete client/slave behavior are not modeled. The
 register implementation follows the vendor mode encodings, per-mode masks,
@@ -48,12 +53,22 @@ The DAC follows the native `CTRLA`, `CTRLB`, `EVCTRL`, interrupt, `DATA`, and
 EMPTY/UNDERRUN flags, and IRQ 25. Its VCD `output_code` is a deterministic
 10-bit digital observation rather than an analog voltage. Analog settling and
 reference voltage are unsupported.
-VCD exposes PORT, timer, UART, comparator, DAC, and interrupt hierarchy, and the gate compares
-two runs byte-for-byte.
+TCC0–2 expose native 24-bit period/compare registers, raw interrupt aliases,
+counter/overflow/match behavior, IRQs 15–17, and deterministic digital WO0–WO3
+PWM observations. TCC1 and TCC2 reject unavailable channels beyond CC1. Fault,
+capture, dead-time, dithering, event/DMA coupling, and clock-accurate output
+edges remain unsupported. RTC implements native MODE0 32-bit count/compare,
+overflow/compare flags, W1C interrupt behavior, and IRQ 3. MODE1, calendar
+MODE2, frequency correction, and wall-clock/crystal accuracy remain unsupported.
+VCD exposes PORT, timer, UART, comparator, DAC, TCC PWM, and interrupt hierarchy,
+and the gate compares two runs byte-for-byte.
 
 The DAC register map and bit definitions are sourced from Microchip
 DS40001882H, section 35:
 <https://ww1.microchip.com/downloads/en/DeviceDoc/SAM-D21-DA1-Family-Data-Sheet-DS40001882H.pdf>.
+The online Microchip register summaries used by the timer audit are
+[RTC section 19.7](https://onlinedocs.microchip.com/oxy/GUID-22527069-B4D6-49B9-BACC-3AF1C52EB48C-en-US-21/GUID-29066910-D5AD-46DD-836B-CF5EBD0FAFA8.html)
+and [TCC section 31.7](https://onlinedocs.microchip.com/oxy/GUID-22527069-B4D6-49B9-BACC-3AF1C52EB48C-en-US-21/GUID-8549BCAA-1123-48D7-A986-E87EEDB08F12.html).
 
 The vendor lane builds the pinned Microchip Harmony
 `port_led_on_off_polling` main source unchanged. Tracked startup, declarations

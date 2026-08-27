@@ -17,9 +17,10 @@ use remu_devices::{
     RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Ac,
     Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
     Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
-    Samd21Port, Samd21RegisterBlock, Samd21Tc, Samd21TcHandle, Samd21Usart, Samd21UsartHandle,
-    Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
+    Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
+    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -80,6 +81,10 @@ pub struct ArmMcuMachine {
     uart: VendorUart,
     compiler_uart: UartHandle,
     timer: VendorTimer,
+    samd_sercom_irqs: Vec<(u16, Samd21UsartHandle)>,
+    samd_tc_irqs: Vec<(u16, Samd21TcHandle)>,
+    samd_tcc_irqs: Vec<(u16, Samd21TccHandle)>,
+    samd_rtc: Option<Samd21RtcHandle>,
     eic: Option<Samd21EicHandle>,
     dmac: Option<Samd21DmacHandle>,
     i2s: Option<Samd21I2sHandle>,
@@ -237,7 +242,23 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
-        let (gpio, uart, timer, eic, dmac, i2s, adc, ac, dac, ra_icu, watchdog) = match target {
+        let (
+            gpio,
+            uart,
+            timer,
+            samd_sercom_irqs,
+            samd_tc_irqs,
+            samd_tcc_irqs,
+            samd_rtc,
+            eic,
+            dmac,
+            i2s,
+            adc,
+            ac,
+            dac,
+            ra_icu,
+            watchdog,
+        ) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
                     "atsamd21e18.porta",
@@ -246,12 +267,36 @@ impl ArmMcuMachine {
                     signals.clone(),
                 )?;
                 let (tc3_device, timer) = Samd21Tc::new("atsamd21e18.tc3");
+                let (tc4_device, tc4) = Samd21Tc::new("atsamd21e18.tc4");
+                let (tc5_device, tc5) = Samd21Tc::new("atsamd21e18.tc5");
+                let (tcc0_device, tcc0) = Samd21Tcc::new_with_signals(
+                    "atsamd21e18.tcc0",
+                    4,
+                    signals.clone(),
+                    "board.atsamd21e18.tcc0",
+                )?;
+                let (tcc1_device, tcc1) = Samd21Tcc::new_with_signals(
+                    "atsamd21e18.tcc1",
+                    2,
+                    signals.clone(),
+                    "board.atsamd21e18.tcc1",
+                )?;
+                let (tcc2_device, tcc2) = Samd21Tcc::new_with_signals(
+                    "atsamd21e18.tcc2",
+                    2,
+                    signals.clone(),
+                    "board.atsamd21e18.tcc2",
+                )?;
+                let (rtc_device, rtc) = Samd21Rtc::new("atsamd21e18.rtc");
                 let (eic_device, eic) = Samd21Eic::new("atsamd21e18.eic");
                 let (adc_device, adc) = Samd21Adc::new("atsamd21e18.adc");
                 let (ac_device, ac) =
                     Samd21Ac::new("atsamd21e18.ac", "board.atsamd21e18.ac", signals.clone())?;
                 let (watchdog_device, watchdog) = Samd21Wdt::new("atsamd21e18.wdt");
                 let (sercom0_device, uart) = Samd21Usart::new("atsamd21e18.sercom0");
+                let (sercom1_device, sercom1) = Samd21Usart::new("atsamd21e18.sercom1");
+                let (sercom2_device, sercom2) = Samd21Usart::new("atsamd21e18.sercom2");
+                let (sercom3_device, sercom3) = Samd21Usart::new("atsamd21e18.sercom3");
                 let (evsys_device, _evsys) = Samd21Evsys::new("atsamd21e18.evsys");
                 let (usb_device, _usb) = Samd21UsbDevice::new("atsamd21e18.usb");
                 let (dmac_device, dmac) = Samd21Dmac::new("atsamd21e18.dmac");
@@ -266,8 +311,15 @@ impl ArmMcuMachine {
                     port_device,
                     eic_device,
                     watchdog_device,
-                    tc3_device,
-                    sercom0_device,
+                    [tc3_device, tc4_device, tc5_device],
+                    [tcc0_device, tcc1_device, tcc2_device],
+                    rtc_device,
+                    [
+                        sercom0_device,
+                        sercom1_device,
+                        sercom2_device,
+                        sercom3_device,
+                    ],
                     evsys_device,
                     usb_device,
                     dmac_device,
@@ -280,6 +332,10 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Samd21(uart),
                     VendorTimer::Samd21(timer),
+                    vec![(10, sercom1), (11, sercom2), (12, sercom3)],
+                    vec![(19, tc4), (20, tc5)],
+                    vec![(15, tcc0), (16, tcc1), (17, tcc2)],
+                    Some(rtc),
                     Some(eic),
                     Some(dmac),
                     Some(i2s),
@@ -323,6 +379,10 @@ impl ArmMcuMachine {
                     gpio,
                     VendorUart::Stm32(uart),
                     VendorTimer::Stm32(timer),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    None,
                     None,
                     None,
                     None,
@@ -354,6 +414,10 @@ impl ArmMcuMachine {
                     handles.remove(1),
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    None,
                     None,
                     None,
                     None,
@@ -377,6 +441,10 @@ impl ArmMcuMachine {
             uart,
             compiler_uart,
             timer,
+            samd_sercom_irqs,
+            samd_tc_irqs,
+            samd_tcc_irqs,
+            samd_rtc,
             eic,
             dmac,
             i2s,
@@ -406,8 +474,10 @@ impl ArmMcuMachine {
         port: Samd21Port,
         eic: Samd21Eic,
         watchdog: Samd21Wdt,
-        tc3: Samd21Tc,
-        sercom0: Samd21Usart,
+        timers: [Samd21Tc; 3],
+        tccs: [Samd21Tcc; 3],
+        rtc: Samd21Rtc,
+        sercoms: [Samd21Usart; 4],
         evsys: Samd21Evsys,
         usb: Samd21UsbDevice,
         dmac: Samd21Dmac,
@@ -440,12 +510,36 @@ impl ArmMcuMachine {
             Box::new(Samd21RegisterBlock::new("atsamd21e18.gclk", 0x100, [])),
         )?;
         bus.map_device("atsamd21e18.wdt", 0x4000_1000, 0x100, Box::new(watchdog))?;
+        bus.map_device("atsamd21e18.rtc", 0x4000_1400, 0x20, Box::new(rtc))?;
         bus.map_device("atsamd21e18.eic", 0x4000_1800, 0x100, Box::new(eic))?;
         bus.map_device("atsamd21e18.evsys", 0x4200_0400, 0x20, Box::new(evsys))?;
         bus.map_device("atsamd21e18.usb", 0x4100_5000, 0x200, Box::new(usb))?;
         bus.map_device("atsamd21e18.ac", 0x4200_4400, 0x100, Box::new(ac))?;
-        bus.map_device("atsamd21e18.sercom0", 0x4200_0800, 0x40, Box::new(sercom0))?;
-        bus.map_device("atsamd21e18.tc3", 0x4200_2c00, 0x40, Box::new(tc3))?;
+        for (index, sercom) in sercoms.into_iter().enumerate() {
+            bus.map_device(
+                format!("atsamd21e18.sercom{index}"),
+                0x4200_0800 + u64::try_from(index).expect("SERCOM index fits u64") * 0x400,
+                0x40,
+                Box::new(sercom),
+            )?;
+        }
+        for (index, timer) in timers.into_iter().enumerate() {
+            let instance = index + 3;
+            bus.map_device(
+                format!("atsamd21e18.tc{instance}"),
+                0x4200_2c00 + u64::try_from(index).expect("TC index fits u64") * 0x400,
+                0x40,
+                Box::new(timer),
+            )?;
+        }
+        for (index, tcc) in tccs.into_iter().enumerate() {
+            bus.map_device(
+                format!("atsamd21e18.tcc{index}"),
+                0x4200_2000 + u64::try_from(index).expect("TCC index fits u64") * 0x400,
+                0x80,
+                Box::new(tcc),
+            )?;
+        }
         bus.map_device("atsamd21e18.dmac", 0x4100_4800, 0x100, Box::new(dmac))?;
         bus.map_device("atsamd21e18.i2s", 0x4200_5000, 0x100, Box::new(i2s))?;
         bus.map_device("atsamd21e18.adc", 0x4200_4000, 0x100, Box::new(adc))?;
@@ -854,6 +948,30 @@ impl ArmMcuMachine {
                 self.cpu
                     .set_interrupt(4, eic_pending && self.ppb.interrupt_enabled(4))?;
             }
+            for (line, sercom) in &self.samd_sercom_irqs {
+                let pending = sercom.interrupt_pending();
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
+            for (line, timer) in &self.samd_tc_irqs {
+                let pending = timer.poll(self.now);
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
+            for (line, tcc) in &self.samd_tcc_irqs {
+                let pending = tcc.poll(self.now)?;
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
+            if let Some(rtc) = &self.samd_rtc {
+                let pending = rtc.poll(self.now);
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(3, pending && self.ppb.interrupt_enabled(3))?;
+            }
             if let Some(dmac) = &self.dmac {
                 let dmac_pending = dmac.interrupt_pending();
                 interrupt_requested |= dmac_pending;
@@ -1252,3 +1370,7 @@ mod tests {
             .unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "arm_mcu_samd_instance_tests.rs"]
+mod samd_instance_tests;
