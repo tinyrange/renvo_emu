@@ -3,10 +3,10 @@ use super::{MachineError, RiscVMachine};
 impl RiscVMachine {
     /// Supplies a deterministic analog sample to a WCH ADC channel.
     pub fn set_wch_adc_sample(&self, channel: u8, value: u16) -> Result<(), MachineError> {
-        let Some(adc) = &self.wch_adc else {
+        let Some(wch) = &self.wch else {
             return Err(MachineError::UnsupportedTarget(self.target));
         };
-        adc.set_channel_sample(channel, value);
+        wch.adc.set_channel_sample(channel, value);
         Ok(())
     }
 
