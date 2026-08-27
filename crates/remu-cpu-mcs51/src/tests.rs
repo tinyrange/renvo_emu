@@ -150,6 +150,7 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
     cpu.load_code(0, &[0x00]).unwrap();
     cpu.load_code(0x0b, &[0x32]).unwrap();
     cpu.load_code(0x23, &[0x32]).unwrap();
+    cpu.load_code(0x3b, &[0x32]).unwrap();
     cpu.set_interrupt(0, true).unwrap();
     run(&mut cpu, &mut bus, 1);
     assert_eq!(cpu.pc, 0x0b);
@@ -161,6 +162,71 @@ fn interrupts_obey_priority_and_reti_restores_nesting() {
     run(&mut cpu, &mut bus, 2);
     assert_eq!(cpu.pc, 0);
     assert_eq!(cpu.active_priority, None);
+
+    cpu.load_code(0x1b, &[0x32]).unwrap();
+    cpu.set_interrupt(8, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x1b);
+    assert_eq!(cpu.last_interrupt_line(), Some(8));
+}
+
+#[test]
+fn spi0_interrupt_uses_the_efm8_vector_at_low_or_high_priority() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x33, &[0x32]).unwrap();
+
+    cpu.set_interrupt(6, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x33);
+    cpu.set_interrupt(6, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+
+    cpu.set_interrupt(7, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x33);
+}
+
+#[test]
+fn timer1_interrupt_has_dedicated_lines_and_the_efm8_vector() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x1b, &[0x32]).unwrap();
+
+    cpu.set_interrupt(8, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x1b);
+    cpu.set_interrupt(8, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+
+    cpu.set_interrupt(9, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x1b);
+}
+
+#[test]
+fn pca_interrupt_uses_the_extended_vector_without_shifting_existing_lines() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0, &[0x00]).unwrap();
+    cpu.load_code(0x33, &[0x32]).unwrap();
+    cpu.set_interrupt(6, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x33);
+    cpu.set_interrupt(6, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+}
+
+#[test]
+fn dedicated_smbus_interrupt_line_uses_its_vector() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0, &[0x00]).unwrap();
+    cpu.load_code(0x3b, &[0x32]).unwrap();
+    cpu.set_interrupt(10, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x3b);
 }
 
 #[test]

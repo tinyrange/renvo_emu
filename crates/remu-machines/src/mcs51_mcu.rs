@@ -4,8 +4,8 @@ use crate::{
 };
 use remu_bus::{AddressSpace, BusAccessRecord, Endianness, SharedBusAccessObserver};
 use remu_core::{
-    AccessKind, AccessWidth, Bus, Cpu, ResetKind, RunLimits, RunStats, SimTime, StepReason,
-    StopReason,
+    AccessKind, AccessWidth, Bus, Cpu, EventQueue, ResetKind, RunLimits, RunStats, SimTime,
+    StepReason, StopReason,
 };
 use remu_cpu_mcs51::{Mcs51Cpu, Mcs51Register};
 use remu_devices::{Efm8Peripherals, Efm8PeripheralsHandle, GpioHandle, SignalHub};
@@ -54,6 +54,9 @@ pub enum Mcs51MachineError {
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] remu_trace::TraceError),
+    /// Timestamped stimulus could not be inserted into the stable event queue.
+    #[error(transparent)]
+    Queue(#[from] remu_core::QueueError),
 }
 
 /// Byte-code EFM8BB52F32G machine with the selected functional peripheral slice.
@@ -197,6 +200,11 @@ impl Mcs51McuMachine {
         Ok(())
     }
 
+    /// Supplies the next byte returned by the EFM8 SPI0 master.
+    pub fn inject_spi_rx(&self, value: u8) {
+        self.peripherals.inject_spi_rx(value);
+    }
+
     /// Current Port 0 output latch.
     pub fn gpio_output(&self) -> u32 {
         self.gpio[0].output()
@@ -265,17 +273,17 @@ impl Mcs51McuMachine {
             time: self.now,
             events: 0,
         };
-        let mut stimuli = stimuli.to_vec();
-        stimuli.sort_by_key(|stimulus| stimulus.at);
-        let mut next_stimulus = 0;
+        let mut stimulus_queue = EventQueue::new();
+        for stimulus in stimuli.iter().copied() {
+            stimulus_queue.schedule_at(stimulus.at, stimulus)?;
+        }
         let reason = loop {
-            while stimuli
-                .get(next_stimulus)
-                .is_some_and(|stimulus| stimulus.at <= self.now)
-            {
-                let stimulus = stimuli[next_stimulus];
+            while stimulus_queue.next_time().is_some_and(|at| at <= self.now) {
+                let stimulus = stimulus_queue
+                    .pop()
+                    .expect("stimulus queue reported a due event")
+                    .payload;
                 self.set_pin(stimulus.pin, stimulus.value)?;
-                next_stimulus += 1;
                 stats.events = stats.events.saturating_add(1);
             }
             if limits
@@ -330,6 +338,9 @@ impl Mcs51McuMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| Mcs51MachineError::TimeOverflow)?;
             stats.time = self.now;
+            if matches!(self.cpu.last_interrupt_line(), Some(8 | 9)) {
+                self.peripherals.acknowledge_timer1_interrupt(self.now);
+            }
             let mut signal_stop = None;
             for change in self.signals.drain_changes() {
                 signal_stop =
@@ -373,7 +384,9 @@ impl Mcs51McuMachine {
 
 #[cfg(test)]
 mod tests {
-    use super::{IntelHexImage, Mcs51McuMachine, RunLimits, StopReason, TargetId};
+    use super::{IntelHexImage, Mcs51McuMachine, PinStimulus, RunLimits, StopReason, TargetId};
+    use remu_core::SimTime;
+    use remu_signals::Logic;
 
     #[test]
     fn machine_executes_hex_and_drives_gpio_uart_and_vcd_signals() {
@@ -396,5 +409,86 @@ mod tests {
         assert_eq!(result.reason, StopReason::InstructionLimit);
         assert_eq!(machine.gpio_output() & 1, 1);
         assert_eq!(result.uart, b"M");
+    }
+
+    #[test]
+    fn equal_timestamp_stimuli_preserve_input_order() {
+        let image = IntelHexImage::parse(b":04000000000000FC00\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+        let result = machine
+            .run_with_stimuli(
+                RunLimits {
+                    instructions: Some(1),
+                    deadline: None,
+                },
+                &[
+                    PinStimulus {
+                        at: SimTime::ZERO,
+                        pin: 0,
+                        value: Logic::One,
+                    },
+                    PinStimulus {
+                        at: SimTime::ZERO,
+                        pin: 0,
+                        value: Logic::Zero,
+                    },
+                ],
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(result.stats.events, 2);
+        assert_eq!(machine.gpio[0].resolved(0).unwrap(), Logic::Zero);
+    }
+
+    #[test]
+    fn future_stimulus_waits_across_resumed_runs_until_machine_time_reaches_it() {
+        let image = IntelHexImage::parse(b":04000000000000FC00\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+
+        let first = machine
+            .run(
+                RunLimits {
+                    instructions: Some(1),
+                    deadline: None,
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(first.stats.events, 0);
+
+        let second = machine
+            .run_with_stimuli(
+                RunLimits {
+                    instructions: Some(1),
+                    deadline: None,
+                },
+                &[PinStimulus {
+                    at: SimTime::from_ticks(2),
+                    pin: 0,
+                    value: Logic::One,
+                }],
+                None,
+            )
+            .unwrap();
+        assert_eq!(second.stats.events, 1);
+        assert_eq!(machine.gpio[0].resolved(0).unwrap(), Logic::One);
+    }
+
+    #[test]
+    fn machine_exposes_native_spi0_sfr_transfer() {
+        let image = IntelHexImage::parse(b":0100000000FF\n:00000001FF\n").unwrap();
+        let mut machine = Mcs51McuMachine::new(TargetId::Efm8bb52f32g).unwrap();
+        machine.load_program(&image).unwrap();
+        machine.inject_spi_rx(0x5a);
+        machine
+            .debug_write_memory(0x1_00f8, &[1])
+            .expect("SPI0CN0 write should map");
+        machine
+            .debug_write_memory(0x1_00a3, &[0xa6])
+            .expect("SPI0DAT write should map");
+        assert_eq!(machine.debug_read_memory(0x1_00a3, 1).unwrap(), [0x5a]);
     }
 }

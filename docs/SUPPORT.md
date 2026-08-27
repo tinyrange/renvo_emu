@@ -24,6 +24,13 @@ outside this slice. Addresses and vector routing follow Microchip's
 [ATmega328PB data sheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/40001906C.pdf)
 and [interrupt table](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B-05290662B5C3-en-US-12.1.1/GUID-F3266720-5DBF-4EA7-876C-81574D15CD24.html).
 
+EFM8BB52F32G also models the native SPI0 SFR transaction slice
+(`SPI0CFG`/`SPI0CKR`/`SPI0CN0`/`SPI0DAT`): master writes are captured,
+host-injected MISO bytes are returned, `SPIF`/`TXNF` status is exposed, and
+the ESPI0 interrupt participates in the low/high priority interrupt inputs.
+FIFO operation, crossbar pin assignment, and exact serial clock timing remain
+outside this functional model.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
@@ -764,6 +771,20 @@ MCUs consume Intel HEX or addressless raw binaries rooted at their documented
 primary flash base. Native loading uses vector/reset semantics where the
 architecture defines them instead of inventing an ELF entry point.
 
+The EFM8BB52F32G functional slice now includes Timer1 in addition to Timer0
+and Timer2: mode-1/2 counter progression, overflow flagging, VCD visibility,
+and a dedicated low/high interrupt line pair mapped to the native `0x001b`
+vector. Timer1 mode 0/3, exact oscillator-divider timing, and the remaining
+EFM8 timer blocks remain outside this slice. The register and interrupt
+semantics are based on the [Silicon Labs EFM8BB52 reference
+manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
+
+SMBus0 models leader start/stop, guest transmit capture, deterministic
+follower receive injection, FIFO status/flush behavior, bus ownership, and
+enabled low/high-priority service requests. Arbitration between multiple
+modeled bus participants, line-level clock stretching, timeout timing, and
+electrical bus behavior remain outside this functional slice.
+
 Native/direct equivalence is continuously checked by
 `scripts/qualify-native-images.sh`. All compiler inputs are built in immutable,
 network-disabled Docker toolchains. The gate compares stop reason, exit code,
@@ -786,3 +807,11 @@ The human-readable portfolio view is
 same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
+
+The EFM8BB52F32G slice also models the native CRC0 data path: CCITT-16 stream
+updates through `CRC0IN`, pointer-selected result reads/writes through
+`CRC0DAT`, CRC seed initialization, and byte bit reversal through `CRC0FLIP`.
+Register masks and pointer behavior follow Silicon Labs' [EFM8BB52 reference
+manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf),
+section 18. Automatic flash-sector CRC and the remaining analog/control blocks
+are outside this functional boundary.

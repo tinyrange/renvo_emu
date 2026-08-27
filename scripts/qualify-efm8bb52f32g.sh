@@ -11,7 +11,7 @@ toolchain=toolchains/sdcc-mcs51-efm8bb52.toml
 
 docker image inspect "$image" >/dev/null
 cargo build -q -p remu-cli
-cargo test -q -p remu-cpu-mcs51 -p remu-image
+cargo test -q -p remu-cpu-mcs51 -p remu-devices -p remu-image
 remu=target/debug/remu
 mkdir -p "$artifact_root"
 
@@ -65,6 +65,7 @@ grep -q '^\$scope module port0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer2 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module uart0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module pca0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-speed/signals.vcd"
 jq -e '.architecture == "Mcs51" and .fetch_accesses > 100 and .unique_addresses > 100' \
     "$artifact_root/run-speed/coverage.json" >/dev/null
@@ -125,6 +126,47 @@ mkdir -p "$uart_build"
     --artifact "$artifact_root/register-uart-build.json" \
     -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
+
+pca_build="$artifact_root/register-pca-build"
+mkdir -p "$pca_build"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$pca_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-pca-build.json" \
+    -- -I. -c remu_pca.c -o /workspace/out/pca.rel
+test -s "$pca_build/pca.rel"
+
+smbus_build="$artifact_root/register-smbus-build"
+smbus_run="$artifact_root/register-smbus-run"
+mkdir -p "$smbus_build" "$smbus_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$smbus_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-smbus-source-build.json" \
+    -- -I. -c remu_smbus.c -o /workspace/out/smbus.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$smbus_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-smbus-link.json" \
+    -- /workspace/out/smbus.rel -o /workspace/out/smbus.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$smbus_build/smbus.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.smb0.tx_strobe=rising \
+    --vcd "$smbus_run/signals.vcd" \
+    --bus-log "$smbus_run/bus.json" \
+    --result "$smbus_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.smb0.tx_strobe"}' \
+    "$smbus_run/result.json" >/dev/null
+grep -q 'smb0' "$smbus_run/signals.vcd"
 
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"

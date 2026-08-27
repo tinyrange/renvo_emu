@@ -130,7 +130,8 @@ pub struct Mcs51Cpu {
     sp: u8,
     pc: u16,
     sfr_page: u8,
-    interrupts: [bool; 6],
+    interrupts: [bool; 12],
+    last_interrupt_line: Option<u8>,
     active_priority: Option<bool>,
     priority_stack: Vec<Option<bool>>,
     waiting: bool,
@@ -156,7 +157,8 @@ impl Mcs51Cpu {
             sp: 7,
             pc: 0,
             sfr_page: 0,
-            interrupts: [false; 6],
+            interrupts: [false; 12],
+            last_interrupt_line: None,
             active_priority: None,
             priority_stack: Vec::new(),
             waiting: false,
@@ -227,6 +229,15 @@ impl Mcs51Cpu {
             Mcs51Register::Pc => self.pc = word,
         }
         self.update_parity();
+    }
+
+    /// Returns the interrupt line consumed by the most recent CPU step.
+    ///
+    /// A machine model can use this acknowledgement point to apply
+    /// architecture-specific side effects that occur when the core vectors
+    /// to an interrupt handler, such as clearing an edge/overflow flag.
+    pub fn last_interrupt_line(&self) -> Option<u8> {
+        self.last_interrupt_line
     }
 
     fn fault(&self, kind: CpuFaultKind, message: impl Into<String>) -> CpuFault {
@@ -458,7 +469,8 @@ impl Mcs51Cpu {
         self.sp = 7;
         self.pc = 0;
         self.sfr_page = 0;
-        self.interrupts = [false; 6];
+        self.interrupts = [false; 12];
+        self.last_interrupt_line = None;
         self.active_priority = None;
         self.priority_stack.clear();
         self.waiting = false;
@@ -466,6 +478,8 @@ impl Mcs51Cpu {
     }
 
     fn pending_interrupt(&self) -> Option<(usize, bool)> {
+        const LOW_LINES: [usize; 6] = [0, 1, 2, 6, 8, 10];
+        const HIGH_LINES: [usize; 6] = [3, 4, 5, 7, 9, 11];
         for high in [true, false] {
             if high && self.active_priority == Some(true) {
                 continue;
@@ -473,8 +487,8 @@ impl Mcs51Cpu {
             if !high && self.active_priority.is_some() {
                 continue;
             }
-            let base = if high { 3 } else { 0 };
-            if let Some(line) = (base..base + 3).find(|line| self.interrupts[*line]) {
+            let lines = if high { &HIGH_LINES } else { &LOW_LINES };
+            if let Some(line) = lines.iter().copied().find(|line| self.interrupts[*line]) {
                 return Some((line, high));
             }
         }
@@ -482,11 +496,19 @@ impl Mcs51Cpu {
     }
 
     fn enter_interrupt(&mut self, line: usize, high: bool) {
-        const VECTORS: [u16; 3] = [0x000b, 0x0023, 0x002b];
+        let vector = match line {
+            0 | 3 => 0x000b,
+            1 | 4 => 0x0023,
+            2 | 5 => 0x002b,
+            6 | 7 => 0x0033,
+            8 | 9 => 0x001b,
+            10 | 11 => 0x003b,
+            _ => unreachable!("MCS-51 interrupt line is validated by pending_interrupt"),
+        };
         self.push_pc();
         self.priority_stack.push(self.active_priority);
         self.active_priority = Some(high);
-        self.pc = VECTORS[line % 3];
+        self.pc = vector;
         self.waiting = false;
     }
 }
@@ -502,8 +524,10 @@ impl Cpu for Mcs51Cpu {
     }
 
     fn step(&mut self, bus: &mut dyn Bus, now: SimTime) -> Result<StepOutcome, CpuFault> {
+        self.last_interrupt_line = None;
         if let Some((line, high)) = self.pending_interrupt() {
             self.enter_interrupt(line, high);
+            self.last_interrupt_line = Some(line as u8);
             return Ok(StepOutcome::advanced(SimDuration::from_ticks(2)));
         }
         if self.waiting {
@@ -524,7 +548,7 @@ impl Cpu for Mcs51Cpu {
             CpuFault::new(
                 CpuFaultKind::Architecture,
                 u64::from(self.pc),
-                format!("MCS-51 interrupt line {line} is outside 0..5"),
+                format!("MCS-51 interrupt line {line} is outside 0..11"),
             )
         })?;
         *slot = asserted;
