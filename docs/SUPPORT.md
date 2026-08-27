@@ -779,6 +779,12 @@ EFM8 timer blocks remain outside this slice. The register and interrupt
 semantics are based on the [Silicon Labs EFM8BB52 reference
 manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf).
 
+SMBus0 models leader start/stop, guest transmit capture, deterministic
+follower receive injection, FIFO status/flush behavior, bus ownership, and
+enabled low/high-priority service requests. Arbitration between multiple
+modeled bus participants, line-level clock stretching, timeout timing, and
+electrical bus behavior remain outside this functional slice.
+
 Native/direct equivalence is continuously checked by
 `scripts/qualify-native-images.sh`. All compiler inputs are built in immutable,
 network-disabled Docker toolchains. The gate compares stop reason, exit code,
@@ -807,5 +813,5 @@ updates through `CRC0IN`, pointer-selected result reads/writes through
 `CRC0DAT`, CRC seed initialization, and byte bit reversal through `CRC0FLIP`.
 Register masks and pointer behavior follow Silicon Labs' [EFM8BB52 reference
 manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf),
-section 18. Automatic flash-sector CRC, SMBus, and the remaining analog/control
-blocks are outside this functional boundary.
+section 18. Automatic flash-sector CRC and the remaining analog/control blocks
+are outside this functional boundary.
