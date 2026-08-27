@@ -112,9 +112,11 @@ impl WchPowerState {
     }
 
     fn csr(&self) -> u32 {
-        (self.supply_low && self.ctlr & CTLR_PVDE != 0)
-            .then_some(CSR_PVDO)
-            .unwrap_or(0)
+        if self.supply_low && self.ctlr & CTLR_PVDE != 0 {
+            CSR_PVDO
+        } else {
+            0
+        }
     }
 
     fn ctlr_mask(&self) -> u32 {

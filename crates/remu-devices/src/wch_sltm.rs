@@ -1,8 +1,10 @@
-use super::*;
+use remu_bus::{Device, DeviceError};
+use remu_core::{AccessWidth, ResetKind, SimTime};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// The register map and field descriptions follow Chapter 13 of the
 /// [CH32V00X Reference Manual](https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF).
-
 /// Register offsets for the CH32V006 streamlined TIM3 block.
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -133,13 +135,12 @@ impl WchSltmState {
     }
 
     fn first_hit_after(start: u64, period: u64, residue: u64) -> u64 {
-        let first = if start < residue {
+        if start < residue {
             residue
         } else {
             let distance = start - residue + 1;
             residue + distance.div_ceil(period) * period
-        };
-        first
+        }
     }
 
     fn crossed_update(&self, start: u64, end: u64) -> bool {
@@ -304,7 +305,7 @@ impl Device for WchSltm {
                 }
             }
             WchSltmRegister::DmaIntEnable => {
-                state.dma_int_enable = value & WchSltmState::DMA_INT_ENABLE_MASK
+                state.dma_int_enable = value & WchSltmState::DMA_INT_ENABLE_MASK;
             }
             WchSltmRegister::Counter => {
                 state.counter = value;

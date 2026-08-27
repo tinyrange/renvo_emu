@@ -8,19 +8,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "e4b43ab663f6afb31738ac2f352838abad737d4366ff945262014b3218bed314"
+    "sha256": "a0bf774422dac54e76742c9635531229de92cae5ede5af3b1ae7d5029af9ee1f"
   },
   "proofs": [
     {
       "id": "ch32v006",
       "result": ".remu/portfolio-smoke/ch32v006-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v006-bus.json",
-      "result_sha256": "caed8df76ddac3049a13cb7b252faa51ce48269fa099faca15fc0643c7e4a967",
-      "bus_log_sha256": "57bc5393f8db0b635ac2000793d5dd0567a71e38cca3d5eede24c147a30ba8aa",
+      "result_sha256": "4f58572994355675677dabc92bd77adf7408d4d793c2957af6fcf6d85fb94bb6",
+      "bus_log_sha256": "ece7040e5a96ee0a7ff3c0c35f6d0af52794bcc117ff5991287ed68d57a04c76",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "5a067e927260691b74e02cb73595c57e3e7316b4d6d6a2fc8037fc0db2dd46eb",
+        "trace_digest": "928ec67938b596e3378dd3c0f80b1716ef9236506ef981abb066517beb094c45",
         "stats": {
           "instructions": 19,
           "time": 19,
@@ -32,12 +32,12 @@
       "id": "ch32v006-uart",
       "result": ".remu/portfolio-smoke/ch32v006-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v006-uart-bus.json",
-      "result_sha256": "ea458205d4497185725353c2fd69f10f46e659d00664d4d1a78f5e719f402052",
-      "bus_log_sha256": "d2864adac7bf69926ca76d1e86aae4ee6c067e08c97ae523ec6c53714b84f74b",
+      "result_sha256": "f4562b9735250d36a37f34bff932d3faacd7ed87441be1c8be132f919c31feb5",
+      "bus_log_sha256": "0c2c00bcf018eac701b462c6b5fd67c0969e57b10db2c83eae84b69bdd48a8c9",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
+        "trace_digest": "06ddce31242ed73928ade14ad18d477724a535276388662a1f13209931000ee4",
         "stats": {
           "instructions": 88,
           "time": 88,
@@ -46,19 +46,70 @@
       }
     },
     {
-      "id": "ch32v006-timer",
-      "result": ".remu/portfolio-smoke/ch32v006-timer-run.json",
-      "bus_log": ".remu/portfolio-smoke/ch32v006-timer-bus.json",
-      "result_sha256": "1471d7dbe1a81a1b0944c3348522454218362a366ca5df8539eac6439f7d655b",
-      "bus_log_sha256": "675c44479c22dfdbfd58b6ef8fa89848d66438da4e7efaae6908f3c3180afa78",
+      "id": "ch32v006-uart2",
+      "result": ".remu/portfolio-smoke/ch32v006-uart2-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-uart2-bus.json",
+      "result_sha256": "551bad41041a30ea0e376cb4a519b1ba42c14b8bec3631344281d135cdcba40b",
+      "bus_log_sha256": "73bec54e6dfa5dbff51a9c87db373605d192e4d11498a5be2b302fefc353982e",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
+        "trace_digest": "06ddce31242ed73928ade14ad18d477724a535276388662a1f13209931000ee4",
+        "stats": {
+          "instructions": 94,
+          "time": 94,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "ch32v006-timer",
+      "result": ".remu/portfolio-smoke/ch32v006-timer-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-timer-bus.json",
+      "result_sha256": "da4972975766187eef65cb372f6a23e7109cffd01b5784596ad48d30d996d62b",
+      "bus_log_sha256": "457a6dd3b2d32859ec44fd05bf69e38b6ef22d6d0c84362b681a87808d04a68e",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "06ddce31242ed73928ade14ad18d477724a535276388662a1f13209931000ee4",
         "stats": {
           "instructions": 41,
           "time": 41,
           "events": 1
+        }
+      }
+    },
+    {
+      "id": "ch32v006-sltm",
+      "result": ".remu/portfolio-smoke/ch32v006-sltm-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-sltm-bus.json",
+      "result_sha256": "4d77775cebce477a2a2fba0c636d21708b8332623b3bc28e6dca67934a992aec",
+      "bus_log_sha256": "3542cdae3b475350b7ca833c19ce8010bfa2b6a3f2e5e940cdd838c7eda243df",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "06ddce31242ed73928ade14ad18d477724a535276388662a1f13209931000ee4",
+        "stats": {
+          "instructions": 49,
+          "time": 49,
+          "events": 0
+        }
+      }
+    },
+    {
+      "id": "ch32v006-touch",
+      "result": ".remu/portfolio-smoke/ch32v006-touch-run.json",
+      "bus_log": ".remu/portfolio-smoke/ch32v006-touch-bus.json",
+      "result_sha256": "9a7b5182263e9b5a3bc614347cbba655ddc8a00d2be2608e2af1eb8664027b37",
+      "bus_log_sha256": "146184947c4031723bd6e7fa8474d0e9193220d6ad4734d42c5b38c3e12ef25f",
+      "outcome": {
+        "reason": "Halted",
+        "exit_code": 0,
+        "trace_digest": "06ddce31242ed73928ade14ad18d477724a535276388662a1f13209931000ee4",
+        "stats": {
+          "instructions": 50,
+          "time": 50,
+          "events": 0
         }
       }
     }
@@ -68,10 +119,80 @@
     "ch32v006.pfic",
     "ch32v006.rcc",
     "ch32v006.tim2",
-    "ch32v006.usart1"
+    "ch32v006.tim3",
+    "ch32v006.usart1",
+    "ch32v006.usart2",
+    "ch32v006.adc-tkey"
   ],
-  "covered_register_count": 13,
+  "covered_register_count": 29,
   "covered_registers": [
+    {
+      "region": "ch32v006.adc-tkey",
+      "address": 1073816576,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 8
+    },
+    {
+      "region": "ch32v006.adc-tkey",
+      "address": 1073816580,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.adc-tkey",
+      "address": 1073816584,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.adc-tkey",
+      "address": 1073816628,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.adc-tkey",
+      "address": 1073816636,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.adc-tkey",
+      "address": 1073816652,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 2
+    },
     {
       "region": "ch32v006.gpioc",
       "address": 1073811456,
@@ -116,7 +237,7 @@
       "widths": [
         "Word"
       ],
-      "access_count": 4
+      "access_count": 6
     },
     {
       "region": "ch32v006.tim2",
@@ -174,6 +295,74 @@
       "access_count": 1
     },
     {
+      "region": "ch32v006.tim3",
+      "address": 1073743872,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743876,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743880,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 8
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743884,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743888,
+      "operations": [
+        "Read",
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 2
+    },
+    {
+      "region": "ch32v006.tim3",
+      "address": 1073743896,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "HalfWord"
+      ],
+      "access_count": 1
+    },
+    {
       "region": "ch32v006.usart1",
       "address": 1073821696,
       "operations": [
@@ -216,6 +405,50 @@
         "Word"
       ],
       "access_count": 1
+    },
+    {
+      "region": "ch32v006.usart2",
+      "address": 1073759232,
+      "operations": [
+        "Read"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 10
+    },
+    {
+      "region": "ch32v006.usart2",
+      "address": 1073759236,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 10
+    },
+    {
+      "region": "ch32v006.usart2",
+      "address": 1073759240,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
+    },
+    {
+      "region": "ch32v006.usart2",
+      "address": 1073759244,
+      "operations": [
+        "Write"
+      ],
+      "widths": [
+        "Word"
+      ],
+      "access_count": 1
     }
   ],
   "additional_evidence": [
@@ -226,7 +459,9 @@
     "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
     "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
     "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
-    "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
-    "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
+    "USART1 and USART2 are transmit-focused functional slices without physical baud timing or a complete receive path.",
+    "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.",
+    "TKEY accepts deterministic host samples; analogue capacitance, DMA, scan/injection groups and exact HBCLK timing are not modeled.",
+    "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, center-alignment, preload transfers, waveform pins, and exact clock timing remain outside the slice."
   ]
 }

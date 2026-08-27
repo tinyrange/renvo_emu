@@ -1,5 +1,6 @@
-use super::*;
-use remu_core::{AccessKind, Bus};
+use remu_bus::{Device, DeviceError};
+use remu_core::{AccessKind, AccessWidth, Bus, ResetKind, SimTime};
+use std::sync::{Arc, Mutex};
 
 const CHANNELS: usize = 7;
 const CHANNEL_STRIDE: u64 = 0x14;
@@ -266,24 +267,18 @@ impl Device for WchDma {
                         channel.initial_maddr = channel.maddr;
                     }
                 }
-                0x04 => {
-                    if channel.cfgr & DMA_ENABLE == 0 {
-                        channel.cntr = u16::try_from(value & u32::from(u16::MAX))
-                            .expect("masked WCH DMA count fits u16");
-                        channel.initial_cntr = channel.cntr;
-                    }
+                0x04 if channel.cfgr & DMA_ENABLE == 0 => {
+                    channel.cntr = u16::try_from(value & u32::from(u16::MAX))
+                        .expect("masked WCH DMA count fits u16");
+                    channel.initial_cntr = channel.cntr;
                 }
-                0x08 => {
-                    if channel.cfgr & DMA_ENABLE == 0 {
-                        channel.paddr = value;
-                        channel.initial_paddr = value;
-                    }
+                0x08 if channel.cfgr & DMA_ENABLE == 0 => {
+                    channel.paddr = value;
+                    channel.initial_paddr = value;
                 }
-                0x0c => {
-                    if channel.cfgr & DMA_ENABLE == 0 {
-                        channel.maddr = value;
-                        channel.initial_maddr = value;
-                    }
+                0x0c if channel.cfgr & DMA_ENABLE == 0 => {
+                    channel.maddr = value;
+                    channel.initial_maddr = value;
                 }
                 _ => {}
             }
