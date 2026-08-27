@@ -64,6 +64,16 @@ grep -q '^\$scope module efm8bb52f32g \$end$' "$artifact_root/run-speed/signals.
 grep -q '^\$scope module port0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module timer2 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module timer3 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module timer4 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module timer5 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module adc0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module comparator0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module comparator1 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu0 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu1 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu2 \$end$' "$artifact_root/run-speed/signals.vcd"
+grep -q '^\$scope module clu3 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module uart0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module pca0 \$end$' "$artifact_root/run-speed/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-speed/signals.vcd"
@@ -87,6 +97,14 @@ mkdir -p "$fixture" "$fixture_run"
     --target efm8bb52f32g \
     --artifact "$artifact_root/register-isr-build.json" \
     -- -I. -c remu_timer2_irq.c -o /workspace/out/interrupts.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$fixture" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-timer345-build.json" \
+    -- -I. -c remu_timer345_irq.c -o /workspace/out/timer345.rel
+test -s "$fixture/timer345.rel"
 "$remu" corpus build \
     --toolchain "$toolchain" \
     --source qualification/efm8bb52f32g/silabs \
@@ -116,6 +134,44 @@ jq -e '.target == "efm8bb52f32g" and
 grep -q '^\$scope module timer2 \$end$' "$fixture_run/signals.vcd"
 grep -q '^\$scope module port1 \$end$' "$fixture_run/signals.vcd"
 
+port_match_build="$artifact_root/register-port-match-build"
+port_match_run="$artifact_root/register-port-match-run"
+mkdir -p "$port_match_build" "$port_match_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$port_match_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-port-match-build.json" \
+    -- -I. -c remu_port_match.c -o /workspace/out/port_match.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$port_match_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-port-match-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$port_match_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-port-match-link.json" \
+    -- /workspace/out/port_match.rel /workspace/out/adapter.rel -o /workspace/out/port_match.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$port_match_build/port_match.ihx" \
+    --max-instructions 10000 \
+    --pin 0=0@0 \
+    --stop-signal board.efm8bb52f32g.port_match.event=rising \
+    --vcd "$port_match_run/signals.vcd" \
+    --result "$port_match_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.port_match.event"}' \
+    "$port_match_run/result.json" >/dev/null
+grep -q '^\$scope module port_match \$end$' "$port_match_run/signals.vcd"
+test -s "$port_match_build/port_match.rel"
+
 uart_build="$artifact_root/register-uart-build"
 mkdir -p "$uart_build"
 "$remu" corpus build \
@@ -126,6 +182,75 @@ mkdir -p "$uart_build"
     --artifact "$artifact_root/register-uart-build.json" \
     -- -I. -c remu_uart_irq.c -o /workspace/out/uart.rel
 test -s "$uart_build/uart.rel"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$uart_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-uart1-build.json" \
+    -- -I. -c remu_uart1_irq.c -o /workspace/out/uart1.rel
+test -s "$uart_build/uart1.rel"
+
+adc_build="$artifact_root/register-adc-build"
+mkdir -p "$adc_build"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$adc_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-adc-build.json" \
+    -- -I. -c remu_adc_irq.c -o /workspace/out/adc.rel
+test -s "$adc_build/adc.rel"
+
+comparator_build="$artifact_root/register-comparator-build"
+mkdir -p "$comparator_build"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$comparator_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-comparator-build.json" \
+    -- -I. -c remu_comparator.c -o /workspace/out/comparator.rel
+test -s "$comparator_build/comparator.rel"
+
+clu_build="$artifact_root/register-clu-build"
+clu_run="$artifact_root/register-clu-run"
+mkdir -p "$clu_build" "$clu_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-build.json" \
+    -- -I. -c remu_clu.c -o /workspace/out/clu.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clu_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clu-link.json" \
+    -- /workspace/out/clu.rel /workspace/out/adapter.rel -o /workspace/out/clu.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$clu_build/clu.ihx" \
+    --max-instructions 10000 \
+    --pin 0=1@0 \
+    --pin 1=1@0 \
+    --stop-signal board.efm8bb52f32g.port1.pin4=rising \
+    --vcd "$clu_run/signals.vcd" \
+    --result "$clu_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.port1.pin4"}' \
+    "$clu_run/result.json" >/dev/null
+grep -q '^\$scope module clu0 \$end$' "$clu_run/signals.vcd"
+test -s "$clu_build/clu.rel"
 
 pca_build="$artifact_root/register-pca-build"
 mkdir -p "$pca_build"
@@ -167,6 +292,155 @@ jq -e '.target == "efm8bb52f32g" and
        .reason == {"Signal":"board.efm8bb52f32g.smb0.tx_strobe"}' \
     "$smbus_run/result.json" >/dev/null
 grep -q 'smb0' "$smbus_run/signals.vcd"
+
+dac_build="$artifact_root/register-dac-build"
+dac_run="$artifact_root/register-dac-run"
+mkdir -p "$dac_build" "$dac_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$dac_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-dac-build.json" \
+    -- -I. -c remu_dac.c -o /workspace/out/dac.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$dac_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-dac-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$dac_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-dac-link.json" \
+    -- /workspace/out/dac.rel /workspace/out/adapter.rel -o /workspace/out/dac.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$dac_build/dac.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.dac0.output=change \
+    --vcd "$dac_run/signals.vcd" \
+    --result "$dac_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.dac0.output"}' \
+    "$dac_run/result.json" >/dev/null
+grep -q '^\$scope module dac0 \$end$' "$dac_run/signals.vcd"
+
+flash_build="$artifact_root/flash-build"
+flash_run="$artifact_root/flash-run"
+mkdir -p "$flash_build" "$flash_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$flash_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-flash-build.json" \
+    -- -I. -c remu_flash.c -o /workspace/out/flash.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$flash_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-flash-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$flash_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-flash-link.json" \
+    -- /workspace/out/flash.rel /workspace/out/adapter.rel -o /workspace/out/flash.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$flash_build/flash.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.port1.pin4=change \
+    --vcd "$flash_run/signals.vcd" \
+    --result "$flash_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.port1.pin4"} and
+       .exit_code == 0' \
+    "$flash_run/result.json" >/dev/null
+grep -q '^$scope module port1 $end$' "$flash_run/signals.vcd"
+
+crossbar_build="$artifact_root/crossbar-build"
+crossbar_run="$artifact_root/crossbar-run"
+mkdir -p "$crossbar_build" "$crossbar_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$crossbar_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-crossbar-build.json" \
+    -- -I. -c remu_crossbar.c -o /workspace/out/crossbar.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$crossbar_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-crossbar-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$crossbar_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-crossbar-link.json" \
+    -- /workspace/out/crossbar.rel /workspace/out/adapter.rel -o /workspace/out/crossbar.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$crossbar_build/crossbar.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.crossbar.uart0.tx_pin=change \
+    --vcd "$crossbar_run/signals.vcd" \
+    --result "$crossbar_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.crossbar.uart0.tx_pin"} and
+       .exit_code == 0' \
+    "$crossbar_run/result.json" >/dev/null
+grep -q '^$scope module crossbar $end$' "$crossbar_run/signals.vcd"
+grep -q 'uart0' "$crossbar_run/signals.vcd"
+
+clock_build="$artifact_root/clock-power-build"
+clock_run="$artifact_root/clock-power-run"
+mkdir -p "$clock_build" "$clock_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clock_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clock-power-build.json" \
+    -- -I. -c remu_clock_power.c -o /workspace/out/clock-power.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clock_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clock-power-adapter-build.json" \
+    -- -I. -c InitDevice_adapter.c -o /workspace/out/adapter.rel
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/efm8bb52f32g/silabs \
+    --output "$clock_build" \
+    --target efm8bb52f32g \
+    --artifact "$artifact_root/register-clock-power-link.json" \
+    -- /workspace/out/clock-power.rel /workspace/out/adapter.rel -o /workspace/out/clock-power.ihx
+"$remu" run \
+    --target efm8bb52f32g \
+    --hex "$clock_build/clock-power.ihx" \
+    --max-instructions 10000 \
+    --stop-signal board.efm8bb52f32g.power.mode=change \
+    --vcd "$clock_run/signals.vcd" \
+    --result "$clock_run/result.json"
+jq -e '.target == "efm8bb52f32g" and
+       .reason == {"Signal":"board.efm8bb52f32g.power.mode"} and
+       .exit_code == 0' \
+    "$clock_run/result.json" >/dev/null
+grep -q '^$scope module clock $end$' "$clock_run/signals.vcd"
+grep -q '^$scope module power $end$' "$clock_run/signals.vcd"
 
 docker inspect "$image" >"$artifact_root/toolchain-image.json"
 sha256sum toolchains/sdcc-mcs51/Dockerfile >"$artifact_root/Dockerfile.sha256"

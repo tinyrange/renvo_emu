@@ -383,6 +383,77 @@ emulator reports the pending `PS.CALLINC` and window depth when that prologue
 is absent. Direct ELF loading remains the intentionally weaker debugging mode
 with synthetic direct state.
 
+The EFM8BB52 MCS-51 model includes UART1 through its documented SFR page
+`0x20`. The functional slice supports baud-generator enable, transmit capture,
+bounded host receive injection, SCON1 status, FIFO count/status aliases, and
+the native `0x007b` interrupt vector with automatic SFR-page save/restore.
+FIFO threshold timing, LIN, CTS/RTS, parity framing, and exact historical 8051
+timing remain outside this slice.
+
+Timer3, Timer4, and Timer5 provide functional 16-bit system-clock, reload,
+low/high overflow, enable/priority, and interrupt paths through their page-0
+and page-`0x10` registers. Their native vectors are `0x0073`, `0x008b`, and
+`0x0093`; split, capture, external-clock, and cycle-accurate timing modes remain
+outside this slice.
+
+ADC0 accepts deterministic host-provided multiplexer channel codes, supports
+software-triggered 8-, 10-, and 12-bit formatting with repeat/shift controls,
+latches end-of-conversion and window-comparison flags, routes native vectors
+`0x004b` and `0x0053`, and exposes result/flag signals in VCD. Autoscan and
+timer triggers, reference/gain physics, and calibration remain outside this
+functional model.
+
+DAC0 exposes its page-`0x30` register path and latches right- or left-justified
+10-bit input data with the documented low-before-high update inhibit. Enable
+state and digital output code are observable through VCD and signal-stop
+workflows. Timer/CLU triggers, warm-up timing, and reference/gain voltage
+physics remain outside this model.
+
+CMP0 and CMP1 compare deterministic host-controlled positive/negative codes,
+honor output inversion, latch rising/falling flags, route their enable and
+priority bits to vectors `0x0063` and `0x006b`, and expose both outputs in VCD.
+Voltage, hysteresis, response-time, reference-DAC, and synchronization physics
+are intentionally not claimed.
+
+CLU0-3 implement the documented three-input LUT, external-pin selection,
+LUT/D-flip-flop output selection, CLOUT0 readback, rising/falling edge flags,
+the CL0 enable/priority interrupt path, and VCD outputs. Host overrides provide
+deterministic values for internal sources not otherwise modeled. Clock-source
+timing, complete internal peripheral routing, and electrical synchronization
+remain outside this functional slice.
+
+P0, P1, and P2 mask/match registers compare resolved input pins, expose a
+stable `board.efm8bb52f32g.port_match.event` signal, and route mismatches
+through EIE1/EIP1/EIP1H to vector `0x0043`. The event is a deterministic level
+while a masked input differs; wake-state flags and electrical synchronization
+are not modeled.
+
+The 32 KiB EFM8 code-flash model accepts firmware MOVX program and page-erase
+operations after the documented `FLKEY=0xa5`, `FLKEY=0xf1` sequence and
+`PSCTL.PSWE` enable. Programming has NOR semantics (bits only change from one
+to zero), while `PSCTL.PSEE` erases the addressed 2 KiB page. Each operation
+consumes the key sequence; missing or invalid authorization leaves flash
+unchanged and latches `PSCTL.PERRF`. Image loading remains a separate debugger
+operation and does not weaken the firmware-visible write controls. Programming
+voltage physics, timing, endurance, lock-byte policy, and hardware debug access
+are outside this deterministic functional model.
+
+The EFM8 priority crossbar gives UART0 its fixed P0.4/P0.5 routes, excludes
+pins selected by `P0SKIP` through `P2SKIP`, and assigns enabled XBR0/XBR1/XBR2
+resources to the remaining P0-P2 pins in priority order. Typed accessors and
+VCD signals expose the selected routes and global driver-enable state.
+Peripheral waveform generation remains the responsibility of each peripheral
+model; selecting a route alone does not claim electrical or timing fidelity.
+
+The EFM8 clock/power slice names and masks `CLKSEL`, `CLKGRP0`, `HFO0CN`,
+`LFO0CN`, `PCON0`, `PCON1`, `REG0CN`, and `PSTAT0`. It reports the selected
+source, divider, and nominal SYSCLK, accepts an explicit host frequency for
+EXTOSC, and exposes clock and power state in VCD. IDLE and SNOOZE can wake from
+an enabled interrupt or an explicit host request; STOP and SHUTDOWN require
+reset. Oscillator settling, missing-clock detection, external pin waveforms,
+regulator physics, peripheral clock domains, and exact low-power timing are
+outside the deterministic functional boundary.
+
 ## Timing and tracing
 
 One completed instruction or architectural action advances one abstract tick.

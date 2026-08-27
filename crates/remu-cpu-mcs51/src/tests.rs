@@ -230,6 +230,121 @@ fn dedicated_smbus_interrupt_line_uses_its_vector() {
 }
 
 #[test]
+fn auxiliary_uart_interrupt_uses_the_efm8_vector_slot() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0, &[0x00]).unwrap();
+    cpu.load_code(0x7b, &[0x32]).unwrap();
+    cpu.set_interrupt(12, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x7b);
+    assert_eq!(cpu.sfr_page, 0x20);
+    cpu.set_interrupt(12, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.sfr_page, 0);
+}
+
+#[test]
+fn extended_timer_interrupts_use_documented_vector_slots() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x73, &[0x32]).unwrap();
+    cpu.load_code(0x8b, &[0x32]).unwrap();
+    cpu.load_code(0x93, &[0x32]).unwrap();
+
+    cpu.set_interrupt(14, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x73);
+    cpu.set_interrupt(14, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+
+    cpu.set_interrupt(16, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x8b);
+    cpu.set_interrupt(16, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+
+    cpu.set_interrupt(18, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x93);
+    cpu.set_interrupt(18, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.active_priority, None);
+}
+
+#[test]
+fn adc_interrupt_lines_enter_documented_vectors() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x4b, &[0x32]).unwrap();
+    cpu.load_code(0x53, &[0x32]).unwrap();
+
+    cpu.set_interrupt(20, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x4b);
+    cpu.set_interrupt(20, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+
+    cpu.set_interrupt(22, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x53);
+    cpu.set_interrupt(22, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+}
+
+#[test]
+fn comparator_interrupt_lines_enter_documented_vectors() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0x63, &[0x32]).unwrap();
+    cpu.load_code(0x6b, &[0x32]).unwrap();
+
+    cpu.set_interrupt(24, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x63);
+    cpu.set_interrupt(24, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+
+    cpu.set_interrupt(26, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x6b);
+    cpu.set_interrupt(26, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+}
+
+#[test]
+fn configurable_logic_interrupt_enters_documented_vector() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0, &[0x00]).unwrap();
+    cpu.load_code(0x9b, &[0x32]).unwrap();
+    cpu.set_interrupt(28, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x9b);
+    cpu.set_interrupt(28, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+}
+
+#[test]
+fn port_match_interrupt_enters_documented_vector() {
+    let mut cpu = Mcs51Cpu::new();
+    let mut bus = bus();
+    cpu.load_code(0, &[0x00]).unwrap();
+    cpu.load_code(0x43, &[0x32]).unwrap();
+    cpu.set_interrupt(30, true).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0x43);
+    cpu.set_interrupt(30, false).unwrap();
+    run(&mut cpu, &mut bus, 1);
+    assert_eq!(cpu.pc, 0);
+}
+
+#[test]
 fn every_base_opcode_except_reserved_a5_decodes() {
     for opcode in 0_u8..=u8::MAX {
         let mut cpu = Mcs51Cpu::new();

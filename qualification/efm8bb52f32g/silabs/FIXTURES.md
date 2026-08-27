@@ -6,10 +6,26 @@ from the Silicon Labs 8051 SDK.
 
 `remu_blinky.c` and `remu_timer2_irq.c` configure the modeled watchdog,
 crossbar, GPIO, Timer2, and interrupt path and stop on a P1.4 transition.
-`remu_uart_irq.c` separately proves SDCC's declaration and interrupt ABI for
-UART0. `remu_pca.c` compiles the PCA0 three-channel PWM/compare declaration and
+`remu_uart_irq.c`, `remu_uart1_irq.c`, and `remu_timer345_irq.c` separately
+prove SDCC's declaration and interrupt ABI for UART0, the paged UART1 vector,
+and the extended Timer3/4/5 vectors. `remu_pca.c` compiles
+the PCA0 three-channel PWM/compare declaration and
 interrupt vector against the same header. `remu_smbus.c` exercises the SMB0
-leader-start and data-register path.
+leader-start and data-register path. `remu_adc_irq.c` proves the ADC window and
+conversion interrupt declarations.
+`remu_dac.c` exercises the DAC0 page-`0x30` register declarations and output
+update path. `remu_comparator.c` covers both comparator register declarations
+and interrupt-enable bits.
+`remu_clu.c` configures CLU0 as an external-input AND gate and proves its paged
+register declarations in a runnable fixture.
+`remu_port_match.c` masks P0.0 against a high match value and exercises the
+documented Port Match interrupt with a host-provided low pin stimulus.
+`remu_flash.c` performs the documented two-write `FLKEY` authorization and
+uses firmware MOVX stores to erase and program code flash through `PSCTL`.
+`remu_crossbar.c` combines fixed UART0 routes, SPI0 allocation, and a skipped
+P0 pin so the priority allocator's decisions are visible in VCD.
+`remu_clock_power.c` selects LFOSC through `CLKSEL` and enters SNOOZE through
+`PCON1`, proving the compiler declarations and bounded low-power stop result.
 The small declaration and startup adapters expose only the documented register
 surface needed by these fixtures.
 

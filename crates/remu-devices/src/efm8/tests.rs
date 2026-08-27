@@ -81,6 +81,483 @@ fn gpio_timer_uart_and_interrupt_slice_is_functional() {
 }
 
 #[test]
+fn uart1_paged_fifo_and_interrupt_slice_is_functional() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(
+            super::SBCON1 as u64,
+            AccessWidth::Byte,
+            super::SBCON1_BREN.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(
+            super::SCON1 as u64,
+            AccessWidth::Byte,
+            super::SCON1_REN.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(super::EIE2 as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+        .unwrap();
+    device
+        .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+        .unwrap();
+    device
+        .write(
+            super::SBUF1 as u64,
+            AccessWidth::Byte,
+            b'U'.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(handle.uart1_bytes(), b"U");
+    assert!(handle.poll(SimTime::ZERO)[12]);
+
+    handle.inject_uart1_rx(0xa5, SimTime::from_ticks(1));
+    assert_eq!(
+        device
+            .read(super::UART1FCT as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        device
+            .read(super::SBUF1 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0xa5
+    );
+}
+
+#[test]
+fn timer345_reload_flags_and_interrupts_are_functional() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(
+            Efm8SmbusRegister::Eie1.offset() as u64,
+            AccessWidth::Byte,
+            super::EIE1_ET3.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(
+            super::EIE2 as u64,
+            AccessWidth::Byte,
+            (super::EIE2_ET4 | super::EIE2_ET5).into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+        .unwrap();
+
+    for (reload_low, reload_high, current_low, current_high, control, run, cen) in [
+        (
+            super::TMR3RLL,
+            super::TMR3RLH,
+            super::TMR3L,
+            super::TMR3H,
+            super::TMR3CN0,
+            super::TMR3_TR3,
+            super::TMR3_TF3CEN,
+        ),
+        (
+            super::TMR4RLL,
+            super::TMR4RLH,
+            super::TMR4L,
+            super::TMR4H,
+            super::TMR4CN0,
+            super::TMR4_TR4,
+            super::TMR4_TF4CEN,
+        ),
+        (
+            super::TMR5RLL,
+            super::TMR5RLH,
+            super::TMR5L,
+            super::TMR5H,
+            super::TMR5CN0,
+            super::TMR5_TR5,
+            super::TMR5_TF5CEN,
+        ),
+    ] {
+        device
+            .write(reload_low as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(reload_high as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(current_low as u64, AccessWidth::Byte, 0xfc, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(current_high as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+            .unwrap();
+        device
+            .write(
+                control as u64,
+                AccessWidth::Byte,
+                (run | cen).into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+
+    for address in [super::TMR3CN1, super::TMR4CN1, super::TMR5CN1] {
+        device
+            .write(address as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+            .unwrap();
+    }
+    let levels = handle.poll(SimTime::from_ticks(4));
+    assert!(levels[14]);
+    assert!(levels[16]);
+    assert!(levels[18]);
+    for (control, flag) in [
+        (super::TMR3CN0, super::TMR3_TF3H),
+        (super::TMR4CN0, super::TMR4_TF4H),
+        (super::TMR5CN0, super::TMR5_TF5H),
+    ] {
+        assert_ne!(
+            device
+                .read(control as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & u64::from(flag),
+            0
+        );
+    }
+}
+
+#[test]
+fn adc_channel_conversion_window_and_interrupts_are_functional() {
+    let hub = super::SignalHub::new();
+    let trace_hub = hub.clone();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    handle.set_adc_input(3, 0x0abc).unwrap();
+
+    for (address, value) in [
+        (super::ADC0MX, 3),
+        (super::ADC0GTH, 0x0b),
+        (super::ADC0GTL, 0xff),
+        (super::ADC0LTH, 0x08),
+        (super::ADC0LTL, 0x00),
+        (0x30b2, 0),
+        (0x30b3, 0),
+    ] {
+        device
+            .write(address as u64, AccessWidth::Byte, value, SimTime::ZERO)
+            .unwrap();
+    }
+    device
+        .write(
+            Efm8SmbusRegister::Eie1.offset() as u64,
+            AccessWidth::Byte,
+            u64::from(super::ADC0_EADC0 | super::ADC0_EWADC0),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+        .unwrap();
+    device
+        .write(
+            super::ADC0CN0 as u64,
+            AccessWidth::Byte,
+            u64::from(super::ADC0_ADEN | super::ADC0_ADBUSY),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+
+    assert_eq!(
+        device
+            .read(super::ADC0L as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0xbc
+    );
+    assert_eq!(
+        device
+            .read(super::ADC0H as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x0a
+    );
+    let control = device
+        .read(super::ADC0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+        .unwrap();
+    assert_ne!(control & u64::from(super::ADC0_ADINT), 0);
+    assert_eq!(control & u64::from(super::ADC0_ADWINT), 0);
+    let levels = handle.poll(SimTime::from_ticks(1));
+    assert!(!levels[20]);
+    assert!(levels[22]);
+
+    let result_id = trace_hub
+        .with_registry(|registry| registry.find("board.efm8bb52f32g.adc0.result"))
+        .unwrap();
+    assert_eq!(
+        trace_hub.with_registry(|registry| registry.value(result_id).unwrap().to_vcd_binary()),
+        "0000101010111100"
+    );
+
+    device
+        .write(
+            super::ADC0CN0 as u64,
+            AccessWidth::Byte,
+            u64::from(super::ADC0_ADEN),
+            SimTime::from_ticks(2),
+        )
+        .unwrap();
+    handle.set_adc_input(3, 0x0fff).unwrap();
+    device
+        .write(
+            super::ADC0CN0 as u64,
+            AccessWidth::Byte,
+            u64::from(super::ADC0_ADEN | super::ADC0_ADBUSY),
+            SimTime::from_ticks(3),
+        )
+        .unwrap();
+    assert!(handle.poll(SimTime::from_ticks(3))[20]);
+}
+
+#[test]
+fn dac_paged_registers_format_code_and_track_enable_state() {
+    let hub = super::SignalHub::new();
+    let trace_hub = hub.clone();
+    let (mut device, _, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+
+    for (address, value, at) in [
+        (super::DAC0CF0, 0x80, SimTime::ZERO),
+        (super::DAC0L, 0x5a, SimTime::ZERO),
+        (super::DAC0H, 0x02, SimTime::from_ticks(1)),
+    ] {
+        device
+            .write(address as u64, AccessWidth::Byte, value, at)
+            .unwrap();
+    }
+    assert_eq!(
+        device
+            .read(super::DAC0L as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x5a
+    );
+    let output_id = trace_hub
+        .with_registry(|registry| registry.find("board.efm8bb52f32g.dac0.output"))
+        .unwrap();
+    let enabled_id = trace_hub
+        .with_registry(|registry| registry.find("board.efm8bb52f32g.dac0.enabled"))
+        .unwrap();
+    assert_eq!(
+        trace_hub.with_registry(|registry| registry.value(output_id).unwrap().to_vcd_binary()),
+        "1001011010"
+    );
+    assert_eq!(
+        trace_hub.with_registry(|registry| registry.value(enabled_id).unwrap().to_vcd_binary()),
+        "1"
+    );
+
+    for (address, value, at) in [
+        (super::DAC0CF0, 0xa0, SimTime::from_ticks(2)),
+        (super::DAC0L, 0xc0, SimTime::from_ticks(2)),
+        (super::DAC0H, 0x55, SimTime::from_ticks(3)),
+        (super::DAC0CF1, 0xff, SimTime::from_ticks(4)),
+    ] {
+        device
+            .write(address as u64, AccessWidth::Byte, value, at)
+            .unwrap();
+    }
+    assert_eq!(
+        trace_hub.with_registry(|registry| registry.value(output_id).unwrap().to_vcd_binary()),
+        "0101010111"
+    );
+    assert_eq!(
+        device
+            .read(super::DAC0CF1 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x0f
+    );
+}
+
+#[test]
+fn comparators_latch_edges_and_raise_documented_interrupts() {
+    let hub = super::SignalHub::new();
+    let trace_hub = hub.clone();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(
+            Efm8SmbusRegister::Eie1.offset() as u64,
+            AccessWidth::Byte,
+            0x60,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(IE as u64, AccessWidth::Byte, IE_EA.into(), SimTime::ZERO)
+        .unwrap();
+    for mode in [super::CMP0MD, super::CMP1MD] {
+        device
+            .write(mode as u64, AccessWidth::Byte, 0x30, SimTime::ZERO)
+            .unwrap();
+    }
+    handle
+        .set_comparator_inputs(0, 100, 20, SimTime::from_ticks(1))
+        .unwrap();
+    handle
+        .set_comparator_inputs(1, 20, 10, SimTime::from_ticks(1))
+        .unwrap();
+    for control in [super::CMP0CN0, super::CMP1CN0] {
+        device
+            .write(
+                control as u64,
+                AccessWidth::Byte,
+                0x80,
+                SimTime::from_ticks(2),
+            )
+            .unwrap();
+        assert_eq!(
+            device
+                .read(control as u64, AccessWidth::Byte, SimTime::ZERO)
+                .unwrap()
+                & 0x70,
+            0x60
+        );
+    }
+    let levels = handle.poll(SimTime::from_ticks(2));
+    assert!(levels[24]);
+    assert!(levels[26]);
+
+    for (name, expected) in [
+        ("board.efm8bb52f32g.comparator0.output", Logic::One),
+        ("board.efm8bb52f32g.comparator1.output", Logic::One),
+    ] {
+        let id = trace_hub
+            .with_registry(|registry| registry.find(name))
+            .unwrap();
+        assert_eq!(
+            trace_hub.with_registry(|registry| registry.value(id).unwrap().bit(0)),
+            Some(expected)
+        );
+    }
+
+    device
+        .write(
+            super::CMP0CN0 as u64,
+            AccessWidth::Byte,
+            0x80,
+            SimTime::from_ticks(3),
+        )
+        .unwrap();
+    handle
+        .set_comparator_inputs(0, 1, 2, SimTime::from_ticks(4))
+        .unwrap();
+    assert_ne!(
+        device
+            .read(super::CMP0CN0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap()
+            & 0x10,
+        0
+    );
+}
+
+#[test]
+fn configurable_logic_lut_edges_and_interrupts_are_functional() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    for (address, value) in [
+        (super::CLU_FN[0], 0xc0),
+        (super::CLU_CF[0], 0x80),
+        (super::CLEN0, 1),
+        (super::CLIE0, 0x03),
+        (super::EIE2, super::EIE2_CL0),
+        (IE, IE_EA),
+    ] {
+        device
+            .write(
+                address as u64,
+                AccessWidth::Byte,
+                value.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    handle
+        .set_clu_inputs(0, false, true, SimTime::from_ticks(1))
+        .unwrap();
+    assert!(!handle.clu_output(0).unwrap());
+    handle
+        .set_clu_inputs(0, true, true, SimTime::from_ticks(2))
+        .unwrap();
+    assert!(handle.clu_output(0).unwrap());
+    assert_eq!(
+        device
+            .read(super::CLOUT0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        device
+            .read(super::CLIF0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x02
+    );
+    assert!(handle.poll(SimTime::from_ticks(2))[28]);
+
+    device
+        .write(super::CLIF0 as u64, AccessWidth::Byte, 0, SimTime::ZERO)
+        .unwrap();
+    handle
+        .set_clu_inputs(0, false, true, SimTime::from_ticks(3))
+        .unwrap();
+    assert_eq!(
+        device
+            .read(super::CLIF0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x01
+    );
+}
+
+#[test]
+fn port_match_tracks_masked_pin_mismatch_and_interrupt_priority() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, ports) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    for (address, value) in [
+        (super::P0MAT, 1),
+        (super::P0MASK, 1),
+        (Efm8SmbusRegister::Eie1.offset(), super::EIE1_EMAT),
+        (IE, IE_EA),
+    ] {
+        device
+            .write(
+                address as u64,
+                AccessWidth::Byte,
+                value.into(),
+                SimTime::ZERO,
+            )
+            .unwrap();
+    }
+    ports[0]
+        .set_input(0, Logic::Zero, SimTime::from_ticks(1))
+        .unwrap();
+    assert!(handle.port_match_event());
+    assert!(handle.poll(SimTime::from_ticks(1))[30]);
+
+    device
+        .write(
+            Efm8SmbusRegister::Eip1.offset() as u64,
+            AccessWidth::Byte,
+            super::EIE1_EMAT.into(),
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+    assert!(handle.poll(SimTime::from_ticks(1))[31]);
+    ports[0]
+        .set_input(0, Logic::One, SimTime::from_ticks(2))
+        .unwrap();
+    assert!(!handle.port_match_event());
+    assert!(!handle.poll(SimTime::from_ticks(2))[30]);
+}
+
+#[test]
 fn spi0_master_transfer_exposes_injected_miso_and_interrupt() {
     let hub = super::SignalHub::new();
     let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
@@ -711,4 +1188,168 @@ fn smbus0_named_registers_and_status_bits_match_reference_surface() {
         device.read(offset(Efm8SmbusRegister::Smb0Fct), AccessWidth::Byte, at),
         Ok(0)
     );
+}
+
+#[test]
+fn flash_program_erase_and_key_protection_are_functional() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    handle.load_flash(0x1000, &[0xff]).unwrap();
+
+    for key in [0xa5, 0xf1] {
+        device
+            .write(super::FLKEY as u64, AccessWidth::Byte, key, SimTime::ZERO)
+            .unwrap();
+    }
+    device
+        .write(super::PSCTL as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+        .unwrap();
+    handle.flash_write(0x1000, 0x5a).unwrap();
+    assert_eq!(handle.flash_read(0x1000).unwrap(), 0x5a);
+
+    // Every operation requires a fresh key sequence. Invalid attempts retain
+    // flash and latch PERRF; programming also cannot change a zero bit to one.
+    handle.flash_write(0x1000, 0xff).unwrap();
+    assert_eq!(handle.flash_read(0x1000).unwrap(), 0x5a);
+    assert_ne!(
+        device
+            .read(super::PSCTL as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap()
+            & 0x08,
+        0
+    );
+
+    for key in [0xa5, 0xf1] {
+        device
+            .write(super::FLKEY as u64, AccessWidth::Byte, key, SimTime::ZERO)
+            .unwrap();
+    }
+    device
+        .write(super::PSCTL as u64, AccessWidth::Byte, 3, SimTime::ZERO)
+        .unwrap();
+    handle.flash_write(0x1000, 0).unwrap();
+    assert_eq!(handle.flash_read(0x1000).unwrap(), 0xff);
+    assert_eq!(
+        device
+            .read(super::PSCTL as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x43
+    );
+}
+
+#[test]
+fn crossbar_assigns_fixed_uart_and_priority_skips_pins() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(super::P0SKIP as u64, AccessWidth::Byte, 0x01, SimTime::ZERO)
+        .unwrap();
+    device
+        .write(
+            XBR0 as u64,
+            AccessWidth::Byte,
+            (XBR0_URT0E | 0x02).into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    device
+        .write(
+            XBR2 as u64,
+            AccessWidth::Byte,
+            XBR2_XBARE.into(),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    assert!(handle.crossbar_enabled());
+    assert_eq!(
+        handle.crossbar_pin(super::Efm8CrossbarFunction::Uart0Tx),
+        Some(super::Efm8CrossbarPin { port: 0, pin: 4 })
+    );
+    assert_eq!(
+        handle.crossbar_pin(super::Efm8CrossbarFunction::Uart0Rx),
+        Some(super::Efm8CrossbarPin { port: 0, pin: 5 })
+    );
+    assert_eq!(
+        handle.crossbar_pin(super::Efm8CrossbarFunction::Spi0Sck),
+        Some(super::Efm8CrossbarPin { port: 0, pin: 1 })
+    );
+    assert_eq!(
+        handle.crossbar_pin(super::Efm8CrossbarFunction::Spi0Nss),
+        Some(super::Efm8CrossbarPin { port: 0, pin: 6 })
+    );
+}
+
+#[test]
+fn clock_selection_masks_and_external_frequency_are_observable() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    assert_eq!(handle.clock_source(), super::Efm8ClockSource::Hfosc0Clk24p5);
+    assert_eq!(handle.clock_divider(), 8);
+    assert_eq!(handle.system_clock_hz(), 3_062_500);
+    assert_eq!(
+        device
+            .read(super::CLKSEL as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0xb0
+    );
+
+    handle
+        .set_external_clock_hz(48_000_000, SimTime::from_ticks(1))
+        .unwrap();
+    device
+        .write(
+            super::CLKSEL as u64,
+            AccessWidth::Byte,
+            0x11,
+            SimTime::from_ticks(1),
+        )
+        .unwrap();
+    assert_eq!(handle.clock_source(), super::Efm8ClockSource::External);
+    assert_eq!(handle.clock_divider(), 2);
+    assert_eq!(handle.system_clock_hz(), 24_000_000);
+
+    device
+        .write(super::HFO0CN as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        device
+            .read(super::HFO0CN as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x8c
+    );
+}
+
+#[test]
+fn power_commands_are_one_shot_wakeable_and_distinguish_shutdown() {
+    let hub = super::SignalHub::new();
+    let (mut device, handle, _) = Efm8Peripherals::new("efm8.sfr", hub).unwrap();
+    device
+        .write(super::PCON0 as u64, AccessWidth::Byte, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.power_mode(), super::Efm8PowerMode::Idle);
+    assert_eq!(
+        device
+            .read(super::PCON0 as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0
+    );
+    handle.wake(SimTime::from_ticks(1));
+    assert_eq!(handle.power_mode(), super::Efm8PowerMode::Active);
+
+    device
+        .write(super::REG0CN as u64, AccessWidth::Byte, 0xff, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        device
+            .read(super::REG0CN as u64, AccessWidth::Byte, SimTime::ZERO)
+            .unwrap(),
+        0x08
+    );
+    device
+        .write(super::PCON0 as u64, AccessWidth::Byte, 2, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(handle.power_mode(), super::Efm8PowerMode::Shutdown);
+    handle.wake(SimTime::from_ticks(2));
+    assert_eq!(handle.power_mode(), super::Efm8PowerMode::Shutdown);
 }

@@ -1,11 +1,34 @@
 use super::{GpioHandle, GpioState, SignalHub, refresh_gpio, vendor_gpio};
+mod adc;
+mod clock;
+mod clu;
+mod comparator;
+mod crc;
+mod crossbar;
+mod dac;
+mod flash;
+mod interrupts;
+mod port_match;
 mod registers;
+mod timers;
+use adc::*;
+use clock::*;
+pub use clock::{Efm8ClockRegister, Efm8ClockSource, Efm8PowerMode};
+use clu::*;
+use comparator::*;
+use crc::*;
+use crossbar::*;
+pub use crossbar::{Efm8CrossbarFunction, Efm8CrossbarPin};
+use dac::*;
+use flash::*;
+use port_match::*;
 pub use registers::{Efm8PcaRegister, Efm8SmbusRegister};
 use remu_bus::{Device, DeviceError};
 use remu_core::{AccessWidth, ResetKind, SimTime};
 use remu_signals::{Logic, SignalId, SignalValue};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use timers::*;
 
 const SFR_BYTES: usize = 0x1_0000;
 const PAGE3: usize = 0x20;
@@ -24,13 +47,23 @@ const SPI0CFG: usize = 0xa1;
 const SPI0CKR: usize = 0xa2;
 const SPI0CN0: usize = 0xf8;
 const SPI0DAT: usize = 0xa3;
+const UART1_PAGE: usize = 0x20 << 8;
+const SCON1: usize = UART1_PAGE | 0xc8;
+const SBUF1: usize = UART1_PAGE | 0x92;
+const SBCON1: usize = UART1_PAGE | 0x94;
+const UART1FCN0: usize = UART1_PAGE | 0x9d;
+const UART1FCN1: usize = UART1_PAGE | 0xd8;
+const UART1FCT: usize = UART1_PAGE | 0xfa;
+const EIE2: usize = 0xf3;
+const EIE2_PAGE10: usize = (0x10 << 8) | 0xf3;
+const EIP2: usize = (0x10 << 8) | 0xed;
+const EIP2H: usize = (0x10 << 8) | 0xf6;
 const P3MDOUT: usize = (PAGE3 << 8) | 0x9c;
 const P2: usize = 0xa0;
 const P0MDOUT: usize = 0xa4;
 const P1MDOUT: usize = 0xa5;
 const P2MDOUT: usize = 0xa6;
 const IE: usize = 0xa8;
-const CLKSEL: usize = 0xa9;
 const P3: usize = 0xb0;
 const IP: usize = 0xb8;
 const TMR2CN0: usize = 0xc8;
@@ -97,6 +130,15 @@ const TMR2_TR2: u8 = 0x04;
 const TMR2_TF2H: u8 = 0x80;
 const SCON0_RI: u8 = 0x01;
 const SCON0_TI: u8 = 0x02;
+const SCON1_RI: u8 = 0x01;
+const SCON1_TI: u8 = 0x02;
+const SCON1_REN: u8 = 0x10;
+const SBCON1_BREN: u8 = 0x40;
+const UART1FCN0_TFLSH: u8 = 0x40;
+const UART1FCN0_RFLSH: u8 = 0x04;
+const UART1FCN1_TFRQ: u8 = 0x80;
+const UART1FCN1_TXNF: u8 = 0x40;
+const UART1FCN1_RFRQ: u8 = 0x08;
 const SPI0_SPIF: u8 = 0x80;
 const SPI0_TXNF: u8 = 0x02;
 const SPI0_SPIEN: u8 = 0x01;
@@ -133,43 +175,53 @@ const PCA0CPM_TOG: u8 = 0x04;
 const PCA0CPM_PWM: u8 = 0x02;
 const PCA0CPM_ECCF: u8 = 0x01;
 
-fn crc16_ccitt(mut crc: u16, input: u8) -> u16 {
-    crc ^= u16::from(input) << 8;
-    for _ in 0..8 {
-        crc = if crc & 0x8000 != 0 {
-            (crc << 1) ^ 0x1021
-        } else {
-            crc << 1
-        };
-    }
-    crc
-}
-
-fn reverse_bits(value: u8) -> u8 {
-    value.reverse_bits()
-}
-
 struct Efm8State {
     registers: Box<[u8]>,
+    flash: Box<[u8]>,
+    crossbar_routes: [Option<Efm8CrossbarPin>; Efm8CrossbarFunction::COUNT],
     ports: [Arc<Mutex<GpioState>>; 4],
     port_signals: [Vec<SignalId>; 4],
     hub: SignalHub,
     uart: Vec<u8>,
+    uart1: Vec<u8>,
+    uart1_rx: VecDeque<u8>,
+    uart1_last_rx: u8,
+    adc_inputs: [u16; 32],
     smbus0_tx: Vec<u8>,
     smbus0_tx_fifo: VecDeque<u8>,
     smbus0_rx: VecDeque<u8>,
     timer0_epoch: u64,
     timer1_epoch: u64,
     timer2_epoch: u64,
+    timer3_epoch: u64,
+    timer4_epoch: u64,
+    timer5_epoch: u64,
     crc_result: u16,
     watchdog_epoch: u64,
     watchdog_key: u8,
     watchdog_enabled: bool,
     watchdog_reset: bool,
+    dac_output: u16,
+    dac_update_inhibited: bool,
+    comparator_inputs: [[u16; 2]; 2],
+    clu_input_overrides: [Option<[bool; 2]>; 4],
+    clu_ff: [bool; 4],
+    clu_lut_outputs: [bool; 4],
+    port_match_event: bool,
+    flash_key_stage: u8,
+    flash_locked_out: bool,
+    flash_unlocked: bool,
+    power_mode: Efm8PowerMode,
+    external_clock_hz: u32,
     spi_tx: Vec<u8>,
     spi_rx: Vec<u8>,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
+    uart1_byte_signal: SignalId,
+    uart1_strobe_signal: SignalId,
+    adc_result_signal: SignalId,
+    adc_eoc_signal: SignalId,
+    adc_window_signal: SignalId,
     smbus0_tx_byte_signal: SignalId,
     smbus0_tx_strobe_signal: SignalId,
     smbus0_busy_signal: SignalId,
@@ -177,8 +229,24 @@ struct Efm8State {
     timer0_irq_signal: SignalId,
     timer1_irq_signal: SignalId,
     timer2_irq_signal: SignalId,
+    timer3_irq_signal: SignalId,
+    timer4_irq_signal: SignalId,
+    timer5_irq_signal: SignalId,
     interrupt_signal: SignalId,
     watchdog_reset_signal: SignalId,
+    crossbar_enabled_signal: SignalId,
+    crossbar_assigned_signal: SignalId,
+    crossbar_uart0_tx_signal: SignalId,
+    crossbar_uart0_rx_signal: SignalId,
+    clock_source_signal: SignalId,
+    clock_divider_signal: SignalId,
+    sysclk_hz_signal: SignalId,
+    power_mode_signal: SignalId,
+    dac_output_signal: SignalId,
+    dac_enabled_signal: SignalId,
+    comparator_output_signals: [SignalId; 2],
+    clu_output_signals: [SignalId; 4],
+    port_match_signal: SignalId,
     pca_epoch: u64,
     pca_outputs: [Logic; 3],
     pca_inputs: [Logic; 3],
@@ -281,7 +349,8 @@ impl Efm8State {
             self.registers[PORTS[port]] = PORT_MASKS[port];
             self.registers[PORT_MDIN[port]] = PORT_MASKS[port];
         }
-        self.registers[CLKSEL] = 0x80;
+        self.reset_clock(at);
+        self.registers[PSCTL] = 0x40;
         self.registers[RSTSRC] = match kind {
             ResetKind::PowerOn => 0x02,
             ResetKind::External => 0x01,
@@ -289,6 +358,15 @@ impl Efm8State {
             ResetKind::Watchdog => 0x08,
         };
         self.uart.clear();
+        self.uart1.clear();
+        self.uart1_rx.clear();
+        self.uart1_last_rx = 0;
+        self.adc_inputs.fill(0);
+        self.registers[ADC0MX] = 0x1f;
+        self.registers[ADC0CF2] = 0x1f;
+        self.registers[ADC0GTH] = 0xff;
+        self.registers[ADC0GTL] = 0xff;
+        self.registers[UART1FCN1] = UART1FCN1_TFRQ | UART1FCN1_TXNF | 0x10 | 0x01;
         self.smbus0_tx.clear();
         self.smbus0_tx_fifo.clear();
         self.smbus0_rx.clear();
@@ -296,11 +374,31 @@ impl Efm8State {
         self.timer0_epoch = at.ticks();
         self.timer1_epoch = at.ticks();
         self.timer2_epoch = at.ticks();
+        self.timer3_epoch = at.ticks();
+        self.timer4_epoch = at.ticks();
+        self.timer5_epoch = at.ticks();
         self.crc_result = 0;
         self.watchdog_epoch = at.ticks();
         self.watchdog_key = 0;
         self.watchdog_enabled = true;
         self.watchdog_reset = false;
+        self.dac_output = 0;
+        self.dac_update_inhibited = false;
+        self.comparator_inputs = [[0; 2]; 2];
+        self.clu_input_overrides = [None; 4];
+        self.clu_ff = [false; 4];
+        self.clu_lut_outputs = [false; 4];
+        self.port_match_event = false;
+        self.flash_key_stage = 0;
+        self.flash_locked_out = false;
+        self.flash_unlocked = false;
+        self.registers[P0MAT] = 0xff;
+        self.registers[P1MAT] = 0xff;
+        self.registers[P2MAT] = 0xff;
+        self.registers[CMP0MD] = 0x02;
+        self.registers[CMP1MD] = 0x02;
+        self.registers[CMP0MX] = 0xff;
+        self.registers[CMP1MX] = 0xff;
         self.spi_tx.clear();
         self.spi_rx.clear();
         self.registers[SPI0CN0] = SPI0_TXNF;
@@ -309,12 +407,26 @@ impl Efm8State {
         self.pca_inputs = [Logic::Zero; 3];
         for signal in [
             self.uart_strobe_signal,
+            self.uart1_strobe_signal,
+            self.adc_eoc_signal,
+            self.adc_window_signal,
             self.smbus0_tx_strobe_signal,
             self.timer0_irq_signal,
             self.timer1_irq_signal,
             self.timer2_irq_signal,
+            self.timer3_irq_signal,
+            self.timer4_irq_signal,
+            self.timer5_irq_signal,
             self.interrupt_signal,
             self.watchdog_reset_signal,
+            self.dac_enabled_signal,
+            self.comparator_output_signals[0],
+            self.comparator_output_signals[1],
+            self.clu_output_signals[0],
+            self.clu_output_signals[1],
+            self.clu_output_signals[2],
+            self.clu_output_signals[3],
+            self.port_match_signal,
             self.pca_output_signals[0],
             self.pca_output_signals[1],
             self.pca_output_signals[2],
@@ -323,18 +435,104 @@ impl Efm8State {
             self.set_signal(signal, 0, 1, at);
         }
         self.set_signal(self.smbus0_tx_byte_signal, 0, 8, at);
+        self.set_signal(self.adc_result_signal, 0, 16, at);
+        self.set_signal(self.dac_output_signal, 0, 10, at);
         self.update_smbus0_signals(at);
         for port in 0..4 {
             let _ = self.refresh_port(port, at);
         }
+        self.refresh_clu(at);
+        self.refresh_port_match(at);
+        self.refresh_crossbar(at);
     }
 
     fn canonical(raw: usize) -> usize {
+        if let Some(register) = canonical_clock_register(raw) {
+            return register;
+        }
         if let Some(register) = Efm8SmbusRegister::from_data_address(raw) {
             return register.offset();
         }
         let page = raw >> 8;
         let address = raw & 0xff;
+        if matches!(raw, DAC0L | DAC0H | DAC0ALT | DAC0CF0 | DAC0CF1) {
+            return raw;
+        }
+        if matches!(
+            raw,
+            CMP0CN0 | CMP0CN1 | CMP0MD | CMP0MX | CMP1CN0 | CMP1CN1 | CMP1MD | CMP1MX
+        ) {
+            return raw;
+        }
+        if matches!(raw, CLEN0 | CLIE0 | CLIF0 | CLOUT0)
+            || CLU_MX.contains(&raw)
+            || CLU_FN.contains(&raw)
+            || CLU_CF.contains(&raw)
+        {
+            return raw;
+        }
+        if matches!(raw, P0MAT | P0MASK | P1MAT | P1MASK | P2MAT | P2MASK) {
+            return raw;
+        }
+        if page == PAGE3 && matches!(address, 0xed | 0xee | 0xfd | 0xfe) {
+            return address;
+        }
+        if page == 0x10 {
+            if (0x91..=0x95).contains(&address) {
+                return address;
+            }
+            if matches!(
+                raw,
+                TMR3CN1
+                    | TMR4CN0
+                    | TMR4RLL
+                    | TMR4RLH
+                    | TMR4L
+                    | TMR4H
+                    | TMR4CN1
+                    | TMR5RLL
+                    | TMR5RLH
+                    | TMR5L
+                    | TMR5H
+                    | TMR5CN0
+                    | TMR5CN1
+            ) {
+                return raw;
+            }
+        }
+        if page == 0x30
+            && matches!(
+                address,
+                ADC0CN1
+                    | ADC0CN2
+                    | ADC0CF1
+                    | ADC0MX
+                    | ADC0L..=ADC0H
+                    | ADC0GTL..=ADC0LTH
+                    | ADC0CF2
+                    | ADC0CN0
+            )
+        {
+            return address;
+        }
+        if page == 0
+            && matches!(
+                address,
+                ADC0CN1
+                    | ADC0CN2
+                    | ADC0CF1
+                    | ADC0MX
+                    | ADC0L..=ADC0H
+                    | ADC0GTL..=ADC0LTH
+                    | ADC0CF2
+                    | ADC0CN0
+            )
+        {
+            return address;
+        }
+        if page == (UART1_PAGE >> 8) && matches!(address, 0x92 | 0x94 | 0x9d | 0xc8 | 0xd8 | 0xfa) {
+            return raw;
+        }
         if page == PAGE3
             && matches!(
                 address,
@@ -346,7 +544,9 @@ impl Efm8State {
         match address {
             0x80
             | 0x88..=0x8e
+            | 0x8f
             | 0x90
+            | 0x91..=0x95
             | SPI0CFG
             | 0x97..=0x99
             | 0xa0
@@ -370,81 +570,6 @@ impl Efm8State {
             0x9c | 0xc3..=0xc5 | 0xf4 if page == PAGE3 => (PAGE3 << 8) | address,
             _ => raw,
         }
-    }
-
-    fn interrupt_levels(&self) -> [bool; 12] {
-        let enabled = self.registers[IE];
-        if enabled & IE_EA == 0 {
-            return [false; 12];
-        }
-        let active = [
-            enabled & IE_ET0 != 0 && self.registers[TCON] & TCON_TF0 != 0,
-            enabled & IE_ES0 != 0 && self.registers[SCON0] & (SCON0_RI | SCON0_TI) != 0,
-            enabled & IE_ET2 != 0 && self.registers[TMR2CN0] & TMR2_TF2H != 0,
-            enabled & IE_ESPI0 != 0 && self.registers[SPI0CN0] & SPI0_SPIF != 0,
-            enabled & IE_ET1 != 0 && self.registers[TCON] & TCON_TF1 != 0,
-            self.registers[Efm8SmbusRegister::Eie1.offset()] & EIE1_ESMB0 != 0
-                && self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_SI != 0
-                && (self.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_MASTER != 0
-                    || self.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_INH == 0),
-        ];
-        let priorities = [
-            self.registers[IP] & IE_ET0 != 0,
-            self.registers[IP] & IE_ES0 != 0,
-            self.registers[IP] & IE_ET2 != 0,
-            self.registers[IP] & IE_ESPI0 != 0,
-            self.registers[IP] & IE_ET1 != 0,
-            self.registers[Efm8SmbusRegister::Eip1.offset()] & EIP1_PSMB0 != 0,
-        ];
-        const LOW_LINES: [usize; 6] = [0, 1, 2, 6, 8, 10];
-        const HIGH_LINES: [usize; 6] = [3, 4, 5, 7, 9, 11];
-        let mut levels = [false; 12];
-        for source in 0..active.len() {
-            if active[source] {
-                levels[if priorities[source] {
-                    HIGH_LINES[source]
-                } else {
-                    LOW_LINES[source]
-                }] = true;
-            }
-        }
-        if self.pca_interrupt_pending() {
-            levels[if self.pca_high_priority() { 7 } else { 6 }] = true;
-        }
-        levels
-    }
-
-    fn update_interrupt_signals(&self, at: SimTime) {
-        self.set_signal(
-            self.timer0_irq_signal,
-            u64::from(self.registers[TCON] & TCON_TF0 != 0),
-            1,
-            at,
-        );
-        self.set_signal(
-            self.timer1_irq_signal,
-            u64::from(self.registers[TCON] & TCON_TF1 != 0),
-            1,
-            at,
-        );
-        self.set_signal(
-            self.timer2_irq_signal,
-            u64::from(self.registers[TMR2CN0] & TMR2_TF2H != 0),
-            1,
-            at,
-        );
-        self.set_signal(
-            self.interrupt_signal,
-            u64::from(self.interrupt_levels().iter().any(|level| *level)),
-            1,
-            at,
-        );
-        self.set_signal(
-            self.pca_interrupt_signal,
-            u64::from(self.pca_interrupt_pending()),
-            1,
-            at,
-        );
     }
 
     fn pca_counter(&self) -> u16 {
@@ -633,222 +758,7 @@ impl Efm8State {
 #[derive(Clone)]
 pub struct Efm8PeripheralsHandle(Arc<Mutex<Efm8State>>);
 
-impl Efm8PeripheralsHandle {
-    /// Captured UART0 transmit bytes.
-    pub fn uart_bytes(&self) -> Vec<u8> {
-        self.0.lock().expect("EFM8 lock poisoned").uart.clone()
-    }
-
-    /// Returns the resolved PCA CEX output for a channel.
-    pub fn pca_output(&self, channel: usize) -> Logic {
-        self.0
-            .lock()
-            .expect("EFM8 lock poisoned")
-            .pca_outputs
-            .get(channel)
-            .copied()
-            .unwrap_or(Logic::X)
-    }
-
-    /// Returns the current 16-bit PCA counter.
-    pub fn pca_counter(&self) -> u16 {
-        self.0.lock().expect("EFM8 lock poisoned").pca_counter()
-    }
-
-    /// Supplies a sampled CEX input edge for a capture channel.
-    pub fn set_pca_input(
-        &self,
-        channel: usize,
-        value: Logic,
-        at: SimTime,
-    ) -> Result<(), DeviceError> {
-        self.0
-            .lock()
-            .expect("EFM8 lock poisoned")
-            .capture_pca_input(channel, value, at)
-    }
-
-    /// Returns the currently asserted PCA interrupt request.
-    pub fn pca_interrupt_pending(&self) -> bool {
-        self.0
-            .lock()
-            .expect("EFM8 lock poisoned")
-            .pca_interrupt_pending()
-    }
-
-    /// Captured SMBus 0 bytes written by the guest to the transmit FIFO.
-    pub fn smbus0_tx_bytes(&self) -> Vec<u8> {
-        self.0.lock().expect("EFM8 lock poisoned").smbus0_tx.clone()
-    }
-
-    /// Returns whether the functional SMBus 0 state machine owns the bus.
-    pub fn smbus0_busy(&self) -> bool {
-        let state = self.0.lock().expect("EFM8 lock poisoned");
-        state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_BUSY != 0
-    }
-
-    /// Returns whether SMBus 0 has an enabled service request pending.
-    pub fn smbus0_interrupt(&self) -> bool {
-        let state = self.0.lock().expect("EFM8 lock poisoned");
-        state.registers[Efm8SmbusRegister::Eie1.offset()] & EIE1_ESMB0 != 0
-            && state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_SI != 0
-            && (state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] & SMB0CN0_MASTER != 0
-                || state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_INH == 0)
-    }
-
-    /// Queues bytes as a deterministic follower-side SMBus 0 receive event.
-    pub fn inject_smbus0_rx(&self, bytes: &[u8], at: SimTime) {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        if state.registers[Efm8SmbusRegister::Smb0Cf.offset()] & SMB0CF_ENSMB == 0 {
-            return;
-        }
-        state.smbus0_rx.extend(bytes.iter().copied());
-        if let Some(&first) = state.smbus0_rx.front() {
-            state.registers[Efm8SmbusRegister::Smb0Dat.offset()] = first;
-            state.registers[Efm8SmbusRegister::Smb0Cf.offset()] |= SMB0CF_BUSY;
-            state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] &=
-                !(SMB0CN0_MASTER | SMB0CN0_TXMODE);
-            state.registers[Efm8SmbusRegister::Smb0Cn0.offset()] |= SMB0CN0_ACKRQ | SMB0CN0_SI;
-        }
-        state.update_smbus0_signals(at);
-        state.update_interrupt_signals(at);
-    }
-
-    /// Supplies one received UART0 byte and raises RI.
-    pub fn inject_uart_rx(&self, value: u8, at: SimTime) {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        state.registers[SBUF0] = value;
-        state.registers[SCON0] |= SCON0_RI;
-        state.update_interrupt_signals(at);
-    }
-
-    /// Supplies the next byte returned by a functional SPI0 master transfer.
-    pub fn inject_spi_rx(&self, value: u8) {
-        self.0
-            .lock()
-            .expect("EFM8 lock poisoned")
-            .spi_rx
-            .push(value);
-    }
-
-    /// Captured bytes written to SPI0DAT.
-    pub fn spi_bytes(&self) -> Vec<u8> {
-        self.0.lock().expect("EFM8 lock poisoned").spi_tx.clone()
-    }
-
-    /// Applies the native Timer1 side effect of vectoring to its interrupt.
-    ///
-    /// EFM8 hardware clears TF1 when the core acknowledges the Timer1
-    /// interrupt. The machine calls this only after the MCS-51 core has
-    /// actually selected the Timer1 vector, so a masked flag remains visible
-    /// until it is serviced or explicitly cleared by firmware.
-    pub fn acknowledge_timer1_interrupt(&self, at: SimTime) {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        state.registers[TCON] &= !TCON_TF1;
-        state.update_interrupt_signals(at);
-    }
-
-    /// Advances functional timers/watchdog and returns low/high CPU interrupt inputs.
-    pub fn poll(&self, now: SimTime) -> [bool; 12] {
-        let mut state = self.0.lock().expect("EFM8 lock poisoned");
-        for port in 0..4 {
-            let _ = state.refresh_port(port, now);
-        }
-        if state.registers[TCON] & TCON_TR0 != 0 {
-            let initial = u16::from_be_bytes([state.registers[TH0], state.registers[TL0]]);
-            let elapsed = now.ticks().saturating_sub(state.timer0_epoch);
-            let total = u64::from(initial).saturating_add(elapsed);
-            let mode = state.registers[TMOD] & 3;
-            if mode == 2 {
-                let reload = state.registers[TH0];
-                let period = u64::from(256_u16 - u16::from(reload)).max(1);
-                state.registers[TL0] = reload.wrapping_add((elapsed % period).to_le_bytes()[0]);
-                if elapsed >= period {
-                    state.registers[TCON] |= TCON_TF0;
-                    state.timer0_epoch = now.ticks();
-                }
-            } else {
-                let bytes = total.to_le_bytes();
-                state.registers[TL0] = bytes[0];
-                state.registers[TH0] = bytes[1];
-                state.timer0_epoch = now.ticks();
-                if total > u64::from(u16::MAX) {
-                    state.registers[TCON] |= TCON_TF0;
-                }
-            }
-        }
-        if state.registers[TCON] & TCON_TR1 != 0 {
-            let mode = (state.registers[TMOD] >> 4) & 3;
-            let elapsed = now.ticks().saturating_sub(state.timer1_epoch);
-            match mode {
-                1 => {
-                    let initial = u16::from_be_bytes([state.registers[TH1], state.registers[TL1]]);
-                    let total = u64::from(initial).saturating_add(elapsed);
-                    let [low, high] = (total as u16).to_le_bytes();
-                    state.registers[TL1] = low;
-                    state.registers[TH1] = high;
-                    if total > u64::from(u16::MAX) {
-                        state.registers[TCON] |= TCON_TF1;
-                    }
-                    state.timer1_epoch = now.ticks();
-                }
-                2 => {
-                    // In auto-reload mode the first overflow depends on the
-                    // current TL1 value. Subsequent overflows reload TH1.
-                    let initial = u64::from(state.registers[TL1]);
-                    let total = initial.saturating_add(elapsed);
-                    let reload = state.registers[TH1];
-                    let period = u64::from(256_u16 - u16::from(reload)).max(1);
-                    if total >= 256 {
-                        let after_first = total - 256;
-                        state.registers[TL1] = reload.wrapping_add((after_first % period) as u8);
-                        state.registers[TCON] |= TCON_TF1;
-                    } else {
-                        state.registers[TL1] = total as u8;
-                    }
-                    state.timer1_epoch = now.ticks();
-                }
-                // Mode 0 is the legacy 13-bit form and mode 3 leaves Timer1
-                // inactive on the EFM8. Neither mode is part of this
-                // functional slice; rebase time so changing modes while the
-                // timer is running cannot count the unsupported interval.
-                _ => state.timer1_epoch = now.ticks(),
-            }
-        }
-        if state.registers[TMR2CN0] & TMR2_TR2 != 0 {
-            let initial = u16::from_le_bytes([state.registers[TMR2L], state.registers[TMR2H]]);
-            let elapsed = now.ticks().saturating_sub(state.timer2_epoch);
-            let until_overflow = u64::from(u16::MAX - initial) + 1;
-            if elapsed >= until_overflow {
-                state.registers[TMR2CN0] |= TMR2_TF2H;
-                state.registers[TMR2L] = state.registers[TMR2RLL];
-                state.registers[TMR2H] = state.registers[TMR2RLH];
-                state.timer2_epoch = now.ticks();
-            } else {
-                let elapsed = u16::try_from(elapsed)
-                    .expect("non-overflowing Timer2 elapsed value fits in 16 bits");
-                let value = initial.wrapping_add(elapsed);
-                let [low, high] = value.to_le_bytes();
-                state.registers[TMR2L] = low;
-                state.registers[TMR2H] = high;
-                state.timer2_epoch = now.ticks();
-            }
-        }
-        if state.watchdog_enabled && now.ticks().saturating_sub(state.watchdog_epoch) >= 65_536 {
-            state.watchdog_reset = true;
-            state.set_signal(state.watchdog_reset_signal, 1, 1, now);
-        }
-        let _ = state.advance_pca(now);
-        state.update_smbus0_signals(now);
-        state.update_interrupt_signals(now);
-        state.interrupt_levels()
-    }
-
-    /// Consumes a watchdog reset request.
-    pub fn take_watchdog_reset(&self) -> bool {
-        std::mem::take(&mut self.0.lock().expect("EFM8 lock poisoned").watchdog_reset)
-    }
-}
+mod handle;
 
 /// EFM8BB52F32G paged SFR peripheral window.
 pub struct Efm8Peripherals {
@@ -875,6 +785,16 @@ impl Efm8Peripherals {
             "board.efm8bb52f32g.uart0.tx_strobe",
             SignalValue::from_u64(0, 1)?,
             Some("toggles for every UART0 transmit byte".to_owned()),
+        )?;
+        let uart1_byte_signal = hub.declare(
+            "board.efm8bb52f32g.uart1.tx_byte",
+            SignalValue::from_u64(0, 8)?,
+            Some("last UART1 transmit byte".to_owned()),
+        )?;
+        let uart1_strobe_signal = hub.declare(
+            "board.efm8bb52f32g.uart1.tx_strobe",
+            SignalValue::from_u64(0, 1)?,
+            Some("toggles for every UART1 transmit byte".to_owned()),
         )?;
         let smbus0_tx_byte_signal = hub.declare(
             "board.efm8bb52f32g.smb0.tx_byte",
@@ -911,6 +831,83 @@ impl Efm8Peripherals {
             SignalValue::from_u64(0, 1)?,
             Some("Timer2 high-byte overflow request".to_owned()),
         )?;
+        let timer3_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer3.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer3 overflow request".to_owned()),
+        )?;
+        let timer4_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer4.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer4 overflow request".to_owned()),
+        )?;
+        let timer5_irq_signal = hub.declare(
+            "board.efm8bb52f32g.timer5.irq",
+            SignalValue::from_u64(0, 1)?,
+            Some("Timer5 overflow request".to_owned()),
+        )?;
+        let adc_result_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.result",
+            SignalValue::from_u64(0, 16)?,
+            Some("last ADC0 conversion result".to_owned()),
+        )?;
+        let adc_eoc_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.end_of_conversion",
+            SignalValue::from_u64(0, 1)?,
+            Some("ADC0 conversion-complete flag".to_owned()),
+        )?;
+        let adc_window_signal = hub.declare(
+            "board.efm8bb52f32g.adc0.window",
+            SignalValue::from_u64(0, 1)?,
+            Some("ADC0 window-comparison flag".to_owned()),
+        )?;
+        let comparator0_output_signal = hub.declare(
+            "board.efm8bb52f32g.comparator0.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("CMP0 digital comparison output".to_owned()),
+        )?;
+        let comparator1_output_signal = hub.declare(
+            "board.efm8bb52f32g.comparator1.output",
+            SignalValue::from_u64(0, 1)?,
+            Some("CMP1 digital comparison output".to_owned()),
+        )?;
+        let clu_output_signals = [
+            hub.declare(
+                "board.efm8bb52f32g.clu0.output",
+                SignalValue::from_u64(0, 1)?,
+                Some("CLU0 selected logic output".to_owned()),
+            )?,
+            hub.declare(
+                "board.efm8bb52f32g.clu1.output",
+                SignalValue::from_u64(0, 1)?,
+                Some("CLU1 selected logic output".to_owned()),
+            )?,
+            hub.declare(
+                "board.efm8bb52f32g.clu2.output",
+                SignalValue::from_u64(0, 1)?,
+                Some("CLU2 selected logic output".to_owned()),
+            )?,
+            hub.declare(
+                "board.efm8bb52f32g.clu3.output",
+                SignalValue::from_u64(0, 1)?,
+                Some("CLU3 selected logic output".to_owned()),
+            )?,
+        ];
+        let port_match_signal = hub.declare(
+            "board.efm8bb52f32g.port_match.event",
+            SignalValue::from_u64(0, 1)?,
+            Some("Port Match mismatch event".to_owned()),
+        )?;
+        let dac_output_signal = hub.declare(
+            "board.efm8bb52f32g.dac0.output",
+            SignalValue::from_u64(0, 10)?,
+            Some("last DAC0 digital output code".to_owned()),
+        )?;
+        let dac_enabled_signal = hub.declare(
+            "board.efm8bb52f32g.dac0.enabled",
+            SignalValue::from_u64(0, 1)?,
+            Some("DAC0 output buffer enable".to_owned()),
+        )?;
         let interrupt_signal = hub.declare(
             "board.efm8bb52f32g.interrupt.request",
             SignalValue::from_u64(0, 1)?,
@@ -920,6 +917,46 @@ impl Efm8Peripherals {
             "board.efm8bb52f32g.watchdog.reset",
             SignalValue::from_u64(0, 1)?,
             Some("functional watchdog reset request".to_owned()),
+        )?;
+        let crossbar_enabled_signal = hub.declare(
+            "board.efm8bb52f32g.crossbar.enabled",
+            SignalValue::from_u64(0, 1)?,
+            Some("priority crossbar output-driver enable".to_owned()),
+        )?;
+        let crossbar_assigned_signal = hub.declare(
+            "board.efm8bb52f32g.crossbar.assigned_count",
+            SignalValue::from_u64(0, 8)?,
+            Some("number of functions assigned to physical pins".to_owned()),
+        )?;
+        let crossbar_uart0_tx_signal = hub.declare(
+            "board.efm8bb52f32g.crossbar.uart0.tx_pin",
+            SignalValue::from_u64(0xff, 8)?,
+            Some("UART0 TX physical pin index, or 0xff when disabled".to_owned()),
+        )?;
+        let crossbar_uart0_rx_signal = hub.declare(
+            "board.efm8bb52f32g.crossbar.uart0.rx_pin",
+            SignalValue::from_u64(0xff, 8)?,
+            Some("UART0 RX physical pin index, or 0xff when disabled".to_owned()),
+        )?;
+        let clock_source_signal = hub.declare(
+            "board.efm8bb52f32g.clock.source",
+            SignalValue::from_u64(0, 3)?,
+            Some("CLKSEL clock-source selector".to_owned()),
+        )?;
+        let clock_divider_signal = hub.declare(
+            "board.efm8bb52f32g.clock.divider",
+            SignalValue::from_u64(8, 8)?,
+            Some("functional SYSCLK divider".to_owned()),
+        )?;
+        let sysclk_hz_signal = hub.declare(
+            "board.efm8bb52f32g.clock.sysclk_hz",
+            SignalValue::from_u64(3_062_500, 32)?,
+            Some("nominal functional SYSCLK frequency".to_owned()),
+        )?;
+        let power_mode_signal = hub.declare(
+            "board.efm8bb52f32g.power.mode",
+            SignalValue::from_u64(0, 3)?,
+            Some("functional power-mode code".to_owned()),
         )?;
         let pca_output_signals = [
             hub.declare(
@@ -945,25 +982,51 @@ impl Efm8Peripherals {
         )?;
         let state = Arc::new(Mutex::new(Efm8State {
             registers: vec![0; SFR_BYTES].into_boxed_slice(),
+            flash: vec![0xff; FLASH_BYTES].into_boxed_slice(),
+            crossbar_routes: [None; Efm8CrossbarFunction::COUNT],
             ports: [port0, port1, port2, port3],
             port_signals: [signals0, signals1, signals2, signals3],
             hub,
             uart: Vec::new(),
+            uart1: Vec::new(),
+            uart1_rx: VecDeque::new(),
+            uart1_last_rx: 0,
+            adc_inputs: [0; 32],
             smbus0_tx: Vec::new(),
             smbus0_tx_fifo: VecDeque::new(),
             smbus0_rx: VecDeque::new(),
             timer0_epoch: 0,
             timer1_epoch: 0,
             timer2_epoch: 0,
+            timer3_epoch: 0,
+            timer4_epoch: 0,
+            timer5_epoch: 0,
             crc_result: 0,
             watchdog_epoch: 0,
             watchdog_key: 0,
             watchdog_enabled: true,
             watchdog_reset: false,
+            dac_output: 0,
+            dac_update_inhibited: false,
+            comparator_inputs: [[0; 2]; 2],
+            clu_input_overrides: [None; 4],
+            clu_ff: [false; 4],
+            clu_lut_outputs: [false; 4],
+            port_match_event: false,
+            flash_key_stage: 0,
+            flash_locked_out: false,
+            flash_unlocked: false,
+            power_mode: Efm8PowerMode::Active,
+            external_clock_hz: 24_000_000,
             spi_tx: Vec::new(),
             spi_rx: Vec::new(),
             uart_byte_signal,
             uart_strobe_signal,
+            uart1_byte_signal,
+            uart1_strobe_signal,
+            adc_result_signal,
+            adc_eoc_signal,
+            adc_window_signal,
             smbus0_tx_byte_signal,
             smbus0_tx_strobe_signal,
             smbus0_busy_signal,
@@ -971,8 +1034,24 @@ impl Efm8Peripherals {
             timer0_irq_signal,
             timer1_irq_signal,
             timer2_irq_signal,
+            timer3_irq_signal,
+            timer4_irq_signal,
+            timer5_irq_signal,
             interrupt_signal,
             watchdog_reset_signal,
+            crossbar_enabled_signal,
+            crossbar_assigned_signal,
+            crossbar_uart0_tx_signal,
+            crossbar_uart0_rx_signal,
+            clock_source_signal,
+            clock_divider_signal,
+            sysclk_hz_signal,
+            power_mode_signal,
+            dac_output_signal,
+            dac_enabled_signal,
+            comparator_output_signals: [comparator0_output_signal, comparator1_output_signal],
+            clu_output_signals,
+            port_match_signal,
             pca_epoch: 0,
             pca_outputs: [Logic::Zero; 3],
             pca_inputs: [Logic::Zero; 3],
@@ -1010,6 +1089,9 @@ impl Device for Efm8Peripherals {
         let raw = usize::try_from(offset).map_err(|_| DeviceError::new("EFM8 offset overflow"))?;
         let address = Efm8State::canonical(raw);
         let mut state = self.state.lock().expect("EFM8 lock poisoned");
+        if let Some(value) = state.read_clock_register(address) {
+            return Ok(u64::from(value));
+        }
         if matches!(
             address,
             PCA0CN
@@ -1034,6 +1116,28 @@ impl Device for Efm8Peripherals {
         if let Some(port) = Self::port_index(address) {
             state.refresh_port(port, at)?;
             return Ok(u64::from(state.port_read(port)));
+        }
+        if address == SBUF1 {
+            let value = state.uart1_rx.pop_front().unwrap_or(state.uart1_last_rx);
+            state.uart1_last_rx = value;
+            if state.uart1_rx.is_empty() {
+                state.registers[SCON1] &= !SCON1_RI;
+            }
+            state.update_interrupt_signals(at);
+            return Ok(u64::from(value));
+        }
+        if address == UART1FCN1 {
+            let mut value = state.registers[UART1FCN1] & 0x37;
+            value |= UART1FCN1_TFRQ | UART1FCN1_TXNF;
+            if !state.uart1_rx.is_empty() {
+                value |= UART1FCN1_RFRQ;
+            }
+            return Ok(u64::from(value));
+        }
+        if address == UART1FCT {
+            let rx_count = u8::try_from(state.uart1_rx.len().min(7))
+                .expect("bounded UART1 receive FIFO count fits in three bits");
+            return Ok(u64::from(rx_count));
         }
         let mut value = if address == CRC0DAT {
             let value = if state.registers[CRC0CN0] & 1 == 0 {
@@ -1066,11 +1170,7 @@ impl Device for Efm8Peripherals {
         if address == CRC0CN0 {
             value &= CRC0CN0_MASK;
         }
-        if address == CLKSEL {
-            Ok(u64::from(value | 0x80))
-        } else {
-            Ok(u64::from(value))
-        }
+        Ok(u64::from(value))
     }
 
     fn write(
@@ -1091,6 +1191,22 @@ impl Device for Efm8Peripherals {
             return Err(DeviceError::new(format!(
                 "EFM8 write outside SFR space: {raw:#x}"
             )));
+        }
+        if state.write_clock_register(address, value, at) {
+            state.update_interrupt_signals(at);
+            return Ok(());
+        }
+        if state.write_clu_register(address, value, at) {
+            state.update_interrupt_signals(at);
+            return Ok(());
+        }
+        if matches!(
+            address,
+            CMP0CN0 | CMP0CN1 | CMP0MD | CMP0MX | CMP1CN0 | CMP1CN1 | CMP1MD | CMP1MX
+        ) {
+            state.write_comparator_register(address, value, at);
+            state.update_interrupt_signals(at);
+            return Ok(());
         }
         let previous = state.registers[address];
         let pca_register = matches!(
@@ -1197,15 +1313,55 @@ impl Device for Efm8Peripherals {
                     state.set_signal(state.smbus0_tx_strobe_signal, previous ^ 1, 1, at);
                 }
             }
-            None if address == CLKSEL => {
-                state.registers[address] = value;
-            }
             None => {
                 state.registers[address] = value;
             }
         }
         if smbus_register.is_none() {
-            if address == CRC0CN0 {
+            if address == SBUF1 {
+                if state.registers[SBCON1] & SBCON1_BREN != 0 {
+                    state.uart1.push(value);
+                    state.set_signal(state.uart1_byte_signal, u64::from(value), 8, at);
+                    let previous = state.hub.with_registry(|registry| {
+                        registry
+                            .value(state.uart1_strobe_signal)
+                            .and_then(|signal| signal.bit(0))
+                            .map_or(0, |logic| u64::from(logic == Logic::One))
+                    });
+                    state.set_signal(state.uart1_strobe_signal, previous ^ 1, 1, at);
+                    state.registers[SCON1] |= SCON1_TI;
+                }
+            } else if address == PSCTL {
+                state.registers[address] = 0x40 | (value & 0x0f);
+            } else if address == FLKEY {
+                state.registers[address] = 0;
+                state.flash_key_write(value);
+            } else if matches!(address, DAC0L | DAC0H | DAC0ALT | DAC0CF0 | DAC0CF1) {
+                state.write_dac_register(address, value, at);
+            } else if address == ADC0CN0 && value & ADC0_ADBUSY != 0 {
+                if value & ADC0_ADEN != 0 && state.registers[ADC0CN2] & 0x0f == 0 {
+                    state.complete_adc_conversion(at);
+                } else {
+                    state.registers[ADC0CN0] &= !ADC0_ADBUSY;
+                }
+            } else if address == SCON1 {
+                state.registers[address] = value & !SCON1_RI;
+                if !state.uart1_rx.is_empty() {
+                    state.registers[address] |= SCON1_RI;
+                }
+            } else if address == UART1FCN0 {
+                if value & UART1FCN0_TFLSH != 0 {
+                    state.uart1.clear();
+                    state.registers[SCON1] &= !SCON1_TI;
+                }
+                if value & UART1FCN0_RFLSH != 0 {
+                    state.uart1_rx.clear();
+                    state.registers[SCON1] &= !SCON1_RI;
+                }
+                state.registers[address] = value & !0x44;
+            } else if address == UART1FCN1 {
+                state.registers[address] = value & 0x37;
+            } else if address == CRC0CN0 {
                 state.registers[address] = value & CRC0CN0_MASK;
                 if value & 0x08 != 0 {
                     state.crc_result = if value & 0x04 != 0 { u16::MAX } else { 0 };
@@ -1304,11 +1460,24 @@ impl Device for Efm8Peripherals {
             } else if address == TMR2CN0 && value & TMR2_TR2 != 0 {
                 state.registers[address] = value;
                 state.timer2_epoch = at.ticks();
+            } else if address == TMR3CN0 && value & TMR3_TR3 != 0 {
+                state.registers[address] = value;
+                state.timer3_epoch = at.ticks();
+            } else if address == TMR4CN0 && value & TMR4_TR4 != 0 {
+                state.registers[address] = value;
+                state.timer4_epoch = at.ticks();
+            } else if address == TMR5CN0 && value & TMR5_TR5 != 0 {
+                state.registers[address] = value;
+                state.timer5_epoch = at.ticks();
             } else {
                 state.registers[address] = value;
             }
         }
         state.update_smbus0_signals(at);
+        state.refresh_port_match(at);
+        if matches!(address, XBR0 | XBR1 | XBR2 | P0SKIP | P1SKIP | P2SKIP) {
+            state.refresh_crossbar(at);
+        }
         state.update_interrupt_signals(at);
         Ok(())
     }
