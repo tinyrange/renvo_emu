@@ -214,6 +214,14 @@ impl RiscVMachine {
             }
             if self.target == TargetId::Rp2350 {
                 rp_io::poll(self, &mut stats, &mut io_bank_was_pending)?;
+                if let Some(dma) = &self.dma {
+                    for interrupt in 0..4 {
+                        self.cpu.set_hazard3_external_interrupt(
+                            10 + u16::try_from(interrupt).expect("RP2350 DMA IRQ index fits u16"),
+                            dma.interrupt_pending(interrupt),
+                        )?;
+                    }
+                }
                 if let Some(trng) = &self.trng {
                     let pending = trng.interrupt_pending();
                     if pending && !trng_was_pending {

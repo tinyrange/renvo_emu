@@ -170,6 +170,33 @@ fn rp2350_hazard3_adc_mapping_uses_the_correct_native_offsets() {
 }
 
 #[test]
+fn rp2350_hazard3_uart1_uses_the_audited_pl011_contract() {
+    let mut machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    let uart1 = 0x4007_8000;
+    machine
+        .bus
+        .write(uart1 + 0x30, AccessWidth::Word, 0x301, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(uart1, AccessWidth::Word, b'Z'.into(), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.chip_uarts[1].bytes(), [b'Z']);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                uart1 + 0xfe0,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x11
+    );
+}
+
+#[test]
 fn esp32c6_direct_elf_materializes_the_zero_fill_tail() {
     let mut machine = RiscVMachine::new(TargetId::Esp32c6).unwrap();
     let initialized = [0x13, 0, 0, 0];

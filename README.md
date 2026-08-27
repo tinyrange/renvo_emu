@@ -192,6 +192,8 @@ The checked qualification suite covers more than workspace unit tests:
   evidence in `qualification/rp2040-sdk.json`;
 - a pinned RP2040 Pico SDK multicore FIFO/launch regression with shared-UART
   evidence in `qualification/rp2040-multicore.json`;
+- an explicit RP2040/RP2350 implementation and gap matrix in
+  `docs/RASPBERRY_PI_STATUS.md`;
 - native-image versus direct-execution equivalence for all 14 target modes;
 - architectural stop conditions, GDB, coverage, replay, bus logs, VCD, and
   register-coverage generation;

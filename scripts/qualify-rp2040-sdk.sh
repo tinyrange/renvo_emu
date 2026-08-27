@@ -90,13 +90,13 @@ jq -e '.reason == "Halted" and .exit_code == 0 and (.uart | implode == "AB Hello
     "$root/uart/run.json" >/dev/null
 jq -e 'any(.[]; .kind == "Write" and .address == 1073954816)' \
     "$root/uart/bus.json" >/dev/null
-jq -e 'any(.[]; .kind == "Write" and .address == 1073823744) and
-       any(.[]; .kind == "Write" and .address == 1073823752)' \
+jq -e 'any(.[]; .kind == "Write" and .address == 1073823748) and
+       any(.[]; .kind == "Write" and .address == 1073823756)' \
     "$root/uart/bus.json" >/dev/null
 jq -e '.reason == "Halted" and .exit_code == 0 and (.uart | length == 0)' \
     "$root/pwm/run.json" >/dev/null
-jq -e 'any(.[]; .kind == "Write" and .address == 1073823744) and
-       any(.[]; .kind == "Write" and .address == 1073823752) and
+jq -e 'any(.[]; .kind == "Write" and .address == 1073823748) and
+       any(.[]; .kind == "Write" and .address == 1073823756) and
        any(.[]; .kind == "Write" and .address == 1074069520 and .value == 3) and
        any(.[]; .kind == "Write" and .address == 1074069516 and .value == 196609) and
        any(.[]; .kind == "Write" and .address == 1074069664 and .value == 1)' \

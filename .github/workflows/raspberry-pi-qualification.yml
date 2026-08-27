@@ -1,0 +1,67 @@
+name: Raspberry Pi qualification
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/raspberry-pi-qualification.yml"
+      - "corpus/vendor/pico/**"
+      - "corpus/vendor/pico-multicore/**"
+      - "crates/remu-cpu-arm/**"
+      - "crates/remu-devices/src/arm.rs"
+      - "crates/remu-devices/src/rp*.rs"
+      - "crates/remu-machines/src/arm/**"
+      - "crates/remu-machines/src/arm.rs"
+      - "crates/remu-machines/src/target.rs"
+      - "scripts/qualify-rp2040-*.sh"
+      - "toolchains/arm-gcc-cortex-m0plus.toml"
+  schedule:
+    - cron: "41 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: raspberry-pi-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pico-sdk:
+    name: Pinned Pico SDK examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Build pinned public toolchain image
+        run: scripts/bootstrap-toolchains.sh
+
+      - name: Build release interpreter
+        run: cargo build --release -p remu-cli --locked
+
+      - name: Run UART and PWM qualification
+        env:
+          REMU_BIN: target/release/remu
+        run: scripts/qualify-rp2040-sdk.sh
+
+      - name: Run multicore qualification
+        env:
+          REMU_BIN: target/release/remu
+        run: scripts/qualify-rp2040-multicore.sh
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: raspberry-pi-qualification
+          path: |
+            .remu/qualification/rp2040-sdk/
+            .remu/qualification/rp2040-multicore/
+            qualification/rp2040-sdk.json
+            qualification/rp2040-multicore.json
+          if-no-files-found: warn

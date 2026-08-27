@@ -21,9 +21,9 @@ use remu_devices::{
     Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350BootRam, Rp2350Otp,
     Rp2350Powman, Rp2350Sha256, Rp2350Spi, Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng,
     Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc, RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle,
-    RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpSioGpio, RpSioHandle,
-    RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic, WchPficHandle, WchTimer,
-    WchTimerHandle, WchUsart, new_rp2350_hstx,
+    RpDmaVariant, RpI2cHandle, RpIoBankHandle, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
+    WchPficHandle, WchTimer, WchTimerHandle, WchUsart, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -546,15 +546,7 @@ impl RiscVMachine {
                 0x2_0000,
                 Box::new(Rp2350Otp::new("rp2350.otp")),
             )?;
-            for (name, base) in [("rp2350.uart1", 0x4007_8000)] {
-                bus.map_device(
-                    name,
-                    base,
-                    0x4000,
-                    Box::new(Rp2040RegisterBank::new(name, vec![0; 0x1000 / 4])),
-                )?;
-            }
-            let (device, handle) = RpDma::new("rp2350.dma");
+            let (device, handle) = RpDma::new_for_variant("rp2350.dma", RpDmaVariant::Rp2350);
             bus.map_device("rp2350.dma", 0x5000_0000, 0x4000, Box::new(device))?;
             dma = Some(handle);
             map_rp2350_spi(&mut bus, &mut spi)?;
@@ -759,6 +751,9 @@ impl RiscVMachine {
                 let (uart0, handle) =
                     FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
                 bus.map_device("rp2350.uart0", 0x4007_0000, 0x1000, Box::new(uart0))?;
+                chip_uarts.push(handle);
+                let (uart1, handle) = RpPl011Uart::new("rp2350.uart1");
+                bus.map_device("rp2350.uart1", 0x4007_8000, 0x4000, Box::new(uart1))?;
                 chip_uarts.push(handle);
                 let (pio0, handle) = RpPio::new_with_version(
                     "rp2350.pio0",

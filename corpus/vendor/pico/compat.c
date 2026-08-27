@@ -23,7 +23,7 @@ void gpio_put(unsigned int pin, bool value)
 }
 void gpio_set_function(unsigned int pin, unsigned int function)
 {
-    REG32(0x40014000u + (pin * 8u)) = function;
+    REG32(0x40014004u + (pin * 8u)) = function;
 }
 void sleep_ms(uint32_t milliseconds)
 {

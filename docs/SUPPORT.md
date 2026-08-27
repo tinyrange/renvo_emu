@@ -189,6 +189,16 @@ reset boundary with an explicit watchdog-reset reason. Debug pause inputs,
 `RESETS.WDSEL` fan-out, and a complete CPU reboot sequence remain outside the
 functional slice.
 
+The shared RP DMA model uses the target's native layout: RP2040 exposes twelve
+channels and two interrupt banks, while RP2350 exposes sixteen channels and
+four interrupt banks in both Cortex-M33 and Hazard3 modes. It covers aligned
+byte/halfword/word copies, address increments, completion status, interrupt
+enable/force/clear, atomic aliases, multi-channel trigger, abort, and delivery
+to the documented CPU interrupt lines. Transfers advance one unit per machine
+service. TREQ pacing, chaining, ring addressing, sniff, security attribution,
+quiet terminators, and bus-cycle arbitration remain outside this functional
+slice.
+
 RP2350's IO_BANK0 model covers the SDK-facing per-pin STATUS and CTRL
 registers, input/output/enable overrides, packed raw edge/level events, and
 PROC0/PROC1 enable, force, and status registers. Both Cortex-M33 and Hazard3
