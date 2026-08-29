@@ -119,9 +119,18 @@ publish deterministic channel waveforms to VCD as
 pulse items through their native memory windows and interrupt state. Carrier
 modulation, DMA and clock-accurate behavior are not claimed.
 
-There is not yet a published runtime container or binary release. Until that
-distribution path exists, the source build above is the supported installation
-method.
+Tagged releases publish Linux/amd64 and Linux/arm64 binaries, checksums, and a
+runtime-only OCI image. The image contains no compiler toolchains and runs as a
+non-root user. For a source-level example, see
+[`examples/quickstart`](examples/quickstart/README.md).
+
+```sh
+docker run --rm -v "$PWD:/work:ro" -w /work \
+  ghcr.io/tinyrange/renvo_emu:latest targets
+```
+
+The image is for running existing ELF/native firmware artifacts. Compilation
+of corpus cases remains isolated in the pinned Docker toolchain images.
 
 ## Target portfolio
 
@@ -232,12 +241,16 @@ COREMARK_OFFLINE=1 scripts/qualify-coremark.sh
 scripts/qualify-host-determinism.sh
 ```
 
-The default GitHub Actions workflow currently runs formatting, Clippy, all
-workspace tests, source-layout checks, and package-manifest validation. The
-larger Docker, native-image, MicroPython, CoreMark, and host-determinism gates
-remain explicit qualification commands with checked artifacts in the
-repository; moving reproducible subsets into scheduled public CI is follow-up
-work.
+The default GitHub Actions workflow runs formatting, Clippy, all workspace
+tests, source-layout checks, package-manifest validation, and a bounded,
+lockfile-pinned machine smoke matrix covering RISC-V, Arm, Xtensa, AVR, MSP430,
+PIC16, and MCS-51. Each architecture lane enables Rust backtraces and runs all
+matching tests before reporting failure, so a broken target leaves actionable
+diagnostics in the pull-request log.
+The larger Docker, native-image, MicroPython, CoreMark, and host-determinism
+gates remain explicit qualification commands with checked artifacts in the
+repository; moving those reproducible subsets into scheduled public CI is
+follow-up work.
 
 Read [CoreMark methodology and results](docs/COREMARK.md), the
 [1,000-case corpus notes](corpus/edge_cases/README.md), and the
@@ -431,6 +444,7 @@ assertions.
 - [CoreMark qualification](docs/COREMARK.md)
 - [Restored-plan status](docs/PLAN_STATUS.md)
 - [Architecture decisions](docs/adr/)
+- [Release and runtime image contract](docs/RELEASE.md)
 - [Original implementation plan](PLAN.html)
 
 ## Development
