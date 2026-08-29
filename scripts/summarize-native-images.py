@@ -20,6 +20,7 @@ CASES = [
     ("atsamd21e18", "atsamd21e18", "elf", "raw-bin", "atsamd21e18"),
     ("stm32l432kc", "stm32l432kc", "elf", "raw-bin", "stm32l432kc"),
     ("stm32f411re", "stm32f411re", "elf", "raw-bin", "stm32f411re"),
+    ("stm32h743zi", "stm32h743zi", "elf", "raw-bin", "stm32h743zi"),
     ("stm32f103c8", "stm32f103c8", "elf", "raw-bin", "stm32f103c8"),
     ("nrf52840", "nrf52840", "elf", "raw-bin", "nrf52840"),
     ("atsamd51j19a", "atsamd51j19a", "elf", "raw-bin", "atsamd51j19a"),

@@ -29,6 +29,8 @@ pub enum ArmProfile {
     CortexM3,
     /// Armv7E-M Cortex-M4 with FPv4-SP-D16 used by STM32L432 and RA4M1.
     CortexM4F,
+    /// Armv7E-M Cortex-M7 with FPv5-D16 used by STM32H743.
+    CortexM7,
     /// Non-secure Armv8-M Mainline Cortex-M33 used by RP2350.
     CortexM33,
 }
@@ -106,6 +108,7 @@ impl ArmProfile {
             Self::CortexM0Plus => "cortex-m0plus-armv6m",
             Self::CortexM3 => "cortex-m3-armv7m",
             Self::CortexM4F => "cortex-m4f-armv7em",
+            Self::CortexM7 => "cortex-m7-armv7em",
             Self::CortexM33 => "cortex-m33-armv8m",
         }
     }

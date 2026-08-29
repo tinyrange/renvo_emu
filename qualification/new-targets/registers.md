@@ -1,10 +1,32 @@
 # New-target register contract
 
-This is the behavioral contract for the STM32F411RE, STM32F103C8T6, nRF52840,
-ATSAMD51J19A, and ESP32-P4 slices. Addresses are native byte addresses and all
+This is the behavioral contract for the STM32H743ZI, STM32F411RE,
+STM32F103C8T6, nRF52840, ATSAMD51J19A, and ESP32-P4 slices. Addresses are
+native byte addresses and all
 listed accesses are 32-bit unless stated otherwise. “Stored” means masked software-visible
 state only; it does not imply the physical clock, analog, bus, or pin-routing
 effect of the silicon register.
+
+## STM32H743ZI
+
+| Block | Base | Modeled registers and behavior |
+|---|---:|---|
+| TIM2 | `0x40000000` | `CR1 +0x00` CEN, `DIER +0x0c` UIE, `SR +0x10` UIF, `EGR +0x14` UG, `CNT +0x24`, `PSC +0x28`, `ARR +0x2c`; deterministic update events route to NVIC IRQ 28 |
+| USART3 | `0x40004800` | `CR1 +0x00`, `ISR +0x1c` with RXNE/TC/TXE, `ICR +0x20`, `RDR +0x24`, and `TDR +0x28`; byte transmit/receive and enabled events route to NVIC IRQ 39 |
+| DMA1 / DMA2 | `0x40020000` / `0x40020400` | Native eight-stream layout: `LISR/HISR +0x00/+0x04`, write-one-to-clear `LIFCR/HIFCR +0x08/+0x0c`, and stream `CR/NDTR/PAR/M0AR/M1AR/FCR` blocks from `+0x10` at `0x18` stride. Memory-to-memory direction, byte/halfword/word width, address increment, circular reload, half/complete/error flags, and documented stream IRQ lines are functional; peripheral requests and arbitration are deferred |
+| DMAMUX1 | `0x40020800` | Aligned request-generator and channel words through `+0x13c` are stored. Request selection does not yet gate the DMA service model |
+| GPIOA-K | `0x58020000` through `0x58022800` | Ports use `0x400` stride and expose `MODER +0x00`, `OTYPER +0x04`, `OSPEEDR +0x08`, `PUPDR +0x0c`, `IDR +0x10`, `ODR +0x14`, `BSRR +0x18`, `LCKR +0x1c`, `AFRL/H +0x20/+0x24`; output mode drives digital nets while alternate-function selection is stored only |
+| RCC | `0x58024400` | Startup-compatible reset/stored words for `CR` through PLL configuration, clock interrupt state, domain resets, `RSR`, bus enables `AHB3ENR +0xd4` through `APB4ENR +0xf4`, and low-power enables through `+0x11c`. HSI reset readiness is represented; gating and clock-tree frequency do not alter instruction cadence |
+| PWR / SYSCFG | `0x58024800` / `0x58000400` | Aligned startup/control words are deterministic stored state; voltage scaling, compensation-cell settling, memory remap, and low-power effects are not timed |
+| FLASH interface | `0x52002000` | `ACR +0x00` wait-state/control bits plus aligned bank control/status/key state through `+0x50`; internal flash program/erase, ECC, protection, and latency effects are not modeled |
+
+Flash is executable at `0x08000000..0x081fffff`. The memory map also exposes
+64 KiB ITCM at `0x00000000`, 128 KiB DTCM at `0x20000000`, 512 KiB AXI SRAM
+at `0x24000000`, 288 KiB D2 SRAM at `0x30000000`, and 64 KiB D3 SRAM at
+`0x38000000`. Native reset vectors are read from flash without falsely mirroring
+flash over ITCM. The Cortex-M7 execution profile is a compiler-facing
+Armv7E-M subset; cache, MPU, double-precision FPU, AXI/TCM contention, and exact
+clock behavior are outside this initial contract.
 
 ## STM32F411RE
 

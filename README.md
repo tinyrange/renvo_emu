@@ -142,7 +142,7 @@ of corpus cases remains isolated in the pinned Docker toolchain images.
 
 ## Target portfolio
 
-The repository contains 18 MCU models and 19 execution modes because RP2350 is
+The repository contains 19 MCU models and 20 execution modes because RP2350 is
 qualified in both Arm and RISC-V configurations.
 
 | MCU model | CPU mode(s) | Highest demonstrated tier | Native image |
@@ -159,6 +159,7 @@ qualified in both Arm and RISC-V configurations.
 | STMicroelectronics STM32L432KC | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
 | STMicroelectronics STM32F103C8T6 | Cortex-M3 | 2 — firmware functional slice | raw binary, Intel HEX |
 | STMicroelectronics STM32F411RE | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
+| STMicroelectronics STM32H743ZI | Cortex-M7 | 2 — firmware functional slice | raw binary, Intel HEX |
 | Nordic Semiconductor nRF52840 | Cortex-M4F | 2 — non-radio firmware functional slice | raw binary, Intel HEX |
 | Renesas R7FA4M1AB3CFM | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
 | Microchip ATmega328PB | enhanced AVR8 | 2 — firmware functional slice | Intel HEX, raw binary |
@@ -216,7 +217,7 @@ The checked qualification suite covers more than workspace unit tests:
   evidence in `qualification/rp2040-multicore.json`;
 - an explicit RP2040/RP2350 implementation and gap matrix in
   `docs/RASPBERRY_PI_STATUS.md`;
-- native-image versus direct-execution equivalence for all 19 target modes;
+- native-image versus direct-execution equivalence for all 20 target modes;
 - architectural stop conditions, GDB, coverage, replay, bus logs, VCD, and
   register-coverage generation;
 - EEMBC CoreMark correctness plus host-calibrated interpreter throughput;
@@ -241,11 +242,11 @@ scripts/qualify-rp2040-sdk.sh
 # Pinned upstream RP2040 SDK multicore FIFO regression slice
 scripts/qualify-rp2040-multicore.sh
 
-# Original expansion gate plus native-image equivalence for all 18 MCUs
+# Original expansion gate plus native-image equivalence for all 19 MCUs
 scripts/qualify-expansion.sh
 
-# Software-only functional qualification for STM32F103C8T6, STM32F411RE,
-# ATSAMD51J19A, nRF52840, and ESP32-P4
+# Software-only functional qualification for STM32H743ZI, STM32F103C8T6,
+# STM32F411RE, ATSAMD51J19A, nRF52840, and ESP32-P4
 scripts/qualify-new-targets.sh
 
 # Official firmware acceptance; warm-cache budget is one minute

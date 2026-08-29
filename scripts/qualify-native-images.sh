@@ -116,6 +116,11 @@ build_case stm32f411re toolchains/arm-gcc-stm32f411re.toml \
     -O2 -mfpu=fpv4-sp-d16 -mfloat-abi=hard start.S main.c \
     -Wl,-T,link.ld -o /workspace/out/probe.elf
 
+build_case stm32h743zi toolchains/arm-gcc-stm32h743zi.toml \
+    corpus/smoke/stm32h743zi stm32h743zi \
+    -O2 -mfpu=fpv5-d16 -mfloat-abi=hard start.S main.c \
+    -Wl,-T,link.ld -o /workspace/out/probe.elf
+
 build_case stm32f103c8 toolchains/arm-gcc-stm32f103c8.toml \
     corpus/smoke/stm32f103c8 stm32f103c8 \
     -O2 start.S main.c -Wl,-T,link.ld -o /workspace/out/probe.elf
@@ -155,7 +160,7 @@ build_case efm8bb52f32g toolchains/sdcc-mcs51-efm8bb52.toml \
     --opt-code-speed main.c -o /workspace/out/probe.ihx
 
 docker_objcopy "$cross_image" riscv64-unknown-elf-objcopy wch binary bin
-for id in rp2040 rp2350-arm atsamd21e18 stm32l432kc stm32f411re stm32f103c8 nrf52840 atsamd51j19a r7fa4m1ab3cfm
+for id in rp2040 rp2350-arm atsamd21e18 stm32l432kc stm32f411re stm32h743zi stm32f103c8 nrf52840 atsamd51j19a r7fa4m1ab3cfm
 do
     docker_objcopy "$cross_image" arm-none-eabi-objcopy "$id" binary bin
 done
@@ -255,6 +260,9 @@ run_pair stm32l432kc stm32l432kc --elf "$artifact_root/build/stm32l432kc/probe.e
 run_pair stm32f411re stm32f411re --elf \
     "$artifact_root/build/stm32f411re/probe.elf" \
     "$artifact_root/build/stm32f411re/probe.bin" --pin 3=1@0
+run_pair stm32h743zi stm32h743zi --elf \
+    "$artifact_root/build/stm32h743zi/probe.elf" \
+    "$artifact_root/build/stm32h743zi/probe.bin" --pin 3=1@0
 run_pair stm32f103c8 stm32f103c8 --elf \
     "$artifact_root/build/stm32f103c8/probe.elf" \
     "$artifact_root/build/stm32f103c8/probe.bin" --pin 3=1@0
@@ -327,6 +335,9 @@ scripts/summarize-native-images.py \
     --source corpus/smoke/stm32f411re/start.S \
     --source corpus/smoke/stm32f411re/main.c \
     --source corpus/smoke/stm32f411re/link.ld \
+    --source corpus/smoke/stm32h743zi/start.S \
+    --source corpus/smoke/stm32h743zi/main.c \
+    --source corpus/smoke/stm32h743zi/link.ld \
     --source corpus/smoke/stm32f103c8/start.S \
     --source corpus/smoke/stm32f103c8/main.c \
     --source corpus/smoke/stm32f103c8/link.ld \

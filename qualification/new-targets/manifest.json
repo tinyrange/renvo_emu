@@ -13,6 +13,17 @@
       "rf": "not present"
     },
     {
+      "id": "stm32h743zi",
+      "part": "STM32H743ZIT6",
+      "board": "NUCLEO-H743ZI",
+      "architecture": "cortex-m7-armv7em",
+      "toolchain": "toolchains/arm-gcc-stm32h743zi.toml",
+      "firmware": "corpus/smoke/stm32h743zi",
+      "native_image_formats": ["raw-bin", "intel-hex"],
+      "native_registers": ["RCC", "FLASH", "GPIOA-K", "USART3", "TIM2", "DMA1/2"],
+      "rf": "not present"
+    },
+    {
       "id": "stm32f103c8",
       "part": "STM32F103C8T6",
       "board": "Blue Pill-compatible",
@@ -59,6 +70,7 @@
   ],
   "sources": {
     "stm32f411": "https://www.st.com/resource/en/reference_manual/dm00119316.pdf",
+    "stm32h743": "https://www.st.com/resource/en/reference_manual/rm0433-stm32h743-753-and-stm32h750-value-line-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf",
     "stm32f103": "https://www.st.com/resource/en/reference_manual/cd00171190-stm32f101-103-105-107-stm32f100-series-armbased-32bit-mcus-stmicroelectronics.pdf",
     "nrf52840": "https://docs-be.nordicsemi.com/bundle/nRF52840_PS_v1.9/raw/resource/enus/nRF52840_PS_v1.9.pdf",
     "atsamd51": "https://ww1.microchip.com/downloads/en/DeviceDoc/60001507E.pdf",

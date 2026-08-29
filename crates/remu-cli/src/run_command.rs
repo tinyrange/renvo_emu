@@ -623,6 +623,7 @@ pub(crate) fn run_loaded_recorded(
                     | TargetId::Stm32l432kc
                     | TargetId::Stm32f103c8
                     | TargetId::Stm32f411re
+                    | TargetId::Stm32h743zi
                     | TargetId::Nrf52840
                     | TargetId::R7fa4m1ab3cfm
             ) {

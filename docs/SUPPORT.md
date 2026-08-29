@@ -15,6 +15,7 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
 | STM32F103C8T6 | Cortex-M3 Armv7-M Thumb subset | 64 KiB flash, 20 KiB SRAM | Native F1 RCC/FLASH/AFIO, GPIOA-D, EXTI, TIM2, USART1, NVIC and reset-vector proof |
+| STM32H743ZI | Cortex-M7 Armv7E-M Thumb subset | 2 MiB flash; 64 KiB ITCM, 128 KiB DTCM, 512 KiB AXI SRAM, 288 KiB D2 SRAM, 64 KiB D3 SRAM | Native RCC/FLASH startup surface, GPIOA-K, USART3, TIM2, stream-based DMA1/2, NVIC and reset-vector proof |
 | ATSAMD51J19A | Cortex-M4F Armv7E-M Thumb subset | 512 KiB flash, 192 KiB SRAM | MCLK/OSCCTRL/GCLK/NVMCTRL startup surface, dual-group PORT, SERCOM0, TC0, NVIC and reset-vector proof |
 
 ATmega328PB SPI0 and SPI1 are modeled through their native
@@ -1353,12 +1354,19 @@ electrical bus behavior remain outside this functional slice.
 Native/direct equivalence is continuously checked by
 `scripts/qualify-native-images.sh`. All compiler inputs are built in immutable,
 network-disabled Docker toolchains. The gate compares stop reason, exit code,
-UART/USB output, trace digest, and byte-identical VCD for all 19 target modes.
+UART/USB output, trace digest, and byte-identical VCD for all 20 target modes.
 PIC16 and EFM8 use their direct Intel HEX boundary because their toolchains do
 not emit a runnable ELF; every other mode compares native boot with ELF.
 
-The STM32F103C8T6, STM32F411RE, ATSAMD51J19A, nRF52840, and ESP32-P4 tranche
-adds bounded software-only functional slices. STM32F103C8T6 uses a distinct
+The STM32H743ZI, STM32F103C8T6, STM32F411RE, ATSAMD51J19A, nRF52840, and
+ESP32-P4 tranche adds bounded software-only functional slices. STM32H743ZI
+uses a distinct Cortex-M7 Armv7E-M profile and covers its 2 MiB flash plus
+ITCM, DTCM, AXI, D2, and D3 SRAM windows without overlaying the ITCM with a
+false flash alias. It includes RCC/FLASH startup registers, GPIOA-K, USART3,
+TIM2, and native eight-stream DMA1/DMA2 memory transfers. Cache/MPU behavior,
+double-precision FPU execution, DMAMUX-triggered transfers, peripheral DMA,
+clock-tree timing, and the remaining H7 peripherals are explicitly deferred.
+STM32F103C8T6 uses a distinct
 Cortex-M3 Armv7-M profile and covers reset aliasing, F1-native CRL/CRH GPIO,
 RCC/FLASH/AFIO startup state, EXTI, TIM2, and USART1. STM32F411RE covers
 Cortex-M4F reset-vector execution, flash aliasing, RCC/FLASH/SYSCFG startup

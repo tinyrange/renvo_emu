@@ -308,6 +308,77 @@ fn stm32f411re_maps_flash_alias_gpio_tim2_and_usart2() {
 }
 
 #[test]
+fn stm32h743zi_maps_cortex_m7_memory_gpio_usart_and_stream_dma() {
+    let mut machine = ArmMcuMachine::new(TargetId::Stm32h743zi).unwrap();
+    assert_eq!(machine.cpu.profile(), ArmProfile::CortexM7);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x5802_4400,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x83
+    );
+    machine
+        .bus
+        .write(0x5802_0000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x5802_0018, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.gpio_output(), 1);
+    machine
+        .bus
+        .write(0x4000_4828, AccessWidth::Word, b'H'.into(), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.uart.bytes(), b"H");
+
+    machine
+        .bus
+        .write(0x2400_0000, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4002_0018, AccessWidth::Word, 0x2400_0000, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4002_001c, AccessWidth::Word, 0x2400_0004, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4002_0014, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x4002_0010,
+            AccessWidth::Word,
+            1 | (1 << 4) | (2 << 6) | (2 << 11) | (2 << 13),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(machine.service_stm32_dma().unwrap(), 1);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x2400_0004,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap(),
+        0x1234_5678
+    );
+}
+
+#[test]
 fn stm32f103c8_uses_cortex_m3_and_native_f1_registers() {
     let mut machine = ArmMcuMachine::new(TargetId::Stm32f103c8).unwrap();
     assert_eq!(machine.cpu.profile(), ArmProfile::CortexM3);

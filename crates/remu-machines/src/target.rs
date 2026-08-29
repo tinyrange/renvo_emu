@@ -31,6 +31,8 @@ pub enum TargetId {
     Stm32f103c8,
     /// STMicroelectronics STM32F411RE.
     Stm32f411re,
+    /// STMicroelectronics STM32H743ZI.
+    Stm32h743zi,
     /// Nordic Semiconductor nRF52840.
     Nrf52840,
     /// Renesas R7FA4M1AB3CFM (RA4M1).
@@ -61,6 +63,7 @@ impl TargetId {
             Self::Stm32l432kc => "stm32l432kc",
             Self::Stm32f103c8 => "stm32f103c8",
             Self::Stm32f411re => "stm32f411re",
+            Self::Stm32h743zi => "stm32h743zi",
             Self::Nrf52840 => "nrf52840",
             Self::R7fa4m1ab3cfm => "r7fa4m1ab3cfm",
             Self::Atmega328pb => "atmega328pb",
@@ -94,6 +97,7 @@ impl FromStr for TargetId {
             "stm32l432kc" => Ok(Self::Stm32l432kc),
             "stm32f103c8" | "stm32f103c8t6" | "blue-pill" => Ok(Self::Stm32f103c8),
             "stm32f411re" | "nucleo-f411re" => Ok(Self::Stm32f411re),
+            "stm32h743zi" | "nucleo-h743zi" => Ok(Self::Stm32h743zi),
             "nrf52840" | "nrf52840dk" => Ok(Self::Nrf52840),
             "r7fa4m1ab3cfm" | "ra4m1" | "uno-r4-minima" => Ok(Self::R7fa4m1ab3cfm),
             "atmega328pb" => Ok(Self::Atmega328pb),
@@ -220,6 +224,11 @@ const CORTEX_M33: CpuOption = CpuOption {
 };
 const CORTEX_M4F: CpuOption = CpuOption {
     name: "cortex-m4f-armv7em",
+    architecture: FirmwareArchitecture::Arm,
+    fidelity: Fidelity::Functional,
+};
+const CORTEX_M7: CpuOption = CpuOption {
+    name: "cortex-m7-armv7em",
     architecture: FirmwareArchitecture::Arm,
     fidelity: Fidelity::Functional,
 };
@@ -911,6 +920,82 @@ const MANIFESTS: &[TargetManifest] = &[
     },
     TargetManifest {
         schema: 1,
+        id: TargetId::Stm32h743zi,
+        name: "STMicroelectronics STM32H743ZI",
+        cpus: &[CORTEX_M7],
+        memory: &[
+            MemoryRegion {
+                name: "itcm",
+                start: 0x0000_0000,
+                size: 64 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "flash",
+                start: 0x0800_0000,
+                size: 2 * 1024 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "dtcm",
+                start: 0x2000_0000,
+                size: 128 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "axi-sram",
+                start: 0x2400_0000,
+                size: 512 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "d2-sram",
+                start: 0x3000_0000,
+                size: 288 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "d3-sram",
+                start: 0x3800_0000,
+                size: 64 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 114,
+        fidelity: Fidelity::Functional,
+        support_tiers: NEW_TARGET_SUPPORT_TIERS,
+        baseline: &[
+            "2 MiB flash and ITCM, DTCM, AXI SRAM, D2 SRAM, and D3 SRAM reset-vector execution",
+            "RCC and FLASH startup register state",
+            "GPIOA-K digital input and output",
+            "USART3 transmit and receive",
+            "TIM2 counter and update interrupt",
+            "DMA1 and DMA2 memory-to-memory stream transfers",
+            "Cortex-M7 NVIC and SysTick",
+            "compiler-test exit convention",
+            "external digital pin stimulus",
+            "VCD output",
+        ],
+        sources: &[
+            "https://www.st.com/en/microcontrollers-microprocessors/stm32h743zi.html",
+            "https://www.st.com/resource/en/reference_manual/rm0433-stm32h743-753-and-stm32h750-value-line-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf",
+            "https://www.st.com/resource/en/datasheet/stm32h743zi.pdf",
+            "https://github.com/STMicroelectronics/cmsis-device-h7/blob/master/Include/stm32h743xx.h",
+        ],
+        limitations: &[
+            "the Cortex-M7 profile covers the compiler-facing Armv7E-M subset; caches, MPU, TCM arbitration, double-precision FPU operations, debug/trace, priority preemption, and cycle timing are deferred",
+            "clock-domain timing, GPIO alternate-function routing, DMAMUX request routing, DMA arbitration, and peripheral-triggered DMA are functional or deferred",
+            "ADC, DAC, SPI, I2C, FDCAN, Ethernet, USB, SDMMC, camera, graphics, cryptography, watchdogs, low-power behavior, and flash program/erase are outside the initial slice",
+        ],
+    },
+    TargetManifest {
+        schema: 1,
         id: TargetId::Nrf52840,
         name: "Nordic Semiconductor nRF52840",
         cpus: &[CORTEX_M4F],
@@ -1220,8 +1305,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn portfolio_has_eighteen_unique_targets_with_primary_sources() {
-        assert_eq!(target_manifests().len(), 18);
+    fn portfolio_has_nineteen_unique_targets_with_primary_sources() {
+        assert_eq!(target_manifests().len(), 19);
         for (index, manifest) in target_manifests().iter().enumerate() {
             assert!(!manifest.sources.is_empty());
             assert!(
@@ -1354,6 +1439,10 @@ mod tests {
         assert_eq!(
             "nucleo-f411re".parse::<TargetId>().unwrap(),
             TargetId::Stm32f411re
+        );
+        assert_eq!(
+            "nucleo-h743zi".parse::<TargetId>().unwrap(),
+            TargetId::Stm32h743zi
         );
         assert_eq!(
             "nrf52840dk".parse::<TargetId>().unwrap(),

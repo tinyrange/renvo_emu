@@ -8,6 +8,7 @@ pub(super) const fn cpu_profile(target: TargetId) -> Option<(ArmProfile, u32)> {
         | TargetId::Stm32f411re
         | TargetId::Nrf52840
         | TargetId::R7fa4m1ab3cfm => Some((ArmProfile::CortexM4F, 0x410f_c241)),
+        TargetId::Stm32h743zi => Some((ArmProfile::CortexM7, 0x411f_c271)),
         TargetId::Stm32f103c8 => Some((ArmProfile::CortexM3, 0x411f_c231)),
         _ => None,
     }
@@ -41,6 +42,11 @@ pub(super) const fn signal_paths(
             "board.stm32f411re.tim2.irq",
             "board.stm32f411re.usart2",
             "board.stm32f411re.interrupt.request",
+        )),
+        TargetId::Stm32h743zi => Some((
+            "board.stm32h743zi.tim2.irq",
+            "board.stm32h743zi.usart3",
+            "board.stm32h743zi.interrupt.request",
         )),
         TargetId::Nrf52840 => Some((
             "board.nrf52840.timer0.irq",

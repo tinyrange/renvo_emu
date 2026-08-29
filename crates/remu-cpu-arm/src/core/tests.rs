@@ -6,6 +6,13 @@ fn cortex_m3_profile_is_distinct_from_m4f() {
     assert_eq!(cpu.profile(), ArmProfile::CortexM3);
     assert_eq!(cpu.profile().name(), "cortex-m3-armv7m");
 }
+
+#[test]
+fn cortex_m7_has_a_stable_distinct_profile_name() {
+    let cpu = ArmCpu::new(ArmProfile::CortexM7);
+    assert_eq!(cpu.profile(), ArmProfile::CortexM7);
+    assert_eq!(cpu.profile().name(), "cortex-m7-armv7em");
+}
 use remu_bus::AddressSpace;
 
 #[test]

@@ -1,0 +1,16 @@
+name = "gcc-13-stm32h743zi"
+image = "sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736"
+local_image = "remu/cross-gcc:local"
+program = "arm-none-eabi-gcc"
+args = [
+    "-mcpu=cortex-m7",
+    "-mthumb",
+    "-DSTM32H743xx",
+    "-ffreestanding",
+    "-nostdlib",
+    "-Wl,--build-id=none,--discard-all",
+]
+
+[environment]
+LC_ALL = "C"
+SOURCE_DATE_EPOCH = "0"

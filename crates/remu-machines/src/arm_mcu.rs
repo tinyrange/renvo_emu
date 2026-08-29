@@ -24,10 +24,10 @@ use remu_devices::{
     Stm32AdvancedTimerHandle, Stm32BasicTimer, Stm32BasicTimerHandle, Stm32Can,
     Stm32ComparatorHandle, Stm32Comparators, Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Dma,
     Stm32DmaHandle, Stm32Exti, Stm32ExtiHandle, Stm32F1Gpio, Stm32F1Usart, Stm32F1UsartHandle,
-    Stm32FlashController, Stm32FlashMemory, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Lptim1,
-    Stm32Lptim1Handle, Stm32Lptim2, Stm32Lptim2Handle, Stm32Opamp, Stm32OpampHandle, Stm32QuadSpi,
-    Stm32QuadSpiHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc, Stm32RtcHandle, Stm32Sai1,
-    Stm32Sai1Handle, Stm32Spi, Stm32SpiHandle, Stm32Swpmi, Stm32SwpmiHandle, Stm32Tim7,
+    Stm32FlashController, Stm32FlashMemory, Stm32Gpio, Stm32H7DmaHandle, Stm32I2c, Stm32I2cHandle,
+    Stm32Lptim1, Stm32Lptim1Handle, Stm32Lptim2, Stm32Lptim2Handle, Stm32Opamp, Stm32OpampHandle,
+    Stm32QuadSpi, Stm32QuadSpiHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc, Stm32RtcHandle,
+    Stm32Sai1, Stm32Sai1Handle, Stm32Spi, Stm32SpiHandle, Stm32Swpmi, Stm32SwpmiHandle, Stm32Tim7,
     Stm32Tim7Handle, Stm32Tim15, Stm32Tim15Handle, Stm32Tim16, Stm32Tim16Handle, Stm32Timer,
     Stm32TimerHandle, Stm32Tsc, Stm32TscHandle, Stm32Usart, Stm32UsartHandle, Stm32UsbFs,
     Stm32UsbFsHandle, Stm32UsbPma, Stm32Watchdog, Stm32WatchdogHandle, Stm32Wwdg, Stm32WwdgHandle,
@@ -90,6 +90,8 @@ pub struct ArmMcuMachine {
     swpmi: Option<Stm32SwpmiHandle>,
     dma1: Option<Stm32DmaHandle>,
     dma2: Option<Stm32DmaHandle>,
+    stm32h7_dma1: Option<Stm32H7DmaHandle>,
+    stm32h7_dma2: Option<Stm32H7DmaHandle>,
     tsc: Option<Stm32TscHandle>,
     comparators: Option<Stm32ComparatorHandle>,
     opamp: Option<Stm32OpampHandle>,
@@ -271,6 +273,8 @@ impl ArmMcuMachine {
         let mut swpmi = None;
         let mut dma1 = None;
         let mut dma2 = None;
+        let mut stm32h7_dma1 = None;
+        let mut stm32h7_dma2 = None;
         let mut tsc = None;
         let mut comparators = None;
         let mut opamp = None;
@@ -590,6 +594,30 @@ impl ArmMcuMachine {
                     Vec::new(),
                 )
             }
+            TargetId::Stm32h743zi => {
+                let (gpio, usart3, timer, dma1_handle, dma2_handle) =
+                    Self::create_stm32h743(&mut bus, &signals)?;
+                stm32h7_dma1 = Some(dma1_handle);
+                stm32h7_dma2 = Some(dma2_handle);
+                (
+                    gpio,
+                    VendorUart::Stm32(vec![(usart3, 39)]),
+                    VendorTimer::Stm32(timer),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Vec::new(),
+                )
+            }
             TargetId::Nrf52840 => {
                 let (gpio, uart, timer) = Self::create_nrf52840(&mut bus, &signals)?;
                 (
@@ -681,6 +709,8 @@ impl ArmMcuMachine {
             swpmi,
             dma1,
             dma2,
+            stm32h7_dma1,
+            stm32h7_dma2,
             tsc,
             comparators,
             opamp,
@@ -744,7 +774,15 @@ impl ArmMcuMachine {
                     < region.start + u64::try_from(region.size).expect("memory size fits u64")
         });
         if ram_contains_stack && reset & 1 != 0 && executable_reset {
-            self.cpu.reset(ResetKind::PowerOn, &mut self.bus)?;
+            if flash_base == 0 {
+                self.cpu.reset(ResetKind::PowerOn, &mut self.bus)?;
+            } else {
+                self.cpu.set_direct_state(stack, reset)?;
+                self.cpu.set_vector_base(
+                    u32::try_from(flash_base)
+                        .map_err(|_| ArmMachineError::EntryRange(flash_base))?,
+                );
+            }
         } else {
             let entry =
                 u32::try_from(image.entry).map_err(|_| ArmMachineError::EntryRange(image.entry))?;
@@ -994,6 +1032,12 @@ impl ArmMcuMachine {
             serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
         }
         if let Some(dma) = &self.dma2 {
+            serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
+        }
+        if let Some(dma) = &self.stm32h7_dma1 {
+            serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
+        }
+        if let Some(dma) = &self.stm32h7_dma2 {
             serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
         }
         Ok(serviced)
@@ -1285,6 +1329,21 @@ impl ArmMcuMachine {
                     }
                 }
             }
+            const H7_DMA1_IRQS: [u16; 8] = [11, 12, 13, 14, 15, 16, 17, 47];
+            const H7_DMA2_IRQS: [u16; 8] = [56, 57, 58, 59, 60, 68, 69, 70];
+            for (dma, lines) in [
+                (&self.stm32h7_dma1, &H7_DMA1_IRQS),
+                (&self.stm32h7_dma2, &H7_DMA2_IRQS),
+            ] {
+                if let Some(dma) = dma {
+                    for (index, line) in lines.iter().copied().enumerate() {
+                        let pending = dma.stream_pending(index);
+                        dma_pending |= pending;
+                        self.cpu
+                            .set_interrupt(line, pending && self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+            }
             interrupt_requested |= dma_pending;
             for (line, i2c) in &self.stm32_i2c {
                 let pending = i2c.interrupt_pending();
@@ -1311,7 +1370,7 @@ impl ArmMcuMachine {
                         uart_pending && self.ppb.interrupt_enabled(uart_line),
                     )?;
                 }
-                TargetId::Stm32l432kc => {
+                TargetId::Stm32l432kc | TargetId::Stm32h743zi => {
                     let VendorUart::Stm32(handles) = &self.uart else {
                         unreachable!("STM32 target always has STM32 USART handles")
                     };
@@ -1469,6 +1528,9 @@ mod maps;
 
 #[path = "arm_mcu_new_targets.rs"]
 mod new_targets;
+
+#[path = "arm_mcu_stm32h7.rs"]
+mod stm32h7;
 
 #[path = "arm_mcu_ra.rs"]
 mod ra_support;

@@ -277,6 +277,8 @@ mod stm32_swpmi;
 pub use stm32_swpmi::*;
 mod stm32_dma;
 pub use stm32_dma::*;
+mod stm32h7_dma;
+pub use stm32h7_dma::*;
 mod stm32_tsc;
 pub use stm32_tsc::*;
 mod stm32_analog;

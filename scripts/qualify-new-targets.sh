@@ -45,6 +45,21 @@ build_arm_m3()
         -Wl,-T,link.ld,-Map,/workspace/out/smoke.map -o /workspace/out/smoke.elf
 }
 
+build_arm_m7()
+{
+    target=$1
+    toolchain=$2
+    mkdir -p "$artifact_root/$target-build"
+    "$remu" corpus build \
+        --toolchain "$toolchain" \
+        --source "corpus/smoke/$target" \
+        --output "$artifact_root/$target-build" \
+        --target "$target" \
+        --artifact "$artifact_root/$target-build.json" \
+        -- -O2 -mfpu=fpv5-d16 -mfloat-abi=hard start.S main.c \
+        -Wl,-T,link.ld,-Map,/workspace/out/smoke.map -o /workspace/out/smoke.elf
+}
+
 run_twice()
 {
     target=$1
@@ -72,6 +87,9 @@ run_twice()
 
 build_arm stm32f411re toolchains/arm-gcc-stm32f411re.toml
 run_twice stm32f411re 20000 '[83,84,77,51,50,70,52,49,49,10]'
+
+build_arm_m7 stm32h743zi toolchains/arm-gcc-stm32h743zi.toml
+run_twice stm32h743zi 20000 '[83,84,77,51,50,72,55,52,51,10]'
 
 build_arm_m3 stm32f103c8 toolchains/arm-gcc-stm32f103c8.toml
 run_twice stm32f103c8 20000 '[83,84,77,51,50,70,49,48,51,10]'
@@ -104,18 +122,23 @@ scripts/summarize-new-targets.py \
     --source crates/remu-cpu-arm/src/core.rs \
     --source crates/remu-cpu-riscv/src/core.rs \
     --source crates/remu-devices/src/stm32f1.rs \
+    --source crates/remu-devices/src/stm32h7_dma.rs \
     --source crates/remu-devices/src/samd51.rs \
     --source crates/remu-devices/src/nrf52840.rs \
     --source crates/remu-devices/src/esp.rs \
     --source crates/remu-machines/src/arm_mcu_maps.rs \
     --source crates/remu-machines/src/arm_mcu.rs \
     --source crates/remu-machines/src/arm_mcu_new_targets.rs \
+    --source crates/remu-machines/src/arm_mcu_stm32h7.rs \
     --source crates/remu-machines/src/arm_mcu_support.rs \
     --source crates/remu-machines/src/arm_mcu_tests.rs \
     --source crates/remu-machines/src/riscv.rs \
     --source corpus/smoke/stm32f411re/start.S \
     --source corpus/smoke/stm32f411re/main.c \
     --source corpus/smoke/stm32f411re/link.ld \
+    --source corpus/smoke/stm32h743zi/start.S \
+    --source corpus/smoke/stm32h743zi/main.c \
+    --source corpus/smoke/stm32h743zi/link.ld \
     --source corpus/smoke/stm32f103c8/start.S \
     --source corpus/smoke/stm32f103c8/main.c \
     --source corpus/smoke/stm32f103c8/link.ld \

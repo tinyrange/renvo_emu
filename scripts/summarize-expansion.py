@@ -338,8 +338,8 @@ def main() -> None:
     if (
         native_images.get("schema") != "remu.native-image-equivalence.v1"
         or native_images.get("result") != "pass"
-        or native_images.get("case_count") != 19
-        or native_images.get("physical_target_count") != 18
+        or native_images.get("case_count") != 20
+        or native_images.get("physical_target_count") != 19
     ):
         raise ValueError("native-image equivalence evidence is incomplete")
 

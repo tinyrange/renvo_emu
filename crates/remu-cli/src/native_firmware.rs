@@ -114,6 +114,7 @@ fn byte_addressed_image(
         | TargetId::Stm32l432kc
         | TargetId::Stm32f103c8
         | TargetId::Stm32f411re
+        | TargetId::Stm32h743zi
         | TargetId::Nrf52840
         | TargetId::R7fa4m1ab3cfm => FirmwareArchitecture::Arm,
         TargetId::Atmega328pb => FirmwareArchitecture::Avr8,
@@ -199,6 +200,7 @@ mod tests {
             (TargetId::Stm32l432kc, 0x0800_0000),
             (TargetId::Stm32f103c8, 0x0800_0000),
             (TargetId::Stm32f411re, 0x0800_0000),
+            (TargetId::Stm32h743zi, 0x0800_0000),
             (TargetId::Nrf52840, 0),
             (TargetId::Esp32p4, 0x4000_0000),
             (TargetId::R7fa4m1ab3cfm, 0),
