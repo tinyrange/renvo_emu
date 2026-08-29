@@ -10,6 +10,7 @@ mod arm;
 mod arm_mcu;
 mod avr_mcu;
 mod board;
+mod board_gpio;
 mod m5sticks3;
 mod m5sticks3_firmware;
 mod mcs51_mcu;
