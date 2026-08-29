@@ -13,6 +13,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  benchmark-harness:
+    name: Benchmark measurement harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Exercise host metrics and artifact accounting
+        run: ./scripts/test-benchmark-command.sh
+
+      - name: Exercise noise-tolerant budget comparisons
+        run: ./scripts/test-benchmark-budgets.sh
+
+      - name: Validate benchmark budget policy
+        run: python3 -m json.tool qualification/benchmarks/budgets.json >/dev/null
+
   oracle-fixtures:
     name: Replay oracle fixtures
     runs-on: ubuntu-latest

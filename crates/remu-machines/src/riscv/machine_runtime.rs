@@ -76,6 +76,11 @@ impl RiscVMachine {
         self.bus.add_watchpoint(address);
     }
 
+    /// Returns the machine's shared signal hub for board endpoint attachment.
+    pub fn signal_hub(&self) -> SignalHub {
+        self.signals.clone()
+    }
+
     /// Stops after the next completed write overlapping `address`.
     pub fn add_write_watchpoint(&mut self, address: u64) {
         self.bus.add_write_watchpoint(address);

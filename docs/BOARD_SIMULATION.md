@@ -98,7 +98,38 @@ execute firmware drivers against its assembled non-radio peripherals. The
 models are functional and deterministic, not cycle-accurate electrical,
 analogue, acoustic or optical simulations.
 
-Machine models now expose the same boundary through the typed
+The Rust `BoardGpioEndpoint` adds a typed machine boundary for GPIO. A scheduler
+can attach mounted buttons and LEDs to an existing machine `SignalHub`, turn
+button actions into `PinStimulus` values, and poll resolved MCU GPIO levels into
+`board.<name>.component.<component>.pin/state` signals. It deliberately rejects
+external protocol connections and WS2812 waveform mounts until their typed bus
+endpoints are implemented. This GPIO slice does not claim that ESP32-C6
+firmware drivers communicate with the NanoC6 SGP30; that requires the separate
+I2C endpoint.
+
+The endpoint keeps all CPU, scheduler, peripheral, and electrical state in
+Starlark continues to describe topology and bounded actions only.
+
+Each mounted GPIO component must claim a unique primary MCU pin. Attaching two
+components to the same pin fails with an explicit `GpioPinConflict` error rather
+than silently creating an electrical contention that this first endpoint slice
+cannot resolve.
+
+A direct machine run uses the shared hub and polls the endpoint at the same
+deterministic boundaries as execution:
+
+```rust
+let endpoint = BoardGpioEndpoint::new(
+    &scenario,
+    machine.signal_hub(),
+    "board.esp32c6.chip_gpio",
+)?;
+let stimuli = endpoint.button_stimuli(&scenario.actions)?;
+let result = machine.run_with_stimuli(limits, &stimuli, None)?;
+endpoint.poll(result.stats.time)?;
+```
+
+Machine models also expose serial transport through the typed
 `UartEndpointProvider` API. A runner can discover the `Compiler` capture UART
 and the target's `Native` UART, then pass the selected `UartHandle` to a board
 transport. Endpoint roles are named rather than address- or index-based, and

@@ -1,5 +1,7 @@
 //! Declarative board topology and deterministic board-component simulation.
 
+pub use crate::board_gpio::BoardGpioEndpoint;
+
 use remu_core::SimTime;
 use remu_devices::{
     BMI270_ADDRESS, Bmi270, Bmi270Error, Bmi270Snapshot, DigitalLed, ES8311_ADDRESS, Es8311,
@@ -465,6 +467,27 @@ pub enum BoardError {
     /// Signal registration or update failed.
     #[error(transparent)]
     Signal(#[from] SignalError),
+    /// A board component is not part of the first live GPIO endpoint slice.
+    #[error("live GPIO endpoint does not support {kind} component {component:?}")]
+    GpioComponent {
+        /// Component name.
+        component: String,
+        /// Component kind.
+        kind: &'static str,
+    },
+    /// A GPIO action references a component that is not a mounted button.
+    #[error("GPIO endpoint action references unknown button {0:?}")]
+    GpioButton(String),
+    /// Two mounted GPIO components claim the same machine pin.
+    #[error("GPIO endpoint pin {pin} is claimed by both components {first:?} and {second:?}")]
+    GpioPinConflict {
+        /// Contended machine GPIO number.
+        pin: u8,
+        /// First component that claimed the pin.
+        first: String,
+        /// Later component that claimed the pin.
+        second: String,
+    },
     /// Trace output failed.
     #[error(transparent)]
     Trace(#[from] TraceError),
@@ -954,7 +977,7 @@ pub fn run_board_scenario(
     })
 }
 
-fn validate(scenario: &BoardScenario) -> Result<(), BoardError> {
+pub(crate) fn validate(scenario: &BoardScenario) -> Result<(), BoardError> {
     if scenario.name.is_empty() || scenario.target.is_empty() {
         return Err(BoardError::Identity);
     }
@@ -1387,78 +1410,4 @@ fn emit_i2c(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn scenario() -> BoardScenario {
-        BoardScenario {
-            name: "nanoc6".to_owned(),
-            target: "esp32c6".to_owned(),
-            connectors: vec![BoardConnector {
-                name: "grove".to_owned(),
-                protocol: ConnectorProtocol::I2c,
-                data_pin: 2,
-                clock_pin: 1,
-                voltage_mv: 5_000,
-            }],
-            mounts: vec![BoardMount {
-                component: BoardComponent {
-                    name: "rgb".to_owned(),
-                    kind: BoardComponentKind::Ws2812 { count: 1 },
-                },
-                pin: 20,
-                enable_pin: Some(19),
-            }],
-            connections: vec![BoardConnection {
-                connector: "grove".to_owned(),
-                component: BoardComponent {
-                    name: "air".to_owned(),
-                    kind: BoardComponentKind::Sgp30 { eco2: 420, tvoc: 8 },
-                },
-            }],
-            actions: vec![
-                BoardAction::I2cTransfer {
-                    connector: "grove".to_owned(),
-                    address: SGP30_ADDRESS,
-                    write: vec![0x20, 0x03],
-                    read_len: 0,
-                    at: 0,
-                },
-                BoardAction::SetAirQuality {
-                    component: "air".to_owned(),
-                    eco2: 900,
-                    tvoc: 77,
-                    at: Sgp30::WARMUP_TICKS,
-                },
-                BoardAction::I2cTransfer {
-                    connector: "grove".to_owned(),
-                    address: SGP30_ADDRESS,
-                    write: vec![0x20, 0x08],
-                    read_len: 6,
-                    at: Sgp30::WARMUP_TICKS + 1_000_000,
-                },
-                BoardAction::Ws2812Frame {
-                    component: "rgb".to_owned(),
-                    colors: vec![0xff_00_00],
-                    at: Sgp30::WARMUP_TICKS + 2_000_000,
-                },
-            ],
-            duration: Sgp30::WARMUP_TICKS + 3_000_000,
-        }
-    }
-
-    #[test]
-    fn executes_connected_sensor_and_ws2812() {
-        let result = run_board_scenario(&scenario(), None).unwrap();
-        assert_eq!(result.result, "pass");
-        assert!(result.events.iter().any(|event| matches!(
-            event,
-            BoardEvent::I2c { read, .. } if read.len() == 6
-        )));
-        assert!(result.components.iter().any(|component| matches!(
-            component,
-            BoardComponentSnapshot::Ws2812 { pixels, .. }
-                if pixels.first().is_some_and(|pixel| pixel.red == 255)
-        )));
-    }
-}
+mod tests;

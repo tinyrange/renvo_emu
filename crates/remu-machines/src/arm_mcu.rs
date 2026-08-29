@@ -775,6 +775,11 @@ impl ArmMcuMachine {
         self.bus.add_watchpoint(address);
     }
 
+    /// Returns the machine's shared signal hub for board endpoint attachment.
+    pub fn signal_hub(&self) -> SignalHub {
+        self.signals.clone()
+    }
+
     /// Stops when a named signal satisfies an edge condition.
     pub fn add_signal_stop(&mut self, path: &str, edge: SignalEdge) -> Result<(), ArmMachineError> {
         self.signal_stops
