@@ -16,16 +16,16 @@ use remu_devices::{
     FunctionalUart, GpioHandle, RA4M1_EVENT_AGT0_INT, RA4M1_EVENT_AGT1_INT,
     RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_GPT1_OVERFLOW, RA4M1_EVENT_GPT2_OVERFLOW,
     RA4M1_EVENT_GPT3_OVERFLOW, RA4M1_EVENT_GPT4_OVERFLOW, RA4M1_EVENT_GPT5_OVERFLOW,
-    RA4M1_EVENT_GPT6_OVERFLOW, RA4M1_EVENT_GPT7_OVERFLOW, RA4M1_EVENT_RTC_ALARM,
+    RA4M1_EVENT_GPT6_OVERFLOW, RA4M1_EVENT_GPT7_OVERFLOW, RA4M1_EVENT_KINT, RA4M1_EVENT_RTC_ALARM,
     RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle, RaCac, RaCacHandle, RaCrc, RaCrcHandle, RaDac,
     RaDacHandle, RaDoc, RaDocHandle, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIic, RaIoPort,
-    RaPfs, RaPoeg, RaPoegHandle, RaRtc, RaRtcHandle, RaSci, RaSciHandle, RaSpi, RegisterBank,
-    Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
-    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
-    Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
-    Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, TimerHandle, UartHandle,
+    RaKint, RaKintHandle, RaPfs, RaPoeg, RaPoegHandle, RaRtc, RaRtcHandle, RaSci, RaSciHandle,
+    RaSpi, RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac,
+    Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys,
+    Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle,
+    Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle,
+    Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
+    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -99,6 +99,7 @@ pub struct ArmMcuMachine {
     ra_icu: Option<RaIcuHandle>,
     ra_agt: Vec<(u16, RaAgtHandle)>,
     ra_gpt: Vec<(u16, RaGptHandle)>,
+    ra_kint: Option<RaKintHandle>,
     ra_rtc: Option<RaRtcHandle>,
     ra_dac: Option<RaDacHandle>,
     ra_crc: Option<RaCrcHandle>,
@@ -282,6 +283,7 @@ impl ArmMcuMachine {
             ra_icu,
             ra_agt,
             ra_gpt,
+            ra_kint,
             ra_rtc,
             ra_dac,
             ra_crc,
@@ -376,6 +378,7 @@ impl ArmMcuMachine {
                     None,
                     Vec::new(),
                     Vec::new(),
+                    None,
                     None,
                     None,
                     None,
@@ -494,6 +497,7 @@ impl ArmMcuMachine {
                 let (doc_device, doc) = RaDoc::new("r7fa4m1ab3cfm.doc");
                 let (cac_device, cac) = RaCac::new("r7fa4m1ab3cfm.cac");
                 let (poeg_device, poeg) = RaPoeg::new("r7fa4m1ab3cfm.poeg");
+                let (kint_device, kint) = RaKint::new("r7fa4m1ab3cfm.kint");
                 Self::map_ra4m1(
                     &mut bus,
                     ports,
@@ -501,6 +505,7 @@ impl ArmMcuMachine {
                     icu_device,
                     gpt0_device,
                     gpt_devices,
+                    kint_device,
                     sci9_device,
                     agt0_device,
                     agt1_device,
@@ -532,6 +537,7 @@ impl ArmMcuMachine {
                     Some(icu),
                     vec![(RA4M1_EVENT_AGT0_INT, agt0), (RA4M1_EVENT_AGT1_INT, agt1)],
                     gpt_handles,
+                    Some(kint),
                     Some(rtc),
                     Some(dac),
                     Some(crc),
@@ -567,6 +573,7 @@ impl ArmMcuMachine {
             ra_icu,
             ra_agt,
             ra_gpt,
+            ra_kint,
             ra_rtc,
             ra_dac,
             ra_crc,
@@ -765,6 +772,7 @@ impl ArmMcuMachine {
         icu: RaIcu,
         gpt0: RaGpt,
         gpt: Vec<RaGpt>,
+        kint: RaKint,
         sci9: RaSci,
         agt0: RaAgt,
         agt1: RaAgt,
@@ -807,6 +815,7 @@ impl ArmMcuMachine {
                 Box::new(device),
             )?;
         }
+        bus.map_device("r7fa4m1ab3cfm.kint", 0x4008_0000, 0x10, Box::new(kint))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.agt0", 0x4008_4000, 0x100, Box::new(agt0))?;
         bus.map_device("r7fa4m1ab3cfm.agt1", 0x4008_4100, 0x100, Box::new(agt1))?;
@@ -1126,7 +1135,15 @@ impl ArmMcuMachine {
                 .as_ref()
                 .is_some_and(|kint| kint.poll(kint_inputs));
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending;
+            let mut interrupt_requested = timer_pending || kint_pending;
+            if kint_pending {
+                if let Some(icu) = &self.ra_icu {
+                    for line in icu.route_event(RA4M1_EVENT_KINT) {
+                        self.cpu
+                            .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+            }
             let rtc_pending = self.ra_rtc.as_ref().is_some_and(|rtc| rtc.poll(self.now));
             if rtc_pending {
                 interrupt_requested = true;
@@ -1366,7 +1383,6 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remu_devices::RaKintRegister;
     use remu_image::FirmwareSegment;
 
     #[test]

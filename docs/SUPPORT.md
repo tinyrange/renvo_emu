@@ -51,6 +51,12 @@ GPT0--2 use their native 32-bit counters, while GPT3--7 enforce their native
 the ICU. Compare/capture waveform generation, dead-time insertion, and exact
 PCLK timing remain outside this functional timer slice.
 
+RA4M1 KINT is mapped at `0x40080000` and samples KR00--KR07 from P100--P107.
+`KRCTL` selects rising/high or falling/low behavior and edge latching, `KRM`
+selects enabled inputs, and zero writes to `KRF` clear latched flags. The
+KEY_INTKR ELC event (`0x045`) routes through the ICU, with a dedicated trace
+signal exposing its request level.
+
 The R7FA4M1AB3CFM model includes the RA4M1 RTC at `0x40044000`. Its
 functional calendar slice implements the BCD counters, the 16-bit `RYRCNT`
 layout (with a 2000--2099 calendar epoch), the six calendar alarms plus the

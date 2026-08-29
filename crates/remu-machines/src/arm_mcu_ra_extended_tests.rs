@@ -132,3 +132,36 @@ fn maps_all_ra4m1_gpt_channels_with_native_counter_widths() {
         [0x065, 0x06d, 0x075, 0x07d, 0x085, 0x08d, 0x095]
     );
 }
+
+#[test]
+fn maps_ra4m1_kint_and_routes_selected_pin_through_icu() {
+    let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+    machine
+        .bus
+        .write(0x4008_0000, AccessWidth::Byte, 0x81, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4008_0008, AccessWidth::Byte, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            0x4000_6324,
+            AccessWidth::Word,
+            u64::from(RA4M1_EVENT_KINT),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    let kint = machine.ra_kint.as_ref().unwrap();
+    assert!(!kint.poll(0));
+    assert!(kint.poll(1));
+    assert_eq!(
+        machine
+            .ra_icu
+            .as_ref()
+            .unwrap()
+            .route_event(RA4M1_EVENT_KINT),
+        vec![9]
+    );
+}

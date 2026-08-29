@@ -239,6 +239,8 @@ mod ra_dac12;
 pub use ra_dac12::*;
 mod ra_doc;
 pub use ra_doc::*;
+mod ra_kint;
+pub use ra_kint::*;
 mod ra_poeg;
 pub use ra_poeg::*;
 mod ra_rtc;
