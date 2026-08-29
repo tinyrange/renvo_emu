@@ -205,6 +205,44 @@ up-counting, UIF/CC1IF latching and clearing, the native
 output. Break/dead-time, repetition, DMA, and physical APB timing are not
 claimed.
 
+### STM32L432KC extended data paths
+
+The USB full-speed device core at `0x40006800` and packet memory at
+`0x40006c00` cover native control/endpoint registers, PMA descriptors and
+data, deterministic host reset/OUT injection and IN extraction, IRQ 67, and
+trace-visible request activity. This is a register/PMA model, not a USB PHY or
+complete enumeration and class-policy implementation.
+
+SAI1 at `0x40015400` covers both blocks' framing and slot registers,
+enable/flush controls, transmit/receive sample FIFOs, deterministic host
+sample injection, captured output, IRQ 74, and sample/strobe traces. Exact
+audio clock generation, DMA pacing, codec synchronization, and physical
+serial timing are outside the model.
+
+QUADSPI at `0xa0001000` fronts a 16 MiB read-only mapped external NOR window
+at `0x90000000`. It supports host image loading, indirect reads, one-to-zero
+NOR programming, transfer/status flags, IRQ 71, and memory-mapped reads.
+Dual-flash behavior and wire timing are not modeled. SWPMI1 at `0x40008800`
+supports activation, frame length and status, deterministic host receive
+injection, captured transmit words, loopback, error/status clearing, IRQ 76,
+and trace visibility without claiming single-wire electrical timing.
+
+DMA1 and DMA2 at `0x40020000` and `0x40020400` each expose seven channels and
+CSELR. The functional engine performs byte, halfword, and word transfers with
+direction, increment, circular, and memory-to-memory controls, and provides
+half/complete/error flags plus native per-channel IRQ routes. Transfer service
+is deterministic; arbitration, contention, and cycle-accurate peripheral
+request handshakes are not claimed.
+
+TSC at `0x40024000` maps acquisition controls, I/O selection, host-supplied
+group counts, completion/max-count flags, and IRQ 77. COMP1/2 at `0x40010200`
+map configuration, polarity/output and lock state over deterministic host
+input codes; output changes use IRQ 64. OPAMP1 at `0x40007800` maps
+configuration, gain, trimming storage, and a deterministic digital output
+code. These mixed-signal blocks reproduce software-visible decisions and
+state, not capacitance, voltage, noise, propagation delay, settling,
+calibration, or package-level analog routing.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw

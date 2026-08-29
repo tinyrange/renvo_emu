@@ -619,8 +619,11 @@ const MANIFESTS: &[TargetManifest] = &[
         support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
             "GPIO/EXTI",
-            "TIM2 interrupt",
-            "USART1/USART2/LPUART1",
+            "general, basic, advanced, and low-power timers",
+            "USART, SPI, I2C, CAN, and SWPMI transactions",
+            "watchdogs, ADC, CRC, RTC, RNG, and DAC",
+            "USB FS/PMA, SAI1, QUADSPI, and DMA",
+            "TSC, comparators, and op-amp software-visible state",
             "VCD",
         ],
         sources: &[
@@ -628,7 +631,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.st.com/resource/en/reference_manual/rm0394-stm32l41xxx42xxx43xxx44xxx45xxx46xxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf",
         ],
         limitations: &[
-            "DMA, receive framing, alternate-function routing, analog, USB, low-power fidelity, and exact clocks are deferred",
+            "alternate-function pin routing, physical bus/USB/audio protocols, electrical and analog behavior, DMA arbitration/request timing, low-power fidelity, and exact clocks are deferred",
         ],
     },
     TargetManifest {
