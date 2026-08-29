@@ -210,9 +210,11 @@ pub(super) fn map_esp32c6_peripherals(
     )?;
 
     let (uart0, uart0_handle) = FunctionalUart::new_lenient("esp32c6.uart0", 0x00, 0x1c, 0);
+    let uart0 = uart0.with_rx_count_field(0x3ff, 0);
     bus.map_device("esp32c6.uart0", 0x6000_0000, 0x1000, Box::new(uart0))?;
     chip_uarts.push(uart0_handle.clone());
     let (uart1, uart1_handle) = FunctionalUart::new_lenient("esp32c6.uart1", 0x00, 0x1c, 0);
+    let uart1 = uart1.with_rx_count_field(0x3ff, 0);
     bus.map_device("esp32c6.uart1", 0x6000_1000, 0x1000, Box::new(uart1))?;
     chip_uarts.push(uart1_handle.clone());
 

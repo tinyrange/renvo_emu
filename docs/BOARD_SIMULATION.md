@@ -20,6 +20,26 @@ The initial reusable models are:
   deterministic accelerometer, gyroscope and temperature samples; and
 - ES8311 audio codecs with the control and power sequences used by M5Unified.
 
+Machine-facing UART connectors can use `BoardUartEndpoint` with a target's
+`UartHandle`. The endpoint queues host RX bytes, polls newly transmitted guest
+bytes, and exposes byte/strobe signals for VCD and protocol assertions:
+
+```rust,no_run
+let mut uart = BoardUartEndpoint::new("teaching", &console, uart_handle, hub)?;
+uart.host_write(b"ping\\n", SimTime::from_ticks(10))?;
+let tx = uart.poll_tx(SimTime::from_ticks(20))?;
+```
+
+This endpoint is deliberately transport-oriented. It does not invent baud
+rate timing or a UART electrical model; the target's existing functional UART
+device remains responsible for register semantics. Host writes and TX polls
+must use nondecreasing simulation timestamps, so the byte/strobe trace cannot
+silently move backwards in time. UART connectors with aliased TX/RX pins are
+rejected during endpoint construction. Queued host bytes clear the PL011
+receive-empty flag on RP2040/RP2350 and update the native receive-FIFO count on
+ESP32-S3/ESP32-C6, so firmware can poll before reading instead of relying on an
+unconditional data-register access.
+
 The M5Stack NanoC6 definition is
 [`boards/m5stack_nanoc6.star`](../boards/m5stack_nanoc6.star). It contains the
 published board topology: button GPIO9, blue LED GPIO7, WS2812 GPIO20 with

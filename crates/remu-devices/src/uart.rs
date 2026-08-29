@@ -3,13 +3,34 @@ use super::*;
 /// Shared terminal UART output.
 #[derive(Clone, Default)]
 pub struct UartHandle {
-    bytes: Arc<Mutex<Vec<u8>>>,
+    output: Arc<Mutex<UartCapture>>,
+    rx: Arc<Mutex<VecDeque<u8>>>,
+}
+
+#[derive(Default)]
+struct UartCapture {
+    epoch: u64,
+    bytes: Vec<u8>,
 }
 
 impl UartHandle {
     /// Returns all transmitted bytes.
     pub fn bytes(&self) -> Vec<u8> {
-        self.bytes.lock().expect("UART lock poisoned").clone()
+        self.output
+            .lock()
+            .expect("UART lock poisoned")
+            .bytes
+            .clone()
+    }
+
+    /// Returns the capture epoch and all transmitted bytes atomically.
+    ///
+    /// The epoch advances whenever [`Self::clear`] resets the capture, allowing
+    /// incremental consumers to distinguish replacement bytes from old bytes
+    /// at the same buffer offsets.
+    pub fn output_snapshot(&self) -> (u64, Vec<u8>) {
+        let output = self.output.lock().expect("UART lock poisoned");
+        (output.epoch, output.bytes.clone())
     }
 
     /// Returns lossy UTF-8 terminal output.
@@ -17,16 +38,39 @@ impl UartHandle {
         String::from_utf8_lossy(&self.bytes()).into_owned()
     }
 
-    /// Clears captured output.
+    /// Clears captured output and queued receive bytes.
     pub fn clear(&self) {
-        self.bytes.lock().expect("UART lock poisoned").clear();
+        let mut output = self.output.lock().expect("UART lock poisoned");
+        output.bytes.clear();
+        output.epoch = output.epoch.wrapping_add(1);
+        drop(output);
+        self.rx.lock().expect("UART RX lock poisoned").clear();
+    }
+
+    /// Queues bytes supplied by an external UART peer.
+    pub fn feed_rx(&self, bytes: &[u8]) {
+        self.rx
+            .lock()
+            .expect("UART RX lock poisoned")
+            .extend(bytes.iter().copied());
+    }
+
+    /// Consumes one byte waiting for the guest to receive.
+    pub fn receive(&self) -> Option<u8> {
+        self.rx.lock().expect("UART RX lock poisoned").pop_front()
+    }
+
+    /// Returns the number of bytes waiting for the guest to receive.
+    pub fn rx_len(&self) -> usize {
+        self.rx.lock().expect("UART RX lock poisoned").len()
     }
 
     /// Appends bytes transmitted by a functional ROM or peripheral service.
     pub fn transmit(&self, bytes: &[u8]) {
-        self.bytes
+        self.output
             .lock()
             .expect("UART lock poisoned")
+            .bytes
             .extend_from_slice(bytes);
     }
 }
@@ -37,8 +81,20 @@ pub struct FunctionalUart {
     data_offset: u64,
     status_offset: u64,
     tx_ready_mask: u32,
+    rx_status: RxStatus,
     lenient_registers: bool,
     handle: UartHandle,
+}
+
+#[derive(Clone, Copy, Default)]
+enum RxStatus {
+    #[default]
+    Unreported,
+    EmptyFlag(u32),
+    CountField {
+        mask: u32,
+        shift: u8,
+    },
 }
 
 impl FunctionalUart {
@@ -56,6 +112,7 @@ impl FunctionalUart {
                 data_offset,
                 status_offset,
                 tx_ready_mask,
+                rx_status: RxStatus::Unreported,
                 lenient_registers: false,
                 handle: handle.clone(),
             },
@@ -75,6 +132,40 @@ impl FunctionalUart {
         device.lenient_registers = true;
         (device, handle)
     }
+
+    /// Reports an empty receive FIFO by setting `mask` in the status register.
+    /// The flag is cleared while at least one host byte is queued.
+    pub fn with_rx_empty_flag(mut self, mask: u32) -> Self {
+        self.rx_status = RxStatus::EmptyFlag(mask);
+        self
+    }
+
+    /// Reports the queued receive-byte count in a masked status field.
+    /// Values larger than the field can represent are saturated.
+    pub fn with_rx_count_field(mut self, mask: u32, shift: u8) -> Self {
+        self.rx_status = RxStatus::CountField { mask, shift };
+        self
+    }
+
+    fn status(&self) -> u32 {
+        let count = self.handle.rx_len();
+        match self.rx_status {
+            RxStatus::Unreported => self.tx_ready_mask,
+            RxStatus::EmptyFlag(mask) => {
+                if count == 0 {
+                    self.tx_ready_mask | mask
+                } else {
+                    self.tx_ready_mask & !mask
+                }
+            }
+            RxStatus::CountField { mask, shift } => {
+                let maximum = mask.checked_shr(u32::from(shift)).unwrap_or(0);
+                let count = u32::try_from(count).unwrap_or(u32::MAX).min(maximum);
+                let encoded = count.checked_shl(u32::from(shift)).unwrap_or(0);
+                (self.tx_ready_mask & !mask) | (encoded & mask)
+            }
+        }
+    }
 }
 
 impl Device for FunctionalUart {
@@ -84,8 +175,10 @@ impl Device for FunctionalUart {
 
     fn read(&mut self, offset: u64, _width: AccessWidth, _at: SimTime) -> Result<u64, DeviceError> {
         if offset == self.status_offset {
-            Ok(u64::from(self.tx_ready_mask))
-        } else if offset == self.data_offset || self.lenient_registers {
+            Ok(u64::from(self.status()))
+        } else if offset == self.data_offset {
+            Ok(u64::from(self.handle.receive().unwrap_or(0)))
+        } else if self.lenient_registers {
             Ok(0)
         } else {
             Err(DeviceError::new(format!(
@@ -107,11 +200,7 @@ impl Device for FunctionalUart {
             )));
         }
         if offset == self.data_offset {
-            self.handle
-                .bytes
-                .lock()
-                .expect("UART lock poisoned")
-                .push(value.to_le_bytes()[0]);
+            self.handle.transmit(&[value.to_le_bytes()[0]]);
         }
         Ok(())
     }

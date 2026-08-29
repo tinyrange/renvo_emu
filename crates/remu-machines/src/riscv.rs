@@ -822,6 +822,7 @@ impl RiscVMachine {
                 io_bank = Some(rp_io::map(&mut bus, chip_gpio[0].clone())?);
                 let (uart0, handle) =
                     FunctionalUart::new_lenient("rp2350.uart0", 0x00, 0x18, 0x0090);
+                let uart0 = uart0.with_rx_empty_flag(1 << 4);
                 bus.map_device("rp2350.uart0", 0x4007_0000, 0x1000, Box::new(uart0))?;
                 chip_uarts.push(handle);
                 let (uart1, handle) = RpPl011Uart::new("rp2350.uart1");

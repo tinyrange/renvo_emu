@@ -276,6 +276,56 @@ fn uart_captures_low_byte() {
 }
 
 #[test]
+fn uart_receive_status_tracks_host_queue() {
+    let (uart, handle) = FunctionalUart::new("pl011", 0, 4, 0x90);
+    let mut uart = uart.with_rx_empty_flag(1 << 4);
+    assert_eq!(
+        uart.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x90
+    );
+    handle.feed_rx(b"A");
+    assert_eq!(
+        uart.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x80
+    );
+    assert_eq!(
+        uart.read(0, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        u64::from(b'A')
+    );
+    assert_eq!(
+        uart.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x90
+    );
+
+    let (uart, handle) = FunctionalUart::new("esp", 0, 4, 0);
+    let mut uart = uart.with_rx_count_field(0x3ff, 0);
+    handle.feed_rx(b"rx");
+    assert_eq!(uart.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(), 2);
+    assert_eq!(uart.read(0, AccessWidth::Byte, SimTime::ZERO).unwrap(), 114);
+    assert_eq!(uart.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(), 1);
+    handle.feed_rx(&[0; 1024]);
+    assert_eq!(
+        uart.read(4, AccessWidth::Word, SimTime::ZERO).unwrap(),
+        0x3ff
+    );
+}
+
+#[test]
+fn uart_clear_resets_both_directions_and_advances_capture_epoch() {
+    let (_, handle) = FunctionalUart::new("uart", 0, 4, 1);
+    let (initial_epoch, _) = handle.output_snapshot();
+    handle.transmit(b"tx");
+    handle.feed_rx(b"rx");
+
+    handle.clear();
+
+    let (cleared_epoch, output) = handle.output_snapshot();
+    assert_ne!(cleared_epoch, initial_epoch);
+    assert!(output.is_empty());
+    assert_eq!(handle.rx_len(), 0);
+}
+
+#[test]
 fn rp_pl011_uses_named_registers_and_reset_values() {
     let (mut uart, _handle) = RpPl011Uart::new("rp.uart1");
     assert_eq!(

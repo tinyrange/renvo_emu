@@ -363,6 +363,12 @@ The RISC-V, Arm RP, and Xtensa machine APIs now expose named `Compiler` and
 UART adapters remain target-specific for now.
 See [board simulation](docs/BOARD_SIMULATION.md) for the exact boundary.
 
+The board layer also provides a typed UART transport endpoint: host bytes can
+be queued into a machine `UartHandle`, guest TX bytes can be polled, and both
+directions are exposed as deterministic byte/strobe signals. The RISC-V, Arm
+RP, and Xtensa machines expose those handles through `UartEndpointProvider`;
+automatic connector-to-machine assembly remains a follow-up integration step.
+
 ## Architecture
 
 The workspace keeps CPU interpreters independent from scripting, tracing, and

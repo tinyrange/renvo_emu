@@ -11,6 +11,7 @@ mod arm_mcu;
 mod avr_mcu;
 mod board;
 mod board_gpio;
+mod board_uart;
 mod m5sticks3;
 mod m5sticks3_firmware;
 mod mcs51_mcu;
@@ -28,6 +29,7 @@ pub use arm::{ArmMachine, ArmMachineError};
 pub use arm_mcu::ArmMcuMachine;
 pub use avr_mcu::{AvrMachineError, AvrMcuMachine};
 pub use board::*;
+pub use board_uart::*;
 pub use m5sticks3::{M5StickS3Button, M5StickS3Handle, M5StickS3Snapshot};
 pub use m5sticks3_firmware::{
     M5StickS3FirmwareError, M5StickS3FirmwareResult, run_m5sticks3_firmware_scenario,
