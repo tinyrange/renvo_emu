@@ -130,7 +130,11 @@ static bool wait_for_child(otInstance *instance, otChildInfo *child)
         if (error == OT_ERROR_NONE) {
             return true;
         }
-        vTaskDelay(pdMS_TO_TICKS(1));
+        /* CONFIG_FREERTOS_HZ is 100, so pdMS_TO_TICKS(1) rounds down to
+         * zero and only yields opportunistically. Wait for one real scheduler
+         * tick so the OpenThread task can commit the completed child exchange.
+         */
+        vTaskDelay(1);
     }
     return false;
 }
