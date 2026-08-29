@@ -392,3 +392,40 @@ does. A native-address Arm fixture connects the device, observes the
 host-supplied reset, clears it, and verifies VBUS remains asserted. This is
 still a deterministic functional slice rather than PHY, packet-timing, DMA,
 or complete class-protocol emulation.
+
+## CH32V006 ADC/TKEY contract audit
+
+The CH32V006 ADC/TKEY slice now follows the [official CH32V00X reference
+manual](https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF)'s
+register layout and alias behavior. Typed register identifiers cover the
+status/control registers, sample and rule sequence fields, and the write-only
+`TKEY_CHG`/`TKEY_DISCHG` aliases for ADC injection and rule data. Reserved bits
+are masked, ADC alignment is honored, EOC is read-clear, and TKEY starts only
+in the documented single-channel, single-conversion mode. Docker-built
+native-address firmware still proves deterministic host-supplied channel data
+and PFIC interrupt delivery. Electrode capacitance, DMA, multi-channel
+scan/injection behavior, and exact HBCLK timing remain explicit
+functional-model gaps.
+
+CH32V006 now also maps the reference-manual USART2 instance at `0x40004400`.
+The bounded transmit proof enables the documented APB2 clock bit, writes the
+native `BRR` and `CTLR1` registers, and verifies an exact `REMU-WCH2\n`
+transcript. CH32V003 remains limited to its single USART1 instance.
+
+The shared USART register model audits the official field masks and reset
+contract for both instances, exposes typed offset conversion, and implements
+RW0 clearing for the modeled `STATR` flags while retaining immediate
+byte-oriented transmission. Nine-bit data, receive state, DMA, baud timing,
+and USART interrupt routing remain explicit gaps.
+
+## CH32V006 streamlined timer closure
+
+The CH32V006-only streamlined TIM3 block is mapped at its documented
+`0x40000800` address. The functional model implements the 16-bit internal-clock
+counter, auto-reload, up/down direction, four compare registers, and the
+channel-3/channel-4 DMA-event enables. Direct device tests cover counter
+progression and compare/update events; Docker-built RV32EC firmware exercises
+the native register window. DMA data movement and CPU interrupt routing are
+left to the dedicated DMA/timer follow-up work. Timer-1 cascade,
+center-alignment, compare/auto-reload preload transfers, alternate-function
+waveform pins, and exact silicon clock timing remain explicit limitations.

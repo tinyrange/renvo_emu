@@ -142,17 +142,6 @@ pub trait Device {
         at: SimTime,
     ) -> Result<(), DeviceError>;
 
-    /// Initializes device-backed storage from a firmware image.
-    ///
-    /// Address-space firmware loading bypasses normal runtime permissions.
-    /// Persistent memory devices can override this hook; ordinary MMIO
-    /// devices retain the default error.
-    fn load(&mut self, _offset: u64, _data: &[u8]) -> Result<(), DeviceError> {
-        Err(DeviceError::new(
-            "firmware loader cannot initialize an MMIO device",
-        ))
-    }
-
     /// Returns a side-effect-free register value for trace correlation.
     ///
     /// Devices opt in only when their internal model can safely expose the
@@ -160,6 +149,18 @@ pub trait Device {
     /// because reads may acknowledge or otherwise mutate hardware state.
     fn trace_value(&self, _offset: u64, _width: AccessWidth, _at: SimTime) -> Option<u64> {
         None
+    }
+
+    /// Initializes bytes through a firmware loader without applying runtime
+    /// access permissions.
+    ///
+    /// Most MMIO devices reject loader writes. Executable device-backed
+    /// memories such as an on-chip flash model can override this hook to
+    /// install an image while retaining their runtime programming semantics.
+    fn load(&mut self, _offset: u64, _data: &[u8]) -> Result<(), DeviceError> {
+        Err(DeviceError::new(
+            "firmware loader cannot initialize this MMIO device",
+        ))
     }
 
     /// Applies a device reset.
@@ -800,10 +801,10 @@ impl AddressSpace {
                     storage.bytes.borrow_mut()[*storage_offset + offset] = byte;
                 }
                 Backing::Device(device) => {
-                    let relative = current - region.start;
-                    device.load(relative, &[byte]).map_err(|error| {
+                    let offset = current - region.start;
+                    device.load(offset, &[byte]).map_err(|error| {
                         BusFault::new(
-                            BusFaultKind::Permission,
+                            BusFaultKind::Device,
                             AccessKind::Write,
                             current,
                             AccessWidth::Byte,

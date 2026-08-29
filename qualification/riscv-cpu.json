@@ -1,6 +1,6 @@
 {
   "schema": "remu.riscv-cpu.v1",
-  "source_sha256": "8692d4711080c9da51b3369bc201a878e796f1aa2517cb898b48568d0cac45e1",
+  "source_sha256": "1f0dad93c28664e19390d097d3794358b35c594474de0cb6a2487884edb2c77e",
   "primary_sources": [
     "https://www.wch-ic.com/downloads/QingKeV2_Processor_Manual_PDF.html",
     "https://www.espressif.com/sites/default/files/documentation/esp32-c6_technical_reference_manual_en.pdf",
@@ -63,7 +63,7 @@
       "elf": ".remu/portfolio-smoke/wch-xw/smoke.elf",
       "elf_sha256": "1222ca42eb6388f293b1dbf395c6ec02d97c82d1092c34be6291701597766083",
       "result_artifact": ".remu/portfolio-smoke/ch32v003-xw-run.json",
-      "result_sha256": "294f03a6e9536403a9f817bcdf9a89013bf9cfaa5b82f5f16abb7a6eea261d43",
+      "result_sha256": "1183432a925d7b0e47c98f24a69ef8def39796605f9d8b3af474cf309dc889db",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -71,7 +71,7 @@
         "time": 27,
         "events": 0
       },
-      "trace_digest": "d66ab6bae96236ddc73f4fae73c7e61644c3e98efe07cceb62109f96ec9f120d",
+      "trace_digest": "6b556e793a583ff0b1e548c8c596179288f664ede6f8cc0c106ce077018b5a91",
       "result": "pass"
     },
     {
@@ -84,7 +84,7 @@
       "elf": ".remu/portfolio-smoke/wch-xw/smoke.elf",
       "elf_sha256": "1222ca42eb6388f293b1dbf395c6ec02d97c82d1092c34be6291701597766083",
       "result_artifact": ".remu/portfolio-smoke/ch32v006-xw-run.json",
-      "result_sha256": "5fdcca438732de887b3ca2e52c6f1262f6f881583b5a69d5906ba4de0fa9e55e",
+      "result_sha256": "f68636ddd78012943420dfe63d016d84c4e19d678f68e8640e23ca319f43f8af",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -92,7 +92,7 @@
         "time": 27,
         "events": 0
       },
-      "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
+      "trace_digest": "06ddce31242ed73928ade14ad18d477724a535276388662a1f13209931000ee4",
       "result": "pass"
     },
     {
@@ -105,7 +105,7 @@
       "elf": ".remu/portfolio-smoke/wch-zmmul/smoke.elf",
       "elf_sha256": "7d3bb91e96bdbfbfed57d87a24e2951928d9d092fd8ccd629b34037e84a8e658",
       "result_artifact": ".remu/portfolio-smoke/ch32v006-zmmul-run.json",
-      "result_sha256": "ac802cf3e3552c57b417b8e6e2376154dd82a42490d0182d2e11b9865f447fc5",
+      "result_sha256": "0971d61b0e77894fe232c867958f9aeede0020c3ebd3bcac7c302c52415d3752",
       "reason": "Halted",
       "exit_code": 0,
       "stats": {
@@ -113,7 +113,7 @@
         "time": 11,
         "events": 0
       },
-      "trace_digest": "97ad4057cf541d996f1f1bb499d7f1e51a1cdc47562a736e6615b4663d2962a4",
+      "trace_digest": "06ddce31242ed73928ade14ad18d477724a535276388662a1f13209931000ee4",
       "result": "pass"
     },
     {
