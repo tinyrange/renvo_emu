@@ -690,11 +690,11 @@ impl AddressSpace {
         self.map_device_with_permissions(name, start, size, Permissions::RW, device)
     }
 
-    /// Maps a memory-mapped device with explicit access permissions.
+    /// Maps an MMIO device with explicit access permissions.
     ///
-    /// The ordinary [`Self::map_device`] helper preserves the historical
-    /// read/write-only MMIO behavior. Device-backed executable memories use
-    /// this variant to accept instruction fetches as well.
+    /// Most peripherals are read/write only and should use [`Self::map_device`].
+    /// A few memory-backed devices, such as executable FRAM or ROM windows,
+    /// also need to service instruction fetches and can opt into `RX`/`RWX`.
     pub fn map_device_with_permissions(
         &mut self,
         name: impl Into<String>,
