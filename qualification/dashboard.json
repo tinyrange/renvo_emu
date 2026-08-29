@@ -1,7 +1,7 @@
 {
   "generator": {
     "path": "scripts/generate-dashboard.py",
-    "sha256": "65a1d185d62e94173df0b59fd3666cee11317c0210f0095eb623bcc335e0dc73",
+    "sha256": "b8bd561d1fa3802d5708037aeb269e1e2a59f0e78115f38a565437164f9b41b3",
     "spec": "qualification/dashboard-spec.json",
     "spec_sha256": "246d1781c1dd8b28a9f9bdb6a34e617c67928c5be811a2315e19adbbf194d9c6"
   },
