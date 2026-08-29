@@ -185,3 +185,56 @@ fn maps_ra4m1_elc_software_events_and_destination_links() {
     assert_eq!(elc.take_software_events(), vec![0x053]);
     assert_eq!(elc.route_event(0x053), vec![0]);
 }
+
+#[test]
+fn maps_ra4m1_adc140_scan_results_and_icu_event() {
+    const ADC_BASE: u64 = 0x4005_c000;
+    let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+    machine.set_adc_sample(0, 0x1234).unwrap();
+    machine
+        .bus
+        .write(
+            0x4000_6328,
+            AccessWidth::Word,
+            u64::from(RA4M1_EVENT_ADC0_SCAN_END),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(ADC_BASE + 0x04, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            ADC_BASE,
+            AccessWidth::HalfWord,
+            (1 << 15) | (1 << 12),
+            SimTime::ZERO,
+        )
+        .unwrap();
+
+    let adc = machine.ra_adc.as_ref().unwrap();
+    assert!(!adc.poll(SimTime::from_ticks(7)));
+    assert!(adc.poll(SimTime::from_ticks(8)));
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                ADC_BASE + 0x20,
+                AccessWidth::HalfWord,
+                AccessKind::Read,
+                SimTime::from_ticks(8),
+            )
+            .unwrap(),
+        0x1234
+    );
+    assert_eq!(
+        machine
+            .ra_icu
+            .as_ref()
+            .unwrap()
+            .route_event(RA4M1_EVENT_ADC0_SCAN_END),
+        vec![10]
+    );
+}

@@ -13,19 +13,20 @@ use remu_core::{
 use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
-    FunctionalUart, GpioHandle, RA4M1_EVENT_AGT0_INT, RA4M1_EVENT_AGT1_INT,
-    RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_GPT1_OVERFLOW, RA4M1_EVENT_GPT2_OVERFLOW,
-    RA4M1_EVENT_GPT3_OVERFLOW, RA4M1_EVENT_GPT4_OVERFLOW, RA4M1_EVENT_GPT5_OVERFLOW,
-    RA4M1_EVENT_GPT6_OVERFLOW, RA4M1_EVENT_GPT7_OVERFLOW, RA4M1_EVENT_KINT, RA4M1_EVENT_RTC_ALARM,
-    RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle, RaCac, RaCacHandle, RaCrc, RaCrcHandle, RaDac,
-    RaDacHandle, RaDoc, RaDocHandle, RaElc, RaElcHandle, RaGpt, RaGptHandle, RaIcu, RaIcuHandle,
-    RaIic, RaIoPort, RaKint, RaKintHandle, RaPfs, RaPoeg, RaPoegHandle, RaRtc, RaRtcHandle, RaSci,
-    RaSciHandle, RaSpi, RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle,
-    Samd21Dac, Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle,
-    Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc,
-    Samd21RtcHandle, Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio,
-    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    FunctionalUart, GpioHandle, RA4M1_EVENT_ADC0_SCAN_END, RA4M1_EVENT_AGT0_INT,
+    RA4M1_EVENT_AGT1_INT, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_GPT1_OVERFLOW,
+    RA4M1_EVENT_GPT2_OVERFLOW, RA4M1_EVENT_GPT3_OVERFLOW, RA4M1_EVENT_GPT4_OVERFLOW,
+    RA4M1_EVENT_GPT5_OVERFLOW, RA4M1_EVENT_GPT6_OVERFLOW, RA4M1_EVENT_GPT7_OVERFLOW,
+    RA4M1_EVENT_KINT, RA4M1_EVENT_RTC_ALARM, RA4M1_EVENT_SCI9_TXI, RaAdc, RaAdcHandle, RaAgt,
+    RaAgtHandle, RaCac, RaCacHandle, RaCrc, RaCrcHandle, RaDac, RaDacHandle, RaDoc, RaDocHandle,
+    RaElc, RaElcHandle, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIic, RaIoPort, RaKint,
+    RaKintHandle, RaPfs, RaPoeg, RaPoegHandle, RaRtc, RaRtcHandle, RaSci, RaSciHandle, RaSpi,
+    RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle,
+    Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s,
+    Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc,
+    Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice,
+    Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -107,6 +108,7 @@ pub struct ArmMcuMachine {
     ra_doc: Option<RaDocHandle>,
     ra_cac: Option<RaCacHandle>,
     ra_poeg: Option<RaPoegHandle>,
+    ra_adc: Option<RaAdcHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
@@ -321,6 +323,7 @@ impl ArmMcuMachine {
             ra_doc,
             ra_cac,
             ra_poeg,
+            ra_adc,
             watchdog,
         ) = match target {
             TargetId::Atsamd21e18 => {
@@ -409,6 +412,7 @@ impl ArmMcuMachine {
                     None,
                     Vec::new(),
                     Vec::new(),
+                    None,
                     None,
                     None,
                     None,
@@ -533,6 +537,7 @@ impl ArmMcuMachine {
                 let (poeg_device, poeg) = RaPoeg::new("r7fa4m1ab3cfm.poeg");
                 let (kint_device, kint) = RaKint::new("r7fa4m1ab3cfm.kint");
                 let (elc_device, elc) = RaElc::new("r7fa4m1ab3cfm.elc");
+                let (adc_device, adc) = RaAdc::new("r7fa4m1ab3cfm.adc0");
                 Self::map_ra4m1(
                     &mut bus,
                     ports,
@@ -555,6 +560,7 @@ impl ArmMcuMachine {
                     doc_device,
                     cac_device,
                     poeg_device,
+                    adc_device,
                 )?;
                 (
                     handles.remove(1),
@@ -581,6 +587,7 @@ impl ArmMcuMachine {
                     Some(doc),
                     Some(cac),
                     Some(poeg),
+                    Some(adc),
                     None,
                 )
             }
@@ -618,6 +625,7 @@ impl ArmMcuMachine {
             ra_doc,
             ra_cac,
             ra_poeg,
+            ra_adc,
             watchdog,
             compiler_timer,
             exit,
@@ -829,6 +837,7 @@ impl ArmMcuMachine {
         doc: RaDoc,
         cac: RaCac,
         poeg: RaPoeg,
+        adc: RaAdc,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -873,6 +882,7 @@ impl ArmMcuMachine {
         bus.map_device("r7fa4m1ab3cfm.doc", 0x4005_4100, 0x10, Box::new(doc))?;
         bus.map_device("r7fa4m1ab3cfm.cac", 0x4004_4600, 0x10, Box::new(cac))?;
         bus.map_device("r7fa4m1ab3cfm.poeg", 0x4004_2000, 0x400, Box::new(poeg))?;
+        bus.map_device("r7fa4m1ab3cfm.adc0", 0x4005_c000, 0x200, Box::new(adc))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
@@ -1012,17 +1022,22 @@ impl ArmMcuMachine {
         Ok(())
     }
 
-    /// Supplies one deterministic host-side sample to the ATSAMD21 ADC.
+    /// Supplies one deterministic host-side sample to the selected target ADC.
     ///
-    /// The ADC conversion still starts only when guest firmware writes
-    /// `SWTRIG.START`; this method models the external analog source without
+    /// Guest firmware still controls conversion start through its target's
+    /// native registers; this only models the external analog source without
     /// introducing host-dependent voltages or timing.
     pub fn set_adc_sample(&self, channel: u8, value: u16) -> Result<(), ArmMachineError> {
-        let Some(adc) = &self.adc else {
-            return Err(ArmMachineError::UnsupportedTarget(self.target));
-        };
-        adc.inject_sample(channel, value)?;
-        Ok(())
+        if let Some(adc) = &self.adc {
+            adc.inject_sample(channel, value)?;
+            return Ok(());
+        }
+        if let Some(adc) = &self.ra_adc {
+            adc.set_input(channel, value)
+                .map_err(ArmMachineError::Configuration)?;
+            return Ok(());
+        }
+        Err(ArmMachineError::UnsupportedTarget(self.target))
     }
 
     /// Supplies one deterministic host-side analog code to the ATSAMD21 AC.
@@ -1289,6 +1304,23 @@ impl ArmMcuMachine {
                     if agt.poll(self.now) {
                         interrupt_requested = true;
                         for line in icu.route_event(*event) {
+                            self.cpu
+                                .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                        }
+                    }
+                }
+                if let Some(adc) = &self.ra_adc {
+                    let pending = adc.poll(self.now);
+                    interrupt_requested |= pending;
+                    if let Some(signal) = self.ra_adc_signal {
+                        self.signals.set(
+                            signal,
+                            SignalValue::from_u64(u64::from(pending), 1)?,
+                            self.now,
+                        )?;
+                    }
+                    if pending {
+                        for line in icu.route_event(RA4M1_EVENT_ADC0_SCAN_END) {
                             self.cpu
                                 .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
                         }
