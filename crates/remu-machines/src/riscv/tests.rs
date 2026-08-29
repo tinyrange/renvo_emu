@@ -2,6 +2,8 @@ use super::*;
 use remu_image::{EspImageHeader, EspImageSegment, FirmwareSegment, FirmwareSymbol};
 use remu_trace::{Timescale, VcdWriter};
 
+mod wch;
+
 fn esp32c6_header(entry: u32, segment_count: u8) -> EspImageHeader {
     EspImageHeader {
         segment_count,
@@ -960,9 +962,381 @@ fn gpio_facade_streams_valid_vcd() {
 }
 
 #[test]
+fn wch_exti_uses_afio_mapping_and_external_gpio_stimulus() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    // ebreak at address zero keeps the test independent of a firmware image.
+    machine
+        .load_bytes(0, &0x0010_0073_u32.to_le_bytes())
+        .unwrap();
+    machine.set_entry(0).unwrap();
+    machine
+        .bus
+        .write(0x4001_0008, AccessWidth::Word, 2 << (2 * 2), SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4001_0400, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4001_0408, AccessWidth::Word, 1 << 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0xe000_e100, AccessWidth::Word, 1 << 20, SimTime::ZERO)
+        .unwrap();
+
+    let result = machine
+        .run_with_stimuli(
+            RunLimits {
+                instructions: Some(4),
+                deadline: None,
+            },
+            &[PinStimulus {
+                at: SimTime::ZERO,
+                pin: 2,
+                value: Logic::One,
+            }],
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.reason, StopReason::Halted);
+    assert!(result.stats.events >= 2);
+}
+
+#[test]
+fn wch_stk_registers_are_mapped_at_the_core_private_base() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        machine
+            .bus
+            .write(0xe000_f010, AccessWidth::Word, 2, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0xe000_f000, AccessWidth::Word, 0x0f, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0xe000_f000,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0x0f,
+            "{target} STK control"
+        );
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0xe000_f010,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            2,
+            "{target} STK compare"
+        );
+    }
+}
+
+#[test]
+fn wch_spi1_native_registers_are_mapped_for_both_targets() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        machine.inject_wch_spi_rx(0xa5);
+        machine
+            .bus
+            .write(0x4001_3000, AccessWidth::Word, 0x44, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4001_3004, AccessWidth::Word, 0xc0, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4001_300c, AccessWidth::Word, 0x3c, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(machine.wch_spi_tx_bytes(), [0x3c], "{target}");
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4001_300c,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xa5,
+            "{target}"
+        );
+    }
+}
+
+#[test]
 fn unsupported_targets_fail_explicitly() {
     assert!(matches!(
         RiscVMachine::new(TargetId::Rp2040),
         Err(MachineError::UnsupportedTarget(TargetId::Rp2040))
     ));
+}
+
+#[test]
+fn wch_tim1_registers_and_update_interrupt_are_mapped() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    let base = 0x4001_2c00;
+    machine
+        .bus
+        .write(base + 0x28, AccessWidth::HalfWord, 0, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x2c, AccessWidth::HalfWord, 2, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base + 0x0c, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(base, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x2c,
+                AccessWidth::HalfWord,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                base + 0x10,
+                AccessWidth::HalfWord,
+                AccessKind::Read,
+                SimTime::from_ticks(3),
+            )
+            .unwrap()
+            & 1,
+        1
+    );
+}
+
+#[test]
+fn wch_tim1_is_mapped_on_ch32v006() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v006).unwrap();
+    let base = 0x4001_2c00;
+    machine
+        .bus
+        .write(base, AccessWidth::HalfWord, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(base, AccessWidth::HalfWord, AccessKind::Read, SimTime::ZERO,)
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn wch_watchdog_blocks_are_mapped_for_both_qingke_targets() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4000_3000,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0,
+            "{target} IWDG key reads as write-only"
+        );
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4000_2c00,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap()
+                & 0x80,
+            0,
+            "{target} WWDG starts disabled"
+        );
+    }
+}
+
+#[test]
+fn wch_adc_block_is_mapped_for_both_qingke_targets() {
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x4001_2400,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0,
+            "{target} ADC status resets clear"
+        );
+    }
+}
+
+#[test]
+fn wch_independent_watchdog_timeout_resets_the_riscv_machine() {
+    let mut machine = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    // `jal x0, 0`: keep the CPU runnable while the abstract IWDG expires.
+    machine
+        .load_bytes(0, &0x0000_006f_u32.to_le_bytes())
+        .unwrap();
+    machine.set_entry(0).unwrap();
+    machine
+        .bus
+        .write(0x4000_3000, AccessWidth::Word, 0x5555, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_3008, AccessWidth::Word, 0, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_3000, AccessWidth::Word, 0xcccc, SimTime::ZERO)
+        .unwrap();
+
+    let result = machine
+        .run(
+            RunLimits {
+                // The CH32 independent watchdog uses a /4 prescaler.  Give the
+                // scheduler enough abstract instruction ticks to observe the
+                // reload=0 expiry before the bounded run stops.
+                instructions: Some(8),
+                deadline: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.reason, StopReason::InstructionLimit);
+    assert!(
+        result.stats.events >= 1,
+        "watchdog reset was not dispatched"
+    );
+}
+
+#[test]
+fn wch_flash_controller_programs_and_erases_the_mapped_alias() {
+    const KEY1: u64 = 0x4567_0123;
+    const KEY2: u64 = 0xcdef_89ab;
+    const PG: u64 = 1;
+    const PAGE_PG: u64 = 1 << 16;
+    const BUF_LOAD: u64 = 1 << 18;
+    const PER_AND_STRT: u64 = (1 << 1) | (1 << 6);
+    for target in [TargetId::Ch32v003, TargetId::Ch32v006] {
+        let mut machine = RiscVMachine::new(target).unwrap();
+        machine
+            .load_bytes(0x400, &[0xff, 0xff, 0xff, 0xff])
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2004, AccessWidth::Word, KEY1, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2004, AccessWidth::Word, KEY2, SimTime::ZERO)
+            .unwrap();
+        if target == TargetId::Ch32v003 {
+            machine
+                .bus
+                .write(0x4002_2010, AccessWidth::Word, PG, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x400, AccessWidth::HalfWord, 0x1234, SimTime::ZERO)
+                .unwrap();
+        } else {
+            machine
+                .bus
+                .write(0x4002_2024, AccessWidth::Word, KEY1, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x4002_2024, AccessWidth::Word, KEY2, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x4002_2010, AccessWidth::Word, PAGE_PG, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(0x400, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+                .unwrap();
+            machine
+                .bus
+                .write(
+                    0x4002_2010,
+                    AccessWidth::Word,
+                    PAGE_PG | BUF_LOAD,
+                    SimTime::ZERO,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x0800_0400,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            if target == TargetId::Ch32v003 {
+                0xffff_1234
+            } else {
+                0x1234_5678
+            }
+        );
+        machine
+            .bus
+            .write(0x4002_2014, AccessWidth::Word, 0x400, SimTime::ZERO)
+            .unwrap();
+        machine
+            .bus
+            .write(0x4002_2010, AccessWidth::Word, PER_AND_STRT, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    0x400,
+                    AccessWidth::HalfWord,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            0xffff
+        );
+    }
 }

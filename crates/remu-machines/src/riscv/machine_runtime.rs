@@ -133,6 +133,11 @@ impl RiscVMachine {
             .set_interrupt(TIMER_INTERRUPT, self.timer.pending())?;
         let mut timer_was_pending = false;
         let mut wch_timer_was_pending = false;
+        let mut wch_timer1_was_pending = false;
+        let mut wch_exti_was_pending = false;
+        let mut wch_spi_was_pending = false;
+        let mut wch_i2c_was_pending = [false; 2];
+        let mut wch_touch_was_pending = false;
         let mut chip_timer_was_pending = 0_u16;
         let mut io_bank_was_pending = false;
         let mut trng_was_pending = false;
@@ -206,6 +211,16 @@ impl RiscVMachine {
                         .is_some_and(|usb| usb.poll(self.now)),
                 ));
             }
+            if self.poll_wch_watchdogs()? {
+                self.bus.reset_devices(ResetKind::Watchdog);
+                self.cpu.reset(ResetKind::Watchdog, &mut self.bus)?;
+                stats.events = stats.events.saturating_add(1);
+                continue;
+            }
+            self.poll_wch_systick()?;
+            self.poll_wch_adc()?;
+            self.poll_wch_touch_key(&mut stats, &mut wch_touch_was_pending)?;
+            self.poll_wch_dma(&mut stats.events)?;
             if timer_was_pending || self.timer.active() {
                 let timer_pending = self.timer.poll(self.now);
                 if timer_pending && !timer_was_pending {
@@ -214,17 +229,19 @@ impl RiscVMachine {
                 timer_was_pending = timer_pending;
                 self.cpu.set_interrupt(TIMER_INTERRUPT, timer_pending)?;
             }
-            if let (Some(timer), Some(pfic)) = (&self.wch_timer, &self.wch_pfic) {
-                const TIM2_INTERRUPT: u16 = 38;
-                let pending = timer.pending(self.now);
-                pfic.set_pending(TIM2_INTERRUPT, pending);
-                let deliver = pfic.next_pending() == Some(TIM2_INTERRUPT);
-                if deliver && !wch_timer_was_pending {
-                    stats.events = stats.events.saturating_add(1);
-                }
-                wch_timer_was_pending = deliver;
-                self.cpu
-                    .set_qingke_external_interrupt(TIM2_INTERRUPT, deliver)?;
+            if let Some(wch) = &self.wch {
+                wch_exti::poll_wch(
+                    wch,
+                    &self.chip_gpio,
+                    &mut self.cpu,
+                    &mut wch_timer_was_pending,
+                    &mut wch_timer1_was_pending,
+                    &mut wch_exti_was_pending,
+                    &mut wch_spi_was_pending,
+                    &mut wch_i2c_was_pending,
+                    &mut stats,
+                    self.now,
+                )?;
             }
             if self.target == TargetId::Rp2350 {
                 rp_io::poll(self, &mut stats, &mut io_bank_was_pending)?;

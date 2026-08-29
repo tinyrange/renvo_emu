@@ -12,7 +12,7 @@
       "family": "riscv",
       "target": "ch32v003",
       "artifact": ".remu/qualification/reduction/riscv.json",
-      "artifact_sha256": "067aa230185055dd14f2c0cc66c2a1ca13739441dd2736bad0452eaf39b5d1b6",
+      "artifact_sha256": "9295f8dc4c310f97f18d075d2295f69d6ad33b0069624337070d12e4b5c38cc8",
       "seeded_expected": 0,
       "original": {
         "source": [

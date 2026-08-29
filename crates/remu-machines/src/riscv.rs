@@ -24,8 +24,9 @@ use remu_devices::{
     Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
     RpAdcHandle, RpAdcVariant, RpDma, RpDmaHandle, RpDmaVariant, RpI2cHandle, RpIoBankHandle,
     RpPadsBank, RpPadsHandle, RpPadsVariant, RpPio, RpPioHandle, RpPioVersion, RpPl011Uart,
-    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchGpio, WchPfic,
-    WchPficHandle, WchTimer, WchTimerHandle, WchUsart, new_rp2350_hstx,
+    RpSioGpio, RpSioHandle, RpTimerLayout, SignalHub, TimerHandle, UartHandle, WchAdc, WchDma,
+    WchGpio, WchI2c, WchPfic, WchPower, WchPowerVariant, WchSltm, WchSpi, WchTimer, WchUsart,
+    WchWatchdog, new_rp2350_hstx,
 };
 use remu_image::{
     EspExecutableImage, EspFlashImage, FirmwareArchitecture, FirmwareImage, Uf2Error, Uf2Image,
@@ -59,11 +60,19 @@ mod radio;
 mod rp2350_spi;
 mod rp_bootrom;
 mod rp_i2c;
+mod systick;
 use rp_i2c::map_rp2350_i2c;
 mod rp_io;
 use rp2350_spi::{map_rp2350_spi, set_rp2350_spi_interrupts};
 mod runtime;
 mod watchdog;
+mod watchdogs;
+mod wch_adc;
+mod wch_dma;
+mod wch_exti;
+mod wch_flash;
+mod wch_touch;
+mod wch_usart2;
 
 /// Synthetic, stable GPIO facade used by compiler cases.
 pub const TEST_GPIO: u64 = 0xffff_0000;
@@ -287,8 +296,7 @@ pub struct RiscVMachine {
     i2c: Vec<RpI2cHandle>,
     spi: Vec<Rp2350SpiHandle>,
     pio: Vec<RpPioHandle>,
-    wch_timer: Option<WchTimerHandle>,
-    wch_pfic: Option<WchPficHandle>,
+    wch: Option<wch_exti::WchHandles>,
     usb: Option<Rp2040UsbHandle>,
     usb_dpram: Option<SharedMemory>,
     usb_host: Option<Rp2040UsbHost>,
@@ -349,8 +357,7 @@ impl RiscVMachine {
             .then(|| BleController::new(BdAddress([1, 0xc6, 0, 0, 0, 0x02]), 0x32c6_5eed));
         let radio_legality =
             (target == TargetId::Esp32c6).then(|| RadioLegalityValidator::new(RadioChip::Esp32C6));
-        let mut wch_timer = None;
-        let mut wch_pfic = None;
+        let mut wch = None;
         let mut chip_adc = None;
         let mut chip_pwm = None;
         let mut sio = None;
@@ -392,6 +399,10 @@ impl RiscVMachine {
                     }
                 }
                 MemoryKind::Flash | MemoryKind::Rom => {
+                    if region.kind == MemoryKind::Flash && wch_flash::is_target(target) {
+                        wch_flash::map_wch_flash(&mut bus, target, region.start, region.size)?;
+                        continue;
+                    }
                     let storage = if region.kind == MemoryKind::Flash {
                         SharedMemory::from_bytes(vec![0xff; region.size])
                     } else {
@@ -673,6 +684,7 @@ impl RiscVMachine {
                     ],
                 );
                 bus.map_device(format!("{target}.rcc"), 0x4002_1000, 0x400, Box::new(rcc))?;
+                let exti = wch_exti::map_wch_exti(&mut bus, target)?;
                 let (wch_uart, handle) = WchUsart::new(format!("{target}.usart1"));
                 bus.map_device(
                     format!("{target}.usart1"),
@@ -681,17 +693,63 @@ impl RiscVMachine {
                     Box::new(wch_uart),
                 )?;
                 chip_uarts.push(handle);
+                if target == TargetId::Ch32v006 {
+                    chip_uarts.push(wch_usart2::map(&mut bus, target)?);
+                }
+                let (spi, spi_handle) = WchSpi::new(format!("{target}.spi1"), signals.clone())?;
+                bus.map_device(format!("{target}.spi1"), 0x4001_3000, 0x400, Box::new(spi))?;
                 let (tim2, handle) = WchTimer::new(format!("{target}.tim2"));
                 bus.map_device(format!("{target}.tim2"), 0x4000_0000, 0x400, Box::new(tim2))?;
-                wch_timer = Some(handle);
+                let timer = handle;
+                if target == TargetId::Ch32v006 {
+                    let (tim3, _handle) = WchSltm::new(format!("{target}.tim3"));
+                    bus.map_device(format!("{target}.tim3"), 0x4000_0800, 0x400, Box::new(tim3))?;
+                }
+                let (tim1, timer1) = WchTimer::new(format!("{target}.tim1"));
+                bus.map_device(format!("{target}.tim1"), 0x4001_2c00, 0x400, Box::new(tim1))?;
+                let (iwdg, iwdg_handle) = WchWatchdog::new_iwdg(format!("{target}.iwdg"));
+                bus.map_device(format!("{target}.iwdg"), 0x4000_3000, 0x400, Box::new(iwdg))?;
+                let (wwdg, wwdg_handle) = WchWatchdog::new_wwdg(format!("{target}.wwdg"));
+                bus.map_device(format!("{target}.wwdg"), 0x4000_2c00, 0x400, Box::new(wwdg))?;
+                let (adc_handle, touch_handle) = if target == TargetId::Ch32v006 {
+                    (None, Some(wch_touch::map(&mut bus, target)?))
+                } else {
+                    let (adc, adc_handle) = WchAdc::new(format!("{target}.adc"));
+                    bus.map_device(format!("{target}.adc"), 0x4001_2400, 0x400, Box::new(adc))?;
+                    (Some(adc_handle), None)
+                };
                 let (pfic, handle) = WchPfic::new(format!("{target}.pfic"));
                 bus.map_device(
                     format!("{target}.pfic"),
                     0xe000_e000,
-                    0x1000,
+                    0x2000,
                     Box::new(pfic),
                 )?;
-                wch_pfic = Some(handle);
+                let (dma, dma_handle) = WchDma::new(format!("{target}.dma"));
+                bus.map_device(format!("{target}.dma"), 0x4002_0000, 0x100, Box::new(dma))?;
+                let (i2c1, i2c_handle) = WchI2c::new(format!("{target}.i2c1"));
+                bus.map_device(format!("{target}.i2c1"), 0x4000_5400, 0x400, Box::new(i2c1))?;
+                let power_variant = match target {
+                    TargetId::Ch32v003 => WchPowerVariant::Ch32v003,
+                    TargetId::Ch32v006 => WchPowerVariant::Ch32v006,
+                    _ => unreachable!("WCH PWR is only constructed for WCH targets"),
+                };
+                let (power, power_handle) =
+                    WchPower::new_for_variant(format!("{target}.pwr"), power_variant);
+                bus.map_device(format!("{target}.pwr"), 0x4000_7000, 0x400, Box::new(power))?;
+                wch = Some(wch_exti::WchHandles {
+                    timer,
+                    timer1,
+                    pfic: handle,
+                    exti,
+                    spi: spi_handle,
+                    watchdogs: [iwdg_handle, wwdg_handle],
+                    adc: adc_handle,
+                    touch: touch_handle,
+                    dma: dma_handle,
+                    i2c: i2c_handle,
+                    power: power_handle,
+                });
             }
             TargetId::Esp32c6 => {
                 let (plic_machine, plic_user, plic_handle) =
@@ -891,8 +949,7 @@ impl RiscVMachine {
             i2c,
             spi,
             pio,
-            wch_timer,
-            wch_pfic,
+            wch,
             usb,
             usb_dpram,
             usb_host,

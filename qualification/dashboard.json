@@ -8,39 +8,39 @@
   "phase_5_evidence": [
     {
       "path": "qualification/riscv-cpu.json",
-      "sha256": "3116e0dcee97218937bd1e5ddd957770ee9510fa5ad325fd49f93544fffb942f"
+      "sha256": "cb81d275d7040d399087b69273143a460f4d042a45534c6d0ccdf80b12bf83f8"
     },
     {
       "path": "qualification/arm-cpu.json",
-      "sha256": "5717d0824b43f2a36fd4a7e0ec6708c44d15c63fe0917c3dc814333d0de9e791"
+      "sha256": "c13324a3b771c3e8ba08dfceedf9a3860d86e7c02e16217cabfed4290bf2c915"
     },
     {
       "path": "qualification/xtensa-cpu.json",
-      "sha256": "ebab5ffff039df4f3d8bedbf48bab062f503a1c5dfcbdf6af9edd5c4e48953ee"
+      "sha256": "60f649d9d5cc627865ecbe5a87c8afa6d65bcf3672c632ecdcca682563f7efba"
     },
     {
       "path": "qualification/reduction.json",
-      "sha256": "c5e6a57f0f9f6f6f7b4947c0b07f30a08dcc9acfe5db1ceb9a5a394f0c2210b4"
+      "sha256": "52c64cb9c9832d378f9fce0ba212bbb88014a81e285682bd26cea230a14d6d26"
     },
     {
       "path": "qualification/debug-observability.json",
-      "sha256": "d9289784715b0ce79952cf6f562188d08134e37e2a31af3e6b8725be762084de"
+      "sha256": "dd0a21000a408d8cad22e072a828c6ca63349850fabd019c5817833a4ccc4e37"
     },
     {
       "path": "qualification/vendor-samples.json",
-      "sha256": "5910da5f6ce417d2f87ddb6e2013c52795e8144661f3e4321ff718d69aac7d98"
+      "sha256": "a354d7a2a7e59e41a6a3eceba2c75a1576b1daba1c85d1856e67c255ed7ba837"
     },
     {
       "path": "qualification/starlark.json",
-      "sha256": "53118420bc7765ba1931b08cf097825c569879b5802645358c6f208a8687b0b0"
+      "sha256": "c6ba790dac69df6a5c78925a0041482945975f09bf9a8c6e48401f1109805650"
     },
     {
       "path": "qualification/rust-abi.json",
-      "sha256": "7ec000e6bc56208288913f0d815ab6146ead541a1d6f1a6ce6ef166365f8f5f8"
+      "sha256": "22b1397bfb556774cf493ee5fb642dc0ac0a4dfe784d665c24ebe10987fd180a"
     },
     {
       "path": "qualification/stop-conditions.json",
-      "sha256": "85702b729e872b544f79158b59cebb4397de85e031aed871e1ee62b0d1c69fc9"
+      "sha256": "88ccf39717cd920fd7b9c5fb285ef7c91fa7e67ef1a8c463e67b27f3fb13ffb7"
     },
     {
       "path": "qualification/host-determinism.json",
@@ -102,7 +102,8 @@
       "id": "ch32v003",
       "known_gaps": [
         "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
-        "analog and debug-wire behavior is outside the baseline",
+        "CH32V003 has no native TKEY block; ADC-aided capacitive touch is outside the baseline",
+        "analog and debug-wire behavior is otherwise outside the baseline",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
         "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
@@ -119,7 +120,7 @@
       "register_coverage": {
         "covered_register_count": 13,
         "manifest": "qualification/register-coverage/ch32v003.json",
-        "manifest_sha256": "11d1cb6a94846f18e0e344cdb0bc10d76e8752a679c77a9fb62f25cdcec6a2d0",
+        "manifest_sha256": "eb2844028ca6d2616f0ca422bafd8b189412493b0a6cad9848b83a16ad0e9c3f",
         "required_covered_regions": [
           "ch32v003.gpioc",
           "ch32v003.pfic",
@@ -175,12 +176,17 @@
       "id": "ch32v006",
       "known_gaps": [
         "exact PFIC nesting and HPE/VTF edge behavior remain approximate",
-        "analog and touch peripherals are outside the baseline",
+        "USART1 and USART2 are transmit-focused slices without physical baud timing or a complete receive path",
+        "TKEY uses deterministic host-provided samples rather than analogue capacitance physics",
+        "ADC DMA, scan/injection groups, watchdogs and exact HBCLK timing remain outside the baseline",
+        "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, center-alignment, preload transfers, waveform pins, and exact clock timing are deferred",
         "Peripheral time advances in deterministic abstract ticks rather than silicon clock cycles.",
         "The WCH component implementations are shared with CH32V003 but instantiated with the CH32V006 memory sizes and target identity.",
         "GPIO covers the configuration and set/clear paths used by the baseline, not every electrical mode.",
-        "USART1 is a transmit-focused functional slice without physical baud timing or a complete receive path.",
-        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting."
+        "USART1 and USART2 are transmit-focused functional slices without physical baud timing or a complete receive path.",
+        "TIM2 and PFIC omit advanced timer modes and exact interrupt priority nesting.",
+        "TKEY accepts deterministic host samples; analogue capacitance, DMA, scan/injection groups and exact HBCLK timing are not modeled.",
+        "TIM3 streamlined mode covers deterministic internal-clock counting and compare/DMA event observation; timer cascade, center-alignment, preload transfers, waveform pins, and exact clock timing remain outside the slice."
       ],
       "name": "WCH CH32V006",
       "passing_corpus": [
@@ -190,15 +196,18 @@
         "Unmodified WCH EVT GPIO Toggle"
       ],
       "register_coverage": {
-        "covered_register_count": 13,
+        "covered_register_count": 29,
         "manifest": "qualification/register-coverage/ch32v006.json",
-        "manifest_sha256": "f6861a50a816febbd8ae099cd7debddddc9ca08f3b933888532ac3b66ca80d81",
+        "manifest_sha256": "531dc137edb0c6af6f9fc0eb43fd1ee35ce35eaf51f95e02cd82608eaba81692",
         "required_covered_regions": [
           "ch32v006.gpioc",
           "ch32v006.pfic",
           "ch32v006.rcc",
           "ch32v006.tim2",
-          "ch32v006.usart1"
+          "ch32v006.tim3",
+          "ch32v006.usart1",
+          "ch32v006.usart2",
+          "ch32v006.adc-tkey"
         ],
         "status": "passing"
       },
@@ -263,7 +272,7 @@
       "register_coverage": {
         "covered_register_count": 52,
         "manifest": "qualification/register-coverage/rp2040.json",
-        "manifest_sha256": "fc532d3e8b21e55ddbaee7888cdf6f05b3887cd4ef5cd88e56c4ec35899d0ac5",
+        "manifest_sha256": "dfdd75e82ffa6c2f624d65357316fe0a3825084351bfa788253f7a64afbf4d2e",
         "required_covered_regions": [
           "rp2040.i2c0",
           "rp2040.i2c1",
@@ -347,7 +356,7 @@
       "register_coverage": {
         "covered_register_count": 46,
         "manifest": "qualification/register-coverage/rp2350.json",
-        "manifest_sha256": "d0542e2979440dc05f0d29f757567a8f5b3d3dc69447f0874929184d725868e1",
+        "manifest_sha256": "61881579c98273194880838a9ab42ea64963c28e9bc30675a09cfd2d3f3ade8a",
         "required_covered_regions": [
           "rp2350.i2c0",
           "rp2350.i2c1",
@@ -436,7 +445,7 @@
       "register_coverage": {
         "covered_register_count": 64,
         "manifest": "qualification/register-coverage/esp32s3.json",
-        "manifest_sha256": "c7ca4687784b49137f881b0040712ed52e3486176e37de83c99a0cc9f442e043",
+        "manifest_sha256": "600697d185ab0673d5c2bb98f3ace9dab4c4a6c9e85a615430aad8c1ba353ee2",
         "required_covered_regions": [
           "esp32s3.aes",
           "esp32s3.assist-debug",
@@ -547,7 +556,7 @@
       "register_coverage": {
         "covered_register_count": 7,
         "manifest": "qualification/register-coverage/esp32c6.json",
-        "manifest_sha256": "4e7f2abd7bc747fc61dbf6e3f1570cd178ceb44b1b58f2ea6abbff6043ecb2b8",
+        "manifest_sha256": "7f98117f21ab3e40b8d074b4fe6a30994380222b6476c774b6c7e194a7a0dc14",
         "required_covered_regions": [
           "esp32c6.gpio",
           "esp32c6.plic-machine",

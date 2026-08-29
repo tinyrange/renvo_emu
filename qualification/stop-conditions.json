@@ -1,6 +1,6 @@
 {
   "schema": "remu.stop-conditions.v1",
-  "source_sha256": "22241d15569f722ffa825a026bbbc15d47ca6e333bce882a848c9fc120e3e19c",
+  "source_sha256": "7b5f68a15d09131ab9cb6340136c78697de078bc9a04717210fbca473659d136",
   "cpu_families": [
     "riscv",
     "arm",
@@ -33,7 +33,7 @@
     {
       "id": "riscv-breakpoint",
       "artifact": ".remu/stop-conditions/riscv-breakpoint.json",
-      "sha256": "d1dcb7675740f0dfe42267ab9ca4b25a3d4f1bfcc2639a0f2d3b38079bac42ed",
+      "sha256": "50daa99d9f32e22f1fda958cc98af66dad2c2212ef08f359ecc6fc88c288f777",
       "target": "ch32v003",
       "reason": "Breakpoint",
       "stats": {
@@ -41,7 +41,7 @@
         "time": 0,
         "events": 0
       },
-      "trace_digest": "d66ab6bae96236ddc73f4fae73c7e61644c3e98efe07cceb62109f96ec9f120d",
+      "trace_digest": "6b556e793a583ff0b1e548c8c596179288f664ede6f8cc0c106ce077018b5a91",
       "result": "pass"
     },
     {
@@ -77,7 +77,7 @@
     {
       "id": "riscv-fault",
       "artifact": ".remu/stop-conditions/riscv-fault.json",
-      "sha256": "ceab091abbc6a624421dc089b7b48a5bbed378b78e99f98bc1234573985ecadf",
+      "sha256": "1c9bf8987698101e09f7efa297138529ed2d14d3dddc0a2723ebbc9d89eaa085",
       "target": "ch32v003",
       "reason": {
         "Fault": "RISC-V CPU fault at PC 0x00000016: IllegalInstruction CPU fault at PC 0x00000016: instruction 0xffffffff is not valid for wch-ch32v003-qingke-v2a"
@@ -87,7 +87,7 @@
         "time": 3,
         "events": 0
       },
-      "trace_digest": "d66ab6bae96236ddc73f4fae73c7e61644c3e98efe07cceb62109f96ec9f120d",
+      "trace_digest": "6b556e793a583ff0b1e548c8c596179288f664ede6f8cc0c106ce077018b5a91",
       "result": "pass"
     },
     {
@@ -123,7 +123,7 @@
     {
       "id": "riscv-instruction-limit",
       "artifact": ".remu/stop-conditions/riscv-instruction-limit.json",
-      "sha256": "187acb76cee13a3711c956527d2b8bd4be9bddda049f25ebb99fdac177d640f4",
+      "sha256": "40b282ead3074bd9c13d2bd3b5aec9bdb0271fd4dcda5ed9f8a4cef28bcae292",
       "target": "ch32v003",
       "reason": "InstructionLimit",
       "stats": {
@@ -131,7 +131,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "d66ab6bae96236ddc73f4fae73c7e61644c3e98efe07cceb62109f96ec9f120d",
+      "trace_digest": "6b556e793a583ff0b1e548c8c596179288f664ede6f8cc0c106ce077018b5a91",
       "result": "pass"
     },
     {
@@ -167,7 +167,7 @@
     {
       "id": "riscv-signal",
       "artifact": ".remu/stop-conditions/riscv-signal.json",
-      "sha256": "f44efaf0568121798a280f821da075f88ee2903bb70c453282824881c6fc5dd9",
+      "sha256": "c0c2f035e5ab422fea51955102f38be0bd858dbe2f79832fca491aebd77fab7d",
       "target": "ch32v003",
       "reason": {
         "Signal": "board.ch32v003.gpioc.pin1"
@@ -177,7 +177,7 @@
         "time": 16,
         "events": 0
       },
-      "trace_digest": "22b73bade4e9bb8989b56a8548b5e64bd5f69e813c05c4589388a78e4ea8037e",
+      "trace_digest": "b3199d85b48c97cf7d451449a9e71c19b59ea7ed670bfc29ab5dedd7a8bf6c82",
       "result": "pass"
     },
     {
@@ -213,7 +213,7 @@
     {
       "id": "riscv-time-limit",
       "artifact": ".remu/stop-conditions/riscv-time-limit.json",
-      "sha256": "6f003378dfa24324792244dc9fc5cde00c61d6e44f06ca9fe6445614221bcf73",
+      "sha256": "1444f7c2c5c4e3a4f543021543e96ad28f9c2ef4d24e335bfbac01b11c75307b",
       "target": "ch32v003",
       "reason": "TimeLimit",
       "stats": {
@@ -221,7 +221,7 @@
         "time": 1,
         "events": 0
       },
-      "trace_digest": "d66ab6bae96236ddc73f4fae73c7e61644c3e98efe07cceb62109f96ec9f120d",
+      "trace_digest": "6b556e793a583ff0b1e548c8c596179288f664ede6f8cc0c106ce077018b5a91",
       "result": "pass"
     },
     {
@@ -260,7 +260,7 @@
     {
       "id": "riscv-watchpoint",
       "artifact": ".remu/stop-conditions/riscv-watchpoint.json",
-      "sha256": "ed9cdfd2840d61875a9d942bb7432e34fb25c58a58dd77ada7b35f8271fff42f",
+      "sha256": "ad3fd1a67dc69c9dcce7ef8402c6ebb302b700c504ddc9cd553ec72aa01cda89",
       "target": "ch32v003",
       "reason": {
         "Watchpoint": {
@@ -273,7 +273,7 @@
         "time": 19,
         "events": 0
       },
-      "trace_digest": "22b73bade4e9bb8989b56a8548b5e64bd5f69e813c05c4589388a78e4ea8037e",
+      "trace_digest": "b3199d85b48c97cf7d451449a9e71c19b59ea7ed670bfc29ab5dedd7a8bf6c82",
       "result": "pass"
     },
     {

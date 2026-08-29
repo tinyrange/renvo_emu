@@ -8,8 +8,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 
 | Target | Runnable CPU mode | Direct-load memory | Chip-facing proof |
 |---|---|---|---|
-| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, TIM2, PFIC and table-mode interrupt proofs |
-| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/TIM2/PFIC slice with independently sized map |
+| CH32V003 | QingKe-flavoured RV32EC/Zicsr subset | 16 KiB flash, 2 KiB SRAM | RCC + native GPIO, USART1, SPI1, TIM2, ADC, I2C1, PWR, AFIO/EXTI, PFIC and table-mode interrupt proofs; no native TKEY block |
+| CH32V006 | QingKe-flavoured RV32EC/Zicsr subset | 64 KiB flash, 8 KiB SRAM | Native WCH RCC/GPIO/USART1/USART2/SPI1/TIM2/TIM3/I2C1/PWR/AFIO/EXTI/PFIC plus ADC/TKEY single-channel conversion slice |
 | RP2040 | Cortex-M0+ Armv6-M Thumb subset | 16 MiB XIP window, 264 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1; USB; watchdog/RTC; and ROSC/PSM/VREG controls |
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER0/1; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1/2; USB; and deterministic accelerator/control slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
@@ -48,6 +48,100 @@ All targets also expose a stable compiler-test block:
 This block is explicitly a compiler facade, separate from chip register
 compatibility. It lets architecture tests share stopping and observation
 conventions without pretending that vendor peripherals are interchangeable.
+
+The CH32V006-specific TIM3 streamlined timer is modeled at its native
+`0x40000800` window. Its deterministic internal-clock counter, auto-reload,
+up/down direction, compare channels, and channel 3/4 DMA-event enables are
+covered by the Docker `wch-sltm` proof. Timer-1 cascade, center-alignment,
+compare/auto-reload preload transfers, physical waveform alternate functions,
+and silicon clock timing remain outside this functional slice.
+
+The WCH DMA1 block at `0x4002_0000` exposes all seven channel register sets,
+transfer-count/address configuration, byte/halfword/word widths (including
+different source and destination widths), direction, memory-to-memory mode,
+address-increment flags, circular mode, transfer/half/error flags, and PFIC
+lines 22–28. The scheduler services one transfer unit per abstract tick
+through the guest bus. Peripheral request mux details and exact arbitration or
+bus timing are intentionally omitted; memory-to-memory circular mode is
+disabled as on the hardware.
+
+### WCH touch-key fidelity
+
+The CH32V006 model maps the documented ADC/TKEY extension at `0x40012400`.
+Firmware can enable `ADC_CTLR1.TKENABLE`, select `ADC_RSQR3.SQ1`, configure
+the single-channel `ADC_RSQR1` sequence, configure `TKEY_CHG`, write
+`TKEY_DISCHG`, wait for `ADC_STATR.EOC`, and read `TKEY_DR`. The register model
+honors the documented ADC masks, write-only TKEY/ADC aliases, read-clear EOC,
+single-conversion mode restrictions, and `ADC_CTLR2.ALIGN` result alignment.
+The emulator supplies deterministic host-controlled 12-bit channel samples and
+routes the enabled conversion-complete source through PFIC interrupt 15.
+
+The register contract is based on the [official CH32V00X reference manual]
+(https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF),
+including its TKEY register aliases at offsets `0x3c` and `0x4c`. It does not
+simulate electrode capacitance, analogue charge curves, DMA, scan or injection
+groups, or silicon clock timing.
+
+The CH32V003 has no native TKEY peripheral in the official WCH selection table;
+its ADC-aided capacitive-touch technique is therefore not claimed as native
+TKEY support here.
+
+### WCH USART fidelity
+
+The shared CH32V00X USART model uses named register IDs for both USART1 and
+CH32V006 USART2. It applies the documented masks for `STATR`, `BRR`,
+`CTLR1/2/3`, and `GPR`, preserves the native `TXE` reset state, implements
+RW0 clearing for the modeled status flags, and emits an immediate byte-oriented
+transmit event when `UE|TE` are enabled. The [official CH32V00X reference
+manual](https://ch32-riscv-ug.github.io/CH32V006/datasheet_en/CH32V00XRM.PDF)
+defines a nine-bit data register; the current host terminal intentionally
+exposes only its low byte and does not model receive, DMA, line timing, or
+USART interrupt delivery.
+
+### WCH I2C1 functional slice
+
+CH32V003 and CH32V006 map the vendor `I2C1` register block at `0x40005400`.
+The functional model covers the documented 16-bit `CTLR1`, `CTLR2`, `OADDR1`,
+`OADDR2`, `DATAR`, `STAR1`, `STAR2`, and `CKCFGR` registers. Firmware can
+enable the controller, generate a START or STOP, send seven-bit addresses,
+transmit bytes, clear the ADDR sequence, and receive queued bytes. Event and
+error interrupt enables route to the WCH PFIC's I2C1 event/error lines 30 and
+31.
+
+The host-facing `WchI2cHandle` acknowledges every address by default, can
+queue deterministic read responses, selectively NACK addresses, and collect
+bytes transmitted by firmware. This is a functional transaction model: it
+does not claim electrical arbitration, clock stretching, analogue pull-up
+timing, DMA requests, slave-mode operation, or multi-master behaviour.
+
+### WCH power-control functional slice
+
+CH32V003 and CH32V006 map the vendor `PWR` block at `0x40007000`. The model
+covers the documented `CTLR`, `CSR`, `AWUCSR`, `AWUWR`, and `AWUPSC` registers:
+PVD enable/threshold configuration, the host-driven `PVDO` status flag,
+automatic-wakeup enable/window/prescaler fields, and the standby (`PDDS`)
+configuration used by firmware before `WFI`/`WFE`. The target-specific CTLR
+layouts and reset values are retained: CH32V003 exposes PLS[2:0] with a zero
+reset, while CH32V006 exposes PLS[1:0], FLASH low-power and LDO fields with
+reset `0x00000408`; both AWUWR registers reset to `0x3f`.
+
+`WchPowerHandle` lets a host set the deterministic supply-low condition and
+observe/clear the latched standby request. It does not claim analogue voltage
+curves, regulator current, backup-domain retention, or oscillator-level
+low-power timing; those remain outside the functional baseline.
+
+### WCH flash slice
+
+The WCH CH32V003/CH32V006 flash slice is mapped as executable device-backed
+memory at the manifest flash address plus the vendor `0x0800_0000` alias. The
+native controller at `0x4002_2000` implements the key sequence, lock state,
+NOR one-to-zero programming, 1 KiB sector erase, mass erase, `BSY`/`EOP`
+status, and firmware-loader initialization. CH32V003 supports standard
+half-word programming plus its 64-byte fast-page control path; CH32V006
+supports the documented 32-bit buffered/fast-page control path and 256-byte
+fast erase geometry. It is intentionally functional: option-byte contents,
+write-protection enforcement, exact buffer timing, and flash operation timing
+are not modeled.
 
 ### RP2350 TRNG subset
 
@@ -339,6 +433,36 @@ This is a deterministic digital-input model; asynchronous electrical timing,
 sleep wake-up latency, and peripheral alternate-function pin muxing are not
 claimed. Register behavior follows the
 [ATmega328PB datasheet](https://ww1.microchip.com/downloads/en/devicedoc/40001906a.pdf).
+
+## WCH AFIO/EXTI slice
+
+CH32V003 and CH32V006 expose the native AFIO window at `0x40010000` and EXTI
+at `0x40010400`. The functional slice retains AFIO `PCFR1`, routes EXTI0-7
+through `EXTICR`, detects configured rising/falling edges, supports software
+triggers and write-one-to-clear flags, and delivers the EXTI7_0 request through
+PFIC line 20. External GPIO stimuli are sampled on the deterministic timeline.
+The register surface uses named `WchAfioRegister` and `WchExtiRegister` IDs;
+reserved AFIO `PCFR1` bits read back as zero, and the reserved `EXTICR` port
+encoding `01` is rejected as an input source rather than being aliased to PA.
+
+Alternate-function electrical muxing, event-only wake semantics, analog/PVD
+sources, and undocumented remap side effects remain outside this slice.
+
+## CH32V00x SPI1 slice
+
+Both CH32V003 and CH32V006 map the native SPI1 register block at `0x40013000`.
+The functional slice covers `CR1`, `CR2`, `SR`, and `DR`: an enabled master
+(`SPE|MSTR`) completes a deterministic full-duplex byte transfer, captures MOSI,
+and returns an injected MISO byte (or an echo when no external byte is queued).
+`RXNE`/`TXE` status and `RXNEIE`/`TXEIE` interrupt requests route through the
+WCH PFIC SPI1 line 33.
+
+VCD exposes `board.ch32v003.spi1.tx_byte`, `.rx_byte`, and `.tx_strobe` (with
+the corresponding `ch32v006` paths). This is a behavioral transfer model;
+alternate-function pin routing, chip-select wiring, DMA, CRC, I2S mode, and
+exact SPI clock timing remain deferred. Register choices follow the [CH32V003
+reference material](https://www.wch-ic.com/downloads/CH32V003RM_PDF.html) and
+the [CH32V006 reference material](https://www.wch-ic.com/downloads/CH32V00XRM_PDF.html).
 
 ## Implemented CPU surface
 
@@ -870,6 +994,14 @@ the target manifests and `PLAN.html`, principally:
 Register behavior not covered by a passing firmware proof remains either
 unmapped or explicitly approximate.
 
+The WCH ADC1 map is a deterministic 10-bit regular-conversion slice at the
+native `0x4001_2400` base. Firmware can configure the regular sequence, power
+the ADC, trigger a conversion, read/clear EOC through `DR`, complete the
+calibration polling sequence, and receive the modeled IRQ 29 path; host tests
+provide channel samples through the device handle (and the machine API exposes
+the same deterministic input path). Analog settling, sample-clock timing,
+injected conversions, and touch-key behavior remain outside this slice.
+
 The ATmega328PB model includes both native USART0 and USART1 transmit data
 registers (`UDR0` at `0xc6` and `UDR1` at `0xce`), with native USART1
 enable/ready/complete status and separate trace signals. Receive, baud-rate
@@ -893,6 +1025,26 @@ conversion latency, calibration trim, DMA pacing, and package pin coupling are
 intentionally outside this functional CI slice. The register contract is based
 on the official [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
 and [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf).
+
+The WCH CH32V003/CH32V006 models also map the advanced TIM1 register block at
+`0x40012c00`, using the deterministic counter, update-event, capture/compare
+register, and PWM-control subset shared with TIM2. TIM1 update and TIM2 update
+sources are routed to their native PFIC lines (35 and 38 respectively).
+Exact center-aligned waveform timing, break/dead-time outputs, and DMA request
+sequencing remain outside this slice.
+
+The CH32V003 and CH32V006 maps also include deterministic independent- and
+window-watchdog register slices. Key sequencing, reload/window configuration,
+early-warning status, and abstract countdown/reset events are modeled for
+firmware tests; the WWDG early-warning signal is routed through the native PFIC
+vector 16. The model does not claim the silicon LSI/APB frequencies or
+cycle-accurate timeout values.
+
+The CH32V003 and CH32V006 PFIC maps include the QingKe STK system-count
+control, status, counter, compare, software-interrupt, and IRQ 12 behavior.
+The counter advances from the documented HCLK or HCLK/8 source in deterministic
+abstract simulation ticks; this is suitable for firmware scheduling tests but
+does not claim a silicon clock-frequency model.
 
 Direct-run `--bus-log` output is streamed as an ordered JSON array, so its
 memory use is bounded independently of the number of accesses. The schema and

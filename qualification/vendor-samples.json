@@ -43,7 +43,7 @@
       "build": ".remu/qualification/vendor-samples/wch/build.json",
       "build_sha256": "3d6b20a0fb4e0e13c26721f241a11d58893f54535f3c95d8814ccb6669f220c4",
       "run": ".remu/qualification/vendor-samples/ch32v003/run.json",
-      "run_sha256": "2faea28e1d37e9a4adfef52119bdfe51805c20d7dd2939c857eb86552f5424ff"
+      "run_sha256": "1e1cde6d900af528c205901618dd1688d696de45493b1b6219b1d98abbebbb18"
     },
     {
       "target": "ch32v006",
@@ -53,7 +53,7 @@
       "build": ".remu/qualification/vendor-samples/wch/build.json",
       "build_sha256": "3d6b20a0fb4e0e13c26721f241a11d58893f54535f3c95d8814ccb6669f220c4",
       "run": ".remu/qualification/vendor-samples/ch32v006/run.json",
-      "run_sha256": "976c99669f6790b07d383e21a3293139801ae833df63eb320305a74f1506634c"
+      "run_sha256": "4498a62d28bea160fed1e1e98c590253c8035ed5ec77a01be85d991bcf5e031b"
     },
     {
       "target": "rp2040",

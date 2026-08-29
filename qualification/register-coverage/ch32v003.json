@@ -8,19 +8,19 @@
   "generated_by": "scripts/generate-register-coverage.sh",
   "source_spec": {
     "path": "qualification/register-coverage-spec.json",
-    "sha256": "e4b43ab663f6afb31738ac2f352838abad737d4366ff945262014b3218bed314"
+    "sha256": "a0bf774422dac54e76742c9635531229de92cae5ede5af3b1ae7d5029af9ee1f"
   },
   "proofs": [
     {
       "id": "ch32v003",
       "result": ".remu/portfolio-smoke/ch32v003-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v003-bus.json",
-      "result_sha256": "cd396d5e1eb01147c25e58a58e2d1c17eb7cee93da53b052cf7af1065ba833d0",
-      "bus_log_sha256": "5791d7025236637b228f4c0287d11597b1ba62bbd1893ab147fb9f60e7e52071",
+      "result_sha256": "50df1467ad530231c6b2007f893bf6951cf2fc9754b4d1b7f441f913c7630d21",
+      "bus_log_sha256": "f5534572466f6d0ad308eb72aebb08ab27b9f3b9b9216c9ce25691870b567d4b",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "22b73bade4e9bb8989b56a8548b5e64bd5f69e813c05c4589388a78e4ea8037e",
+        "trace_digest": "b3199d85b48c97cf7d451449a9e71c19b59ea7ed670bfc29ab5dedd7a8bf6c82",
         "stats": {
           "instructions": 19,
           "time": 19,
@@ -32,12 +32,12 @@
       "id": "ch32v003-uart",
       "result": ".remu/portfolio-smoke/ch32v003-uart-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v003-uart-bus.json",
-      "result_sha256": "1a7c9356b241a034d777f46e026e9c150dfdc4b3f0afd93e3cb1169f0cfaf4cb",
-      "bus_log_sha256": "dc9ad1ad1412eeb3fd6bb0c108ef79175d7b5f2557311b26d3a537a9b6f6a94c",
+      "result_sha256": "87ee2cc9929d9d48873c85abdadd5f8f17c33350a9ab010f2f516d9f08aa2c48",
+      "bus_log_sha256": "eed7ec3c44059d00b9145a261bda4302ae7508f4ad58bb7e75511f24e2b9c76b",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "d66ab6bae96236ddc73f4fae73c7e61644c3e98efe07cceb62109f96ec9f120d",
+        "trace_digest": "6b556e793a583ff0b1e548c8c596179288f664ede6f8cc0c106ce077018b5a91",
         "stats": {
           "instructions": 88,
           "time": 88,
@@ -49,12 +49,12 @@
       "id": "ch32v003-timer",
       "result": ".remu/portfolio-smoke/ch32v003-timer-run.json",
       "bus_log": ".remu/portfolio-smoke/ch32v003-timer-bus.json",
-      "result_sha256": "3fef5a8c5b36bd53f7c8327c6cb72b63d8809dca237c5e6cc919895ec4ca9c67",
-      "bus_log_sha256": "a8533c56a0c1bab1a112ec6d0c8698d40b4cf887638626ed89f11a8744ecb847",
+      "result_sha256": "1532ff70b91579ea8a74d2c25ca839e9a52041b12c276386e543c42b3ef60449",
+      "bus_log_sha256": "35cceda2ab52208d1d668f24ddad40777da154b33239488d231345019b1a297c",
       "outcome": {
         "reason": "Halted",
         "exit_code": 0,
-        "trace_digest": "d66ab6bae96236ddc73f4fae73c7e61644c3e98efe07cceb62109f96ec9f120d",
+        "trace_digest": "6b556e793a583ff0b1e548c8c596179288f664ede6f8cc0c106ce077018b5a91",
         "stats": {
           "instructions": 41,
           "time": 41,
