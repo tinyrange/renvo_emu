@@ -993,7 +993,7 @@ The final distillation gate adds four bounded capabilities:
   register manifests and Phase 5 artifacts pass, then regenerates
   `qualification/dashboard.html`, `.json`, and `capability-matrix.md`.
 - `scripts/check-capability-matrix.sh` requires a clean source tree and rejects
-  generated outputs whose source-tree digest, native-image rows, manifest tier
+  generated outputs whose capability-input digest, native-image rows, manifest tier
   evidence, or qualification-artifact hashes are stale. Release checks use the
   already-built release CLI through `REMU_BIN=target/release/remu`.
 

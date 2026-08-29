@@ -45,24 +45,14 @@ def require_pass(path: pathlib.Path):
     return value
 
 
-def source_tree_digest() -> str:
-    """Hash the checked source tree without the generated matrix outputs."""
-    excluded = {
-        "qualification/dashboard.json",
-        "qualification/dashboard.html",
-        "qualification/capability-matrix.md",
-    }
-    names = subprocess.check_output(
-        ["git", "ls-files", "-z"], cwd=ROOT
-    ).split(b"\0")
+def capability_input_digest(paths: list[pathlib.Path]) -> str:
+    """Hash the declared inputs that determine public capability claims."""
     tree = hashlib.sha256()
-    for raw_name in sorted(name for name in names if name):
-        name = raw_name.decode("utf-8")
-        if name in excluded:
-            continue
-        tree.update(raw_name)
+    for path in sorted(set(paths)):
+        relative = path.relative_to(ROOT)
+        tree.update(str(relative).encode("utf-8"))
         tree.update(b"\0")
-        tree.update((ROOT / name).read_bytes())
+        tree.update(path.read_bytes())
         tree.update(b"\0")
     return tree.hexdigest()
 
@@ -150,12 +140,19 @@ def main() -> None:
 
     vendor = load(QUALIFICATION / "vendor-samples.json")
     native_images = load(QUALIFICATION / "native-images.json")
-    source_digest = source_tree_digest()
+    capability_inputs = [
+        pathlib.Path(__file__),
+        spec_path,
+        ROOT / "crates" / "remu-machines" / "src" / "target.rs",
+        QUALIFICATION / "acceptance-report.html",
+        *evidence_paths,
+    ]
     targets = []
     for manifest in manifests:
         target_id = manifest["id"]
         coverage_path = QUALIFICATION / "register-coverage" / f"{target_id}.json"
         coverage = load(coverage_path)
+        capability_inputs.append(coverage_path)
         if coverage.get("evidence_status") != "passing":
             raise SystemExit(f"register evidence is not passing: {target_id}")
         target_vendor = [
@@ -267,11 +264,12 @@ def main() -> None:
             }
         )
 
+    input_digest = capability_input_digest(capability_inputs)
     dashboard = {
         "schema": "remu.support-dashboard.v2",
         "portfolio": "six-chip baseline",
         "result": "pass",
-        "source_tree_sha256": source_digest,
+        "capability_input_sha256": input_digest,
         "tier_definitions": tier_definitions,
         "scope_note": (
             "Baseline proven means deterministic functional compiler/firmware testing; "
@@ -345,14 +343,14 @@ def main() -> None:
 <p class="lede">Checked compiler, firmware, register, and observability evidence for the original baseline.</p>
 <div class="notice"><strong>What “proven” means.</strong> {html.escape(dashboard['scope_note'])}</div>
 {''.join(rows)}
-<section class="provenance"><h2>Provenance and licences</h2><p>Renvo Emulator: MIT OR Apache-2.0. Upstream samples are downloaded at pinned commits, verified by SHA-256, and compiled without changes; tracked adapters provide the SDK and native-MMIO boundary.</p><ul>{sources}</ul><p>Source tree digest: <code>{source_digest}</code></p><p><a href="dashboard.json">Machine-readable dashboard</a> · <a href="capability-matrix.md">Markdown capability matrix</a> · <a href="vendor-samples.json">Vendor qualification</a> · <a href="../PLAN.html">Original plan</a></p></section>
+<section class="provenance"><h2>Provenance and licences</h2><p>Renvo Emulator: MIT OR Apache-2.0. Upstream samples are downloaded at pinned commits, verified by SHA-256, and compiled without changes; tracked adapters provide the SDK and native-MMIO boundary.</p><ul>{sources}</ul><p>Capability input digest: <code>{input_digest}</code></p><p><a href="dashboard.json">Machine-readable dashboard</a> · <a href="capability-matrix.md">Markdown capability matrix</a> · <a href="vendor-samples.json">Vendor qualification</a> · <a href="../PLAN.html">Original plan</a></p></section>
 </main></body></html>"""
     matrix_rows = [
         "# Renvo Emulator capability matrix",
         "",
         "This matrix is generated from target manifests and checked qualification artifacts. Tier 3 is a named workflow claim, not arbitrary SDK or production-firmware compatibility.",
         "",
-        f"Source tree SHA-256 (generated artifacts excluded): `{source_digest}`",
+        f"Capability input SHA-256: `{input_digest}`",
         "",
         "| Target | Highest tier | CPU evidence rows | Native formats | Peripheral scope | Official workflow | Tracker |",
         "| --- | --- | --- | --- | --- | --- | --- |",

@@ -396,7 +396,7 @@ The next cross-cutting work is tracked explicitly:
 3. [Centralize deterministic machine scheduling and run control](https://github.com/tinyrange/renvo_emu/issues/24)
 4. [Connect Starlark board topology to live firmware MMIO](https://github.com/tinyrange/renvo_emu/issues/25)
 5. [Add hardware-backed and differential correctness oracles](https://github.com/tinyrange/renvo_emu/issues/26)
-6. ~~[Generate the public capability matrix from qualification evidence](https://github.com/tinyrange/renvo_emu/issues/27)~~ — generated matrix is checked against the source tree and qualification evidence
+6. ~~[Generate the public capability matrix from qualification evidence](https://github.com/tinyrange/renvo_emu/issues/27)~~ — generated matrix is checked against target manifests and qualification evidence
 7. [Deepen RP2040 as the flagship Pico SDK target](https://github.com/tinyrange/renvo_emu/issues/28)
 8. [Establish interpreter performance benchmarks and budgets](https://github.com/tinyrange/renvo_emu/issues/29)
 
