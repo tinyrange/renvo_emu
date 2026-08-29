@@ -56,7 +56,9 @@ Tier 3 never means that arbitrary firmware for the chip will work. It means
 only that the exact published workflows pass. The authoritative implemented
 and deferred behavior is in [the support contract](docs/SUPPORT.md), while the
 generated [qualification dashboard](qualification/dashboard.html) binds claims
-to checked evidence.
+to checked evidence. The compact generated
+[capability matrix](qualification/capability-matrix.md) lists the same tier,
+native-image, CPU-mode, workflow, and peripheral-tracker claims.
 
 ## Quick start
 
@@ -394,7 +396,7 @@ The next cross-cutting work is tracked explicitly:
 3. [Centralize deterministic machine scheduling and run control](https://github.com/tinyrange/renvo_emu/issues/24)
 4. [Connect Starlark board topology to live firmware MMIO](https://github.com/tinyrange/renvo_emu/issues/25)
 5. [Add hardware-backed and differential correctness oracles](https://github.com/tinyrange/renvo_emu/issues/26)
-6. [Generate the public capability matrix from qualification evidence](https://github.com/tinyrange/renvo_emu/issues/27)
+6. ~~[Generate the public capability matrix from qualification evidence](https://github.com/tinyrange/renvo_emu/issues/27)~~ — generated matrix is checked against the source tree and qualification evidence
 7. [Deepen RP2040 as the flagship Pico SDK target](https://github.com/tinyrange/renvo_emu/issues/28)
 8. [Establish interpreter performance benchmarks and budgets](https://github.com/tinyrange/renvo_emu/issues/29)
 
@@ -439,6 +441,7 @@ assertions.
 
 - [Support contract](docs/SUPPORT.md)
 - [Generated support dashboard](qualification/dashboard.html)
+- [Generated capability matrix](qualification/capability-matrix.md)
 - [Expansion target acceptance](docs/EXPANSION.md)
 - [Board simulation](docs/BOARD_SIMULATION.md)
 - [CoreMark qualification](docs/COREMARK.md)

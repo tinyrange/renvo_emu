@@ -91,6 +91,11 @@ jobs:
       - name: Check package manifests
         run: cargo package --workspace --locked --allow-dirty --no-verify --list >/dev/null
 
+      - name: Check generated capability matrix
+        run: |
+          cargo build --locked -p remu-cli
+          scripts/check-capability-matrix.sh
+
   machine-smoke:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
