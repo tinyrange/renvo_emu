@@ -138,9 +138,10 @@ keeping the implementation in Rust.
 The I2C endpoint intentionally remains a host-transfer slice: it emits the bus
 waveform and returns the model response, but it does not yet observe a firmware
 I2C controller's MMIO transaction or inject device ACK/data bits into that
-controller. Data/clock pin aliases are rejected, transfers must start at or
-after the previous transfer's stop time, and waveform timestamp overflow is
-reported instead of being saturated. Waveform timing is preflighted before
+controller. Data/clock pin aliases are rejected, transfers on one connector
+must start at or after that connector's previous stop time, and independent
+connectors may overlap. Waveform timestamp overflow is reported instead of
+being saturated. Waveform timing is preflighted before
 signals or the target model are changed, so a rejected transfer is
 transactional. The generic board runner applies the same checked timing
 boundary. These interfaces therefore do not claim that an ESP32-C6 firmware
