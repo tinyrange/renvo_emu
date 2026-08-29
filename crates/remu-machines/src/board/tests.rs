@@ -236,6 +236,21 @@ fn gpio_endpoint_rejects_primary_pin_contention() {
 }
 
 #[test]
+fn board_i2c_overflow_is_rejected_before_emitting_waveform() {
+    let mut scenario = scenario();
+    scenario.actions = vec![BoardAction::I2cTransfer {
+        connector: "grove".to_owned(),
+        address: SGP30_ADDRESS,
+        write: vec![0x20, 0x03],
+        read_len: 0,
+        at: u64::MAX,
+    }];
+    scenario.duration = u64::MAX;
+    let error = run_board_scenario(&scenario, None).unwrap_err();
+    assert!(matches!(error, BoardError::I2cTimeOverflow));
+}
+
+#[test]
 fn gpio_endpoint_rejects_protocol_only_m5sticks3_components() {
     let scenario = BoardScenario {
         name: "m5sticks3".to_owned(),

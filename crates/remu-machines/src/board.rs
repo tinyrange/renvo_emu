@@ -15,6 +15,10 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
+#[path = "board_i2c.rs"]
+mod i2c;
+pub use i2c::*;
+
 /// Protocol inferred for a named physical connector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -446,6 +450,17 @@ pub enum BoardError {
         /// Requested address.
         address: u8,
     },
+    /// An I2C connector aliases its data and clock pin.
+    #[error("I2C connector {connector:?} aliases data and clock on GPIO pin {pin}")]
+    I2cPinAlias {
+        /// Connector name.
+        connector: String,
+        /// Aliased GPIO number.
+        pin: u8,
+    },
+    /// An I2C waveform would exceed the representable simulation timeline.
+    #[error("I2C waveform time overflow")]
+    I2cTimeOverflow,
     /// A model-specific SGP30 command failed.
     #[error(transparent)]
     Sgp30(#[from] Sgp30Error),
@@ -475,6 +490,14 @@ pub enum BoardError {
         /// Component kind.
         kind: &'static str,
     },
+    /// A board component is not an I2C device supported by the endpoint.
+    #[error("I2C endpoint does not support {kind} component {component:?}")]
+    I2cComponent {
+        /// Component name.
+        component: String,
+        /// Component kind.
+        kind: &'static str,
+    },
     /// A GPIO action references a component that is not a mounted button.
     #[error("GPIO endpoint action references unknown button {0:?}")]
     GpioButton(String),
@@ -493,6 +516,7 @@ pub enum BoardError {
     Trace(#[from] TraceError),
 }
 
+#[derive(Clone)]
 enum RuntimeComponent {
     Button(PushButton),
     Led(DigitalLed),
@@ -504,6 +528,7 @@ enum RuntimeComponent {
     St7789(BoardSt7789),
 }
 
+#[derive(Clone)]
 struct BoardSt7789 {
     panel: St7789,
     pending_command: Option<u8>,
@@ -816,10 +841,11 @@ pub fn run_board_scenario(
                         connector: connector.clone(),
                         address: *address,
                     })?;
-                let device = runtime
-                    .get_mut(&connection.component.name)
-                    .expect("validated connection has runtime component");
-                let response = match device {
+                let mut candidate = runtime
+                    .get(&connection.component.name)
+                    .expect("validated connection has runtime component")
+                    .clone();
+                let response = match &mut candidate {
                     RuntimeComponent::Sgp30(sensor) => {
                         sensor.transact(write, *read_len, SimTime::from_ticks(*at))?
                     }
@@ -849,6 +875,9 @@ pub fn run_board_scenario(
                     &mut trace,
                     &mut digest,
                 )?;
+                *runtime
+                    .get_mut(&connection.component.name)
+                    .expect("validated connection has runtime component") = candidate;
                 events.push(BoardEvent::I2c {
                     connector: connector.clone(),
                     address: *address,
@@ -1305,6 +1334,19 @@ fn emit_i2c(
     digest: &mut TraceDigest,
 ) -> Result<SimTime, BoardError> {
     const HALF: u64 = 5_000;
+    let byte_count = 1usize
+        .checked_add(write.len())
+        .and_then(|count| {
+            if read.is_empty() {
+                Some(count)
+            } else {
+                count
+                    .checked_add(read.len())
+                    .and_then(|count| count.checked_add(1))
+            }
+        })
+        .ok_or(BoardError::I2cTimeOverflow)?;
+    let _ = i2c::i2c_waveform_end(start, byte_count)?;
     let mut now = start.ticks();
     emit_logic(
         registry,
@@ -1314,7 +1356,7 @@ fn emit_i2c(
         trace,
         digest,
     )?;
-    now = now.saturating_add(HALF);
+    now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
     let mut bytes = vec![(address << 1, false)];
     bytes.extend(write.iter().copied().map(|byte| (byte, false)));
     if !read.is_empty() {
@@ -1343,7 +1385,7 @@ fn emit_i2c(
                 trace,
                 digest,
             )?;
-            now = now.saturating_add(HALF);
+            now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
             emit_logic(
                 registry,
                 clock,
@@ -1352,7 +1394,7 @@ fn emit_i2c(
                 trace,
                 digest,
             )?;
-            now = now.saturating_add(HALF);
+            now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
         }
         emit_logic(
             registry,
@@ -1370,7 +1412,7 @@ fn emit_i2c(
             trace,
             digest,
         )?;
-        now = now.saturating_add(HALF);
+        now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
         emit_logic(
             registry,
             clock,
@@ -1379,7 +1421,7 @@ fn emit_i2c(
             trace,
             digest,
         )?;
-        now = now.saturating_add(HALF);
+        now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
     }
     emit_logic(
         registry,
@@ -1397,7 +1439,7 @@ fn emit_i2c(
         trace,
         digest,
     )?;
-    now = now.saturating_add(HALF);
+    now = now.checked_add(HALF).ok_or(BoardError::I2cTimeOverflow)?;
     emit_logic(
         registry,
         data,
