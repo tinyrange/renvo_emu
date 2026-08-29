@@ -32,6 +32,21 @@ CASES = [
 ]
 
 OBSERVABLE_FIELDS = ("reason", "exit_code", "uart", "usb", "trace_digest")
+ESP32S3_BOOT_STAGES = [
+    "rom-image-validation",
+    "second-stage-load",
+    "partition-selection",
+    "application-load-and-map",
+    "windowed-abi-handoff",
+]
+ESP32S3_REQUIRED_SEGMENT_KINDS = {
+    "bootloader-dram",
+    "bootloader-iram",
+    "application-drom",
+    "application-iram",
+    "application-padding",
+    "application-irom",
+}
 
 
 def sha256(path: Path) -> str:
@@ -94,8 +109,7 @@ def main() -> None:
         # allowed local bootstrap tag to an ID before launching the container.
         if not is_immutable_image_id(build.get("image_id")):
             raise ValueError(f"{build_path}: toolchain did not resolve to an immutable image ID")
-        cases.append(
-            {
+        case = {
                 "id": case_id,
                 "target": target,
                 "direct_format": direct_format,
@@ -112,7 +126,44 @@ def main() -> None:
                 "trace_digest": direct["trace_digest"],
                 "status": "pass",
             }
-        )
+        if case_id == "esp32s3":
+            inspection_path = args.root / "images" / "esp32s3-inspect.json"
+            inspection = load_json(inspection_path)
+            boot = inspection.get("esp32s3_boot")
+            if not isinstance(boot, dict) or boot.get("schema") != "remu.esp32s3-boot.v1":
+                raise ValueError("esp32s3: missing strict boot inspection report")
+            if boot.get("stages") != ESP32S3_BOOT_STAGES:
+                raise ValueError("esp32s3: strict boot stages are incomplete or out of order")
+            segment_kinds = {
+                segment.get("kind") for segment in boot.get("segments", [])
+            }
+            if not ESP32S3_REQUIRED_SEGMENT_KINDS.issubset(segment_kinds):
+                raise ValueError("esp32s3: strict boot report lacks required segment classes")
+            mappings = boot.get("mappings", [])
+            if len(mappings) < 2 or len(
+                {mapping.get("table_index") for mapping in mappings}
+            ) < 2:
+                raise ValueError("esp32s3: DROM/IROM require distinct cache-MMU mappings")
+            for mapping in mappings:
+                virtual_address = mapping.get("virtual_page_address")
+                flash_offset = mapping.get("flash_page_offset")
+                table_index = mapping.get("table_index")
+                page_count = mapping.get("page_count")
+                if (
+                    not isinstance(virtual_address, int)
+                    or virtual_address % (64 * 1024) != 0
+                    or not isinstance(flash_offset, int)
+                    or flash_offset % (64 * 1024) != 0
+                    or not isinstance(table_index, int)
+                    or not 0 <= table_index < 256
+                    or not isinstance(page_count, int)
+                    or page_count < 1
+                ):
+                    raise ValueError("esp32s3: invalid cache-MMU mapping units or range")
+            case["boot_inspection"] = str(inspection_path)
+            case["boot_inspection_sha256"] = sha256(inspection_path)
+            case["boot_contract"] = boot
+        cases.append(case)
 
     rejection_root = args.root / "rejections"
     rejections = []

@@ -226,6 +226,16 @@ build_case esp32s3 toolchains/xtensa-esp-gcc-esp32s3.toml corpus/smoke/xtensa es
     -O2 main.c
 run_case esp32s3 esp32s3 "$artifact_root/esp32s3/smoke.elf"
 
+build_case esp32s3-bss-missing toolchains/xtensa-esp-gcc-esp32s3.toml \
+    corpus/smoke/xtensa-bss esp32s3 -O2 main.c
+run_case esp32s3-bss-missing esp32s3 \
+    "$artifact_root/esp32s3-bss-missing/smoke.elf"
+
+build_case esp32s3-bss-cleared toolchains/xtensa-esp-gcc-esp32s3.toml \
+    corpus/smoke/xtensa-bss esp32s3 -O2 -DCLEAR_BSS main.c
+run_case esp32s3-bss-cleared esp32s3 \
+    "$artifact_root/esp32s3-bss-cleared/smoke.elf"
+
 for optimization in o0 o2 os
 do
     case "$optimization" in
@@ -274,6 +284,10 @@ jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v003-timer-ru
 jq -e '.exit_code == 0 and .stats.events == 1' "$artifact_root/ch32v006-timer-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/ch32v006-sltm-run.json" >/dev/null
 jq -e '.exit_code == 0' "$artifact_root/ch32v006-touch-run.json" >/dev/null
+jq -e '.reason == "Halted" and .exit_code == 70' \
+    "$artifact_root/esp32s3-bss-missing-run.json" >/dev/null
+jq -e '.reason == "Halted" and .exit_code == 0' \
+    "$artifact_root/esp32s3-bss-cleared-run.json" >/dev/null
 jq -e '.uart | implode == "REMU-WCH\n"' "$artifact_root/ch32v003-uart-run.json" >/dev/null
 jq -e '.uart | implode == "REMU-WCH\n"' "$artifact_root/ch32v006-uart-run.json" >/dev/null
 jq -e '.exit_code == 0 and (.uart | implode == "REMU-WCH2\n")' "$artifact_root/ch32v006-uart2-run.json" >/dev/null

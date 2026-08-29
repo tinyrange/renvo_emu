@@ -62,6 +62,37 @@ fn merged_flash_image() -> EspFlashImage {
     }
 }
 
+fn strict_flash_image() -> EspFlashImage {
+    let mut image = merged_flash_image();
+    image.bootloader.header.entry = 0x403c_0000;
+    image.bootloader.header.segment_count = 2;
+    image.bootloader.segments = vec![
+        EspImageSegment {
+            address: 0x3fce_0000,
+            flash_offset: 0x20,
+            data: vec![0x10, 0x20, 0x30, 0x40],
+        },
+        EspImageSegment {
+            address: 0x403c_0000,
+            flash_offset: 0x1000,
+            data: vec![0x36, 0x81, 0x01, 0x3d, 0xf0],
+        },
+    ];
+    image.bootloader.end_offset = 0x1005;
+    image
+}
+
+fn flash_for(image: &EspFlashImage) -> Vec<u8> {
+    let mut flash = vec![0xff; 0x20_000];
+    for executable in [&image.bootloader, &image.application] {
+        for segment in &executable.segments {
+            let start = usize::try_from(segment.flash_offset).unwrap();
+            flash[start..start + segment.data.len()].copy_from_slice(&segment.data);
+        }
+    }
+    flash
+}
+
 fn handoff_image(entry: u32, code: &[u8]) -> EspFlashImage {
     let header = || EspImageHeader {
         segment_count: 1,
@@ -160,6 +191,21 @@ fn verified_xip_requires_the_rom_instruction_cache_configuration() {
         .unwrap();
     assert_eq!(allowed.reason, StopReason::InstructionLimit);
 }
+
+#[test]
+fn native_boot_keeps_the_cache_configuration_rom_contract_observable() {
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine.boot_rom_loaded = true;
+    machine.cpu.set_direct_state(0x3fc8_0100, 0x4000_1a1c);
+    machine.cpu.set_register(XtensaRegister::A2, 0x4000);
+    machine.cpu.set_register(XtensaRegister::A3, 8);
+    machine.cpu.set_register(XtensaRegister::A4, 32);
+
+    assert!(machine.service_functional_rom().unwrap());
+    assert!(machine.instruction_cache_configured);
+    assert_eq!(machine.cpu.register(XtensaRegister::A2), 0);
+}
+
 #[test]
 fn verified_handoff_requires_entry_and_rotates_callx8_window() {
     let mut missing_entry = XtensaMachine::new(TargetId::Esp32s3).unwrap();

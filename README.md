@@ -114,6 +114,12 @@ with the target's real mask-ROM ELF. ESP32-C6/S3 native firmware boot and
 radio-capable direct runs likewise require the matching ROM. A direct ELF run
 that only tests CPU/compiler behavior remains exempt.
 
+ESP32-S3 native boot additionally validates a strict, flash-backed functional
+ROM/second-stage plan before handoff. `firmware inspect` exposes its selected
+partition, copied and mapped segments, cache-MMU pages, and ordered boot stages
+under `esp32s3_boot`; unsupported ranges and stale parsed-versus-persistent
+flash bytes are rejected.
+
 The ESP32-S3 model also exposes a functional RMT slice. Transmit channels 0–3
 accept native FIFO pulse items at `0x6001_6000`, set completion status, and
 publish deterministic channel waveforms to VCD as

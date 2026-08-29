@@ -15,6 +15,10 @@ mkdir -p "$(dirname -- "$output")"
 
 cargo test -q -p remu-cpu-xtensa > "$unit_log"
 cargo test -q -p remu-machines direct_load_starts_with_appcpu_reset_and_parked >> "$unit_log"
+cargo test -q -p remu-machines direct_elf_load_leaves_the_bss_tail_poisoned >> "$unit_log"
+cargo test -q -p remu-machines verified_xip_requires_the_rom_instruction_cache_configuration >> "$unit_log"
+cargo test -q -p remu-machines verified_handoff_requires_entry_and_rotates_callx8_window >> "$unit_log"
+cargo test -q -p remu-machines esp32s3_strict_flash_boot_reports_rom_second_stage_and_handoff >> "$unit_log"
 
 add_proof()
 {
@@ -107,9 +111,22 @@ add_proof o2
 add_proof os
 
 image_id=$(docker image inspect --format '{{.Id}}' "$image")
+bss_missing=$root/esp32s3-bss-missing-run.json
+bss_cleared=$root/esp32s3-bss-cleared-run.json
+jq -e '.reason == "Halted" and .exit_code == 70' "$bss_missing" >/dev/null
+jq -e '.reason == "Halted" and .exit_code == 0' "$bss_cleared" >/dev/null
+bss_missing_sha=$(sha256sum "$bss_missing" | cut -d ' ' -f 1)
+bss_cleared_sha=$(sha256sum "$bss_cleared" | cut -d ' ' -f 1)
 source_sha=$(sha256sum \
     crates/remu-cpu-xtensa/src/lib.rs \
+    crates/remu-cpu-xtensa/src/core/execution.rs \
+    crates/remu-cpu-xtensa/src/core/tests.rs \
     crates/remu-machines/src/xtensa.rs \
+    crates/remu-machines/src/xtensa/boot.rs \
+    crates/remu-machines/src/xtensa/machine_runtime.rs \
+    crates/remu-machines/src/xtensa/tests_image.rs \
+    corpus/smoke/xtensa-bss/link.ld \
+    corpus/smoke/xtensa-bss/main.c \
     corpus/smoke/xtensa-qualification/exception.S \
     corpus/smoke/xtensa-qualification/link.ld \
     corpus/smoke/xtensa-qualification/main.c \
@@ -124,6 +141,10 @@ jq -n \
     --arg unit_test_sha256 "$unit_sha" \
     --arg image "$image" \
     --arg image_id "$image_id" \
+    --arg bss_missing "$bss_missing" \
+    --arg bss_missing_sha256 "$bss_missing_sha" \
+    --arg bss_cleared "$bss_cleared" \
+    --arg bss_cleared_sha256 "$bss_cleared_sha" \
     --slurpfile proofs "$proofs" \
     '{
       schema: $schema,
@@ -147,8 +168,26 @@ jq -n \
         "S32C1I atomic compare/store and SCOMPARE1",
         "single-precision LX7 FPU compiler operations",
         "ESP32-S3 IRAM, DRAM, IROM and DROM direct ELF mappings",
+        "word-aligned CALLX0/4/8/12 indirect targets",
+        "nonzero power-on RAM with file-backed-only ELF loading",
+        "cache-gated verified IROM fetch and CALLX8/ENTRY handoff",
+        "validated functional ROM/second-stage native flash boot plan",
         "CPU0 direct execution with CPU1 reset and parked"
       ],
+      bss_startup: {
+        missing_clear: {
+          artifact: $bss_missing,
+          sha256: $bss_missing_sha256,
+          expected_exit_code: 70,
+          result: "pass"
+        },
+        explicit_clear: {
+          artifact: $bss_cleared,
+          sha256: $bss_cleared_sha256,
+          expected_exit_code: 0,
+          result: "pass"
+        }
+      },
       unit_tests: {
         artifact: $unit_test_artifact,
         sha256: $unit_test_sha256

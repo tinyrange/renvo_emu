@@ -111,6 +111,7 @@ fn esp32s3_flash_application_loads_xip_and_dram_segments() {
     let mut flash = vec![0xff; 0x13_000];
     flash[0x10_020..0x10_024].copy_from_slice(&[0x11, 0x22, 0x33, 0x44]);
     flash[0x11_000..0x11_004].copy_from_slice(&[0xa1, 0xb2, 0xc3, 0xd4]);
+    flash[0x12_000..0x12_004].copy_from_slice(&[0x55, 0x66, 0x77, 0x88]);
 
     let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
     machine.set_esp_flash_image(&flash);
@@ -130,6 +131,82 @@ fn esp32s3_flash_application_loads_xip_and_dram_segments() {
         vec![0x55, 0x66, 0x77, 0x88]
     );
     assert_eq!(machine.debug_snapshot().pc, 0x4200_0020);
+}
+
+#[test]
+fn esp32s3_strict_flash_boot_reports_rom_second_stage_and_handoff() {
+    let image = strict_flash_image();
+    let flash = flash_for(&image);
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine.set_esp_flash_image(&flash);
+
+    machine.boot_esp_flash_image(&image).unwrap();
+
+    let report = machine.esp32s3_boot_report().unwrap();
+    assert_eq!(report.schema, "remu.esp32s3-boot.v1");
+    assert_eq!(report.bootloader_entry, 0x403c_0000);
+    assert_eq!(report.application_entry, 0x4200_0020);
+    assert_eq!(
+        report.stages,
+        [
+            "rom-image-validation",
+            "second-stage-load",
+            "partition-selection",
+            "application-load-and-map",
+            "windowed-abi-handoff",
+        ]
+    );
+    assert!(report.segments.iter().any(|segment| {
+        segment.kind == Esp32S3BootSegmentKind::BootloaderIram && segment.address == 0x403c_0000
+    }));
+    assert!(report.segments.iter().any(|segment| {
+        segment.kind == Esp32S3BootSegmentKind::ApplicationIrom && segment.address == 0x4200_0020
+    }));
+    assert_eq!(report.mappings.len(), 2);
+    assert_eq!(
+        machine.debug_read_memory(0x403c_0000, 5).unwrap(),
+        vec![0x36, 0x81, 0x01, 0x3d, 0xf0]
+    );
+    assert_eq!(
+        machine.debug_read_memory(0x4200_0020, 4).unwrap(),
+        vec![0x11, 0x22, 0x33, 0x44]
+    );
+    assert_eq!(machine.debug_snapshot().pc, 0x4200_0020);
+
+    machine.set_esp_flash_image(&flash);
+    assert!(machine.esp32s3_boot_report().is_none());
+}
+
+#[test]
+fn esp32s3_strict_flash_boot_rejects_stale_parsed_bytes() {
+    let image = strict_flash_image();
+    let mut flash = flash_for(&image);
+    flash[0x12_000] ^= 0xff;
+    let mut machine = XtensaMachine::new(TargetId::Esp32s3).unwrap();
+    machine.set_esp_flash_image(&flash);
+
+    let error = machine.boot_esp_flash_image(&image).unwrap_err();
+
+    assert!(matches!(
+        error,
+        XtensaMachineError::Load { address: 0x3fc8_8000, message }
+            if message.contains("differs from persistent flash state")
+    ));
+}
+
+#[test]
+fn esp32s3_strict_flash_boot_rejects_non_executable_application_entry() {
+    let mut image = strict_flash_image();
+    image.application.header.entry = 0x3fc8_8000;
+    let flash = flash_for(&image);
+
+    let error = plan_esp32s3_boot(&image, &flash).unwrap_err();
+
+    assert!(matches!(
+        error,
+        XtensaMachineError::Load { address: 0x3fc8_8000, message }
+            if message.contains("outside an executable IRAM/IROM segment")
+    ));
 }
 
 #[test]

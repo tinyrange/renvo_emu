@@ -38,6 +38,7 @@ use remu_signals::Logic;
 use remu_trace::{TraceDigest, TraceSink};
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+mod boot;
 mod error;
 mod functional_rom;
 mod interrupts;
@@ -46,6 +47,10 @@ mod peripheral_handles;
 mod pms;
 mod radio;
 mod radio_constants;
+pub use boot::{
+    Esp32S3BootMapping, Esp32S3BootReport, Esp32S3BootSegment, Esp32S3BootSegmentKind,
+    plan_esp32s3_boot,
+};
 pub use error::XtensaMachineError;
 mod usb_host;
 use usb_host::{EspDwc2Host, FunctionalSha256, appcpu_systimer_level};
@@ -127,6 +132,7 @@ pub struct XtensaMachine {
     sha256_contexts: BTreeMap<u32, FunctionalSha256>,
     setjmp_contexts: BTreeMap<u32, XtensaCpu>,
     flash: Vec<u8>,
+    boot_report: Option<Esp32S3BootReport>,
     stop_on_usb_input_complete: bool,
     breakpoints: BTreeSet<u64>,
     signal_stops: Vec<SignalStop>,
@@ -750,6 +756,7 @@ impl XtensaMachine {
             sha256_contexts: BTreeMap::new(),
             setjmp_contexts: BTreeMap::new(),
             flash: Vec::new(),
+            boot_report: None,
             stop_on_usb_input_complete: false,
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),

@@ -325,6 +325,25 @@ fn callx0_aligns_an_indirect_target_to_a_word_boundary() {
 }
 
 #[test]
+fn every_callx_variant_aligns_its_indirect_target() {
+    for opcode in [0xc0_u32, 0xd0, 0xe0, 0xf0] {
+        let mut bus = AddressSpace::default();
+        let mut cpu = XtensaCpu::new();
+        cpu.pc = 0x100;
+        cpu.registers[1] = 0x3fce_0000;
+        cpu.registers[8] = 0x4200_0717;
+
+        cpu.execute_wide((8 << 8) | opcode, &mut bus, SimTime::ZERO)
+            .unwrap();
+
+        assert_eq!(cpu.pc, 0x4200_0714, "CALLX opcode {opcode:#x}");
+        if opcode == 0xc0 {
+            assert_eq!(cpu.registers[8], 0x4200_0717);
+        }
+    }
+}
+
+#[test]
 fn ssa8b_prepares_a_byte_position_for_sll() {
     let mut bus = AddressSpace::default();
     let mut cpu = XtensaCpu::new();

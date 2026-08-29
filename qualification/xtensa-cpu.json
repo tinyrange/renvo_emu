@@ -1,6 +1,6 @@
 {
   "schema": "remu.xtensa-cpu.v1",
-  "source_sha256": "ee744dc4e0a45d76b8c836ccaf78901b4ca6331fd59923122bc43c1846333f94",
+  "source_sha256": "93425014dd5ab9ffad8119707e9b22395391acafbab7f5ccf0da75d8032ac374",
   "primary_sources": [
     "https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf",
     "https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/tools/idf-tools.html",
@@ -20,11 +20,29 @@
     "S32C1I atomic compare/store and SCOMPARE1",
     "single-precision LX7 FPU compiler operations",
     "ESP32-S3 IRAM, DRAM, IROM and DROM direct ELF mappings",
+    "word-aligned CALLX0/4/8/12 indirect targets",
+    "nonzero power-on RAM with file-backed-only ELF loading",
+    "cache-gated verified IROM fetch and CALLX8/ENTRY handoff",
+    "validated functional ROM/second-stage native flash boot plan",
     "CPU0 direct execution with CPU1 reset and parked"
   ],
+  "bss_startup": {
+    "missing_clear": {
+      "artifact": ".remu/portfolio-smoke/esp32s3-bss-missing-run.json",
+      "sha256": "f07af9aabed5a4be9d20ae0a95f4a15b2c051a2d2250d0500880a178b6a684fd",
+      "expected_exit_code": 70,
+      "result": "pass"
+    },
+    "explicit_clear": {
+      "artifact": ".remu/portfolio-smoke/esp32s3-bss-cleared-run.json",
+      "sha256": "5d5260bc7c3591004a8581029667d60ac38a76d583ae4a936ee78f373c529da8",
+      "expected_exit_code": 0,
+      "result": "pass"
+    }
+  },
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/xtensa-cpu-unit-tests.txt",
-    "sha256": "caf126f9c167a96269c7ec91a85f4ea6d3550f709adf9713025762989364111f"
+    "sha256": "1ffb14888c1a00db4f9c3ef48497292d5c29c6cd1b669951343fa5ec51c97f86"
   },
   "proofs": [
     {

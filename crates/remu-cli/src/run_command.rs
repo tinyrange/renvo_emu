@@ -665,7 +665,7 @@ pub(crate) fn run_loaded_recorded(
             machine.load_firmware(image)?;
             if let Some((flash, bytes)) = &control.esp32s3_boot_image {
                 machine.set_esp_flash_image(bytes);
-                machine.load_esp_application(flash)?;
+                machine.boot_esp_flash_image(flash)?;
             }
             for address in control.breakpoints {
                 machine.add_breakpoint(*address);

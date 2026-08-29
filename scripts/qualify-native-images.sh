@@ -204,6 +204,9 @@ docker run --rm --network=none --pull=never --entrypoint "$package_python" \
     --application /work/build/esp32s3/probe.bin \
     --output /work/images/esp32s3.bin --offset 0x10000
 
+"$remu" firmware inspect "$artifact_root/images/esp32s3.bin" \
+    > "$artifact_root/images/esp32s3-inspect.json"
+
 run_pair()
 {
     id=$1
@@ -304,6 +307,11 @@ scripts/summarize-native-images.py \
     --source scripts/qualify-native-images.sh \
     --source scripts/package-native.py \
     --source scripts/summarize-native-images.py \
+    --source crates/remu-cli/src/firmware_command.rs \
+    --source crates/remu-cli/src/run_command.rs \
+    --source crates/remu-machines/src/xtensa/boot.rs \
+    --source crates/remu-machines/src/xtensa/functional_rom.rs \
+    --source crates/remu-machines/src/xtensa/machine_runtime.rs \
     --source corpus/native_equivalence/arm/start.S \
     --source corpus/native_equivalence/arm/link-rp2040.ld \
     --source corpus/native_equivalence/arm/link-rp2350.ld \

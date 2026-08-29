@@ -223,10 +223,14 @@ impl XtensaMachine {
     }
 
     pub(super) fn service_functional_rom(&mut self) -> Result<bool, String> {
-        if self.boot_rom_loaded {
+        let pc = self.cpu.pc();
+        // Native flash boot still uses the functional cache-mode contract
+        // tracked by issue #69. Keep this single documented ROM API
+        // observable even when the matching mask-ROM ELF supplies every
+        // other routine instruction-for-instruction.
+        if self.boot_rom_loaded && pc != 0x4000_1a1c {
             return Ok(false);
         }
-        let pc = self.cpu.pc();
         if !Self::functional_rom_address(pc) {
             return Ok(false);
         }

@@ -25,6 +25,8 @@ enum FirmwareInspection {
         partition_table_has_md5: bool,
         application_partition: remu_image::EspPartition,
         application: EspExecutableSummary,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        esp32s3_boot: Option<remu_machines::Esp32S3BootReport>,
     },
     IntelHex {
         entry: Option<u32>,
@@ -111,12 +113,16 @@ pub(super) fn firmware(command: FirmwareCommand) -> Result<(), Box<dyn Error>> {
                 }
                 FirmwareFormatArg::EspBin => {
                     let image = EspFlashImage::parse(&bytes)?;
+                    let esp32s3_boot = (image.application.header.chip_id == 9)
+                        .then(|| remu_machines::plan_esp32s3_boot(&image, &bytes))
+                        .transpose()?;
                     FirmwareInspection::EspBin {
                         bootloader: summarize_esp_executable(&image.bootloader),
                         partitions: image.partition_table.partitions,
                         partition_table_has_md5: image.partition_table.has_md5,
                         application_partition: image.application_partition,
                         application: summarize_esp_executable(&image.application),
+                        esp32s3_boot,
                     }
                 }
                 FirmwareFormatArg::IntelHex => {
@@ -321,6 +327,16 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
         } else {
             flash.clone()
         };
+        let state_image = EspFlashImage::parse(&flash_state).map_err(|error| {
+            format!("persistent ESP flash state does not contain a bootable image: {error}")
+        })?;
+        if state_image.application.header.chip_id != expected_chip_id {
+            return Err(format!(
+                "persistent ESP application chip ID {} does not match target {target}; expected {expected_chip_id}",
+                state_image.application.header.chip_id
+            )
+            .into());
+        }
         let limits = RunLimits {
             instructions: Some(arguments.max_instructions),
             deadline: arguments.deadline.map(SimTime::from_ticks),
@@ -361,7 +377,7 @@ fn boot_official_uf2(arguments: &FirmwareBootArgs) -> Result<(), Box<dyn Error>>
                 let mut machine = XtensaMachine::new(target)?;
                 machine.load_boot_rom(&boot_rom)?;
                 machine.set_esp_flash_image(&flash_state);
-                machine.load_esp_application(&image)?;
+                machine.boot_esp_flash_image(&state_image)?;
                 if let Some(payload) = &usb_input {
                     machine.queue_usb_input(payload);
                 }

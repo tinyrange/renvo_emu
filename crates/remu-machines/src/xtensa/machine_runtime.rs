@@ -9,6 +9,7 @@ impl XtensaMachine {
         self.instruction_cache_configured = true;
         self.extmem.configure_boot_caches();
         self.windowed_handoff_pending = false;
+        self.boot_report = None;
         for segment in &image.segments {
             let initialized = segment
                 .data
@@ -74,76 +75,19 @@ impl XtensaMachine {
         &mut self,
         image: &EspFlashImage,
     ) -> Result<(), XtensaMachineError> {
-        const PAGE_SIZE: u32 = 64 * 1024;
         self.instruction_cache_configured = false;
         self.windowed_handoff_pending = true;
+        self.boot_report = None;
         for segment in &image.application.segments {
-            let segment_end = usize::try_from(segment.flash_offset)
-                .ok()
-                .and_then(|start| start.checked_add(segment.data.len()))
-                .ok_or_else(|| XtensaMachineError::Load {
-                    address: u64::from(segment.address),
-                    message: "ESP application segment flash range overflows the host address space"
-                        .to_owned(),
-                })?;
-            if segment_end > self.flash.len() {
-                return Err(XtensaMachineError::Load {
-                    address: u64::from(segment.address),
-                    message: format!(
-                        "ESP application segment flash range {:#x}..{:#x} exceeds simulated flash size {:#x}",
-                        segment.flash_offset,
-                        segment_end,
-                        self.flash.len()
-                    ),
-                });
+            let bytes = boot::checked_flash_bytes(segment, &self.flash)?;
+            let kind = boot::classify_segment(segment, false)?;
+            if kind == Esp32S3BootSegmentKind::ApplicationPadding {
+                continue;
             }
-            self.bus
-                .load(u64::from(segment.address), &segment.data)
-                .map_err(|error| XtensaMachineError::Load {
-                    address: u64::from(segment.address),
-                    message: error.to_string(),
-                })?;
-
-            // The S3 has one unified cache-MMU table shared by its DROM and
-            // IROM aliases. Reconstruct the second-stage bootloader's entries
-            // for flash-mapped executable-image segments so IDF cache2phys
-            // queries observe the same physical addresses as real hardware.
-            let virtual_page = match segment.address {
-                0x3c00_0000..=0x3dff_ffff => Some(segment.address - 0x3c00_0000),
-                0x4200_0000..=0x43ff_ffff => Some(segment.address - 0x4200_0000),
-                _ => None,
-            };
-            if let Some(virtual_page) = virtual_page {
-                let address_offset = segment.address % PAGE_SIZE;
-                let flash_offset = segment.flash_offset.checked_sub(address_offset).ok_or(
-                    XtensaMachineError::Load {
-                        address: u64::from(segment.address),
-                        message: "ESP mapped segment flash/virtual offsets disagree".to_owned(),
-                    },
-                )?;
-                if flash_offset % PAGE_SIZE != 0 {
-                    return Err(XtensaMachineError::Load {
-                        address: u64::from(segment.address),
-                        message: "ESP mapped segment is not cache-page congruent".to_owned(),
-                    });
-                }
-                let first_index = usize::try_from(virtual_page / PAGE_SIZE)
-                    .expect("S3 cache-MMU index fits usize");
-                let first_entry = flash_offset / PAGE_SIZE;
-                let span = address_offset
-                    .checked_add(u32::try_from(segment.data.len()).map_err(|_| {
-                        XtensaMachineError::Load {
-                            address: u64::from(segment.address),
-                            message: "ESP mapped segment length exceeds u32".to_owned(),
-                        }
-                    })?)
-                    .ok_or(XtensaMachineError::Load {
-                        address: u64::from(segment.address),
-                        message: "ESP mapped segment span overflow".to_owned(),
-                    })?;
-                let pages = usize::try_from(span.div_ceil(PAGE_SIZE))
-                    .expect("S3 cache-MMU page count fits usize");
-                for page in 0..pages {
+            if let Some(mapping) = boot::segment_mapping(segment, kind)? {
+                let first_index = mapping.table_index;
+                let first_entry = mapping.flash_page_offset / (64 * 1024);
+                for page in 0..mapping.page_count {
                     self.mmu_table
                         .set_mapping(
                             first_index + page,
@@ -154,43 +98,14 @@ impl XtensaMachine {
                             message: error.to_string(),
                         })?;
                 }
+            } else {
+                self.bus
+                    .load(u64::from(segment.address), bytes)
+                    .map_err(|error| XtensaMachineError::Load {
+                        address: u64::from(segment.address),
+                        message: error.to_string(),
+                    })?;
             }
-        }
-        // The second-stage bootloader maps the 24-byte image header and the
-        // first eight-byte segment header immediately before the first DROM
-        // payload. IDF deliberately rereads this virtual preamble during
-        // cpu_start, so preserve that part of the verified boot contract even
-        // in direct application handoff mode.
-        if let Some(first) = image.application.segments.first() {
-            let mut preamble = [0_u8; 32];
-            let header = &image.application.header;
-            preamble[0] = 0xe9;
-            preamble[1] = header.segment_count;
-            preamble[2] = header.flash_mode;
-            preamble[3] = header.flash_size_frequency;
-            preamble[4..8].copy_from_slice(&header.entry.to_le_bytes());
-            preamble[8] = header.write_protect_pin;
-            preamble[9..12].copy_from_slice(&header.drive_settings);
-            preamble[12..14].copy_from_slice(&header.chip_id.to_le_bytes());
-            preamble[14] = header.minimum_revision_legacy;
-            preamble[15..17].copy_from_slice(&header.minimum_revision.to_le_bytes());
-            preamble[17..19].copy_from_slice(&header.maximum_revision.to_le_bytes());
-            preamble[23] = u8::from(header.hash_appended);
-            preamble[24..28].copy_from_slice(&first.address.to_le_bytes());
-            preamble[28..32].copy_from_slice(&(first.data.len() as u32).to_le_bytes());
-            let address = first.address.checked_sub(preamble.len() as u32).ok_or(
-                XtensaMachineError::Load {
-                    address: u64::from(first.address),
-                    message: "first ESP segment has no room for its virtual image preamble"
-                        .to_owned(),
-                },
-            )?;
-            self.bus
-                .load(u64::from(address), &preamble)
-                .map_err(|error| XtensaMachineError::Load {
-                    address: u64::from(address),
-                    message: error.to_string(),
-                })?;
         }
         self.cpu
             .set_windowed_entry_state(self.stack, image.application.header.entry);
@@ -199,6 +114,7 @@ impl XtensaMachine {
 
     /// Installs the complete merged SPI-flash image used by runtime MMU maps.
     pub fn set_esp_flash_image(&mut self, bytes: &[u8]) {
+        self.boot_report = None;
         self.flash.clear();
         self.flash.extend_from_slice(bytes);
         self.flash.resize(16 * 1024 * 1024, 0xff);

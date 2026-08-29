@@ -1,7 +1,7 @@
 {
   "schema": "remu.native-image-equivalence.v1",
   "result": "pass",
-  "source_sha256": "4f6fdecd2413b511890edd5250cff8db9a7c4e44e0bfa6ab8832fef29e2f222b",
+  "source_sha256": "da073ad9fe74de5f962e9f2a153f515b550ee3eb37082bb053b0bec13fe005bc",
   "docker_compilation": true,
   "network_disabled_for_compilation": true,
   "case_count": 19,
@@ -107,14 +107,88 @@
       "toolchain": "espressif-gcc-14-esp32s3",
       "toolchain_image": "sha256:e6d221fa949d82086724cba41324f171289c6e8b988911a1d5daec2426febc81",
       "build_artifact": ".remu/qualification/native-images/build/esp32s3.json",
-      "build_sha256": "acb3348440d909fe08dc3acb5b511319272f197e5bde12ce34556b0df73d3e48",
+      "build_sha256": "bed5f2afa3933ee2d11cc8efa472a943e9b8d23abf637ba0680f57f8cabcf8df",
       "direct_result": ".remu/qualification/native-images/run/esp32s3/direct.json",
-      "direct_sha256": "0956a0f501a9ebb6cabaa7116a1233bef06cad9f718d2b6e83bc7dd84ef37f8e",
+      "direct_sha256": "51670f923276f984f663dd82cf7db648f055a4554fd3a232d6126b1c9a9d8d70",
       "native_result": ".remu/qualification/native-images/run/esp32s3/native.json",
-      "native_sha256": "0956a0f501a9ebb6cabaa7116a1233bef06cad9f718d2b6e83bc7dd84ef37f8e",
-      "vcd_sha256": "1567cb35f667575168c6ebe98fb1aa8030102b61a5f0c10f48ec900aac4681be",
-      "trace_digest": "20c3230dc6ad3bc661f6a83bbae0c11e29a6643ce567985acaec3198bea64589",
-      "status": "pass"
+      "native_sha256": "51670f923276f984f663dd82cf7db648f055a4554fd3a232d6126b1c9a9d8d70",
+      "vcd_sha256": "b8fb04a2b3172d8f7c2232641d791b78df3f244be1dd1a19c96930e7746fed7a",
+      "trace_digest": "07c6e806b7df565fe0da4c272adb4f1475e7e6401b5cddcdbb480cb92410a889",
+      "status": "pass",
+      "boot_inspection": ".remu/qualification/native-images/images/esp32s3-inspect.json",
+      "boot_inspection_sha256": "1ac974e8da856182bf9869c68ec8ae82fc5928b55fba32952e42b53b96ba71d7",
+      "boot_contract": {
+        "schema": "remu.esp32s3-boot.v1",
+        "bootloader_entry": 1077708972,
+        "application_entry": 1077346364,
+        "application_partition": "factory",
+        "application_partition_offset": 65536,
+        "segments": [
+          {
+            "kind": "bootloader-dram",
+            "address": 1070475296,
+            "flash_offset": 32,
+            "size": 3756
+          },
+          {
+            "kind": "bootloader-iram",
+            "address": 1077708544,
+            "flash_offset": 3796,
+            "size": 3112
+          },
+          {
+            "kind": "bootloader-iram",
+            "address": 1077720832,
+            "flash_offset": 6916,
+            "size": 12280
+          },
+          {
+            "kind": "application-drom",
+            "address": 1006698528,
+            "flash_offset": 65568,
+            "size": 4
+          },
+          {
+            "kind": "application-iram",
+            "address": 1077346336,
+            "flash_offset": 65580,
+            "size": 116
+          },
+          {
+            "kind": "application-padding",
+            "address": 0,
+            "flash_offset": 65704,
+            "size": 65392
+          },
+          {
+            "kind": "application-irom",
+            "address": 1107427360,
+            "flash_offset": 131104,
+            "size": 28
+          }
+        ],
+        "mappings": [
+          {
+            "virtual_page_address": 1006698496,
+            "flash_page_offset": 65536,
+            "table_index": 1,
+            "page_count": 1
+          },
+          {
+            "virtual_page_address": 1107427328,
+            "flash_page_offset": 131072,
+            "table_index": 2,
+            "page_count": 1
+          }
+        ],
+        "stages": [
+          "rom-image-validation",
+          "second-stage-load",
+          "partition-selection",
+          "application-load-and-map",
+          "windowed-abi-handoff"
+        ]
+      }
     },
     {
       "id": "esp32c6",
@@ -192,7 +266,7 @@
       "toolchain": "gcc-13-stm32f103c8",
       "toolchain_image": "sha256:c83a45b16a93abbede0e1d5bd7cd638f70e4562b3ca8fb3a9cb1c77a909fcf76",
       "build_artifact": ".remu/qualification/native-images/build/stm32f103c8.json",
-      "build_sha256": "d5f67128948be2f9ffe5de8a5b777ee4c437b122883aad0725373bdc5399dbcb",
+      "build_sha256": "16ea54dd5ab8c283a2ae200e8f59519c7b6ad7afe080577e093a04ec66fc917a",
       "direct_result": ".remu/qualification/native-images/run/stm32f103c8/direct.json",
       "direct_sha256": "39e9c2acef5e9b2cca412286c0f3bb359290687e574c1a27d2915ed8d71c76cf",
       "native_result": ".remu/qualification/native-images/run/stm32f103c8/native.json",
@@ -226,7 +300,7 @@
       "toolchain": "gcc-13-atsamd51j19a",
       "toolchain_image": "sha256:c83a45b16a93abbede0e1d5bd7cd638f70e4562b3ca8fb3a9cb1c77a909fcf76",
       "build_artifact": ".remu/qualification/native-images/build/atsamd51j19a.json",
-      "build_sha256": "283d137fe979a73d882230c754b414b36e6f1de65708e5767dd79aa81ad271e1",
+      "build_sha256": "467069ad4d4e2525cea8fe836802b2738307a41e0abe4c9d4be9a27e59737d8b",
       "direct_result": ".remu/qualification/native-images/run/atsamd51j19a/direct.json",
       "direct_sha256": "892639ac81d20885dae73bccbb47145f50c06073e04f0a6b5101b4a0ad436994",
       "native_result": ".remu/qualification/native-images/run/atsamd51j19a/native.json",
@@ -277,7 +351,7 @@
       "toolchain": "avr-gcc-7-atmega328pb-dfp-3.6.299",
       "toolchain_image": "sha256:0b688d51a7c8a7aac4209d026f3050cf66b8e6243009647776cbb9bb61584d15",
       "build_artifact": ".remu/qualification/native-images/build/atmega328pb.json",
-      "build_sha256": "e1ce8fdc3af49ba25954ac4388890d394392dabbd950c9d0c27b6b666efec30a",
+      "build_sha256": "bcdd980c9a97f3895deb3574b59e26e7ceefde5fa0cf985771b3e843eb8ab468",
       "direct_result": ".remu/qualification/native-images/run/atmega328pb/direct.json",
       "direct_sha256": "cfde8c11870d61b3787afaa4d136d68aab8260a4794598e0845d2bc26dc3353e",
       "native_result": ".remu/qualification/native-images/run/atmega328pb/native.json",
@@ -294,7 +368,7 @@
       "toolchain": "ti-msp430-gcc-9.3.1.11-support-1.212",
       "toolchain_image": "sha256:121200a60622966614e27cd9724fcc034eb3f6de513bbdfd26ab884bdbf95e75",
       "build_artifact": ".remu/qualification/native-images/build/msp430fr2433.json",
-      "build_sha256": "1ef3e1eb0b7b03b64dbedbf1a72d07586613b899b78f87de79c642ac1006c478",
+      "build_sha256": "c7539debbaf28cb5c1db06761b1897c34e6aea336818ad2ee818ad6edae6d7b8",
       "direct_result": ".remu/qualification/native-images/run/msp430fr2433/direct.json",
       "direct_sha256": "5e6caf5b95597253e74736635dcc183bc57b0e368728750f2d4abba50135d564",
       "native_result": ".remu/qualification/native-images/run/msp430fr2433/native.json",
@@ -311,7 +385,7 @@
       "toolchain": "mplab-xc8-4.00-pic16f1xxxx-dfp-1.31.465",
       "toolchain_image": "sha256:68af478caf0fd132871e626a0015bca333c6dd86a4d7903699db0e14317f08b8",
       "build_artifact": ".remu/qualification/native-images/build/pic16f15376.json",
-      "build_sha256": "8311b0c5f527f5b9c1d1a16e725e421dadbe1c81b6150d5ae2d291b7ae81d9bd",
+      "build_sha256": "26d7c41cc49300662f21a661e55ac34d92e37d646fbde175741743d064242772",
       "direct_result": ".remu/qualification/native-images/run/pic16f15376/direct.json",
       "direct_sha256": "06d6554e35bd6366213b6c63594cfb70e965b30b9acea415ee2ac66a03f31094",
       "native_result": ".remu/qualification/native-images/run/pic16f15376/native.json",

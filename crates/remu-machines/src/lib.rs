@@ -48,7 +48,10 @@ pub use target::{
     target_manifests,
 };
 pub use uart::{UartEndpoint, UartEndpointId, UartEndpointProvider};
-pub use xtensa::{XtensaMachine, XtensaMachineError};
+pub use xtensa::{
+    Esp32S3BootMapping, Esp32S3BootReport, Esp32S3BootSegment, Esp32S3BootSegmentKind,
+    XtensaMachine, XtensaMachineError, plan_esp32s3_boot,
+};
 
 /// Deterministic raw-REPL marker emitted by the CLI's final framing chunk.
 pub const HOST_SCRIPT_COMPLETE_MARKER: &str = "__REMU_HOST_SCRIPT_COMPLETE__";

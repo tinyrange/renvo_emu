@@ -672,22 +672,66 @@ Sequences, comparator windows, internal-reference electrical behavior,
 capacitive touch, pin multiplexing, and analog timing remain outside this
 functional model.
 
-ESP32-S3 DRAM and IRAM power on with the deterministic nonzero byte pattern
-`0xa5`. Direct ELF loading copies only each segment's file-backed bytes, so
-the synthesized `.bss` tail remains poisoned until firmware clears it. This
-keeps direct ELF tests from accidentally depending on loader-provided zeroing.
+## ESP32-S3 verified flash boot
 
-Verified-image handoff starts with IROM instruction fetch disabled; the ROM
-`rom_config_instruction_cache_mode(0x4000, 8, 32)` entry point enables it and
-publishes the corresponding `CACHE_STATE` value. A fetch before that call
-stops with a diagnostic instead of appearing to work through a coherent-cache
-shortcut.
+Native ESP32-S3 boot consumes the persistent merged SPI-flash bytes rather
+than reconstructing application state from an ELF. Before changing machine
+state, the strict planner verifies chip ID 9, bootloader and application entry
+points, every parsed segment against its bytes in flash, supported address
+ranges, and 64-KiB flash/virtual-page congruence. `firmware inspect` publishes
+the resulting `remu.esp32s3-boot.v1` report, including the selected partition,
+ordered segment operations, cache-MMU mappings, and these completed stages:
 
-Verified ESP32-S3 application images enter through a modeled `CALLX8`
-windowed-ABI handoff. The first application instruction must be `ENTRY`; the
-emulator reports the pending `PS.CALLINC` and window depth when that prologue
-is absent. Direct ELF loading remains the intentionally weaker debugging mode
-with synthetic direct state.
+1. `rom-image-validation`
+2. `second-stage-load`
+3. `partition-selection`
+4. `application-load-and-map`
+5. `windowed-abi-handoff`
+
+The functional ROM stage copies the real second-stage bootloader DRAM/IRAM
+bytes from flash. The second-stage model then copies application DRAM, IRAM,
+and RTC segments, ignores only verified zero-valued esptool alignment
+segments, and installs distinct DROM/IROM mappings from the real flash pages.
+The modeled external-memory windows currently expose 256 shared 64-KiB MMU
+indices (16 MiB per cache alias); images outside that functional subset are
+rejected. The page size and linear-index calculation follow Espressif's
+[ESP32-S3 MMU definitions](https://github.com/espressif/esp-idf/blob/2067f3655013035df09f670cdc5498cc9b1c99a2/components/soc/esp32s3/include/soc/mmu.h)
+and [low-level MMU helpers](https://github.com/espressif/esp-idf/blob/2067f3655013035df09f670cdc5498cc9b1c99a2/components/hal/esp32s3/include/hal/mmu_ll.h).
+
+DRAM and IRAM power on with the deterministic nonzero byte pattern `0xa5`.
+Both direct ELF and verified-image loading copy only file-backed bytes, so a
+synthesized `.bss` tail remains poisoned until firmware startup clears it.
+Qualification builds the same probe both with and without that clear and
+requires the uncleared form to detect the poison. This prevents loader-provided
+zeroing from concealing a broken startup path.
+
+Verified-image handoff starts with IROM instruction fetch disabled. The ROM
+`rom_config_instruction_cache_mode(0x4000, 8, 32)` contract enables it and
+publishes the corresponding `CACHE_STATE` value; a fetch before the valid call
+stops with a diagnostic. This one functional API remains intercepted when a
+real mask-ROM ELF is loaded because its externally visible cache transition is
+part of the emulator's boot contract. Other mask-ROM addresses execute their
+loaded instructions.
+
+The application enters through a modeled `CALLX8` windowed-ABI handoff. All
+four indirect-call forms clear the low two target bits, and verified boot sets
+`PS.CALLINC` before transfer. The first application instruction must be
+`ENTRY`; otherwise the emulator reports the pending call increment and window
+depth. Native/direct equivalence qualification uses DROM and IROM payloads on
+different MMU indices, calls the cache-mode ROM API, and requires identical
+exit status, trace digest, and VCD output.
+
+This is a stage-accurate, software-only functional boot model. It does not
+claim instruction-by-instruction execution of the mask ROM or second-stage
+bootloader, SPI electrical timing, cache replacement timing, secure boot,
+flash encryption, multi-core boot sequencing, or RF behavior. Direct ELF mode
+remains the intentionally weaker compiler/debugging path with synthetic direct
+state. The implementation and qualification close the software scope of
+issues [#32](https://github.com/tinyrange/renvo_emu/issues/32),
+[#35](https://github.com/tinyrange/renvo_emu/issues/35),
+[#68](https://github.com/tinyrange/renvo_emu/issues/68),
+[#69](https://github.com/tinyrange/renvo_emu/issues/69), and
+[#70](https://github.com/tinyrange/renvo_emu/issues/70).
 
 The EFM8BB52 MCS-51 model includes UART1 through its documented SFR page
 `0x20`. The functional slice supports baud-generator enable, transmit capture,
