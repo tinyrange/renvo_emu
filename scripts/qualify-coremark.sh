@@ -218,13 +218,15 @@ run_variant()
     compiler=$(awk -F: '/^Compiler version/{sub(/^ /, "", $2); print $2}' \
         "$profile_root/transcript.txt")
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$id" "$mcu" "$target" "$architecture" "$cpu_mode" "$variant" \
-        "$reportable" "$data_size" "$iterations" "$ticks" "$instructions" \
-        "$action_score" "$host_seconds" "$host_score" "$seed_crc" \
-        "$list_crc" "$matrix_crc" "$state_crc" "$final_crc" "$compiler" \
-        "$flags" "$elf_sha" "$run_sha" "$peak_rss_bytes" \
-        "$result_artifact_bytes" >> "$records"
+    {
+        printf '%s\t' \
+            "$id" "$mcu" "$target" "$architecture" "$cpu_mode" "$variant" \
+            "$reportable" "$data_size" "$iterations" "$ticks" "$instructions" \
+            "$action_score" "$host_seconds" "$host_score" "$seed_crc" \
+            "$list_crc" "$matrix_crc" "$state_crc" "$final_crc" "$compiler" \
+            "$flags" "$elf_sha" "$run_sha" "$peak_rss_bytes"
+        printf '%s\n' "$result_artifact_bytes"
+    } >> "$records"
 }
 
 run_standard_profile()
@@ -383,6 +385,12 @@ remu_sha=$(sha256sum "$remu" | cut -d ' ' -f 1)
 cross_image_id=$(docker image inspect --format '{{.Id}}' "$cross_image")
 xtensa_image_id=$(docker image inspect --format '{{.Id}}' "$xtensa_image")
 generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+if ! awk -F '\t' 'NF != 25 { bad = 1 } END { exit (bad || NR == 0) }' "$records"
+then
+    echo "CoreMark metric records must contain exactly 25 fields" >&2
+    exit 1
+fi
 
 jq -Rn \
     --arg upstream "$upstream" \
