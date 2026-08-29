@@ -311,6 +311,21 @@ fn uart_receive_status_tracks_host_queue() {
 }
 
 #[test]
+fn uart_clear_resets_both_directions_and_advances_capture_epoch() {
+    let (_, handle) = FunctionalUart::new("uart", 0, 4, 1);
+    let (initial_epoch, _) = handle.output_snapshot();
+    handle.transmit(b"tx");
+    handle.feed_rx(b"rx");
+
+    handle.clear();
+
+    let (cleared_epoch, output) = handle.output_snapshot();
+    assert_ne!(cleared_epoch, initial_epoch);
+    assert!(output.is_empty());
+    assert_eq!(handle.rx_len(), 0);
+}
+
+#[test]
 fn rp_pl011_uses_named_registers_and_reset_values() {
     let (mut uart, _handle) = RpPl011Uart::new("rp.uart1");
     assert_eq!(
