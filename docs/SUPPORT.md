@@ -69,6 +69,12 @@ status/interrupt flag clearing, and deterministic host-injected reference
 measurements are supported; clock-pin filtering and exact oscillator phase
 behavior remain outside the functional slice.
 
+The R7FA4M1AB3CFM model includes POEG groups A-D at `0x40042000`.
+Configuration, filtered input status, GPT/software output-disable requests,
+and clearable status flags are available through the native group registers
+and a deterministic host trigger API. Exact noise-filter sampling and GPT
+output gating latency are not modeled.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
