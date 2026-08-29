@@ -119,6 +119,7 @@ pub struct ArmMcuMachine {
     ac: Option<Samd21AcHandle>,
     dac: Option<Samd21DacHandle>,
     ra_icu: Option<RaIcuHandle>,
+    ra: Option<ra_support::RaMachineState>,
     watchdog: Option<VendorWatchdog>,
     stm32_i2c: Vec<(u16, Stm32I2cHandle)>,
     stm32_adc: Option<Stm32AdcHandle>,
@@ -340,6 +341,7 @@ impl ArmMcuMachine {
         let mut tsc = None;
         let mut comparators = None;
         let mut opamp = None;
+        let mut ra = None;
         let (
             gpio,
             uart,
@@ -591,24 +593,11 @@ impl ArmMcuMachine {
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
-                let mut ports = Vec::new();
-                let mut handles = Vec::new();
-                for port in 0..15 {
-                    let (device, handle) = RaIoPort::new(
-                        format!("r7fa4m1ab3cfm.port{port}"),
-                        &format!("board.r7fa4m1ab3cfm.port{port}"),
-                        signals.clone(),
-                    )?;
-                    ports.push(device);
-                    handles.push(handle);
-                }
-                let pfs = RaPfs::new("r7fa4m1ab3cfm.pfs", &ports);
-                let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
-                let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
-                let (icu_device, icu) = RaIcu::new("r7fa4m1ab3cfm.icu");
-                Self::map_ra4m1(&mut bus, ports, pfs, icu_device, gpt0_device, sci9_device)?;
+                let (gpio, uart, timer, icu, state) =
+                    Self::create_ra4m1(&mut bus, signals.clone())?;
+                ra = Some(state);
                 (
-                    handles.remove(1),
+                    gpio,
                     VendorUart::Ra4m1(uart),
                     VendorTimer::Ra4m1(timer),
                     Vec::new(),
@@ -651,6 +640,7 @@ impl ArmMcuMachine {
             ac,
             dac,
             ra_icu,
+            ra,
             watchdog,
             stm32_i2c,
             stm32_adc,
@@ -801,17 +791,23 @@ impl ArmMcuMachine {
         Ok(())
     }
 
-    /// Supplies one deterministic host-side sample to the ATSAMD21 ADC.
+    /// Supplies one deterministic host-side sample to the selected target ADC.
     ///
-    /// The ADC conversion still starts only when guest firmware writes
-    /// `SWTRIG.START`; this method models the external analog source without
+    /// Guest firmware still controls conversion start through its target's
+    /// native registers; this only models the external analog source without
     /// introducing host-dependent voltages or timing.
     pub fn set_adc_sample(&self, channel: u8, value: u16) -> Result<(), ArmMachineError> {
-        let Some(adc) = &self.adc else {
-            return Err(ArmMachineError::UnsupportedTarget(self.target));
-        };
-        adc.inject_sample(channel, value)?;
-        Ok(())
+        if let Some(adc) = &self.adc {
+            adc.inject_sample(channel, value)?;
+            return Ok(());
+        }
+        if let Some(ra) = &self.ra {
+            ra.adc
+                .set_input(channel, value)
+                .map_err(ArmMachineError::Configuration)?;
+            return Ok(());
+        }
+        Err(ArmMachineError::UnsupportedTarget(self.target))
     }
 
     /// Supplies one deterministic host-side analog code to the ATSAMD21 AC.
@@ -1138,6 +1134,7 @@ impl ArmMcuMachine {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
             });
+            interrupt_requested |= self.poll_ra4m1()?;
             if let Some(eic) = &self.eic {
                 let eic_pending = eic.poll(package_inputs);
                 interrupt_requested |= eic_pending;
@@ -1371,6 +1368,7 @@ impl ArmMcuMachine {
                     stats.events = stats.events.saturating_add(1);
                 }
             }
+            self.trace_ra4m1_events()?;
             let uart = self.uart.bytes();
             for byte in uart.iter().skip(self.traced_uart_len) {
                 self.uart_strobe = !self.uart_strobe;
@@ -1432,6 +1430,9 @@ impl ArmMcuMachine {
 #[path = "arm_mcu_maps.rs"]
 mod maps;
 
+#[path = "arm_mcu_ra.rs"]
+mod ra_support;
+
 #[cfg(test)]
 #[path = "arm_mcu_tests.rs"]
 mod tests;
@@ -1443,3 +1444,7 @@ mod samd_instance_tests;
 #[cfg(test)]
 #[path = "arm_mcu_stm32_extended_tests.rs"]
 mod stm32_extended_tests;
+
+#[cfg(test)]
+#[path = "arm_mcu_ra_extended_tests.rs"]
+mod ra_extended_tests;

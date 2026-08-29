@@ -104,16 +104,16 @@ arduino_examples_url = "https://github.com/arduino/arduino-examples"
 arduino_examples_revision = "ad14bc44cb95555e5df7c16e6605559cad860d29"
 toolchain = "Arm GNU 13.2.Rel1 and Clang/LLD 18"
 compiler_flags = ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16"]
-peripherals = ["SYSTEM", "MSTP", "IOPORT", "ICU", "GPT0", "SCI9", "WDT"]
+peripherals = ["SYSTEM", "MSTP", "IOPORT", "ICU", "ELC", "KINT", "GPT0-7", "AGT0-1", "SCI9", "RSPI0-1", "IIC0-1", "RTC", "ADC140", "DAC12", "CRC", "DOC", "CAC", "POEG", "WDT"]
 image_formats = ["ELF32 little-endian Arm executable", "Intel HEX generated and inspected as a loader artifact"]
 memory_map = ["code flash 0x00000000..0x0003ffff", "SRAM 0x20000000..0x20007fff", "data flash 0x40100000..0x40101fff", "documented MMIO windows for the selected peripheral slice"]
 reset_assumptions = "Power-on reset reads MSP and Thumb reset PC from code-flash vectors; option-setting, write-protection and oscillator-ready values are the documented acceptance subset"
-vectors = ["reset exception 1", "ICU IELSR7 / NVIC external IRQ 7"]
-selected_pins = ["P103 external digital input", "P111 GPIO/UNO R4 Minima LED output", "SCI9 logical TX"]
-interrupt_routes = ["GPT0 overflow event 0x05d -> ICU IELSR7 -> NVIC line 7", "SCI9 TXI is routed through configured ICU event slots"]
-vcd_signals = ["board.r7fa4m1ab3cfm.port1", "board.r7fa4m1ab3cfm.gpt0.irq", "board.r7fa4m1ab3cfm.sci9", "board.r7fa4m1ab3cfm.icu.request"]
+vectors = ["reset exception 1", "ICU IELSR7 / NVIC external IRQ 7", "ADC140 scan-end and modeled timer/RTC/KINT events through configured ICU IELSR slots"]
+selected_pins = ["P100-P107 KINT inputs", "P103 external digital input", "P111 GPIO/UNO R4 Minima LED output", "ADC140 AN000..AN028 host-driven analog inputs", "SCI9 logical TX"]
+interrupt_routes = ["ADC0 scan-end event 0x029 -> configured ICU IELSR -> NVIC line", "KINT event 0x045 -> configured ICU IELSR slot", "GPT0-7 overflow events 0x05d/0x065/0x06d/0x075/0x07d/0x085/0x08d/0x095 -> configured ICU IELSR slots", "AGT0/1 and RTC alarm events -> configured ICU IELSR slots", "SCI9 TXI is routed through configured ICU event slots", "ELC software events 0x053/0x054 are guest-visible and traceable"]
+vcd_signals = ["board.r7fa4m1ab3cfm.port1", "board.r7fa4m1ab3cfm.kint.irq", "board.r7fa4m1ab3cfm.gpt0.irq", "board.r7fa4m1ab3cfm.adc0.irq", "board.r7fa4m1ab3cfm.dac0", "board.r7fa4m1ab3cfm.elc.event", "board.r7fa4m1ab3cfm.elc.strobe", "board.r7fa4m1ab3cfm.sci9", "board.r7fa4m1ab3cfm.icu.request"]
 fidelity_tier = "functional Cortex-M4F and peripherals, deterministic, not cycle accurate"
-unsupported = ["USB", "CAN", "analog and LCD peripherals", "exact clock timing", "UNO R4 WiFi bridge"]
+unsupported = ["USB", "CAN", "LCD peripherals", "ADC140 continuous/group/window/compare modes and analog timing", "exact clock timing", "UNO R4 WiFi bridge"]
 vendor_sample_license = "Renesas FSP examples: BSD-3-Clause; ArduinoCore-renesas: MIT; Arduino sketches: CC0-1.0"
 
 [[target]]

@@ -1346,3 +1346,57 @@ The STM32L432KC RTC slice maps the native calendar, prescaler, alarm, and
 write-protection registers. It advances deterministically on the abstract
 timeline and exposes alarm flags for qualification; oscillator drift, backup
 domain power behavior, tamper inputs, and subsecond fidelity remain deferred.
+
+### Renesas RA4M1 functional boundary
+
+The `R7FA4M1AB3CFM#AA0` machine models the UNO R4 Minima processor without its
+separate Wi-Fi bridge. It maps SYSTEM/MSTP, IOPORT/PFS, ICU, ELC, KINT, GPT0-7,
+AGT0-1, SCI9, RSPI0-1, IIC0-1, RTC, ADC140, DAC12, CRC, DOC, CAC, POEG and the
+watchdog startup window at their native addresses. All timing is deterministic
+simulation time, not a claim of peripheral-clock or electrical fidelity.
+
+The interrupt path is explicit: firmware writes a nine-bit event number to an
+ICU `IELSR` slot, a modeled peripheral latches that event, and only the matching
+NVIC line is asserted. Qualified event values include ADC140 scan end `0x029`,
+KINT `0x045`, GPT0-7 overflow `0x05d`, `0x065`, `0x06d`, `0x075`, `0x07d`,
+`0x085`, `0x08d`, and `0x095`, plus ELC software events `0x053` and `0x054`.
+ELC link registers retain the documented low nine bits; software event writes
+require the enable, write-enable, and event-generation bits and reject the
+write-inhibit form.
+
+The main register windows and modeled behavior are:
+
+| Block | Base | Functional behavior |
+| --- | ---: | --- |
+| ICU | `0x40006000` | 96 `IELSR` routes, event-request latch and zero-to-clear request bit |
+| IOPORT/PFS | `0x40040000` / `0x40040800` | direction, input/output state, atomic set/reset, PFS direction/output selection |
+| ELC | `0x40041000` | global enable, 23 destination links, two software event generators |
+| KINT | `0x40080000` | KR00-KR07 selection, edge polarity, enable mask and latched flags |
+| GPT0-7 | `0x40078000` + `0x100` per channel | start/stop, period/counter state and overflow events; GPT0-2 are 32-bit, GPT3-7 are 16-bit |
+| AGT0-1 | `0x40084000` / `0x40084100` | deterministic countdown, underflow flag and event |
+| SCI9 | `0x40070120` | transmit data/status and routed TXI request |
+| RSPI0-1 | `0x40072000` / `0x40072100` | native-width transfer data, host RX/TX queues and status flags |
+| IIC0-1 | `0x40053000` / `0x40053100` | start/stop, transmit/receive queues, NACK and zero-to-clear status |
+| RTC | `0x40044000` | deterministic calendar/counter progression and routed alarm |
+| ADC140 | `0x4005c000` | AN000-AN028 group-A single scans, 8/10/12/14-bit formatting and scan-end event |
+| DAC12 | `0x4005e000` | 12-bit data/output enable and VCD-visible output code |
+| CRC/DOC | `0x40074000` / `0x40054100` | programmable CRC feeds and data-operation compare/add/subtract state |
+| CAC/POEG | `0x40044600` / `0x40042000` | host reference-edge measurement and output-disable groups |
+
+Audited reset observations are encoded as tests rather than silent defaults.
+Examples include RSPI `SPSR=0x20`, `SPPCR=0xff`, and first command
+`SPCMD=0x0401`; IIC control/timing bytes `0x1f`, `0x08`, `0x06`, `0x72`, and
+`0x09`, with address/data transmit reset bytes `0xff`; and SYSTEM oscillator
+status bit 0 asserted for the reset-selected HOCO. Unsupported accesses either
+mask reserved bits, return the documented functional reset value, or produce a
+device error where the native width is required; they do not silently invoke
+host hardware.
+
+ADC140 samples are supplied as deterministic 14-bit host codes. Conversion
+starts only through guest `ADCSR.ADST`, selected group-A channels latch after
+the modeled conversion interval, and `ADREF.ADF` plus event `0x029` expose
+completion. Continuous scan, group B, addition/averaging, window comparison,
+internal temperature/reference sources, voltage accuracy and analog settling
+remain outside the model. Similarly, serial electrical signaling, clock
+stretch timing, arbitration among physical peers, RTC oscillator drift, and
+POEG/CAC pin-level analog effects are deferred.

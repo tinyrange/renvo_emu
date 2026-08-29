@@ -1,4 +1,7 @@
 use super::*;
+use remu_devices::{
+    RaAdc, RaAgt, RaCac, RaCrc, RaDac, RaDoc, RaElc, RaIic, RaKint, RaPoeg, RaRtc, RaSpi,
+};
 
 impl ArmMcuMachine {
     pub(super) fn map_samd21(
@@ -242,7 +245,23 @@ impl ArmMcuMachine {
         pfs: RaPfs,
         icu: RaIcu,
         gpt0: RaGpt,
+        gpt: Vec<RaGpt>,
+        kint: RaKint,
+        elc: RaElc,
         sci9: RaSci,
+        agt0: RaAgt,
+        agt1: RaAgt,
+        spi0: RaSpi,
+        spi1: RaSpi,
+        iic0: RaIic,
+        iic1: RaIic,
+        rtc: RaRtc,
+        dac: RaDac,
+        crc: RaCrc,
+        doc: RaDoc,
+        cac: RaCac,
+        poeg: RaPoeg,
+        adc: RaAdc,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -263,7 +282,31 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
         bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
+        for (offset, device) in gpt.into_iter().enumerate() {
+            let index = offset + 1;
+            bus.map_device(
+                format!("r7fa4m1ab3cfm.gpt{index}"),
+                0x4007_8000 + u64::try_from(index).expect("GPT index fits u64") * 0x100,
+                0x100,
+                Box::new(device),
+            )?;
+        }
+        bus.map_device("r7fa4m1ab3cfm.kint", 0x4008_0000, 0x10, Box::new(kint))?;
+        bus.map_device("r7fa4m1ab3cfm.elc", 0x4004_1000, 0x80, Box::new(elc))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
+        bus.map_device("r7fa4m1ab3cfm.agt0", 0x4008_4000, 0x100, Box::new(agt0))?;
+        bus.map_device("r7fa4m1ab3cfm.agt1", 0x4008_4100, 0x100, Box::new(agt1))?;
+        bus.map_device("r7fa4m1ab3cfm.spi0", 0x4007_2000, 0x20, Box::new(spi0))?;
+        bus.map_device("r7fa4m1ab3cfm.spi1", 0x4007_2100, 0x20, Box::new(spi1))?;
+        bus.map_device("r7fa4m1ab3cfm.iic0", 0x4005_3000, 0x20, Box::new(iic0))?;
+        bus.map_device("r7fa4m1ab3cfm.iic1", 0x4005_3100, 0x20, Box::new(iic1))?;
+        bus.map_device("r7fa4m1ab3cfm.rtc", 0x4004_4000, 0x100, Box::new(rtc))?;
+        bus.map_device("r7fa4m1ab3cfm.dac12", 0x4005_e000, 0x100, Box::new(dac))?;
+        bus.map_device("r7fa4m1ab3cfm.crc", 0x4007_4000, 0x100, Box::new(crc))?;
+        bus.map_device("r7fa4m1ab3cfm.doc", 0x4005_4100, 0x10, Box::new(doc))?;
+        bus.map_device("r7fa4m1ab3cfm.cac", 0x4004_4600, 0x10, Box::new(cac))?;
+        bus.map_device("r7fa4m1ab3cfm.poeg", 0x4004_2000, 0x400, Box::new(poeg))?;
+        bus.map_device("r7fa4m1ab3cfm.adc0", 0x4005_c000, 0x200, Box::new(adc))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
