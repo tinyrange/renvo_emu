@@ -46,6 +46,25 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 value = json.loads(path.read_text())
+value["host"]["model"] = "different-host"
+path.write_text(json.dumps(value))
+PY
+
+if python3 "$repo_root/scripts/check-benchmark-budgets.py" \
+    "$temp_dir/current.json" --baseline "$temp_dir/baseline.json" >/dev/null 2>&1
+then
+    echo "cross-host benchmark comparison unexpectedly passed" >&2
+    exit 1
+fi
+
+python3 - "$temp_dir/current.json" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+value = json.loads(path.read_text())
+value["host"]["model"] = "budget-test"
 value["runs"][0]["host_elapsed_seconds"] = 2.0
 path.write_text(json.dumps(value))
 PY

@@ -92,9 +92,21 @@ def check_coremark(current: dict[str, Any], baseline: dict[str, Any] | None, bud
         return
     if baseline.get("schema") != current.get("schema"):
         raise BudgetError("baseline schema differs from current artifact")
+    current_host = current.get("host", {}).get("model")
+    baseline_host = baseline.get("host", {}).get("model")
+    if baseline_host in (None, ""):
+        raise BudgetError("baseline artifact does not record host identity")
+    if baseline_host != current_host:
+        raise BudgetError(
+            f"baseline host {baseline_host!r} differs from current host {current_host!r}"
+        )
     baseline_runs = {
         (run.get("id"), run.get("variant")): run for run in baseline.get("runs", [])
     }
+    current_run_keys = {(run.get("id"), run.get("variant")) for run in runs}
+    missing_runs = sorted(baseline_runs.keys() - current_run_keys)
+    if missing_runs:
+        raise BudgetError(f"current artifact dropped baseline runs: {missing_runs}")
     comparison = budgets["comparison"]
     for run in runs:
         key = (run.get("id"), run.get("variant"))
