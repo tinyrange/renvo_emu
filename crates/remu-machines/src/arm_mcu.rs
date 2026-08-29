@@ -18,14 +18,14 @@ use remu_devices::{
     RA4M1_EVENT_GPT3_OVERFLOW, RA4M1_EVENT_GPT4_OVERFLOW, RA4M1_EVENT_GPT5_OVERFLOW,
     RA4M1_EVENT_GPT6_OVERFLOW, RA4M1_EVENT_GPT7_OVERFLOW, RA4M1_EVENT_KINT, RA4M1_EVENT_RTC_ALARM,
     RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle, RaCac, RaCacHandle, RaCrc, RaCrcHandle, RaDac,
-    RaDacHandle, RaDoc, RaDocHandle, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIic, RaIoPort,
-    RaKint, RaKintHandle, RaPfs, RaPoeg, RaPoegHandle, RaRtc, RaRtcHandle, RaSci, RaSciHandle,
-    RaSpi, RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac,
-    Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys,
-    Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle,
-    Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle,
-    Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer,
-    Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    RaDacHandle, RaDoc, RaDocHandle, RaElc, RaElcHandle, RaGpt, RaGptHandle, RaIcu, RaIcuHandle,
+    RaIic, RaIoPort, RaKint, RaKintHandle, RaPfs, RaPoeg, RaPoegHandle, RaRtc, RaRtcHandle, RaSci,
+    RaSciHandle, RaSpi, RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle,
+    Samd21Dac, Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle,
+    Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc,
+    Samd21RtcHandle, Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart,
+    Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio,
+    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -100,6 +100,7 @@ pub struct ArmMcuMachine {
     ra_agt: Vec<(u16, RaAgtHandle)>,
     ra_gpt: Vec<(u16, RaGptHandle)>,
     ra_kint: Option<RaKintHandle>,
+    ra_elc: Option<RaElcHandle>,
     ra_rtc: Option<RaRtcHandle>,
     ra_dac: Option<RaDacHandle>,
     ra_crc: Option<RaCrcHandle>,
@@ -112,6 +113,8 @@ pub struct ArmMcuMachine {
     ppb: ArmPpbHandle,
     timer_irq_signal: SignalId,
     kint_irq_signal: Option<SignalId>,
+    elc_event_signal: Option<SignalId>,
+    elc_strobe_signal: Option<SignalId>,
     uart_byte_signal: SignalId,
     uart_strobe_signal: SignalId,
     interrupt_signal: SignalId,
@@ -205,6 +208,22 @@ impl ArmMcuMachine {
         } else {
             None
         };
+        let (elc_event_signal, elc_strobe_signal) = if target == TargetId::R7fa4m1ab3cfm {
+            (
+                Some(signals.declare(
+                    "board.r7fa4m1ab3cfm.elc.event",
+                    SignalValue::from_u64(0, 9)?,
+                    Some("ELC event source".to_owned()),
+                )?),
+                Some(signals.declare(
+                    "board.r7fa4m1ab3cfm.elc.strobe",
+                    SignalValue::from_u64(0, 1)?,
+                    Some("toggles for each ELC software event".to_owned()),
+                )?),
+            )
+        } else {
+            (None, None)
+        };
         let uart_byte_signal = signals.declare(
             format!("{uart_path}.tx_byte"),
             SignalValue::from_u64(0, 8)?,
@@ -285,6 +304,7 @@ impl ArmMcuMachine {
             ra_agt,
             ra_gpt,
             ra_kint,
+            ra_elc,
             ra_rtc,
             ra_dac,
             ra_crc,
@@ -379,6 +399,7 @@ impl ArmMcuMachine {
                     None,
                     Vec::new(),
                     Vec::new(),
+                    None,
                     None,
                     None,
                     None,
@@ -500,6 +521,7 @@ impl ArmMcuMachine {
                 let (cac_device, cac) = RaCac::new("r7fa4m1ab3cfm.cac");
                 let (poeg_device, poeg) = RaPoeg::new("r7fa4m1ab3cfm.poeg");
                 let (kint_device, kint) = RaKint::new("r7fa4m1ab3cfm.kint");
+                let (elc_device, elc) = RaElc::new("r7fa4m1ab3cfm.elc");
                 Self::map_ra4m1(
                     &mut bus,
                     ports,
@@ -508,6 +530,7 @@ impl ArmMcuMachine {
                     gpt0_device,
                     gpt_devices,
                     kint_device,
+                    elc_device,
                     sci9_device,
                     agt0_device,
                     agt1_device,
@@ -540,6 +563,7 @@ impl ArmMcuMachine {
                     vec![(RA4M1_EVENT_AGT0_INT, agt0), (RA4M1_EVENT_AGT1_INT, agt1)],
                     gpt_handles,
                     Some(kint),
+                    Some(elc),
                     Some(rtc),
                     Some(dac),
                     Some(crc),
@@ -576,6 +600,7 @@ impl ArmMcuMachine {
             ra_agt,
             ra_gpt,
             ra_kint,
+            ra_elc,
             ra_rtc,
             ra_dac,
             ra_crc,
@@ -588,6 +613,8 @@ impl ArmMcuMachine {
             ppb,
             timer_irq_signal,
             kint_irq_signal,
+            elc_event_signal,
+            elc_strobe_signal,
             uart_byte_signal,
             uart_strobe_signal,
             interrupt_signal,
@@ -776,6 +803,7 @@ impl ArmMcuMachine {
         gpt0: RaGpt,
         gpt: Vec<RaGpt>,
         kint: RaKint,
+        elc: RaElc,
         sci9: RaSci,
         agt0: RaAgt,
         agt1: RaAgt,
@@ -819,6 +847,7 @@ impl ArmMcuMachine {
             )?;
         }
         bus.map_device("r7fa4m1ab3cfm.kint", 0x4008_0000, 0x10, Box::new(kint))?;
+        bus.map_device("r7fa4m1ab3cfm.elc", 0x4004_1000, 0x80, Box::new(elc))?;
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.agt0", 0x4008_4000, 0x100, Box::new(agt0))?;
         bus.map_device("r7fa4m1ab3cfm.agt1", 0x4008_4100, 0x100, Box::new(agt1))?;
@@ -1325,6 +1354,25 @@ impl ArmMcuMachine {
                     stats.events = stats.events.saturating_add(1);
                 }
             }
+            if let Some(elc) = &self.ra_elc {
+                for event in elc.take_software_events() {
+                    if let Some(signal) = self.elc_event_signal {
+                        self.signals.set(
+                            signal,
+                            SignalValue::from_u64(u64::from(event), 9)?,
+                            self.now,
+                        )?;
+                    }
+                    self.elc_strobe = !self.elc_strobe;
+                    if let Some(signal) = self.elc_strobe_signal {
+                        self.signals.set(
+                            signal,
+                            SignalValue::from_u64(u64::from(self.elc_strobe), 1)?,
+                            self.now,
+                        )?;
+                    }
+                }
+            }
             let uart = self.uart.bytes();
             for byte in uart.iter().skip(self.traced_uart_len) {
                 self.uart_strobe = !self.uart_strobe;
@@ -1386,7 +1434,6 @@ impl ArmMcuMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remu_devices::{RA4M1_EVENT_ELC_SOFTWARE0, RaElcRegister};
     use remu_image::FirmwareSegment;
 
     #[test]

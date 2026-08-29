@@ -165,3 +165,23 @@ fn maps_ra4m1_kint_and_routes_selected_pin_through_icu() {
         vec![9]
     );
 }
+
+#[test]
+fn maps_ra4m1_elc_software_events_and_destination_links() {
+    let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+    machine
+        .bus
+        .write(0x4004_1010, AccessWidth::HalfWord, 0x053, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4004_1000, AccessWidth::Byte, 0x80, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4004_1002, AccessWidth::Byte, 0x41, SimTime::ZERO)
+        .unwrap();
+    let elc = machine.ra_elc.as_ref().unwrap();
+    assert_eq!(elc.take_software_events(), vec![0x053]);
+    assert_eq!(elc.route_event(0x053), vec![0]);
+}

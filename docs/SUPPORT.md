@@ -57,6 +57,12 @@ selects enabled inputs, and zero writes to `KRF` clear latched flags. The
 KEY_INTKR ELC event (`0x045`) routes through the ICU, with a dedicated trace
 signal exposing its request level.
 
+The RA4M1 Event Link Controller is mapped at `0x40041000`. Its global enable,
+23 native destination-link selectors, and software events `0x053`/`0x054` are
+modeled. Guest-generated software events are available to the machine and VCD
+trace path, while peripheral-owned hardware events continue through their ICU
+routing paths. Exact event propagation latency is not modeled.
+
 The R7FA4M1AB3CFM model includes the RA4M1 RTC at `0x40044000`. Its
 functional calendar slice implements the BCD counters, the 16-bit `RYRCNT`
 layout (with a 2000--2099 calendar epoch), the six calendar alarms plus the

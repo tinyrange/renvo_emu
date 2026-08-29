@@ -23,6 +23,10 @@ pub const RA4M1_EVENT_GPT6_OVERFLOW: u16 = 0x08d;
 pub const RA4M1_EVENT_GPT7_OVERFLOW: u16 = 0x095;
 /// RA4M1 ELC event number for the key interrupt function.
 pub const RA4M1_EVENT_KINT: u16 = 0x045;
+/// RA4M1 ELC software event 0.
+pub const RA4M1_EVENT_ELC_SOFTWARE0: u16 = 0x053;
+/// RA4M1 ELC software event 1.
+pub const RA4M1_EVENT_ELC_SOFTWARE1: u16 = 0x054;
 /// RA4M1 ELC event number for SCI9 transmit-data-empty.
 pub const RA4M1_EVENT_SCI9_TXI: u16 = 0x0a9;
 /// RA4M1 ELC event number for AGT0 underflow/interrupt.
