@@ -245,8 +245,8 @@ The pull-request GitHub Actions workflow runs formatting, Clippy, all workspace
 tests, source-layout checks, package-manifest validation, and a bounded,
 lockfile-pinned machine smoke matrix covering RISC-V, Arm, Xtensa, AVR, MSP430,
 PIC16, and MCS-51. Each architecture lane enables Rust backtraces and runs all
-matching tests before reporting failure. The scheduled
-qualification workflow additionally runs the open-toolchain portfolio smoke,
+matching tests before reporting failure. The scheduled qualification workflow
+additionally runs the open-toolchain portfolio smoke,
 immutable vendor samples, stop conditions, official four-board MicroPython and
 MQuickJS acceptance, and CoreMark. Each scheduled lane uploads its JSON, VCD,
 transcript, and log evidence. The MicroPython firmware and pinned CoreMark

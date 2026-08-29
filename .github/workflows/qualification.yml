@@ -26,7 +26,7 @@ jobs:
         run: rustup show active-toolchain
 
       - name: Restore Cargo build cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -34,8 +34,10 @@ jobs:
             target
           key: qualification-public-smoke-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
 
-      - name: Build pinned public toolchain images
-        run: scripts/bootstrap-toolchains.sh
+      - name: Build required public toolchain images
+        run: |
+          docker build --pull=false --tag remu/cross-gcc:local toolchains/cross-gcc
+          docker build --pull=false --tag remu/xtensa-esp-gcc:local toolchains/xtensa-esp-gcc
 
       - name: Run representative firmware smoke
         run: scripts/docker-smoke.sh
@@ -48,7 +50,7 @@ jobs:
 
       - name: Upload smoke evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: public-smoke-qualification
           path: |
@@ -57,6 +59,7 @@ jobs:
             .remu/stop-conditions/
             qualification/vendor-samples.json
             qualification/stop-conditions.json
+          include-hidden-files: true
           if-no-files-found: warn
 
   official-firmware:
@@ -72,7 +75,7 @@ jobs:
         run: rustup show active-toolchain
 
       - name: Restore MicroPython firmware and Cargo caches
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .remu/firmware/micropython-v1.28.0
@@ -97,12 +100,13 @@ jobs:
 
       - name: Upload official-firmware evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: official-firmware-qualification
           path: |
             .remu/qualification/acceptance/
             .remu/firmware/micropython-v1.28.0/verified.json
+          include-hidden-files: true
           if-no-files-found: warn
 
   coremark:
@@ -118,7 +122,7 @@ jobs:
         run: rustup show active-toolchain
 
       - name: Restore CoreMark source and Cargo caches
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .remu/reference/coremark-1f483d5b8316753a742cbf5590caf5bd0a4e4777
@@ -127,8 +131,10 @@ jobs:
             target
           key: qualification-coremark-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/qualify-coremark.sh') }}
 
-      - name: Build pinned public toolchain images
-        run: scripts/bootstrap-toolchains.sh
+      - name: Build required public toolchain images
+        run: |
+          docker build --pull=false --tag remu/cross-gcc:local toolchains/cross-gcc
+          docker build --pull=false --tag remu/xtensa-esp-gcc:local toolchains/xtensa-esp-gcc
 
       - name: Build release interpreter
         run: cargo build --release -p remu-cli --locked
@@ -138,8 +144,9 @@ jobs:
 
       - name: Upload CoreMark evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coremark-qualification
           path: .remu/qualification/coremark/
+          include-hidden-files: true
           if-no-files-found: warn

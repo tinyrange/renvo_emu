@@ -12,8 +12,14 @@ mkdir -p "$cache"
 
 if [ ! -x "$remu" ]
 then
+    if [ -n "${REMU_BIN:-}" ]
+    then
+        echo "REMU_BIN is not executable: $remu" >&2
+        exit 1
+    fi
     cargo=${CARGO:-cargo}
-    "$cargo" build --quiet -p remu-cli
+    "$cargo" build --locked --quiet -p remu-cli
+    remu="$project_dir/target/debug/remu"
 fi
 
 # A restored Actions cache should not need Docker or network access. Verify the
