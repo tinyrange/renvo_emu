@@ -201,27 +201,29 @@ manuals = [
 ]
 manual_urls = [
   "https://www.microchip.com/en-us/product/PIC16F15376",
+  "https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/PIC16-L-F15356-75-76-85-86-Microcontroller-Data-Sheet-DS40001866.pdf",
+  "https://onlinedocs.microchip.com/oxy/GUID-632C0460-65B2-4F1E-8D1A-B760EB793F79-en-US-4/GUID-D3B83BDB-C56A-4C05-B597-4BE11AB88523.html",
   "https://onlinedocs.microchip.com/oxy/GUID-1B285B92-7853-41DB-A71E-1287988ABFBA-en-US-20/index.html",
   "https://ww1.microchip.com/downloads/aemDocuments/documents/DEV/ProductDocuments/ReferenceManuals/MPLAB-XC8-C-Compiler-Users-Guide-for-PIC-DS50002737.pdf",
 ]
 device_pack = "Microchip.PIC16F1xxxx_DFP.1.31.465.atpack"
 device_pack_url = "https://packs.download.microchip.com/Microchip.PIC16F1xxxx_DFP.1.31.465.atpack"
 device_pack_sha256 = "4ab50366f9ab7609c14c1b93e65cd9222d15d62d29fb2252e3ea0b9255dc125f"
-sample_url = "qualification/pic16f15376/fixture/remu_timer0.c"
-sample_revision = "original Renvo Emulator PIC16F15376 Timer0 register fixture"
+sample_url = "qualification/pic16f15376/fixture/"
+sample_revision = "original Renvo Emulator PIC16F15376 Timer0, Timer2, DAC1, comparator, PPS output and NCO1 register fixtures"
 sample_adaptation = "project-authored fixture written from the public device data sheet; no vendor application-note source is incorporated"
 toolchain = "MPLAB XC8 4.00 for PIC plus PIC16F1xxxx DFP 1.31.465"
 compiler_flags = ["-mcpu=16F15376"]
-peripherals = ["OSC", "PORT", "LAT", "TRIS", "ANSEL", "PPS", "PIR", "PIE", "TMR0", "TMR1", "EUSART", "WDT"]
+peripherals = ["OSC", "PORT", "LAT", "TRIS", "ANSEL", "PPS (RxyPPS/PPSLOCK)", "PIR", "PIE", "TMR0", "TMR1", "TMR2", "DAC1", "Comparator1", "NCO1", "EUSART", "MSSP1 SPI", "MSSP1 I2C host (typed registers, BF/WCOL/SSPOV, ACKSTAT/ACKEN)", "WDT"]
 image_formats = ["Intel HEX reconstructed as 14-bit little-endian program words", "XC8 ELF retained for map/disassembly evidence"]
 memory_map = ["program memory 0x0000..0x3fff in 14-bit words", "banked data/SFR space 0x0000..0x1fff", "linear GPR alias 0x2000..0x29ef", "16-entry hardware return stack"]
 reset_assumptions = "Power-on reset starts at program word 0; XC8 startup establishes software data stack, initialized data and main; interrupt entry uses word address 0x0004"
 vectors = ["reset word address 0x0000", "combined interrupt word address 0x0004"]
-selected_pins = ["RA1 external digital input", "RA0 GPIO/timer ISR output", "RE0 Microchip Timer0 oracle output", "EUSART1 logical TX"]
-interrupt_routes = ["Timer0 PIR0/PIE0 plus PEIE/GIE -> vector 0x0004", "Timer1 PIR4/PIE4 -> vector 0x0004", "EUSART1 PIR3/PIE3 -> vector 0x0004"]
-vcd_signals = ["board.pic16f15376.porta", "board.pic16f15376.timer0.irq", "board.pic16f15376.eusart1", "board.pic16f15376.interrupt.request"]
+selected_pins = ["RA1 external digital input", "RA0 GPIO/PPS TMR0 output", "RA0/RA2 C1 digital inputs", "RE0 Timer0/Timer2 oracle output", "DAC1 normalized code", "C1 comparator output", "EUSART1 logical TX"]
+interrupt_routes = ["Timer0 PIR0/PIE0 plus PEIE/GIE -> vector 0x0004", "Timer1 PIR4/PIE4 -> vector 0x0004", "Timer2 PIR4/PIE4 -> vector 0x0004", "Comparator1 PIR2/PIE2 plus PEIE/GIE -> vector 0x0004", "NCO1 PIR7/PIE7 overflow plus PEIE/GIE -> vector 0x0004", "EUSART1 and MSSP1 PIR3/PIE3 -> vector 0x0004"]
+vcd_signals = ["board.pic16f15376.porta", "board.pic16f15376.timer0.irq", "board.pic16f15376.timer2.irq", "board.pic16f15376.dac1.value", "board.pic16f15376.dac1.active", "board.pic16f15376.comparator1.output", "board.pic16f15376.nco1.output", "board.pic16f15376.eusart1", "board.pic16f15376.mssp1.i2c_byte", "board.pic16f15376.mssp1.i2c_strobe", "board.pic16f15376.interrupt.request"]
 fidelity_tier = "functional enhanced mid-range PIC16 and selected peripherals, deterministic timing"
-unsupported = ["analog peripherals", "CLC/NCO/PWM", "serial receive bit timing", "exact oscillator and instruction-cycle timing"]
+unsupported = ["MSSP1 10-bit/slave and pin-level I2C behavior", "PPS input routing and unmodeled output sources", "PPS key-sequence timing fidelity", "C2/zero-cross and analog voltage fidelity", "CLC/CCP/PWM", "NCO exact clock-source and pulse-width timing", "serial receive bit timing", "exact oscillator and instruction-cycle timing"]
 vendor_sample_license = "MIT OR Apache-2.0; original Renvo Emulator fixture"
 
 [[target]]
