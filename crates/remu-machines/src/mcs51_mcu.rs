@@ -364,7 +364,7 @@ impl Mcs51McuMachine {
         stimuli: &[PinStimulus],
         mut trace: Option<&mut dyn TraceSink>,
     ) -> Result<RunResult, Mcs51MachineError> {
-        if limits.instructions.is_none() && limits.deadline.is_none() {
+        if !limits.is_bounded() {
             return Err(Mcs51MachineError::MissingRunLimit);
         }
         let mut digest = TraceDigest::new();
@@ -392,14 +392,8 @@ impl Mcs51McuMachine {
                 self.set_pin(stimulus.pin, stimulus.value)?;
                 stats.events = stats.events.saturating_add(1);
             }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
+            if let Some(reason) = limits.reached(stats.instructions, self.now) {
+                break reason;
             }
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;

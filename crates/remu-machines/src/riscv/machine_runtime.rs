@@ -117,7 +117,7 @@ impl RiscVMachine {
         stimuli: &[PinStimulus],
         mut trace: Option<&mut dyn TraceSink>,
     ) -> Result<RunResult, MachineError> {
-        if limits.instructions.is_none() && limits.deadline.is_none() {
+        if !limits.is_bounded() {
             return Err(MachineError::MissingRunLimit);
         }
 

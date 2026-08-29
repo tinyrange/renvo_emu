@@ -781,6 +781,14 @@ key blocks through `RD_DIS`, and expose read/program completion interrupts. It
 intentionally does not model programming voltage, Reed-Solomon correction
 timing, secure-boot policy, or physical-fuse failure characteristics.
 
+Every architecture uses the same bounded-run contract. A run must provide an
+instruction budget, an inclusive abstract-time deadline, or both. The shared
+policy checks the instruction budget first when both bounds are reached on the
+same iteration, then the deadline; this keeps stop reasons and result schemas
+stable across RISC-V, Arm, Xtensa, AVR, MSP430, PIC16, and MCS-51 machines.
+Unbounded execution is rejected so a malformed CI invocation cannot hang
+indefinitely.
+
 Signals use `0`, `1`, high impedance, and unknown/contention states. Changes
 are streamed, and declaration/change digests are stable for equivalent runs.
 The CLI accepts scheduled input in `PIN=VALUE@TICK` form.
