@@ -843,7 +843,8 @@ pub fn run_board_scenario(
                     })?;
                 let mut candidate = runtime
                     .get(&connection.component.name)
-                    .expect("validated connection has runtime component");
+                    .expect("validated connection has runtime component")
+                    .clone();
                 let response = match &mut candidate {
                     RuntimeComponent::Sgp30(sensor) => {
                         sensor.transact(write, *read_len, SimTime::from_ticks(*at))?

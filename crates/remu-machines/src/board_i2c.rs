@@ -1,6 +1,7 @@
 use super::{
-    BoardComponentKind, BoardError, BoardScenario, ConnectorProtocol, SGP30_ADDRESS, Sgp30,
-    Sgp30Snapshot,
+    BMI270_ADDRESS, Bmi270, Bmi270Snapshot, BoardComponentKind, BoardError, BoardScenario,
+    ConnectorProtocol, ES8311_ADDRESS, Es8311, Es8311Snapshot, M5PM1_ADDRESS, M5Pm1, M5Pm1Snapshot,
+    SGP30_ADDRESS, Sgp30, Sgp30Snapshot,
 };
 use remu_core::SimTime;
 use remu_devices::SignalHub;
@@ -14,6 +15,30 @@ struct ConnectorPins {
     clock: SignalId,
     connector_data: SignalId,
     connector_clock: SignalId,
+}
+
+#[derive(Clone)]
+enum BoardI2cDevice {
+    Sgp30(Sgp30),
+    M5Pm1(M5Pm1),
+    Bmi270(Bmi270),
+    Es8311(Es8311),
+}
+
+impl BoardI2cDevice {
+    fn transact(
+        &mut self,
+        write: &[u8],
+        read_len: usize,
+        at: SimTime,
+    ) -> Result<Vec<u8>, BoardError> {
+        match self {
+            Self::Sgp30(device) => Ok(device.transact(write, read_len, at)?),
+            Self::M5Pm1(device) => Ok(device.transact(write, read_len, at)?),
+            Self::Bmi270(device) => Ok(device.transact(write, read_len, at)?),
+            Self::Es8311(device) => Ok(device.transact(write, read_len, at)?),
+        }
+    }
 }
 
 /// Result of one deterministic board-level I2C transfer.
@@ -45,7 +70,7 @@ pub struct BoardI2cEndpoint {
     connectors: BTreeMap<String, ConnectorPins>,
     protocols: BTreeMap<String, ConnectorProtocol>,
     targets: BTreeMap<(String, u8), String>,
-    devices: BTreeMap<String, Sgp30>,
+    devices: BTreeMap<String, BoardI2cDevice>,
     available_at: SimTime,
 }
 
@@ -137,8 +162,18 @@ impl BoardI2cEndpoint {
                 .get(&connection.connector)
                 .copied()
                 .expect("validated connection has a connector");
-            let (eco2, tvoc) = match &connection.component.kind {
-                BoardComponentKind::Sgp30 { eco2, tvoc } => (*eco2, *tvoc),
+            let (address, device) = match &connection.component.kind {
+                BoardComponentKind::Sgp30 { eco2, tvoc } => (
+                    SGP30_ADDRESS,
+                    BoardI2cDevice::Sgp30(Sgp30::new(*eco2, *tvoc)),
+                ),
+                BoardComponentKind::M5Pm1 => (M5PM1_ADDRESS, BoardI2cDevice::M5Pm1(M5Pm1::new())),
+                BoardComponentKind::Bmi270 => {
+                    (BMI270_ADDRESS, BoardI2cDevice::Bmi270(Bmi270::new()))
+                }
+                BoardComponentKind::Es8311 => {
+                    (ES8311_ADDRESS, BoardI2cDevice::Es8311(Es8311::new()))
+                }
                 BoardComponentKind::PushButton { .. } => {
                     return Err(BoardError::I2cComponent {
                         component: connection.component.name.clone(),
@@ -157,6 +192,12 @@ impl BoardI2cEndpoint {
                         kind: "WS2812",
                     });
                 }
+                BoardComponentKind::St7789 { .. } => {
+                    return Err(BoardError::I2cComponent {
+                        component: connection.component.name.clone(),
+                        kind: "ST7789",
+                    });
+                }
             };
             if connector != ConnectorProtocol::I2c {
                 return Err(BoardError::Protocol {
@@ -166,7 +207,7 @@ impl BoardI2cEndpoint {
                     actual: connector,
                 });
             }
-            let key = (connection.connector.clone(), SGP30_ADDRESS);
+            let key = (connection.connector.clone(), address);
             if targets
                 .insert(key, connection.component.name.clone())
                 .is_some()
@@ -176,7 +217,7 @@ impl BoardI2cEndpoint {
                     name: connection.component.name.clone(),
                 });
             }
-            devices.insert(connection.component.name.clone(), Sgp30::new(eco2, tvoc));
+            devices.insert(connection.component.name.clone(), device);
         }
         Ok(Self {
             hub,
@@ -253,7 +294,37 @@ impl BoardI2cEndpoint {
     /// Returns the current snapshot for a connected SGP30 target.
     pub fn sgp30_snapshot(&self, connector: &str) -> Option<Sgp30Snapshot> {
         let name = self.targets.get(&(connector.to_owned(), SGP30_ADDRESS))?;
-        self.devices.get(name).map(Sgp30::snapshot)
+        match self.devices.get(name)? {
+            BoardI2cDevice::Sgp30(device) => Some(device.snapshot()),
+            _ => None,
+        }
+    }
+
+    /// Returns the current snapshot for a connected M5PM1 target.
+    pub fn m5pm1_snapshot(&self, connector: &str) -> Option<M5Pm1Snapshot> {
+        let name = self.targets.get(&(connector.to_owned(), M5PM1_ADDRESS))?;
+        match self.devices.get(name)? {
+            BoardI2cDevice::M5Pm1(device) => Some(device.snapshot()),
+            _ => None,
+        }
+    }
+
+    /// Returns the current snapshot for a connected BMI270 target.
+    pub fn bmi270_snapshot(&self, connector: &str) -> Option<Bmi270Snapshot> {
+        let name = self.targets.get(&(connector.to_owned(), BMI270_ADDRESS))?;
+        match self.devices.get(name)? {
+            BoardI2cDevice::Bmi270(device) => Some(device.snapshot()),
+            _ => None,
+        }
+    }
+
+    /// Returns the current snapshot for a connected ES8311 target.
+    pub fn es8311_snapshot(&self, connector: &str) -> Option<Es8311Snapshot> {
+        let name = self.targets.get(&(connector.to_owned(), ES8311_ADDRESS))?;
+        match self.devices.get(name)? {
+            BoardI2cDevice::Es8311(device) => Some(device.snapshot()),
+            _ => None,
+        }
     }
 }
 
@@ -489,6 +560,76 @@ mod tests {
             BoardError::I2cPinAlias { connector, pin }
                 if connector == "grove" && pin == 2
         ));
+    }
+
+    #[test]
+    fn routes_all_supported_m5sticks3_i2c_devices_atomically() {
+        let hub = SignalHub::new();
+        for pin in [1, 2] {
+            hub.declare(
+                format!("board.esp32s3.chip_gpio.pin{pin}"),
+                SignalValue::repeat(Logic::Z, 1).unwrap(),
+                None,
+            )
+            .unwrap();
+        }
+        let scenario = BoardScenario {
+            name: "m5sticks3".to_owned(),
+            target: "esp32s3".to_owned(),
+            connectors: vec![super::super::BoardConnector {
+                name: "internal".to_owned(),
+                protocol: ConnectorProtocol::I2c,
+                data_pin: 2,
+                clock_pin: 1,
+                voltage_mv: 3_300,
+            }],
+            mounts: Vec::new(),
+            connections: [
+                ("power", BoardComponentKind::M5Pm1),
+                ("imu", BoardComponentKind::Bmi270),
+                ("codec", BoardComponentKind::Es8311),
+            ]
+            .into_iter()
+            .map(|(name, kind)| super::super::BoardConnection {
+                connector: "internal".to_owned(),
+                component: super::super::BoardComponent {
+                    name: name.to_owned(),
+                    kind,
+                },
+            })
+            .collect(),
+            actions: Vec::new(),
+            duration: 1,
+        };
+        let mut endpoint =
+            BoardI2cEndpoint::new(&scenario, hub, "board.esp32s3.chip_gpio").unwrap();
+
+        let power = endpoint
+            .transfer("internal", M5PM1_ADDRESS, &[0x00], 4, SimTime::ZERO)
+            .unwrap();
+        assert_eq!(power.read, [0x01, 0x01, 0x01, b'A']);
+        let imu = endpoint
+            .transfer("internal", BMI270_ADDRESS, &[0x00], 1, power.completed_at)
+            .unwrap();
+        assert_eq!(imu.read, [0x24]);
+        endpoint
+            .transfer(
+                "internal",
+                ES8311_ADDRESS,
+                &[0x00, 0x80],
+                0,
+                imu.completed_at,
+            )
+            .unwrap();
+
+        assert_eq!(endpoint.m5pm1_snapshot("internal").unwrap().transactions, 1);
+        assert_eq!(
+            endpoint.bmi270_snapshot("internal").unwrap().transactions,
+            1
+        );
+        let codec = endpoint.es8311_snapshot("internal").unwrap();
+        assert!(codec.powered);
+        assert_eq!(codec.transactions, 1);
     }
 
     #[test]

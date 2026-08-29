@@ -131,9 +131,9 @@ endpoint.poll(result.stats.time)?;
 
 The typed `BoardI2cEndpoint` resolves an I2C connector against the same machine
 hub, creates `board.<name>.connector.<connector>.data/clock` signals, and routes
-host-side transfers through supported external models such as the SGP30. This
-makes Starlark's `connect("grove", sensor)` topology reusable at a machine signal
-boundary while keeping the implementation in Rust.
+host-side transfers through the SGP30, M5PM1, BMI270, and ES8311 models. This
+makes Starlark connector topology reusable at a machine signal boundary while
+keeping the implementation in Rust.
 
 The I2C endpoint intentionally remains a host-transfer slice: it emits the bus
 waveform and returns the model response, but it does not yet observe a firmware
