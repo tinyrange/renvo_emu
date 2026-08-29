@@ -1,0 +1,106 @@
+{
+  "schema": "remu.new-target-qualification-result.v1",
+  "result": "pass",
+  "software_only": true,
+  "hardware_access": false,
+  "rf_transmission": false,
+  "network_disabled_for_compilation": true,
+  "source_sha256": "391262bc91c0fc17dee9f311b1878c58684733018ad8e98b705c1c17c304148d",
+  "target_count": 3,
+  "targets": [
+    {
+      "id": "stm32f411re",
+      "toolchain": "gcc-13-stm32f411re",
+      "toolchain_reference": "remu/cross-gcc:local",
+      "toolchain_image_id": "sha256:c83a45b16a93abbede0e1d5bd7cd638f70e4562b3ca8fb3a9cb1c77a909fcf76",
+      "build_artifact": ".remu/qualification/new-targets/stm32f411re-build.json",
+      "build_sha256": "5ee66dfb205af613e8e2d00bb166061fbba019a3c1e64a50eb336fa6119a2cfe",
+      "result_artifact": ".remu/qualification/new-targets/stm32f411re-run-a/result.json",
+      "result_sha256": "59e5fc208b3a934fb32ab21d62d5ef8ac896a86234f62fa35d00ffcc2a345bf8",
+      "vcd_sha256": "d0aa10569bbcb6e9722b57665a02612bee9d3a41f84eb6f63d460e7d74456732",
+      "bus_sha256": "1d664523d1f08bc14ea43bf5646fa48b79cab3e21689a98df1605f13f5f9bdc9",
+      "trace_digest": "a7dd5654795b80b3a73cb0806a0102cec8ddb44924961430b6413e0e3170dbaf",
+      "uart": [
+        83,
+        84,
+        77,
+        51,
+        50,
+        70,
+        52,
+        49,
+        49,
+        10
+      ],
+      "observed_native_blocks": [
+        "RCC",
+        "GPIOA",
+        "USART2",
+        "TIM2"
+      ],
+      "deterministic_replay": true,
+      "status": "pass"
+    },
+    {
+      "id": "nrf52840",
+      "toolchain": "gcc-13-nrf52840",
+      "toolchain_reference": "remu/cross-gcc:local",
+      "toolchain_image_id": "sha256:c83a45b16a93abbede0e1d5bd7cd638f70e4562b3ca8fb3a9cb1c77a909fcf76",
+      "build_artifact": ".remu/qualification/new-targets/nrf52840-build.json",
+      "build_sha256": "fd2cec9304a18a05af3c0c27b4233ac770f366eda562bc8fb003da9dd70b6a75",
+      "result_artifact": ".remu/qualification/new-targets/nrf52840-run-a/result.json",
+      "result_sha256": "aed453f3a2eec7e91b41d12d5d38a5af1f0010c2d06428cf6340c8546a1ac13f",
+      "vcd_sha256": "f18973bd3d1594f53f90b7bbd3ebe0285ec9ca0b4166e4f7dafc44ee4345feb5",
+      "bus_sha256": "8592bd278ec9b9fa4f2c02f71eb05d500c350d6701c77b407b474d3dc4638f18",
+      "trace_digest": "a1525a0bfeb835b23648f8d361af992deb941503dcc12b47f26884a381dcee7a",
+      "uart": [
+        78,
+        82,
+        70,
+        53,
+        50,
+        56,
+        52,
+        48,
+        10
+      ],
+      "observed_native_blocks": [
+        "GPIO P0",
+        "UART0",
+        "TIMER0"
+      ],
+      "deterministic_replay": true,
+      "status": "pass"
+    },
+    {
+      "id": "esp32p4",
+      "toolchain": "espressif-gcc-14-esp32p4-rv32imac-subset",
+      "toolchain_reference": "remu/riscv32-esp-gcc:local",
+      "toolchain_image_id": "sha256:5cc6c53141f64e5d8bfd52f6cbac8e6000693e9d73a65d9ac1262ba655ceca78",
+      "build_artifact": ".remu/qualification/new-targets/esp32p4-build.json",
+      "build_sha256": "34104ccc74491b58e59b0f457feec4dc927608ed4ebd9a37478e11fed15890be",
+      "result_artifact": ".remu/qualification/new-targets/esp32p4-run-a/result.json",
+      "result_sha256": "067abbec50b89cdcc1ef8d6dc1307d42c7ba83d0d90f8963bba47155faa53374",
+      "vcd_sha256": "19ec094de17ebcc487bd58b8a5a3f0a90efa48aa977b7fd6105cadd31154165c",
+      "bus_sha256": "cdfc001c179cd8f8e539f92821cd420600ee1c6681c60f9dd4ebd26798c22a37",
+      "trace_digest": "5982ee355cb30db756e67b9fa306847ae9274c5dd1804aea0695443a9b6b399f",
+      "uart": [
+        69,
+        83,
+        80,
+        51,
+        50,
+        80,
+        52,
+        10
+      ],
+      "observed_native_blocks": [
+        "GPIO",
+        "UART0",
+        "TIMG0"
+      ],
+      "deterministic_replay": true,
+      "status": "pass"
+    }
+  ]
+}

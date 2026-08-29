@@ -243,6 +243,126 @@ fn stm32l432_maps_usart1_and_lpuart1_native_windows() {
 }
 
 #[test]
+fn stm32f411re_maps_flash_alias_gpio_tim2_and_usart2() {
+    let mut machine = ArmMcuMachine::new(TargetId::Stm32f411re).unwrap();
+    assert_eq!(machine.cpu.profile(), ArmProfile::CortexM4F);
+    let image = FirmwareImage {
+        architecture: FirmwareArchitecture::Arm,
+        entry: 0x0800_0001,
+        segments: vec![FirmwareSegment {
+            address: 0x0800_0000,
+            load_address: None,
+            initialized_size: 4,
+            data: vec![0x00, 0xbe, 0x00, 0xbf],
+            executable: true,
+            writable: false,
+            alignment: 4,
+        }],
+        symbols: Vec::new(),
+    };
+    machine.load_firmware(&image).unwrap();
+    assert_eq!(machine.debug_read_memory(0, 2).unwrap(), [0x00, 0xbe]);
+
+    machine
+        .bus
+        .write(0x4002_0000, AccessWidth::Word, 1 << 10, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4002_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.gpio_output(), 1 << 5);
+
+    machine
+        .bus
+        .write(0x4000_4404, AccessWidth::Word, b'F'.into(), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.uart.bytes(), b"F");
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x4000_4400,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO
+            )
+            .unwrap()
+            & (1 << 7),
+        1 << 7
+    );
+
+    machine
+        .bus
+        .write(0x4000_002c, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_000c, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_0000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.timer.poll(SimTime::from_ticks(4)), (Some(28), true));
+}
+
+#[test]
+fn nrf52840_maps_gpio_uart_tasks_and_timer_compare() {
+    let mut machine = ArmMcuMachine::new(TargetId::Nrf52840).unwrap();
+    assert_eq!(machine.cpu.profile(), ArmProfile::CortexM4F);
+    machine
+        .bus
+        .write(0x5000_0518, AccessWidth::Word, 1 << 13, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x5000_0508, AccessWidth::Word, 1 << 13, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.gpio_output(), 1 << 13);
+
+    machine
+        .bus
+        .write(0x4000_2500, AccessWidth::Word, 4, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_2008, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_251c, AccessWidth::Word, b'N'.into(), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.uart.bytes(), b"N");
+
+    machine
+        .bus
+        .write(0x4000_8540, AccessWidth::Word, 3, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_8304, AccessWidth::Word, 1 << 16, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x4000_8000, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.timer.poll(SimTime::from_ticks(3)), (Some(8), true));
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x4000_8140,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::from_ticks(3)
+            )
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn stm32l432_maps_both_i2c_event_controllers() {
     let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
     machine

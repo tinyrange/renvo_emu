@@ -7,11 +7,12 @@ cd "$repo_root"
 artifact_root=${REMU_NATIVE_ARTIFACT_ROOT:-.remu/qualification/native-images}
 firmware_cache=${REMU_FIRMWARE_CACHE:-.remu/firmware/micropython-v1.28.0}
 cross_image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 remu/cross-gcc:local)
+riscv_esp_image=$(resolve_toolchain_image sha256:634d2ca3820e772fe162a100465589cd57dbb1a387b9df4175c055ef360f90f6 remu/riscv32-esp-gcc:local)
 avr_image=$(resolve_toolchain_image sha256:90c1a3cd4d9691b3c902365fb4e3717cc7d1bc155846afe8a759da1de4fb2f8c remu/avr-gcc:local)
 msp_image=$(resolve_toolchain_image sha256:c2da13329a24c10f764d480b9aeef07d31cc20f77c2040dfedd2cfe9942dbeb2 remu/msp430-gcc:local)
 package_image=$(resolve_toolchain_image sha256:5aa633e02afc7f2657a5ddc76bdd1ba0f720545e8d6b8690eeca045c29496e09 remu/nanoc6-esptool:5.3.0)
 
-for image in "$cross_image" "$avr_image" "$msp_image" "$package_image"
+for image in "$cross_image" "$riscv_esp_image" "$avr_image" "$msp_image" "$package_image"
 do
     docker image inspect "$image" >/dev/null
 done
@@ -110,6 +111,20 @@ build_case stm32l432kc toolchains/arm-gcc-stm32l432kc.toml \
     -DGPIO_SET_ADDRESS=0x48000018 -DGPIO_SET_VALUE=0x20 \
     start.S -Wl,-T,link-stm32l4.ld -o /workspace/out/probe.elf
 
+build_case stm32f411re toolchains/arm-gcc-stm32f411re.toml \
+    corpus/smoke/stm32f411re stm32f411re \
+    -O2 -mfpu=fpv4-sp-d16 -mfloat-abi=hard start.S main.c \
+    -Wl,-T,link.ld -o /workspace/out/probe.elf
+
+build_case nrf52840 toolchains/arm-gcc-nrf52840.toml \
+    corpus/smoke/nrf52840 nrf52840 \
+    -O2 -mfpu=fpv4-sp-d16 -mfloat-abi=hard start.S main.c \
+    -Wl,-T,link.ld -o /workspace/out/probe.elf
+
+build_case esp32p4 toolchains/riscv32-esp-gcc-esp32p4.toml \
+    corpus/smoke/esp32p4 esp32p4 \
+    -O2 start.S main.c -Wl,-T,link.ld -lgcc -o /workspace/out/probe.elf
+
 build_case r7fa4m1ab3cfm toolchains/arm-gcc-r7fa4m1ab3cfm.toml \
     corpus/native_equivalence/arm r7fa4m1ab3cfm \
     -DSTACK_TOP=0x20008000 \
@@ -121,7 +136,7 @@ build_case atmega328pb toolchains/avr-gcc-atmega328pb.toml corpus/smoke/atmega32
     atmega328pb -O2 main.c -Wl,-Map,/workspace/out/probe.map \
     -o /workspace/out/probe.elf
 build_case msp430fr2433 toolchains/msp430-gcc-msp430fr2433.toml \
-    corpus/smoke/msp430fr2433 msp430fr2433 \
+    corpus/native_equivalence/msp430 msp430fr2433 \
     -O2 main.c -Wl,-Map,/workspace/out/probe.map -o /workspace/out/probe.elf
 build_case pic16f15376 toolchains/xc8-pic16f15376.toml corpus/smoke/pic16f15376 \
     pic16f15376 -O2 main.c -Wl,-Map=/workspace/out/probe.map \
@@ -131,11 +146,12 @@ build_case efm8bb52f32g toolchains/sdcc-mcs51-efm8bb52.toml \
     --opt-code-speed main.c -o /workspace/out/probe.ihx
 
 docker_objcopy "$cross_image" riscv64-unknown-elf-objcopy wch binary bin
-for id in rp2040 rp2350-arm atsamd21e18 stm32l432kc r7fa4m1ab3cfm
+for id in rp2040 rp2350-arm atsamd21e18 stm32l432kc stm32f411re nrf52840 r7fa4m1ab3cfm
 do
     docker_objcopy "$cross_image" arm-none-eabi-objcopy "$id" binary bin
 done
 docker_objcopy "$cross_image" riscv64-unknown-elf-objcopy rp2350-riscv binary bin
+docker_objcopy "$riscv_esp_image" riscv32-esp-elf-objcopy esp32p4 binary bin
 docker_objcopy "$avr_image" avr-objcopy atmega328pb ihex hex
 docker_objcopy "$msp_image" msp430-elf-objcopy msp430fr2433 ihex hex
 
@@ -224,6 +240,13 @@ run_pair atsamd21e18 atsamd21e18 --elf "$artifact_root/build/atsamd21e18/probe.e
     "$artifact_root/build/atsamd21e18/probe.bin"
 run_pair stm32l432kc stm32l432kc --elf "$artifact_root/build/stm32l432kc/probe.elf" \
     "$artifact_root/build/stm32l432kc/probe.bin"
+run_pair stm32f411re stm32f411re --elf \
+    "$artifact_root/build/stm32f411re/probe.elf" \
+    "$artifact_root/build/stm32f411re/probe.bin" --pin 3=1@0
+run_pair nrf52840 nrf52840 --elf "$artifact_root/build/nrf52840/probe.elf" \
+    "$artifact_root/build/nrf52840/probe.bin" --pin 3=1@0
+run_pair esp32p4 esp32p4 --elf "$artifact_root/build/esp32p4/probe.elf" \
+    "$artifact_root/build/esp32p4/probe.bin" --pin 3=1@0
 run_pair r7fa4m1ab3cfm r7fa4m1ab3cfm --elf \
     "$artifact_root/build/r7fa4m1ab3cfm/probe.elf" \
     "$artifact_root/build/r7fa4m1ab3cfm/probe.bin"
@@ -276,4 +299,14 @@ scripts/summarize-native-images.py \
     --source corpus/native_equivalence/riscv/link-rp2350.ld \
     --source corpus/native_equivalence/riscv/link-esp32c6.ld \
     --source corpus/native_equivalence/xtensa/main.c \
-    --source corpus/native_equivalence/xtensa/link.ld
+    --source corpus/native_equivalence/xtensa/link.ld \
+    --source corpus/native_equivalence/msp430/main.c \
+    --source corpus/smoke/stm32f411re/start.S \
+    --source corpus/smoke/stm32f411re/main.c \
+    --source corpus/smoke/stm32f411re/link.ld \
+    --source corpus/smoke/nrf52840/start.S \
+    --source corpus/smoke/nrf52840/main.c \
+    --source corpus/smoke/nrf52840/link.ld \
+    --source corpus/smoke/esp32p4/start.S \
+    --source corpus/smoke/esp32p4/main.c \
+    --source corpus/smoke/esp32p4/link.ld

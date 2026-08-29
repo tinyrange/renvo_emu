@@ -1307,9 +1307,23 @@ electrical bus behavior remain outside this functional slice.
 Native/direct equivalence is continuously checked by
 `scripts/qualify-native-images.sh`. All compiler inputs are built in immutable,
 network-disabled Docker toolchains. The gate compares stop reason, exit code,
-UART/USB output, trace digest, and byte-identical VCD for all 14 target modes.
+UART/USB output, trace digest, and byte-identical VCD for all 17 target modes.
 PIC16 and EFM8 use their direct Intel HEX boundary because their toolchains do
 not emit a runnable ELF; every other mode compares native boot with ELF.
+
+The STM32F411RE, nRF52840, and ESP32-P4 tranche adds bounded software-only
+functional slices. STM32F411RE covers Cortex-M4F reset-vector execution,
+flash aliasing, RCC/FLASH/SYSCFG startup registers, GPIOA-C/H, EXTI, TIM2, and
+USART2. nRF52840 covers Cortex-M4F reset-vector execution, P0/P1 GPIO, legacy
+UART0 tasks/events, TIMER0 compare, and a startup-compatible CLOCK/POWER
+surface. Its RADIO, NFC, and all RF behavior are explicitly absent. ESP32-P4
+covers a single active HP RV32IMAC CPU, documented TCM/L2/LP-SRAM/XIP/ROM
+windows, GPIO, UART0, timer groups 0/1, and bounded HP system/clock-reset
+startup registers. The second HP core, FPU/PIE/hardware-loop instructions,
+native Espressif flash-image boot, cache/MMU setup, accelerators, high-speed
+interfaces, and exact timing are deferred. The exact register behavior and
+reset values are recorded in
+[`qualification/new-targets/registers.md`](../qualification/new-targets/registers.md).
 
 The ATmega328PB slice includes a deterministic 10-bit ADC path at the native
 `ADCSRA`/`ADMUX`/`ADCL`/`ADCH` registers. Tests can inject per-channel samples,

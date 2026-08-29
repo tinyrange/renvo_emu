@@ -314,11 +314,14 @@ impl RiscVMachine {
             TargetId::Ch32v003 => RiscVProfile::ch32v003(),
             TargetId::Ch32v006 => RiscVProfile::ch32v006(),
             TargetId::Esp32c6 => RiscVProfile::esp32c6(),
+            TargetId::Esp32p4 => RiscVProfile::esp32p4(),
             TargetId::Rp2350 => RiscVProfile::rp2350_hazard3(),
             TargetId::Rp2040
             | TargetId::Esp32s3
             | TargetId::Atsamd21e18
             | TargetId::Stm32l432kc
+            | TargetId::Stm32f411re
+            | TargetId::Nrf52840
             | TargetId::R7fa4m1ab3cfm
             | TargetId::Atmega328pb
             | TargetId::Msp430fr2433
@@ -809,6 +812,55 @@ impl RiscVMachine {
                 bus.map_device("esp32c6.gpio", 0x6009_1000, 0x1000, Box::new(device))?;
                 chip_gpio.push(handle);
             }
+            TargetId::Esp32p4 => {
+                let (uart0, uart0_handle) =
+                    FunctionalUart::new_lenient("esp32p4.uart0", 0x00, 0x1c, 0);
+                let uart0 = uart0.with_rx_count_field(0x3ff, 0);
+                bus.map_device("esp32p4.uart0", 0x500c_a000, 0x1000, Box::new(uart0))?;
+                chip_uarts.push(uart0_handle);
+                for (name, base) in [
+                    ("esp32p4.timer-group0", 0x500c_2000),
+                    ("esp32p4.timer-group1", 0x500c_3000),
+                ] {
+                    let (device, handle) = EspTimerGroup::new(name, EspTimerGroupKind::Esp32P4);
+                    bus.map_device(name, base, 0x1000, Box::new(device))?;
+                    esp_timer_groups.push(handle);
+                }
+                let (device, handle) = EspGpio::new(
+                    "esp32p4.gpio",
+                    55,
+                    "board.esp32p4.chip_gpio",
+                    signals.clone(),
+                )?;
+                bus.map_device("esp32p4.gpio", 0x500e_0000, 0x1000, Box::new(device))?;
+                chip_gpio.push(handle);
+                bus.map_device(
+                    "esp32p4.hp-system",
+                    0x500e_5000,
+                    0x1000,
+                    Box::new(RegisterBank::new(
+                        "esp32p4.hp-system",
+                        [
+                            (0x00, 0, u32::MAX),
+                            (0x04, 0, u32::MAX),
+                            (0xffc, 0x2407_1000, 0),
+                        ],
+                    )),
+                )?;
+                bus.map_device(
+                    "esp32p4.hp-clock-reset",
+                    0x500e_6000,
+                    0x1000,
+                    Box::new(RegisterBank::new(
+                        "esp32p4.hp-clock-reset",
+                        [
+                            (0x00, 0, u32::MAX),
+                            (0x04, 0, u32::MAX),
+                            (0xffc, 0x2407_1000, 0),
+                        ],
+                    )),
+                )?;
+            }
             TargetId::Rp2350 => {
                 let (device, handle, multicore) = RpSioGpio::new_rp2350_with_multicore(
                     "rp2350.sio",
@@ -852,6 +904,8 @@ impl RiscVMachine {
             | TargetId::Esp32s3
             | TargetId::Atsamd21e18
             | TargetId::Stm32l432kc
+            | TargetId::Stm32f411re
+            | TargetId::Nrf52840
             | TargetId::R7fa4m1ab3cfm
             | TargetId::Atmega328pb
             | TargetId::Msp430fr2433

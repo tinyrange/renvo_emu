@@ -57,7 +57,11 @@ impl CliDebugMachine {
             FirmwareArchitecture::Arm => {
                 if matches!(
                     target,
-                    TargetId::Atsamd21e18 | TargetId::Stm32l432kc | TargetId::R7fa4m1ab3cfm
+                    TargetId::Atsamd21e18
+                        | TargetId::Stm32l432kc
+                        | TargetId::Stm32f411re
+                        | TargetId::Nrf52840
+                        | TargetId::R7fa4m1ab3cfm
                 ) {
                     let mut machine = ArmMcuMachine::new(target)?;
                     machine.load_firmware(image)?;

@@ -795,6 +795,7 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
         TargetId::Ch32v003,
         TargetId::Ch32v006,
         TargetId::Esp32c6,
+        TargetId::Esp32p4,
         TargetId::Rp2350,
     ] {
         let entry = target_manifest(target).memory[0].start;
@@ -815,6 +816,57 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
         assert_eq!(result.reason, StopReason::Halted, "{target}");
         assert_eq!(result.cpu.registers[3].value, 12, "{target}");
     }
+}
+
+#[test]
+fn esp32p4_uses_documented_gpio_uart_and_timer_group_bases() {
+    let mut machine = RiscVMachine::new(TargetId::Esp32p4).unwrap();
+    machine
+        .bus
+        .write(0x500e_0020, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(0x500e_0008, AccessWidth::Word, 1 << 5, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.chip_gpio[0].direction(), 1 << 5);
+    assert_eq!(machine.chip_gpio[0].output(), 1 << 5);
+
+    machine
+        .bus
+        .write(0x500c_a000, AccessWidth::Word, b'P'.into(), SimTime::ZERO)
+        .unwrap();
+    assert_eq!(machine.chip_uarts[0].bytes(), b"P");
+
+    machine
+        .bus
+        .write(
+            0x500c_2000,
+            AccessWidth::Word,
+            (1_u64 << 31) | (1 << 30) | (2 << 13),
+            SimTime::ZERO,
+        )
+        .unwrap();
+    machine
+        .bus
+        .write(0x500c_200c, AccessWidth::Word, 1, SimTime::from_ticks(8))
+        .unwrap();
+    assert!(
+        machine
+            .bus
+            .read(
+                0x500c_2004,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::from_ticks(8),
+            )
+            .unwrap()
+            > 0
+    );
+    assert_eq!(
+        machine.cpu.profile().name,
+        "espressif-esp32p4-hp-rv32imac-subset"
+    );
 }
 
 #[test]

@@ -231,6 +231,8 @@ mod samd_wdt;
 pub use samd_wdt::*;
 mod stm32;
 pub use stm32::*;
+mod nrf52840;
+pub use nrf52840::*;
 mod stm32_adc;
 pub use stm32_adc::*;
 mod stm32_crc;

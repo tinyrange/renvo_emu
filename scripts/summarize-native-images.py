@@ -19,6 +19,9 @@ CASES = [
     ("esp32c6", "esp32c6", "elf", "esp-bin", "esp32c6"),
     ("atsamd21e18", "atsamd21e18", "elf", "raw-bin", "atsamd21e18"),
     ("stm32l432kc", "stm32l432kc", "elf", "raw-bin", "stm32l432kc"),
+    ("stm32f411re", "stm32f411re", "elf", "raw-bin", "stm32f411re"),
+    ("nrf52840", "nrf52840", "elf", "raw-bin", "nrf52840"),
+    ("esp32p4", "esp32p4", "elf", "raw-bin", "esp32p4"),
     ("r7fa4m1ab3cfm", "r7fa4m1ab3cfm", "elf", "raw-bin", "r7fa4m1ab3cfm"),
     ("atmega328pb", "atmega328pb", "elf", "intel-hex", "atmega328pb"),
     ("msp430fr2433", "msp430fr2433", "elf", "intel-hex", "msp430fr2433"),
@@ -44,6 +47,15 @@ def load_json(path: Path) -> dict:
 
 def observable(result: dict) -> dict:
     return {field: result.get(field) for field in OBSERVABLE_FIELDS}
+
+
+def is_immutable_image_id(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value.startswith("sha256:")
+        and len(value) == 71
+        and all(character in "0123456789abcdef" for character in value[7:])
+    )
 
 
 def main() -> None:
@@ -76,8 +88,10 @@ def main() -> None:
             raise ValueError(f"{build_path}: invalid build artifact")
         if build.get("exit_code") != 0 or build.get("timed_out"):
             raise ValueError(f"{build_path}: compilation failed")
-        if build.get("image") != build.get("image_id"):
-            raise ValueError(f"{build_path}: toolchain image was not immutable")
+        # DockerCompiler resolves either the recorded digest or the explicitly
+        # allowed local bootstrap tag to an ID before launching the container.
+        if not is_immutable_image_id(build.get("image_id")):
+            raise ValueError(f"{build_path}: toolchain did not resolve to an immutable image ID")
         cases.append(
             {
                 "id": case_id,

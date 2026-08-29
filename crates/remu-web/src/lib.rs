@@ -345,7 +345,11 @@ fn run_elf_image(
         FirmwareArchitecture::Arm => {
             if matches!(
                 target,
-                TargetId::Atsamd21e18 | TargetId::Stm32l432kc | TargetId::R7fa4m1ab3cfm
+                TargetId::Atsamd21e18
+                    | TargetId::Stm32l432kc
+                    | TargetId::Stm32f411re
+                    | TargetId::Nrf52840
+                    | TargetId::R7fa4m1ab3cfm
             ) {
                 let mut machine = ArmMcuMachine::new(target).map_err(|error| error.to_string())?;
                 machine

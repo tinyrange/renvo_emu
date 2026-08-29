@@ -106,10 +106,14 @@ fn byte_addressed_image(
     bytes: &[u8],
 ) -> Result<FirmwareImage, Box<dyn Error>> {
     let architecture = match target {
-        TargetId::Ch32v003 | TargetId::Ch32v006 => FirmwareArchitecture::RiscV32,
-        TargetId::Atsamd21e18 | TargetId::Stm32l432kc | TargetId::R7fa4m1ab3cfm => {
-            FirmwareArchitecture::Arm
+        TargetId::Ch32v003 | TargetId::Ch32v006 | TargetId::Esp32p4 => {
+            FirmwareArchitecture::RiscV32
         }
+        TargetId::Atsamd21e18
+        | TargetId::Stm32l432kc
+        | TargetId::Stm32f411re
+        | TargetId::Nrf52840
+        | TargetId::R7fa4m1ab3cfm => FirmwareArchitecture::Arm,
         TargetId::Atmega328pb => FirmwareArchitecture::Avr8,
         TargetId::Msp430fr2433 => FirmwareArchitecture::Msp430X,
         _ => {
@@ -190,6 +194,9 @@ mod tests {
             (TargetId::Ch32v006, 0),
             (TargetId::Atsamd21e18, 0),
             (TargetId::Stm32l432kc, 0x0800_0000),
+            (TargetId::Stm32f411re, 0x0800_0000),
+            (TargetId::Nrf52840, 0),
+            (TargetId::Esp32p4, 0x4000_0000),
             (TargetId::R7fa4m1ab3cfm, 0),
             (TargetId::Atmega328pb, 0),
             (TargetId::Msp430fr2433, 0xc000),

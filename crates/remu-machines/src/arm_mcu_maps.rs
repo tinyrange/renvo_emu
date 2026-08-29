@@ -239,6 +239,104 @@ impl ArmMcuMachine {
         Ok(())
     }
 
+    pub(super) fn map_stm32f411(
+        bus: &mut AddressSpace,
+        gpio: [Stm32Gpio; 4],
+        tim2: Stm32Timer,
+        usart2: FunctionalUart,
+        exti: Stm32Exti,
+    ) -> Result<(), remu_bus::MapError> {
+        bus.map_device(
+            "stm32f411re.rcc",
+            0x4002_3800,
+            0x400,
+            Box::new(RegisterBank::new(
+                "stm32f411re.rcc",
+                [
+                    (0x00, 0x0000_0083, u32::MAX),
+                    (0x04, 0x2400_3010, u32::MAX),
+                    (0x08, 0, u32::MAX),
+                    (0x0c, 0, u32::MAX),
+                    (0x30, 0, u32::MAX),
+                    (0x40, 0x0010_0000, u32::MAX),
+                    (0x44, 0, u32::MAX),
+                    (0x70, 0x0e00_0000, u32::MAX),
+                    (0x74, 0, u32::MAX),
+                ],
+            )),
+        )?;
+        bus.map_device(
+            "stm32f411re.flash-control",
+            0x4002_3c00,
+            0x400,
+            Box::new(RegisterBank::new(
+                "stm32f411re.flash-control",
+                [
+                    (0x00, 0, 0x0000_070f),
+                    (0x04, 0, u32::MAX),
+                    (0x08, 0, u32::MAX),
+                    (0x0c, 0, 0x0000_01f3),
+                    (0x10, 0x8000_0000, 0x8301_03fb),
+                    (0x14, 0x0fff_aaed, 0x0fff_ffff),
+                ],
+            )),
+        )?;
+        bus.map_device(
+            "stm32f411re.syscfg",
+            0x4001_3800,
+            0x400,
+            Box::new(RegisterBank::new(
+                "stm32f411re.syscfg",
+                [
+                    (0x00, 0, 3),
+                    (0x04, 0, 0x00ff_00ff),
+                    (0x08, 0, 0x0000_ffff),
+                    (0x0c, 0, 0x0000_ffff),
+                    (0x10, 0, 0x0000_ffff),
+                    (0x14, 0, 0x0000_ffff),
+                ],
+            )),
+        )?;
+        bus.map_device("stm32f411re.exti", 0x4001_3c00, 0x400, Box::new(exti))?;
+        bus.map_device("stm32f411re.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
+        bus.map_device("stm32f411re.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
+        let [gpioa, gpiob, gpioc, gpioh] = gpio;
+        bus.map_device("stm32f411re.gpioa", 0x4002_0000, 0x400, Box::new(gpioa))?;
+        bus.map_device("stm32f411re.gpiob", 0x4002_0400, 0x400, Box::new(gpiob))?;
+        bus.map_device("stm32f411re.gpioc", 0x4002_0800, 0x400, Box::new(gpioc))?;
+        bus.map_device("stm32f411re.gpioh", 0x4002_1c00, 0x400, Box::new(gpioh))?;
+        Ok(())
+    }
+
+    pub(super) fn map_nrf52840(
+        bus: &mut AddressSpace,
+        gpio: Nrf52840Gpio,
+        timer0: Nrf52840Timer,
+        uart0: Nrf52840Uart,
+    ) -> Result<(), remu_bus::MapError> {
+        bus.map_device(
+            "nrf52840.clock-power",
+            0x4000_0000,
+            0x1000,
+            Box::new(RegisterBank::new(
+                "nrf52840.clock-power",
+                [
+                    (0x100, 0, 1),
+                    (0x104, 0, 1),
+                    (0x108, 0, 1),
+                    (0x40c, 0, 1),
+                    (0x418, 0, 1),
+                    (0x518, 0, 3),
+                    (0x51c, 1, 3),
+                ],
+            )),
+        )?;
+        bus.map_device("nrf52840.uart0", 0x4000_2000, 0x1000, Box::new(uart0))?;
+        bus.map_device("nrf52840.timer0", 0x4000_8000, 0x1000, Box::new(timer0))?;
+        bus.map_device("nrf52840.gpio", 0x5000_0000, 0x1000, Box::new(gpio))?;
+        Ok(())
+    }
+
     pub(super) fn map_ra4m1(
         bus: &mut AddressSpace,
         ports: Vec<RaIoPort>,

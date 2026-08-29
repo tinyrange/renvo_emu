@@ -7,6 +7,8 @@ pub enum EspTimerGroupKind {
     Esp32C6,
     /// ESP32-S3 timer group with two general-purpose timers.
     Esp32S3,
+    /// ESP32-P4 timer group with one general-purpose timer.
+    Esp32P4,
 }
 
 impl EspTimerGroupKind {
@@ -14,6 +16,7 @@ impl EspTimerGroupKind {
         match self {
             Self::Esp32C6 => 1,
             Self::Esp32S3 => 2,
+            Self::Esp32P4 => 1,
         }
     }
 }
@@ -189,7 +192,10 @@ impl EspTimerGroupState {
 
         if self.registers[0x48 / 4] & (1 << 31) != 0 {
             while self.watchdog_stage < 4 {
-                let prescale = if self.kind == EspTimerGroupKind::Esp32C6 {
+                let prescale = if matches!(
+                    self.kind,
+                    EspTimerGroupKind::Esp32C6 | EspTimerGroupKind::Esp32P4
+                ) {
                     u64::from(self.registers[0x4c / 4] >> 16).max(1)
                 } else {
                     1

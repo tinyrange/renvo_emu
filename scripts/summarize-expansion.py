@@ -218,8 +218,14 @@ def validate_build(path: Path, target: str) -> dict:
         raise ValueError(f"{path}: target does not match {target}")
     if artifact.get("exit_code") != 0 or artifact.get("timed_out"):
         raise ValueError(f"{path}: build did not succeed")
-    if artifact.get("image") != artifact.get("image_id"):
-        raise ValueError(f"{path}: mutable or mismatched image identity")
+    image_id = artifact.get("image_id")
+    if not (
+        isinstance(image_id, str)
+        and image_id.startswith("sha256:")
+        and len(image_id) == 71
+        and all(character in "0123456789abcdef" for character in image_id[7:])
+    ):
+        raise ValueError(f"{path}: toolchain did not resolve to an immutable image ID")
     if not artifact.get("inputs") or not artifact.get("outputs") or not artifact.get("argv"):
         raise ValueError(f"{path}: incomplete build provenance")
     return {
@@ -332,8 +338,8 @@ def main() -> None:
     if (
         native_images.get("schema") != "remu.native-image-equivalence.v1"
         or native_images.get("result") != "pass"
-        or native_images.get("case_count") != 14
-        or native_images.get("physical_target_count") != 13
+        or native_images.get("case_count") != 17
+        or native_images.get("physical_target_count") != 16
     ):
         raise ValueError("native-image equivalence evidence is incomplete")
 

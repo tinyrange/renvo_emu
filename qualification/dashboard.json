@@ -1,5 +1,5 @@
 {
-  "capability_input_sha256": "183b64c9507ee61d15bbc194976da5be84c31e740d489f139958b3b7b6dcd58c",
+  "capability_input_sha256": "750bfa6ae5863b3c70a0ae3daef5216dfa230f5c06c8745ea54502e8cd219d10",
   "generator": {
     "path": "scripts/generate-dashboard.py",
     "sha256": "6342230b1ce23accfa13973842cdddf7ec67a348ede88a83f15e35191a2548dc",
@@ -49,7 +49,7 @@
     },
     {
       "path": "qualification/native-images.json",
-      "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+      "sha256": "f20941d6ebc5260c24b3696dc6219b7daadfec08ae375afdeddb5c1628c52136"
     }
   ],
   "portfolio": "six-chip baseline",
@@ -95,7 +95,7 @@
         {
           "id": "ch32v003",
           "native_image_format": "raw-bin",
-          "native_result_sha256": "c41bac7d2844eff1c1299c487fa5c5e4581ccddc639c704d05b844381cc3b72a",
+          "native_result_sha256": "9de5fe7e1388ccef1fbdd8023ca23b579193103589b9262869d7184535c16818",
           "status": "pass"
         }
       ],
@@ -214,7 +214,7 @@
             },
             {
               "path": "qualification/native-images.json",
-              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+              "sha256": "f20941d6ebc5260c24b3696dc6219b7daadfec08ae375afdeddb5c1628c52136"
             },
             {
               "path": "qualification/acceptance-report.html",
@@ -238,7 +238,7 @@
         {
           "id": "ch32v006",
           "native_image_format": "raw-bin",
-          "native_result_sha256": "366adf80b4c3463bc2e760616999995c01493ac3ca7e1da8db67c66e2fc2a039",
+          "native_result_sha256": "915c899106ea28b7075aa408eedc19de80f522822299cc2d353ca972ce4b3eac",
           "status": "pass"
         }
       ],
@@ -366,7 +366,7 @@
             },
             {
               "path": "qualification/native-images.json",
-              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+              "sha256": "f20941d6ebc5260c24b3696dc6219b7daadfec08ae375afdeddb5c1628c52136"
             },
             {
               "path": "qualification/acceptance-report.html",
@@ -390,7 +390,7 @@
         {
           "id": "rp2040",
           "native_image_format": "uf2",
-          "native_result_sha256": "177c426063e30751971f9ed41497c5d03a2bc7331ed78f3786ee85dce9db2903",
+          "native_result_sha256": "70021b49b0c4cbe6620c5580e40fb802b2e9c2b82c8c1d3f82b4e98f834ef43c",
           "status": "pass"
         }
       ],
@@ -512,7 +512,7 @@
             },
             {
               "path": "qualification/native-images.json",
-              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+              "sha256": "f20941d6ebc5260c24b3696dc6219b7daadfec08ae375afdeddb5c1628c52136"
             },
             {
               "path": "qualification/acceptance-report.html",
@@ -536,13 +536,13 @@
         {
           "id": "rp2350-arm",
           "native_image_format": "uf2",
-          "native_result_sha256": "8473a7a416fcf8f6899f8377082e277f6ab6f579855955b10e95185de4dff41d",
+          "native_result_sha256": "a829a025ccc094911bedc22cb10d0a36b2d12147c7ce63c0fbb3814562c3ad5c",
           "status": "pass"
         },
         {
           "id": "rp2350-riscv",
           "native_image_format": "uf2",
-          "native_result_sha256": "3c63b50a14048b27822cab49febc92b310d75c99b6444b78e26c925a971da844",
+          "native_result_sha256": "6bb0e3ac452ad1167ee904cc130c94dcfa13d607c105d1e213cb640a94367396",
           "status": "pass"
         }
       ],
@@ -677,7 +677,7 @@
             },
             {
               "path": "qualification/native-images.json",
-              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+              "sha256": "f20941d6ebc5260c24b3696dc6219b7daadfec08ae375afdeddb5c1628c52136"
             },
             {
               "path": "qualification/acceptance-report.html",
@@ -702,7 +702,7 @@
         {
           "id": "esp32s3",
           "native_image_format": "esp-bin",
-          "native_result_sha256": "a61c61fd72b6d3fc9f1ffb337dab653fb24183ce07d413a79f35ef40b2d7339f",
+          "native_result_sha256": "0956a0f501a9ebb6cabaa7116a1233bef06cad9f718d2b6e83bc7dd84ef37f8e",
           "status": "pass"
         }
       ],
@@ -870,7 +870,7 @@
             },
             {
               "path": "qualification/native-images.json",
-              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+              "sha256": "f20941d6ebc5260c24b3696dc6219b7daadfec08ae375afdeddb5c1628c52136"
             },
             {
               "path": "qualification/acceptance-report.html",
@@ -894,7 +894,7 @@
         {
           "id": "esp32c6",
           "native_image_format": "esp-bin",
-          "native_result_sha256": "f49957dbcab5cbec88d07674a715425dbd50836ed0b10f04b3591f811b2eae1c",
+          "native_result_sha256": "cd0436ea10a3957c8a0c0f6085b4c93b2541cf52b0cf9a3945affaaa733daa91",
           "status": "pass"
         }
       ],
@@ -1011,7 +1011,7 @@
             },
             {
               "path": "qualification/native-images.json",
-              "sha256": "aa72916c0cc13230488c17b72c173a19a12a356b89c194c195e6439fae765437"
+              "sha256": "f20941d6ebc5260c24b3696dc6219b7daadfec08ae375afdeddb5c1628c52136"
             },
             {
               "path": "qualification/acceptance-report.html",

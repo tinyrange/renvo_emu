@@ -19,10 +19,16 @@ pub enum TargetId {
     Esp32s3,
     /// Espressif ESP32-C6.
     Esp32c6,
+    /// Espressif ESP32-P4.
+    Esp32p4,
     /// Microchip ATSAMD21E18A.
     Atsamd21e18,
     /// STMicroelectronics STM32L432KC.
     Stm32l432kc,
+    /// STMicroelectronics STM32F411RE.
+    Stm32f411re,
+    /// Nordic Semiconductor nRF52840.
+    Nrf52840,
     /// Renesas R7FA4M1AB3CFM (RA4M1).
     R7fa4m1ab3cfm,
     /// Microchip ATmega328PB.
@@ -45,8 +51,11 @@ impl TargetId {
             Self::Rp2350 => "rp2350",
             Self::Esp32s3 => "esp32s3",
             Self::Esp32c6 => "esp32c6",
+            Self::Esp32p4 => "esp32p4",
             Self::Atsamd21e18 => "atsamd21e18",
             Self::Stm32l432kc => "stm32l432kc",
+            Self::Stm32f411re => "stm32f411re",
+            Self::Nrf52840 => "nrf52840",
             Self::R7fa4m1ab3cfm => "r7fa4m1ab3cfm",
             Self::Atmega328pb => "atmega328pb",
             Self::Msp430fr2433 => "msp430fr2433",
@@ -73,8 +82,11 @@ impl FromStr for TargetId {
             "rp2350" | "rp2350a" => Ok(Self::Rp2350),
             "esp32s3" | "esp32-s3" => Ok(Self::Esp32s3),
             "esp32c6" | "esp32-c6" => Ok(Self::Esp32c6),
+            "esp32p4" | "esp32-p4" => Ok(Self::Esp32p4),
             "atsamd21e18" | "samd21e18" => Ok(Self::Atsamd21e18),
             "stm32l432kc" => Ok(Self::Stm32l432kc),
+            "stm32f411re" | "nucleo-f411re" => Ok(Self::Stm32f411re),
+            "nrf52840" | "nrf52840dk" => Ok(Self::Nrf52840),
             "r7fa4m1ab3cfm" | "ra4m1" | "uno-r4-minima" => Ok(Self::R7fa4m1ab3cfm),
             "atmega328pb" => Ok(Self::Atmega328pb),
             "msp430fr2433" => Ok(Self::Msp430fr2433),
@@ -228,6 +240,11 @@ const ESP_RISCV: CpuOption = CpuOption {
     architecture: FirmwareArchitecture::RiscV32,
     fidelity: Fidelity::Architectural,
 };
+const ESP_P4_RISCV: CpuOption = CpuOption {
+    name: "esp-rv32imac-hp-functional-subset",
+    architecture: FirmwareArchitecture::RiscV32,
+    fidelity: Fidelity::Functional,
+};
 
 const COMMON_BASELINE: &[&str] = &[
     "direct ELF loading",
@@ -321,6 +338,17 @@ const EXPANSION_SUPPORT_TIERS: &[SupportTier] = &[
     SupportTier {
         name: "firmware-functional-slice",
         evidence: &["expansion/summary.json", "register-coverage/"],
+    },
+];
+
+const NEW_TARGET_SUPPORT_TIERS: &[SupportTier] = &[
+    SupportTier {
+        name: "compiler-execution",
+        evidence: &["new-targets/manifest.json", "new-targets/results.json"],
+    },
+    SupportTier {
+        name: "firmware-functional-slice",
+        evidence: &["new-targets/results.json", "new-targets/registers.md"],
     },
 ];
 
@@ -569,6 +597,73 @@ const MANIFESTS: &[TargetManifest] = &[
     },
     TargetManifest {
         schema: 1,
+        id: TargetId::Esp32p4,
+        name: "Espressif ESP32-P4",
+        cpus: &[ESP_P4_RISCV],
+        memory: &[
+            MemoryRegion {
+                name: "tcm",
+                start: 0x3010_0000,
+                size: 8 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "irom-drom",
+                start: 0x4000_0000,
+                size: 16 * 1024 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "mask-rom",
+                start: 0x4fc0_0000,
+                size: 128 * 1024,
+                kind: MemoryKind::Rom,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "hp-l2mem",
+                start: 0x4ff0_0000,
+                size: 768 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "lp-sram",
+                start: 0x5010_8000,
+                size: 32 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 55,
+        fidelity: Fidelity::Functional,
+        support_tiers: NEW_TARGET_SUPPORT_TIERS,
+        baseline: &[
+            "direct RV32IMAC-subset ELF execution",
+            "HP L2MEM, TCM, LP SRAM, mask-ROM, and bounded XIP windows",
+            "native GPIO output/input register slice",
+            "UART0 transmit/receive FIFO slice",
+            "timer-group counter state",
+            "compiler-test exit convention",
+            "external digital pin stimulus",
+            "VCD output",
+        ],
+        sources: &[
+            "https://www.espressif.com/sites/default/files/documentation/esp32-p4_datasheet_en.pdf",
+            "https://docs.espressif.com/projects/esp-idf/en/stable/esp32p4/hw-reference/index.html",
+            "https://github.com/espressif/esp-idf/tree/v5.5.1/components/soc/esp32p4",
+        ],
+        limitations: &[
+            "the current CPU slice covers RV32IMAC and CSR execution; the P4 FPU, PIE/AI extensions, and hardware loops are deferred",
+            "CPU1 remains parked in direct mode until the HP inter-core launch contract is modeled",
+            "native raw-binary boot is supported; native ESP image validation, cache/MMU configuration, PSRAM, USB, Ethernet, MIPI, image accelerators, DMA, security engines, and exact timing are deferred",
+            "ESP32-P4 has no integrated Wi-Fi or Bluetooth radio and this target adds no RF behavior",
+        ],
+    },
+    TargetManifest {
+        schema: 1,
         id: TargetId::Atsamd21e18,
         name: "Microchip ATSAMD21E18A",
         cpus: &[CORTEX_M0P],
@@ -659,6 +754,98 @@ const MANIFESTS: &[TargetManifest] = &[
         limitations: &[
             "flash ECC correction, option-byte reload effects, and write-protection enforcement are functional approximations",
             "alternate-function pin routing, physical bus/USB/audio protocols, electrical and analog behavior, DMA arbitration/request timing, low-power fidelity, and exact clocks are deferred",
+        ],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Stm32f411re,
+        name: "STMicroelectronics STM32F411RE",
+        cpus: &[CORTEX_M4F],
+        memory: &[
+            MemoryRegion {
+                name: "flash",
+                start: 0x0800_0000,
+                size: 512 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "sram",
+                start: 0x2000_0000,
+                size: 128 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 50,
+        fidelity: Fidelity::Functional,
+        support_tiers: NEW_TARGET_SUPPORT_TIERS,
+        baseline: &[
+            "internal flash load and reset alias",
+            "RCC and FLASH startup register state",
+            "GPIOA-C and GPIOH digital I/O",
+            "EXTI software-visible state",
+            "TIM2 counter/update interrupt",
+            "USART2 transmit and receive",
+            "Cortex-M4F NVIC and SysTick",
+            "compiler-test exit convention",
+            "external digital pin stimulus",
+            "VCD output",
+        ],
+        sources: &[
+            "https://www.st.com/en/microcontrollers-microprocessors/stm32f411re.html",
+            "https://www.st.com/resource/en/reference_manual/dm00119316.pdf",
+            "https://www.st.com/resource/en/datasheet/stm32f411ce.pdf",
+        ],
+        limitations: &[
+            "GPIO alternate-function routing and exact RCC/FLASH clock timing are deferred",
+            "DMA, ADC, SPI, I2C, USB OTG, SDIO, RTC, watchdogs, and flash program/erase are outside the initial slice",
+            "USART baud and line timing are functional rather than electrical",
+        ],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Nrf52840,
+        name: "Nordic Semiconductor nRF52840",
+        cpus: &[CORTEX_M4F],
+        memory: &[
+            MemoryRegion {
+                name: "flash",
+                start: 0x0000_0000,
+                size: 1024 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "sram",
+                start: 0x2000_0000,
+                size: 256 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 48,
+        fidelity: Fidelity::Functional,
+        support_tiers: NEW_TARGET_SUPPORT_TIERS,
+        baseline: &[
+            "flash and SRAM reset-vector execution",
+            "CLOCK and POWER startup register state",
+            "P0/P1 GPIO input, output, direction, and pin configuration",
+            "UART0 byte transmit and receive task/event slice",
+            "TIMER0 task, counter, compare, event, and interrupt slice",
+            "Cortex-M4F NVIC and SysTick",
+            "compiler-test exit convention",
+            "external digital pin stimulus",
+            "VCD output",
+        ],
+        sources: &[
+            "https://docs-be.nordicsemi.com/bundle/nRF52840_PS_v1.9/raw/resource/enus/nRF52840_PS_v1.9.pdf",
+            "https://docs.zephyrproject.org/latest/boards/nordic/nrf52840dk/doc/index.html",
+        ],
+        limitations: &[
+            "UARTE EasyDMA, PPI/DPPI, peripheral shortcuts beyond TIMER0 compare, and exact task/event timing are deferred",
+            "radio, NFC, USB, QSPI, CryptoCell, RNG, ADC, PWM, SPI, I2C, I2S, PDM, flash programming, and power-mode fidelity are outside the initial slice",
+            "no RF transmission or hardware radio test is performed",
         ],
     },
     TargetManifest {
@@ -927,8 +1114,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn portfolio_has_thirteen_unique_targets_with_primary_sources() {
-        assert_eq!(target_manifests().len(), 13);
+    fn portfolio_has_sixteen_unique_targets_with_primary_sources() {
+        assert_eq!(target_manifests().len(), 16);
         for (index, manifest) in target_manifests().iter().enumerate() {
             assert!(!manifest.sources.is_empty());
             assert!(
@@ -1021,6 +1208,14 @@ mod tests {
                 assert_eq!(compiler_tier.evidence, &["expansion/summary.json"]);
                 continue;
             }
+            if compiler_tier.evidence.contains(&"new-targets/results.json") {
+                assert!(
+                    compiler_tier
+                        .evidence
+                        .contains(&"new-targets/manifest.json")
+                );
+                continue;
+            }
 
             for (path, architecture) in architecture_evidence {
                 let evidence_present = compiler_tier.evidence.contains(&path);
@@ -1049,6 +1244,15 @@ mod tests {
             "esp32c6"
         );
         assert_eq!("rp2350a".parse::<TargetId>().unwrap(), TargetId::Rp2350);
+        assert_eq!("esp32-p4".parse::<TargetId>().unwrap(), TargetId::Esp32p4);
+        assert_eq!(
+            "nucleo-f411re".parse::<TargetId>().unwrap(),
+            TargetId::Stm32f411re
+        );
+        assert_eq!(
+            "nrf52840dk".parse::<TargetId>().unwrap(),
+            TargetId::Nrf52840
+        );
         assert_eq!(
             "uno-r4-minima".parse::<TargetId>().unwrap(),
             TargetId::R7fa4m1ab3cfm

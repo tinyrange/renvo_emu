@@ -243,6 +243,18 @@ impl RiscVProfile {
         }
     }
 
+    /// ESP32-P4 high-performance core profile for the currently implemented
+    /// RV32IMAC, CSR, privilege, and memory-protection subset. The silicon FPU,
+    /// PIE/AI instructions, and hardware loops are deliberately not advertised
+    /// by this profile until their instruction semantics are implemented.
+    pub fn esp32p4() -> Self {
+        Self {
+            name: "espressif-esp32p4-hp-rv32imac-subset".to_owned(),
+            reset_vector: 0x4fc0_0000,
+            ..Self::esp32c6()
+        }
+    }
+
     /// RP2350 Hazard3 compiler profile.
     pub fn rp2350_hazard3() -> Self {
         Self {
