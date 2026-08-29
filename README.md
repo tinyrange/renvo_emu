@@ -56,7 +56,9 @@ Tier 3 never means that arbitrary firmware for the chip will work. It means
 only that the exact published workflows pass. The authoritative implemented
 and deferred behavior is in [the support contract](docs/SUPPORT.md), while the
 generated [qualification dashboard](qualification/dashboard.html) binds claims
-to checked evidence.
+to checked evidence. The compact generated
+[capability matrix](qualification/capability-matrix.md) lists the same tier,
+native-image, CPU-mode, workflow, and peripheral-tracker claims.
 
 ## Quick start
 
@@ -119,9 +121,18 @@ publish deterministic channel waveforms to VCD as
 pulse items through their native memory windows and interrupt state. Carrier
 modulation, DMA and clock-accurate behavior are not claimed.
 
-There is not yet a published runtime container or binary release. Until that
-distribution path exists, the source build above is the supported installation
-method.
+Tagged releases publish Linux/amd64 and Linux/arm64 binaries, checksums, and a
+runtime-only OCI image. The image contains no compiler toolchains and runs as a
+non-root user. For a source-level example, see
+[`examples/quickstart`](examples/quickstart/README.md).
+
+```sh
+docker run --rm -v "$PWD:/work:ro" -w /work \
+  ghcr.io/tinyrange/renvo_emu:latest targets
+```
+
+The image is for running existing ELF/native firmware artifacts. Compilation
+of corpus cases remains isolated in the pinned Docker toolchain images.
 
 ## Target portfolio
 
@@ -228,16 +239,38 @@ REMU_ACCEPTANCE_MAX_SECONDS=60 scripts/qualify-micropython.sh
 # CoreMark correctness and host throughput
 COREMARK_OFFLINE=1 scripts/qualify-coremark.sh
 
+# Include no-trace, VCD, coverage, and streamed bus-log overhead profiles
+COREMARK_OFFLINE=1 COREMARK_OBSERVABILITY_MODES=1 scripts/qualify-coremark.sh
+
 # Cross-host deterministic scheduler evidence
 scripts/qualify-host-determinism.sh
 ```
 
-The default GitHub Actions workflow currently runs formatting, Clippy, all
-workspace tests, source-layout checks, and package-manifest validation. The
-larger Docker, native-image, MicroPython, CoreMark, and host-determinism gates
-remain explicit qualification commands with checked artifacts in the
-repository; moving reproducible subsets into scheduled public CI is follow-up
-work.
+CoreMark writes a `renvo.coremark-qualification.v1` artifact. Its correctness
+and abstract-action-normalized score are separate from host throughput: each
+run also records the release interpreter's wall time, peak RSS,
+result-artifact size, host identity, and pinned compiler-container identities.
+The optional observability profiles stop at a fixed action limit and measure
+no-trace, VCD, coverage, and streamed bus-log overhead without treating
+instrumentation as a CoreMark correctness result. Compare a later run with a
+same-host prior artifact using `COREMARK_BASELINE=path/to/results.json`; the
+checked budgets allow 25% wall-time noise, 50% RSS noise, and 25%
+result-artifact growth. See
+[`qualification/benchmarks/budgets.json`](qualification/benchmarks/budgets.json)
+for the policy and
+[`docs/COREMARK.md`](docs/COREMARK.md) for the interpretation of host-calibrated
+scores.
+
+The pull-request GitHub Actions workflow runs formatting, Clippy, all workspace
+tests, source-layout checks, package-manifest validation, the benchmark harness,
+and a bounded, lockfile-pinned machine smoke matrix covering RISC-V, Arm,
+Xtensa, AVR, MSP430, PIC16, and MCS-51. Each architecture lane enables Rust
+backtraces and runs all matching tests before reporting failure, so a broken
+target leaves actionable diagnostics in the pull-request log.
+
+The larger Docker, native-image, MicroPython, and host-determinism gates remain
+explicit qualification commands. The scheduled interpreter-benchmarks workflow
+runs the pinned CoreMark and observability profiles and uploads their artifacts.
 
 Read [CoreMark methodology and results](docs/COREMARK.md), the
 [1,000-case corpus notes](corpus/edge_cases/README.md), and the
@@ -387,7 +420,7 @@ The next cross-cutting work is tracked explicitly:
 3. [Centralize deterministic machine scheduling and run control](https://github.com/tinyrange/renvo_emu/issues/24)
 4. [Connect Starlark board topology to live firmware MMIO](https://github.com/tinyrange/renvo_emu/issues/25)
 5. [Add hardware-backed and differential correctness oracles](https://github.com/tinyrange/renvo_emu/issues/26)
-6. [Generate the public capability matrix from qualification evidence](https://github.com/tinyrange/renvo_emu/issues/27)
+6. ~~[Generate the public capability matrix from qualification evidence](https://github.com/tinyrange/renvo_emu/issues/27)~~ — generated matrix is checked against target manifests and qualification evidence
 7. [Deepen RP2040 as the flagship Pico SDK target](https://github.com/tinyrange/renvo_emu/issues/28)
 8. [Establish interpreter performance benchmarks and budgets](https://github.com/tinyrange/renvo_emu/issues/29)
 
@@ -432,11 +465,13 @@ assertions.
 
 - [Support contract](docs/SUPPORT.md)
 - [Generated support dashboard](qualification/dashboard.html)
+- [Generated capability matrix](qualification/capability-matrix.md)
 - [Expansion target acceptance](docs/EXPANSION.md)
 - [Board simulation](docs/BOARD_SIMULATION.md)
 - [CoreMark qualification](docs/COREMARK.md)
 - [Restored-plan status](docs/PLAN_STATUS.md)
 - [Architecture decisions](docs/adr/)
+- [Release and runtime image contract](docs/RELEASE.md)
 - [Original implementation plan](PLAN.html)
 
 ## Development

@@ -991,7 +991,11 @@ The final distillation gate adds four bounded capabilities:
   `qualification/debug-observability.json`.
 - `scripts/generate-dashboard.sh` fails unless all six target manifests,
   register manifests and Phase 5 artifacts pass, then regenerates
-  `qualification/dashboard.html` and `.json`.
+  `qualification/dashboard.html`, `.json`, and `capability-matrix.md`.
+- `scripts/check-capability-matrix.sh` requires a clean source tree and rejects
+  generated outputs whose capability-input digest, native-image rows, manifest tier
+  evidence, or qualification-artifact hashes are stale. Release checks use the
+  already-built release CLI through `REMU_BIN=target/release/remu`.
 
 ## Unmodified vendor sample gate
 
@@ -1319,9 +1323,10 @@ ADC reference](https://onlinedocs.microchip.com/oxy/GUID-0EC909F9-8FB7-46B2-BF4B
 
 The human-readable portfolio view is
 [`qualification/dashboard.html`](../qualification/dashboard.html), with the
-same checked data in `qualification/dashboard.json`. “Baseline proven” there
-means a deterministic functional compiler/firmware model, never complete
-silicon compatibility or cycle accuracy.
+same checked data in `qualification/dashboard.json` and a compact generated
+[`capability-matrix.md`](../qualification/capability-matrix.md). “Baseline
+proven” there means a deterministic functional compiler/firmware model, never
+complete silicon compatibility or cycle accuracy.
 
 The EFM8BB52F32G slice also models the native CRC0 data path: CCITT-16 stream
 updates through `CRC0IN`, pointer-selected result reads/writes through

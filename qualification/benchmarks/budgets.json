@@ -1,0 +1,25 @@
+{
+  "schema": "remu.benchmark-budgets.v1",
+  "description": "Noise-tolerant release-interpreter regression budgets.",
+  "comparison": {
+    "wall_time_regression_percent": 25,
+    "peak_rss_regression_percent": 50,
+    "artifact_growth_percent": 25
+  },
+  "requirements": {
+    "action_normalized_is_separate": true,
+    "host_identity_is_recorded": true,
+    "streaming_artifact_is_recorded": true
+  },
+  "profiles": {
+    "coremark": {
+      "architectures": ["Arm", "RV32IMAC", "Xtensa-LX7", "RV32EC"],
+      "correctness_field": "abstract_ticks",
+      "throughput_field": "host_iterations_per_second"
+    },
+    "observability": {
+      "modes": ["no-trace", "vcd", "coverage", "bus-log"],
+      "memory_policy": "bus-log is streamed to a file and peak RSS is measured independently"
+    }
+  }
+}
