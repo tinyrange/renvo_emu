@@ -64,10 +64,13 @@ cmp "$artifact_root/run-O2/signals.vcd" "$artifact_root/run-O2-repeat/signals.vc
 grep -q '^\$scope module pic16f15376 \$end$' "$artifact_root/run-O2/signals.vcd"
 grep -q '^\$scope module timer0 \$end$' "$artifact_root/run-O2/signals.vcd"
 grep -q '^\$scope module eusart1 \$end$' "$artifact_root/run-O2/signals.vcd"
+grep -q '^\$scope module mssp1 \$end$' "$artifact_root/run-O2/signals.vcd"
 grep -q '^\$scope module interrupt \$end$' "$artifact_root/run-O2/signals.vcd"
 grep -q 'porta' "$artifact_root/run-O2/signals.vcd"
 grep -q 'timer0' "$artifact_root/run-O2/signals.vcd"
 grep -q 'eusart1' "$artifact_root/run-O2/signals.vcd"
+grep -q 'i2c_byte' "$artifact_root/run-O2/signals.vcd"
+grep -q 'i2c_strobe' "$artifact_root/run-O2/signals.vcd"
 grep -q 'interrupt' "$artifact_root/run-O2/signals.vcd"
 jq -e '.architecture == "Pic16Enhanced" and .fetch_accesses > 100 and .unique_addresses > 100' \
     "$artifact_root/run-O2/coverage.json" >/dev/null
@@ -116,6 +119,155 @@ jq -e '.target == "pic16f15376" and
 grep -q 'timer0' "$fixture_run/signals.vcd"
 grep -q 'interrupt' "$fixture_run/signals.vcd"
 grep -q 'porte' "$fixture_run/signals.vcd"
+
+timer2_build="$artifact_root/register-timer2-build"
+timer2_run="$artifact_root/register-timer2-run"
+mkdir -p "$timer2_build" "$timer2_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$timer2_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-timer2-build.json" \
+    -- -Os remu_timer2.c \
+    -Wl,-Map=/workspace/out/timer2.map \
+    -o /workspace/out/timer2.elf
+docker run --rm --network=none \
+    -v "$repo_root/$timer2_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/timer2.elf \
+    >"$timer2_build/timer2.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$timer2_build/timer2.hex" \
+    --max-instructions 30000 \
+    --stop-signal board.pic16f15376.porte.pin0=rising \
+    --vcd "$timer2_run/signals.vcd" \
+    --bus-log "$timer2_run/bus.json" \
+    --result "$timer2_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.porte.pin0"}' \
+    "$timer2_run/result.json" >/dev/null
+grep -q 'timer2' "$timer2_run/signals.vcd"
+grep -q 'interrupt' "$timer2_run/signals.vcd"
+grep -q 'porte' "$timer2_run/signals.vcd"
+
+dac_build="$artifact_root/register-dac-build"
+dac_run="$artifact_root/register-dac-run"
+mkdir -p "$dac_build" "$dac_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$dac_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-dac-build.json" \
+    -- -Os remu_dac.c \
+    -Wl,-Map=/workspace/out/dac.map \
+    -o /workspace/out/dac.elf
+docker run --rm --network=none \
+    -v "$repo_root/$dac_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/dac.elf \
+    >"$dac_build/dac.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$dac_build/dac.hex" \
+    --max-instructions 30000 \
+    --stop-signal board.pic16f15376.dac1.active=rising \
+    --vcd "$dac_run/signals.vcd" \
+    --bus-log "$dac_run/bus.json" \
+    --result "$dac_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.dac1.active"}' \
+    "$dac_run/result.json" >/dev/null
+grep -q 'dac1' "$dac_run/signals.vcd"
+
+comparator_build="$artifact_root/register-comparator-build"
+comparator_run="$artifact_root/register-comparator-run"
+mkdir -p "$comparator_build" "$comparator_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$comparator_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-comparator-build.json" \
+    -- -Os remu_comparator.c \
+    -Wl,-Map=/workspace/out/comparator.map \
+    -o /workspace/out/comparator.elf
+docker run --rm --network=none \
+    -v "$repo_root/$comparator_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/comparator.elf \
+    >"$comparator_build/comparator.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$comparator_build/comparator.hex" \
+    --max-instructions 30000 \
+    --pin 0=0@0 \
+    --pin 2=1@0 \
+    --stop-signal board.pic16f15376.comparator1.output=rising \
+    --vcd "$comparator_run/signals.vcd" \
+    --bus-log "$comparator_run/bus.json" \
+    --result "$comparator_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.comparator1.output"}' \
+    "$comparator_run/result.json" >/dev/null
+grep -q 'comparator1' "$comparator_run/signals.vcd"
+
+pps_build="$artifact_root/register-pps-build"
+pps_run="$artifact_root/register-pps-run"
+mkdir -p "$pps_build" "$pps_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$pps_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-pps-build.json" \
+    -- -Os remu_pps.c \
+    -Wl,-Map=/workspace/out/pps.map \
+    -o /workspace/out/pps.elf
+docker run --rm --network=none \
+    -v "$repo_root/$pps_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/pps.elf \
+    >"$pps_build/pps.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$pps_build/pps.hex" \
+    --max-instructions 30000 \
+    --stop-signal board.pic16f15376.porta.pin0=rising \
+    --vcd "$pps_run/signals.vcd" \
+    --bus-log "$pps_run/bus.json" \
+    --result "$pps_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.porta.pin0"}' \
+    "$pps_run/result.json" >/dev/null
+grep -q 'porta' "$pps_run/signals.vcd"
+
+nco_build="$artifact_root/register-nco-build"
+nco_run="$artifact_root/register-nco-run"
+mkdir -p "$nco_build" "$nco_run"
+"$remu" corpus build \
+    --toolchain "$toolchain" \
+    --source qualification/pic16f15376/fixture \
+    --output "$nco_build" \
+    --target pic16f15376 \
+    --artifact "$artifact_root/register-nco-build.json" \
+    -- -Os remu_nco.c \
+    -Wl,-Map=/workspace/out/nco.map \
+    -o /workspace/out/nco.elf
+docker run --rm --network=none \
+    -v "$repo_root/$nco_build:/workspace/out" \
+    "$image" pic-objdump -d -S /workspace/out/nco.elf \
+    >"$nco_build/nco.disasm"
+"$remu" run \
+    --target pic16f15376 \
+    --hex "$nco_build/nco.hex" \
+    --max-instructions 30000 \
+    --stop-signal board.pic16f15376.nco1.output=rising \
+    --vcd "$nco_run/signals.vcd" \
+    --bus-log "$nco_run/bus.json" \
+    --result "$nco_run/result.json"
+jq -e '.target == "pic16f15376" and
+       .reason == {"Signal":"board.pic16f15376.nco1.output"}' \
+    "$nco_run/result.json" >/dev/null
+grep -q 'nco1' "$nco_run/signals.vcd"
 
 find "$artifact_root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum \
     >"$artifact_root/SHA256SUMS"

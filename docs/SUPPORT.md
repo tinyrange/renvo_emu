@@ -39,6 +39,13 @@ event line 72). This is a transaction-level model: alternate-function pin
 muxing, clock stretching, arbitration, DMA, and electrical open-drain
 resolution remain outside the current slice.
 
+PIC16F15376 additionally has a functional ADC slice: channel values can be
+driven by the host, `ADCON0` starts a deterministic one-tick conversion,
+`ADRESL`/`ADRESH` expose right- or left-justified 10-bit results, and `ADIF`
+through `PIE1` participates in the existing peripheral interrupt path. Voltage
+references, acquisition timing, analog pin electrical behavior, and threshold
+processing remain outside this model.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
@@ -1059,6 +1066,25 @@ PWM modes, and Timer2 sleep behavior are not modeled yet. Register accesses
 remain deterministic and are suitable for compiler and firmware regression
 cases. The register placement and vector mapping follow the official
 [ATmega328PB data sheet](https://ww1.microchip.com/downloads/en/DeviceDoc/Microchip%20AVR%20microcontroller%20ATmega328PB%20Data%20Sheet%2040001906B.pdf).
+
+## PIC16F15376 MSSP1 SPI slice
+
+The PIC16F15376 model implements a deterministic MSSP1 SPI master slice using
+the native `SSP1BUF` (`0x018c`), `SSP1STAT` (`0x018f`), `SSP1CON1`
+(`0x0190`), `SSP1CON2` (`0x0191`), `SSP1CON3` (`0x0192`), `SSP1ADD`
+(`0x018d`) and `SSP1MSK` (`0x018e`) addresses. With `SSPEN` set and an SPI
+master mode selected, writing `SSP1BUF` captures MOSI, completes one abstract
+full-duplex byte, places a queued host MISO byte (or a loopback copy) in the
+receive buffer, sets `BF`, and raises `PIR3.SSP1IF`. Reading `SSP1BUF` clears
+`BF`; an unread receive byte reports `WCOL` on a subsequent write. The model
+exposes captured bytes, host injection, a transfer strobe, and the raw MSSP1
+interrupt flag as deterministic host-facing signals.
+
+This slice is based on Microchip's
+[PIC16(L)F15356/75/76/85/86 data sheet](https://ww1.microchip.com/downloads/en/DeviceDoc/PIC16-L-F15356-75-76-85-86-Microcontroller-Data-Sheet-40001866D.pdf),
+including the MSSP register map and `PIR3/PIE3` bit assignments. It does not
+claim pin-level clock timing, pin-level I²C electrical behavior, slave-mode
+handshaking, or analog signal behavior.
 
 ## MSP430FR2433 Timer_A slice
 
