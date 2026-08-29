@@ -81,6 +81,30 @@ impl BoardGpioEndpoint {
                         kind: "SGP30",
                     });
                 }
+                BoardComponentKind::M5Pm1 => {
+                    return Err(BoardError::GpioComponent {
+                        component: mount.component.name.clone(),
+                        kind: "M5PM1",
+                    });
+                }
+                BoardComponentKind::Bmi270 => {
+                    return Err(BoardError::GpioComponent {
+                        component: mount.component.name.clone(),
+                        kind: "BMI270",
+                    });
+                }
+                BoardComponentKind::Es8311 => {
+                    return Err(BoardError::GpioComponent {
+                        component: mount.component.name.clone(),
+                        kind: "ES8311",
+                    });
+                }
+                BoardComponentKind::St7789 { .. } => {
+                    return Err(BoardError::GpioComponent {
+                        component: mount.component.name.clone(),
+                        kind: "ST7789",
+                    });
+                }
             };
             let source_path = format!("{source_prefix}.pin{}", mount.pin);
             let source = hub
