@@ -373,6 +373,51 @@ single-precision FPU operations emitted by the qualification workload.
 Precise window-overflow traps, complete interrupt priority/nesting, and the
 full optional Xtensa ISA remain outside the functional baseline.
 
+## MSP430FR2433 eUSCI_A1 slice
+
+The MSP430FR2433 model exposes the native eUSCI_A1 register window beginning at
+`0x0520`: `UCA1CTLW0` (`0x0520`), `UCA1STATW` (`0x052a`), `UCA1RXBUF`
+(`0x052c`), `UCA1TXBUF` (`0x052e`), `UCA1IE` (`0x053a`), `UCA1IFG`
+(`0x053c`), and `UCA1IV` (`0x053e`). Clearing reset and writing `UCA1TXBUF`
+captures a deterministic transmit transcript. Setting `UCLISTEN` in `UCA1STATW`
+routes the byte back to `UCA1RXBUF` after the functional serial delay, and
+`UCA1IE`/`UCA1IFG` deliver the eUSCI_A1 interrupt vector at `0xffe2`.
+
+The model emits `board.msp430fr2433.uart1.tx_byte` and
+`board.msp430fr2433.uart1.tx_strobe` for VCD and signal assertions. This is a
+functional UART/loopback slice rather than a complete serial peripheral:
+eUSCI_A1 IrDA, pin-multiplexing, SPI mode, and exact bit timing remain deferred.
+Register addresses and reset semantics are based on the [MSP430FR2433 data
+sheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf) and the [MSP430FR2xx/
+FR4xx user's guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
+
+## MSP430FR2433 eUSCI_B0 SPI slice
+
+The native eUSCI_B0 window starts at `0x0540`, with control, receive/transmit,
+interrupt-enable, interrupt-flag, and interrupt-vector registers through
+`0x056e`. In synchronous master mode, writing `UCB0TXBUF` completes a
+deterministic full-duplex transfer, records MOSI, and places an injected MISO
+byte (or an echo when none is injected) in `UCB0RXBUF`. Enabled flags deliver
+the eUSCI_B0 vector at `0xffe0`.
+
+Signals expose SPI transmit, receive, and transfer-strobe values under
+`board.msp430fr2433.spi0`. I2C protocol state, pin multiplexing, chip-select
+wiring, and exact serial timing remain deferred. Addresses and reset semantics
+follow the TI MSP430FR2433 data sheet and family user's guide linked above.
+
+## MSP430FR2433 ADC10 slice
+
+The ADC10 model covers the native `0x0700` control window, memory result at
+`0x0712`, and interrupt registers at `0x071a`–`0x071e`. A software-triggered,
+single-channel conversion samples the host-provided 10-bit channel value after
+a deterministic four-tick delay, updates busy/completion state, and raises the
+ADC vector at `0xffde` when enabled. Signals expose the sample and end-of-
+conversion event under `board.msp430fr2433.adc0`.
+
+Sequences, comparator windows, internal-reference electrical behavior,
+capacitive touch, pin multiplexing, and analog timing remain outside this
+functional model.
+
 ESP32-S3 DRAM and IRAM power on with the deterministic nonzero byte pattern
 `0xa5`. Direct ELF loading copies only each segment's file-backed bytes, so
 the synthesized `.bss` tail remains poisoned until firmware clears it. This
@@ -495,6 +540,23 @@ deterministic pulse stream at `board.esp32s3.rmt.ch0` through `ch3` in VCD.
 Bounded host-injected receive pulses populate the native receive memory and
 interrupt state. Carrier modulation, DMA and source-clock fidelity remain
 outside this functional model.
+
+## MSP430FR2433 RTC counter slice
+
+The MSP430FR2433 counter-only RTC is mapped at its native `0x0300` window:
+`RTCCTL` (`0x00`), `RTCIV` (`0x04`), `RTCMOD` (`0x08`), and `RTCCNT`
+(`0x0c`). Selecting a documented `RTCSS` source starts deterministic abstract
+time; `RTCPS` selects the TI predivider set (1, 10, 100, 1000, 16, 64, 256,
+or 1024). Reaching the modulo value sets `RTCIF`, and `RTCIE` routes the
+overflow to vector `0xffe8`. Reading `RTCIV` returns the overflow code and
+clears the flag. `RTCSR` resets the count and restarts the modulo epoch.
+
+The observable request is `board.msp430fr2433.rtc.irq`. This model intentionally
+does not claim calendar, alarm, crystal, low-power electrical, or exact clock
+fidelity; the part's documented RTC is a counter, and the emulator expresses
+it on the same deterministic abstract timeline as the other peripherals. The
+register map and behavior are based on TI's [MSP430FR2433 datasheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf)
+and [MSP430FR2xx/4xx Family User's Guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
 
 Direct runs accept repeatable `--breakpoint ADDRESS` and `--watchpoint ADDRESS`
 controls plus `--stop-signal PATH=change|rising|falling`. Addresses may be
@@ -751,8 +813,45 @@ interrupt flag as deterministic host-facing signals.
 This slice is based on Microchip's
 [PIC16(L)F15356/75/76/85/86 data sheet](https://ww1.microchip.com/downloads/en/DeviceDoc/PIC16-L-F15356-75-76-85-86-Microcontroller-Data-Sheet-40001866D.pdf),
 including the MSSP register map and `PIR3/PIE3` bit assignments. It does not
-claim pin-level clock timing, I²C operation, slave-mode handshaking, or analog
-signal behavior.
+claim pin-level clock timing, pin-level I²C electrical behavior, slave-mode
+handshaking, or analog signal behavior.
+
+## MSP430FR2433 Timer_A slice
+
+The MSP430FR2433 model maps all four native Timer_A blocks from TI's
+peripheral map:
+
+| Block | Base | Channels | CCR0 vector | CCR1/CCR2/TAIFG vector | VCD signal |
+|---|---:|---:|---:|---:|---|
+| TA0_A3 | `0x0380` | CCR0..CCR2 | `0xfff8` | `0xfff6` | `board.msp430fr2433.timer_a0.ccr0_irq` |
+| TA1_A3 | `0x03c0` | CCR0..CCR2 | `0xfff4` | `0xfff2` | `board.msp430fr2433.timer_a1.irq` |
+| TA2_A2 | `0x0400` | CCR0..CCR1 | `0xfff0` | `0xffee` | `board.msp430fr2433.timer_a2.irq` |
+| TA3_A2 | `0x0440` | CCR0..CCR1 | `0xffec` | `0xffea` | `board.msp430fr2433.timer_a3.irq` |
+
+Each block implements the native `TAxCTL`, `TAxCCTLn`, `TAxR`, `TAxCCRn`, and
+`TAxIV` offsets. Up, continuous, and deterministic functional up/down modes
+advance on abstract simulation ticks. Compare flags route CCR0 through the
+dedicated vector; CCR1/CCR2 and overflow are arbitrated through `TAxIV` using
+the documented priority values. Reading `TAxIV` clears the highest reported
+flag, which makes ordinary MSP430 interrupt handlers usable in bounded tests.
+
+Capture pin routing, output-unit pin multiplexing, exact clock/prescaler
+fidelity, and cycle-level timer behavior remain deferred. The addresses and
+vector assignments come from TI's [MSP430FR2433 datasheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf)
+and [MSP430FR2xx/4xx Family User's Guide](https://www.ti.com/lit/ug/slau445/slau445.pdf).
+
+## MSP430FR2433 CRC16 slice
+
+The MSP430FR2433 peripheral window includes the native CRC block at
+`0x01c0`: `CRC16DI`, `CRCDIRB`, `CRCINIRES`, and `CRCRESR`. Firmware can seed
+the signature, feed 8- or 16-bit data, select the documented per-byte
+bit-reversed input path, and read either the normal or bit-reversed result.
+The functional model uses the MSP430 CRC-16 polynomial (`0x1021`) and keeps
+all updates deterministic; the module has no interrupt or timing behavior.
+
+Register placement and the data/reversal API follow TI's official
+[MSP430FR2433 datasheet](https://www.ti.com/lit/ds/symlink/msp430fr2433.pdf)
+and [FR2xx/4xx CRC driver documentation](https://software-dl.ti.com/msp430/msp430_public_sw/mcu/msp430/MSPWare/2_10_00_15/exports/MSPWare/2_10_00_15/driverlib/doc/MSP430FR2xx_4xx/html/group__crc__api.html).
 
 ## Research sources
 

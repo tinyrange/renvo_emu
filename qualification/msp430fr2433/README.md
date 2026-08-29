@@ -8,18 +8,48 @@ include the optional memory-mapped hardware multiplier.
 The smoke firmware checks the native MSP430 ABI (`int` and data pointers are
 16 bits), startup and data initialization, calls and recursion, switch
 lowering, 32-bit division helpers, volatile MMIO, CPUX instructions, interrupt
-entry/return and FRAM persistence. GPIO edge input, Timer_A low-power wake,
-eUSCI_A0 transmit and watchdog configuration are exercised. The same source is
+entry/return and FRAM persistence. GPIO edge input, Timer_A low-power wake, RTC
+modulo overflow, eUSCI_A0/A1 transmit, eUSCI_B0 SPI, ADC10 single conversion,
+and watchdog configuration are exercised.
+The same source is
 compiled at `-O0`, `-Os` and `-O2`; each binary emits `MSP430X-FR2433\n` and
 halts with R12 equal to zero.
 
 Implemented functionally: the CPUXv2 integer/interruption subset emitted by the
 pinned toolchain, the 20-bit unified address space, reset vectors, FRAM and
-SRAM, PM5 GPIO lock behavior, Ports 1–3, Port 1 edge interrupts, Timer0_A CCR0,
-eUSCI_A0 UART transmit/receive loopback, WDT_A reset and persistent FRAM.
-Clock-tree, timer prescaling and UART bit timing are deterministic
-approximations. Analog peripherals and unlisted serial modes are outside this
-acceptance slice.
+SRAM, PM5 GPIO lock behavior, Ports 1–3, Port 1 edge interrupts, all four
+Timer_A blocks (TA0/TA1 with CCR0..CCR2 and TA2/TA3 with CCR0..CCR1), TAxIV
+arbitration, RTC modulo counting and overflow, eUSCI_A0 and eUSCI_A1 UART
+transmit/receive loopback, eUSCI_B0 SPI transfers and functional 7-bit I²C host,
+ADC10 single conversion, WDT_A reset and persistent FRAM. The I²C host models
+the typed TI register slice, reset-only configuration masks, read-only status,
+byte counting and automatic STOP, ACK/NACK control, and documented interrupt-
+vector priorities. CSCTL0–CSCTL8 reset values, reserved-bit masks, the FLLN
+zero-is-one rule, source selections, and MCLK/SMCLK dividers are represented;
+The PMM window follows the documented reset values and password gate, masks
+reserved/status bits, consumes PMMCTL2 reference triggers, exposes writable
+PMMIFG causes, classifies LPM0–LPM4 and LPM3.5/LPM4.5 from SR plus PMMREGOFF,
+and turns software POR/BOR (or protected-access faults) into deterministic
+machine resets. MCLK division scales abstract execution time. Clock-tree, timer
+prescaling and serial timing are deterministic approximations. Timer compare/
+overflow flags and CCR0/A1 vectors are deterministic; capture pin routing, RTC
+calendar/alarm features, SVS voltage thresholds, analog-reference readiness,
+NMI/SYSRSTIV routing, eUSCI_A1 IrDA/pin routing/SPI mode, eUSCI_B0 pin-level
+arbitration, slave mode, 10-bit I²C and electrical ACK timing, ADC sequence/
+comparator/reference fidelity, capacitive touch, FLL lock convergence,
+oscillator fault dynamics, exact oscillator frequency, and unlisted serial modes
+remain outside this acceptance slice.
+
+The FRAM controller slice also models the FR2433 reset values and protected
+access rules for `FRCTL0`, `GCCTL0`, `GCCTL1` and `SYSCFG0`: NWAITS masking,
+the `0xA5` controller password, FRPWR wake-up, write-zero-to-clear controller
+flags, mutually exclusive uncorrectable-bit actions, and independent program
+and information-FRAM write protection. Program FRAM (`0xC000` compatibility
+window) and information FRAM (`0x1800..0x19ff`) remain persistent across
+machine resets; firmware loading bypasses runtime protection as a hardware
+programmer would. FRAM cache/ECC timing and physical endurance exhaustion are
+functional approximations; writes are not aged toward a finite simulated
+silicon lifetime.
 
 Run from the repository root:
 

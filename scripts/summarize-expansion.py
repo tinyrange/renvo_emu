@@ -105,6 +105,7 @@ TARGETS = {
             "remu.board.msp430fr2433.port1.pin0": ["0", "1"],
             "remu.board.msp430fr2433.timer_a0.ccr0_irq": ["0", "1"],
             "remu.board.msp430fr2433.uart0.tx_strobe": ["0", "1"],
+            "remu.board.msp430fr2433.i2c0.strobe": ["0", "1"],
             "remu.board.msp430fr2433.interrupt.port1": ["0", "1"],
         },
     },
