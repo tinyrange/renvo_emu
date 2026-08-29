@@ -30,6 +30,7 @@ jobs:
           release_version="${GITHUB_REF_NAME#v}"
           rustup target add aarch64-unknown-linux-gnu
           REMU_RELEASE_VERSION="$release_version" cargo build --release --locked -p remu-cli
+          REMU_BIN=target/release/remu scripts/check-capability-matrix.sh
           mkdir -p dist/amd64 dist/arm64
           cp target/release/remu dist/amd64/remu
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
