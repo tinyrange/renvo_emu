@@ -63,6 +63,12 @@ analog amplifier settling, reference-voltage magnitude, and pin-mux electrical
 behavior are outside this functional boundary. Register choices follow the
 [RA4M1 hardware manual](https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware).
 
+The R7FA4M1AB3CFM model also includes the RA4M1 Clock Frequency Accuracy
+Measurement Circuit at `0x40044600`. Register programming, range comparison,
+status/interrupt flag clearing, and deterministic host-injected reference
+measurements are supported; clock-pin filtering and exact oscillator phase
+behavior remain outside the functional slice.
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`

@@ -15,14 +15,14 @@ use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_AGT0_INT, RA4M1_EVENT_AGT1_INT,
     RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_RTC_ALARM, RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle,
-    RaCrc, RaCrcHandle, RaDac, RaDacHandle, RaDoc, RaDocHandle, RaGpt, RaGptHandle, RaIcu,
-    RaIcuHandle, RaIic, RaIoPort, RaPfs, RaRtc, RaRtcHandle, RaSci, RaSciHandle, RaSpi,
-    RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle,
-    Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s,
-    Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc,
-    Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice,
-    Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, TimerHandle, UartHandle,
+    RaCac, RaCacHandle, RaCrc, RaCrcHandle, RaDac, RaDacHandle, RaDoc, RaDocHandle, RaGpt,
+    RaGptHandle, RaIcu, RaIcuHandle, RaIic, RaIoPort, RaPfs, RaRtc, RaRtcHandle, RaSci,
+    RaSciHandle, RaSpi, RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle,
+    Samd21Dac, Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle,
+    Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc,
+    Samd21RtcHandle, Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart,
+    Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio,
+    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -99,6 +99,7 @@ pub struct ArmMcuMachine {
     ra_dac: Option<RaDacHandle>,
     ra_crc: Option<RaCrcHandle>,
     ra_doc: Option<RaDocHandle>,
+    ra_cac: Option<RaCacHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
@@ -269,6 +270,7 @@ impl ArmMcuMachine {
             ra_dac,
             ra_crc,
             ra_doc,
+            ra_cac,
             watchdog,
         ) = match target {
             TargetId::Atsamd21e18 => {
@@ -447,6 +449,7 @@ impl ArmMcuMachine {
                 )?;
                 let (crc_device, crc) = RaCrc::new("r7fa4m1ab3cfm.crc");
                 let (doc_device, doc) = RaDoc::new("r7fa4m1ab3cfm.doc");
+                let (cac_device, cac) = RaCac::new("r7fa4m1ab3cfm.cac");
                 Self::map_ra4m1(
                     &mut bus,
                     ports,
@@ -464,6 +467,7 @@ impl ArmMcuMachine {
                     dac_device,
                     crc_device,
                     doc_device,
+                    cac_device,
                 )?;
                 (
                     handles.remove(1),
@@ -485,6 +489,7 @@ impl ArmMcuMachine {
                     Some(dac),
                     Some(crc),
                     Some(doc),
+                    Some(cac),
                     None,
                 )
             }
@@ -517,6 +522,7 @@ impl ArmMcuMachine {
             ra_dac,
             ra_crc,
             ra_doc,
+            ra_cac,
             watchdog,
             compiler_timer,
             exit,
@@ -718,6 +724,7 @@ impl ArmMcuMachine {
         dac: RaDac,
         crc: RaCrc,
         doc: RaDoc,
+        cac: RaCac,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -749,6 +756,7 @@ impl ArmMcuMachine {
         bus.map_device("r7fa4m1ab3cfm.dac12", 0x4005_e000, 0x100, Box::new(dac))?;
         bus.map_device("r7fa4m1ab3cfm.crc", 0x4007_4000, 0x100, Box::new(crc))?;
         bus.map_device("r7fa4m1ab3cfm.doc", 0x4005_4100, 0x10, Box::new(doc))?;
+        bus.map_device("r7fa4m1ab3cfm.cac", 0x4004_4600, 0x10, Box::new(cac))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
@@ -928,6 +936,11 @@ impl ArmMcuMachine {
     /// Current host-visible RA4M1 DOC result, when present.
     pub fn doc_result(&self) -> Option<u16> {
         self.ra_doc.as_ref().map(RaDocHandle::result)
+    }
+
+    /// Returns the host-facing RA4M1 CAC measurement state.
+    pub fn cac(&self) -> Option<RaCacHandle> {
+        self.ra_cac.clone()
     }
 
     /// Reads guest-visible bytes for qualification and debugger adapters.

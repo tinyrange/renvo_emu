@@ -64,3 +64,37 @@ fn maps_ra4m1_dac12_data_and_output_enable() {
         0x5f
     );
 }
+
+#[test]
+fn maps_ra4m1_cac_measurement_registers() {
+    const CAC_BASE: u64 = 0x4004_4600;
+    let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+    machine
+        .bus
+        .write(CAC_BASE + 0x06, AccessWidth::HalfWord, 100, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(CAC_BASE + 0x08, AccessWidth::HalfWord, 50, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(CAC_BASE, AccessWidth::Byte, 1, SimTime::ZERO)
+        .unwrap();
+    let cac = machine.cac().unwrap();
+    cac.reference_edge(75);
+    cac.reference_edge(75);
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                CAC_BASE + 0x0a,
+                AccessWidth::HalfWord,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        75
+    );
+    assert_eq!(cac.flags(), (false, true, false));
+}
