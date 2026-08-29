@@ -87,10 +87,27 @@ The script:
 2. compiles every ELF inside the appropriate pinned Docker toolchain;
 3. runs performance and validation seeds on every standard-capable profile;
 4. proves the CH32V003 standard image violates the stack reserve;
-5. measures host elapsed time and validates all reported CRCs; and
-6. writes complete build, ELF, transcript, run, hash, container, and host
+5. measures host elapsed time, peak RSS, and result-artifact size with the
+   `remu.benchmark-command.v1` runner and validates all reported CRCs; and
+6. writes complete build, ELF, transcript, run, benchmark, hash, container, and host
    provenance under `.remu/qualification/coremark/`.
 
 The latest machine-readable result is
 `.remu/qualification/coremark/results.json`. Set `COREMARK_ITERATIONS` to a
 larger value if a faster host completes a standard run in under ten seconds.
+
+## Performance regression policy
+
+`qualification/benchmarks/budgets.json` defines the comparison policy. A
+baseline comparison allows 25% wall-time noise, 50% peak-RSS noise, and 25%
+result-artifact growth. The budget checker never replaces the deterministic
+CoreMark CRC or abstract-action score: those remain correctness evidence, while
+host throughput and resource measurements are explicitly host-dependent.
+
+The scheduled benchmark workflow can additionally set
+`COREMARK_OBSERVABILITY_MODES=1`. It runs the same pinned RP2040 image with no
+trace, VCD, instruction coverage, and streamed bus-log modes at a fixed action
+limit. The bus-log record includes both its output size and peak RSS so a long
+streaming run can demonstrate bounded emulator memory independently of the
+number of completed instructions. These instrumentation profiles are reported
+under `observability_modes`, not mixed into the CoreMark score.

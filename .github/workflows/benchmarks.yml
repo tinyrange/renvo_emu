@@ -1,0 +1,42 @@
+name: Scheduled interpreter benchmarks
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: interpreter-benchmarks
+  cancel-in-progress: true
+
+jobs:
+  coremark:
+    name: CoreMark performance and observability
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Bootstrap pinned compiler containers
+        run: scripts/bootstrap-toolchains.sh
+
+      - name: Build release interpreter
+        run: cargo build --release -p remu-cli --locked
+
+      - name: Run CoreMark and observability profiles
+        env:
+          COREMARK_OBSERVABILITY_MODES: "1"
+        run: scripts/qualify-coremark.sh
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coremark-qualification
+          path: .remu/qualification/coremark/
+          if-no-files-found: warn
