@@ -3,14 +3,34 @@ use super::*;
 /// Shared terminal UART output.
 #[derive(Clone, Default)]
 pub struct UartHandle {
-    bytes: Arc<Mutex<Vec<u8>>>,
+    output: Arc<Mutex<UartCapture>>,
     rx: Arc<Mutex<VecDeque<u8>>>,
+}
+
+#[derive(Default)]
+struct UartCapture {
+    epoch: u64,
+    bytes: Vec<u8>,
 }
 
 impl UartHandle {
     /// Returns all transmitted bytes.
     pub fn bytes(&self) -> Vec<u8> {
-        self.bytes.lock().expect("UART lock poisoned").clone()
+        self.output
+            .lock()
+            .expect("UART lock poisoned")
+            .bytes
+            .clone()
+    }
+
+    /// Returns the capture epoch and all transmitted bytes atomically.
+    ///
+    /// The epoch advances whenever [`Self::clear`] resets the capture, allowing
+    /// incremental consumers to distinguish replacement bytes from old bytes
+    /// at the same buffer offsets.
+    pub fn output_snapshot(&self) -> (u64, Vec<u8>) {
+        let output = self.output.lock().expect("UART lock poisoned");
+        (output.epoch, output.bytes.clone())
     }
 
     /// Returns lossy UTF-8 terminal output.
@@ -18,9 +38,12 @@ impl UartHandle {
         String::from_utf8_lossy(&self.bytes()).into_owned()
     }
 
-    /// Clears captured output.
+    /// Clears captured output and queued receive bytes.
     pub fn clear(&self) {
-        self.bytes.lock().expect("UART lock poisoned").clear();
+        let mut output = self.output.lock().expect("UART lock poisoned");
+        output.bytes.clear();
+        output.epoch = output.epoch.wrapping_add(1);
+        drop(output);
         self.rx.lock().expect("UART RX lock poisoned").clear();
     }
 
@@ -44,9 +67,10 @@ impl UartHandle {
 
     /// Appends bytes transmitted by a functional ROM or peripheral service.
     pub fn transmit(&self, bytes: &[u8]) {
-        self.bytes
+        self.output
             .lock()
             .expect("UART lock poisoned")
+            .bytes
             .extend_from_slice(bytes);
     }
 }
@@ -176,11 +200,7 @@ impl Device for FunctionalUart {
             )));
         }
         if offset == self.data_offset {
-            self.handle
-                .bytes
-                .lock()
-                .expect("UART lock poisoned")
-                .push(value.to_le_bytes()[0]);
+            self.handle.transmit(&[value.to_le_bytes()[0]]);
         }
         Ok(())
     }

@@ -52,6 +52,7 @@ pub struct BoardUartEndpoint {
     rx_byte: SignalId,
     rx_strobe: SignalId,
     hub: SignalHub,
+    observed_epoch: u64,
     observed_tx: usize,
     tx_strobe_level: bool,
     rx_strobe_level: bool,
@@ -99,6 +100,7 @@ impl BoardUartEndpoint {
             SignalValue::from_u64(0, 1)?,
             Some("UART receive byte strobe".to_owned()),
         )?;
+        let (observed_epoch, _) = uart.output_snapshot();
         Ok(Self {
             connector: connector.name.clone(),
             uart,
@@ -107,6 +109,7 @@ impl BoardUartEndpoint {
             rx_byte,
             rx_strobe,
             hub,
+            observed_epoch,
             observed_tx: 0,
             tx_strobe_level: false,
             rx_strobe_level: false,
@@ -152,8 +155,9 @@ impl BoardUartEndpoint {
     /// Returns newly transmitted guest bytes and emits TX signals for them.
     pub fn poll_tx(&mut self, at: SimTime) -> Result<Vec<u8>, BoardUartError> {
         self.check_time(at)?;
-        let bytes = self.uart.bytes();
-        if self.observed_tx > bytes.len() {
+        let (epoch, bytes) = self.uart.output_snapshot();
+        if self.observed_epoch != epoch || self.observed_tx > bytes.len() {
+            self.observed_epoch = epoch;
             self.observed_tx = 0;
         }
         let new_bytes = bytes[self.observed_tx..].to_vec();
@@ -279,5 +283,23 @@ mod tests {
             Err(BoardUartError::PinAlias { connector, pin })
                 if connector == "console" && pin == 1
         ));
+    }
+
+    #[test]
+    fn observes_replacement_output_after_machine_reset() {
+        let (_, handle) = FunctionalUart::new("uart", 0, 4, 1);
+        let mut endpoint = BoardUartEndpoint::new(
+            "teaching",
+            &connector(ConnectorProtocol::Uart),
+            handle.clone(),
+            SignalHub::new(),
+        )
+        .unwrap();
+
+        handle.transmit(b"old");
+        assert_eq!(endpoint.poll_tx(SimTime::ZERO).unwrap(), b"old");
+        handle.clear();
+        handle.transmit(b"new");
+        assert_eq!(endpoint.poll_tx(SimTime::from_ticks(1)).unwrap(), b"new");
     }
 }
