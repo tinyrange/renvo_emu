@@ -9,6 +9,8 @@ source_root=${COREMARK_SOURCE:-"$repo_root/.remu/reference/coremark-$commit"}
 artifact_root=${COREMARK_ARTIFACT_ROOT:-"$repo_root/.remu/qualification/coremark"}
 remu=${REMU_BIN:-"$repo_root/target/release/remu"}
 iterations=${COREMARK_ITERATIONS:-250}
+observability_modes=${COREMARK_OBSERVABILITY_MODES:-0}
+mode_max_instructions=${COREMARK_MODE_MAX_INSTRUCTIONS:-1000000}
 cross_image=$(resolve_toolchain_image sha256:8f78d0ea26f75e5b44c2ad88175202f66f1e7054c6ec695c72d26948a48ba736 remu/cross-gcc:local)
 xtensa_image=$(resolve_toolchain_image sha256:e0c54aeaae63f842234ec88f7b5a61b69bfa4d9005ba7490df47328e0dc9892f remu/xtensa-esp-gcc:local)
 
@@ -62,7 +64,9 @@ fi
 
 run_root=$(mktemp -d "$artifact_root/run-XXXXXX")
 records="$run_root/records.tsv"
+mode_records="$run_root/observability.jsonl"
 : > "$records"
+: > "$mode_records"
 
 stage_sources()
 {
@@ -155,14 +159,15 @@ run_variant()
         --artifact "$profile_root/build.json" \
         -- "$@"
 
-    started_ns=$(date +%s%N)
-    "$remu" run \
-        --target "$target" \
-        --elf "$profile_root/coremark.elf" \
-        --max-instructions 1000000000 \
-        --result "$profile_root/run.json"
-    finished_ns=$(date +%s%N)
-    elapsed_ns=$((finished_ns - started_ns))
+    python3 "$repo_root/scripts/benchmark-command.py" \
+        --label "$id/$variant" \
+        --output "$profile_root/metrics.json" \
+        --artifact "$profile_root/run.json" \
+        -- "$remu" run \
+            --target "$target" \
+            --elf "$profile_root/coremark.elf" \
+            --max-instructions 1000000000 \
+            --result "$profile_root/run.json"
 
     jq -er '.uart | implode' "$profile_root/run.json" > "$profile_root/transcript.txt"
     jq -e \
@@ -203,21 +208,25 @@ run_variant()
     fi
     action_score=$(awk -v count="$iterations" -v count_ticks="$ticks" \
         'BEGIN { printf "%.6f", count * 1000000 / count_ticks }')
-    host_seconds=$(awk -v ns="$elapsed_ns" \
-        'BEGIN { printf "%.6f", ns / 1000000000 }')
-    host_score=$(awk -v count="$iterations" -v ns="$elapsed_ns" \
-        'BEGIN { printf "%.6f", count * 1000000000 / ns }')
+    host_seconds=$(jq -er '.wall_time_seconds' "$profile_root/metrics.json")
+    host_score=$(awk -v count="$iterations" -v seconds="$host_seconds" \
+        'BEGIN { printf "%.6f", count / seconds }')
+    peak_rss_bytes=$(jq -er '.peak_rss_bytes' "$profile_root/metrics.json")
+    result_artifact_bytes=$(jq -er '.artifacts[0].bytes' "$profile_root/metrics.json")
     elf_sha=$(sha256sum "$profile_root/coremark.elf" | cut -d ' ' -f 1)
     run_sha=$(sha256sum "$profile_root/run.json" | cut -d ' ' -f 1)
     compiler=$(awk -F: '/^Compiler version/{sub(/^ /, "", $2); print $2}' \
         "$profile_root/transcript.txt")
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$id" "$mcu" "$target" "$architecture" "$cpu_mode" "$variant" \
-        "$reportable" "$data_size" "$iterations" "$ticks" "$instructions" \
-        "$action_score" "$host_seconds" "$host_score" "$seed_crc" \
-        "$list_crc" "$matrix_crc" "$state_crc" "$final_crc" "$compiler" \
-        "$flags" "$elf_sha" "$run_sha" >> "$records"
+    {
+        printf '%s\t' \
+            "$id" "$mcu" "$target" "$architecture" "$cpu_mode" "$variant" \
+            "$reportable" "$data_size" "$iterations" "$ticks" "$instructions" \
+            "$action_score" "$host_seconds" "$host_score" "$seed_crc" \
+            "$list_crc" "$matrix_crc" "$state_crc" "$final_crc" "$compiler" \
+            "$flags" "$elf_sha" "$run_sha" "$peak_rss_bytes"
+        printf '%s\n' "$result_artifact_bytes"
+    } >> "$records"
 }
 
 run_standard_profile()
@@ -307,12 +316,81 @@ run_variant \
     "-O2 -march=rv32ec_zicsr -mabi=ilp32e; 1200-byte profile" \
     profile 1200 false "non-reportable reduced-memory profile"
 
+run_observability_mode()
+{
+    mode=$1
+    mode_root="$run_root/observability/$mode"
+    mkdir -p "$mode_root"
+    mode_args=
+    artifacts="--artifact $mode_root/run.json"
+    case "$mode" in
+        no-trace)
+            ;;
+        vcd)
+            mode_args="--vcd $mode_root/signals.vcd"
+            artifacts="$artifacts --artifact $mode_root/signals.vcd"
+            ;;
+        coverage)
+            mode_args="--coverage $mode_root/coverage.json"
+            artifacts="$artifacts --artifact $mode_root/coverage.json"
+            ;;
+        bus-log)
+            mode_args="--bus-log $mode_root/access.json"
+            artifacts="$artifacts --artifact $mode_root/access.json"
+            ;;
+        *)
+            echo "unknown observability mode: $mode" >&2
+            exit 2
+            ;;
+    esac
+
+    # The mode run intentionally stops at a fixed action limit. This measures
+    # instrumentation overhead without mixing it with CoreMark correctness.
+    # shellcheck disable=SC2086
+    python3 "$repo_root/scripts/benchmark-command.py" \
+        --label "rp2040-arm/observability/$mode" \
+        --output "$mode_root/metrics.json" \
+        $artifacts \
+        -- "$remu" run \
+            --target rp2040 \
+            --elf "$run_root/rp2040-arm/performance/coremark.elf" \
+            --max-instructions "$mode_max_instructions" \
+            --result "$mode_root/run.json" \
+            $mode_args
+    jq -e '.stats.instructions > 0 and (.reason == "InstructionLimit" or .reason == "Halted")' \
+        "$mode_root/run.json" >/dev/null
+    jq -n \
+        --arg mode "$mode" \
+        --slurpfile metrics "$mode_root/metrics.json" \
+        --slurpfile result "$mode_root/run.json" \
+        '{
+          mode: $mode,
+          result: $result[0],
+          measurement: $metrics[0],
+          streaming: ($mode == "bus-log")
+        }' >> "$mode_records"
+}
+
+if [ "$observability_modes" = 1 ]
+then
+    for mode in no-trace vcd coverage bus-log
+    do
+        run_observability_mode "$mode"
+    done
+fi
+
 host_model=$(lscpu | awk -F: '/^Model name:/{sub(/^[ \t]+/, "", $2); print $2}')
 host_kernel=$(uname -srmo)
 remu_sha=$(sha256sum "$remu" | cut -d ' ' -f 1)
 cross_image_id=$(docker image inspect --format '{{.Id}}' "$cross_image")
 xtensa_image_id=$(docker image inspect --format '{{.Id}}' "$xtensa_image")
 generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+if ! awk -F '\t' 'NF != 25 { bad = 1 } END { exit (bad || NR == 0) }' "$records"
+then
+    echo "CoreMark metric records must contain exactly 25 fields" >&2
+    exit 1
+fi
 
 jq -Rn \
     --arg upstream "$upstream" \
@@ -326,6 +404,7 @@ jq -Rn \
     --arg xtensa_image "$xtensa_image" \
     --arg xtensa_image_id "$xtensa_image_id" \
     --arg run_directory "${run_root#"$repo_root/"}" \
+    --slurpfile modes "$mode_records" \
     '[
         inputs | split("\t") | {
             id: .[0],
@@ -353,10 +432,12 @@ jq -Rn \
             flags: .[20],
             elf_sha256: .[21],
             run_sha256: .[22],
+            peak_rss_bytes: (.[23] | tonumber),
+            result_artifact_bytes: (.[24] | tonumber),
             status: "passed"
         }
     ] as $runs | {
-        schema: "remu.coremark-qualification.v1",
+        schema: "renvo.coremark-qualification.v1",
         generated_at: $generated_at,
         source: {
             upstream: $upstream,
@@ -367,9 +448,11 @@ jq -Rn \
             compiler_execution: "pinned network-isolated Docker containers",
             execution: "Renvo Emulator release interpreter on host",
             score: "iterations divided by measured host wall-clock seconds",
+            action_normalized_score: "iterations divided by abstract simulation ticks",
             timing_disclaimer:
                 "host score measures emulator throughput, not MCU silicon performance",
-            repetitions: 1
+            repetitions: 1,
+            benchmark_measurement: "remu.benchmark-command.v1"
         },
         host: {
             model: $host_model,
@@ -382,6 +465,7 @@ jq -Rn \
         ],
         run_directory: $run_directory,
         runs: $runs,
+        observability_modes: $modes,
         limitations: [{
             target: "CH32V003",
             standard_dataset_bytes: 2000,
@@ -395,4 +479,12 @@ jq -Rn \
     }' < "$records" > "$run_root/results.json"
 
 cp "$run_root/results.json" "$artifact_root/results.json"
+budget_args=
+if [ -n "${COREMARK_BASELINE:-}" ]
+then
+    budget_args="--baseline $COREMARK_BASELINE"
+fi
+# shellcheck disable=SC2086
+python3 "$repo_root/scripts/check-benchmark-budgets.py" \
+    "$artifact_root/results.json" $budget_args
 echo "CoreMark qualification passed: $artifact_root/results.json"

@@ -237,20 +237,38 @@ REMU_ACCEPTANCE_MAX_SECONDS=60 scripts/qualify-micropython.sh
 # CoreMark correctness and host throughput
 COREMARK_OFFLINE=1 scripts/qualify-coremark.sh
 
+# Include no-trace, VCD, coverage, and streamed bus-log overhead profiles
+COREMARK_OFFLINE=1 COREMARK_OBSERVABILITY_MODES=1 scripts/qualify-coremark.sh
+
 # Cross-host deterministic scheduler evidence
 scripts/qualify-host-determinism.sh
 ```
 
-The default GitHub Actions workflow runs formatting, Clippy, all workspace
-tests, source-layout checks, package-manifest validation, and a bounded,
-lockfile-pinned machine smoke matrix covering RISC-V, Arm, Xtensa, AVR, MSP430,
-PIC16, and MCS-51. Each architecture lane enables Rust backtraces and runs all
-matching tests before reporting failure, so a broken target leaves actionable
-diagnostics in the pull-request log.
-The larger Docker, native-image, MicroPython, CoreMark, and host-determinism
-gates remain explicit qualification commands with checked artifacts in the
-repository; moving those reproducible subsets into scheduled public CI is
-follow-up work.
+CoreMark writes a `renvo.coremark-qualification.v1` artifact. Its correctness
+and abstract-action-normalized score are separate from host throughput: each
+run also records the release interpreter's wall time, peak RSS,
+result-artifact size, host identity, and pinned compiler-container identities.
+The optional observability profiles stop at a fixed action limit and measure
+no-trace, VCD, coverage, and streamed bus-log overhead without treating
+instrumentation as a CoreMark correctness result. Compare a later run with a
+same-host prior artifact using `COREMARK_BASELINE=path/to/results.json`; the
+checked budgets allow 25% wall-time noise, 50% RSS noise, and 25%
+result-artifact growth. See
+[`qualification/benchmarks/budgets.json`](qualification/benchmarks/budgets.json)
+for the policy and
+[`docs/COREMARK.md`](docs/COREMARK.md) for the interpretation of host-calibrated
+scores.
+
+The pull-request GitHub Actions workflow runs formatting, Clippy, all workspace
+tests, source-layout checks, package-manifest validation, the benchmark harness,
+and a bounded, lockfile-pinned machine smoke matrix covering RISC-V, Arm,
+Xtensa, AVR, MSP430, PIC16, and MCS-51. Each architecture lane enables Rust
+backtraces and runs all matching tests before reporting failure, so a broken
+target leaves actionable diagnostics in the pull-request log.
+
+The larger Docker, native-image, MicroPython, and host-determinism gates remain
+explicit qualification commands. The scheduled interpreter-benchmarks workflow
+runs the pinned CoreMark and observability profiles and uploads their artifacts.
 
 Read [CoreMark methodology and results](docs/COREMARK.md), the
 [1,000-case corpus notes](corpus/edge_cases/README.md), and the
