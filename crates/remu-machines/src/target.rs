@@ -642,12 +642,24 @@ const MANIFESTS: &[TargetManifest] = &[
         gpio_count: 26,
         fidelity: Fidelity::Functional,
         support_tiers: EXPANSION_SUPPORT_TIERS,
-        baseline: &["GPIO/EXTI", "TIM2 interrupt", "USART2", "VCD"],
+        baseline: &[
+            "internal flash load, alias, program, and erase",
+            "GPIO/EXTI",
+            "general, basic, advanced, and low-power timers",
+            "USART, SPI, I2C, CAN, and SWPMI transactions",
+            "watchdogs, ADC, CRC, RTC, RNG, and DAC",
+            "USB FS/PMA, SAI1, QUADSPI, and DMA",
+            "TSC, comparators, and op-amp software-visible state",
+            "VCD",
+        ],
         sources: &[
             "https://www.st.com/en/microcontrollers-microprocessors/stm32l432kc.html",
             "https://www.st.com/resource/en/reference_manual/rm0394-stm32l41xxx42xxx43xxx44xxx45xxx46xxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf",
         ],
-        limitations: &["analog, USB, DMA, low-power fidelity, and exact clocks are deferred"],
+        limitations: &[
+            "flash ECC correction, option-byte reload effects, and write-protection enforcement are functional approximations",
+            "alternate-function pin routing, physical bus/USB/audio protocols, electrical and analog behavior, DMA arbitration/request timing, low-power fidelity, and exact clocks are deferred",
+        ],
     },
     TargetManifest {
         schema: 1,

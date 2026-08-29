@@ -14,13 +14,22 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Ac,
-    Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
-    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
-    Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
-    Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, TimerHandle, UartHandle,
+    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank,
+    STM32_FLASH_SIZE, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac,
+    Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys,
+    Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle,
+    Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle,
+    Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle,
+    Stm32AdvancedTimer, Stm32AdvancedTimerHandle, Stm32BasicTimer, Stm32BasicTimerHandle, Stm32Can,
+    Stm32ComparatorHandle, Stm32Comparators, Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Dma,
+    Stm32DmaHandle, Stm32Exti, Stm32ExtiHandle, Stm32FlashController, Stm32FlashMemory, Stm32Gpio,
+    Stm32I2c, Stm32I2cHandle, Stm32Lptim1, Stm32Lptim1Handle, Stm32Lptim2, Stm32Lptim2Handle,
+    Stm32Opamp, Stm32OpampHandle, Stm32QuadSpi, Stm32QuadSpiHandle, Stm32Rng, Stm32RngHandle,
+    Stm32Rtc, Stm32RtcHandle, Stm32Sai1, Stm32Sai1Handle, Stm32Spi, Stm32SpiHandle, Stm32Swpmi,
+    Stm32SwpmiHandle, Stm32Tim7, Stm32Tim7Handle, Stm32Tim15, Stm32Tim15Handle, Stm32Tim16,
+    Stm32Tim16Handle, Stm32Timer, Stm32TimerHandle, Stm32Tsc, Stm32TscHandle, Stm32Usart,
+    Stm32UsartHandle, Stm32UsbFs, Stm32UsbFsHandle, Stm32UsbPma, Stm32Watchdog,
+    Stm32WatchdogHandle, Stm32Wwdg, Stm32WwdgHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -32,7 +41,7 @@ const TEST_EXIT_SIZE: usize = 4;
 
 enum VendorUart {
     Samd21(Samd21UsartHandle),
-    Stm32(Stm32UsartHandle),
+    Stm32(Vec<(Stm32UsartHandle, u16)>),
     Ra4m1(RaSciHandle),
 }
 
@@ -40,7 +49,10 @@ impl VendorUart {
     fn bytes(&self) -> Vec<u8> {
         match self {
             Self::Samd21(handle) => handle.bytes(),
-            Self::Stm32(handle) => handle.bytes(),
+            Self::Stm32(handles) => handles
+                .iter()
+                .flat_map(|(handle, _)| handle.bytes())
+                .collect(),
             Self::Ra4m1(handle) => handle.bytes(),
         }
     }
@@ -48,7 +60,7 @@ impl VendorUart {
     fn interrupt_pending(&self) -> bool {
         match self {
             Self::Samd21(handle) => handle.interrupt_pending(),
-            Self::Stm32(handle) => handle.interrupt_pending(),
+            Self::Stm32(handles) => handles.iter().any(|(handle, _)| handle.interrupt_pending()),
             Self::Ra4m1(handle) => handle.txi_pending(),
         }
     }
@@ -70,6 +82,20 @@ impl VendorTimer {
     }
 }
 
+enum VendorWatchdog {
+    Samd21(Samd21WdtHandle),
+    Stm32(Stm32WatchdogHandle),
+}
+
+impl VendorWatchdog {
+    fn take_reset(&self, now: SimTime) -> bool {
+        match self {
+            Self::Samd21(handle) => handle.take_reset(now),
+            Self::Stm32(handle) => handle.take_reset(now),
+        }
+    }
+}
+
 /// Direct-ELF Arm machine for vendor microcontrollers outside the Raspberry Pi family.
 pub struct ArmMcuMachine {
     target: TargetId,
@@ -85,6 +111,7 @@ pub struct ArmMcuMachine {
     samd_tc_irqs: Vec<(u16, Samd21TcHandle)>,
     samd_tcc_irqs: Vec<(u16, Samd21TccHandle)>,
     samd_rtc: Option<Samd21RtcHandle>,
+    stm32_spi: Vec<(u16, Stm32SpiHandle)>,
     eic: Option<Samd21EicHandle>,
     dmac: Option<Samd21DmacHandle>,
     i2s: Option<Samd21I2sHandle>,
@@ -92,7 +119,30 @@ pub struct ArmMcuMachine {
     ac: Option<Samd21AcHandle>,
     dac: Option<Samd21DacHandle>,
     ra_icu: Option<RaIcuHandle>,
-    watchdog: Option<Samd21WdtHandle>,
+    watchdog: Option<VendorWatchdog>,
+    stm32_i2c: Vec<(u16, Stm32I2cHandle)>,
+    stm32_adc: Option<Stm32AdcHandle>,
+    stm32_crc: Option<Stm32CrcHandle>,
+    stm32_rtc: Option<Stm32RtcHandle>,
+    stm32_rng: Option<Stm32RngHandle>,
+    stm32_tim1: Option<Stm32AdvancedTimerHandle>,
+    stm32_exti: Option<Stm32ExtiHandle>,
+    stm32_wwdg: Option<Stm32WwdgHandle>,
+    stm32_tim6: Option<Stm32BasicTimerHandle>,
+    stm32_tim7: Option<Stm32Tim7Handle>,
+    stm32_tim15: Option<Stm32Tim15Handle>,
+    stm32_tim16: Option<Stm32Tim16Handle>,
+    stm32_lptim1: Option<Stm32Lptim1Handle>,
+    stm32_lptim2: Option<Stm32Lptim2Handle>,
+    usb_fs: Option<Stm32UsbFsHandle>,
+    sai1: Option<Stm32Sai1Handle>,
+    qspi: Option<Stm32QuadSpiHandle>,
+    swpmi: Option<Stm32SwpmiHandle>,
+    dma1: Option<Stm32DmaHandle>,
+    dma2: Option<Stm32DmaHandle>,
+    tsc: Option<Stm32TscHandle>,
+    comparators: Option<Stm32ComparatorHandle>,
+    opamp: Option<Stm32OpampHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
     ppb: ArmPpbHandle,
@@ -120,6 +170,7 @@ impl ArmMcuMachine {
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
         let mut default_stack = None;
+        let mut stm32_flash_controller = None;
         for region in manifest.memory {
             match region.kind {
                 MemoryKind::Ram => {
@@ -129,6 +180,30 @@ impl ArmMcuMachine {
                     default_stack = Some(u32::try_from(end).expect("Arm memory fits u32"));
                 }
                 MemoryKind::Flash | MemoryKind::Rom => {
+                    if target == TargetId::Stm32l432kc
+                        && region.kind == MemoryKind::Flash
+                        && region.start == u64::from(remu_devices::STM32_FLASH_BASE)
+                    {
+                        let (flash, controller) =
+                            Stm32FlashMemory::new(region.name, STM32_FLASH_SIZE);
+                        let alias = flash.alias("stm32l432kc.flash-alias");
+                        bus.map_device_with_permissions(
+                            region.name,
+                            region.start,
+                            region.size,
+                            Permissions::RWX,
+                            Box::new(flash),
+                        )?;
+                        bus.map_device_with_permissions(
+                            "stm32l432kc.flash-alias",
+                            0,
+                            region.size,
+                            Permissions::RX,
+                            Box::new(alias),
+                        )?;
+                        stm32_flash_controller = Some(controller);
+                        continue;
+                    }
                     let storage = if region.kind == MemoryKind::Flash {
                         SharedMemory::from_bytes(vec![0xff; region.size])
                     } else {
@@ -242,6 +317,29 @@ impl ArmMcuMachine {
             Box::new(ppb_device),
         )?;
 
+        let mut stm32_spi = Vec::new();
+        let mut stm32_adc = None;
+        let mut stm32_crc = None;
+        let mut stm32_rtc = None;
+        let mut stm32_rng = None;
+        let mut stm32_tim1 = None;
+        let mut stm32_exti = None;
+        let mut stm32_wwdg = None;
+        let mut stm32_tim6 = None;
+        let mut stm32_tim7 = None;
+        let mut stm32_tim15 = None;
+        let mut stm32_tim16 = None;
+        let mut stm32_lptim1 = None;
+        let mut stm32_lptim2 = None;
+        let mut usb_fs = None;
+        let mut sai1 = None;
+        let mut qspi = None;
+        let mut swpmi = None;
+        let mut dma1 = None;
+        let mut dma2 = None;
+        let mut tsc = None;
+        let mut comparators = None;
+        let mut opamp = None;
         let (
             gpio,
             uart,
@@ -258,6 +356,7 @@ impl ArmMcuMachine {
             dac,
             ra_icu,
             watchdog,
+            stm32_i2c,
         ) = match target {
             TargetId::Atsamd21e18 => {
                 let (port_device, gpio) = Samd21Port::new(
@@ -343,7 +442,8 @@ impl ArmMcuMachine {
                     Some(ac),
                     Some(dac),
                     None,
-                    Some(watchdog),
+                    Some(VendorWatchdog::Samd21(watchdog)),
+                    Vec::new(),
                 )
             }
             TargetId::Stm32l432kc => {
@@ -368,16 +468,112 @@ impl ArmMcuMachine {
                     signals.clone(),
                 )?;
                 let (tim2_device, timer) = Stm32Timer::new("stm32l432kc.tim2");
-                let (usart2_device, uart) = Stm32Usart::new("stm32l432kc.usart2");
+                let (tim1_device, tim1) =
+                    Stm32AdvancedTimer::new("board.stm32l432kc.tim1", signals.clone())?;
+                stm32_tim1 = Some(tim1);
+                let (usart1_device, usart1) = Stm32Usart::new("stm32l432kc.usart1");
+                let (usart2_device, usart2) = Stm32Usart::new("stm32l432kc.usart2");
+                let (lpuart1_device, lpuart1) = Stm32Usart::new("stm32l432kc.lpuart1");
+                let (spi1_device, spi1) = Stm32Spi::new("stm32l432kc.spi1");
+                let (spi3_device, spi3) = Stm32Spi::new("stm32l432kc.spi3");
+                stm32_spi.extend([(35, spi1), (51, spi3)]);
+                let (i2c1_device, i2c1) = Stm32I2c::new("stm32l432kc.i2c1");
+                let (i2c3_device, i2c3) = Stm32I2c::new("stm32l432kc.i2c3");
+                let (watchdog_device, watchdog) = Stm32Watchdog::new("stm32l432kc.iwdg");
+                let (adc_device, adc) = Stm32Adc::new("stm32l432kc.adc1");
+                stm32_adc = Some(adc);
+                let (crc_device, crc) = Stm32Crc::new("stm32l432kc.crc");
+                stm32_crc = Some(crc);
+                let (rtc_device, rtc) = Stm32Rtc::new("stm32l432kc.rtc");
+                stm32_rtc = Some(rtc);
+                let (rng_device, rng) = Stm32Rng::new("stm32l432kc.rng");
+                stm32_rng = Some(rng);
+                let dac1_device = Stm32Dac::new("board.stm32l432kc.dac1", signals.clone())?;
+                let (exti_device, exti) =
+                    Stm32Exti::new("board.stm32l432kc.exti", signals.clone())?;
+                stm32_exti = Some(exti);
+                let (wwdg_device, wwdg) = Stm32Wwdg::new("stm32l432kc.wwdg", signals.clone())?;
+                stm32_wwdg = Some(wwdg);
+                let (tim6_device, tim6) =
+                    Stm32BasicTimer::new("stm32l432kc.tim6", signals.clone())?;
+                stm32_tim6 = Some(tim6);
+                let (tim7_device, tim7) = Stm32Tim7::new("stm32l432kc.tim7", signals.clone())?;
+                stm32_tim7 = Some(tim7);
+                let (tim15_device, tim15) = Stm32Tim15::new("stm32l432kc.tim15", signals.clone())?;
+                stm32_tim15 = Some(tim15);
+                let (tim16_device, tim16) = Stm32Tim16::new("stm32l432kc.tim16", signals.clone())?;
+                stm32_tim16 = Some(tim16);
+                let (lptim1_device, lptim1) =
+                    Stm32Lptim1::new("stm32l432kc.lptim1", signals.clone())?;
+                stm32_lptim1 = Some(lptim1);
+                let (lptim2_device, lptim2) =
+                    Stm32Lptim2::new("stm32l432kc.lptim2", signals.clone())?;
+                stm32_lptim2 = Some(lptim2);
+                let (usb_device, usb_pma, usb_handle) =
+                    Stm32UsbFs::new("stm32l432kc.usb", signals.clone())?;
+                usb_fs = Some(usb_handle);
+                let (sai1_device, sai1_handle) =
+                    Stm32Sai1::new("stm32l432kc.sai1", signals.clone())?;
+                sai1 = Some(sai1_handle);
+                let (qspi_device, qspi_handle, qspi_flash) =
+                    Stm32QuadSpi::new("stm32l432kc.quadspi", signals.clone())?;
+                qspi = Some(qspi_handle);
+                let (swpmi_device, swpmi_handle) =
+                    Stm32Swpmi::new("stm32l432kc.swpmi", signals.clone())?;
+                swpmi = Some(swpmi_handle);
+                let (dma1_device, dma1_handle) = Stm32Dma::new("stm32l432kc.dma1");
+                dma1 = Some(dma1_handle);
+                let (dma2_device, dma2_handle) = Stm32Dma::new("stm32l432kc.dma2");
+                dma2 = Some(dma2_handle);
+                let (tsc_device, tsc_handle) = Stm32Tsc::new("stm32l432kc.tsc");
+                tsc = Some(tsc_handle);
+                let (comparators_device, comparator_handle) =
+                    Stm32Comparators::new("stm32l432kc.comp");
+                comparators = Some(comparator_handle);
+                let (opamp_device, opamp_handle) = Stm32Opamp::new("stm32l432kc.opamp");
+                opamp = Some(opamp_handle);
                 Self::map_stm32l432(
                     &mut bus,
                     [gpioa_device, gpiob_device, gpioc_device, gpioh_device],
+                    tim1_device,
                     tim2_device,
+                    usart1_device,
                     usart2_device,
+                    lpuart1_device,
+                    spi1_device,
+                    spi3_device,
+                    i2c1_device,
+                    i2c3_device,
+                    watchdog_device,
+                    adc_device,
+                    crc_device,
+                    rtc_device,
+                    rng_device,
+                    dac1_device,
+                    exti_device,
+                    wwdg_device,
+                    tim6_device,
+                    tim7_device,
+                    tim15_device,
+                    tim16_device,
+                    lptim1_device,
+                    lptim2_device,
+                    usb_device,
+                    usb_pma,
+                    sai1_device,
+                    qspi_device,
+                    qspi_flash,
+                    swpmi_device,
+                    dma1_device,
+                    dma2_device,
+                    tsc_device,
+                    comparators_device,
+                    opamp_device,
+                    stm32_flash_controller.expect("STM32 flash controller was mapped"),
                 )?;
                 (
                     gpio,
-                    VendorUart::Stm32(uart),
+                    VendorUart::Stm32(vec![(usart1, 37), (usart2, 38), (lpuart1, 70)]),
                     VendorTimer::Stm32(timer),
                     Vec::new(),
                     Vec::new(),
@@ -390,7 +586,8 @@ impl ArmMcuMachine {
                     None,
                     None,
                     None,
-                    None,
+                    Some(VendorWatchdog::Stm32(watchdog)),
+                    vec![(31, i2c1), (72, i2c3)],
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -426,6 +623,7 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     None,
+                    Vec::new(),
                 )
             }
             _ => unreachable!(),
@@ -445,6 +643,7 @@ impl ArmMcuMachine {
             samd_tc_irqs,
             samd_tcc_irqs,
             samd_rtc,
+            stm32_spi,
             eic,
             dmac,
             i2s,
@@ -453,6 +652,29 @@ impl ArmMcuMachine {
             dac,
             ra_icu,
             watchdog,
+            stm32_i2c,
+            stm32_adc,
+            stm32_crc,
+            stm32_rtc,
+            stm32_rng,
+            stm32_tim1,
+            stm32_exti,
+            stm32_wwdg,
+            stm32_tim6,
+            stm32_tim7,
+            stm32_tim15,
+            stm32_tim16,
+            stm32_lptim1,
+            stm32_lptim2,
+            usb_fs,
+            sai1,
+            qspi,
+            swpmi,
+            dma1,
+            dma2,
+            tsc,
+            comparators,
+            opamp,
             compiler_timer,
             exit,
             ppb,
@@ -467,230 +689,6 @@ impl ArmMcuMachine {
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
         })
-    }
-
-    fn map_samd21(
-        bus: &mut AddressSpace,
-        port: Samd21Port,
-        eic: Samd21Eic,
-        watchdog: Samd21Wdt,
-        timers: [Samd21Tc; 3],
-        tccs: [Samd21Tcc; 3],
-        rtc: Samd21Rtc,
-        sercoms: [Samd21Usart; 4],
-        evsys: Samd21Evsys,
-        usb: Samd21UsbDevice,
-        dmac: Samd21Dmac,
-        i2s: Samd21I2s,
-        adc: Samd21Adc,
-        ac: Samd21Ac,
-        dac: Samd21Dac,
-    ) -> Result<(), remu_bus::MapError> {
-        bus.map_device(
-            "atsamd21e18.pm",
-            0x4000_0400,
-            0x100,
-            Box::new(Samd21RegisterBlock::new("atsamd21e18.pm", 0x100, [])),
-        )?;
-        // PCLKSR.OSC8MRDY and DFLLRDY are asserted in the functional clock model.
-        bus.map_device(
-            "atsamd21e18.sysctrl",
-            0x4000_0800,
-            0x100,
-            Box::new(Samd21RegisterBlock::new(
-                "atsamd21e18.sysctrl",
-                0x100,
-                [(0x0c, 0x18)],
-            )),
-        )?;
-        bus.map_device(
-            "atsamd21e18.gclk",
-            0x4000_0c00,
-            0x100,
-            Box::new(Samd21RegisterBlock::new("atsamd21e18.gclk", 0x100, [])),
-        )?;
-        bus.map_device("atsamd21e18.wdt", 0x4000_1000, 0x100, Box::new(watchdog))?;
-        bus.map_device("atsamd21e18.rtc", 0x4000_1400, 0x20, Box::new(rtc))?;
-        bus.map_device("atsamd21e18.eic", 0x4000_1800, 0x100, Box::new(eic))?;
-        bus.map_device("atsamd21e18.evsys", 0x4200_0400, 0x20, Box::new(evsys))?;
-        bus.map_device("atsamd21e18.usb", 0x4100_5000, 0x200, Box::new(usb))?;
-        bus.map_device("atsamd21e18.ac", 0x4200_4400, 0x100, Box::new(ac))?;
-        for (index, sercom) in sercoms.into_iter().enumerate() {
-            bus.map_device(
-                format!("atsamd21e18.sercom{index}"),
-                0x4200_0800 + u64::try_from(index).expect("SERCOM index fits u64") * 0x400,
-                0x40,
-                Box::new(sercom),
-            )?;
-        }
-        for (index, timer) in timers.into_iter().enumerate() {
-            let instance = index + 3;
-            bus.map_device(
-                format!("atsamd21e18.tc{instance}"),
-                0x4200_2c00 + u64::try_from(index).expect("TC index fits u64") * 0x400,
-                0x40,
-                Box::new(timer),
-            )?;
-        }
-        for (index, tcc) in tccs.into_iter().enumerate() {
-            bus.map_device(
-                format!("atsamd21e18.tcc{index}"),
-                0x4200_2000 + u64::try_from(index).expect("TCC index fits u64") * 0x400,
-                0x80,
-                Box::new(tcc),
-            )?;
-        }
-        bus.map_device("atsamd21e18.dmac", 0x4100_4800, 0x100, Box::new(dmac))?;
-        bus.map_device("atsamd21e18.i2s", 0x4200_5000, 0x100, Box::new(i2s))?;
-        bus.map_device("atsamd21e18.adc", 0x4200_4000, 0x100, Box::new(adc))?;
-        bus.map_device("atsamd21e18.dac", 0x4200_4800, 0x20, Box::new(dac))?;
-        // NVMCTRL.INTFLAG.READY is set after reset.
-        bus.map_device(
-            "atsamd21e18.nvmctrl",
-            0x4100_4000,
-            0x400,
-            Box::new(Samd21RegisterBlock::new(
-                "atsamd21e18.nvmctrl",
-                0x400,
-                [(0x14, 1)],
-            )),
-        )?;
-        bus.map_device("atsamd21e18.port", 0x4100_4400, 0x100, Box::new(port))?;
-        Ok(())
-    }
-
-    fn map_stm32l432(
-        bus: &mut AddressSpace,
-        gpio: [Stm32Gpio; 4],
-        tim2: Stm32Timer,
-        usart2: Stm32Usart,
-    ) -> Result<(), remu_bus::MapError> {
-        bus.map_device(
-            "stm32l432kc.rcc",
-            0x4002_1000,
-            0x400,
-            Box::new(RegisterBank::new(
-                "stm32l432kc.rcc",
-                [
-                    (0x00, 0x0000_0063, u32::MAX),
-                    (0x08, 0x0000_1000, u32::MAX),
-                    (0x4c, 0, u32::MAX),
-                    (0x58, 0, u32::MAX),
-                    (0x5c, 0, u32::MAX),
-                    (0x88, 0, u32::MAX),
-                ],
-            )),
-        )?;
-        bus.map_device(
-            "stm32l432kc.pwr",
-            0x4000_7000,
-            0x400,
-            Box::new(RegisterBank::new(
-                "stm32l432kc.pwr",
-                [(0x00, 0x0000_0200, u32::MAX), (0x14, 0, u32::MAX)],
-            )),
-        )?;
-        bus.map_device(
-            "stm32l432kc.flash-control",
-            0x4002_2000,
-            0x400,
-            Box::new(RegisterBank::new(
-                "stm32l432kc.flash-control",
-                [(0x00, 0x0000_0600, u32::MAX), (0x08, 0, u32::MAX)],
-            )),
-        )?;
-        bus.map_device(
-            "stm32l432kc.syscfg",
-            0x4001_0000,
-            0x400,
-            Box::new(RegisterBank::new(
-                "stm32l432kc.syscfg",
-                [
-                    (0x00, 0, u32::MAX),
-                    (0x08, 0, u32::MAX),
-                    (0x0c, 0, u32::MAX),
-                ],
-            )),
-        )?;
-        bus.map_device(
-            "stm32l432kc.exti",
-            0x4001_0400,
-            0x400,
-            Box::new(RegisterBank::new(
-                "stm32l432kc.exti",
-                [
-                    (0x00, 0, u32::MAX),
-                    (0x08, 0, u32::MAX),
-                    (0x0c, 0, u32::MAX),
-                    (0x14, 0, u32::MAX),
-                ],
-            )),
-        )?;
-        bus.map_device("stm32l432kc.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
-        bus.map_device("stm32l432kc.usart2", 0x4000_4400, 0x400, Box::new(usart2))?;
-        let [gpioa, gpiob, gpioc, gpioh] = gpio;
-        bus.map_device("stm32l432kc.gpioa", 0x4800_0000, 0x400, Box::new(gpioa))?;
-        bus.map_device("stm32l432kc.gpiob", 0x4800_0400, 0x400, Box::new(gpiob))?;
-        bus.map_device("stm32l432kc.gpioc", 0x4800_0800, 0x400, Box::new(gpioc))?;
-        bus.map_device("stm32l432kc.gpioh", 0x4800_1c00, 0x400, Box::new(gpioh))?;
-        Ok(())
-    }
-
-    fn map_ra4m1(
-        bus: &mut AddressSpace,
-        ports: Vec<RaIoPort>,
-        pfs: RaPfs,
-        icu: RaIcu,
-        gpt0: RaGpt,
-        sci9: RaSci,
-    ) -> Result<(), remu_bus::MapError> {
-        // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
-        bus.map_device(
-            "r7fa4m1ab3cfm.system",
-            0x4001_e000,
-            0x1000,
-            Box::new(Samd21RegisterBlock::new(
-                "r7fa4m1ab3cfm.system",
-                0x1000,
-                [(0x3c, 1)],
-            )),
-        )?;
-        bus.map_device(
-            "r7fa4m1ab3cfm.mstp",
-            0x4004_6ffc,
-            0x20,
-            Box::new(Samd21RegisterBlock::new("r7fa4m1ab3cfm.mstp", 0x20, [])),
-        )?;
-        bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
-        bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
-        bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
-        bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
-        bus.map_device(
-            "r7fa4m1ab3cfm.pmisc",
-            0x4004_0d00,
-            0x100,
-            Box::new(Samd21RegisterBlock::new(
-                "r7fa4m1ab3cfm.pmisc",
-                0x100,
-                [(3, 0x80)],
-            )),
-        )?;
-        for (port, device) in ports.into_iter().enumerate() {
-            bus.map_device(
-                format!("r7fa4m1ab3cfm.port{port}"),
-                0x4004_0000 + u64::try_from(port).expect("port index fits u64") * 0x20,
-                0x10,
-                Box::new(device),
-            )?;
-        }
-        // Functional WDT startup surface; refresh/timeout fidelity is deferred to the target report.
-        bus.map_device(
-            "r7fa4m1ab3cfm.wdt",
-            0x4004_4200,
-            0x10,
-            Box::new(Samd21RegisterBlock::new("r7fa4m1ab3cfm.wdt", 0x10, [])),
-        )?;
-        Ok(())
     }
 
     /// Loads an Arm ELF and uses its vector reset when it contains a valid vector table.
@@ -830,6 +828,109 @@ impl ArmMcuMachine {
         self.gpio.output()
     }
 
+    /// Returns the host-facing STM32 ADC1 sample handle.
+    pub fn adc(&self) -> Option<Stm32AdcHandle> {
+        self.stm32_adc.clone()
+    }
+
+    /// Returns the host-facing STM32 CRC state.
+    pub fn crc(&self) -> Option<Stm32CrcHandle> {
+        self.stm32_crc.clone()
+    }
+
+    /// Returns the host-facing STM32 RTC state.
+    pub fn rtc(&self) -> Option<Stm32RtcHandle> {
+        self.stm32_rtc.clone()
+    }
+
+    /// Returns the host-facing STM32 RNG state.
+    pub fn rng(&self) -> Option<Stm32RngHandle> {
+        self.stm32_rng.clone()
+    }
+
+    /// Loads bytes into the STM32L432 external QUADSPI flash window.
+    pub fn qspi_load_flash(&self, offset: usize, bytes: &[u8]) -> Result<(), ArmMachineError> {
+        let Some(qspi) = &self.qspi else {
+            return Err(ArmMachineError::UnsupportedTarget(self.target));
+        };
+        if qspi.load_flash(offset, bytes) {
+            Ok(())
+        } else {
+            Err(remu_bus::DeviceError::new("QUADSPI flash range is out of bounds").into())
+        }
+    }
+
+    /// Returns a copy of the STM32L432 external QUADSPI flash.
+    pub fn qspi_flash(&self) -> Option<Vec<u8>> {
+        self.qspi.as_ref().map(Stm32QuadSpiHandle::flash)
+    }
+
+    /// Injects one STM32L432 SWPMI receive frame.
+    pub fn inject_swpmi_rx(&self, word: u32, frame_bytes: u8) -> Result<(), ArmMachineError> {
+        let Some(swpmi) = &self.swpmi else {
+            return Err(ArmMachineError::UnsupportedTarget(self.target));
+        };
+        swpmi.inject_rx(word, frame_bytes, self.now);
+        Ok(())
+    }
+
+    /// Takes words transmitted by the STM32L432 SWPMI endpoint.
+    pub fn take_swpmi_tx(&self) -> Result<Vec<u32>, ArmMachineError> {
+        let Some(swpmi) = &self.swpmi else {
+            return Err(ArmMachineError::UnsupportedTarget(self.target));
+        };
+        Ok(swpmi.take_tx())
+    }
+
+    /// Supplies a deterministic touch-acquisition count to the STM32 TSC host.
+    pub fn set_stm32_tsc_group_count(
+        &self,
+        group: usize,
+        count: u32,
+    ) -> Result<(), ArmMachineError> {
+        let Some(tsc) = &self.tsc else {
+            return Err(
+                remu_bus::DeviceError::new("STM32 TSC is not available on this target").into(),
+            );
+        };
+        if tsc.set_group_count(group, count) {
+            Ok(())
+        } else {
+            Err(remu_bus::DeviceError::new("STM32 TSC group index is outside 0..7").into())
+        }
+    }
+
+    /// Supplies host-side input levels to one STM32 comparator.
+    pub fn set_stm32_comparator_inputs(
+        &self,
+        comparator: usize,
+        plus: u16,
+        minus: u16,
+    ) -> Result<(), ArmMachineError> {
+        let Some(comparators) = &self.comparators else {
+            return Err(remu_bus::DeviceError::new(
+                "STM32 comparators are not available on this target",
+            )
+            .into());
+        };
+        if comparators.set_inputs(comparator, plus, minus) {
+            Ok(())
+        } else {
+            Err(remu_bus::DeviceError::new("STM32 comparator index is outside 0..2").into())
+        }
+    }
+
+    /// Supplies host-side input levels to the STM32 OPAMP.
+    pub fn set_stm32_opamp_inputs(&self, plus: u16, minus: u16) -> Result<(), ArmMachineError> {
+        let Some(opamp) = &self.opamp else {
+            return Err(
+                remu_bus::DeviceError::new("STM32 OPAMP is not available on this target").into(),
+            );
+        };
+        opamp.set_inputs(plus, minus);
+        Ok(())
+    }
+
     /// Reads guest-visible bytes for qualification and debugger adapters.
     pub fn debug_read_memory(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         (0..length)
@@ -860,6 +961,22 @@ impl ArmMcuMachine {
                 .map_err(|error| error.to_string())?;
         }
         Ok(())
+    }
+
+    /// Services one deterministic transfer unit on each active STM32 DMA channel.
+    ///
+    /// Normal `run` calls invoke this automatically. The explicit helper is
+    /// useful for host-driven peripheral tests that do not need to boot a
+    /// firmware image merely to exercise a memory transfer.
+    pub fn service_stm32_dma(&mut self) -> Result<usize, ArmMachineError> {
+        let mut serviced: usize = 0;
+        if let Some(dma) = &self.dma1 {
+            serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
+        }
+        if let Some(dma) = &self.dma2 {
+            serviced = serviced.saturating_add(dma.service(&mut self.bus, self.now)?);
+        }
+        Ok(serviced)
     }
 
     /// Runs without externally scheduled stimuli.
@@ -935,9 +1052,88 @@ impl ArmMcuMachine {
                 continue;
             }
 
+            let dma_events = self.service_stm32_dma()?;
+            stats.events = stats
+                .events
+                .saturating_add(u64::try_from(dma_events).unwrap_or(u64::MAX));
+
+            let wwdg_early = if let Some(wwdg) = &self.stm32_wwdg {
+                let (early, reset) = wwdg.poll(self.now);
+                if reset {
+                    self.bus.reset_devices(ResetKind::Watchdog);
+                    if let Err(error) = self.cpu.reset(ResetKind::Watchdog, &mut self.bus) {
+                        break StopReason::Fault(error.to_string());
+                    }
+                    stats.events = stats.events.saturating_add(1);
+                    continue;
+                }
+                early
+            } else {
+                false
+            };
             let (timer_line, timer_pending) = self.timer.poll(self.now);
+            let advanced_timer_pending = self
+                .stm32_tim1
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
+            let tim6_pending = self
+                .stm32_tim6
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
+            let tim7_pending = self
+                .stm32_tim7
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
+            let tim15_pending = self
+                .stm32_tim15
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
+            let tim16_pending = self
+                .stm32_tim16
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
+            let lptim1_pending = self
+                .stm32_lptim1
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
+            let lptim2_pending = self
+                .stm32_lptim2
+                .as_ref()
+                .is_some_and(|timer| timer.poll(self.now));
+            let usb_pending = self.usb_fs.as_ref().is_some_and(|usb| usb.poll(self.now));
+            let sai_pending = self.sai1.as_ref().is_some_and(|sai| sai.poll(self.now));
+            let qspi_pending = self
+                .qspi
+                .as_ref()
+                .is_some_and(Stm32QuadSpiHandle::interrupt_pending);
+            let swpmi_pending = self
+                .swpmi
+                .as_ref()
+                .is_some_and(Stm32SwpmiHandle::interrupt_pending);
+            let tsc_pending = self
+                .tsc
+                .as_ref()
+                .is_some_and(Stm32TscHandle::interrupt_pending);
+            let comparator_pending = self
+                .comparators
+                .as_ref()
+                .is_some_and(Stm32ComparatorHandle::interrupt_pending);
             let compiler_pending = self.compiler_timer.poll(self.now);
-            let mut interrupt_requested = timer_pending;
+            let mut interrupt_requested = timer_pending
+                || advanced_timer_pending
+                || tim6_pending
+                || tim7_pending
+                || tim15_pending
+                || tim16_pending
+                || lptim1_pending
+                || lptim2_pending
+                || usb_pending
+                || sai_pending
+                || qspi_pending
+                || swpmi_pending
+                || tsc_pending
+                || comparator_pending
+                || wwdg_early;
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -947,6 +1143,24 @@ impl ArmMcuMachine {
                 interrupt_requested |= eic_pending;
                 self.cpu
                     .set_interrupt(4, eic_pending && self.ppb.interrupt_enabled(4))?;
+            }
+            if let Some(exti) = &self.stm32_exti {
+                let exti_pending = exti.poll(package_inputs, self.now);
+                interrupt_requested |= exti_pending != 0;
+                for line in 0..5_u32 {
+                    let irq = 6 + line as u16;
+                    let pending = exti_pending & (1 << line) != 0;
+                    self.cpu
+                        .set_interrupt(irq, pending && self.ppb.interrupt_enabled(irq))?;
+                }
+                self.cpu.set_interrupt(
+                    23,
+                    exti_pending & 0x03e0 != 0 && self.ppb.interrupt_enabled(23),
+                )?;
+                self.cpu.set_interrupt(
+                    40,
+                    exti_pending & 0xfc00 != 0 && self.ppb.interrupt_enabled(40),
+                )?;
             }
             for (line, sercom) in &self.samd_sercom_irqs {
                 let pending = sercom.interrupt_pending();
@@ -1015,19 +1229,76 @@ impl ArmMcuMachine {
                     }
                 }
             }
+            if self.target == TargetId::Stm32l432kc {
+                self.cpu.set_interrupt(
+                    25,
+                    (advanced_timer_pending || tim16_pending) && self.ppb.interrupt_enabled(25),
+                )?;
+                self.cpu
+                    .set_interrupt(54, tim6_pending && self.ppb.interrupt_enabled(54))?;
+                self.cpu
+                    .set_interrupt(55, tim7_pending && self.ppb.interrupt_enabled(55))?;
+                self.cpu
+                    .set_interrupt(24, tim15_pending && self.ppb.interrupt_enabled(24))?;
+                self.cpu
+                    .set_interrupt(65, lptim1_pending && self.ppb.interrupt_enabled(65))?;
+                self.cpu
+                    .set_interrupt(66, lptim2_pending && self.ppb.interrupt_enabled(66))?;
+                self.cpu
+                    .set_interrupt(67, usb_pending && self.ppb.interrupt_enabled(67))?;
+                self.cpu
+                    .set_interrupt(74, sai_pending && self.ppb.interrupt_enabled(74))?;
+                self.cpu
+                    .set_interrupt(71, qspi_pending && self.ppb.interrupt_enabled(71))?;
+                self.cpu
+                    .set_interrupt(76, swpmi_pending && self.ppb.interrupt_enabled(76))?;
+                self.cpu
+                    .set_interrupt(77, tsc_pending && self.ppb.interrupt_enabled(77))?;
+                self.cpu
+                    .set_interrupt(64, comparator_pending && self.ppb.interrupt_enabled(64))?;
+            }
+            let mut dma_pending = false;
+            const DMA1_IRQS: [u16; 7] = [11, 12, 13, 14, 15, 16, 17];
+            const DMA2_IRQS: [u16; 7] = [56, 57, 58, 59, 60, 68, 69];
+            for (dma, lines) in [(&self.dma1, &DMA1_IRQS), (&self.dma2, &DMA2_IRQS)] {
+                if let Some(dma) = dma {
+                    for (index, line) in lines.iter().copied().enumerate() {
+                        let pending = dma.channel_pending(index);
+                        dma_pending |= pending;
+                        self.cpu
+                            .set_interrupt(line, pending && self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+            }
+            interrupt_requested |= dma_pending;
+            for (line, i2c) in &self.stm32_i2c {
+                let pending = i2c.interrupt_pending();
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
             match self.target {
-                TargetId::Atsamd21e18 | TargetId::Stm32l432kc => {
-                    let uart_line = if self.target == TargetId::Atsamd21e18 {
-                        9
-                    } else {
-                        38
-                    };
+                TargetId::Atsamd21e18 => {
+                    let uart_line = 9;
                     let uart_pending = self.uart.interrupt_pending();
                     interrupt_requested |= uart_pending;
                     self.cpu.set_interrupt(
                         uart_line,
                         uart_pending && self.ppb.interrupt_enabled(uart_line),
                     )?;
+                }
+                TargetId::Stm32l432kc => {
+                    let VendorUart::Stm32(handles) = &self.uart else {
+                        unreachable!("STM32 target always has STM32 USART handles")
+                    };
+                    for (handle, uart_line) in handles {
+                        let uart_pending = handle.interrupt_pending();
+                        interrupt_requested |= uart_pending;
+                        self.cpu.set_interrupt(
+                            *uart_line,
+                            uart_pending && self.ppb.interrupt_enabled(*uart_line),
+                        )?;
+                    }
                 }
                 TargetId::R7fa4m1ab3cfm if self.uart.interrupt_pending() => {
                     interrupt_requested = true;
@@ -1041,9 +1312,27 @@ impl ArmMcuMachine {
                 TargetId::R7fa4m1ab3cfm => {}
                 _ => unreachable!(),
             }
+            for (line, spi) in &self.stm32_spi {
+                let pending = spi.interrupt_pending();
+                interrupt_requested |= pending;
+                self.cpu
+                    .set_interrupt(*line, pending && self.ppb.interrupt_enabled(*line))?;
+            }
             self.signals.set(
                 self.timer_irq_signal,
-                SignalValue::from_u64(u64::from(timer_pending), 1)?,
+                SignalValue::from_u64(
+                    u64::from(
+                        timer_pending
+                            || advanced_timer_pending
+                            || tim6_pending
+                            || tim7_pending
+                            || tim15_pending
+                            || tim16_pending
+                            || lptim1_pending
+                            || lptim2_pending,
+                    ),
+                    1,
+                )?,
                 self.now,
             )?;
             self.signals.set(
@@ -1051,7 +1340,10 @@ impl ArmMcuMachine {
                 SignalValue::from_u64(u64::from(interrupt_requested), 1)?,
                 self.now,
             )?;
-            self.cpu.set_interrupt(0, compiler_pending)?;
+            self.cpu.set_interrupt(
+                0,
+                compiler_pending || (wwdg_early && self.ppb.interrupt_enabled(0)),
+            )?;
             if self.ppb.take_systick_pending(self.now) {
                 self.cpu.set_systick_interrupt(true);
             }
@@ -1137,240 +1429,17 @@ impl ArmMcuMachine {
     }
 }
 
+#[path = "arm_mcu_maps.rs"]
+mod maps;
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use remu_image::FirmwareSegment;
-
-    #[test]
-    fn samd21_firmware_drives_porta_and_produces_a_trace() {
-        let mut code = vec![
-            0x02, 0x48, 0x80, 0x21, 0x81, 0x60, 0x81, 0x61, 0x30, 0xbf, 0, 0,
-        ];
-        code.extend_from_slice(&0x4100_4400_u32.to_le_bytes());
-        let image = FirmwareImage {
-            architecture: FirmwareArchitecture::Arm,
-            entry: 1,
-            segments: vec![FirmwareSegment {
-                address: 0,
-                load_address: None,
-                initialized_size: code.len(),
-                data: code,
-                executable: true,
-                writable: false,
-                alignment: 4,
-            }],
-            symbols: Vec::new(),
-        };
-        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
-        machine.load_firmware(&image).unwrap();
-        let result = machine
-            .run_with_stimuli(
-                RunLimits {
-                    instructions: Some(4),
-                    deadline: None,
-                },
-                &[],
-                None,
-            )
-            .unwrap();
-        assert_eq!(machine.gpio_output(), 1 << 7);
-        assert_eq!(result.reason, StopReason::InstructionLimit);
-        assert_ne!(result.trace_digest, "");
-    }
-
-    #[test]
-    fn samd21_native_sercom0_accepts_spi_and_i2c_master_registers() {
-        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
-        let sercom0 = 0x4200_0800;
-
-        machine
-            .bus
-            .write(sercom0, AccessWidth::Word, 3_u64 << 2, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(sercom0 + 0x04, AccessWidth::Word, 1 << 17, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(sercom0, AccessWidth::Word, (3_u64 << 2) | 2, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(sercom0 + 0x28, AccessWidth::Byte, 0x5a, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            machine
-                .bus
-                .read(
-                    sercom0 + 0x28,
-                    AccessWidth::Byte,
-                    AccessKind::Read,
-                    SimTime::ZERO,
-                )
-                .unwrap(),
-            0x5a
-        );
-
-        machine
-            .bus
-            .write(sercom0, AccessWidth::Word, 5_u64 << 2, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(sercom0, AccessWidth::Word, (5_u64 << 2) | 2, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(sercom0 + 0x24, AccessWidth::Byte, 0xa0, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            machine
-                .bus
-                .read(
-                    sercom0 + 0x18,
-                    AccessWidth::Byte,
-                    AccessKind::Read,
-                    SimTime::ZERO,
-                )
-                .unwrap()
-                & 1,
-            1
-        );
-    }
-
-    #[test]
-    fn samd21_adc_latches_a_host_sample_through_native_registers() {
-        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
-        machine.set_adc_sample(3, 0x0abc).unwrap();
-        machine
-            .bus
-            .write(0x4200_4000, AccessWidth::Byte, 2, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(0x4200_4010, AccessWidth::Word, 3, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(0x4200_400c, AccessWidth::Byte, 2, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            machine
-                .bus
-                .read(
-                    0x4200_401a,
-                    AccessWidth::HalfWord,
-                    AccessKind::Read,
-                    SimTime::ZERO,
-                )
-                .unwrap(),
-            0x0abc
-        );
-    }
-
-    #[test]
-    fn samd21_ac_latches_a_host_comparison_through_native_registers() {
-        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
-        machine.set_ac_input(0, 0x0900).unwrap();
-        machine
-            .bus
-            .write(0x4200_4400, AccessWidth::Byte, 2, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(
-                0x4200_4410,
-                AccessWidth::Word,
-                (1 << 5) | (1 << 1) | (4 << 8) | 1,
-                SimTime::ZERO,
-            )
-            .unwrap();
-        machine
-            .bus
-            .write(0x4200_4401, AccessWidth::Byte, 1, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(
-            machine
-                .bus
-                .read(
-                    0x4200_4408,
-                    AccessWidth::Byte,
-                    AccessKind::Read,
-                    SimTime::ZERO,
-                )
-                .unwrap(),
-            1
-        );
-    }
-
-    #[test]
-    fn samd21_maps_the_native_dac_register_window() {
-        let mut machine = ArmMcuMachine::new(TargetId::Atsamd21e18).unwrap();
-        machine
-            .bus
-            .write(0x4200_4800, AccessWidth::Byte, 1, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(0x4200_4808, AccessWidth::HalfWord, 0x02a5, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(machine.dac.as_ref().expect("SAM D21 DAC").data(), 0x02a5);
-        assert_eq!(
-            machine
-                .bus
-                .read(
-                    0x4200_4808,
-                    AccessWidth::HalfWord,
-                    AccessKind::Read,
-                    SimTime::ZERO,
-                )
-                .unwrap(),
-            0
-        );
-    }
-
-    #[test]
-    fn stm32l432_uses_the_distinct_m4f_profile_and_gpioa_bsrr() {
-        let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
-        assert_eq!(machine.cpu.profile(), ArmProfile::CortexM4F);
-        machine
-            .bus
-            .write(0x4800_0000, AccessWidth::Word, 1 << 10, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(0x4800_0018, AccessWidth::Word, 1 << 5, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(machine.gpio_output(), 1 << 5);
-    }
-
-    #[test]
-    fn ra4m1_uses_m4f_and_its_own_ioport_and_icu_map() {
-        let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
-        assert_eq!(machine.cpu.profile(), ArmProfile::CortexM4F);
-        machine
-            .bus
-            .write(0x4004_0020, AccessWidth::Word, 1 << 11, SimTime::ZERO)
-            .unwrap();
-        machine
-            .bus
-            .write(0x4004_0028, AccessWidth::Word, 1 << 11, SimTime::ZERO)
-            .unwrap();
-        assert_eq!(machine.gpio_output(), 1 << 11);
-        machine
-            .bus
-            .write(
-                0x4000_6300,
-                AccessWidth::Word,
-                u64::from(RA4M1_EVENT_GPT0_OVERFLOW),
-                SimTime::ZERO,
-            )
-            .unwrap();
-    }
-}
+#[path = "arm_mcu_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "arm_mcu_samd_instance_tests.rs"]
 mod samd_instance_tests;
+
+#[cfg(test)]
+#[path = "arm_mcu_stm32_extended_tests.rs"]
+mod stm32_extended_tests;
