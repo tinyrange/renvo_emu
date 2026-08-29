@@ -184,6 +184,20 @@ up-counting, UIF/CC1IF latching and clearing, the native
 output. Break/dead-time, repetition, DMA, and physical APB timing are not
 claimed.
 
+The STM32L432KC model also maps LPTIM1 at its native `0x40007c00` address. Its
+functional slice covers enable/start control, deterministic prescaled up-counting,
+16-bit `CMP`/`ARR`/`CNT` access, compare and autoreload interrupt flags with
+`ICR` clearing, the native `LPTIM1_IRQn` line (65), and a VCD-visible waveform
+output. External trigger/capture, encoder mode, DMA, and low-power clock-source
+fidelity are not claimed.
+
+The STM32L432KC model also maps LPTIM2 at its native `0x40009400` address. Its
+functional slice covers enable/start control, deterministic prescaled up-counting,
+16-bit `CMP`/`ARR`/`CNT` access, compare and autoreload interrupt flags with
+`ICR` clearing, the native `LPTIM2_IRQn` line (66), and a VCD-visible waveform
+output. External trigger/capture, encoder mode, DMA, and low-power clock-source
+fidelity are not claimed.
+
 The STM32L432KC model maps TIM16 at `0x40014400`. Its functional slice covers
 counter/update and channel-one compare/PWM registers, deterministic prescaled
 up-counting, UIF/CC1IF latching and clearing, the native
