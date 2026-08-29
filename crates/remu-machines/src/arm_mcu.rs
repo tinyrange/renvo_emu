@@ -14,22 +14,22 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank, Samd21Ac,
-    Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
-    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
-    Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
-    Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32AdvancedTimer,
-    Stm32AdvancedTimerHandle, Stm32BasicTimer, Stm32BasicTimerHandle, Stm32Can,
+    RaGptHandle, RaIcu, RaIcuHandle, RaIoPort, RaPfs, RaSci, RaSciHandle, RegisterBank,
+    STM32_FLASH_SIZE, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac,
+    Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys,
+    Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle,
+    Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle,
+    Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Adc, Stm32AdcHandle,
+    Stm32AdvancedTimer, Stm32AdvancedTimerHandle, Stm32BasicTimer, Stm32BasicTimerHandle, Stm32Can,
     Stm32ComparatorHandle, Stm32Comparators, Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Dma,
-    Stm32DmaHandle, Stm32Exti, Stm32ExtiHandle, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Lptim1,
-    Stm32Lptim1Handle, Stm32Lptim2, Stm32Lptim2Handle, Stm32Opamp, Stm32OpampHandle, Stm32QuadSpi,
-    Stm32QuadSpiHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc, Stm32RtcHandle, Stm32Sai1,
-    Stm32Sai1Handle, Stm32Spi, Stm32SpiHandle, Stm32Swpmi, Stm32SwpmiHandle, Stm32Tim7,
-    Stm32Tim7Handle, Stm32Tim15, Stm32Tim15Handle, Stm32Tim16, Stm32Tim16Handle, Stm32Timer,
-    Stm32TimerHandle, Stm32Tsc, Stm32TscHandle, Stm32Usart, Stm32UsartHandle, Stm32UsbFs,
-    Stm32UsbFsHandle, Stm32UsbPma, Stm32Watchdog, Stm32WatchdogHandle, Stm32Wwdg, Stm32WwdgHandle,
-    TimerHandle, UartHandle,
+    Stm32DmaHandle, Stm32Exti, Stm32ExtiHandle, Stm32FlashController, Stm32FlashMemory, Stm32Gpio,
+    Stm32I2c, Stm32I2cHandle, Stm32Lptim1, Stm32Lptim1Handle, Stm32Lptim2, Stm32Lptim2Handle,
+    Stm32Opamp, Stm32OpampHandle, Stm32QuadSpi, Stm32QuadSpiHandle, Stm32Rng, Stm32RngHandle,
+    Stm32Rtc, Stm32RtcHandle, Stm32Sai1, Stm32Sai1Handle, Stm32Spi, Stm32SpiHandle, Stm32Swpmi,
+    Stm32SwpmiHandle, Stm32Tim7, Stm32Tim7Handle, Stm32Tim15, Stm32Tim15Handle, Stm32Tim16,
+    Stm32Tim16Handle, Stm32Timer, Stm32TimerHandle, Stm32Tsc, Stm32TscHandle, Stm32Usart,
+    Stm32UsartHandle, Stm32UsbFs, Stm32UsbFsHandle, Stm32UsbPma, Stm32Watchdog,
+    Stm32WatchdogHandle, Stm32Wwdg, Stm32WwdgHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -569,6 +569,7 @@ impl ArmMcuMachine {
                     tsc_device,
                     comparators_device,
                     opamp_device,
+                    stm32_flash_controller.expect("STM32 flash controller was mapped"),
                 )?;
                 (
                     gpio,
@@ -817,6 +818,7 @@ impl ArmMcuMachine {
         tsc: Stm32Tsc,
         comparators: Stm32Comparators,
         opamp: Stm32Opamp,
+        flash_controller: Stm32FlashController,
     ) -> Result<(), remu_bus::MapError> {
         bus.map_device(
             "stm32l432kc.rcc",

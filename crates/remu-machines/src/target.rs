@@ -618,6 +618,7 @@ const MANIFESTS: &[TargetManifest] = &[
         fidelity: Fidelity::Functional,
         support_tiers: EXPANSION_SUPPORT_TIERS,
         baseline: &[
+            "internal flash load, alias, program, and erase",
             "GPIO/EXTI",
             "general, basic, advanced, and low-power timers",
             "USART, SPI, I2C, CAN, and SWPMI transactions",
@@ -631,6 +632,7 @@ const MANIFESTS: &[TargetManifest] = &[
             "https://www.st.com/resource/en/reference_manual/rm0394-stm32l41xxx42xxx43xxx44xxx45xxx46xxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf",
         ],
         limitations: &[
+            "flash ECC correction, option-byte reload effects, and write-protection enforcement are functional approximations",
             "alternate-function pin routing, physical bus/USB/audio protocols, electrical and analog behavior, DMA arbitration/request timing, low-power fidelity, and exact clocks are deferred",
         ],
     },

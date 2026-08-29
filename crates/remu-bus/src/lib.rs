@@ -142,6 +142,17 @@ pub trait Device {
         at: SimTime,
     ) -> Result<(), DeviceError>;
 
+    /// Initializes device-backed storage from a firmware image.
+    ///
+    /// Address-space firmware loading bypasses normal runtime permissions.
+    /// Persistent memory devices can override this hook; ordinary MMIO
+    /// devices retain the default error.
+    fn load(&mut self, _offset: u64, _data: &[u8]) -> Result<(), DeviceError> {
+        Err(DeviceError::new(
+            "firmware loader cannot initialize an MMIO device",
+        ))
+    }
+
     /// Returns a side-effect-free register value for trace correlation.
     ///
     /// Devices opt in only when their internal model can safely expose the

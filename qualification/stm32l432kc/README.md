@@ -16,6 +16,15 @@ not claim cycle-, electrical-, or analog-level silicon fidelity. USART2
 remains the compiled qualification fixture's output path. VCD records GPIO,
 timer, serial, data-path, analog-result and interrupt signals.
 
+Internal FLASH at `0x08000000` and its boot alias at `0x00000000` share one
+non-volatile image. The L4 controller at `0x40022000` models KEYR unlock,
+aligned 64-bit double-word programming (including paired 32-bit writes), 2 KiB
+page erase, bank-one mass erase, NOR one-to-zero semantics, EOP/error flags,
+controller reset locking, and direct firmware-image initialization. Operations
+complete immediately; ECC correction, option-byte reload/reset effects,
+write-protection enforcement, and physical program/erase timing are functional
+limits rather than silicon-accurate behavior.
+
 The official lane copies STM32CubeL4's pinned NUCLEO-L432KC
 `GPIO_IOToggle/Src/main.c` unchanged and supplies only documented startup/HAL
 adapters. The source revision is

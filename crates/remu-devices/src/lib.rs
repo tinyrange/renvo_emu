@@ -259,6 +259,8 @@ mod stm32_tsc;
 pub use stm32_tsc::*;
 mod stm32_analog;
 pub use stm32_analog::*;
+mod stm32_flash;
+pub use stm32_flash::*;
 mod ra;
 pub use ra::*;
 mod avr;

@@ -207,6 +207,15 @@ claimed.
 
 ### STM32L432KC extended data paths
 
+The 256 KiB internal FLASH window at `0x08000000` and boot alias at
+`0x00000000` share device-backed storage. The controller at `0x40022000`
+supports the native key sequence, 64-bit double-word and paired-word
+programming, 2 KiB page erase, bank-one mass erase, one-to-zero NOR behavior,
+and software-visible completion/error state. Firmware loading initializes the
+same storage while bypassing runtime locks. Programming completes immediately;
+ECC correction, option-byte reload/reset effects, write-protection enforcement,
+and physical timing are not modeled.
+
 The USB full-speed device core at `0x40006800` and packet memory at
 `0x40006c00` cover native control/endpoint registers, PMA descriptors and
 data, deterministic host reset/OUT injection and IN extraction, IRQ 67, and

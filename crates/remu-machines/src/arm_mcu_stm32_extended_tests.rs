@@ -1,4 +1,65 @@
 use super::*;
+use remu_image::FirmwareSegment;
+
+#[test]
+fn internal_flash_load_alias_and_programming_path_are_coherent() {
+    let image = FirmwareImage {
+        architecture: FirmwareArchitecture::Arm,
+        entry: u64::from(remu_devices::STM32_FLASH_BASE + 8),
+        segments: vec![FirmwareSegment {
+            address: u64::from(remu_devices::STM32_FLASH_BASE),
+            load_address: None,
+            initialized_size: 8,
+            data: vec![0, 0, 1, 0x20, 9, 0, 0, 0x08],
+            executable: true,
+            writable: false,
+            alignment: 8,
+        }],
+        symbols: Vec::new(),
+    };
+    let mut machine = ArmMcuMachine::new(TargetId::Stm32l432kc).unwrap();
+    machine.load_firmware(&image).unwrap();
+    assert_eq!(
+        machine.debug_read_memory(0, 8).unwrap(),
+        [0, 0, 1, 0x20, 9, 0, 0, 0x08]
+    );
+
+    for key in [0x4567_0123, 0xcdef_89ab] {
+        machine
+            .bus
+            .write(0x4002_2008, AccessWidth::Word, key, SimTime::ZERO)
+            .unwrap();
+    }
+    machine
+        .bus
+        .write(0x4002_2014, AccessWidth::Word, 1, SimTime::ZERO)
+        .unwrap();
+    machine
+        .bus
+        .write(
+            u64::from(remu_devices::STM32_FLASH_BASE + 0x10),
+            AccessWidth::DoubleWord,
+            0x1122_3344_5566_7788,
+            SimTime::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                u64::from(remu_devices::STM32_FLASH_BASE + 0x10),
+                AccessWidth::DoubleWord,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x1122_3344_5566_7788
+    );
+    assert_eq!(
+        machine.debug_read_memory(0x10, 8).unwrap(),
+        0x1122_3344_5566_7788_u64.to_le_bytes()
+    );
+}
 
 #[test]
 fn usb_fs_core_and_packet_memory_are_mapped() {
