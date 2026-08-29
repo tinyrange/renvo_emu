@@ -71,7 +71,7 @@ pub struct BoardI2cEndpoint {
     protocols: BTreeMap<String, ConnectorProtocol>,
     targets: BTreeMap<(String, u8), String>,
     devices: BTreeMap<String, BoardI2cDevice>,
-    available_at: SimTime,
+    available_at: BTreeMap<String, SimTime>,
 }
 
 const I2C_HALF_TICKS: u64 = 5_000;
@@ -219,13 +219,18 @@ impl BoardI2cEndpoint {
             }
             devices.insert(connection.component.name.clone(), device);
         }
+        let available_at = connectors
+            .keys()
+            .cloned()
+            .map(|connector| (connector, SimTime::ZERO))
+            .collect();
         Ok(Self {
             hub,
             connectors,
             protocols,
             targets,
             devices,
-            available_at: SimTime::ZERO,
+            available_at,
         })
     }
 
@@ -238,12 +243,6 @@ impl BoardI2cEndpoint {
         read_len: usize,
         at: SimTime,
     ) -> Result<BoardI2cTransfer, BoardError> {
-        if at < self.available_at {
-            return Err(BoardError::TimeRegression {
-                previous: self.available_at.ticks(),
-                next: at.ticks(),
-            });
-        }
         let protocol =
             self.protocols
                 .get(connector)
@@ -264,6 +263,13 @@ impl BoardI2cEndpoint {
             .connectors
             .get(connector)
             .expect("I2C protocol has resolved connector pins");
+        let previous = self.available_at[connector];
+        if at < previous {
+            return Err(BoardError::TimeRegression {
+                previous: previous.ticks(),
+                next: at.ticks(),
+            });
+        }
         let target = self
             .targets
             .get(&(connector.to_owned(), address))
@@ -280,7 +286,7 @@ impl BoardI2cEndpoint {
         let response = candidate.transact(write, read_len, at)?;
         let completed_at = emit_i2c(&self.hub, pins, address, write, &response, at)?;
         self.devices.insert(target, candidate);
-        self.available_at = completed_at;
+        self.available_at.insert(connector.to_owned(), completed_at);
         Ok(BoardI2cTransfer {
             connector: connector.to_owned(),
             address,
@@ -686,5 +692,61 @@ mod tests {
             .transfer("grove", SGP30_ADDRESS, &[0x20, 0x03], 0, SimTime::ZERO)
             .unwrap();
         assert!(endpoint.sgp30_snapshot("grove").unwrap().initialized);
+    }
+
+    #[test]
+    fn independent_i2c_connectors_can_transfer_at_the_same_time() {
+        let hub = SignalHub::new();
+        for pin in 1..=4 {
+            hub.declare(
+                format!("board.test.chip_gpio.pin{pin}"),
+                SignalValue::repeat(Logic::Z, 1).unwrap(),
+                None,
+            )
+            .unwrap();
+        }
+        let scenario = BoardScenario {
+            name: "dual-i2c".to_owned(),
+            target: "esp32c6".to_owned(),
+            connectors: vec![
+                super::super::BoardConnector {
+                    name: "first".to_owned(),
+                    protocol: ConnectorProtocol::I2c,
+                    data_pin: 1,
+                    clock_pin: 2,
+                    voltage_mv: 3_300,
+                },
+                super::super::BoardConnector {
+                    name: "second".to_owned(),
+                    protocol: ConnectorProtocol::I2c,
+                    data_pin: 3,
+                    clock_pin: 4,
+                    voltage_mv: 3_300,
+                },
+            ],
+            mounts: Vec::new(),
+            connections: ["first", "second"]
+                .into_iter()
+                .map(|connector| super::super::BoardConnection {
+                    connector: connector.to_owned(),
+                    component: super::super::BoardComponent {
+                        name: format!("{connector}-sensor"),
+                        kind: BoardComponentKind::Sgp30 { eco2: 420, tvoc: 8 },
+                    },
+                })
+                .collect(),
+            actions: Vec::new(),
+            duration: 1,
+        };
+        let mut endpoint = BoardI2cEndpoint::new(&scenario, hub, "board.test.chip_gpio").unwrap();
+
+        endpoint
+            .transfer("first", SGP30_ADDRESS, &[0x20, 0x03], 0, SimTime::ZERO)
+            .unwrap();
+        endpoint
+            .transfer("second", SGP30_ADDRESS, &[0x20, 0x03], 0, SimTime::ZERO)
+            .unwrap();
+        assert!(endpoint.sgp30_snapshot("first").unwrap().initialized);
+        assert!(endpoint.sgp30_snapshot("second").unwrap().initialized);
     }
 }
