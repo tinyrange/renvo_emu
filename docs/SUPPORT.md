@@ -165,6 +165,32 @@ reset requests, and VCD-visible IRQ/reset signals. It uses an abstract
 simulation divisor rather than physical PCLK1 frequency; IWDG remains a
 separate model.
 
+The STM32L432KC model maps the TIM6 basic timer at `0x40001000`. Its
+functional slice covers CR1/CR2, DIER/SR, EGR, CNT, PSC and ARR, deterministic
+prescaled up-counting, update-event latching/clearing, one-pulse mode, and the
+native `TIM6_DACUNDER` interrupt line (NVIC 54). It is an abstract functional
+clock model and does not claim DAC trigger, DMA, or physical APB timing.
+
+The STM32L432KC model maps the TIM7 basic timer at `0x40001400`. Its
+functional slice covers CR1/CR2, DIER/SR, EGR, CNT, PSC and ARR, deterministic
+prescaled up-counting, update-event latching/clearing, one-pulse mode, and the
+native `TIM7` interrupt line (NVIC 55). It is an abstract functional clock
+model and does not claim DMA or physical APB timing.
+
+The STM32L432KC model maps TIM15 at `0x40014000`. Its functional slice covers
+counter/update and channel-one compare/PWM registers, deterministic prescaled
+up-counting, UIF/CC1IF latching and clearing, the native
+`TIM1_BRK_TIM15` interrupt line (NVIC 24), and a VCD-visible channel-one
+output. Break/dead-time, repetition, DMA, and physical APB timing are not
+claimed.
+
+The STM32L432KC model maps TIM16 at `0x40014400`. Its functional slice covers
+counter/update and channel-one compare/PWM registers, deterministic prescaled
+up-counting, UIF/CC1IF latching and clearing, the native
+`TIM1_UP_TIM16` interrupt line (NVIC 25), and a VCD-visible channel-one
+output. Break/dead-time, repetition, DMA, and physical APB timing are not
+claimed.
+
 ## Official MicroPython milestone
 
 Official, unmodified MicroPython v1.28.0 firmware reaches its native USB raw
