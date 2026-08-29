@@ -266,7 +266,7 @@ impl Pic16McuMachine {
         stimuli: &[PinStimulus],
         mut trace: Option<&mut dyn TraceSink>,
     ) -> Result<RunResult, Pic16MachineError> {
-        if limits.instructions.is_none() && limits.deadline.is_none() {
+        if !limits.is_bounded() {
             return Err(Pic16MachineError::MissingRunLimit);
         }
         let mut digest = TraceDigest::new();
@@ -294,14 +294,8 @@ impl Pic16McuMachine {
                 next_stimulus += 1;
                 stats.events = stats.events.saturating_add(1);
             }
-            if limits
-                .instructions
-                .is_some_and(|limit| stats.instructions >= limit)
-            {
-                break StopReason::InstructionLimit;
-            }
-            if limits.deadline.is_some_and(|deadline| self.now >= deadline) {
-                break StopReason::TimeLimit;
+            if let Some(reason) = limits.reached(stats.instructions, self.now) {
+                break reason;
             }
             if self.breakpoints.contains(&self.cpu.snapshot().pc) {
                 break StopReason::Breakpoint;

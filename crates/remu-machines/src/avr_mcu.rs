@@ -283,7 +283,7 @@ impl AvrMcuMachine {
         stimuli: &[PinStimulus],
         mut trace: Option<&mut dyn TraceSink>,
     ) -> Result<RunResult, AvrMachineError> {
-        if limits.instructions.is_none() && limits.deadline.is_none() {
+        if !limits.is_bounded() {
             return Err(AvrMachineError::MissingRunLimit);
         }
         let mut control = RunControl::new(limits, stimuli);
