@@ -582,6 +582,7 @@ impl XtensaMachine {
         bus.map_device("esp32s3.sdm", 0x6000_4f00, 0x100, Box::new(sdm_device))?;
         let (chip_uart_device, chip_uart) =
             FunctionalUart::new_lenient("esp32s3.uart0", 0, 0x1c, 0);
+        let chip_uart_device = chip_uart_device.with_rx_count_field(0x3ff, 0);
         bus.map_device(
             "esp32s3.uart0",
             0x6000_0000,
@@ -592,6 +593,7 @@ impl XtensaMachine {
         for (name, base) in [("uart1", 0x6001_0000), ("uart2", 0x6002_e000)] {
             let (device, handle) =
                 FunctionalUart::new_lenient(format!("esp32s3.{name}"), 0, 0x1c, 0);
+            let device = device.with_rx_count_field(0x3ff, 0);
             bus.map_device(format!("esp32s3.{name}"), base, 0x1000, Box::new(device))?;
             auxiliary_uarts.push(handle);
         }

@@ -611,6 +611,7 @@ impl ArmMachine {
         };
         let (uart_device, chip_uart) =
             FunctionalUart::new_lenient(format!("{target}.uart0"), 0x00, 0x18, 0x0090);
+        let uart_device = uart_device.with_rx_empty_flag(1 << 4);
         bus.map_device(
             format!("{target}.uart0"),
             uart_base,
