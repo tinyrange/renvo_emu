@@ -327,9 +327,9 @@ See [board simulation](docs/BOARD_SIMULATION.md) for the exact boundary.
 
 The board layer also provides a typed UART transport endpoint: host bytes can
 be queued into a machine `UartHandle`, guest TX bytes can be polled, and both
-directions are exposed as deterministic byte/strobe signals. Machine-specific
-UART handle accessors and complete connector-to-machine assembly remain a
-follow-up integration step.
+directions are exposed as deterministic byte/strobe signals. The RISC-V, Arm
+RP, and Xtensa machines expose those handles through `UartEndpointProvider`;
+automatic connector-to-machine assembly remains a follow-up integration step.
 
 ## Architecture
 
