@@ -30,6 +30,21 @@ build_arm()
         -Wl,-T,link.ld,-Map,/workspace/out/smoke.map -o /workspace/out/smoke.elf
 }
 
+build_arm_m3()
+{
+    target=$1
+    toolchain=$2
+    mkdir -p "$artifact_root/$target-build"
+    "$remu" corpus build \
+        --toolchain "$toolchain" \
+        --source "corpus/smoke/$target" \
+        --output "$artifact_root/$target-build" \
+        --target "$target" \
+        --artifact "$artifact_root/$target-build.json" \
+        -- -O2 start.S main.c \
+        -Wl,-T,link.ld,-Map,/workspace/out/smoke.map -o /workspace/out/smoke.elf
+}
+
 run_twice()
 {
     target=$1
@@ -58,8 +73,14 @@ run_twice()
 build_arm stm32f411re toolchains/arm-gcc-stm32f411re.toml
 run_twice stm32f411re 20000 '[83,84,77,51,50,70,52,49,49,10]'
 
+build_arm_m3 stm32f103c8 toolchains/arm-gcc-stm32f103c8.toml
+run_twice stm32f103c8 20000 '[83,84,77,51,50,70,49,48,51,10]'
+
 build_arm nrf52840 toolchains/arm-gcc-nrf52840.toml
 run_twice nrf52840 20000 '[78,82,70,53,50,56,52,48,10]'
+
+build_arm atsamd51j19a toolchains/arm-gcc-atsamd51j19a.toml
+run_twice atsamd51j19a 20000 '[83,65,77,68,53,49,74,49,57,65,10]'
 
 mkdir -p "$artifact_root/esp32p4-build"
 "$remu" corpus build \
@@ -80,18 +101,30 @@ scripts/summarize-new-targets.py \
     --source qualification/new-targets/manifest.json \
     --source qualification/new-targets/registers.md \
     --source crates/remu-machines/src/target.rs \
+    --source crates/remu-cpu-arm/src/core.rs \
     --source crates/remu-cpu-riscv/src/core.rs \
+    --source crates/remu-devices/src/stm32f1.rs \
+    --source crates/remu-devices/src/samd51.rs \
     --source crates/remu-devices/src/nrf52840.rs \
     --source crates/remu-devices/src/esp.rs \
     --source crates/remu-machines/src/arm_mcu_maps.rs \
+    --source crates/remu-machines/src/arm_mcu.rs \
     --source crates/remu-machines/src/arm_mcu_new_targets.rs \
+    --source crates/remu-machines/src/arm_mcu_support.rs \
+    --source crates/remu-machines/src/arm_mcu_tests.rs \
     --source crates/remu-machines/src/riscv.rs \
     --source corpus/smoke/stm32f411re/start.S \
     --source corpus/smoke/stm32f411re/main.c \
     --source corpus/smoke/stm32f411re/link.ld \
+    --source corpus/smoke/stm32f103c8/start.S \
+    --source corpus/smoke/stm32f103c8/main.c \
+    --source corpus/smoke/stm32f103c8/link.ld \
     --source corpus/smoke/nrf52840/start.S \
     --source corpus/smoke/nrf52840/main.c \
     --source corpus/smoke/nrf52840/link.ld \
+    --source corpus/smoke/atsamd51j19a/start.S \
+    --source corpus/smoke/atsamd51j19a/main.c \
+    --source corpus/smoke/atsamd51j19a/link.ld \
     --source corpus/smoke/esp32p4/start.S \
     --source corpus/smoke/esp32p4/main.c \
     --source corpus/smoke/esp32p4/link.ld

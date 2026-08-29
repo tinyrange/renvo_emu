@@ -4,6 +4,144 @@ use remu_devices::{
 };
 
 impl ArmMcuMachine {
+    pub(super) fn map_stm32f103(
+        bus: &mut AddressSpace,
+        gpio: [Stm32F1Gpio; 4],
+        tim2: Stm32Timer,
+        usart1: Stm32F1Usart,
+        exti: Stm32Exti,
+    ) -> Result<(), remu_bus::MapError> {
+        bus.map_device(
+            "stm32f103c8.rcc",
+            0x4002_1000,
+            0x400,
+            Box::new(RegisterBank::new(
+                "stm32f103c8.rcc",
+                [
+                    (0x00, 0x0000_0083, u32::MAX),
+                    (0x04, 0, u32::MAX),
+                    (0x08, 0, u32::MAX),
+                    (0x0c, 0, u32::MAX),
+                    (0x10, 0, u32::MAX),
+                    (0x14, 0x0000_0014, u32::MAX),
+                    (0x18, 0, u32::MAX),
+                    (0x1c, 0, u32::MAX),
+                    (0x20, 0, u32::MAX),
+                    (0x24, 0x0c00_0000, u32::MAX),
+                ],
+            )),
+        )?;
+        bus.map_device(
+            "stm32f103c8.flash-control",
+            0x4002_2000,
+            0x400,
+            Box::new(RegisterBank::new(
+                "stm32f103c8.flash-control",
+                [
+                    (0x00, 0, 0x0000_0037),
+                    (0x04, 0, u32::MAX),
+                    (0x08, 0, u32::MAX),
+                    (0x0c, 0, 0x0000_0034),
+                    (0x10, 0x0000_0080, 0x0000_03fd),
+                    (0x14, 0, u32::MAX),
+                    (0x1c, 0x03ff_ffff, 0x03ff_ffff),
+                    (0x20, u32::MAX, u32::MAX),
+                ],
+            )),
+        )?;
+        bus.map_device(
+            "stm32f103c8.afio",
+            0x4001_0000,
+            0x400,
+            Box::new(RegisterBank::new(
+                "stm32f103c8.afio",
+                [
+                    (0x00, 0, 0x0000_00ff),
+                    (0x04, 0, 0x7fff_ffff),
+                    (0x08, 0, 0x0000_ffff),
+                    (0x0c, 0, 0x0000_ffff),
+                    (0x10, 0, 0x0000_ffff),
+                    (0x14, 0, 0x0000_ffff),
+                    (0x1c, 0, 0x0000_07ff),
+                ],
+            )),
+        )?;
+        bus.map_device("stm32f103c8.exti", 0x4001_0400, 0x400, Box::new(exti))?;
+        bus.map_device("stm32f103c8.tim2", 0x4000_0000, 0x400, Box::new(tim2))?;
+        bus.map_device("stm32f103c8.usart1", 0x4001_3800, 0x400, Box::new(usart1))?;
+        let [gpioa, gpiob, gpioc, gpiod] = gpio;
+        bus.map_device("stm32f103c8.gpioa", 0x4001_0800, 0x400, Box::new(gpioa))?;
+        bus.map_device("stm32f103c8.gpiob", 0x4001_0c00, 0x400, Box::new(gpiob))?;
+        bus.map_device("stm32f103c8.gpioc", 0x4001_1000, 0x400, Box::new(gpioc))?;
+        bus.map_device("stm32f103c8.gpiod", 0x4001_1400, 0x400, Box::new(gpiod))?;
+        Ok(())
+    }
+
+    pub(super) fn map_samd51(
+        bus: &mut AddressSpace,
+        port: [Samd21Port; 2],
+        sercom0: Samd21Usart,
+        tc0: Samd51Tc,
+    ) -> Result<(), remu_bus::MapError> {
+        bus.map_device(
+            "atsamd51j19a.pm",
+            0x4000_0400,
+            0x100,
+            Box::new(Samd21RegisterBlock::new("atsamd51j19a.pm", 0x100, [])),
+        )?;
+        bus.map_device(
+            "atsamd51j19a.mclk",
+            0x4000_0800,
+            0x100,
+            Box::new(Samd21RegisterBlock::new(
+                "atsamd51j19a.mclk",
+                0x100,
+                [
+                    (0x03, 0x01),
+                    (0x04, 0x01),
+                    (0x05, 0x01),
+                    (0x10, 0xff),
+                    (0x11, 0xff),
+                    (0x12, 0xff),
+                    (0x14, 0xff),
+                    (0x15, 0x07),
+                    (0x18, 0x56),
+                    (0x19, 0x80),
+                    (0x1a, 0x01),
+                    (0x1d, 0x20),
+                ],
+            )),
+        )?;
+        bus.map_device(
+            "atsamd51j19a.oscctrl",
+            0x4000_1000,
+            0x100,
+            Box::new(Samd21RegisterBlock::new(
+                "atsamd51j19a.oscctrl",
+                0x100,
+                [(0x10, 0x01)],
+            )),
+        )?;
+        bus.map_device(
+            "atsamd51j19a.gclk",
+            0x4000_1c00,
+            0x100,
+            Box::new(Samd21RegisterBlock::new("atsamd51j19a.gclk", 0x100, [])),
+        )?;
+        bus.map_device(
+            "atsamd51j19a.nvmctrl",
+            0x4100_4000,
+            0x100,
+            Box::new(Samd21RegisterBlock::new("atsamd51j19a.nvmctrl", 0x100, [])),
+        )?;
+        bus.map_device("atsamd51j19a.sercom0", 0x4000_3000, 0x40, Box::new(sercom0))?;
+        bus.map_device("atsamd51j19a.tc0", 0x4000_3800, 0x40, Box::new(tc0))?;
+        let [porta, portb] = port;
+        bus.map_device("atsamd51j19a.porta", 0x4100_8000, 0x80, Box::new(porta))?;
+        bus.map_device("atsamd51j19a.portb", 0x4100_8080, 0x80, Box::new(portb))?;
+        Ok(())
+    }
+
     pub(super) fn map_samd21(
         bus: &mut AddressSpace,
         port: Samd21Port,

@@ -110,7 +110,9 @@ fn byte_addressed_image(
             FirmwareArchitecture::RiscV32
         }
         TargetId::Atsamd21e18
+        | TargetId::Atsamd51j19a
         | TargetId::Stm32l432kc
+        | TargetId::Stm32f103c8
         | TargetId::Stm32f411re
         | TargetId::Nrf52840
         | TargetId::R7fa4m1ab3cfm => FirmwareArchitecture::Arm,
@@ -193,7 +195,9 @@ mod tests {
             (TargetId::Ch32v003, 0),
             (TargetId::Ch32v006, 0),
             (TargetId::Atsamd21e18, 0),
+            (TargetId::Atsamd51j19a, 0),
             (TargetId::Stm32l432kc, 0x0800_0000),
+            (TargetId::Stm32f103c8, 0x0800_0000),
             (TargetId::Stm32f411re, 0x0800_0000),
             (TargetId::Nrf52840, 0),
             (TargetId::Esp32p4, 0x4000_0000),

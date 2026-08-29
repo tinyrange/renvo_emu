@@ -1,4 +1,11 @@
 use super::*;
+
+#[test]
+fn cortex_m3_profile_is_distinct_from_m4f() {
+    let cpu = ArmCpu::new(ArmProfile::CortexM3);
+    assert_eq!(cpu.profile(), ArmProfile::CortexM3);
+    assert_eq!(cpu.profile().name(), "cortex-m3-armv7m");
+}
 use remu_bus::AddressSpace;
 
 #[test]

@@ -13,6 +13,17 @@
       "rf": "not present"
     },
     {
+      "id": "stm32f103c8",
+      "part": "STM32F103C8T6",
+      "board": "Blue Pill-compatible",
+      "architecture": "cortex-m3-armv7m",
+      "toolchain": "toolchains/arm-gcc-stm32f103c8.toml",
+      "firmware": "corpus/smoke/stm32f103c8",
+      "native_image_formats": ["raw-bin", "intel-hex"],
+      "native_registers": ["RCC", "AFIO/EXTI", "GPIOA-D", "USART1", "TIM2"],
+      "rf": "not present"
+    },
+    {
       "id": "nrf52840",
       "part": "nRF52840-QIAA",
       "board": "nRF52840 DK PCA10056",
@@ -22,6 +33,17 @@
       "native_image_formats": ["raw-bin", "intel-hex"],
       "native_registers": ["GPIO P0/P1", "UART0", "TIMER0", "CLOCK/POWER"],
       "rf": "explicitly unmodeled; no RF test"
+    },
+    {
+      "id": "atsamd51j19a",
+      "part": "ATSAMD51J19A",
+      "board": "Adafruit Feather M4-compatible",
+      "architecture": "cortex-m4f-armv7em",
+      "toolchain": "toolchains/arm-gcc-atsamd51j19a.toml",
+      "firmware": "corpus/smoke/atsamd51j19a",
+      "native_image_formats": ["raw-bin", "intel-hex"],
+      "native_registers": ["MCLK/OSCCTRL/GCLK", "PORTA/B", "SERCOM0", "TC0", "NVMCTRL"],
+      "rf": "not present"
     },
     {
       "id": "esp32p4",
@@ -37,7 +59,9 @@
   ],
   "sources": {
     "stm32f411": "https://www.st.com/resource/en/reference_manual/dm00119316.pdf",
+    "stm32f103": "https://www.st.com/resource/en/reference_manual/cd00171190-stm32f101-103-105-107-stm32f100-series-armbased-32bit-mcus-stmicroelectronics.pdf",
     "nrf52840": "https://docs-be.nordicsemi.com/bundle/nRF52840_PS_v1.9/raw/resource/enus/nRF52840_PS_v1.9.pdf",
+    "atsamd51": "https://ww1.microchip.com/downloads/en/DeviceDoc/60001507E.pdf",
     "esp32p4": "https://github.com/espressif/esp-idf/tree/v5.5.1/components/soc/esp32p4"
   },
   "safety": {

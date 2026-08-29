@@ -319,7 +319,9 @@ impl RiscVMachine {
             TargetId::Rp2040
             | TargetId::Esp32s3
             | TargetId::Atsamd21e18
+            | TargetId::Atsamd51j19a
             | TargetId::Stm32l432kc
+            | TargetId::Stm32f103c8
             | TargetId::Stm32f411re
             | TargetId::Nrf52840
             | TargetId::R7fa4m1ab3cfm
@@ -903,7 +905,9 @@ impl RiscVMachine {
             TargetId::Rp2040
             | TargetId::Esp32s3
             | TargetId::Atsamd21e18
+            | TargetId::Atsamd51j19a
             | TargetId::Stm32l432kc
+            | TargetId::Stm32f103c8
             | TargetId::Stm32f411re
             | TargetId::Nrf52840
             | TargetId::R7fa4m1ab3cfm

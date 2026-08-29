@@ -1,8 +1,8 @@
 # New-target register contract
 
-This is the behavioral contract for the first STM32F411RE, nRF52840, and
-ESP32-P4 slices. Addresses are native byte addresses and all listed accesses
-are 32-bit unless stated otherwise. “Stored” means masked software-visible
+This is the behavioral contract for the STM32F411RE, STM32F103C8T6, nRF52840,
+ATSAMD51J19A, and ESP32-P4 slices. Addresses are native byte addresses and all
+listed accesses are 32-bit unless stated otherwise. “Stored” means masked software-visible
 state only; it does not imply the physical clock, analog, bus, or pin-routing
 effect of the silicon register.
 
@@ -21,6 +21,21 @@ effect of the silicon register.
 Flash is executable at `0x08000000..0x0807ffff` and is mirrored at reset
 address `0x00000000`; SRAM is `0x20000000..0x2001ffff`.
 
+## STM32F103C8T6
+
+| Block | Base | Modeled registers and behavior |
+|---|---:|---|
+| TIM2 | `0x40000000` | `CR1 +0x00` CEN, `DIER +0x0c` UIE, `SR +0x10` UIF, `EGR +0x14` UG, `CNT +0x24`, `PSC +0x28`, `ARR +0x2c`; deterministic instruction-ordered update events and NVIC IRQ 28 |
+| GPIOA-D | `0x40010800` through `0x40011400` | Native F1 `CRL/CRH +0x00/+0x04` reset to `0x44444444`; `IDR +0x08`, `ODR +0x0c`, atomic `BSRR +0x10`, `BRR +0x14`, and stored `LCKR +0x18`. MODE selects input/output drive; CNF alternate-function and analog effects are stored only |
+| USART1 | `0x40013800` | Native `SR +0x00`, `DR +0x04`, `BRR +0x08`, `CR1 +0x0c`, `CR2 +0x10`, `CR3 +0x14`, `GTPR +0x18`; UE/TE gate transmit, RXNE/DR expose queued input, and enabled events route to NVIC IRQ 37 |
+| AFIO / EXTI | `0x40010000` / `0x40010400` | AFIO startup-compatible masked storage; EXTI mask, rising/falling trigger, software trigger, edge pending, write-one-to-clear, and native grouped NVIC routing for GPIO lines 0-15 |
+| RCC | `0x40021000` | Reset/stored state includes `CR +0x00=0x00000083`, `CFGR +0x04`, reset/enable words through `APB1ENR +0x1c`, `BDCR +0x20`, and `CSR +0x24=0x0c000000`; clock timing and peripheral gating are not enforced |
+| FLASH interface | `0x40022000` | Masked startup/control storage for `ACR`, key, status, control, address, option and protection words; program/erase and protection effects are not modeled |
+
+Flash is executable at `0x08000000..0x0800ffff` and mirrored at reset address
+`0x00000000`; SRAM is `0x20000000..0x20004fff`. The CPU profile is Cortex-M3
+Armv7-M without an FPU.
+
 ## nRF52840
 
 | Block | Base | Modeled registers and behavior |
@@ -35,6 +50,23 @@ address `0x00000000`; SRAM is `0x20000000..0x2001ffff`.
 `0x0007030f`; DIR controls the digital output driver. Flash is
 `0x00000000..0x000fffff`, SRAM is `0x20000000..0x2003ffff`. RADIO/NFC and RF
 state are not mapped, scheduled, or exercised.
+
+## ATSAMD51J19A
+
+| Block | Base | Modeled registers and behavior |
+|---|---:|---|
+| MCLK | `0x40000800` | Byte-addressable startup-compatible state including reset `HSDIV=1`, `CPUDIV=1`, `AHBMASK=0x00ffffff`, and documented APBA/B/C mask reset bytes; clock dividers and gating do not alter simulation cadence |
+| OSCCTRL / GCLK | `0x40001000` / `0x40001c00` | Byte-addressable startup-compatible oscillator and generic-clock storage; analog stabilization, synchronization latency, and source-frequency effects are not modeled |
+| SERCOM0 | `0x40003000` | Native D5x USART-compatible `CTRLA +0x00`, `CTRLB +0x04`, `BAUD +0x0c`, interrupt aliases/flags `+0x14/+0x16/+0x18`, `STATUS +0x1a`, `SYNCBUSY +0x1c`, `DATA +0x28`, and `DBGCTRL +0x30`; transmit data is captured and enabled events route to SERCOM0 IRQ 49 |
+| TC0 COUNT16 | `0x40003800` | Native D5x offsets: 32-bit `CTRLA +0x00`, byte `CTRLBCLR/SET +0x04/+0x05`, halfword `EVCTRL +0x06`, byte interrupt aliases/flag `+0x08/+0x09/+0x0a`, `STATUS +0x0b`, `WAVE +0x0c`, `SYNCBUSY +0x10`, halfword `COUNT +0x14` and `CC0/1 +0x1c/+0x1e`; MC0 routes to NVIC IRQ 107 |
+| PORTA / PORTB | `0x41008000` / `0x41008080` | Native group layout for 32 A pins and 19 J-package B pins: `DIR` aliases `+0x00..+0x0c`, `OUT` aliases `+0x10..+0x1c`, `IN +0x20`, `CTRL +0x24`, `WRCONFIG +0x28`, PMUX bytes `+0x30`, and PINCFG bytes `+0x40` |
+| NVMCTRL | `0x41004000` | Byte-addressable startup-compatible control/status storage; flash commands, wait states, cache behavior, and protection effects are not modeled |
+
+Flash is executable at `0x00000000..0x0007ffff`; SRAM is
+`0x20000000..0x2002ffff`. The current SERCOM slice reuses the common SAM
+protocol engine at D51-native addresses. Event System, DMAC coupling, USB,
+CAN, SDHC, QSPI, analog peripherals, cache timing, and TrustZone are outside
+this initial target slice.
 
 ## ESP32-P4
 

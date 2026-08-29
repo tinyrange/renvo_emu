@@ -25,6 +25,8 @@ const V: u32 = 1 << 28;
 pub enum ArmProfile {
     /// Armv6-M Cortex-M0+ used by RP2040.
     CortexM0Plus,
+    /// Armv7-M Cortex-M3 used by STM32F103.
+    CortexM3,
     /// Armv7E-M Cortex-M4 with FPv4-SP-D16 used by STM32L432 and RA4M1.
     CortexM4F,
     /// Non-secure Armv8-M Mainline Cortex-M33 used by RP2350.
@@ -102,6 +104,7 @@ impl ArmProfile {
     pub const fn name(self) -> &'static str {
         match self {
             Self::CortexM0Plus => "cortex-m0plus-armv6m",
+            Self::CortexM3 => "cortex-m3-armv7m",
             Self::CortexM4F => "cortex-m4f-armv7em",
             Self::CortexM33 => "cortex-m33-armv8m",
         }

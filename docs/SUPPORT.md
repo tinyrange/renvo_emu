@@ -14,6 +14,8 @@ it does not mean cycle accuracy or complete silicon compatibility.
 | RP2350 | Cortex-M33 Thumb subset or Hazard3 RV32IMAC/B subset | 16 MiB XIP window, 520 KiB SRAM | SIO/IO_BANK0 GPIO; UART0/1; TIMER0/1; SPI0/1; I²C0/1; ADC; PWM; DMA; PIO0/1/2; USB; and deterministic accelerator/control slices in both CPU modes |
 | ESP32-S3 | Xtensa LX7 windowed compiler subset | DRAM, IRAM, 16 MiB IROM and DROM windows | Windowed ABI/exception/atomic/FPU qualification; GPIO/UART proof plus functional I2C, SPI, I2S, and bidirectional RMT transactions; complete M5StickS3 non-radio board workflow |
 | ESP32-C6 | RV32IMAC/Zicsr HP and LP cores | ROM, HP/LP SRAM, 16 MiB IROM window | Complete non-radio MMIO inventory, functional serial/timing/motor/audio/DMA/SDIO/analog/security slices, PMU/cache control, machine/user PLIC and CLINT, staged watchdog resets, user traps, and PMP enforcement |
+| STM32F103C8T6 | Cortex-M3 Armv7-M Thumb subset | 64 KiB flash, 20 KiB SRAM | Native F1 RCC/FLASH/AFIO, GPIOA-D, EXTI, TIM2, USART1, NVIC and reset-vector proof |
+| ATSAMD51J19A | Cortex-M4F Armv7E-M Thumb subset | 512 KiB flash, 192 KiB SRAM | MCLK/OSCCTRL/GCLK/NVMCTRL startup surface, dual-group PORT, SERCOM0, TC0, NVIC and reset-vector proof |
 
 ATmega328PB SPI0 and SPI1 are modeled through their native
 `SPCRn`/`SPSRn`/`SPDRn` registers (`0x4c..0x4e` and `0xac..0xae`). Master writes
@@ -1307,16 +1309,22 @@ electrical bus behavior remain outside this functional slice.
 Native/direct equivalence is continuously checked by
 `scripts/qualify-native-images.sh`. All compiler inputs are built in immutable,
 network-disabled Docker toolchains. The gate compares stop reason, exit code,
-UART/USB output, trace digest, and byte-identical VCD for all 17 target modes.
+UART/USB output, trace digest, and byte-identical VCD for all 19 target modes.
 PIC16 and EFM8 use their direct Intel HEX boundary because their toolchains do
 not emit a runnable ELF; every other mode compares native boot with ELF.
 
-The STM32F411RE, nRF52840, and ESP32-P4 tranche adds bounded software-only
-functional slices. STM32F411RE covers Cortex-M4F reset-vector execution,
-flash aliasing, RCC/FLASH/SYSCFG startup registers, GPIOA-C/H, EXTI, TIM2, and
-USART2. nRF52840 covers Cortex-M4F reset-vector execution, P0/P1 GPIO, legacy
-UART0 tasks/events, TIMER0 compare, and a startup-compatible CLOCK/POWER
-surface. Its RADIO, NFC, and all RF behavior are explicitly absent. ESP32-P4
+The STM32F103C8T6, STM32F411RE, ATSAMD51J19A, nRF52840, and ESP32-P4 tranche
+adds bounded software-only functional slices. STM32F103C8T6 uses a distinct
+Cortex-M3 Armv7-M profile and covers reset aliasing, F1-native CRL/CRH GPIO,
+RCC/FLASH/AFIO startup state, EXTI, TIM2, and USART1. STM32F411RE covers
+Cortex-M4F reset-vector execution, flash aliasing, RCC/FLASH/SYSCFG startup
+registers, GPIOA-C/H, EXTI, TIM2, and USART2. ATSAMD51J19A covers Cortex-M4F
+reset-vector execution, 512 KiB flash, 192 KiB SRAM,
+MCLK/OSCCTRL/GCLK/NVMCTRL startup state, PORT groups A/B, SERCOM0, and TC0
+with native D5x COUNT16 offsets. nRF52840 covers Cortex-M4F reset-vector
+execution, P0/P1 GPIO, legacy UART0 tasks/events, TIMER0 compare, and a
+startup-compatible CLOCK/POWER surface. Its RADIO, NFC, and all RF behavior
+are explicitly absent. ESP32-P4
 covers a single active HP RV32IMAC CPU, documented TCM/L2/LP-SRAM/XIP/ROM
 windows, GPIO, UART0, timer groups 0/1, and bounded HP system/clock-reset
 startup registers. The second HP core, FPU/PIE/hardware-loop instructions,

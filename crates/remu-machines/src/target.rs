@@ -23,8 +23,12 @@ pub enum TargetId {
     Esp32p4,
     /// Microchip ATSAMD21E18A.
     Atsamd21e18,
+    /// Microchip ATSAMD51J19A.
+    Atsamd51j19a,
     /// STMicroelectronics STM32L432KC.
     Stm32l432kc,
+    /// STMicroelectronics STM32F103C8T6.
+    Stm32f103c8,
     /// STMicroelectronics STM32F411RE.
     Stm32f411re,
     /// Nordic Semiconductor nRF52840.
@@ -53,7 +57,9 @@ impl TargetId {
             Self::Esp32c6 => "esp32c6",
             Self::Esp32p4 => "esp32p4",
             Self::Atsamd21e18 => "atsamd21e18",
+            Self::Atsamd51j19a => "atsamd51j19a",
             Self::Stm32l432kc => "stm32l432kc",
+            Self::Stm32f103c8 => "stm32f103c8",
             Self::Stm32f411re => "stm32f411re",
             Self::Nrf52840 => "nrf52840",
             Self::R7fa4m1ab3cfm => "r7fa4m1ab3cfm",
@@ -84,7 +90,9 @@ impl FromStr for TargetId {
             "esp32c6" | "esp32-c6" => Ok(Self::Esp32c6),
             "esp32p4" | "esp32-p4" => Ok(Self::Esp32p4),
             "atsamd21e18" | "samd21e18" => Ok(Self::Atsamd21e18),
+            "atsamd51j19a" | "samd51j19a" | "feather-m4" => Ok(Self::Atsamd51j19a),
             "stm32l432kc" => Ok(Self::Stm32l432kc),
+            "stm32f103c8" | "stm32f103c8t6" | "blue-pill" => Ok(Self::Stm32f103c8),
             "stm32f411re" | "nucleo-f411re" => Ok(Self::Stm32f411re),
             "nrf52840" | "nrf52840dk" => Ok(Self::Nrf52840),
             "r7fa4m1ab3cfm" | "ra4m1" | "uno-r4-minima" => Ok(Self::R7fa4m1ab3cfm),
@@ -197,6 +205,11 @@ const HAZARD3: CpuOption = CpuOption {
 };
 const CORTEX_M0P: CpuOption = CpuOption {
     name: "cortex-m0plus-armv6m",
+    architecture: FirmwareArchitecture::Arm,
+    fidelity: Fidelity::Functional,
+};
+const CORTEX_M3: CpuOption = CpuOption {
+    name: "cortex-m3-armv7m",
     architecture: FirmwareArchitecture::Arm,
     fidelity: Fidelity::Functional,
 };
@@ -715,6 +728,52 @@ const MANIFESTS: &[TargetManifest] = &[
     },
     TargetManifest {
         schema: 1,
+        id: TargetId::Atsamd51j19a,
+        name: "Microchip ATSAMD51J19A",
+        cpus: &[CORTEX_M4F],
+        memory: &[
+            MemoryRegion {
+                name: "flash",
+                start: 0x0000_0000,
+                size: 512 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "sram",
+                start: 0x2000_0000,
+                size: 192 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 51,
+        fidelity: Fidelity::Functional,
+        support_tiers: NEW_TARGET_SUPPORT_TIERS,
+        baseline: &[
+            "flash and SRAM reset-vector execution",
+            "MCLK, OSCCTRL, GCLK, and NVMCTRL startup register state",
+            "PORT groups A/B digital input, output, and configuration",
+            "SERCOM0 USART transmit and receive slice",
+            "TC0 counter and match interrupt slice",
+            "Cortex-M4F NVIC and SysTick",
+            "compiler-test exit convention",
+            "external digital pin stimulus",
+            "VCD output",
+        ],
+        sources: &[
+            "https://www.microchip.com/en-us/product/ATSAMD51J19A",
+            "https://ww1.microchip.com/downloads/en/DeviceDoc/60001507E.pdf",
+            "https://packs.download.microchip.com/Microchip.SAMD51_DFP.3.9.276.atpack",
+        ],
+        limitations: &[
+            "SERCOM and TC behavior is deterministic and instruction ordered; pin-level serial timing and exact clocks are deferred",
+            "cache, QSPI, USB, CAN, SDHC, DMA, event routing, analog, crypto, flash program/erase, and low-power behavior are outside the initial slice",
+            "PORT multiplex selection is stored but peripheral-to-pad electrical routing is not applied",
+        ],
+    },
+    TargetManifest {
+        schema: 1,
         id: TargetId::Stm32l432kc,
         name: "STMicroelectronics STM32L432KC",
         cpus: &[CORTEX_M4F],
@@ -754,6 +813,53 @@ const MANIFESTS: &[TargetManifest] = &[
         limitations: &[
             "flash ECC correction, option-byte reload effects, and write-protection enforcement are functional approximations",
             "alternate-function pin routing, physical bus/USB/audio protocols, electrical and analog behavior, DMA arbitration/request timing, low-power fidelity, and exact clocks are deferred",
+        ],
+    },
+    TargetManifest {
+        schema: 1,
+        id: TargetId::Stm32f103c8,
+        name: "STMicroelectronics STM32F103C8T6",
+        cpus: &[CORTEX_M3],
+        memory: &[
+            MemoryRegion {
+                name: "flash",
+                start: 0x0800_0000,
+                size: 64 * 1024,
+                kind: MemoryKind::Flash,
+                executable: true,
+            },
+            MemoryRegion {
+                name: "sram",
+                start: 0x2000_0000,
+                size: 20 * 1024,
+                kind: MemoryKind::Ram,
+                executable: true,
+            },
+        ],
+        gpio_count: 37,
+        fidelity: Fidelity::Functional,
+        support_tiers: NEW_TARGET_SUPPORT_TIERS,
+        baseline: &[
+            "internal flash load and reset alias",
+            "RCC, FLASH, and AFIO startup register state",
+            "GPIOA-D CRL/CRH digital input and output",
+            "EXTI software-visible state",
+            "TIM2 counter and update interrupt",
+            "USART1 transmit and receive",
+            "Cortex-M3 NVIC and SysTick",
+            "compiler-test exit convention",
+            "external digital pin stimulus",
+            "VCD output",
+        ],
+        sources: &[
+            "https://www.st.com/en/microcontrollers-microprocessors/stm32f103c8.html",
+            "https://www.st.com/resource/en/reference_manual/cd00171190-stm32f101-103-105-107-stm32f100-series-armbased-32bit-mcus-stmicroelectronics.pdf",
+            "https://www.st.com/resource/en/datasheet/stm32f103c8.pdf",
+        ],
+        limitations: &[
+            "the Cortex-M3 profile covers the compiler-facing Armv7-M subset; MPU, debug/trace, priority preemption, and cycle timing are deferred",
+            "GPIO alternate-function routing and exact RCC/FLASH clock timing are deferred",
+            "DMA, ADC, SPI, I2C, USB, CAN, RTC, watchdogs, and flash program/erase are outside the initial slice",
         ],
     },
     TargetManifest {
@@ -1114,8 +1220,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn portfolio_has_sixteen_unique_targets_with_primary_sources() {
-        assert_eq!(target_manifests().len(), 16);
+    fn portfolio_has_eighteen_unique_targets_with_primary_sources() {
+        assert_eq!(target_manifests().len(), 18);
         for (index, manifest) in target_manifests().iter().enumerate() {
             assert!(!manifest.sources.is_empty());
             assert!(
@@ -1252,6 +1358,14 @@ mod tests {
         assert_eq!(
             "nrf52840dk".parse::<TargetId>().unwrap(),
             TargetId::Nrf52840
+        );
+        assert_eq!(
+            "blue-pill".parse::<TargetId>().unwrap(),
+            TargetId::Stm32f103c8
+        );
+        assert_eq!(
+            "feather-m4".parse::<TargetId>().unwrap(),
+            TargetId::Atsamd51j19a
         );
         assert_eq!(
             "uno-r4-minima".parse::<TargetId>().unwrap(),

@@ -136,7 +136,7 @@ of corpus cases remains isolated in the pinned Docker toolchain images.
 
 ## Target portfolio
 
-The repository contains 16 MCU models and 17 execution modes because RP2350 is
+The repository contains 18 MCU models and 19 execution modes because RP2350 is
 qualified in both Arm and RISC-V configurations.
 
 | MCU model | CPU mode(s) | Highest demonstrated tier | Native image |
@@ -149,7 +149,9 @@ qualified in both Arm and RISC-V configurations.
 | Espressif ESP32-C6 | RV32IMAC | 3 — ESP-IDF sample and official MicroPython | merged flash binary, application UF2 overlay |
 | Espressif ESP32-P4 | dual HP RV32IMAC (CPU0 active) | 2 — firmware functional slice | raw binary, Intel HEX |
 | Microchip ATSAMD21E18A | Cortex-M0+ | 2 — firmware functional slice | raw binary, Intel HEX |
+| Microchip ATSAMD51J19A | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
 | STMicroelectronics STM32L432KC | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
+| STMicroelectronics STM32F103C8T6 | Cortex-M3 | 2 — firmware functional slice | raw binary, Intel HEX |
 | STMicroelectronics STM32F411RE | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
 | Nordic Semiconductor nRF52840 | Cortex-M4F | 2 — non-radio firmware functional slice | raw binary, Intel HEX |
 | Renesas R7FA4M1AB3CFM | Cortex-M4F | 2 — firmware functional slice | raw binary, Intel HEX |
@@ -208,7 +210,7 @@ The checked qualification suite covers more than workspace unit tests:
   evidence in `qualification/rp2040-multicore.json`;
 - an explicit RP2040/RP2350 implementation and gap matrix in
   `docs/RASPBERRY_PI_STATUS.md`;
-- native-image versus direct-execution equivalence for all 17 target modes;
+- native-image versus direct-execution equivalence for all 19 target modes;
 - architectural stop conditions, GDB, coverage, replay, bus logs, VCD, and
   register-coverage generation;
 - EEMBC CoreMark correctness plus host-calibrated interpreter throughput;
@@ -233,10 +235,11 @@ scripts/qualify-rp2040-sdk.sh
 # Pinned upstream RP2040 SDK multicore FIFO regression slice
 scripts/qualify-rp2040-multicore.sh
 
-# Original expansion gate plus native-image equivalence for all 16 MCUs
+# Original expansion gate plus native-image equivalence for all 18 MCUs
 scripts/qualify-expansion.sh
 
-# Software-only functional qualification for STM32F411RE, nRF52840, and ESP32-P4
+# Software-only functional qualification for STM32F103C8T6, STM32F411RE,
+# ATSAMD51J19A, nRF52840, and ESP32-P4
 scripts/qualify-new-targets.sh
 
 # Official firmware acceptance; warm-cache budget is one minute

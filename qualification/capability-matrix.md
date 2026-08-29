@@ -2,7 +2,7 @@
 
 This matrix is generated from target manifests and checked qualification artifacts. Tier 3 is a named workflow claim, not arbitrary SDK or production-firmware compatibility.
 
-Capability input SHA-256: `750bfa6ae5863b3c70a0ae3daef5216dfa230f5c06c8745ea54502e8cd219d10`
+Capability input SHA-256: `806d30b868a7b42cb6f592e776e468cf051ec4a034a973524f826b3b9bb0465f`
 
 | Target | Highest tier | CPU evidence rows | Native formats | Peripheral scope | Official workflow | Tracker |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -20,9 +20,10 @@ use remu_devices::{
     Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port,
     Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle, Samd21Tcc,
     Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle,
-    SignalHub, Stm32Adc, Stm32AdcHandle, Stm32AdvancedTimer, Stm32AdvancedTimerHandle,
-    Stm32BasicTimer, Stm32BasicTimerHandle, Stm32Can, Stm32ComparatorHandle, Stm32Comparators,
-    Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Dma, Stm32DmaHandle, Stm32Exti, Stm32ExtiHandle,
+    Samd51Tc, Samd51TcHandle, SignalHub, Stm32Adc, Stm32AdcHandle, Stm32AdvancedTimer,
+    Stm32AdvancedTimerHandle, Stm32BasicTimer, Stm32BasicTimerHandle, Stm32Can,
+    Stm32ComparatorHandle, Stm32Comparators, Stm32Crc, Stm32CrcHandle, Stm32Dac, Stm32Dma,
+    Stm32DmaHandle, Stm32Exti, Stm32ExtiHandle, Stm32F1Gpio, Stm32F1Usart, Stm32F1UsartHandle,
     Stm32FlashController, Stm32FlashMemory, Stm32Gpio, Stm32I2c, Stm32I2cHandle, Stm32Lptim1,
     Stm32Lptim1Handle, Stm32Lptim2, Stm32Lptim2Handle, Stm32Opamp, Stm32OpampHandle, Stm32QuadSpi,
     Stm32QuadSpiHandle, Stm32Rng, Stm32RngHandle, Stm32Rtc, Stm32RtcHandle, Stm32Sai1,
@@ -39,7 +40,7 @@ use std::collections::BTreeSet;
 
 #[path = "arm_mcu_support.rs"]
 mod support;
-use support::{VendorTimer, VendorUart, VendorWatchdog};
+use support::{VendorTimer, VendorUart, VendorWatchdog, cpu_profile, signal_paths};
 
 const TEST_DEVICE_SIZE: usize = 0x100;
 const TEST_EXIT_SIZE: usize = 4;
@@ -110,13 +111,8 @@ pub struct ArmMcuMachine {
 impl ArmMcuMachine {
     /// Creates an evidence-backed vendor Arm machine.
     pub fn new(target: TargetId) -> Result<Self, ArmMachineError> {
-        let (profile, cpuid) = match target {
-            TargetId::Atsamd21e18 => (ArmProfile::CortexM0Plus, 0x410c_c200),
-            TargetId::Stm32l432kc => (ArmProfile::CortexM4F, 0x410f_c241),
-            TargetId::Stm32f411re | TargetId::Nrf52840 => (ArmProfile::CortexM4F, 0x410f_c241),
-            TargetId::R7fa4m1ab3cfm => (ArmProfile::CortexM4F, 0x410f_c241),
-            _ => return Err(ArmMachineError::UnsupportedTarget(target)),
-        };
+        let (profile, cpuid) =
+            cpu_profile(target).ok_or(ArmMachineError::UnsupportedTarget(target))?;
         let manifest = target_manifest(target);
         let mut bus = AddressSpace::new(Endianness::Little);
         let mut default_stack = None;
@@ -167,8 +163,10 @@ impl ArmMcuMachine {
                         storage.clone(),
                         0,
                     )?;
-                    if matches!(target, TargetId::Stm32l432kc | TargetId::Stm32f411re)
-                        && region.start == 0x0800_0000
+                    if matches!(
+                        target,
+                        TargetId::Stm32l432kc | TargetId::Stm32f103c8 | TargetId::Stm32f411re
+                    ) && region.start == 0x0800_0000
                     {
                         bus.map_shared(
                             format!("{target}.flash-alias"),
@@ -184,34 +182,8 @@ impl ArmMcuMachine {
         }
 
         let signals = SignalHub::new();
-        let (timer_path, uart_path, interrupt_path) = match target {
-            TargetId::Atsamd21e18 => (
-                "board.atsamd21e18.tc3.irq",
-                "board.atsamd21e18.sercom0",
-                "board.atsamd21e18.interrupt.request",
-            ),
-            TargetId::Stm32l432kc => (
-                "board.stm32l432kc.tim2.irq",
-                "board.stm32l432kc.usart2",
-                "board.stm32l432kc.interrupt.request",
-            ),
-            TargetId::Stm32f411re => (
-                "board.stm32f411re.tim2.irq",
-                "board.stm32f411re.usart2",
-                "board.stm32f411re.interrupt.request",
-            ),
-            TargetId::Nrf52840 => (
-                "board.nrf52840.timer0.irq",
-                "board.nrf52840.uart0",
-                "board.nrf52840.interrupt.request",
-            ),
-            TargetId::R7fa4m1ab3cfm => (
-                "board.r7fa4m1ab3cfm.gpt0.irq",
-                "board.r7fa4m1ab3cfm.sci9",
-                "board.r7fa4m1ab3cfm.icu.request",
-            ),
-            _ => unreachable!(),
-        };
+        let (timer_path, uart_path, interrupt_path) =
+            signal_paths(target).expect("supported Arm MCU has signal paths");
         let timer_irq_signal = signals.declare(
             timer_path,
             SignalValue::from_u64(0, 1)?,
@@ -409,6 +381,27 @@ impl ArmMcuMachine {
                     Vec::new(),
                 )
             }
+            TargetId::Atsamd51j19a => {
+                let (gpio, uart, timer) = Self::create_samd51(&mut bus, &signals)?;
+                (
+                    gpio,
+                    VendorUart::Samd51(uart),
+                    VendorTimer::Samd51(timer),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Vec::new(),
+                )
+            }
             TargetId::Stm32l432kc => {
                 let (gpioa_device, gpio) = Stm32Gpio::new(
                     "stm32l432kc.gpioa",
@@ -551,6 +544,28 @@ impl ArmMcuMachine {
                     None,
                     Some(VendorWatchdog::Stm32(watchdog)),
                     vec![(31, i2c1), (72, i2c3)],
+                )
+            }
+            TargetId::Stm32f103c8 => {
+                let (gpio, usart1, timer, exti) = Self::create_stm32f103(&mut bus, &signals)?;
+                stm32_exti = Some(exti);
+                (
+                    gpio,
+                    VendorUart::Stm32F1(usart1),
+                    VendorTimer::Stm32(timer),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Vec::new(),
                 )
             }
             TargetId::Stm32f411re => {
@@ -1287,6 +1302,15 @@ impl ArmMcuMachine {
                         uart_pending && self.ppb.interrupt_enabled(uart_line),
                     )?;
                 }
+                TargetId::Atsamd51j19a => {
+                    let uart_line = 49;
+                    let uart_pending = self.uart.interrupt_pending();
+                    interrupt_requested |= uart_pending;
+                    self.cpu.set_interrupt(
+                        uart_line,
+                        uart_pending && self.ppb.interrupt_enabled(uart_line),
+                    )?;
+                }
                 TargetId::Stm32l432kc => {
                     let VendorUart::Stm32(handles) = &self.uart else {
                         unreachable!("STM32 target always has STM32 USART handles")
@@ -1299,6 +1323,15 @@ impl ArmMcuMachine {
                             uart_pending && self.ppb.interrupt_enabled(*uart_line),
                         )?;
                     }
+                }
+                TargetId::Stm32f103c8 => {
+                    let uart_line = 37;
+                    let uart_pending = self.uart.interrupt_pending();
+                    interrupt_requested |= uart_pending;
+                    self.cpu.set_interrupt(
+                        uart_line,
+                        uart_pending && self.ppb.interrupt_enabled(uart_line),
+                    )?;
                 }
                 TargetId::Stm32f411re | TargetId::Nrf52840 => {}
                 TargetId::R7fa4m1ab3cfm if self.uart.interrupt_pending() => {
