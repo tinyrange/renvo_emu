@@ -235,6 +235,8 @@ mod ra_crc;
 pub use ra_crc::*;
 mod ra_dac12;
 pub use ra_dac12::*;
+mod ra_doc;
+pub use ra_doc::*;
 mod ra_rtc;
 pub use ra_rtc::*;
 mod avr;
