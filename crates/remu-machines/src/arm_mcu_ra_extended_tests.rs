@@ -1,4 +1,5 @@
 use super::*;
+use remu_devices::{RA4M1_EVENT_ADC0_SCAN_END, RA4M1_EVENT_KINT};
 
 #[test]
 fn maps_ra4m1_rtc_calendar_and_alarm_handle() {
@@ -32,9 +33,10 @@ fn maps_ra4m1_rtc_calendar_and_alarm_handle() {
         .unwrap();
     assert!(
         machine
-            .ra_rtc
+            .ra
             .as_ref()
             .unwrap()
+            .rtc
             .poll(SimTime::from_ticks(1))
     );
 }
@@ -125,7 +127,10 @@ fn maps_all_ra4m1_gpt_channels_with_native_counter_widths() {
     }
     assert_eq!(
         machine
-            .ra_gpt
+            .ra
+            .as_ref()
+            .unwrap()
+            .gpt
             .iter()
             .map(|(event, _)| *event)
             .collect::<Vec<_>>(),
@@ -153,7 +158,7 @@ fn maps_ra4m1_kint_and_routes_selected_pin_through_icu() {
             SimTime::ZERO,
         )
         .unwrap();
-    let kint = machine.ra_kint.as_ref().unwrap();
+    let kint = &machine.ra.as_ref().unwrap().kint;
     assert!(!kint.poll(0));
     assert!(kint.poll(1));
     assert_eq!(
@@ -181,7 +186,7 @@ fn maps_ra4m1_elc_software_events_and_destination_links() {
         .bus
         .write(0x4004_1002, AccessWidth::Byte, 0x41, SimTime::ZERO)
         .unwrap();
-    let elc = machine.ra_elc.as_ref().unwrap();
+    let elc = &machine.ra.as_ref().unwrap().elc;
     assert_eq!(elc.take_software_events(), vec![0x053]);
     assert_eq!(elc.route_event(0x053), vec![0]);
 }
@@ -214,7 +219,7 @@ fn maps_ra4m1_adc140_scan_results_and_icu_event() {
         )
         .unwrap();
 
-    let adc = machine.ra_adc.as_ref().unwrap();
+    let adc = &machine.ra.as_ref().unwrap().adc;
     assert!(!adc.poll(SimTime::from_ticks(7)));
     assert!(adc.poll(SimTime::from_ticks(8)));
     assert_eq!(

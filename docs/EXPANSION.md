@@ -8,7 +8,7 @@ cycle accuracy or complete silicon compatibility.
 | Exact part | CPU profile | Loaded image | Acceptance slice |
 |---|---|---|---|
 | ATSAMD21E18A-AU | Cortex-M0+ / Armv6-M | little-endian Arm ELF | vector reset, PORT/EIC input, RTC MODE0, TC3–5 IRQs, TCC0–2 counter/PWM/IRQs, SERCOM0–3 USART/SPI/I²C host transfers and IRQs, EVSYS software event/user mux, USB device control/endpoints, DMAC descriptor transfer, I2S control/data (IRQ 27), ADC software-triggered conversion, AC comparator pair, DAC code/IRQ 25, PA07 |
-| STM32L432KCU6 | Cortex-M4F / Armv7E-M / FPv4-SP-D16 | little-endian Arm ELF | flash alias reset, GPIO, TIM2 IRQ, USART2, soft/softfp/hard ABI |
+| STM32L432KCU6 | Cortex-M4F / Armv7E-M / FPv4-SP-D16 | little-endian Arm ELF | device-backed flash alias/program/erase, GPIO/EXTI, general/basic/low-power timers, serial buses, watchdogs, ADC/CRC/RTC/RNG, CAN/DAC, USB/SAI/QUADSPI/SWPMI, DMA, touch/comparator/opamp, soft/softfp/hard ABI |
 | R7FA4M1AB3CFM#AA0 | Cortex-M4F / Armv7E-M / FPv4-SP-D16 | little-endian Arm ELF; Intel HEX inspection | option/startup surface, IOPORT, ICU-routed GPT0 IRQ, SCI9, P111 |
 | ATmega328PB-AU | enhanced AVR8 | AVR ELF; Intel HEX inspection | Harvard spaces, PB pin change, Timer0 IRQ, USART0, EEPROM |
 | MSP430FR2433IRGE | MSP430 CPUXv2 | MSP430 ELF; Intel HEX inspection | reset vector, FRAM/SRAM, P1 IRQ, TA0–TA3 CCR0/CCR1/CCR2, RTC overflow, eUSCI_A0/A1, eUSCI_B0 SPI/I²C host, ADC10 single conversion |

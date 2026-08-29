@@ -31,68 +31,20 @@ the ESPI0 interrupt participates in the low/high priority interrupt inputs.
 FIFO operation, crossbar pin assignment, and exact serial clock timing remain
 outside this functional model.
 
+The STM32L432KC functional slice also maps I2C1 at `0x40005400` and I2C3 at
+`0x40005C00`. Each controller supports deterministic master START/STOP,
+programmable transfer counts, TXDR/RXDR transactions, injected target bytes,
+BUSY/TC/STOPF status, and event-interrupt routing (I2C1 event line 31 and I2C3
+event line 72). This is a transaction-level model: alternate-function pin
+muxing, clock stretching, arbitration, DMA, and electrical open-drain
+resolution remain outside the current slice.
+
 PIC16F15376 additionally has a functional ADC slice: channel values can be
 driven by the host, `ADCON0` starts a deterministic one-tick conversion,
 `ADRESL`/`ADRESH` expose right- or left-justified 10-bit results, and `ADIF`
 through `PIE1` participates in the existing peripheral interrupt path. Voltage
 references, acquisition timing, analog pin electrical behavior, and threshold
 processing remain outside this model.
-
-RA4M1 AGT0 (`0x40084000`) and AGT1 (`0x40084100`) expose their native
-counter/compare/control register windows. A deterministic down-counter emits
-AGT0/AGT1 ELC underflow events that can be routed through the existing ICU
-IELSR model. Pulse-output pins, event-counter input capture, standby clock
-selection, and exact low-power clock behavior remain outside this slice.
-
-All eight RA4M1 GPT channels are mapped at `0x40078000`--`0x40078700`.
-GPT0--2 use their native 32-bit counters, while GPT3--7 enforce their native
-16-bit counter and period widths. Each channel models `GTCR`, `GTINTAD`,
-`GTST`, `GTCNT`, and `GTPR`, and routes its distinct overflow event through
-the ICU. Compare/capture waveform generation, dead-time insertion, and exact
-PCLK timing remain outside this functional timer slice.
-
-RA4M1 KINT is mapped at `0x40080000` and samples KR00--KR07 from P100--P107.
-`KRCTL` selects rising/high or falling/low behavior and edge latching, `KRM`
-selects enabled inputs, and zero writes to `KRF` clear latched flags. The
-KEY_INTKR ELC event (`0x045`) routes through the ICU, with a dedicated trace
-signal exposing its request level.
-
-The RA4M1 Event Link Controller is mapped at `0x40041000`. Its global enable,
-23 native destination-link selectors, and software events `0x053`/`0x054` are
-modeled. Guest-generated software events are available to the machine and VCD
-trace path, while peripheral-owned hardware events continue through their ICU
-routing paths. Exact event propagation latency is not modeled.
-
-The R7FA4M1AB3CFM model includes the RA4M1 RTC at `0x40044000`. Its
-functional calendar slice implements the BCD counters, the 16-bit `RYRCNT`
-layout (with a 2000--2099 calendar epoch), the six calendar alarms plus the
-year alarm/enable pair, `RCR1`/`RCR2`/`RCR4` control, and the RTC alarm ELC
-event (`0x026`). One abstract simulation tick advances one RTC second; `R64CNT`
-therefore reports the modeled zero sub-second phase. This is deterministic
-functional behavior, not a 32.768-kHz clock model. RTC state is retained across
-MCU/watchdog resets, while `RCR2.RESET` clears the modeled alarm and adjustment
-state. The register layout follows the [RA4M1 hardware manual](https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware).
-
-The R7FA4M1AB3CFM model also exposes the RA4M1 DAC12 channel 0 at
-`0x4005e000`. `DADR0`, `DACR.DAOE0`, `DADPR.DPSEL`, `DAADSCR.DAADST`, and
-VREF control registers are modeled, with a 12-bit
-`board.r7fa4m1ab3cfm.dac0` signal for traces and host assertions. The model
-reports a deterministic digital sample; ADC-synchronized conversion latency,
-analog amplifier settling, reference-voltage magnitude, and pin-mux electrical
-behavior are outside this functional boundary. Register choices follow the
-[RA4M1 hardware manual](https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware).
-
-The R7FA4M1AB3CFM model also includes the RA4M1 Clock Frequency Accuracy
-Measurement Circuit at `0x40044600`. Register programming, range comparison,
-status/interrupt flag clearing, and deterministic host-injected reference
-measurements are supported; clock-pin filtering and exact oscillator phase
-behavior remain outside the functional slice.
-
-The R7FA4M1AB3CFM model includes POEG groups A-D at `0x40042000`.
-Configuration, filtered input status, GPT/software output-disable requests,
-and clearable status flags are available through the native group registers
-and a deterministic host trigger API. Exact noise-filter sampling and GPT
-output gating latency are not modeled.
 
 All targets also expose a stable compiler-test block:
 
@@ -280,6 +232,126 @@ are available at their documented offsets.
 This is a software-visible model: it does not claim analogue voltage curves,
 process/voltage/temperature frequency drift, exact oscillator startup delay,
 or automatic reset and clock gating of every dependent block.
+
+The STM32L432KC model additionally maps the native bxCAN controller at
+`0x40006400`. Its functional slice supports initialization state, loopback
+bit-timing selection, one transmit mailbox, receive FIFO 0, standard/extended
+identifier fields, payload words, completion/error flags, and maskable status
+interrupts. It does not claim bit-level arbitration or a physical CAN bus.
+
+The STM32L432KC model additionally maps the native DAC1 controller at
+`0x40007400`. Its functional slice supports both 12-bit channels, right- and
+left-aligned plus 8-bit data writes, software-triggered transfers, and
+trace-visible digital output/enable signals. It does not claim analog voltage,
+calibration, sample-and-hold settling, or DMA behavior.
+
+The STM32L432KC model additionally maps the native TIM1 advanced-control
+timer at `0x40012c00`. Its functional slice supports the time-base, update
+interrupt, four PWM compare channels, three complementary outputs, main-output
+enable, and update generation, with each channel exposed to VCD. It does not
+claim cycle-accurate dead-time, break/capture behavior, DMA, or alternate-
+function pin routing.
+
+The STM32L432KC model additionally maps the native EXTI block at `0x40010400`.
+Its GPIO-edge slice supports IMR/RTSR/FTSR/SWIER/PR configuration, deterministic
+rising and falling edge latching for GPIO lines 0-15, grouped NVIC requests,
+and a VCD-visible aggregate interrupt signal. SYSCFG port selection, event-only
+routing, and internal wake sources remain outside this slice; alternate-function
+pin routing is tracked separately.
+
+The STM32L432KC model additionally maps the native window watchdog (WWDG) at
+`0x40002c00`. Its functional slice supports CR/CFR/SR, deterministic
+prescaled down-counting, refresh-window validation, the early-wakeup interrupt,
+reset requests, and VCD-visible IRQ/reset signals. It uses an abstract
+simulation divisor rather than physical PCLK1 frequency; IWDG remains a
+separate model.
+
+The STM32L432KC model maps the TIM6 basic timer at `0x40001000`. Its
+functional slice covers CR1/CR2, DIER/SR, EGR, CNT, PSC and ARR, deterministic
+prescaled up-counting, update-event latching/clearing, one-pulse mode, and the
+native `TIM6_DACUNDER` interrupt line (NVIC 54). It is an abstract functional
+clock model and does not claim DAC trigger, DMA, or physical APB timing.
+
+The STM32L432KC model maps the TIM7 basic timer at `0x40001400`. Its
+functional slice covers CR1/CR2, DIER/SR, EGR, CNT, PSC and ARR, deterministic
+prescaled up-counting, update-event latching/clearing, one-pulse mode, and the
+native `TIM7` interrupt line (NVIC 55). It is an abstract functional clock
+model and does not claim DMA or physical APB timing.
+
+The STM32L432KC model maps TIM15 at `0x40014000`. Its functional slice covers
+counter/update and channel-one compare/PWM registers, deterministic prescaled
+up-counting, UIF/CC1IF latching and clearing, the native
+`TIM1_BRK_TIM15` interrupt line (NVIC 24), and a VCD-visible channel-one
+output. Break/dead-time, repetition, DMA, and physical APB timing are not
+claimed.
+
+The STM32L432KC model also maps LPTIM1 at its native `0x40007c00` address. Its
+functional slice covers enable/start control, deterministic prescaled up-counting,
+16-bit `CMP`/`ARR`/`CNT` access, compare and autoreload interrupt flags with
+`ICR` clearing, the native `LPTIM1_IRQn` line (65), and a VCD-visible waveform
+output. External trigger/capture, encoder mode, DMA, and low-power clock-source
+fidelity are not claimed.
+
+The STM32L432KC model also maps LPTIM2 at its native `0x40009400` address. Its
+functional slice covers enable/start control, deterministic prescaled up-counting,
+16-bit `CMP`/`ARR`/`CNT` access, compare and autoreload interrupt flags with
+`ICR` clearing, the native `LPTIM2_IRQn` line (66), and a VCD-visible waveform
+output. External trigger/capture, encoder mode, DMA, and low-power clock-source
+fidelity are not claimed.
+
+The STM32L432KC model maps TIM16 at `0x40014400`. Its functional slice covers
+counter/update and channel-one compare/PWM registers, deterministic prescaled
+up-counting, UIF/CC1IF latching and clearing, the native
+`TIM1_UP_TIM16` interrupt line (NVIC 25), and a VCD-visible channel-one
+output. Break/dead-time, repetition, DMA, and physical APB timing are not
+claimed.
+
+### STM32L432KC extended data paths
+
+The 256 KiB internal FLASH window at `0x08000000` and boot alias at
+`0x00000000` share device-backed storage. The controller at `0x40022000`
+supports the native key sequence, 64-bit double-word and paired-word
+programming, 2 KiB page erase, bank-one mass erase, one-to-zero NOR behavior,
+and software-visible completion/error state. Firmware loading initializes the
+same storage while bypassing runtime locks. Programming completes immediately;
+ECC correction, option-byte reload/reset effects, write-protection enforcement,
+and physical timing are not modeled.
+
+The USB full-speed device core at `0x40006800` and packet memory at
+`0x40006c00` cover native control/endpoint registers, PMA descriptors and
+data, deterministic host reset/OUT injection and IN extraction, IRQ 67, and
+trace-visible request activity. This is a register/PMA model, not a USB PHY or
+complete enumeration and class-policy implementation.
+
+SAI1 at `0x40015400` covers both blocks' framing and slot registers,
+enable/flush controls, transmit/receive sample FIFOs, deterministic host
+sample injection, captured output, IRQ 74, and sample/strobe traces. Exact
+audio clock generation, DMA pacing, codec synchronization, and physical
+serial timing are outside the model.
+
+QUADSPI at `0xa0001000` fronts a 16 MiB read-only mapped external NOR window
+at `0x90000000`. It supports host image loading, indirect reads, one-to-zero
+NOR programming, transfer/status flags, IRQ 71, and memory-mapped reads.
+Dual-flash behavior and wire timing are not modeled. SWPMI1 at `0x40008800`
+supports activation, frame length and status, deterministic host receive
+injection, captured transmit words, loopback, error/status clearing, IRQ 76,
+and trace visibility without claiming single-wire electrical timing.
+
+DMA1 and DMA2 at `0x40020000` and `0x40020400` each expose seven channels and
+CSELR. The functional engine performs byte, halfword, and word transfers with
+direction, increment, circular, and memory-to-memory controls, and provides
+half/complete/error flags plus native per-channel IRQ routes. Transfer service
+is deterministic; arbitration, contention, and cycle-accurate peripheral
+request handshakes are not claimed.
+
+TSC at `0x40024000` maps acquisition controls, I/O selection, host-supplied
+group counts, completion/max-count flags, and IRQ 77. COMP1/2 at `0x40010200`
+map configuration, polarity/output and lock state over deterministic host
+input codes; output changes use IRQ 64. OPAMP1 at `0x40007800` maps
+configuration, gain, trimming storage, and a deterministic digital output
+code. These mixed-signal blocks reproduce software-visible decisions and
+state, not capacitance, voltage, noise, propagation delay, settling,
+calibration, or package-level analog routing.
 
 ## Official MicroPython milestone
 
@@ -519,18 +591,6 @@ alternate-function pin routing, chip-select wiring, DMA, CRC, I2S mode, and
 exact SPI clock timing remain deferred. Register choices follow the [CH32V003
 reference material](https://www.wch-ic.com/downloads/CH32V003RM_PDF.html) and
 the [CH32V006 reference material](https://www.wch-ic.com/downloads/CH32V00XRM_PDF.html).
-
-The R7FA4M1AB3CFM model includes the RA4M1 CRC calculator at `0x40074000`.
-CRCCR0 selects CRC-8, CRC-16, CRC-CCITT, CRC-32, or CRC-32C and the LMS bit
-selects MSB-first or LSB-first processing. CRCDIR/CRCDOR streaming, the clear
-control, CRCCR1, and the snoop-address register are modeled. The calculator
-is deterministic and functional; automatic bus snooping is not yet enabled.
-
-The R7FA4M1AB3CFM model includes the RA4M1 Data Operation Circuit at
-`0x40054100`. Its compare, add, and subtract modes, detection polarity,
-operation flag/clear, and 16-bit input/reference/result registers are modeled
-for deterministic firmware tests. It does not claim the hardware's exact
-operation-completion latency.
 
 ## Implemented CPU surface
 
@@ -796,6 +856,24 @@ each architecture checks 64 repeat and insertion-stress variants against the
 same fixed digest. `scripts/qualify-host-determinism.sh` regenerates the
 machine-readable evidence in `qualification/host-determinism.json`. A native
 arm64 host or configured aarch64 binfmt handler is required for the arm64 lane.
+
+## STM32L432KC USART1/LPUART1 slice
+
+The STM32L432KC machine maps the native USART1 window at `0x4001_3800` and
+LPUART1 window at `0x4000_8000`, alongside the existing USART2 window at
+`0x4000_4400`. Each instance implements the common L4 `CR1`, `ISR`, `ICR`,
+`RDR`, and `TDR` register offsets. Firmware writes to `TDR` are captured as
+deterministic transmit bytes; host-injected bytes set `RXNE/RXFNE` and are
+consumed by reading `RDR`. `TXE/TXFNF`, `TC`, and receive/transmit interrupt
+enables are modeled functionally and routed to the corresponding NVIC lines
+(USART1 37, USART2 38, LPUART1 70).
+
+This is a register and byte-stream slice based on ST's
+[STM32L432KB/STM32L432KC data sheet](https://www.st.com/resource/en/datasheet/DM00257205.pdf)
+and [RM0394 reference manual](https://www.st.com/resource/en/reference_manual/rm0394-stm32l41xxx42xxx43xxx44xxx45xxx46xxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf).
+It does not claim baud-rate timing, DMA, alternate-function pin routing,
+framing/error generation, low-power clock behavior, or the other USART/LPUART
+modes.
 
 ## Compiler containment
 
@@ -1075,14 +1153,13 @@ registers (`UDR0` at `0xc6` and `UDR1` at `0xce`), with native USART1
 enable/ready/complete status and separate trace signals. Receive, baud-rate
 timing, and modem-control fidelity remain outside this functional CI slice.
 
-The RA4M1 slice maps both native IIC controllers at `0x40053000` and
-`0x40053100`. The deterministic functional boundary covers controller enable,
-start/stop state, transmit and host-injected receive bytes, TDRE/TEND/RDRF/
-NACKF/START/STOP status, and status-interrupt enables. Bit-level arbitration,
-clock stretching, and electrical open-drain resolution are not modeled.
-The register offsets and reset/clear semantics follow Renesas RA4M1 Group
-User's Manual Hardware R01UH0887EJ0110 §29:
-<https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware>.
+## STM32L432KC SPI1/SPI3 slice
+
+The STM32L432KC map includes native SPI1 at `0x4001_3000` and SPI3 at
+`0x4000_3c00`. The functional slice covers CR1/CR2/SR/DR, enabled master-mode
+full-duplex transfers, deterministic injected-or-echoed MISO, TXE/RXNE status,
+and the SPI1 (35) and SPI3 (51) interrupt lines. Alternate-function pin routing,
+chip-select policy, DMA, CRC, I2S, and exact clock/baud timing remain deferred.
 
 The generated per-chip register evidence lives in
 `qualification/register-coverage/`. `scripts/docker-smoke.sh` records complete
@@ -1166,6 +1243,11 @@ levels. TC4/5 and SERCOM1–3 reuse their audited instance-generic functional
 models with the vendor IRQs. RTC calendar modes, TCC capture/fault/dead-time
 and exact clock/prescaler timing remain outside this support boundary.
 
+The STM32L432KC model includes the deterministic RNG at `0x50060800`. It
+models native enable/status/data registers with a replayable host-seeded stream
+for CI; this is an observability-friendly deterministic model, not a
+cryptographic entropy source or silicon noise model.
+
 For ESP32-C6, direct ELF loading proves instruction and peripheral behavior but
 does not exercise the second-stage bootloader's flash mappings. Supplying the
 corresponding esptool application binary with `--esp-app-image` enables a
@@ -1233,14 +1315,6 @@ same checked data in `qualification/dashboard.json`. “Baseline proven” there
 means a deterministic functional compiler/firmware model, never complete
 silicon compatibility or cycle accuracy.
 
-The RA4M1 slice includes both native RSPI0 and RSPI1 register windows. Their
-functional master path supports control/status, byte/halfword/word data
-transfers selected through `SPDCR`, deterministic host-provided receive words,
-and captured transmit words. Register defaults and status-bit positions follow
-Renesas' [RA4M1 hardware manual, SPI chapter](https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware)
-(`SPCR`, `SPSR`, `SPDR`, `SPDCR`, and `SPCMD0`). Pin mux timing, DMA, slave
-mode, and transfer-complete interrupt routing remain outside this slice.
-
 The EFM8BB52F32G slice also models the native CRC0 data path: CCITT-16 stream
 updates through `CRC0IN`, pointer-selected result reads/writes through
 `CRC0DAT`, CRC seed initialization, and byte bit reversal through `CRC0FLIP`.
@@ -1248,3 +1322,81 @@ Register masks and pointer behavior follow Silicon Labs' [EFM8BB52 reference
 manual](https://www.silabs.com/documents/public/reference-manuals/efm8bb52-rm.pdf),
 section 18. Automatic flash-sector CRC and the remaining analog/control blocks
 are outside this functional boundary.
+
+The STM32L432KC slice includes the native independent-watchdog window at
+`0x40003000`: key unlock/start/reload commands, prescaler and reload state,
+deterministic timeout reset requests, and integration with the Arm machine's
+watchdog reset path. The key values, prescaler encoding, reload width, and
+register offsets follow ST's [STM32L41/42/43/44 reference manual](https://www.st.com/resource/en/reference_manual/dm00151940-stm32l4x1-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf).
+Window watchdog timing and low-power clock behavior remain outside this
+functional boundary.
+
+The STM32L432KC model includes ADC1 at its native AHB2 address `0x50040000`.
+It supports the native enable/calibration/start sequence, regular-rank channel
+selection, deterministic 12-bit host-injected samples, end-of-conversion flags,
+and data-register reads. Analog settling, calibration curves, injected groups,
+DMA, oversampling, and exact conversion timing remain deferred.
+
+The STM32L432KC CRC slice maps the native data, independent-data, control,
+initial-value, and polynomial registers. It supports deterministic word feeds
+and exposes the current result for host-side qualification; DMA feeding and
+cycle-level AHB timing remain deferred.
+
+The STM32L432KC RTC slice maps the native calendar, prescaler, alarm, and
+write-protection registers. It advances deterministically on the abstract
+timeline and exposes alarm flags for qualification; oscillator drift, backup
+domain power behavior, tamper inputs, and subsecond fidelity remain deferred.
+
+### Renesas RA4M1 functional boundary
+
+The `R7FA4M1AB3CFM#AA0` machine models the UNO R4 Minima processor without its
+separate Wi-Fi bridge. It maps SYSTEM/MSTP, IOPORT/PFS, ICU, ELC, KINT, GPT0-7,
+AGT0-1, SCI9, RSPI0-1, IIC0-1, RTC, ADC140, DAC12, CRC, DOC, CAC, POEG and the
+watchdog startup window at their native addresses. All timing is deterministic
+simulation time, not a claim of peripheral-clock or electrical fidelity.
+
+The interrupt path is explicit: firmware writes a nine-bit event number to an
+ICU `IELSR` slot, a modeled peripheral latches that event, and only the matching
+NVIC line is asserted. Qualified event values include ADC140 scan end `0x029`,
+KINT `0x045`, GPT0-7 overflow `0x05d`, `0x065`, `0x06d`, `0x075`, `0x07d`,
+`0x085`, `0x08d`, and `0x095`, plus ELC software events `0x053` and `0x054`.
+ELC link registers retain the documented low nine bits; software event writes
+require the enable, write-enable, and event-generation bits and reject the
+write-inhibit form.
+
+The main register windows and modeled behavior are:
+
+| Block | Base | Functional behavior |
+| --- | ---: | --- |
+| ICU | `0x40006000` | 96 `IELSR` routes, event-request latch and zero-to-clear request bit |
+| IOPORT/PFS | `0x40040000` / `0x40040800` | direction, input/output state, atomic set/reset, PFS direction/output selection |
+| ELC | `0x40041000` | global enable, 23 destination links, two software event generators |
+| KINT | `0x40080000` | KR00-KR07 selection, edge polarity, enable mask and latched flags |
+| GPT0-7 | `0x40078000` + `0x100` per channel | start/stop, period/counter state and overflow events; GPT0-2 are 32-bit, GPT3-7 are 16-bit |
+| AGT0-1 | `0x40084000` / `0x40084100` | deterministic countdown, underflow flag and event |
+| SCI9 | `0x40070120` | transmit data/status and routed TXI request |
+| RSPI0-1 | `0x40072000` / `0x40072100` | native-width transfer data, host RX/TX queues and status flags |
+| IIC0-1 | `0x40053000` / `0x40053100` | start/stop, transmit/receive queues, NACK and zero-to-clear status |
+| RTC | `0x40044000` | deterministic calendar/counter progression and routed alarm |
+| ADC140 | `0x4005c000` | AN000-AN028 group-A single scans, 8/10/12/14-bit formatting and scan-end event |
+| DAC12 | `0x4005e000` | 12-bit data/output enable and VCD-visible output code |
+| CRC/DOC | `0x40074000` / `0x40054100` | programmable CRC feeds and data-operation compare/add/subtract state |
+| CAC/POEG | `0x40044600` / `0x40042000` | host reference-edge measurement and output-disable groups |
+
+Audited reset observations are encoded as tests rather than silent defaults.
+Examples include RSPI `SPSR=0x20`, `SPPCR=0xff`, and first command
+`SPCMD=0x0401`; IIC control/timing bytes `0x1f`, `0x08`, `0x06`, `0x72`, and
+`0x09`, with address/data transmit reset bytes `0xff`; and SYSTEM oscillator
+status bit 0 asserted for the reset-selected HOCO. Unsupported accesses either
+mask reserved bits, return the documented functional reset value, or produce a
+device error where the native width is required; they do not silently invoke
+host hardware.
+
+ADC140 samples are supplied as deterministic 14-bit host codes. Conversion
+starts only through guest `ADCSR.ADST`, selected group-A channels latch after
+the modeled conversion interval, and `ADREF.ADF` plus event `0x029` expose
+completion. Continuous scan, group B, addition/averaging, window comparison,
+internal temperature/reference sources, voltage accuracy and analog settling
+remain outside the model. Similarly, serial electrical signaling, clock
+stretch timing, arbitration among physical peers, RTC oscillator drift, and
+POEG/CAC pin-level analog effects are deferred.
