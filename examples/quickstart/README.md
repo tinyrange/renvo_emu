@@ -12,7 +12,7 @@ by the release workflow from this source and can be run without a compiler:
 docker run --rm -v "$PWD:/work:ro" -w /work \
   ghcr.io/tinyrange/renvo_emu:latest \
   run --target ch32v003 --elf build/quickstart.elf \
-  --max-instructions 10000 --result container-run.json
+  --max-instructions 10000
 ```
 
 From a checkout, build the ELF with the pinned RISC-V container:
@@ -41,8 +41,7 @@ docker run --rm -v "$PWD:/work:ro" -w /work \
   ghcr.io/tinyrange/renvo_emu:latest \
   run --target ch32v003 \
   --elf .remu/quickstart/build/quickstart.elf \
-  --max-instructions 10000 \
-  --result .remu/quickstart/container-run.json
+  --max-instructions 10000
 ```
 
 The bounded run terminates with `reason: "Halted"` and `exit_code: 0`. The VCD
