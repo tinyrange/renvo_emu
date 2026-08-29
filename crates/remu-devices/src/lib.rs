@@ -231,6 +231,8 @@ mod stm32;
 pub use stm32::*;
 mod ra;
 pub use ra::*;
+mod ra_dac12;
+pub use ra_dac12::*;
 mod ra_rtc;
 pub use ra_rtc::*;
 mod avr;
