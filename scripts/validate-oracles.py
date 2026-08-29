@@ -41,6 +41,14 @@ def nonempty(value: Any, path: str) -> str:
     return value
 
 
+def repository_path(value: Any, path: str) -> Path:
+    """Resolve a repository-relative path without allowing traversal."""
+    relative = Path(nonempty(value, path))
+    if relative.is_absolute() or ".." in relative.parts:
+        fail(f"{path}: unsafe path {relative}")
+    return ROOT / relative
+
+
 def sha256_text(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -113,6 +121,8 @@ def validate_fixture(path: Path) -> None:
     fixture_id = nonempty(fixture.get("fixture_id"), "fixture_id")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]+", fixture_id):
         fail(f"fixture_id: invalid {fixture_id!r}")
+    if path.stem != fixture_id:
+        fail(f"fixture_id: {fixture_id!r} does not match {path.name!r}")
     if fixture.get("status") not in {
         "hardware_capture",
         "external_emulator",
@@ -196,12 +206,17 @@ def validate_fixture(path: Path) -> None:
     comparison = require(
         fixture.get("comparison"), dict, f"{fixture_id}.comparison"
     )
-    reference_path = ROOT / nonempty(
+    reference_path = repository_path(
         comparison.get("reference"), f"{fixture_id}.comparison.reference"
     )
     expected_values = manifest_values(reference_path)
-    if set(seen) != set(record["case_id"] for record in records):
-        fail(f"{fixture_id}: duplicate observation IDs")
+    expected_count = comparison.get("expected_observations")
+    if not isinstance(expected_count, int) or isinstance(expected_count, bool):
+        fail(f"{fixture_id}.comparison.expected_observations: expected integer")
+    if expected_count < 1 or len(records) != expected_count:
+        fail(
+            f"{fixture_id}: expected {expected_count} observations, got {len(records)}"
+        )
     for index, record in enumerate(records):
         expected = expected_values.get(record["case_id"])
         if expected is None:

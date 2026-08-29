@@ -24,6 +24,9 @@ directory because it is a build artifact; the fixture carries its SHA-256 and a
 canonical copy of every observation. No vendor binary or board dump is stored
 in the repository.
 
+CI only replays this checked, non-radio CPU result set. It never connects to a
+physical board, transmits RF, or invokes the hardware capture script.
+
 Validate every checked fixture from the repository root with:
 
 ```sh

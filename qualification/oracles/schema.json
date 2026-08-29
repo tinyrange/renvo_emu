@@ -89,9 +89,10 @@
     },
     "comparison": {
       "type": "object",
-      "required": ["reference", "equivalence", "timing"],
+      "required": ["reference", "expected_observations", "equivalence", "timing"],
       "properties": {
         "reference": { "type": "string", "minLength": 1 },
+        "expected_observations": { "type": "integer", "minimum": 1 },
         "equivalence": { "type": "string", "minLength": 1 },
         "timing": { "type": "object" }
       },

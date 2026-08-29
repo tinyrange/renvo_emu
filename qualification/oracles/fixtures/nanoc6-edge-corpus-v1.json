@@ -124,6 +124,7 @@
   },
   "comparison": {
     "reference": "corpus/edge_cases/manifest.tsv",
+    "expected_observations": 40,
     "equivalence": "exact 32-bit result equality",
     "timing": {
       "mode": "functional only",
