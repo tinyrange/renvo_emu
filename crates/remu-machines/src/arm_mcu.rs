@@ -14,14 +14,14 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_AGT0_INT, RA4M1_EVENT_AGT1_INT,
-    RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle, RaGpt, RaGptHandle, RaIcu,
-    RaIcuHandle, RaIic, RaIoPort, RaPfs, RaSci, RaSciHandle, RaSpi, RegisterBank, Samd21Ac,
-    Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
-    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
-    Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
-    Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
-    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
-    Stm32UsartHandle, TimerHandle, UartHandle,
+    RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_RTC_ALARM, RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle,
+    RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIic, RaIoPort, RaPfs, RaRtc, RaRtcHandle, RaSci,
+    RaSciHandle, RaSpi, RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle,
+    Samd21Dac, Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic, Samd21EicHandle,
+    Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock, Samd21Rtc,
+    Samd21RtcHandle, Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart,
+    Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio,
+    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -94,6 +94,7 @@ pub struct ArmMcuMachine {
     dac: Option<Samd21DacHandle>,
     ra_icu: Option<RaIcuHandle>,
     ra_agt: Vec<(u16, RaAgtHandle)>,
+    ra_rtc: Option<RaRtcHandle>,
     watchdog: Option<Samd21WdtHandle>,
     compiler_timer: TimerHandle,
     exit: ExitHandle,
@@ -260,6 +261,7 @@ impl ArmMcuMachine {
             dac,
             ra_icu,
             ra_agt,
+            ra_rtc,
             watchdog,
         ) = match target {
             TargetId::Atsamd21e18 => {
@@ -347,6 +349,7 @@ impl ArmMcuMachine {
                     Some(dac),
                     None,
                     Vec::new(),
+                    None,
                     Some(watchdog),
                 )
             }
@@ -396,6 +399,7 @@ impl ArmMcuMachine {
                     None,
                     Vec::new(),
                     None,
+                    None,
                 )
             }
             TargetId::R7fa4m1ab3cfm => {
@@ -420,6 +424,7 @@ impl ArmMcuMachine {
                 let (agt1_device, agt1) = RaAgt::new("r7fa4m1ab3cfm.agt1");
                 let (iic0_device, _) = RaIic::new("r7fa4m1ab3cfm.iic0");
                 let (iic1_device, _) = RaIic::new("r7fa4m1ab3cfm.iic1");
+                let (rtc_device, rtc) = RaRtc::new("r7fa4m1ab3cfm.rtc");
                 Self::map_ra4m1(
                     &mut bus,
                     ports,
@@ -433,6 +438,7 @@ impl ArmMcuMachine {
                     spi1_device,
                     iic0_device,
                     iic1_device,
+                    rtc_device,
                 )?;
                 (
                     handles.remove(1),
@@ -450,6 +456,7 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     vec![(RA4M1_EVENT_AGT0_INT, agt0), (RA4M1_EVENT_AGT1_INT, agt1)],
+                    Some(rtc),
                     None,
                 )
             }
@@ -478,6 +485,7 @@ impl ArmMcuMachine {
             dac,
             ra_icu,
             ra_agt,
+            ra_rtc,
             watchdog,
             compiler_timer,
             exit,
@@ -675,6 +683,7 @@ impl ArmMcuMachine {
         spi1: RaSpi,
         iic0: RaIic,
         iic1: RaIic,
+        rtc: RaRtc,
     ) -> Result<(), remu_bus::MapError> {
         // Functional clock/reset surface. OSCSF reports the reset-selected HOCO stable.
         bus.map_device(
@@ -702,6 +711,7 @@ impl ArmMcuMachine {
         bus.map_device("r7fa4m1ab3cfm.spi1", 0x4007_2100, 0x20, Box::new(spi1))?;
         bus.map_device("r7fa4m1ab3cfm.iic0", 0x4005_3000, 0x20, Box::new(iic0))?;
         bus.map_device("r7fa4m1ab3cfm.iic1", 0x4005_3100, 0x20, Box::new(iic1))?;
+        bus.map_device("r7fa4m1ab3cfm.rtc", 0x4004_4000, 0x100, Box::new(rtc))?;
         bus.map_device("r7fa4m1ab3cfm.pfs", 0x4004_0800, 0x3c0, Box::new(pfs))?;
         bus.map_device(
             "r7fa4m1ab3cfm.pmisc",
@@ -976,6 +986,16 @@ impl ArmMcuMachine {
             let (timer_line, timer_pending) = self.timer.poll(self.now);
             let compiler_pending = self.compiler_timer.poll(self.now);
             let mut interrupt_requested = timer_pending;
+            let rtc_pending = self.ra_rtc.as_ref().is_some_and(|rtc| rtc.poll(self.now));
+            if rtc_pending {
+                interrupt_requested = true;
+                if let Some(icu) = &self.ra_icu {
+                    for line in icu.route_event(RA4M1_EVENT_RTC_ALARM) {
+                        self.cpu
+                            .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                    }
+                }
+            }
             let package_inputs = (0..self.gpio.pin_count().min(16)).fold(0_u32, |value, pin| {
                 let pin = u8::try_from(pin).expect("pin index fits u8");
                 value | (u32::from(self.gpio.resolved(pin) == Ok(Logic::One)) << pin)
@@ -1482,3 +1502,7 @@ mod tests {
 #[cfg(test)]
 #[path = "arm_mcu_samd_instance_tests.rs"]
 mod samd_instance_tests;
+
+#[cfg(test)]
+#[path = "arm_mcu_ra_extended_tests.rs"]
+mod ra_extended_tests;

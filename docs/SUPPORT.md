@@ -44,6 +44,16 @@ AGT0/AGT1 ELC underflow events that can be routed through the existing ICU
 IELSR model. Pulse-output pins, event-counter input capture, standby clock
 selection, and exact low-power clock behavior remain outside this slice.
 
+The R7FA4M1AB3CFM model includes the RA4M1 RTC at `0x40044000`. Its
+functional calendar slice implements the BCD counters, the 16-bit `RYRCNT`
+layout (with a 2000--2099 calendar epoch), the six calendar alarms plus the
+year alarm/enable pair, `RCR1`/`RCR2`/`RCR4` control, and the RTC alarm ELC
+event (`0x026`). One abstract simulation tick advances one RTC second; `R64CNT`
+therefore reports the modeled zero sub-second phase. This is deterministic
+functional behavior, not a 32.768-kHz clock model. RTC state is retained across
+MCU/watchdog resets, while `RCR2.RESET` clears the modeled alarm and adjustment
+state. The register layout follows the [RA4M1 hardware manual](https://www.renesas.com/en/document/mah/renesas-ra4m1-group-users-manual-hardware).
+
 All targets also expose a stable compiler-test block:
 
 - GPIO at `0xffff0000`
