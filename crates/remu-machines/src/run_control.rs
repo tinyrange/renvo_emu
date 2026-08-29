@@ -245,17 +245,7 @@ impl RunControl {
 
     /// Returns the shared instruction/time stop, if its budget is exhausted.
     pub(crate) fn limit_reason(&self, now: SimTime, stats: &RunStats) -> Option<StopReason> {
-        if self
-            .limits
-            .instructions
-            .is_some_and(|limit| stats.instructions >= limit)
-        {
-            Some(StopReason::InstructionLimit)
-        } else if self.limits.deadline.is_some_and(|deadline| now >= deadline) {
-            Some(StopReason::TimeLimit)
-        } else {
-            None
-        }
+        self.limits.reached(stats.instructions, now)
     }
 
     /// Streams pending signal changes and returns the first matching signal stop.
