@@ -268,9 +268,14 @@ Xtensa, AVR, MSP430, PIC16, and MCS-51. Each architecture lane enables Rust
 backtraces and runs all matching tests before reporting failure, so a broken
 target leaves actionable diagnostics in the pull-request log.
 
-The larger Docker, native-image, MicroPython, and host-determinism gates remain
-explicit qualification commands. The scheduled interpreter-benchmarks workflow
-runs the pinned CoreMark and observability profiles and uploads their artifacts.
+The scheduled qualification workflow additionally runs the open-toolchain
+portfolio smoke, immutable vendor samples, stop conditions, official four-board
+MicroPython and MQuickJS acceptance, and CoreMark. Each scheduled lane uploads
+its JSON, VCD, transcript, and log evidence. The MicroPython firmware and pinned
+CoreMark checkout use checksum-keyed Actions caches; restored firmware is
+verified before the downloader container or network is needed. Proprietary XC8
+qualification and cross-host arm64 determinism remain separate lanes because
+they require explicit toolchain terms or host support.
 
 Read [CoreMark methodology and results](docs/COREMARK.md), the
 [1,000-case corpus notes](corpus/edge_cases/README.md), and the

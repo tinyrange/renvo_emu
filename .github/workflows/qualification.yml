@@ -1,0 +1,152 @@
+name: Scheduled firmware qualification
+
+on:
+  schedule:
+    - cron: "23 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-qualification
+  cancel-in-progress: true
+
+jobs:
+  public-smoke:
+    name: Open-toolchain portfolio qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore Cargo build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: qualification-public-smoke-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+
+      - name: Build required public toolchain images
+        run: |
+          docker build --pull=false --tag remu/cross-gcc:local toolchains/cross-gcc
+          docker build --pull=false --tag remu/xtensa-esp-gcc:local toolchains/xtensa-esp-gcc
+
+      - name: Run representative firmware smoke
+        run: scripts/docker-smoke.sh
+
+      - name: Run immutable vendor samples
+        run: scripts/qualify-vendor-samples.sh
+
+      - name: Run stop-condition qualification
+        run: scripts/qualify-stop-conditions.sh
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: public-smoke-qualification
+          path: |
+            .remu/portfolio-smoke/
+            .remu/qualification/vendor-samples/
+            .remu/stop-conditions/
+            qualification/vendor-samples.json
+            qualification/stop-conditions.json
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  official-firmware:
+    name: Official MicroPython and MQuickJS qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore MicroPython firmware and Cargo caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .remu/firmware/micropython-v1.28.0
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: qualification-micropython-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'firmware/micropython-v1.28.0.toml') }}
+
+      - name: Build release interpreter
+        run: cargo build --release -p remu-cli --locked
+
+      - name: Fetch and verify pinned official firmware
+        env:
+          REMU_BIN: target/release/remu
+        run: scripts/fetch-micropython.sh
+
+      - name: Run the four-board acceptance gate
+        env:
+          REMU_ACCEPTANCE_MAX_SECONDS: 60
+          REMU_ACCEPTANCE_JOBS: 2
+        run: scripts/qualify-micropython.sh
+
+      - name: Upload official-firmware evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: official-firmware-qualification
+          path: |
+            .remu/qualification/acceptance/
+            .remu/firmware/micropython-v1.28.0/verified.json
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  coremark:
+    name: CoreMark correctness and throughput
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore CoreMark source and Cargo caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .remu/reference/coremark-1f483d5b8316753a742cbf5590caf5bd0a4e4777
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: qualification-coremark-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/qualify-coremark.sh') }}
+
+      - name: Build required public toolchain images
+        run: |
+          docker build --pull=false --tag remu/cross-gcc:local toolchains/cross-gcc
+          docker build --pull=false --tag remu/xtensa-esp-gcc:local toolchains/xtensa-esp-gcc
+
+      - name: Build release interpreter
+        run: cargo build --release -p remu-cli --locked
+
+      - name: Run CoreMark qualification
+        run: scripts/qualify-coremark.sh
+
+      - name: Upload CoreMark evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coremark-qualification
+          path: .remu/qualification/coremark/
+          include-hidden-files: true
+          if-no-files-found: warn
