@@ -98,3 +98,37 @@ fn maps_ra4m1_cac_measurement_registers() {
     );
     assert_eq!(cac.flags(), (false, true, false));
 }
+
+#[test]
+fn maps_all_ra4m1_gpt_channels_with_native_counter_widths() {
+    let mut machine = ArmMcuMachine::new(TargetId::R7fa4m1ab3cfm).unwrap();
+    for index in 1_u64..=7 {
+        let base = 0x4007_8000 + index * 0x100;
+        machine
+            .bus
+            .write(base + 0x64, AccessWidth::Word, 0x1234_5678, SimTime::ZERO)
+            .unwrap();
+        let expected = if index <= 2 { 0x1234_5678 } else { 0x5678 };
+        assert_eq!(
+            machine
+                .bus
+                .read(
+                    base + 0x64,
+                    AccessWidth::Word,
+                    AccessKind::Read,
+                    SimTime::ZERO,
+                )
+                .unwrap(),
+            expected,
+            "GPT{index} period width"
+        );
+    }
+    assert_eq!(
+        machine
+            .ra_gpt
+            .iter()
+            .map(|(event, _)| *event)
+            .collect::<Vec<_>>(),
+        [0x065, 0x06d, 0x075, 0x07d, 0x085, 0x08d, 0x095]
+    );
+}

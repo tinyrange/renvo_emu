@@ -14,15 +14,18 @@ use remu_cpu_arm::{ArmCpu, ArmProfile};
 use remu_devices::{
     ArmPpbHandle, ArmPrivatePeripheralBus, ExitDevice, ExitHandle, FunctionalGpio, FunctionalTimer,
     FunctionalUart, GpioHandle, RA4M1_EVENT_AGT0_INT, RA4M1_EVENT_AGT1_INT,
-    RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_RTC_ALARM, RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle,
-    RaCac, RaCacHandle, RaCrc, RaCrcHandle, RaDac, RaDacHandle, RaDoc, RaDocHandle, RaGpt,
-    RaGptHandle, RaIcu, RaIcuHandle, RaIic, RaIoPort, RaPfs, RaPoeg, RaPoegHandle, RaRtc,
-    RaRtcHandle, RaSci, RaSciHandle, RaSpi, RegisterBank, Samd21Ac, Samd21AcHandle, Samd21Adc,
-    Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac, Samd21DmacHandle, Samd21Eic,
-    Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle, Samd21Port, Samd21RegisterBlock,
-    Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle, Samd21Tcc, Samd21TccHandle, Samd21Usart,
-    Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt, Samd21WdtHandle, SignalHub, Stm32Gpio,
-    Stm32Timer, Stm32TimerHandle, Stm32Usart, Stm32UsartHandle, TimerHandle, UartHandle,
+    RA4M1_EVENT_GPT0_OVERFLOW, RA4M1_EVENT_GPT1_OVERFLOW, RA4M1_EVENT_GPT2_OVERFLOW,
+    RA4M1_EVENT_GPT3_OVERFLOW, RA4M1_EVENT_GPT4_OVERFLOW, RA4M1_EVENT_GPT5_OVERFLOW,
+    RA4M1_EVENT_GPT6_OVERFLOW, RA4M1_EVENT_GPT7_OVERFLOW, RA4M1_EVENT_RTC_ALARM,
+    RA4M1_EVENT_SCI9_TXI, RaAgt, RaAgtHandle, RaCac, RaCacHandle, RaCrc, RaCrcHandle, RaDac,
+    RaDacHandle, RaDoc, RaDocHandle, RaGpt, RaGptHandle, RaIcu, RaIcuHandle, RaIic, RaIoPort,
+    RaPfs, RaPoeg, RaPoegHandle, RaRtc, RaRtcHandle, RaSci, RaSciHandle, RaSpi, RegisterBank,
+    Samd21Ac, Samd21AcHandle, Samd21Adc, Samd21AdcHandle, Samd21Dac, Samd21DacHandle, Samd21Dmac,
+    Samd21DmacHandle, Samd21Eic, Samd21EicHandle, Samd21Evsys, Samd21I2s, Samd21I2sHandle,
+    Samd21Port, Samd21RegisterBlock, Samd21Rtc, Samd21RtcHandle, Samd21Tc, Samd21TcHandle,
+    Samd21Tcc, Samd21TccHandle, Samd21Usart, Samd21UsartHandle, Samd21UsbDevice, Samd21Wdt,
+    Samd21WdtHandle, SignalHub, Stm32Gpio, Stm32Timer, Stm32TimerHandle, Stm32Usart,
+    Stm32UsartHandle, TimerHandle, UartHandle,
 };
 use remu_image::{FirmwareArchitecture, FirmwareImage};
 use remu_signals::{Logic, SignalId, SignalValue};
@@ -95,6 +98,7 @@ pub struct ArmMcuMachine {
     dac: Option<Samd21DacHandle>,
     ra_icu: Option<RaIcuHandle>,
     ra_agt: Vec<(u16, RaAgtHandle)>,
+    ra_gpt: Vec<(u16, RaGptHandle)>,
     ra_rtc: Option<RaRtcHandle>,
     ra_dac: Option<RaDacHandle>,
     ra_crc: Option<RaCrcHandle>,
@@ -267,6 +271,7 @@ impl ArmMcuMachine {
             dac,
             ra_icu,
             ra_agt,
+            ra_gpt,
             ra_rtc,
             ra_dac,
             ra_crc,
@@ -360,6 +365,7 @@ impl ArmMcuMachine {
                     Some(dac),
                     None,
                     Vec::new(),
+                    Vec::new(),
                     None,
                     None,
                     None,
@@ -414,6 +420,7 @@ impl ArmMcuMachine {
                     None,
                     None,
                     Vec::new(),
+                    Vec::new(),
                     None,
                     None,
                     None,
@@ -437,6 +444,27 @@ impl ArmMcuMachine {
                 }
                 let pfs = RaPfs::new("r7fa4m1ab3cfm.pfs", &ports);
                 let (gpt0_device, timer) = RaGpt::new("r7fa4m1ab3cfm.gpt0");
+                let gpt_events = [
+                    RA4M1_EVENT_GPT1_OVERFLOW,
+                    RA4M1_EVENT_GPT2_OVERFLOW,
+                    RA4M1_EVENT_GPT3_OVERFLOW,
+                    RA4M1_EVENT_GPT4_OVERFLOW,
+                    RA4M1_EVENT_GPT5_OVERFLOW,
+                    RA4M1_EVENT_GPT6_OVERFLOW,
+                    RA4M1_EVENT_GPT7_OVERFLOW,
+                ];
+                let mut gpt_devices = Vec::new();
+                let mut gpt_handles = Vec::new();
+                for (offset, event) in gpt_events.into_iter().enumerate() {
+                    let index = offset + 1;
+                    let (device, handle) = if index <= 2 {
+                        RaGpt::new(format!("r7fa4m1ab3cfm.gpt{index}"))
+                    } else {
+                        RaGpt::new_16(format!("r7fa4m1ab3cfm.gpt{index}"))
+                    };
+                    gpt_devices.push(device);
+                    gpt_handles.push((event, handle));
+                }
                 let (sci9_device, uart) = RaSci::new("r7fa4m1ab3cfm.sci9");
                 let (spi0_device, _) = RaSpi::new("r7fa4m1ab3cfm.spi0");
                 let (spi1_device, _) = RaSpi::new("r7fa4m1ab3cfm.spi1");
@@ -461,6 +489,7 @@ impl ArmMcuMachine {
                     pfs,
                     icu_device,
                     gpt0_device,
+                    gpt_devices,
                     sci9_device,
                     agt0_device,
                     agt1_device,
@@ -491,6 +520,7 @@ impl ArmMcuMachine {
                     None,
                     Some(icu),
                     vec![(RA4M1_EVENT_AGT0_INT, agt0), (RA4M1_EVENT_AGT1_INT, agt1)],
+                    gpt_handles,
                     Some(rtc),
                     Some(dac),
                     Some(crc),
@@ -525,6 +555,7 @@ impl ArmMcuMachine {
             dac,
             ra_icu,
             ra_agt,
+            ra_gpt,
             ra_rtc,
             ra_dac,
             ra_crc,
@@ -721,6 +752,7 @@ impl ArmMcuMachine {
         pfs: RaPfs,
         icu: RaIcu,
         gpt0: RaGpt,
+        gpt: Vec<RaGpt>,
         sci9: RaSci,
         agt0: RaAgt,
         agt1: RaAgt,
@@ -754,6 +786,15 @@ impl ArmMcuMachine {
         )?;
         bus.map_device("r7fa4m1ab3cfm.icu", 0x4000_6000, 0x480, Box::new(icu))?;
         bus.map_device("r7fa4m1ab3cfm.gpt0", 0x4007_8000, 0x100, Box::new(gpt0))?;
+        for (offset, device) in gpt.into_iter().enumerate() {
+            let index = offset + 1;
+            bus.map_device(
+                format!("r7fa4m1ab3cfm.gpt{index}"),
+                0x4007_8000 + u64::try_from(index).expect("GPT index fits u64") * 0x100,
+                0x100,
+                Box::new(device),
+            )?;
+        }
         bus.map_device("r7fa4m1ab3cfm.sci9", 0x4007_0120, 0x20, Box::new(sci9))?;
         bus.map_device("r7fa4m1ab3cfm.agt0", 0x4008_4000, 0x100, Box::new(agt0))?;
         bus.map_device("r7fa4m1ab3cfm.agt1", 0x4008_4100, 0x100, Box::new(agt1))?;
@@ -1154,6 +1195,15 @@ impl ArmMcuMachine {
                 }
             }
             if let Some(icu) = &self.ra_icu {
+                for (event, gpt) in &self.ra_gpt {
+                    if gpt.poll(self.now) {
+                        interrupt_requested = true;
+                        for line in icu.route_event(*event) {
+                            self.cpu
+                                .set_interrupt(line, self.ppb.interrupt_enabled(line))?;
+                        }
+                    }
+                }
                 for (event, agt) in &self.ra_agt {
                     if agt.poll(self.now) {
                         interrupt_requested = true;

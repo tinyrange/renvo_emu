@@ -44,6 +44,13 @@ AGT0/AGT1 ELC underflow events that can be routed through the existing ICU
 IELSR model. Pulse-output pins, event-counter input capture, standby clock
 selection, and exact low-power clock behavior remain outside this slice.
 
+All eight RA4M1 GPT channels are mapped at `0x40078000`--`0x40078700`.
+GPT0--2 use their native 32-bit counters, while GPT3--7 enforce their native
+16-bit counter and period widths. Each channel models `GTCR`, `GTINTAD`,
+`GTST`, `GTCNT`, and `GTPR`, and routes its distinct overflow event through
+the ICU. Compare/capture waveform generation, dead-time insertion, and exact
+PCLK timing remain outside this functional timer slice.
+
 The R7FA4M1AB3CFM model includes the RA4M1 RTC at `0x40044000`. Its
 functional calendar slice implements the BCD counters, the 16-bit `RYRCNT`
 layout (with a 2000--2099 calendar epoch), the six calendar alarms plus the
