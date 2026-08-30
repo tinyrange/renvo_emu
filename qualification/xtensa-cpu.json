@@ -42,7 +42,7 @@
   },
   "unit_tests": {
     "artifact": ".remu/portfolio-smoke/xtensa-cpu-unit-tests.txt",
-    "sha256": "1ffb14888c1a00db4f9c3ef48497292d5c29c6cd1b669951343fa5ec51c97f86"
+    "sha256": "d46059688ea65cfa2a5f5b77202cee05a9b0e29347acb12b85f20f25206cc5d2"
   },
   "proofs": [
     {

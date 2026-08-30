@@ -149,6 +149,8 @@ impl RiscVMachine {
         let mut esp_crosscore_was_pending = false;
         let mut esp_usb_was_pending = false;
         let mut esp_timer_was_pending = [[false; 2]; 2];
+        let mut pio_runtime_dirty = self.target == TargetId::Rp2350;
+        let mut rp2350_io_bank_dirty = self.target == TargetId::Rp2350;
         let mut native_peripherals_active = self.target != TargetId::Esp32c6
             || !stimuli.is_empty()
             || self.stop_on_usb_input_complete
@@ -162,9 +164,12 @@ impl RiscVMachine {
             if let Some(sio) = &self.sio {
                 sio.select_core(0);
             }
+            let mut stimulus_applied = false;
             control.apply_stimuli(self.now, &mut stats, |stimulus| {
+                stimulus_applied = true;
                 self.set_pin(stimulus.pin, stimulus.value)
             })?;
+            pio_runtime_dirty |= stimulus_applied && self.target == TargetId::Rp2350;
             if let Some(code) = self.exit.code() {
                 let _ = code;
                 break StopReason::Halted;
@@ -184,24 +189,29 @@ impl RiscVMachine {
             if let Some(reason) = control.limit_reason(self.now, &stats) {
                 break reason;
             }
-            self.refresh_pio_dma_requests()?;
+            let pio_active = self.pio.iter().any(RpPioHandle::enabled);
+            if pio_runtime_dirty || pio_active {
+                self.refresh_pio_dma_requests()?;
+                pio_runtime_dirty = false;
+                rp2350_io_bank_dirty = self.target == TargetId::Rp2350;
+            }
             if let Some(dma) = &self.dma {
                 let accessctrl = self.accessctrl.clone();
-                stats.events = stats.events.saturating_add(
-                    dma.service_with_context(
-                        &mut self.bus,
-                        self.now,
-                        move |_, secure, privileged| {
-                            if let Some(accessctrl) = &accessctrl {
-                                accessctrl.set_context(
-                                    Rp2350AccessMaster::Dma,
-                                    secure,
-                                    privileged,
-                                );
-                            }
-                        },
-                    )? as u64,
-                );
+                let dma_events = dma.service_with_context(
+                    &mut self.bus,
+                    self.now,
+                    move |_, secure, privileged| {
+                        if let Some(accessctrl) = &accessctrl {
+                            accessctrl.set_context(
+                                Rp2350AccessMaster::Dma,
+                                secure,
+                                privileged,
+                            );
+                        }
+                    },
+                )?;
+                stats.events = stats.events.saturating_add(dma_events as u64);
+                pio_runtime_dirty |= dma_events != 0;
             }
             if breakpoints_active && self.breakpoints.contains(&u64::from(self.cpu.pc())) {
                 break StopReason::Breakpoint;
@@ -249,7 +259,10 @@ impl RiscVMachine {
                 )?;
             }
             if self.target == TargetId::Rp2350 {
-                rp_io::poll(self, &mut stats, &mut io_bank_was_pending)?;
+                if rp2350_io_bank_dirty {
+                    rp_io::poll(self, &mut stats, &mut io_bank_was_pending)?;
+                    rp2350_io_bank_dirty = false;
+                }
                 if let Some(dma) = &self.dma {
                     for interrupt in 0..4 {
                         self.cpu.set_hazard3_external_interrupt(
@@ -282,7 +295,11 @@ impl RiscVMachine {
                         stats.events = stats.events.saturating_add(1);
                     }
                 }
-                self.refresh_pio_dma_requests()?;
+                if pio_runtime_dirty || pio_active {
+                    self.refresh_pio_dma_requests()?;
+                    pio_runtime_dirty = false;
+                    rp2350_io_bank_dirty = true;
+                }
                 for line in 0..self.chip_timers.len() * 4 {
                     self.cpu.set_hazard3_external_interrupt(
                         u16::try_from(line).expect("RP timer IRQ line fits u16"),
@@ -554,12 +571,9 @@ impl RiscVMachine {
                             .checked_add(remu_core::SimDuration::TICK)
                             .map_err(|_| MachineError::TimeOverflow)?;
                         stats.time = self.now;
-                        if self
-                            .bus
-                            .take_device_access()
-                            .is_some_and(|address| address < TEST_GPIO)
-                        {
-                            native_peripherals_active = true;
+                        if let Some(address) = self.bus.take_device_access() {
+                            native_peripherals_active |= address < TEST_GPIO;
+                            pio_runtime_dirty |= self.pio_runtime_access(address);
                         }
                         if watchpoints_active && let Some(hit) = self.bus.take_watchpoint_hit() {
                             break StopReason::Watchpoint {
@@ -592,12 +606,9 @@ impl RiscVMachine {
                 .checked_add(outcome.elapsed)
                 .map_err(|_| MachineError::TimeOverflow)?;
             stats.time = self.now;
-            if self
-                .bus
-                .take_device_access()
-                .is_some_and(|address| address < TEST_GPIO)
-            {
-                native_peripherals_active = true;
+            if let Some(address) = self.bus.take_device_access() {
+                native_peripherals_active |= address < TEST_GPIO;
+                pio_runtime_dirty |= self.pio_runtime_access(address);
             }
             if native_peripherals_active && let Some(peripherals) = &self.esp32c6_peripherals {
                 stats.events = stats
@@ -729,6 +740,10 @@ impl RiscVMachine {
                         }
                         break StopReason::Fault(format!("RISC-V hart 1 ROM: {message}"));
                     }
+                }
+                if let Some(address) = self.bus.take_device_access() {
+                    native_peripherals_active |= address < TEST_GPIO;
+                    pio_runtime_dirty |= self.pio_runtime_access(address);
                 }
                 if let Some(sio) = &self.sio {
                     sio.select_core(0);

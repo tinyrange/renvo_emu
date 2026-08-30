@@ -1,6 +1,6 @@
 {
   "schema": "remu.stop-conditions.v1",
-  "source_sha256": "43da69a3e007647014505828f74d99b5bd734e76d9886886928915cc1f944498",
+  "source_sha256": "a218c42891fff02dd4c0f818728181b49f2c4723a5c59651b5e8706db29f9aa5",
   "cpu_families": [
     "riscv",
     "arm",

@@ -1392,3 +1392,23 @@ fn wch_flash_controller_programs_and_erases_the_mapped_alias() {
         );
     }
 }
+
+#[test]
+fn rp2350_pio_runtime_refresh_regions_cover_hazard3_mmio() {
+    let machine = RiscVMachine::new(TargetId::Rp2350).unwrap();
+    for address in [
+        0xd000_0010,
+        0x4002_8004,
+        0x4003_8004,
+        0x5000_0000,
+        0x5020_0000,
+        0x5030_0000,
+        0x5040_0000,
+    ] {
+        assert!(machine.pio_runtime_access(address), "missed {address:#x}");
+    }
+    assert!(!machine.pio_runtime_access(0x4007_0000));
+
+    let ch32 = RiscVMachine::new(TargetId::Ch32v003).unwrap();
+    assert!(!ch32.pio_runtime_access(0x5020_0000));
+}

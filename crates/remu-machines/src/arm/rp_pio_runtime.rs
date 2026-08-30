@@ -1,6 +1,26 @@
 use super::*;
 
 impl ArmMachine {
+    pub(super) fn pio_runtime_access(&self, address: u64) -> bool {
+        let shared = (0xd000_0000..0xd000_1000).contains(&address)
+            || (0x5000_0000..0x5000_4000).contains(&address)
+            || (0x5020_0000..0x5050_0000).contains(&address);
+        if shared {
+            return true;
+        }
+        match self.target {
+            TargetId::Rp2040 => {
+                (0x4001_4000..0x4001_8000).contains(&address)
+                    || (0x4001_c000..0x4002_0000).contains(&address)
+            }
+            TargetId::Rp2350 => {
+                (0x4002_8000..0x4002_c000).contains(&address)
+                    || (0x4003_8000..0x4003_c000).contains(&address)
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn refresh_pio_dma_requests(&self) -> Result<(), ArmMachineError> {
         for pin in 0..self.chip_gpio.pin_count() {
             let pin = pin as u8;
