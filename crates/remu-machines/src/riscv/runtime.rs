@@ -1,6 +1,15 @@
 use super::*;
 
 impl RiscVMachine {
+    pub(super) fn pio_runtime_access(&self, address: u64) -> bool {
+        self.target == TargetId::Rp2350
+            && ((0xd000_0000..0xd000_1000).contains(&address)
+                || (0x4002_8000..0x4002_c000).contains(&address)
+                || (0x4003_8000..0x4003_c000).contains(&address)
+                || (0x5000_0000..0x5000_4000).contains(&address)
+                || (0x5020_0000..0x5050_0000).contains(&address))
+    }
+
     /// Drives or releases one compiler-facade GPIO input.
     pub fn set_pin(&self, pin: u8, value: Logic) -> Result<(), MachineError> {
         self.gpio.set_input(pin, value, self.now)?;

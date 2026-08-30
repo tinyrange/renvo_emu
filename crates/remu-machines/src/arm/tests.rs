@@ -679,3 +679,33 @@ fn rp2040_spi0_routes_masked_status_to_irq_18() {
         .unwrap();
     assert_eq!(machine.cpu.register(ArmRegister::R0).unwrap(), 42);
 }
+
+#[test]
+fn rp_pio_runtime_refresh_regions_cover_both_chip_generations() {
+    let rp2040 = ArmMachine::new(TargetId::Rp2040).unwrap();
+    for address in [
+        0xd000_0010,
+        0x4001_4004,
+        0x4001_c004,
+        0x5000_0000,
+        0x5020_0000,
+        0x5030_0000,
+    ] {
+        assert!(rp2040.pio_runtime_access(address), "missed {address:#x}");
+    }
+    assert!(!rp2040.pio_runtime_access(0x4003_4000));
+
+    let rp2350 = ArmMachine::new(TargetId::Rp2350).unwrap();
+    for address in [
+        0xd000_0010,
+        0x4002_8004,
+        0x4003_8004,
+        0x5000_0000,
+        0x5020_0000,
+        0x5030_0000,
+        0x5040_0000,
+    ] {
+        assert!(rp2350.pio_runtime_access(address), "missed {address:#x}");
+    }
+    assert!(!rp2350.pio_runtime_access(0x4007_0000));
+}

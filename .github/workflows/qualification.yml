@@ -38,6 +38,7 @@ jobs:
         run: |
           docker build --pull=false --tag remu/cross-gcc:local toolchains/cross-gcc
           docker build --pull=false --tag remu/xtensa-esp-gcc:local toolchains/xtensa-esp-gcc
+          docker build --pull=false --tag remu/rust-baremetal:local toolchains/rust-baremetal
 
       - name: Run representative firmware smoke
         run: scripts/docker-smoke.sh
@@ -86,6 +87,12 @@ jobs:
 
       - name: Build release interpreter
         run: cargo build --release -p remu-cli --locked
+
+      - name: Build pinned MQuickJS qualification image
+        run: >-
+          docker build --pull=false
+          --tag remu/mquickjs:203d5bb79789bc47b74855d9207415dab71661a0
+          toolchains/mquickjs
 
       - name: Fetch and verify pinned official firmware
         env:
@@ -139,6 +146,9 @@ jobs:
       - name: Build release interpreter
         run: cargo build --release -p remu-cli --locked
 
+      - name: Check RP2040 interpreter throughput floor
+        run: scripts/check-rp2040-throughput.sh
+
       - name: Run CoreMark qualification
         run: scripts/qualify-coremark.sh
 
@@ -147,6 +157,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coremark-qualification
-          path: .remu/qualification/coremark/
+          path: |
+            .remu/qualification/coremark/
+            .remu/qualification/rp2040-throughput/
           include-hidden-files: true
           if-no-files-found: warn

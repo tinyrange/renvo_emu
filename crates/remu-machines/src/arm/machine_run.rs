@@ -36,20 +36,30 @@ impl ArmMachine {
         let mut rp2350_io_bank_was_pending = false;
         let mut trng_was_pending = false;
         let mut rtc_was_pending = false;
+        let mut pio_runtime_dirty = true;
+        let mut rp2350_io_bank_dirty = self.target == TargetId::Rp2350;
         let reason = loop {
             self.sio.select_core(0);
+            let mut stimulus_applied = false;
             control.apply_stimuli(self.now, &mut stats, |stimulus| {
+                stimulus_applied = true;
                 self.set_pin(stimulus.pin, stimulus.value)
             })?;
+            pio_runtime_dirty |= stimulus_applied;
             if self.exit.code().is_some() {
                 break StopReason::Halted;
             }
             if let Some(reason) = control.limit_reason(self.now, &stats) {
                 break reason;
             }
-            self.refresh_pio_dma_requests()?;
+            let pio_active = self.pio.iter().any(RpPioHandle::enabled);
+            if pio_runtime_dirty || pio_active {
+                self.refresh_pio_dma_requests()?;
+                pio_runtime_dirty = false;
+                rp2350_io_bank_dirty = self.target == TargetId::Rp2350;
+            }
             let accessctrl = self.accessctrl.clone();
-            stats.events = stats.events.saturating_add(self.dma.service_with_context(
+            let dma_events = self.dma.service_with_context(
                 &mut self.bus,
                 self.now,
                 move |_, secure, privileged| {
@@ -57,7 +67,9 @@ impl ArmMachine {
                         accessctrl.set_context(Rp2350AccessMaster::Dma, secure, privileged);
                     }
                 },
-            )? as u64);
+            )?;
+            stats.events = stats.events.saturating_add(dma_events as u64);
+            pio_runtime_dirty |= dma_events != 0;
             let (dma_irq_base, dma_irq_count) = if self.target == TargetId::Rp2350 {
                 (10_u16, 4_usize)
             } else {
@@ -106,13 +118,14 @@ impl ArmMachine {
                     pending && self.ppb.interrupt_enabled(RP2040_IO_BANK0_IRQ),
                 )?;
             }
-            if let Some(io_bank) = &self.rp2350_io_bank {
+            if rp2350_io_bank_dirty && let Some(io_bank) = &self.rp2350_io_bank {
                 let pending = io_bank.poll(self.now)?;
                 if pending && !rp2350_io_bank_was_pending {
                     stats.events = stats.events.saturating_add(1);
                 }
                 rp2350_io_bank_was_pending = pending;
                 self.cpu.set_interrupt(21, pending)?;
+                rp2350_io_bank_dirty = false;
             }
             if let Some(trng) = &self.trng {
                 let pending = trng.interrupt_pending() && self.ppb.interrupt_enabled(39);
@@ -133,7 +146,11 @@ impl ArmMachine {
                     stats.events = stats.events.saturating_add(1);
                 }
             }
-            self.refresh_pio_dma_requests()?;
+            if pio_runtime_dirty || pio_active {
+                self.refresh_pio_dma_requests()?;
+                pio_runtime_dirty = false;
+                rp2350_io_bank_dirty = self.target == TargetId::Rp2350;
+            }
             let rtc_pending = self.rtc.as_ref().is_some_and(|rtc| rtc.pending(self.now));
             if rtc_pending && !rtc_was_pending {
                 stats.events = stats.events.saturating_add(1);
@@ -208,6 +225,9 @@ impl ArmMachine {
                             access: hit.kind,
                         };
                     }
+                    if let Some(address) = self.bus.take_device_access() {
+                        pio_runtime_dirty |= self.pio_runtime_access(address);
+                    }
                     continue;
                 }
                 Ok(false) => {}
@@ -217,6 +237,9 @@ impl ArmMachine {
                 Ok(outcome) => outcome,
                 Err(error) => break StopReason::Fault(error.to_string()),
             };
+            if let Some(address) = self.bus.take_device_access() {
+                pio_runtime_dirty |= self.pio_runtime_access(address);
+            }
             stats.instructions = stats.instructions.saturating_add(1);
             self.now = self
                 .now
@@ -320,6 +343,9 @@ impl ArmMachine {
                         self.sio.select_core(0);
                         break StopReason::Fault(format!("core 1 ROM: {message}"));
                     }
+                }
+                if let Some(address) = self.bus.take_device_access() {
+                    pio_runtime_dirty |= self.pio_runtime_access(address);
                 }
                 self.sio.select_core(0);
                 if let Some(path) =

@@ -323,6 +323,11 @@ pub struct RpPioHandle {
 }
 
 impl RpPioHandle {
+    /// Returns whether any state machine is currently enabled.
+    pub fn enabled(&self) -> bool {
+        self.state.borrow().control & 0x0f != 0
+    }
+
     /// Executes one instruction on each enabled state machine.
     pub fn poll(&self, now: SimTime) -> Result<bool, SignalError> {
         let mut state = self.state.borrow_mut();
