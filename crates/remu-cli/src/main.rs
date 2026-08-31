@@ -285,6 +285,9 @@ struct RunArgs {
     /// Compiler-produced ELF32 firmware.
     #[arg(long, required_unless_present = "hex", conflicts_with = "hex")]
     elf: Option<PathBuf>,
+    /// Root exposed to the opt-in compiler-host filesystem bridge.
+    #[arg(long, requires = "elf")]
+    compiler_root: Option<PathBuf>,
     /// Real chip mask-ROM ELF required for ESP native/radio execution.
     #[arg(long, requires = "elf", conflicts_with = "hex")]
     boot_rom: Option<PathBuf>,
@@ -373,6 +376,7 @@ struct DirectRunControl<'a> {
     esp32c6_boot_image: Option<(EspExecutableImage, u32)>,
     esp32s3_boot_image: Option<(EspFlashImage, Vec<u8>)>,
     esp_boot_rom: Option<FirmwareImage>,
+    compiler_root: Option<&'a Path>,
     radio_replay: Option<&'a Path>,
     radio_input: Option<&'a Path>,
     radio_script: Option<&'a Path>,

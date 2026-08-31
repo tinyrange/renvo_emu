@@ -638,6 +638,13 @@ const MANIFESTS: &[TargetManifest] = &[
                 executable: true,
             },
             MemoryRegion {
+                name: "psram",
+                start: 0x4800_0000,
+                size: 32 * 1024 * 1024,
+                kind: MemoryKind::Ram,
+                executable: false,
+            },
+            MemoryRegion {
                 name: "mask-rom",
                 start: 0x4fc0_0000,
                 size: 128 * 1024,
@@ -664,7 +671,7 @@ const MANIFESTS: &[TargetManifest] = &[
         support_tiers: NEW_TARGET_SUPPORT_TIERS,
         baseline: &[
             "direct RV32IMAC-subset ELF execution",
-            "HP L2MEM, TCM, LP SRAM, mask-ROM, and bounded XIP windows",
+            "HP L2MEM, TCM, LP SRAM, PSRAM, mask-ROM, and bounded XIP windows",
             "native GPIO output/input register slice",
             "UART0 transmit/receive FIFO slice",
             "timer-group counter state",
@@ -680,7 +687,8 @@ const MANIFESTS: &[TargetManifest] = &[
         limitations: &[
             "the current CPU slice covers RV32IMAC and CSR execution; the P4 FPU, PIE/AI extensions, and hardware loops are deferred",
             "CPU1 remains parked in direct mode until the HP inter-core launch contract is modeled",
-            "native raw-binary boot is supported; native ESP image validation, cache/MMU configuration, PSRAM, USB, Ethernet, MIPI, image accelerators, DMA, security engines, and exact timing are deferred",
+            "PSRAM is a functional 32 MiB Tab5-class direct mapping; cache/MMU setup, bandwidth, and timing are not modeled",
+            "native raw-binary boot is supported; native ESP image validation, USB, Ethernet, MIPI, image accelerators, DMA, security engines, and exact timing are deferred",
             "ESP32-P4 has no integrated Wi-Fi or Bluetooth radio and this target adds no RF behavior",
         ],
     },

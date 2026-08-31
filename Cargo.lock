@@ -1548,6 +1548,7 @@ dependencies = [
  "remu-signals",
  "serde",
  "sha2",
+ "tempfile",
  "thiserror",
 ]
 
