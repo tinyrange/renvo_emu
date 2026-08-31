@@ -821,6 +821,28 @@ fn all_initial_riscv_modes_execute_and_halt_deterministically() {
 #[test]
 fn esp32p4_uses_documented_gpio_uart_and_timer_group_bases() {
     let mut machine = RiscVMachine::new(TargetId::Esp32p4).unwrap();
+    let psram = target_manifest(TargetId::Esp32p4)
+        .memory
+        .iter()
+        .find(|region| region.name == "psram")
+        .unwrap();
+    assert_eq!((psram.start, psram.size), (0x4800_0000, 32 * 1024 * 1024));
+    machine
+        .bus
+        .write(0x49ff_fffc, AccessWidth::Word, 0x5034_4d52, SimTime::ZERO)
+        .unwrap();
+    assert_eq!(
+        machine
+            .bus
+            .read(
+                0x49ff_fffc,
+                AccessWidth::Word,
+                AccessKind::Read,
+                SimTime::ZERO,
+            )
+            .unwrap(),
+        0x5034_4d52
+    );
     machine
         .bus
         .write(0x500e_0020, AccessWidth::Word, 1 << 5, SimTime::ZERO)

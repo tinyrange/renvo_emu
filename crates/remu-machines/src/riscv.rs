@@ -14,11 +14,11 @@ use remu_core::{
 };
 use remu_cpu_riscv::{RiscVCpu, RiscVProfile, RiscVRegister};
 use remu_devices::{
-    EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic, EspC6PlicHandle,
-    EspGpio, EspSpiFlashCommand, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup, EspTimerGroupHandle,
-    EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle, FunctionalGpio,
-    FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle, RegisterBank,
-    Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
+    CompilerHost, EspC6Clint, EspC6ClintHandle, EspC6Extmem, EspC6ExtmemHandle, EspC6Plic,
+    EspC6PlicHandle, EspGpio, EspSpiFlashCommand, EspSpiMem, EspSpiMemMmuHandle, EspTimerGroup,
+    EspTimerGroupHandle, EspTimerGroupKind, EspUsbSerialJtagHandle, ExitDevice, ExitHandle,
+    FunctionalGpio, FunctionalPwm, FunctionalTimer, FunctionalUart, GpioHandle, PwmHandle,
+    RegisterBank, Rp2040Clocks, Rp2040Pll, Rp2040RegisterBank, Rp2040Timer, Rp2040TimerHandle,
     Rp2040UsbController, Rp2040UsbHandle, Rp2040Xosc, Rp2350AccessCtrl, Rp2350AccessCtrlHandle,
     Rp2350AccessMaster, Rp2350BootRam, Rp2350Otp, Rp2350Powman, Rp2350Sha256, Rp2350Spi,
     Rp2350SpiHandle, Rp2350Ticks, Rp2350Trng, Rp2350TrngHandle, Rp2350XipMaintenance, RpAdc,
@@ -41,6 +41,7 @@ use remu_trace::{TraceError, TraceSink};
 use serde::Serialize;
 use sha2::{Sha224, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use thiserror::Error;
 
 mod adc;
@@ -1020,6 +1021,17 @@ impl RiscVMachine {
             breakpoints: BTreeSet::new(),
             signal_stops: Vec::new(),
         })
+    }
+
+    /// Mounts the explicit compiler-test filesystem bridge.
+    ///
+    /// Normal firmware runs never expose host files. The CLI enables this
+    /// device only when the caller supplies a root directory.
+    pub fn mount_compiler_host(&mut self, root: &Path) -> Result<(), MachineError> {
+        let device = CompilerHost::new("remu.compiler-host", root, self.uart.clone())?;
+        self.bus
+            .map_device("remu.compiler-host", 0xffff_1000, 0x100, Box::new(device))?;
+        Ok(())
     }
 }
 include!("riscv/machine_runtime.rs");

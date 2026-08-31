@@ -116,6 +116,7 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
                 esp32c6_boot_image: esp32c6_boot_image.clone(),
                 esp32s3_boot_image: esp32s3_boot_image.clone(),
                 esp_boot_rom: esp_boot_rom.clone(),
+                compiler_root: arguments.compiler_root.as_deref(),
                 radio_replay: arguments.radio_replay.as_deref(),
                 radio_input: arguments.radio_input.as_deref(),
                 radio_script: arguments.radio_script.as_deref(),
@@ -142,6 +143,7 @@ pub(super) fn run(arguments: &RunArgs) -> Result<(), Box<dyn Error>> {
                 esp32c6_boot_image,
                 esp32s3_boot_image,
                 esp_boot_rom,
+                compiler_root: arguments.compiler_root.as_deref(),
                 radio_replay: arguments.radio_replay.as_deref(),
                 radio_input: arguments.radio_input.as_deref(),
                 radio_script: arguments.radio_script.as_deref(),
@@ -249,6 +251,7 @@ fn run_hex(arguments: &RunArgs, target: TargetId, path: &Path) -> Result<(), Box
         esp32c6_boot_image: None,
         esp32s3_boot_image: None,
         esp_boot_rom: None,
+        compiler_root: None,
         radio_replay: None,
         radio_input: None,
         radio_script: None,
@@ -534,6 +537,9 @@ pub(crate) fn run_loaded_recorded(
     match image.architecture {
         FirmwareArchitecture::RiscV32 => {
             let mut machine = RiscVMachine::new(target)?;
+            if let Some(root) = control.compiler_root {
+                machine.mount_compiler_host(root)?;
+            }
             machine.load_firmware(image)?;
             // Direct handoff setup supplies compatibility data for the
             // functional ROM. In low-level mode, load the real ROM second so

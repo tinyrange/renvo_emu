@@ -15,6 +15,8 @@ mod signals;
 pub use signals::*;
 mod uart;
 pub use uart::*;
+mod compiler_host;
+pub use compiler_host::*;
 mod i2c;
 pub use i2c::*;
 mod pwm;

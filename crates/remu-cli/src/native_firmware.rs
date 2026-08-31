@@ -23,6 +23,7 @@ pub(super) fn boot_native_image(
         esp32c6_boot_image: None,
         esp32s3_boot_image: None,
         esp_boot_rom: None,
+        compiler_root: None,
         radio_replay: None,
         radio_input: None,
         radio_script: None,
