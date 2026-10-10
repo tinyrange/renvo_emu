@@ -180,7 +180,7 @@ jobs:
 
       - name: Upload qualification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: esp32s3-peripheral-qualification
           path: |
@@ -223,7 +223,7 @@ jobs:
 
       - name: Upload qualification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: esp32c6-peripheral-qualification
           path: |
@@ -264,7 +264,7 @@ jobs:
 
       - name: Upload real-ROM evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.chip }}-radio-rom-qualification
           path: |
@@ -297,7 +297,7 @@ jobs:
 
       - name: Upload OpenThread qualification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: esp32c6-openthread-radio-qualification
           path: |
@@ -326,7 +326,7 @@ jobs:
 
       - name: Upload Zigbee qualification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: esp32c6-zigbee-radio-qualification
           path: .remu/qualification/radio-zigbee-vendor/esp32c6
@@ -357,7 +357,7 @@ jobs:
 
       - name: Upload SoftAP and ESP-NOW qualification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.chip }}-radio-wifi-softap-qualification
           path: .remu/qualification/radio-wifi-softap-vendor/${{ matrix.chip }}
@@ -388,7 +388,7 @@ jobs:
 
       - name: Upload coexistence qualification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.chip }}-radio-coexistence-qualification
           path: .remu/qualification/radio-coexistence-vendor/${{ matrix.chip }}
